@@ -12,6 +12,9 @@
 
 namespace noveltea::core {
 
+[[nodiscard]] std::optional<MessageId> system_message_id(std::string_view key) noexcept;
+[[nodiscard]] std::optional<std::string_view> system_message_key(MessageId id) noexcept;
+
 using MessageArgumentValue = std::variant<std::string, double, std::int64_t, bool>;
 
 struct MessageArgument {

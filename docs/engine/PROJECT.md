@@ -45,6 +45,13 @@ settings may designate one default Verb Menu Layout. These are presentation/defa
 over the same exact Inventory and Interactable identities, not alternate gameplay state. Presentation settings include the validated project-default Room navigation transition;
 an explicit navigation request and then the selected exit override take precedence over it.
 
+Localization reserves the `noveltea.*` named Message namespace for engine-owned player text. Built-in
+system Messages provide engine source text and available built-in translations without requiring
+Project catalog duplication. A Project may override one of the defined system Messages; that source
+and any target translations then use the same freshness, provenance, review, locale negotiation, and
+runtime `MessageRealizer` path as Project Messages. Project-owned named Messages may not create new
+keys in the reserved namespace.
+
 ## Compilation
 
 `compileAuthoringProject` is the sole semantic compiler. It validates schemas, Traits and Property

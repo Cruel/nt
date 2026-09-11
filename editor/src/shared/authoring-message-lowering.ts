@@ -11,6 +11,7 @@ import {
   messagePlaceholderNames,
   type MessagePattern,
 } from './project-schema/authoring-localization';
+import { systemMessageDefinitionForKey } from './project-schema/system-messages';
 
 function sortedEntries<T>(record: Readonly<Record<string, T>>): [string, T][] {
   return Object.entries(record).sort(([left], [right]) =>
@@ -57,10 +58,19 @@ function allMessageIds(project: AuthoringProject): string[] {
 }
 
 export function packageMessageIds(project: AuthoringProject): ReadonlyMap<string, number> {
-  return new Map(allMessageIds(project).map((stableId, index) => [stableId, index] as const));
+  const ids = new Map<string, number>();
+  let nextProjectId = 0;
+  for (const stableId of allMessageIds(project)) {
+    const message = project.localization.messages[stableId];
+    const system = message?.kind === 'named' ? systemMessageDefinitionForKey(message.key) : null;
+    ids.set(stableId, system?.id ?? nextProjectId++);
+  }
+  return ids;
 }
 
 export function packageMessageIdForNamedKey(project: AuthoringProject, key: string): number | null {
+  const system = systemMessageDefinitionForKey(key);
+  if (system) return system.id;
   const ids = packageMessageIds(project);
   for (const [stableId, message] of Object.entries(project.localization.messages))
     if (message.kind === 'named' && message.key === key) return ids.get(stableId) ?? null;

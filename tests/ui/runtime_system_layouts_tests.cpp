@@ -91,6 +91,11 @@ struct FakeSystemLayoutHost final : RuntimeSystemLayoutHost {
         publications.push_back(std::move(view));
     }
 
+    std::optional<std::string> realize_system_message(std::string_view key) const override
+    {
+        return std::string{key};
+    }
+
     void request_shell_quit() override { quit_requested = true; }
 
     template<typename T> bool dispatched() const

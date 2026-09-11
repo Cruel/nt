@@ -32,6 +32,8 @@ public:
                              const std::optional<core::RuntimeShellConfirmation>& confirmation,
                              bool game_active) = 0;
     virtual void publish_runtime_shell_view(core::RuntimeShellViewState view) = 0;
+    [[nodiscard]] virtual std::optional<std::string>
+    realize_system_message(std::string_view key) const = 0;
     virtual void request_shell_quit() = 0;
 };
 

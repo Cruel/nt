@@ -267,11 +267,18 @@ bool NtTrElement::realize(const core::MessageRealizer& realizer, std::string_vie
 {
     const auto encoded = GetAttribute<Rml::String>("message", "");
     core::MessageId message_id = 0;
-    const auto parsed =
-        std::from_chars(encoded.data(), encoded.data() + encoded.size(), message_id);
-    if (encoded.empty() || parsed.ec != std::errc{} ||
-        parsed.ptr != encoded.data() + encoded.size())
-        return false;
+    if (!encoded.empty()) {
+        const auto parsed =
+            std::from_chars(encoded.data(), encoded.data() + encoded.size(), message_id);
+        if (parsed.ec != std::errc{} || parsed.ptr != encoded.data() + encoded.size())
+            return false;
+    } else {
+        const auto key = GetAttribute<Rml::String>("key", "");
+        const auto system_id = core::system_message_id(key);
+        if (!system_id)
+            return false;
+        message_id = *system_id;
+    }
 
     std::vector<core::MessageArgument> arguments;
     const auto* definitions = realizer.argument_definitions(message_id);

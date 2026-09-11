@@ -10,13 +10,13 @@
                 <h1 id="rt_title" data-if="gameplay.title != ''">{{ gameplay.title }}</h1>
                 <p id="rt_notification" data-if="gameplay.notification != ''">{{ gameplay.notification }}</p>
             </div>
-            <button id="rt_menu" data-event-click="shell_pause()">Menu</button>
+            <button id="rt_menu" data-event-click="shell_pause()"><nt-tr key="noveltea.shell.menu"/></button>
         </div>
 
         <div id="rt_interaction_dock"
              data-if="gameplay.room.objects.size > 0 || gameplay.inventory.player_available">
             <div id="rt_objects_group" class="rt-control-group" data-if="gameplay.room.objects.size > 0">
-                <p class="rt-control-heading">Nearby</p>
+                <p class="rt-control-heading"><nt-tr key="noveltea.game.nearby"/></p>
                 <div id="rt_objects">
                     <button data-for="object : gameplay.room.objects"
                             class="object"
@@ -36,7 +36,7 @@
                 </div>
             </div>
             <div id="rt_inventory_group" class="rt-control-group" data-if="gameplay.inventory.player_available">
-                <p class="rt-control-heading">Inventory</p>
+                <p class="rt-control-heading"><nt-tr key="noveltea.inventory.title"/></p>
                 <div id="rt_inventory">
                     <button class="object" data-event-click="ui_present_player_inventory()">
                         Open Inventory

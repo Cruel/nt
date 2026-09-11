@@ -61,6 +61,25 @@ TEST_CASE("RmlUi nt-tr re-realizes the same live element through MessageRealizer
     CHECK(element.GetAttribute<Rml::String>("message", "") == "7");
 }
 
+TEST_CASE("RmlUi nt-tr resolves reserved system Message keys through built-in translations")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+
+    const compiled::Localization localization{
+        .source_locale = "en",
+        .default_locale = "pt-BR",
+        .locales = {{.locale = "en", .parent_locale = std::nullopt, .supported = true},
+                    {.locale = "pt-BR", .parent_locale = std::nullopt, .supported = true}},
+        .catalogs = {{.locale = "en", .entries = {}}, {.locale = "pt-BR", .entries = {}}}};
+    const MessageRealizer realizer(localization);
+    NtTrElement element("nt-tr");
+    element.SetAttribute("key", "noveltea.shell.settings");
+
+    REQUIRE(element.realize(realizer, "pt-BR"));
+    CHECK(element.GetInnerRML() == "Configurações");
+}
+
 TEST_CASE("RuntimeUI re-realizes mounted nt-tr elements when the locale binding changes")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture;

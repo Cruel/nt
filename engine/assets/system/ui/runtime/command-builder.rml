@@ -6,7 +6,7 @@
 <body data-model="noveltea">
     <div id="command_builder_root" data-if="gameplay.command_builder.active">
         <div id="command_builder_draft">
-            <p class="command-builder-heading">Command</p>
+            <p class="command-builder-heading"><nt-tr key="noveltea.command_builder.command"/></p>
             <p id="command_builder_label">{{ gameplay.command_builder.label }}</p>
             <p id="command_builder_progress">
                 {{ gameplay.command_builder.bound_slots.size }} / {{ gameplay.command_builder.binding_order.size }} subjects selected
@@ -28,9 +28,9 @@
             </div>
             <button id="command_builder_submit"
                     data-if="gameplay.command_builder.complete"
-                    data-event-click="ui_command_builder_submit()">Confirm</button>
+                    data-event-click="ui_command_builder_submit()"><nt-tr key="noveltea.confirmation.confirm"/></button>
             <button id="command_builder_cancel"
-                    data-event-click="ui_command_builder_cancel()">Cancel</button>
+                    data-event-click="ui_command_builder_cancel()"><nt-tr key="noveltea.confirmation.cancel"/></button>
         </div>
     </div>
 </body>

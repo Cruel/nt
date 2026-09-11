@@ -6,16 +6,16 @@
 <body data-model="noveltea">
     <main id="nt-pause-root">
         <section id="nt-pause-panel">
-            <p id="nt-pause-kicker">Paused</p>
-            <h1 id="nt-pause-title">Game Menu</h1>
+            <p id="nt-pause-kicker"><nt-tr key="noveltea.shell.paused"/></p>
+            <h1 id="nt-pause-title"><nt-tr key="noveltea.shell.game_menu"/></h1>
             <nav id="nt-pause-actions">
-                <button id="nt-pause-resume" data-event-click="shell_resume()">Resume</button>
-                <button id="nt-pause-save" data-event-click="shell_open_save()">Save</button>
-                <button id="nt-pause-load" data-event-click="shell_open_load()">Load</button>
-                <button id="nt-pause-text-log" data-event-click="shell_open_text_log()">Text Log</button>
-                <button id="nt-pause-settings" data-event-click="shell_open_settings()">Settings</button>
-                <button id="nt-pause-title-screen" data-event-click="shell_return_to_title()">Title</button>
-                <button id="nt-pause-quit" data-event-click="shell_quit()">Quit</button>
+                <button id="nt-pause-resume" data-event-click="shell_resume()"><nt-tr key="noveltea.shell.resume"/></button>
+                <button id="nt-pause-save" data-event-click="shell_open_save()"><nt-tr key="noveltea.shell.save"/></button>
+                <button id="nt-pause-load" data-event-click="shell_open_load()"><nt-tr key="noveltea.shell.load"/></button>
+                <button id="nt-pause-text-log" data-event-click="shell_open_text_log()"><nt-tr key="noveltea.shell.text_log"/></button>
+                <button id="nt-pause-settings" data-event-click="shell_open_settings()"><nt-tr key="noveltea.shell.settings"/></button>
+                <button id="nt-pause-title-screen" data-event-click="shell_return_to_title()"><nt-tr key="noveltea.shell.title"/></button>
+                <button id="nt-pause-quit" data-event-click="shell_quit()"><nt-tr key="noveltea.shell.quit"/></button>
             </nav>
             <p id="nt-shell-status">{{ shell.status }}</p>
         </section>

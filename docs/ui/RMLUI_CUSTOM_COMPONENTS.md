@@ -19,7 +19,11 @@ Track the custom RmlUi element/component strategy for complex NovelTea runtime w
   arguments and does not implement a second grammar. The v1 inline presentation subset is text plus
   `span`, `em`, `strong`, `b`, `i`, `u`, `s`, and `br`, with `class`/`style` on those inline tags.
   Nested `nt-tr`, arbitrary interactive/layout subtrees, and inline `nt-case` grammar are rejected;
-  complex grammar is defined on the referenced named Message instead.
+  complex grammar is defined on the referenced named Message instead. Engine-owned player UI also
+  uses this same element with reserved `noveltea.*` named Message keys. Those keys resolve directly
+  to engine-owned runtime Message identities and built-in translations when the Project has no
+  override; Project source/target overrides lower onto the same identities and therefore use the
+  normal Message realization, locale negotiation, freshness, provenance, and review path.
 - `nt-active-text`: registered as a C++ RmlUi element. It is a layout/input host rather than a glyph
   markup renderer. It binds typed Room/Dialogue/Scene text state, drives deterministic reveal and
   alpha playback through the coordinator-owned typed presentation lifecycle, and preserves

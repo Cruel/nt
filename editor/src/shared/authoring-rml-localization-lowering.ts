@@ -1,5 +1,6 @@
 import type { AuthoringProject } from './project-schema/authoring-project';
 import { messagePlaceholderNames } from './project-schema/authoring-localization';
+import { systemMessageDefinitionForKey } from './project-schema/system-messages';
 import {
   localizationOwnerKey,
   localizationSourceKey,
@@ -350,11 +351,12 @@ export function lowerRmlLocalization(
     }
 
     let stableId: string | null = null;
+    const systemDefinition = key ? systemMessageDefinitionForKey(key) : null;
     if (key) {
       const match = Object.entries(project.localization.messages).find(
         ([, message]) => message.kind === 'named' && message.key === key,
       );
-      if (!match) {
+      if (!match && !systemDefinition) {
         diagnostics.push({
           code: 'authoring.localization.rml_named_message_missing',
           path: basePath,
@@ -362,7 +364,7 @@ export function lowerRmlLocalization(
         });
         continue;
       }
-      stableId = match[0];
+      stableId = match?.[0] ?? null;
       if (node.content.trim().length > 0) {
         diagnostics.push({
           code: 'authoring.localization.rml_named_content',
@@ -400,11 +402,11 @@ export function lowerRmlLocalization(
       boundArgumentNames.add(candidate.name.slice(4));
     }
 
-    if (stableId === null) continue;
-    const stableMessage = project.localization.messages[stableId];
+    if (stableId === null && !systemDefinition) continue;
+    const stableMessage = stableId ? project.localization.messages[stableId] : undefined;
     const expectedArgumentNames = new Set(
-      key && stableMessage
-        ? Object.keys(stableMessage.arguments ?? {})
+      key
+        ? Object.keys(stableMessage?.arguments ?? systemDefinition?.arguments ?? {})
         : messagePlaceholderNames(node.content),
     );
     for (const name of expectedArgumentNames)
@@ -422,12 +424,12 @@ export function lowerRmlLocalization(
           message: `Localization binding arg-${name} does not match a declared Message argument.`,
         });
 
-    const packageId = packageIds.get(stableId);
+    const packageId = systemDefinition?.id ?? (stableId ? packageIds.get(stableId) : undefined);
     if (packageId === undefined) {
       diagnostics.push({
         code: 'authoring.localization.rml_message_lowering_failed',
         path: basePath,
-        message: `Managed RML Message '${stableId}' could not be assigned a package Message ID.`,
+        message: `Managed RML Message '${stableId ?? key}' could not be assigned a package Message ID.`,
       });
       continue;
     }

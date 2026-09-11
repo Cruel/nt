@@ -93,6 +93,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
                              const std::optional<core::RuntimeShellConfirmation>& confirmation,
                              bool game_active) override;
     void publish_runtime_shell_view(core::RuntimeShellViewState view) override;
+    [[nodiscard]] std::optional<std::string>
+    realize_system_message(std::string_view key) const override;
     void request_shell_quit() override;
 
     bool initialize(const PlatformConfig& config, const EngineConfig& engine_config,

@@ -438,10 +438,13 @@ RuntimeSystemLayouts::dispatch(const core::RuntimeShellCommand& command)
             } else if constexpr (std::is_same_v<T, core::RequestReturnToTitleShellCommand>) {
                 return request_confirmation(
                     {core::RuntimeShellConfirmationKind::ReturnToTitle, std::nullopt,
-                     "Return to the title screen? Unsaved progress will be lost."});
+                     m_host.realize_system_message("noveltea.confirmation.return_to_title")
+                         .value_or(std::string{})});
             } else if constexpr (std::is_same_v<T, core::RequestQuitShellCommand>) {
                 return request_confirmation(
-                    {core::RuntimeShellConfirmationKind::Quit, std::nullopt, "Quit NovelTea?"});
+                    {core::RuntimeShellConfirmationKind::Quit, std::nullopt,
+                     m_host.realize_system_message("noveltea.confirmation.quit")
+                         .value_or(std::string{})});
             } else if constexpr (std::is_same_v<T, core::SaveShellSlotCommand>) {
                 if (!m_game_active)
                     return core::Result<void, core::Diagnostics>::failure(shell_diagnostic(
@@ -450,23 +453,27 @@ RuntimeSystemLayouts::dispatch(const core::RuntimeShellCommand& command)
                         core::RuntimeInputMessage{core::SaveRuntimeInput{value.slot}}))
                     return core::Result<void, core::Diagnostics>::failure(shell_diagnostic(
                         "runtime_shell.save_failed", "Runtime rejected the save request"));
-                publish("Saved.");
+                publish(
+                    m_host.realize_system_message("noveltea.status.saved").value_or(std::string{}));
                 return core::Result<void, core::Diagnostics>::success();
             } else if constexpr (std::is_same_v<T, core::RequestLoadShellSlotCommand>) {
                 return request_confirmation(
                     {core::RuntimeShellConfirmationKind::LoadSlot, value.slot,
-                     "Load this save? Current unsaved progress will be lost."});
+                     m_host.realize_system_message("noveltea.confirmation.load")
+                         .value_or(std::string{})});
             } else if constexpr (std::is_same_v<T, core::SetRuntimeUiScaleShellCommand>) {
                 auto changed = m_host.set_runtime_ui_scale(value.scale);
                 if (!changed)
                     return changed;
-                publish("Settings updated.");
+                publish(m_host.realize_system_message("noveltea.status.settings_updated")
+                            .value_or(std::string{}));
                 return core::Result<void, core::Diagnostics>::success();
             } else if constexpr (std::is_same_v<T, core::SetRuntimeTextScaleShellCommand>) {
                 auto changed = m_host.set_runtime_text_scale(value.scale);
                 if (!changed)
                     return changed;
-                publish("Settings updated.");
+                publish(m_host.realize_system_message("noveltea.status.settings_updated")
+                            .value_or(std::string{}));
                 return core::Result<void, core::Diagnostics>::success();
             } else if constexpr (std::is_same_v<T, core::ConfirmShellCommand>) {
                 return confirm();
