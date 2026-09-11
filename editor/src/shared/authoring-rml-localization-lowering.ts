@@ -249,6 +249,7 @@ export function collectRmlLocalizationSources(
           `${normalizeRmlTrackingMarkup(before)}|<nt-tr>|${normalizeRmlTrackingMarkup(after)}`,
         ),
         sourceFingerprint: localizationTrackingFingerprint(node.content),
+        sourceSnapshot: node.content,
       };
     });
     const source: LocalizationSourceCandidate = {

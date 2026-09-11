@@ -109,6 +109,13 @@ function occurrenceFromCurrent(
     structuralFingerprint: occurrence.structuralFingerprint,
     anchorFingerprint: occurrence.anchorFingerprint,
     sourceFingerprint: occurrence.sourceFingerprint,
+    sourceSnapshot: occurrence.sourceSnapshot,
+    ...(occurrence.contextSnapshot === undefined
+      ? {}
+      : { contextSnapshot: occurrence.contextSnapshot }),
+    ...(occurrence.translatorNoteSnapshot === undefined
+      ? {}
+      : { translatorNoteSnapshot: occurrence.translatorNoteSnapshot }),
   };
 }
 

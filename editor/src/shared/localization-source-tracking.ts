@@ -12,6 +12,9 @@ export interface LocalizationSourceOccurrenceCandidate {
   readonly structuralFingerprint: string;
   readonly anchorFingerprint: string;
   readonly sourceFingerprint: string;
+  readonly sourceSnapshot: string;
+  readonly contextSnapshot?: string;
+  readonly translatorNoteSnapshot?: string;
 }
 
 export interface LocalizationSourceCandidate {
@@ -95,6 +98,20 @@ function candidatesMatching(
   return byAnchor.length === 1 ? byAnchor : [];
 }
 
+function uniquelyMatchedWithinSource(
+  entry: SourceMessageTrackingEntry,
+  source: LocalizationSourceCandidate,
+  candidate: LocalizationSourceOccurrenceCandidate,
+): SourceMessageTrackingOccurrence | null {
+  const matches = candidatesMatching(entry, candidate);
+  if (matches.length !== 1) return null;
+  const prior = matches[0]!;
+  const reverseMatches = source.occurrences.filter((current) =>
+    candidatesMatching(entry, current).some((match) => match.messageId === prior.messageId),
+  );
+  return reverseMatches.length === 1 ? prior : null;
+}
+
 /**
  * Resolve a free-form source occurrence without mutating Project state. Tracked metadata wins when it
  * identifies the occurrence unambiguously; otherwise a deterministic ephemeral identity keeps
@@ -110,25 +127,31 @@ export function resolveLocalizationSourceIdentity(
       localizationSourceKey(source.family, source.ownerKey, source.sourcePath)
     ];
   if (exact) {
-    const matches = candidatesMatching(exact, occurrence);
-    if (matches.length === 1) return { messageId: matches[0]!.messageId, tracked: true };
+    const matched = uniquelyMatchedWithinSource(exact, source, occurrence);
+    if (matched) return { messageId: matched.messageId, tracked: true };
     if (exact.sourceSnapshotFingerprint === source.sourceSnapshotFingerprint) {
       const byOrdinal = exact.occurrences.filter(
         (candidate) => candidate.ordinal === occurrence.ordinal,
       );
       if (byOrdinal.length === 1) return { messageId: byOrdinal[0]!.messageId, tracked: true };
     }
+    if (candidatesMatching(exact, occurrence).length > 0)
+      return {
+        messageId: ephemeralLocalizationSourceIdentity(source, occurrence),
+        tracked: false,
+      };
   }
 
-  const sameOwnerMatches = Object.values(localization.sourceMessageTracking)
-    .filter((entry) => entry.family === source.family && entry.ownerKey === source.ownerKey)
-    .flatMap((entry) => candidatesMatching(entry, occurrence));
-  const uniqueSameOwner = [
-    ...new Map(sameOwnerMatches.map((item) => [item.messageId, item])).values(),
-  ];
-  if (uniqueSameOwner.length === 1)
-    return { messageId: uniqueSameOwner[0]!.messageId, tracked: true };
+  return {
+    messageId: ephemeralLocalizationSourceIdentity(source, occurrence),
+    tracked: false,
+  };
+}
 
+function ephemeralLocalizationSourceIdentity(
+  source: LocalizationSourceCandidate,
+  occurrence: LocalizationSourceOccurrenceCandidate,
+): string {
   const seed = [
     'source-message',
     source.family,
@@ -139,5 +162,5 @@ export function resolveLocalizationSourceIdentity(
     occurrence.sourceFingerprint,
     occurrence.ordinal,
   ].join('|');
-  return { messageId: structuredMessageId(seed), tracked: false };
+  return structuredMessageId(seed);
 }

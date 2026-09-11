@@ -69,6 +69,26 @@
     "useDisk": "⟦Use Disk⟧",
     "keepMine": "⟦Keep Mine⟧"
   },
+  "localizationReconciliation": {
+    "tab": "⟦Reconciliation⟧",
+    "staleError": "⟦Project sources changed. Review the recomputed reconciliation plan.⟧",
+    "decisionError": "⟦Choose a resolution for every occurrence that has valuable prior work.⟧",
+    "commandLabel": "⟦Reconcile localization source identity⟧",
+    "title": "⟦External source reconciliation⟧",
+    "description": "⟦Resolve ambiguous Lua/RML moves, edits, and direct-file duplication without guessing Message identity. Valuable abandoned work is retained as Orphaned.⟧",
+    "apply": "⟦Apply reconciliation⟧",
+    "empty": "⟦No ambiguous or stale free-form localization tracking needs reconciliation.⟧",
+    "decisionRequired": "⟦Decision required⟧",
+    "safeDefault": "⟦Safe default available⟧",
+    "counts": "⟦{{current}} current occurrence(s) · {{previous}} prior occurrence(s)⟧",
+    "occurrence": "⟦occurrence {{ordinal}}⟧",
+    "resolutionAria": "⟦Resolution for {{path}} occurrence {{ordinal}}⟧",
+    "chooseResolution": "⟦Choose resolution⟧",
+    "createNew": "⟦Create a new Message identity⟧",
+    "relink": "⟦Relink “{{source}}”⟧",
+    "relinkPreservesWork": "⟦Relink “{{source}}” · preserves work⟧",
+    "disappeared": "⟦The source occurrence disappeared. Applying reconciliation will preserve valuable work as Orphaned and discard valueless tracking bookkeeping.⟧"
+  },
   "assetProfiler": {
     "tabs": {
       "overview": "⟦Overview⟧",

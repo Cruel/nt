@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,14 +36,19 @@ import {
   localizationMessageWorkflowViews,
   type LocalizationMessageWorkflowView,
 } from '../../../shared/authoring-localization-workflow';
+import {
+  applyLocalizationReconciliation,
+  planLocalizationReconciliation,
+} from '../../../shared/authoring-localization-reconcile';
 
-type Surface = 'overview' | 'translations' | 'languages' | 'messages';
+type Surface = 'overview' | 'translations' | 'languages' | 'messages' | 'reconciliation';
 
 const surfaces: readonly { id: Surface; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'translations', label: 'Translations' },
   { id: 'languages', label: 'Languages' },
   { id: 'messages', label: 'Messages' },
+  { id: 'reconciliation', label: 'Reconciliation' },
 ];
 
 function escapeJsonPointerToken(value: string) {
@@ -118,6 +124,7 @@ interface MessageView extends LocalizationMessageWorkflowView {
 }
 
 export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
+  const { t } = useTranslation('workspace');
   const document = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
@@ -128,6 +135,10 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const [creatingMessage, setCreatingMessage] = useState(false);
   const [messageDraft, setMessageDraft] = useState<MessageDraft>(emptyDraft);
   const [messageError, setMessageError] = useState<string | null>(null);
+  const [reconciliationDecisions, setReconciliationDecisions] = useState<Record<string, string>>(
+    {},
+  );
+  const [reconciliationError, setReconciliationError] = useState<string | null>(null);
   const targetLocales = project
     ? Object.keys(project.localization.locales)
         .filter((locale) => locale !== project.localization.sourceLocale)
@@ -195,6 +206,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       messageLabel(left.message, left.id).localeCompare(messageLabel(right.message, right.id)),
     );
   const sourceChangeBlocked = hasMeaningfulLocaleWork(localization.translations);
+  const reconciliationPlan = planLocalizationReconciliation(project);
 
   function run(
     label: string,
@@ -428,6 +440,42 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     ]);
   }
 
+  function applyReconciliation() {
+    const result = applyLocalizationReconciliation(
+      project!,
+      reconciliationPlan,
+      reconciliationDecisions,
+    );
+    if (result.status === 'stale') {
+      setReconciliationError(t('localizationReconciliation.staleError'));
+      setReconciliationDecisions({});
+      return;
+    }
+    if (result.status === 'needs-decision') {
+      setReconciliationError(t('localizationReconciliation.decisionError'));
+      return;
+    }
+    const error = run(t('localizationReconciliation.commandLabel'), [
+      {
+        op: 'replace',
+        path: '/localization/sourceMessageTracking',
+        value: result.project.localization.sourceMessageTracking,
+      },
+      {
+        op: 'replace',
+        path: '/localization/orphanedMessages',
+        value: result.project.localization.orphanedMessages,
+      },
+      {
+        op: 'replace',
+        path: '/localization/translations',
+        value: result.project.localization.translations,
+      },
+    ]);
+    setReconciliationError(error);
+    if (!error) setReconciliationDecisions({});
+  }
+
   function usagePaths(messageId: string) {
     if (!graphSnapshot) return [];
     return [
@@ -459,7 +507,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
               variant={surface === entry.id ? 'secondary' : 'ghost'}
               onClick={() => setSurface(entry.id)}
             >
-              {entry.label}
+              {entry.id === 'reconciliation' ? t('localizationReconciliation.tab') : entry.label}
             </Button>
           ))}
         </div>
@@ -492,6 +540,116 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 ))}
               </div>
             </section>
+          </div>
+        )}
+
+        {surface === 'reconciliation' && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-medium">{t('localizationReconciliation.title')}</h3>
+                <p className="text-xs text-muted-foreground">
+                  {t('localizationReconciliation.description')}
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={applyReconciliation}
+                disabled={
+                  !reconciliationPlan.deterministicChanged && reconciliationPlan.groups.length === 0
+                }
+              >
+                {t('localizationReconciliation.apply')}
+              </Button>
+            </div>
+            {reconciliationError && (
+              <p className="text-sm text-destructive">{reconciliationError}</p>
+            )}
+            {reconciliationPlan.groups.length === 0 ? (
+              <section className="rounded border p-4 text-sm text-muted-foreground">
+                {t('localizationReconciliation.empty')}
+              </section>
+            ) : (
+              reconciliationPlan.groups.map((group) => (
+                <section key={group.id} className="space-y-3 rounded border p-4">
+                  <div>
+                    <div className="font-medium">
+                      {group.requiresDecision
+                        ? t('localizationReconciliation.decisionRequired')
+                        : t('localizationReconciliation.safeDefault')}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t('localizationReconciliation.counts', {
+                        current: group.currentOccurrences.length,
+                        previous: group.previousOccurrences.length,
+                      })}
+                    </p>
+                  </div>
+                  {group.currentOccurrences.map((occurrence) => (
+                    <div
+                      key={occurrence.id}
+                      className="grid gap-2 rounded bg-muted/40 p-3 @3xl:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)] @3xl:items-center"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">
+                          {occurrence.sourceSnapshot}
+                        </div>
+                        <div className="truncate font-mono text-xs text-muted-foreground">
+                          {occurrence.sourcePath} ·{' '}
+                          {t('localizationReconciliation.occurrence', {
+                            ordinal: occurrence.ordinal,
+                          })}
+                        </div>
+                      </div>
+                      <Select
+                        value={
+                          reconciliationDecisions[occurrence.id] ??
+                          (group.requiresDecision ? undefined : '__new__')
+                        }
+                        onValueChange={(value) => {
+                          if (!value) return;
+                          setReconciliationDecisions((current) => ({
+                            ...current,
+                            [occurrence.id]: value === '__new__' ? 'new' : value,
+                          }));
+                        }}
+                      >
+                        <SelectTrigger
+                          aria-label={t('localizationReconciliation.resolutionAria', {
+                            path: occurrence.sourcePath,
+                            ordinal: occurrence.ordinal,
+                          })}
+                        >
+                          <SelectValue
+                            placeholder={t('localizationReconciliation.chooseResolution')}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__new__">
+                            {t('localizationReconciliation.createNew')}
+                          </SelectItem>
+                          {group.previousOccurrences.map((previous) => (
+                            <SelectItem key={previous.messageId} value={previous.messageId}>
+                              {t(
+                                previous.valuable
+                                  ? 'localizationReconciliation.relinkPreservesWork'
+                                  : 'localizationReconciliation.relink',
+                                { source: previous.sourceSnapshot || previous.messageId },
+                              )}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                  {group.currentOccurrences.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      {t('localizationReconciliation.disappeared')}
+                    </p>
+                  )}
+                </section>
+              ))
+            )}
           </div>
         )}
 

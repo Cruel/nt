@@ -181,6 +181,18 @@ function validateLocalizationReferences(
     ...structured.map((message) => message.id),
     ...trackedSourceOwners.keys(),
   ]);
+  for (const messageId of Object.keys(project.localization.orphanedMessages)) {
+    if (!knownMessageIds.has(messageId)) continue;
+    diagnostics.push(
+      diagnostic(
+        'error',
+        `/localization/orphanedMessages/${escapePathSegment(messageId)}`,
+        `Orphaned Message '${messageId}' conflicts with a live Message identity.`,
+        'Localization',
+        'localization.orphaned-message.id-conflict',
+      ),
+    );
+  }
   for (const [locale, translations] of Object.entries(project.localization.translations)) {
     for (const messageId of Object.keys(translations)) {
       if (knownMessageIds.has(messageId)) continue;

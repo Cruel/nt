@@ -69,6 +69,26 @@
     "useDisk": "Usar disco",
     "keepMine": "Manter minhas alterações"
   },
+  "localizationReconciliation": {
+    "tab": "Reconciliação",
+    "staleError": "As fontes do Projeto mudaram. Revise o plano de reconciliação recalculado.",
+    "decisionError": "Escolha uma resolução para cada ocorrência que tenha trabalho anterior valioso.",
+    "commandLabel": "Reconciliar identidade da fonte de localização",
+    "title": "Reconciliação de fontes externas",
+    "description": "Resolva movimentações, edições e duplicações diretas em arquivo ambíguas de Lua/RML sem presumir a identidade da Mensagem. Trabalho anterior valioso é mantido como Órfão.",
+    "apply": "Aplicar reconciliação",
+    "empty": "Nenhum rastreamento de localização livre ambíguo ou desatualizado precisa de reconciliação.",
+    "decisionRequired": "Decisão necessária",
+    "safeDefault": "Padrão seguro disponível",
+    "counts": "{{current}} ocorrência(s) atual(is) · {{previous}} ocorrência(s) anterior(es)",
+    "occurrence": "ocorrência {{ordinal}}",
+    "resolutionAria": "Resolução para {{path}} ocorrência {{ordinal}}",
+    "chooseResolution": "Escolher resolução",
+    "createNew": "Criar uma nova identidade de Mensagem",
+    "relink": "Vincular novamente “{{source}}”",
+    "relinkPreservesWork": "Vincular novamente “{{source}}” · preserva o trabalho",
+    "disappeared": "A ocorrência da fonte desapareceu. Aplicar a reconciliação preservará trabalho valioso como Órfão e descartará o rastreamento sem valor."
+  },
   "assetProfiler": {
     "tabs": {
       "overview": "Visão geral",

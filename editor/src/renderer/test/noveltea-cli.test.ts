@@ -29,6 +29,7 @@ import {
   createLocalizationTranslation,
   localizationMessageWorkflowView,
 } from '../../shared/authoring-localization-workflow';
+import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
 import { createDefaultAuthoringRecord } from '../project/entity-operations';
 import {
   createAuthoringProject,
@@ -354,6 +355,107 @@ describe('NovelTea headless CLI', () => {
 
     const repeated = await runNovelTeaCli(['--json', 'localization', 'sync'], options(value));
     expect(JSON.parse(repeated.stdout)).toMatchObject({ changed: false, writes: [] });
+  });
+
+  it('plans and applies ambiguous localization reconciliation through deterministic JSON', async () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Original", nil, { note = "Keep this" })\n',
+    };
+    const tracked = synchronizeLocalizationMessageTracking(project).project;
+    const messageId = Object.values(tracked.localization.sourceMessageTracking)[0]!.occurrences[0]!
+      .messageId;
+    tracked.localization.locales.fr = { supported: true, parentLocale: null };
+    const workflow = localizationMessageWorkflowView(tracked, messageId)!;
+    tracked.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(workflow, 'Original traduit', 'human', {
+        review: 'reviewed',
+      }),
+    };
+    tracked.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: [
+        'local first = Text.tr("Original", nil, { note = "Keep this" })',
+        'local second = Text.tr("Original", nil, { note = "Keep this" })',
+        'return first .. second',
+        '',
+      ].join('\n'),
+    };
+    const value = fixture(tracked);
+
+    const planned = await runNovelTeaCli(['--json', 'localization', 'reconcile'], options(value));
+    expect(planned.exitCode).toBe(0);
+    const envelope = JSON.parse(planned.stdout) as {
+      plan: {
+        expectedWorkspaceRevision: string;
+        expectedFingerprint: string;
+        groups: Array<{
+          requiresDecision: boolean;
+          currentOccurrences: Array<{ id: string }>;
+        }>;
+      };
+    };
+    expect(envelope.plan.groups).toHaveLength(1);
+    expect(envelope.plan.groups[0]!.requiresDecision).toBe(true);
+    const resolutions = Object.fromEntries(
+      envelope.plan.groups[0]!.currentOccurrences.map((occurrence) => [occurrence.id, 'new']),
+    );
+
+    const applied = await runNovelTeaCli(['--json', 'localization', 'reconcile', '--apply'], {
+      ...options(value),
+      stdinText: JSON.stringify({
+        expectedWorkspaceRevision: envelope.plan.expectedWorkspaceRevision,
+        expectedFingerprint: envelope.plan.expectedFingerprint,
+        resolutions,
+      }),
+    });
+    expect(applied.exitCode).toBe(0);
+    expect(JSON.parse(applied.stdout)).toMatchObject({
+      orphanedMessageIds: [messageId],
+      materializedMessageIds: expect.any(Array),
+      writes: ['localization.json'],
+    });
+    const localization = JSON.parse(
+      await value.fileSystem.readText(`${root}/localization.json`),
+    ) as {
+      translations: Record<string, Record<string, unknown>>;
+      orphanedMessages: Record<string, { translations: Record<string, unknown> }>;
+    };
+    expect(localization.translations.fr?.[messageId]).toBeUndefined();
+    expect(localization.orphanedMessages[messageId]?.translations).toHaveProperty('fr');
+  });
+
+  it('rejects a stale localization reconciliation plan before writing', async () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("One")\n',
+    };
+    const tracked = synchronizeLocalizationMessageTracking(project).project;
+    tracked.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Two") .. Text.tr("Three")\n',
+    };
+    const value = fixture(tracked);
+    const planned = await runNovelTeaCli(['--json', 'localization', 'reconcile'], options(value));
+    const envelope = JSON.parse(planned.stdout) as {
+      plan: { expectedWorkspaceRevision: string; expectedFingerprint: string };
+    };
+
+    const stale = await runNovelTeaCli(['--json', 'localization', 'reconcile', '--apply'], {
+      ...options(value),
+      stdinText: JSON.stringify({
+        expectedWorkspaceRevision: 'sha256:stale',
+        expectedFingerprint: envelope.plan.expectedFingerprint,
+        resolutions: {},
+      }),
+    });
+
+    expect(stale.exitCode).not.toBe(0);
+    expect(JSON.parse(stale.stdout).diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'localization.reconcile.stale-plan' }),
+    );
   });
 
   it('lists platform profiles with copyable export ids', async () => {
@@ -1216,6 +1318,7 @@ describe('NovelTea headless CLI', () => {
     expect(PHASE_SIX_NODE_REFERENCE_COMMANDS).toEqual([
       'validate',
       'localization sync',
+      'localization reconcile',
       'localization view',
       'localization accept',
       'localization review',
@@ -1227,6 +1330,7 @@ describe('NovelTea headless CLI', () => {
     const commands: readonly string[][] = [
       ['--json', 'validate'],
       ['--json', 'localization', 'sync', '--dry-run'],
+      ['--json', 'localization', 'reconcile'],
       ['--json', 'localization', 'view', 'fr'],
       [
         '--json',
