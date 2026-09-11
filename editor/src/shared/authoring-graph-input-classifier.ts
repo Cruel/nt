@@ -204,6 +204,8 @@ export function classifyAuthoringGraphMutation(
     if (path === '/') return { kind: 'full-rebuild', reason: 'root-change' } as const;
     if (path === '/localization/defaultLocale' || path === '/localization/sourceLocale')
       return incrementalImpact(reverseDependencyOwners(['project-field', path], indexes));
+    if (/^\/localization\/translations\/[^/]+\/[^/]+$/u.test(path))
+      return valueDependentImpact(path, 'localization-catalog-entry', indexes, context);
     const classification = classifyAuthoringGraphInputPath(path);
     return classification
       ? impactForEffect(path, classification.effect, indexes, context)

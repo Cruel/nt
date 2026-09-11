@@ -159,6 +159,10 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   ],
   [/^\/localization\/sourceLocale$/, valueDependent('localization-catalog-entry')],
   [/^\/localization\/translations\/\*\/\*$/, valueDependent('localization-catalog-entry')],
+  [
+    /^\/localization\/translations\/\*\/\*\/(?:acknowledgedGuidanceFingerprint|acknowledgedPresentationFingerprint|model|origin|provider|review|sourceFingerprint|text)$/,
+    valueDependent('localization-catalog-entry'),
+  ],
   // #157 adds persisted supplemental prefetch intent. Every hint leaf changes the generated Flow
   // Prediction Index and therefore the owning Project tooling/runtime optimization projection.
   [/^\/prefetchHints(?:\/|$)/, OWNER],
@@ -969,7 +973,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
-    localization: '0580c999',
+    localization: '1c561dc6',
     maps: '9d711bea',
     materials: '546711ca',
     prefetchHints: 'b985056c',

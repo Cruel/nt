@@ -9,6 +9,7 @@ import {
 } from '../../shared/project-schema/authoring-scenes';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { structuredMessageId } from '../../shared/authoring-structured-messages';
+import { testTranslation } from './fixtures/localization-workflow';
 
 describe('scene commands', () => {
   it('creates a strict scene record', () => {
@@ -47,7 +48,8 @@ describe('scene commands', () => {
     project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
     project.localization.locales.fr = { supported: false, parentLocale: null };
     const messageId = structuredMessageId('/scenes/opening/data/events/@line/text');
-    project.localization.translations.fr = { [messageId]: 'Bienvenue.' };
+    const translation = testTranslation('Bienvenue.');
+    project.localization.translations.fr = { [messageId]: translation };
 
     const renamed = structuredClone(scene);
     renamed.events[0]!.id = 'welcome-line';
@@ -69,7 +71,7 @@ describe('scene commands', () => {
     expect(result.document).toMatchObject({
       localization: {
         structuredMessageIds: { '/scenes/opening/data/events/@welcome-line/text': messageId },
-        translations: { fr: { [messageId]: 'Bienvenue.' } },
+        translations: { fr: { [messageId]: translation } },
       },
     });
   });

@@ -1754,9 +1754,9 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
             ),
           );
         for (const [locale, translations] of Object.entries(project.localization.translations)) {
-          const text = translations[messageId];
-          if (text === undefined) continue;
-          const message = template.validate(text, slotIds);
+          const translation = translations[messageId];
+          if (translation === undefined) continue;
+          const message = template.validate(translation.text, slotIds);
           if (message)
             diagnostics.push(
               diagnostic(

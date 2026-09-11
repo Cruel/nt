@@ -17,14 +17,20 @@ choices remain editor-local. `traits.json`, `localization.json`, and `editor.jso
 contextual fragments. `localization.json` owns the canonical Message model: one Source locale, one
 Supported Default locale, explicit Supported/work-in-progress locale metadata with optional parent
 locale inheritance, stable UUID identities for explicit local/named Messages, optional Message-level
-Context and Translator note guidance, sparse target translations keyed by stable Message identity,
-sparse `structuredMessageIds` ownership overrides used only when an editor-mediated semantic
+Context and Translator note guidance, sparse target translation records keyed by stable Message
+identity, sparse `structuredMessageIds` ownership overrides used only when an editor-mediated semantic
 refactor must preserve an existing structured Message identity across a path change, and
 `sourceMessageTracking` entries for free-form managed Lua/RML occurrences. Those entries are keyed by
 source family plus semantic owner/source path and keep compact source-snapshot, structural, anchor,
 and source fingerprints with the durable Message ID; they never inject opaque tracking IDs into Lua,
-RML, or structured gameplay JSON. Schema-designated
-player-facing structured text remains colocated with its owning Room, Dialogue, Scene, Verb, Map,
+RML, or structured gameplay JSON. Each target translation record stores target text, the compact
+semantic source fingerprint it was translated from, current-content origin (`human`, `ai`, `imported`,
+or `unknown`), human review state (`needs-review` or `reviewed`), optional compact provider/model
+provenance, and optional presentation/guidance acknowledgement fingerprints. Missing is represented by
+absence. Current/Outdated freshness and presentation/guidance attention are derived by comparing those
+fingerprints with current source/guidance; they are not additional persisted workflow enums.
+Schema-designated player-facing structured text remains colocated with its owning Room, Dialogue,
+Scene, Verb, Map,
 archetype, or other gameplay record. Structured local Messages normally derive an opaque stable
 Message identity from semantic record/nested IDs plus the field role/path; an ownership override wins
 when a known refactor has moved that same Message. Source prose is therefore not copied into
@@ -38,8 +44,11 @@ tracking updates. Ambiguous duplicate/many-to-many cases remain unresolved for r
 than being guessed. Validation, preview, source analysis, and passive editor watching do not
 materialize tracking metadata or dirty the workspace. The editor's
 Localization workspace joins these derived Messages with explicit Messages for translation and usage
-views. `/localization` remains the `project:localization` manual save unit, so language, explicit
-Message, and target-translation edits use the same revisioned Project Workspace transaction/recovery
+views. Human material edits through the Localization workspace create current Human + Needs review
+content; reviewing unchanged AI content preserves AI origin. Accepting an unchanged target against a
+new source fingerprint advances freshness without changing review. `/localization` remains the
+`project:localization` manual save unit, so language, explicit Message, and target-translation edits
+use the same revisioned Project Workspace transaction/recovery
 path as other tracked project content. `traits.json` owns the self-contained Trait contracts;
 there is no top-level identity Property fragment. `editor.json` contains exactly collaborator-visible
 `chapters`, `tags`, and `recordMetadata`, including collaborator-visible Trait color metadata.
@@ -140,8 +149,11 @@ project-root override and is validated by the same workspace-v1 rules.
 Ordinary agent edits are direct edits to tracked JSON, Lua, RML, and RCSS source files. Managed
 localizable Lua/RML edits are followed by `noveltea localization sync` and then `noveltea validate`;
 all passive discovery remains read-only. Semantic commands are reserved for operations that need
-project-wide graph or transaction semantics: `localization sync`, `entity create`, `entity rename`,
-`entity delete`, and `usages`. `localization sync --dry-run` reports the deterministic tracking plan
+project-wide graph or transaction semantics: `localization sync`, `localization view`, `localization
+accept`, `localization review`, `entity create`, `entity rename`, `entity delete`, and `usages`.
+`localization view` is read-only and joins normalized target records with current source/guidance and
+derived workflow status; `localization accept` and `localization review` are independent revisioned
+mutations. `localization sync --dry-run` reports the deterministic tracking plan
 without writing; normal sync commits only localization tracking through the Project Workspace
 revisioned writer and never rewrites the source file merely to store identity. `entity
 create` uses the same authoring record defaults as the editor and does not provide a generic Asset

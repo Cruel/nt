@@ -30,7 +30,11 @@ import {
   type AuthoringMessage,
 } from '../../../shared/project-schema/authoring-localization';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { structuredMessages } from '../../../shared/authoring-structured-messages';
+import {
+  createLocalizationTranslation,
+  localizationMessageWorkflowViews,
+  type LocalizationMessageWorkflowView,
+} from '../../../shared/authoring-localization-workflow';
 
 type Surface = 'overview' | 'translations' | 'languages' | 'messages';
 
@@ -43,6 +47,12 @@ const surfaces: readonly { id: Surface; label: string }[] = [
 
 function escapeJsonPointerToken(value: string) {
   return value.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
+function translationRecordPath(locale: string, messageId: string) {
+  const encodedLocale = escapeJsonPointerToken(locale);
+  const encodedMessageId = escapeJsonPointerToken(messageId);
+  return `/localization/translations/${encodedLocale}/${encodedMessageId}`;
 }
 
 function canonicalLocale(value: string): string | null {
@@ -63,8 +73,17 @@ function displayLocale(locale: string) {
   }
 }
 
-function hasMeaningfulLocaleWork(translations: Record<string, Record<string, string>>) {
+function hasMeaningfulLocaleWork(translations: Record<string, Record<string, unknown>>) {
   return Object.values(translations).some((entries) => Object.keys(entries).length > 0);
+}
+
+function originLabel(origin: 'human' | 'ai' | 'imported' | 'unknown') {
+  if (origin === 'ai') return 'AI';
+  return origin[0]!.toUpperCase() + origin.slice(1);
+}
+
+function reviewLabel(review: 'needs-review' | 'reviewed') {
+  return review === 'reviewed' ? 'Reviewed' : 'Needs review';
 }
 
 function fieldPatch(
@@ -94,11 +113,8 @@ function messageLabel(message: AuthoringMessage, messageId: string) {
   return message.kind === 'named' ? message.key : message.source || messageId;
 }
 
-interface MessageView {
-  id: string;
+interface MessageView extends LocalizationMessageWorkflowView {
   message: AuthoringMessage;
-  sourcePath: string | null;
-  usageNote: string | null;
 }
 
 export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
@@ -160,26 +176,24 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         entry[1].kind === 'named',
     )
     .sort(([, a], [, b]) => a.key.localeCompare(b.key));
-  const allMessages = [
-    ...Object.entries(localization.messages).map(
-      ([messageId, message]): MessageView => ({
-        id: messageId,
-        message,
-        sourcePath: `/localization/messages/${escapeJsonPointerToken(messageId)}/source`,
-        usageNote: null,
+  const allMessages = localizationMessageWorkflowViews(project)
+    .map(
+      (workflow): MessageView => ({
+        ...workflow,
+        message: {
+          kind: workflow.kind,
+          ...(workflow.kind === 'named' ? { key: workflow.key! } : {}),
+          source: workflow.source,
+          ...(workflow.context === undefined ? {} : { context: workflow.context }),
+          ...(workflow.translatorNote === undefined
+            ? {}
+            : { translatorNote: workflow.translatorNote }),
+        } as AuthoringMessage,
       }),
-    ),
-    ...structuredMessages(project).map(
-      (occurrence): MessageView => ({
-        id: occurrence.id,
-        message: { kind: 'local', source: occurrence.source },
-        sourcePath: occurrence.sourcePath,
-        usageNote: occurrence.usageNote,
-      }),
-    ),
-  ].sort((left, right) =>
-    messageLabel(left.message, left.id).localeCompare(messageLabel(right.message, right.id)),
-  );
+    )
+    .sort((left, right) =>
+      messageLabel(left.message, left.id).localeCompare(messageLabel(right.message, right.id)),
+    );
   const sourceChangeBlocked = hasMeaningfulLocaleWork(localization.translations);
 
   function run(
@@ -343,44 +357,74 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function setSourceContent(view: MessageView, value: string) {
-    if (!view.sourcePath) return;
-    if (view.sourcePath.startsWith('/localization/messages/')) {
+    if (!view.sourceEditPath) return;
+    if (view.sourceEditPath.startsWith('/localization/messages/')) {
       updateMessageField(view.id, view.message, 'source', value);
       return;
     }
-    const recordMatch = /^\/([^/]+)\/([^/]+)\//.exec(view.sourcePath);
-    const originSaveUnitId = view.sourcePath.startsWith('/settings/')
+    const recordMatch = /^\/([^/]+)\/([^/]+)\//.exec(view.sourceEditPath);
+    const originSaveUnitId = view.sourceEditPath.startsWith('/settings/')
       ? SAVE_UNIT_IDS.projectSettings
       : recordMatch
         ? recordSaveUnitId(recordMatch[1]!, recordMatch[2]!)
         : SAVE_UNIT_IDS.localization;
     run(
       `Update source Message ${messageLabel(view.message, view.id)}`,
-      [{ op: 'replace', path: view.sourcePath, value }],
+      [{ op: 'replace', path: view.sourceEditPath, value }],
       originSaveUnitId,
     );
   }
 
-  function setTranslation(messageId: string, value: string) {
+  function setTranslation(view: MessageView, value: string) {
     const locale = effectiveTargetLocale;
     if (!locale) return;
     const localeTranslations = localization.translations[locale];
-    const existing = localeTranslations?.[messageId];
+    const existing = localeTranslations?.[view.id];
     const localePath = `/localization/translations/${escapeJsonPointerToken(locale)}`;
-    const messagePath = `${localePath}/${escapeJsonPointerToken(messageId)}`;
+    const messagePath = `${localePath}/${escapeJsonPointerToken(view.id)}`;
     if (!value) {
       if (existing === undefined) return;
       run(`Clear ${locale} translation`, [{ op: 'remove', path: messagePath }]);
       return;
     }
+    if (existing?.text === value) return;
+    const translation = createLocalizationTranslation(view, value, 'human');
     if (!localeTranslations) {
       run(`Translate Message to ${locale}`, [
-        { op: 'add', path: localePath, value: { [messageId]: value } },
+        { op: 'add', path: localePath, value: { [view.id]: translation } },
       ]);
       return;
     }
     run(`Translate Message to ${locale}`, [
-      { op: existing === undefined ? 'add' : 'replace', path: messagePath, value },
+      { op: existing === undefined ? 'add' : 'replace', path: messagePath, value: translation },
+    ]);
+  }
+
+  function acceptTranslation(view: MessageView) {
+    const locale = effectiveTargetLocale;
+    const existing = localization.translations[locale]?.[view.id];
+    if (!locale || !existing) return;
+    const path = translationRecordPath(locale, view.id);
+    run(`Accept ${locale} translation`, [
+      {
+        op: 'replace',
+        path: `${path}/sourceFingerprint`,
+        value: view.sourceFingerprint,
+      },
+    ]);
+  }
+
+  function reviewTranslation(view: MessageView) {
+    const locale = effectiveTargetLocale;
+    const existing = localization.translations[locale]?.[view.id];
+    if (!locale || !existing || existing.sourceFingerprint !== view.sourceFingerprint) return;
+    const path = translationRecordPath(locale, view.id);
+    run(`Review ${locale} translation`, [
+      {
+        op: 'replace',
+        path: `${path}/review`,
+        value: 'reviewed',
+      },
     ]);
   }
 
@@ -789,14 +833,37 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 {allMessages.map((view) => {
                   const { id: messageId, message } = view;
                   const label = messageLabel(message, messageId);
-                  const translated =
-                    localization.translations[effectiveTargetLocale]?.[messageId] ?? '';
+                  const translation =
+                    localization.translations[effectiveTargetLocale]?.[messageId] ?? null;
+                  const translated = translation?.text ?? '';
+                  const freshness = !translation
+                    ? 'Missing'
+                    : translation.sourceFingerprint === view.sourceFingerprint
+                      ? 'Current'
+                      : 'Outdated';
+                  const attention = translation
+                    ? [
+                        translation.acknowledgedPresentationFingerprint !== undefined &&
+                        translation.acknowledgedPresentationFingerprint !==
+                          view.presentationFingerprint
+                          ? 'Presentation changed'
+                          : null,
+                        translation.acknowledgedGuidanceFingerprint !== undefined &&
+                        translation.acknowledgedGuidanceFingerprint !== view.guidanceFingerprint
+                          ? 'Guidance changed'
+                          : null,
+                      ].filter((value): value is string => value !== null)
+                    : [];
                   return (
                     <section key={messageId} className="rounded border p-4">
                       <div className="mb-2 flex items-baseline justify-between gap-3">
                         <div className="font-medium">{label}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {translated ? 'Translated' : 'Missing'}
+                        <div className="text-right text-xs text-muted-foreground">
+                          {freshness}
+                          {translation
+                            ? ` · ${originLabel(translation.origin)} · ${reviewLabel(translation.review)}`
+                            : ''}
+                          {attention.length > 0 ? ` · ${attention.join(', ')}` : ''}
                         </div>
                       </div>
                       {(message.context || message.translatorNote || view.usageNote) && (
@@ -821,7 +888,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                             id={`source-${messageId}`}
                             key={`source:${messageId}:${message.source}`}
                             defaultValue={message.source}
-                            disabled={!view.sourcePath}
+                            disabled={!view.sourceEditPath}
                             onBlur={(event) => setSourceContent(view, event.currentTarget.value)}
                           />
                         </div>
@@ -835,8 +902,34 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                             key={`${effectiveTargetLocale}:${messageId}:${translated}`}
                             defaultValue={translated}
                             placeholder="Missing"
-                            onBlur={(event) => setTranslation(messageId, event.currentTarget.value)}
+                            onBlur={(event) => setTranslation(view, event.currentTarget.value)}
                           />
+                          {translation && (
+                            <div className="flex gap-2 pt-1">
+                              {translation.sourceFingerprint !== view.sourceFingerprint && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => acceptTranslation(view)}
+                                >
+                                  Accept current source
+                                </Button>
+                              )}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={
+                                  translation.sourceFingerprint !== view.sourceFingerprint ||
+                                  translation.review === 'reviewed'
+                                }
+                                onClick={() => reviewTranslation(view)}
+                              >
+                                Mark reviewed
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </section>

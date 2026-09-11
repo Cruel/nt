@@ -42,7 +42,27 @@ export const authoringMessageSchema = z.discriminatedUnion('kind', [
   localMessageSchema,
   namedMessageSchema,
 ]);
-export const localizationTranslationSchema = z.record(messageIdSchema, z.string());
+const localizationWorkflowFingerprintSchema = z
+  .string()
+  .regex(/^fnv1a:[0-9a-f]{32}$/u, 'Localization workflow fingerprint is invalid.');
+
+export const localizationTranslationRecordSchema = z
+  .object({
+    text: z.string(),
+    sourceFingerprint: localizationWorkflowFingerprintSchema,
+    origin: z.enum(['human', 'ai', 'imported', 'unknown']),
+    review: z.enum(['needs-review', 'reviewed']),
+    provider: z.string().min(1).optional(),
+    model: z.string().min(1).optional(),
+    acknowledgedPresentationFingerprint: localizationWorkflowFingerprintSchema.optional(),
+    acknowledgedGuidanceFingerprint: localizationWorkflowFingerprintSchema.optional(),
+  })
+  .strict();
+
+export const localizationTranslationSchema = z.record(
+  messageIdSchema,
+  localizationTranslationRecordSchema,
+);
 
 const sourceTrackingFingerprintSchema = z
   .string()
@@ -178,6 +198,7 @@ export const authoringLocalizationSchema = z
   });
 
 export type AuthoringMessage = z.infer<typeof authoringMessageSchema>;
+export type LocalizationTranslation = z.infer<typeof localizationTranslationRecordSchema>;
 export type SourceMessageTrackingOccurrence = z.infer<typeof sourceMessageTrackingOccurrenceSchema>;
 export type SourceMessageTrackingEntry = z.infer<typeof sourceMessageTrackingEntrySchema>;
 export type AuthoringLocalization = z.infer<typeof authoringLocalizationSchema>;

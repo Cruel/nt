@@ -16,6 +16,9 @@ Core authoring commands are:
 noveltea project create <directory> --name <project-name>
 noveltea validate
 noveltea localization sync [--dry-run]
+noveltea localization view <locale> [--status <missing|current|outdated|needs-review|reviewed|human|ai|imported|unknown|attention>]
+noveltea localization accept <locale> <message-id>... [--dry-run]
+noveltea localization review <locale> <message-id>... [--dry-run]
 noveltea usages <collection> <id>
 noveltea asset audit
 noveltea asset import <path>... [--dry-run]
@@ -28,6 +31,8 @@ noveltea agent sync [--fix]
 `project create` accepts a new destination path that does not exist, including paths containing spaces, and rejects every existing file, directory, or symlink. It assembles and validates the complete initial workspace in a sibling staging directory before atomic activation. The editor uses the same creation service and project defaults. Creation does not generate `.noveltea/agent/`; run `agent sync` afterward.
 
 `localization sync` is the explicit mutation boundary for durable local Message identity discovered in free-form Lua and RML. Structured schema-owned Messages use their semantic owner/field identity directly and need no free-form occurrence sidecar. Sync preserves an existing ID only for deterministic one-to-one matches, assigns IDs to definitely new managed occurrences, updates compact source/structural/anchor fingerprints, and leaves ambiguous duplicate/many-to-many cases unresolved for reconciliation instead of guessing. `--dry-run` reports the same deterministic plan without writing tracked files.
+
+`localization view` joins canonical source and one target locale into a work queue suitable for humans or agents. Each row reports source/guidance/usages, target content, Current/Outdated/Missing freshness, Human/AI/Imported/Unknown origin, Needs review/Reviewed state, optional provider/model provenance, and derived presentation/guidance attention. `--status` filters the joined view without changing canonical storage. `localization accept` advances the stored semantic source fingerprint for selected existing targets without changing their text, origin, or review state. `localization review` marks selected Current, structurally valid targets human-reviewed; Missing, Outdated, and invalid targets are rejected, and a failed bulk review writes nothing. Both mutations support `--dry-run` and use the normal Project Workspace transaction boundary.
 
 `asset import` accepts one or more files. Files already under the Project `assets/` directory are registered in place; other files are copied into the normal kind-specific Asset directory. Re-importing an already registered Project Asset path returns the existing Asset instead of creating a duplicate. `--json` returns the Asset ID and source path plus image metadata when applicable. `asset audit` lists files under `assets/` that do not have Asset records.
 

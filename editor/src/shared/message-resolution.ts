@@ -44,10 +44,10 @@ export function resolveMessage(
   let locale: string | null = firstLocale;
   while (locale && locale !== localization.sourceLocale && !consultedLocales.includes(locale)) {
     consultedLocales.push(locale);
-    const text = localization.translations[locale]?.[messageId];
-    if (text !== undefined)
+    const translation = localization.translations[locale]?.[messageId];
+    if (translation !== undefined)
       return {
-        resolved: { messageId, text, locale },
+        resolved: { messageId, text: translation.text, locale },
         consultedLocales: Object.freeze(consultedLocales),
       };
     locale = localization.locales[locale]?.parentLocale ?? null;

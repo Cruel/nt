@@ -11,6 +11,7 @@ import {
   EDITOR_PROJECT_STATE_SCHEMA,
   stripEditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
+import { testTranslation } from './fixtures/localization-workflow';
 
 describe('authoring project schema', () => {
   it('creates a complete current project root with an explicit Bootstrap Module', () => {
@@ -59,7 +60,7 @@ describe('authoring project schema', () => {
       structuredMessageIds: {},
       sourceMessageTracking: {},
       translations: {
-        fr: { '018f4f8c-9b5d-7ae2-9b36-4c8af613f013': 'Hall' },
+        fr: { '018f4f8c-9b5d-7ae2-9b36-4c8af613f013': testTranslation('Hall') },
       },
     };
 

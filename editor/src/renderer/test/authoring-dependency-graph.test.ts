@@ -54,6 +54,7 @@ import {
   buildReferenceIndex,
   buildReferenceIndexFromGraph,
 } from '../../shared/project-schema/authoring-references';
+import { testTranslation } from './fixtures/localization-workflow';
 
 function node(
   collection: 'rooms' | 'characters',
@@ -725,7 +726,7 @@ describe('authoring structural dependency graph and queries', () => {
       key: 'room.foyer',
       source: 'Foyer source',
     };
-    project.localization.translations.fr = { [messageId]: 'Foyer' };
+    project.localization.translations.fr = { [messageId]: testTranslation('Foyer') };
     const data = defaultRoomData();
     data.description = {
       source: { kind: 'localized', key: 'room.foyer' },
@@ -751,7 +752,9 @@ describe('authoring structural dependency graph and queries', () => {
       findAuthoringDependencyUsages(fallbackGraph, localizationMessageNodeKey('fr', messageId)),
     ).toContainEqual(expect.objectContaining({ role: 'localization-text' }));
 
-    project.localization.translations['fr-CA'] = { [messageId]: 'Foyer canadien' };
+    project.localization.translations['fr-CA'] = {
+      [messageId]: testTranslation('Foyer canadien'),
+    };
     const defaultGraph = buildAuthoringStructuralDependencyGraph(project);
     expect(
       findAuthoringDependencyUsages(defaultGraph, localizationMessageNodeKey('fr', messageId)),

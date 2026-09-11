@@ -16,6 +16,7 @@ import {
   structuredMessageForPath,
   structuredMessageId,
 } from '../../shared/authoring-structured-messages';
+import { testTranslation } from './fixtures/localization-workflow';
 
 function projectWithRooms() {
   const project = createAuthoringProject();
@@ -65,7 +66,9 @@ describe('authoring entity operations', () => {
     project.rooms.foyer!.data.description = inlineTextContent('A quiet foyer.');
     project.localization.locales.fr = { supported: false, parentLocale: null };
     const oldMessageId = structuredMessageId('/rooms/foyer/data/description');
-    project.localization.translations.fr = { [oldMessageId]: 'Un foyer tranquille.' };
+    project.localization.translations.fr = {
+      [oldMessageId]: testTranslation('Un foyer tranquille.'),
+    };
     const state = createInitialCommandBusState(toJsonValue(project));
 
     const result = executeCommand(state, {
@@ -76,7 +79,7 @@ describe('authoring entity operations', () => {
     expect(result.ok).toBe(true);
     const renamedProject = authoringProjectSchema.parse(result.state.document);
     const translations = renamedProject.localization.translations.fr!;
-    expect(translations[oldMessageId]).toBe('Un foyer tranquille.');
+    expect(translations[oldMessageId]?.text).toBe('Un foyer tranquille.');
     expect(structuredMessageForPath(renamedProject, '/rooms/entry-hall/data/description')?.id).toBe(
       oldMessageId,
     );

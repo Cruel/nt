@@ -13,6 +13,7 @@ import { defaultRoomData, roomRoomRef } from '../../shared/project-schema/author
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { structuredMessageId } from '../../shared/authoring-structured-messages';
+import { testTranslation } from './fixtures/localization-workflow';
 
 describe('room commands', () => {
   it('creates typed room data through entity.createRecord', () => {
@@ -187,9 +188,11 @@ describe('room commands', () => {
       '/rooms/foyer/data/placements/@door/presentation/label',
     );
     const exitMessageId = structuredMessageId('/rooms/foyer/data/exits/@north/label');
+    const placementTranslation = testTranslation('Porte');
+    const exitTranslation = testTranslation('Nord');
     project.localization.translations.fr = {
-      [placementMessageId]: 'Porte',
-      [exitMessageId]: 'Nord',
+      [placementMessageId]: placementTranslation,
+      [exitMessageId]: exitTranslation,
     };
 
     const renamed = structuredClone(room);
@@ -207,7 +210,12 @@ describe('room commands', () => {
           '/rooms/foyer/data/placements/@entry-door/presentation/label': placementMessageId,
           '/rooms/foyer/data/exits/@north-exit/label': exitMessageId,
         },
-        translations: { fr: { [placementMessageId]: 'Porte', [exitMessageId]: 'Nord' } },
+        translations: {
+          fr: {
+            [placementMessageId]: placementTranslation,
+            [exitMessageId]: exitTranslation,
+          },
+        },
       },
     });
   });

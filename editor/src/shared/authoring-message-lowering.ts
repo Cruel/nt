@@ -98,10 +98,12 @@ export function compileLocalization(
               messageId: ids.get(stableId)!,
               value,
             }))
-          : sortedEntries(localization.translations[locale] ?? {}).map(([stableId, value]) => ({
-              messageId: ids.get(stableId)!,
-              value,
-            })),
+          : sortedEntries(localization.translations[locale] ?? {}).map(
+              ([stableId, translation]) => ({
+                messageId: ids.get(stableId)!,
+                value: translation.text,
+              }),
+            ),
     })),
   };
 }

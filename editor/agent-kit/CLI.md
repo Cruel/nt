@@ -17,7 +17,10 @@ Core semantic commands:
 - `noveltea entity delete <collection> <id> [--dry-run] [--force] [--allow-possible-source-references]`
 - `noveltea usages <collection> <id>`
 - `noveltea localization sync [--dry-run]`
+- `noveltea localization view <locale> [--status <...>]`
+- `noveltea localization accept <locale> <message-id>... [--dry-run]`
+- `noveltea localization review <locale> <message-id>... [--dry-run]`
 - `noveltea validate`
 - `noveltea agent sync`
 
-Native tooling is exposed through the same executable for shader compilation, tests, raw bgfx shaderc forwarding, and package export. Use `--json` for deterministic machine-readable NovelTea command output where supported. Do not invent field-level setter commands; ordinary fields are edited in source files. Passive validation/preview/source analysis never writes localization tracking; `localization sync` is the explicit transaction that records deterministic managed Lua/RML Message identity and leaves ambiguous occurrences for reconciliation. `entity create` initializes one record against the current project; for multi-record authoring relationships, finish the required supporting edits before interpreting validation diagnostics as the final state.
+Native tooling is exposed through the same executable for shader compilation, tests, raw bgfx shaderc forwarding, and package export. Use `--json` for deterministic machine-readable NovelTea command output where supported. Do not invent field-level setter commands; ordinary fields are edited in source files. Passive validation/preview/source analysis never writes localization tracking; `localization sync` is the explicit transaction that records deterministic managed Lua/RML Message identity and leaves ambiguous occurrences for reconciliation. `localization view` is the joined source/target work queue; use status filters for agent batches. Target records keep text, source fingerprint, origin, review, and optional provider/model provenance. Use `localization accept` to acknowledge a new source fingerprint without claiming review, and `localization review` only for Current valid targets. `entity create` initializes one record against the current project; for multi-record authoring relationships, finish the required supporting edits before interpreting validation diagnostics as the final state.
