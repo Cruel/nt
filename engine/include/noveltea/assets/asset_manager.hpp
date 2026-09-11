@@ -66,8 +66,10 @@ public:
 
     void set_default_font_alias(std::string alias);
     void configure_fonts(FontAssetConfig config);
+    void set_font_locale(std::string locale);
     [[nodiscard]] const FontAssetConfig& font_config() const noexcept;
     [[nodiscard]] const std::string& default_font_alias() const noexcept;
+    [[nodiscard]] const std::vector<std::string>& font_fallback_aliases() const noexcept;
     void configure_resource_aliases(ResourceAliasRegistry aliases);
     [[nodiscard]] AssetLoadResult<ResourceAliasRegistry>
     load_resource_aliases(std::string_view logical_path);

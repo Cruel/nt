@@ -19,7 +19,8 @@
       "defaultVerbMenuLayout": null
     },
     "text": {
-      "defaultFont": null
+      "defaultFont": null,
+      "fontStack": []
     },
     "titleScreen": {
       "titleImage": null,

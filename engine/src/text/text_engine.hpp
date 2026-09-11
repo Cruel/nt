@@ -21,6 +21,24 @@ struct FontMetrics {
     float line_height = 0.0f;
 };
 
+struct TextCoverageGap {
+    std::uint32_t source_byte_begin = 0;
+    std::uint32_t source_byte_end = 0;
+    std::string text;
+};
+
+struct TextCoverageContext {
+    std::string locale;
+    std::string message_id;
+    std::string source_path;
+    std::vector<std::string> effective_font_stack;
+};
+
+struct TextCoverageDiagnostic {
+    TextCoverageGap gap;
+    TextCoverageContext context;
+};
+
 struct GlyphBitmap {
     uint32_t width = 0;
     uint32_t height = 0;
@@ -77,6 +95,13 @@ public:
     [[nodiscard]] TextMetrics measure_text(const Text& text) const;
     [[nodiscard]] TextMetrics measure_text(FontHandle font, std::string_view value,
                                            float size) const;
+    [[nodiscard]] std::vector<TextCoverageGap> unresolved_clusters(const StyledText& text) const;
+    [[nodiscard]] std::vector<TextCoverageGap> unresolved_clusters(const StyledText& text,
+                                                                   float scale) const;
+    [[nodiscard]] std::vector<TextCoverageDiagnostic>
+    coverage_diagnostics(const StyledText& text, TextCoverageContext context) const;
+    [[nodiscard]] std::vector<TextCoverageDiagnostic>
+    coverage_diagnostics(const StyledText& text, float scale, TextCoverageContext context) const;
     [[nodiscard]] std::optional<GlyphBitmap> rasterize_glyph(FontHandle font, uint32_t glyph_id,
                                                              float raster_pixel_size) const;
     [[nodiscard]] std::optional<GlyphBitmap> rasterize_glyph(FontHandle font, uint32_t glyph_id,

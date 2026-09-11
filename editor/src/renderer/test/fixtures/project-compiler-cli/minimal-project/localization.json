@@ -4,7 +4,8 @@
   "locales": {
     "en": {
       "supported": true,
-      "parentLocale": null
+      "parentLocale": null,
+      "fontStack": null
     }
   },
   "messages": {},

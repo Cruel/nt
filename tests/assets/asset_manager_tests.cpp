@@ -300,6 +300,36 @@ TEST_CASE("AssetManager stores typed project font family config")
     CHECK(manager.font_config().families[0].bold->asset_path == "project:/fonts/body-bold.ttf");
 }
 
+TEST_CASE(
+    "AssetManager resolves locale font stacks and invalidates font consumers on locale changes")
+{
+    AssetManager manager;
+    FontAssetConfig config;
+    config.default_alias = "body";
+    config.fallback_aliases = {"latin", "symbols"};
+    config.active_locale = "en";
+    config.locale_fallbacks = {
+        {.locale = "ja", .aliases = {"jp-primary", "symbols"}},
+        {.locale = "ar", .aliases = {"arabic", "symbols"}},
+    };
+    manager.configure_fonts(std::move(config));
+
+    CHECK(manager.font_fallback_aliases() == std::vector<std::string>{"latin", "symbols"});
+    const auto generation = manager.source_generation_on_owner();
+
+    manager.set_font_locale("ja");
+    CHECK(manager.font_fallback_aliases() == std::vector<std::string>{"jp-primary", "symbols"});
+    CHECK(manager.source_generation_on_owner() != generation);
+    const auto japanese_generation = manager.source_generation_on_owner();
+
+    manager.set_font_locale("ja");
+    CHECK(manager.source_generation_on_owner() == japanese_generation);
+
+    manager.set_font_locale("fr");
+    CHECK(manager.font_fallback_aliases() == std::vector<std::string>{"latin", "symbols"});
+    CHECK(manager.source_generation_on_owner() != japanese_generation);
+}
+
 TEST_CASE("AssetManager async compatibility requests coalesce and finalize on the owner thread")
 {
     noveltea::jobs::InlineJobExecutor executor;

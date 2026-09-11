@@ -115,7 +115,10 @@ export function createPlatformExportAcceptanceFixture() {
   project.editor.recordMetadata.assets = Object.fromEntries(
     assets.map(([id]) => [id, { tags: ['export-fixture'] }]),
   );
-  project.settings.text = { defaultFont: { $ref: { collection: 'assets', id: 'body-font' } } };
+  project.settings.text = {
+    defaultFont: { $ref: { collection: 'assets', id: 'body-font' } },
+    fontStack: [],
+  };
   const app = project.settings.app as Record<string, unknown>;
   app.icon = { $ref: { collection: 'assets', id: 'app-icon' } };
   app.applicationId = 'org.noveltea.platformexportacceptance';

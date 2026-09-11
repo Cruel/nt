@@ -114,6 +114,33 @@ function validateLocalizationReferences(
       .filter((message) => message.kind === 'named')
       .map((message) => message.key),
   );
+  for (const [locale, definition] of Object.entries(project.localization.locales)) {
+    definition.fontStack?.forEach((ref, index) => {
+      const asset = project.assets[ref.$ref.id];
+      const data = asset ? parseAssetData(asset.data) : null;
+      const path = `/localization/locales/${escapePathSegment(locale)}/fontStack/${index}/$ref`;
+      if (!asset)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            path,
+            `Missing font Asset '${ref.$ref.id}'.`,
+            'Localization',
+            'localization.font-stack.asset-missing',
+          ),
+        );
+      else if (data?.kind !== 'font')
+        diagnostics.push(
+          diagnostic(
+            'error',
+            path,
+            `Locale font stack entry '${ref.$ref.id}' must reference a font Asset.`,
+            'Localization',
+            'localization.font-stack.asset-kind',
+          ),
+        );
+    });
+  }
   const visit = (value: unknown, path: string): void => {
     if (Array.isArray(value)) {
       value.forEach((child, index) => visit(child, `${path}/${index}`));

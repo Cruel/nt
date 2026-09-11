@@ -46,7 +46,7 @@ describe('scene commands', () => {
       },
     ];
     project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const messageId = structuredMessageId('/scenes/opening/data/events/@line/text');
     const translation = testTranslation('Bienvenue.');
     project.localization.translations.fr = { [messageId]: translation };

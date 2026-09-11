@@ -224,11 +224,13 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                   [&](const nlohmann::json& item,
                       const std::string& item_pointer) -> std::optional<LocaleDefinition> {
                       if (!decoder.object(item, item_pointer,
-                                          {"locale", "parentLocale", "supported"}))
+                                          {"fontStack", "locale", "parentLocale", "supported"}))
                           return std::nullopt;
                       const auto* locale_value = decoder.member(item, "locale", item_pointer);
                       const auto* parent_value = decoder.member(item, "parentLocale", item_pointer);
                       const auto* supported_value = decoder.member(item, "supported", item_pointer);
+                      const auto* font_stack_value =
+                          decoder.member(item, "fontStack", item_pointer);
                       auto locale =
                           locale_value
                               ? decoder.string(*locale_value, pointer_child(item_pointer, "locale"),
@@ -247,9 +249,19 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                               ? decoder.boolean(*supported_value,
                                                 pointer_child(item_pointer, "supported"))
                               : std::nullopt;
-                      if (locale && parent_ok && supported)
-                          return LocaleDefinition{std::move(*locale), std::move(parent),
-                                                  *supported};
+                      auto font_stack =
+                          font_stack_value
+                              ? decoder.array<AssetId>(
+                                    *font_stack_value, pointer_child(item_pointer, "fontStack"),
+                                    [&](const nlohmann::json& reference,
+                                        const std::string& reference_pointer) {
+                                        return decode_reference<AssetId>(
+                                            decoder, reference, reference_pointer, "asset");
+                                    })
+                              : std::nullopt;
+                      if (locale && parent_ok && supported && font_stack)
+                          return LocaleDefinition{std::move(*locale), std::move(parent), *supported,
+                                                  std::move(*font_stack)};
                       return std::nullopt;
                   })
             : std::nullopt;
@@ -711,9 +723,10 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             : std::nullopt;
     std::optional<TextSettings> text;
     if (text_value &&
-        decoder.object(*text_value, pointer_child(pointer, "text"), {"defaultFont"})) {
+        decoder.object(*text_value, pointer_child(pointer, "text"), {"defaultFont", "fontStack"})) {
         const auto text_pointer = pointer_child(pointer, "text");
         const auto* font_value = decoder.member(*text_value, "defaultFont", text_pointer);
+        const auto* font_stack_value = decoder.member(*text_value, "fontStack", text_pointer);
         std::optional<AssetId> font;
         bool font_ok = font_value != nullptr;
         if (font_value && !font_value->is_null()) {
@@ -721,8 +734,17 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                                              pointer_child(text_pointer, "defaultFont"), "asset");
             font_ok = font.has_value();
         }
-        if (font_ok)
-            text = TextSettings{std::move(font)};
+        auto font_stack =
+            font_stack_value
+                ? decoder.array<AssetId>(
+                      *font_stack_value, pointer_child(text_pointer, "fontStack"),
+                      [&](const nlohmann::json& reference, const std::string& reference_pointer) {
+                          return decode_reference<AssetId>(decoder, reference, reference_pointer,
+                                                           "asset");
+                      })
+                : std::nullopt;
+        if (font_ok && font_stack)
+            text = TextSettings{std::move(font), std::move(*font_stack)};
     }
     std::optional<TitleScreenSettings> title;
     if (title_value && decoder.object(*title_value, pointer_child(pointer, "titleScreen"),

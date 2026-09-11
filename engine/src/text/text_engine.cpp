@@ -115,6 +115,8 @@ struct ShapedGlyphData {
     uint32_t cluster = 0;
     Vec2 advance{};
     Vec2 offset{};
+    FontHandle font{};
+    uint32_t synthetic_style = TextFontRegular;
 };
 
 struct ShapedData {
@@ -902,7 +904,7 @@ TextLayout TextEngine::layout_text(const StyledText& styled_text, float scale) c
 
     struct ResolvedSpan {
         TextSpan span;
-        ResolvedFont font;
+        std::vector<ResolvedFont> fonts;
         float physical_size = 0.0f;
         float inverse_scale = 1.0f;
         FontMetrics metrics{};
@@ -976,18 +978,43 @@ TextLayout TextEngine::layout_text(const StyledText& styled_text, float scale) c
     std::vector<ResolvedSpan> resolved_spans;
     resolved_spans.reserve(spans.size());
     for (const auto& span : spans) {
-        auto resolved = resolve_font(span.font_alias, span.font_style);
-        if (!resolved.face) {
-            continue;
-        }
         ResolvedSpan out;
         out.span = span;
-        out.font = std::move(resolved);
         out.physical_size = static_cast<float>(normalize_raster_pixel_size(span.size * scale));
         out.inverse_scale = span.size / std::max(out.physical_size, 1.0f);
-        if (auto* font = m_impl->find(out.font.face)) {
-            out.metrics = metrics_for(*font, out.physical_size);
+
+        const auto append_font = [&](ResolvedFont resolved) {
+            if (!resolved.face)
+                return;
+            if (std::find_if(out.fonts.begin(), out.fonts.end(), [&](const ResolvedFont& current) {
+                    return current.face == resolved.face &&
+                           current.synthetic_style == resolved.synthetic_style;
+                }) == out.fonts.end())
+                out.fonts.push_back(std::move(resolved));
+        };
+        append_font(resolve_font(span.font_alias, span.font_style));
+        for (const auto& alias : styled_text.fallback_font_aliases) {
+            if (const auto* family = m_impl->find_family(alias)) {
+                for (const auto& [id, candidate] : m_impl->families) {
+                    if (&candidate == family) {
+                        append_font(resolve_font(FontFamilyHandle{id}, span.font_style));
+                        break;
+                    }
+                }
+            }
         }
+        if (const auto* system = m_impl->find_family(kSystemFontAlias)) {
+            for (const auto& [id, candidate] : m_impl->families) {
+                if (&candidate == system) {
+                    append_font(resolve_font(FontFamilyHandle{id}, span.font_style));
+                    break;
+                }
+            }
+        }
+        if (out.fonts.empty())
+            continue;
+        if (auto* font = m_impl->find(out.fonts.front().face))
+            out.metrics = metrics_for(*font, out.physical_size);
         if (out.metrics.line_height <= 0.0f) {
             out.metrics.line_height = std::max(span.size, 1.0f);
             out.metrics.ascender = out.metrics.line_height;
@@ -1008,14 +1035,68 @@ TextLayout TextEngine::layout_text(const StyledText& styled_text, float scale) c
         }
         return result;
     };
-    const auto shape_span_range = [&](const ResolvedSpan& span, uint32_t begin, uint32_t end,
-                                      TextDirection direction) {
+    const auto shape_with_font = [&](const ResolvedSpan& span, const ResolvedFont& font,
+                                     uint32_t begin, uint32_t end, TextDirection direction) {
         Text text;
         text.value = styled_text.value;
-        text.font = span.font.face;
+        text.font = font.face;
         text.style.size = span.span.size;
         text.language = styled_text.language;
-        return m_impl->shape(text, begin, end, direction, span.physical_size, span.inverse_scale);
+        auto shaped =
+            m_impl->shape(text, begin, end, direction, span.physical_size, span.inverse_scale);
+        for (auto& glyph : shaped.glyphs) {
+            glyph.font = font.face;
+            glyph.synthetic_style = font.synthetic_style;
+        }
+        return shaped;
+    };
+    const auto shape_span_range = [&](const ResolvedSpan& span, uint32_t begin, uint32_t end,
+                                      TextDirection direction) {
+        auto shaped = shape_with_font(span, span.fonts.front(), begin, end, direction);
+        if (span.fonts.size() <= 1 || shaped.glyphs.empty() ||
+            std::none_of(shaped.glyphs.begin(), shaped.glyphs.end(),
+                         [](const ShapedGlyphData& glyph) { return glyph.glyph_id == 0; }))
+            return shaped;
+
+        const auto sorted_clusters = cluster_ends(shaped.glyphs, end);
+        ShapedData resolved;
+        for (std::size_t index = 0; index < shaped.glyphs.size();) {
+            const auto cluster = shaped.glyphs[index].cluster;
+            std::size_t group_end = index + 1;
+            bool missing = shaped.glyphs[index].glyph_id == 0;
+            while (group_end < shaped.glyphs.size() &&
+                   shaped.glyphs[group_end].cluster == cluster) {
+                missing = missing || shaped.glyphs[group_end].glyph_id == 0;
+                ++group_end;
+            }
+
+            bool replaced = false;
+            if (missing) {
+                const auto cluster_end = source_end_for_cluster(cluster, sorted_clusters, end);
+                for (std::size_t fallback = 1; fallback < span.fonts.size(); ++fallback) {
+                    auto candidate = shape_with_font(span, span.fonts[fallback], cluster,
+                                                     cluster_end, direction);
+                    if (!candidate.glyphs.empty() &&
+                        std::none_of(
+                            candidate.glyphs.begin(), candidate.glyphs.end(),
+                            [](const ShapedGlyphData& glyph) { return glyph.glyph_id == 0; })) {
+                        resolved.width += candidate.width;
+                        resolved.glyphs.insert(resolved.glyphs.end(), candidate.glyphs.begin(),
+                                               candidate.glyphs.end());
+                        replaced = true;
+                        break;
+                    }
+                }
+            }
+            if (!replaced) {
+                for (std::size_t glyph = index; glyph < group_end; ++glyph) {
+                    resolved.width += shaped.glyphs[glyph].advance.x;
+                    resolved.glyphs.push_back(shaped.glyphs[glyph]);
+                }
+            }
+            index = group_end;
+        }
+        return resolved;
     };
     const auto range_width = [&](uint32_t begin, uint32_t end, TextDirection direction) {
         float width = 0.0f;
@@ -1136,8 +1217,8 @@ TextLayout TextEngine::layout_text(const StyledText& styled_text, float scale) c
                         positioned.position = {pen_x, 0.0f};
                         positioned.advance = glyph.advance;
                         positioned.offset = glyph.offset;
-                        positioned.font = span->font.face;
-                        positioned.synthetic_font_style = span->font.synthetic_style;
+                        positioned.font = glyph.font;
+                        positioned.synthetic_font_style = glyph.synthetic_style;
                         positioned.logical_pixel_size = span->span.size;
                         positioned.raster_pixel_size = span->physical_size;
                         visual_run.glyphs.push_back(positioned);
@@ -1230,6 +1311,55 @@ TextLayout TextEngine::layout_text(const StyledText& styled_text, float scale) c
     layout.metrics.line_height = max_line_height;
     layout.metrics.height = y;
     return layout;
+}
+
+std::vector<TextCoverageGap> TextEngine::unresolved_clusters(const StyledText& text) const
+{
+    return unresolved_clusters(text, 1.0f);
+}
+
+std::vector<TextCoverageGap> TextEngine::unresolved_clusters(const StyledText& text,
+                                                             float scale) const
+{
+    const auto layout = layout_text(text, scale);
+    std::vector<TextCoverageGap> gaps;
+    std::set<std::pair<std::uint32_t, std::uint32_t>> seen;
+    for (const auto& line : layout.lines) {
+        for (const auto& run : line.visual_runs) {
+            for (const auto& glyph : run.glyphs) {
+                if (glyph.glyph_id != 0)
+                    continue;
+                const auto range = std::pair{glyph.source_byte_begin, glyph.source_byte_end};
+                if (!seen.insert(range).second)
+                    continue;
+                const auto begin =
+                    std::min<std::size_t>(glyph.source_byte_begin, text.value.size());
+                const auto end = std::min<std::size_t>(glyph.source_byte_end, text.value.size());
+                gaps.push_back(TextCoverageGap{glyph.source_byte_begin, glyph.source_byte_end,
+                                               begin < end ? text.value.substr(begin, end - begin)
+                                                           : std::string{}});
+            }
+        }
+    }
+    return gaps;
+}
+
+std::vector<TextCoverageDiagnostic>
+TextEngine::coverage_diagnostics(const StyledText& text, TextCoverageContext context) const
+{
+    return coverage_diagnostics(text, 1.0f, std::move(context));
+}
+
+std::vector<TextCoverageDiagnostic>
+TextEngine::coverage_diagnostics(const StyledText& text, float scale,
+                                 TextCoverageContext context) const
+{
+    auto gaps = unresolved_clusters(text, scale);
+    std::vector<TextCoverageDiagnostic> diagnostics;
+    diagnostics.reserve(gaps.size());
+    for (auto& gap : gaps)
+        diagnostics.push_back(TextCoverageDiagnostic{std::move(gap), context});
+    return diagnostics;
 }
 
 std::optional<GlyphBitmap> TextEngine::rasterize_glyph(FontHandle handle, uint32_t glyph_id,

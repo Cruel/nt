@@ -32,7 +32,7 @@
       },
       "titleImage": null
     },
-    "text": { "defaultFont": null },
+    "text": { "defaultFont": null, "fontStack": [] },
     "inventory": {
       "playerInventory": null,
       "defaultLayout": null
@@ -82,7 +82,7 @@
   "localization": {
     "sourceLocale": "en",
     "defaultLocale": "en",
-    "locales": [{ "locale": "en", "parentLocale": null, "supported": true }],
+    "locales": [{ "locale": "en", "parentLocale": null, "supported": true, "fontStack": [] }],
     "catalogs": [
       {
         "locale": "en",

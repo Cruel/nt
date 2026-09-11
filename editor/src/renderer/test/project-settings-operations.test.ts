@@ -80,7 +80,7 @@ describe('project settings operations', () => {
     const undone = undoCommand(font.state);
     expect(
       (undone.state.document as ReturnType<typeof projectWithSettingsTargets>).settings.text,
-    ).toEqual({ defaultFont: null });
+    ).toEqual({ defaultFont: null, fontStack: [] });
   });
 
   it('rejects assigning an existing Layout with a custom Mount Contract to a system role', () => {

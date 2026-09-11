@@ -257,6 +257,7 @@ StyledText make_styled_text(const VisibleTextPlan& plan, const ActiveTextLayoutO
 {
     StyledText text;
     text.value = plan.text;
+    text.fallback_font_aliases = options.fallback_font_aliases;
     text.bounds = options.bounds;
     text.align = options.alignment;
     text.wrap = TextWrap::Word;

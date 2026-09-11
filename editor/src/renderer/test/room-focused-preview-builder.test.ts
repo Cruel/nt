@@ -250,9 +250,9 @@ describe('graph-driven Room builder', () => {
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f040';
     project.localization.defaultLocale = 'fr-CA';
     project.localization.locales = {
-      en: { supported: true, parentLocale: null },
-      fr: { supported: false, parentLocale: null },
-      'fr-CA': { supported: true, parentLocale: 'fr' },
+      en: { supported: true, parentLocale: null, fontStack: null },
+      fr: { supported: false, parentLocale: null, fontStack: null },
+      'fr-CA': { supported: true, parentLocale: 'fr', fontStack: null },
     };
     project.localization.translations.fr = {
       [messageId]: testTranslation('Une chambre calme.'),
@@ -274,7 +274,7 @@ describe('graph-driven Room builder', () => {
       key: 'ui.preview-message',
       source: 'Preview message',
     };
-    project.localization.locales.fr = { supported: true, parentLocale: null };
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
     project.localization.defaultLocale = 'fr';
     project.localization.translations.fr = {
       [messageId]: testTranslation('Message aperçu'),

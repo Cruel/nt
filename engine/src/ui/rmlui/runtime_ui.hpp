@@ -25,6 +25,7 @@ namespace noveltea {
 
 namespace assets {
 class AssetManager;
+struct FontAssetConfig;
 }
 namespace script {
 class ScriptRuntime;
@@ -51,6 +52,7 @@ public:
                     script::ScriptRuntime* scripts, const ShaderMaterialProject* shader_materials,
                     ui::rmlui::ActiveTextPresenterShaper active_text_shaper,
                     bool headless_render = false);
+    [[nodiscard]] bool configure_fonts(const assets::FontAssetConfig& config);
     [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event);
     void resize(const PresentationMetrics& presentation);
     void begin_frame(const core::RuntimeClockUpdate& clocks);

@@ -164,6 +164,7 @@ export function resolveProjectDiagnosticTarget(
     if (id === 'text') {
       if (scope === 'defaultFont')
         return fieldTarget(settingsTab, 'projectSettings.field.defaultFont');
+      if (scope === 'fontStack') return fieldTarget(settingsTab, 'projectSettings.field.fontStack');
       return target(settingsTab, 'projectSettings.runtime');
     }
     if (id === 'runtime') return target(settingsTab, 'projectSettings.runtime');

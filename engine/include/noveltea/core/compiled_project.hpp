@@ -130,6 +130,7 @@ struct LocaleDefinition {
     std::string locale;
     std::optional<std::string> parent_locale;
     bool supported = false;
+    std::vector<AssetId> font_stack;
 };
 struct Localization {
     std::string source_locale;
@@ -315,6 +316,7 @@ struct SystemLayout {
 };
 struct TextSettings {
     std::optional<AssetId> default_font;
+    std::vector<AssetId> font_stack;
 };
 struct TitleScreenSettings {
     bool show_author;

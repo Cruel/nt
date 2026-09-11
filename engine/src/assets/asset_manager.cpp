@@ -1068,11 +1068,33 @@ void AssetManager::configure_fonts(FontAssetConfig config)
     bump_source_generation_on_owner();
 }
 
+void AssetManager::set_font_locale(std::string locale)
+{
+    if (m_font_config.active_locale == locale)
+        return;
+    m_font_config.active_locale = std::move(locale);
+    bump_source_generation_on_owner();
+}
+
 const FontAssetConfig& AssetManager::font_config() const noexcept { return m_font_config; }
 
 const std::string& AssetManager::default_font_alias() const noexcept
 {
     return m_font_config.default_alias;
+}
+
+const std::vector<std::string>& AssetManager::font_fallback_aliases() const noexcept
+{
+    if (!m_font_config.active_locale.empty()) {
+        const auto found = std::find_if(m_font_config.locale_fallbacks.begin(),
+                                        m_font_config.locale_fallbacks.end(),
+                                        [&](const LocaleFontStackAssetConfig& stack) {
+                                            return stack.locale == m_font_config.active_locale;
+                                        });
+        if (found != m_font_config.locale_fallbacks.end())
+            return found->aliases;
+    }
+    return m_font_config.fallback_aliases;
 }
 
 void AssetManager::configure_resource_aliases(ResourceAliasRegistry aliases)

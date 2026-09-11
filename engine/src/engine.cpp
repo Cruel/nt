@@ -1018,6 +1018,16 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
             if (const auto* font = project.find_asset(*project.settings().text.default_font))
                 prepared.fonts.default_alias = font->id.text();
         }
+        for (const auto& font : project.settings().text.font_stack)
+            prepared.fonts.fallback_aliases.push_back(font.text());
+        prepared.fonts.active_locale = std::string(game.runtime_locale());
+        for (const auto& locale : project.localization().locales) {
+            assets::LocaleFontStackAssetConfig stack;
+            stack.locale = locale.locale;
+            for (const auto& font : locale.font_stack)
+                stack.aliases.push_back(font.text());
+            prepared.fonts.locale_fallbacks.push_back(std::move(stack));
+        }
         return prepared;
     };
     const auto apply_resources =
@@ -1063,6 +1073,12 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         }
         m_renderer.set_bar_color(m_presentation_settings.bar_color_rgba);
         m_assets.configure_fonts(std::move(prepared.fonts));
+        if (!m_runtime_ui.configure_fonts(m_assets.font_config())) {
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "host.game_load_fonts_invalid",
+                  .message = "Failed to configure runtime UI font families and fallbacks.",
+                  .source_path = "project.settings.text"}});
+        }
         auto gate_bound = m_mandatory_assets.bind_package_on_owner(
             game.package(), m_renderer.active_shader_variant(),
             m_assets.source_generation_on_owner());

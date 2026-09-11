@@ -201,7 +201,10 @@ describe('authoring project settings', () => {
       data: defaultLayoutData('Main Layout'),
     };
     project.settings.ui = { systemLayouts: { title: layoutRecordRef('main') } };
-    project.settings.text = { defaultFont: assetRef('main-font') };
+    project.settings.text = {
+      defaultFont: assetRef('main-font'),
+      fontStack: [assetRef('main-font')],
+    };
     project.settings.titleScreen = {
       titleImage: assetRef('logo'),
       showProjectTitle: true,
@@ -214,9 +217,15 @@ describe('authoring project settings', () => {
       validateTypedProjectSettings(project).filter((diagnostic) => diagnostic.severity === 'error'),
     ).toEqual([]);
 
-    project.settings.text = { defaultFont: assetRef('logo') };
-    expect(validateTypedProjectSettings(project)).toContainEqual(
-      expect.objectContaining({ severity: 'error', path: '/settings/text/defaultFont/$ref' }),
+    project.settings.text = {
+      defaultFont: assetRef('logo'),
+      fontStack: [assetRef('logo')],
+    };
+    expect(validateTypedProjectSettings(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ severity: 'error', path: '/settings/text/defaultFont/$ref' }),
+        expect.objectContaining({ severity: 'error', path: '/settings/text/fontStack/0/$ref' }),
+      ]),
     );
   });
 

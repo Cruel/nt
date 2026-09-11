@@ -123,6 +123,9 @@ void ActiveTextPresenter::ensure_font_requests_current(const core::RichTextDocum
 
     std::vector<std::string> aliases;
     aliases.push_back(m_assets->default_font_alias());
+    aliases.insert(aliases.end(), m_assets->font_fallback_aliases().begin(),
+                   m_assets->font_fallback_aliases().end());
+    aliases.push_back(std::string(kSystemFontAlias));
     for (const auto& run : document.runs) {
         if (!run.style.font_alias.empty())
             aliases.push_back(run.style.font_alias);
@@ -221,6 +224,8 @@ void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* vi
     options.bounds = surface->bounds;
     options.default_font_alias =
         m_assets ? m_assets->default_font_alias() : std::string(kSystemFontAlias);
+    if (m_assets)
+        options.fallback_font_aliases = m_assets->font_fallback_aliases();
     options.default_text_size = kActiveTextBaseSize * surface->text_scale_factor;
     options.language = surface->language;
     options.default_color = surface->text_color;

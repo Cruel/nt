@@ -119,7 +119,11 @@ describe('authoring compiler framework', () => {
       key: 'noveltea.shell.settings',
       source: 'Options',
     };
-    project.localization.locales['pt-BR'] = { supported: true, parentLocale: null };
+    project.localization.locales['pt-BR'] = {
+      supported: true,
+      parentLocale: null,
+      fontStack: null,
+    };
     const view = localizationMessageWorkflowView(project, stableId)!;
     project.localization.translations['pt-BR'] = {
       [stableId]: createLocalizationTranslation(view, 'Opções do jogo', 'human', {
@@ -363,6 +367,51 @@ describe('authoring compiler framework', () => {
     );
   });
 
+  it('lowers project and locale font stacks into the compiled localization contract', () => {
+    const project = validProject();
+    for (const id of ['body-font', 'latin-fallback', 'jp-fallback']) {
+      project.assets[id] = {
+        id,
+        label: id,
+        data: assetDataFromImportMetadata({
+          kind: 'font',
+          projectRelativePath: `assets/fonts/${id}.ttf`,
+          aliases: [],
+          imageMetadata: null,
+        }),
+      };
+    }
+    project.settings.text = {
+      defaultFont: { $ref: { collection: 'assets', id: 'body-font' } },
+      fontStack: [{ $ref: { collection: 'assets', id: 'latin-fallback' } }],
+    };
+    project.localization.locales.ja = {
+      supported: true,
+      parentLocale: null,
+      fontStack: [{ $ref: { collection: 'assets', id: 'jp-fallback' } }],
+    };
+    project.localization.locales.fr = {
+      supported: true,
+      parentLocale: null,
+      fontStack: null,
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok, result.ok ? '' : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.project.settings.text).toEqual({
+      defaultFont: { kind: 'asset', id: 'body-font' },
+      fontStack: [{ kind: 'asset', id: 'latin-fallback' }],
+    });
+    expect(
+      result.project.localization.locales.find((locale) => locale.locale === 'ja')?.fontStack,
+    ).toEqual([{ kind: 'asset', id: 'jp-fallback' }]);
+    expect(
+      result.project.localization.locales.find((locale) => locale.locale === 'fr')?.fontStack,
+    ).toEqual([{ kind: 'asset', id: 'latin-fallback' }]);
+  });
+
   it('flattens explicit locale inheritance into compiled catalogs while preserving use-source fallback', () => {
     const project = validProject();
     const messageId = '11111111-1111-4111-8111-111111111112';
@@ -371,8 +420,12 @@ describe('authoring compiler framework', () => {
       key: 'ui.confirm',
       source: 'Confirm',
     };
-    project.localization.locales.fr = { supported: true, parentLocale: null };
-    project.localization.locales['fr-CA'] = { supported: true, parentLocale: 'fr' };
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    project.localization.locales['fr-CA'] = {
+      supported: true,
+      parentLocale: 'fr',
+      fontStack: null,
+    };
     const view = localizationMessageWorkflowView(project, messageId)!;
     project.localization.translations.fr = {
       [messageId]: createLocalizationTranslation(view, 'Confirmer', 'human', {
@@ -420,7 +473,7 @@ describe('authoring compiler framework', () => {
         },
       },
     };
-    project.localization.locales.ru = { supported: true, parentLocale: null };
+    project.localization.locales.ru = { supported: true, parentLocale: null, fontStack: null };
     project.localization.translations.ru = {
       [messageId]: {
         text: '{count} предметов',

@@ -104,6 +104,7 @@ settings.ui.systemLayouts.settings-menu
 settings.ui.systemLayouts.modal
 settings.ui.systemLayouts.debug-overlay
 settings.text.defaultFont
+settings.text.fontStack // ordered Project fallback font Assets
 ```
 
 Title-screen and app/package identity use:
@@ -164,9 +165,13 @@ positive duration has been authored yet.
 
 ## Built-In Fallbacks
 
-System layout roles and default font support built-in fallback behavior. A `null` or an
-absent system layout role means the built-in engine layout for that role is used. This keeps
-built-in title/menu/HUD documents compatible with project-authored replacements.
+System layout roles and text fonts support built-in fallback behavior. A `null` or an
+absent system layout role means the built-in engine layout for that role is used. Text shaping
+prefers an explicitly authored Layout/text family (or the Project default font), then the active
+locale's configured fallback stack, then the safe engine/system fallback. `settings.text.fontStack`
+is the ordered Project-wide fallback stack; Localization language settings may replace that stack for
+one locale. This keeps built-in title/menu/HUD documents and multilingual text compatible with
+project-authored replacements.
 
 ```ts
 settings.ui.systemLayouts.title = null       // built-in title layout
@@ -174,6 +179,7 @@ settings.ui.systemLayouts.game-hud = null         // built-in gameplay HUD layou
 settings.ui.systemLayouts.command-builder = null  // built-in Command Builder layout
 settings.ui.systemLayouts.pause-menu = null       // built-in pause menu layout
 settings.text.defaultFont = null             // built-in default font
+settings.text.fontStack = []                 // no Project-specific fallback families before system fallback
 ```
 
 Project layout/font records can override those fallbacks. The editor writes only `settings.ui.systemLayouts` for engine UI role overrides.

@@ -86,6 +86,7 @@ export const AUTHORING_DEPENDENCY_ROLES = [
   'lua-explicit-reference',
   'system-layout',
   'default-font',
+  'font-stack',
 ] as const;
 export type AuthoringDependencyRole = (typeof AUTHORING_DEPENDENCY_ROLES)[number];
 export type AuthoringReferenceRepairPolicy =

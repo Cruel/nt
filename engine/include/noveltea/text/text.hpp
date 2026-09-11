@@ -36,6 +36,7 @@ struct TextSpan {
 struct StyledText {
     std::string value;
     std::vector<TextSpan> spans;
+    std::vector<std::string> fallback_font_aliases;
     Rect bounds{};
     TextAlign align = TextAlign::Start;
     TextDirection direction = TextDirection::Auto;

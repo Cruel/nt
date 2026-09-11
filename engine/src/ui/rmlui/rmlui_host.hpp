@@ -30,6 +30,7 @@ struct ShaderMaterialProject;
 
 namespace assets {
 class AssetManager;
+struct FontAssetConfig;
 }
 
 namespace ui::rmlui {
@@ -83,6 +84,7 @@ public:
     RmlUiHost& operator=(const RmlUiHost&) = delete;
 
     [[nodiscard]] bool initialize(const Config& config);
+    [[nodiscard]] bool configure_fonts(const assets::FontAssetConfig& config);
     void shutdown();
 
     [[nodiscard]] Rml::Context* primary_context() const noexcept;

@@ -39,6 +39,7 @@ import {
   namedMessageKeySchema,
   type AuthoringMessage,
 } from '../../../shared/project-schema/authoring-localization';
+import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
   createLocalizationTranslation,
@@ -87,6 +88,17 @@ function displayLocale(locale: string) {
     return new Intl.DisplayNames([locale], { type: 'language' }).of(locale) ?? locale;
   } catch {
     return locale;
+  }
+}
+
+function localeDirection(locale: string): 'ltr' | 'rtl' {
+  try {
+    const script = new Intl.Locale(locale).maximize().script;
+    return script && ['Adlm', 'Arab', 'Hebr', 'Nkoo', 'Rohg', 'Syrc', 'Thaa'].includes(script)
+      ? 'rtl'
+      : 'ltr';
+  } catch {
+    return 'ltr';
   }
 }
 
@@ -210,6 +222,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
 
   const localization = project.localization;
   const localeEntries = Object.entries(localization.locales).sort(([a], [b]) => a.localeCompare(b));
+  const fontAssets = Object.values(project.assets)
+    .filter((asset) => parseAssetData(asset.data)?.kind === 'font')
+    .sort((a, b) => a.label.localeCompare(b.label));
   const namedMessages = Object.entries(localization.messages)
     .filter(
       (entry): entry is [string, Extract<AuthoringMessage, { kind: 'named' }>] =>
@@ -268,7 +283,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       {
         op: 'add',
         path: `/localization/locales/${escapeJsonPointerToken(locale)}`,
-        value: { supported: false, parentLocale: null },
+        value: { supported: false, parentLocale: null, fontStack: null },
       },
     ]);
     setLocaleError(error);
@@ -331,6 +346,33 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         value: parentLocale,
       },
     ]);
+  }
+
+  function setLocaleFontStack(locale: string, assetIds: readonly string[] | null) {
+    run(`Set font stack for ${locale}`, [
+      {
+        op: 'replace',
+        path: `/localization/locales/${escapeJsonPointerToken(locale)}/fontStack`,
+        value:
+          assetIds === null ? null : assetIds.map((id) => ({ $ref: { collection: 'assets', id } })),
+      },
+    ]);
+  }
+
+  function addLocaleFont(locale: string, assetId: string) {
+    if (!assetId) return;
+    const stack = localization.locales[locale]?.fontStack ?? [];
+    const ids = stack.map((ref) => ref.$ref.id);
+    if (!ids.includes(assetId)) setLocaleFontStack(locale, [...ids, assetId]);
+  }
+
+  function removeLocaleFont(locale: string, assetId: string) {
+    const stack = localization.locales[locale]?.fontStack;
+    if (!stack) return;
+    setLocaleFontStack(
+      locale,
+      stack.map((ref) => ref.$ref.id).filter((id) => id !== assetId),
+    );
   }
 
   function updateMessageDraft(field: keyof MessageDraft, value: string) {
@@ -1025,10 +1067,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                     <div
                       key={locale}
                       data-testid={`locale-row-${locale}`}
-                      className="grid gap-3 p-3 @3xl:grid-cols-[minmax(10rem,1fr)_9rem_minmax(10rem,1fr)_auto] @3xl:items-center"
+                      className="grid gap-3 p-3 @3xl:grid-cols-[minmax(10rem,1fr)_9rem_minmax(10rem,1fr)_minmax(12rem,1.4fr)_auto] @3xl:items-center"
                     >
                       <div>
-                        <div className="font-medium">{displayLocale(locale)}</div>
+                        <div className="font-medium" lang={locale} dir={localeDirection(locale)}>
+                          {displayLocale(locale)}
+                        </div>
                         <div className="font-mono text-xs text-muted-foreground">{locale}</div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1060,6 +1104,67 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                             ))}
                         </SelectContent>
                       </Select>
+                      <div
+                        className="space-y-1"
+                        data-workbench-anchor={`localization.locale.${locale}.fontStack`}
+                      >
+                        {definition.fontStack === null ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setLocaleFontStack(locale, [])}
+                          >
+                            Use custom font stack
+                          </Button>
+                        ) : (
+                          <>
+                            <select
+                              aria-label={`Add fallback font for ${locale}`}
+                              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                              value=""
+                              onChange={(event) => {
+                                addLocaleFont(locale, event.currentTarget.value);
+                                event.currentTarget.value = '';
+                              }}
+                            >
+                              <option value="">Add fallback font…</option>
+                              {fontAssets
+                                .filter(
+                                  (asset) =>
+                                    !definition.fontStack?.some((ref) => ref.$ref.id === asset.id),
+                                )
+                                .map((asset) => (
+                                  <option key={asset.id} value={asset.id}>
+                                    {asset.label} ({asset.id})
+                                  </option>
+                                ))}
+                            </select>
+                            <div className="flex flex-wrap gap-1">
+                              {(definition.fontStack ?? []).map((ref) => (
+                                <Button
+                                  key={ref.$ref.id}
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => removeLocaleFont(locale, ref.$ref.id)}
+                                  title="Remove fallback font"
+                                >
+                                  {project.assets[ref.$ref.id]?.label ?? ref.$ref.id} ×
+                                </Button>
+                              ))}
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setLocaleFontStack(locale, null)}
+                            >
+                              Use Project font stack
+                            </Button>
+                          </>
+                        )}
+                      </div>
                       <Button
                         type="button"
                         size="sm"

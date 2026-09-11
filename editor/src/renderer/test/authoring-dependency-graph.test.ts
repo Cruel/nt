@@ -593,6 +593,22 @@ describe('authoring structural dependency graph and queries', () => {
     project.settings.text.defaultFont = {
       $ref: { collection: 'assets', id: 'background' },
     };
+    project.assets['fallback-font'] = {
+      id: 'fallback-font',
+      label: 'Fallback font',
+      data: {
+        kind: 'font',
+        source: { type: 'project-file', path: 'fonts/fallback.ttf' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    project.settings.text.fontStack = [{ $ref: { collection: 'assets', id: 'fallback-font' } }];
+    project.localization.locales.fr = {
+      supported: false,
+      parentLocale: null,
+      fontStack: [{ $ref: { collection: 'assets', id: 'fallback-font' } }],
+    };
     project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD') };
     project.settings.ui.systemLayouts['game-hud'] = {
       $ref: { collection: 'layouts', id: 'hud' },
@@ -616,6 +632,11 @@ describe('authoring structural dependency graph and queries', () => {
         (usage) => usage.role,
       ),
     ).toEqual(['material-base']);
+    expect(
+      findAuthoringDependencyUsages(graph, recordNodeKey('assets', 'fallback-font')).map(
+        (usage) => usage.role,
+      ),
+    ).toEqual(['font-stack', 'font-stack']);
     expect(
       findNestedAuthoringDependencyTarget(graph, 'rooms', 'foyer', 'room-placement', 'door'),
     ).toBeDefined();
@@ -717,9 +738,9 @@ describe('authoring structural dependency graph and queries', () => {
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f010';
     project.localization.defaultLocale = 'fr-CA';
     project.localization.locales = {
-      en: { supported: true, parentLocale: null },
-      fr: { supported: false, parentLocale: null },
-      'fr-CA': { supported: true, parentLocale: 'fr' },
+      en: { supported: true, parentLocale: null, fontStack: null },
+      fr: { supported: false, parentLocale: null, fontStack: null },
+      'fr-CA': { supported: true, parentLocale: 'fr', fontStack: null },
     };
     project.localization.messages[messageId] = {
       kind: 'named',

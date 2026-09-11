@@ -154,7 +154,7 @@ describe('NovelTea headless CLI', () => {
   it('joins localization work queues and keeps accept independent from human review', async () => {
     const project = validProject();
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f099';
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     project.localization.messages[messageId] = {
       kind: 'named',
       key: 'ui.greeting',
@@ -233,7 +233,7 @@ describe('NovelTea headless CLI', () => {
 
   it('rejects a mixed bulk review atomically when any selected target is Missing', async () => {
     const project = validProject();
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const currentId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f097';
     const missingId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f098';
     project.localization.messages[currentId] = {
@@ -267,7 +267,7 @@ describe('NovelTea headless CLI', () => {
 
   it('refuses human review for structurally invalid target content', async () => {
     const project = validProject();
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f096';
     project.localization.messages[messageId] = {
       kind: 'named',
@@ -367,7 +367,7 @@ describe('NovelTea headless CLI', () => {
     const tracked = synchronizeLocalizationMessageTracking(project).project;
     const messageId = Object.values(tracked.localization.sourceMessageTracking)[0]!.occurrences[0]!
       .messageId;
-    tracked.localization.locales.fr = { supported: true, parentLocale: null };
+    tracked.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
     const workflow = localizationMessageWorkflowView(tracked, messageId)!;
     tracked.localization.translations.fr = {
       [messageId]: createLocalizationTranslation(workflow, 'Original traduit', 'human', {
