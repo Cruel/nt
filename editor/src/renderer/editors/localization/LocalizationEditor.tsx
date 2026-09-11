@@ -17,7 +17,10 @@ import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-
 import { useProjectStore } from '@/project/project-store';
 import {
   canPromoteLocalMessage,
+  demoteNamedMessageUsage,
   identicalSourceReuseCandidates,
+  mergeMessageIntoNamed,
+  namedMessageUsages,
   promoteAndLinkLocalMessages,
   renameMessageValueReferencePatches,
 } from '@/project/localization-message-operations';
@@ -147,6 +150,18 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     selectedIds: string[];
   } | null>(null);
   const [promotionError, setPromotionError] = useState<string | null>(null);
+  const [demotionDraft, setDemotionDraft] = useState<{
+    messageId: string;
+    usageId: string;
+    copyDraftLocales: string[];
+  } | null>(null);
+  const [demotionError, setDemotionError] = useState<string | null>(null);
+  const [mergeDraft, setMergeDraft] = useState<{
+    sourceMessageId: string;
+    targetMessageId: string;
+    resolutions: Record<string, 'target' | 'source'>;
+  } | null>(null);
+  const [mergeError, setMergeError] = useState<string | null>(null);
   const [reconciliationDecisions, setReconciliationDecisions] = useState<Record<string, string>>(
     {},
   );
@@ -408,6 +423,44 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     if (!error) setPromotionDraft(null);
   }
 
+  function demoteMessageUsage() {
+    if (!demotionDraft) return;
+    const usages = namedMessageUsages(project!, demotionDraft.messageId);
+    const result = demoteNamedMessageUsage(
+      project!,
+      demotionDraft.messageId,
+      demotionDraft.usageId,
+      {
+        ...(usages.length > 1 ? { newMessageId: crypto.randomUUID() } : {}),
+        copyDraftLocales: demotionDraft.copyDraftLocales,
+      },
+    );
+    if (!result.ok) {
+      setDemotionError(result.message);
+      return;
+    }
+    const error = run(t('localizationMessageReuse.demoteCommandLabel'), [...result.patches]);
+    setDemotionError(error);
+    if (!error) setDemotionDraft(null);
+  }
+
+  function mergeMessage() {
+    if (!mergeDraft?.targetMessageId) return;
+    const result = mergeMessageIntoNamed(
+      project!,
+      mergeDraft.sourceMessageId,
+      mergeDraft.targetMessageId,
+      mergeDraft.resolutions,
+    );
+    if (!result.ok) {
+      setMergeError(result.message);
+      return;
+    }
+    const error = run(t('localizationMessageReuse.mergeCommandLabel'), [...result.patches]);
+    setMergeError(error);
+    if (!error) setMergeDraft(null);
+  }
+
   function setSourceContent(view: MessageView, value: string) {
     if (!view.sourceEditPath) return;
     if (view.sourceEditPath.startsWith('/localization/messages/')) {
@@ -528,6 +581,154 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         ),
       ),
     ].sort((left, right) => left.localeCompare(right));
+  }
+
+  function renderMergeControls(
+    sourceMessageId: string,
+    sourceLabel: string,
+    excludedTargetMessageId?: string,
+  ) {
+    const availableTargets = namedMessages.filter(([id]) => id !== excludedTargetMessageId);
+    if (availableTargets.length === 0) return null;
+    return (
+      <div className="rounded border bg-muted/30 p-3 text-xs">
+        {mergeDraft?.sourceMessageId === sourceMessageId ? (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor={`merge-target-${sourceMessageId}`}>
+                {t('localizationMessageReuse.mergeIntoNamed')}
+              </Label>
+              <Select
+                value={mergeDraft.targetMessageId}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  setMergeError(null);
+                  setMergeDraft((current) =>
+                    current && current.sourceMessageId === sourceMessageId
+                      ? { ...current, targetMessageId: value, resolutions: {} }
+                      : current,
+                  );
+                }}
+              >
+                <SelectTrigger
+                  id={`merge-target-${sourceMessageId}`}
+                  aria-label={t('localizationMessageReuse.mergeTargetAria', {
+                    label: sourceLabel,
+                  })}
+                >
+                  <SelectValue placeholder={t('localizationMessageReuse.selectNamed')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableTargets.map(([targetId, targetMessage]) => (
+                    <SelectItem key={targetId} value={targetId}>
+                      {targetMessage.key}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {mergeDraft.targetMessageId &&
+              Object.keys(localization.locales).map((locale) => {
+                const sourceTarget = localization.translations[locale]?.[sourceMessageId];
+                const targetTarget =
+                  localization.translations[locale]?.[mergeDraft.targetMessageId];
+                if (
+                  !sourceTarget ||
+                  !targetTarget ||
+                  JSON.stringify(sourceTarget) === JSON.stringify(targetTarget)
+                )
+                  return null;
+                return (
+                  <div key={locale} className="space-y-1 rounded border p-2">
+                    <div className="font-medium">
+                      {t('localizationMessageReuse.mergeConflict', { locale })}
+                    </div>
+                    <div className="text-muted-foreground">
+                      {t('localizationMessageReuse.mergeConflictSummary', {
+                        named: targetTarget.text,
+                        local: sourceTarget.text,
+                      })}
+                    </div>
+                    <Select
+                      value={mergeDraft.resolutions[locale] ?? ''}
+                      onValueChange={(value) => {
+                        if (!value) return;
+                        setMergeDraft((current) =>
+                          current && current.sourceMessageId === sourceMessageId
+                            ? {
+                                ...current,
+                                resolutions: {
+                                  ...current.resolutions,
+                                  [locale]: value as 'target' | 'source',
+                                },
+                              }
+                            : current,
+                        );
+                      }}
+                    >
+                      <SelectTrigger
+                        aria-label={t('localizationMessageReuse.mergeResolutionAria', {
+                          locale,
+                        })}
+                      >
+                        <SelectValue
+                          placeholder={t('localizationMessageReuse.chooseTranslation')}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="target">
+                          {t('localizationMessageReuse.keepNamedTranslation')}
+                        </SelectItem>
+                        <SelectItem value="source">
+                          {t('localizationMessageReuse.useLocalTranslation')}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                );
+              })}
+            {mergeError && <p className="text-destructive">{mergeError}</p>}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={!mergeDraft.targetMessageId}
+                onClick={mergeMessage}
+              >
+                {t('localizationMessageReuse.mergeMessage')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setMergeDraft(null);
+                  setMergeError(null);
+                }}
+              >
+                {t('localizationMessageReuse.cancel')}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setMergeError(null);
+              setMergeDraft({
+                sourceMessageId,
+                targetMessageId: '',
+                resolutions: {},
+              });
+            }}
+          >
+            {t('localizationMessageReuse.mergeIntoNamed')}
+          </Button>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -914,6 +1115,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
               )}
               {namedMessages.map(([messageId, message]) => {
                 const usages = usagePaths(messageId);
+                const namedUsages = namedMessageUsages(project, messageId);
+                const localizableUsages = namedUsages.filter((usage) => usage.rewriteable);
                 return (
                   <section
                     key={messageId}
@@ -989,6 +1192,140 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                         </div>
                       ) : (
                         <div className="mt-1 text-xs text-muted-foreground">No derived usages.</div>
+                      )}
+                      {localizableUsages.length > 0 && (
+                        <div className="mt-3 rounded border bg-muted/30 p-3 text-xs">
+                          {demotionDraft?.messageId === messageId ? (
+                            <div className="space-y-3">
+                              <div className="space-y-1">
+                                <Label htmlFor={`demote-usage-${messageId}`}>
+                                  {t('localizationMessageReuse.usageToMakeLocal')}
+                                </Label>
+                                <Select
+                                  value={demotionDraft.usageId}
+                                  onValueChange={(value) => {
+                                    if (!value) return;
+                                    setDemotionDraft((current) =>
+                                      current && current.messageId === messageId
+                                        ? { ...current, usageId: value }
+                                        : current,
+                                    );
+                                  }}
+                                >
+                                  <SelectTrigger
+                                    id={`demote-usage-${messageId}`}
+                                    aria-label={t('localizationMessageReuse.usageToMakeLocalAria', {
+                                      key: message.key,
+                                    })}
+                                  >
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {localizableUsages.map((usage) => (
+                                      <SelectItem key={usage.id} value={usage.id}>
+                                        {usage.path}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              {namedUsages.length > 1 ? (
+                                <div className="space-y-2">
+                                  <p className="text-muted-foreground">
+                                    {t('localizationMessageReuse.demoteNewIdentity')}
+                                  </p>
+                                  {Object.keys(localization.locales)
+                                    .filter(
+                                      (locale) =>
+                                        locale !== localization.sourceLocale &&
+                                        localization.translations[locale]?.[messageId],
+                                    )
+                                    .map((locale) => {
+                                      const target = localization.translations[locale]![messageId]!;
+                                      return (
+                                        <label key={locale} className="flex items-start gap-2">
+                                          <input
+                                            type="checkbox"
+                                            aria-label={t(
+                                              'localizationMessageReuse.copyDraftAria',
+                                              {
+                                                locale,
+                                                key: message.key,
+                                              },
+                                            )}
+                                            checked={demotionDraft.copyDraftLocales.includes(
+                                              locale,
+                                            )}
+                                            onChange={(event) => {
+                                              const checked = event.currentTarget.checked;
+                                              setDemotionDraft((current) => {
+                                                if (!current || current.messageId !== messageId)
+                                                  return current;
+                                                return {
+                                                  ...current,
+                                                  copyDraftLocales: checked
+                                                    ? [...current.copyDraftLocales, locale]
+                                                    : current.copyDraftLocales.filter(
+                                                        (candidate) => candidate !== locale,
+                                                      ),
+                                                };
+                                              });
+                                            }}
+                                          />
+                                          <span>
+                                            <span className="font-medium">{locale}</span> ·{' '}
+                                            {target.text}
+                                          </span>
+                                        </label>
+                                      );
+                                    })}
+                                </div>
+                              ) : (
+                                <p className="text-muted-foreground">
+                                  {t('localizationMessageReuse.soleUsagePreserves')}
+                                </p>
+                              )}
+                              {demotionError && <p className="text-destructive">{demotionError}</p>}
+                              <div className="flex gap-2">
+                                <Button type="button" size="sm" onClick={demoteMessageUsage}>
+                                  {t('localizationMessageReuse.makeLocal')}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setDemotionDraft(null);
+                                    setDemotionError(null);
+                                  }}
+                                >
+                                  {t('localizationMessageReuse.cancel')}
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setDemotionError(null);
+                                setDemotionDraft({
+                                  messageId,
+                                  usageId: localizableUsages[0]!.id,
+                                  copyDraftLocales: [],
+                                });
+                              }}
+                            >
+                              {t('localizationMessageReuse.makeUsageLocal')}
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                      {namedMessages.length > 1 && (
+                        <div className="mt-3">
+                          {renderMergeControls(messageId, message.key, messageId)}
+                        </div>
                       )}
                     </div>
                   </section>
@@ -1196,6 +1533,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                             </Button>
                           )}
                         </div>
+                      )}
+                      {message.kind === 'local' && namedMessages.length > 0 && (
+                        <div className="mb-3">{renderMergeControls(messageId, label)}</div>
                       )}
                       <div className="grid gap-3 @3xl:grid-cols-2">
                         <div className="space-y-1">

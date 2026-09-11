@@ -53,9 +53,17 @@ Localization workspace joins these derived Messages with explicit Messages for t
 views. Identical local source text is only an informational reuse hint. Promotion to a named Message
 keeps the canonical stable Message ID and target/review/provenance work, then rewrites only explicitly
 selected supported structured, managed Lua, and RML usages to the named key in one Project mutation.
-Conflicting target work blocks linking instead of being discarded. Named-key rename similarly updates
-all recognized structured named references, managed `Text.msg` calls, RML `<nt-tr key>` references,
-and typed Message Property values without retaining an old-key alias. Human material edits through the Localization workspace create current Human + Needs review
+Conflicting target work blocks linking instead of being discarded. Making one usage of a shared named
+Message local rewrites that supported structured/Lua/RML usage transactionally; it gets a new stable
+Message identity when other named references remain, while demoting the sole remaining usage preserves
+the existing stable identity. Existing target work is only copied to a newly independent local Message
+when the author explicitly selects the disclosed locale/content drafts, and every copied target becomes
+Needs review. Merging an independent local or named Message into a named Message requires an explicit
+per-locale choice wherever both identities carry differing target work, so no translation is silently
+lost. Record duplication keeps named references as references while duplicated local structured ownership
+derives an independent Message identity. Named-key rename similarly updates all recognized structured
+named references, managed `Text.msg` calls, RML `<nt-tr key>` references, and typed Message Property
+values without retaining an old-key alias. Human material edits through the Localization workspace create current Human + Needs review
 content; reviewing unchanged AI content preserves AI origin. Accepting an unchanged target against a
 new source fingerprint advances freshness without changing review. `/localization` remains the
 `project:localization` manual save unit, so language, explicit Message, and target-translation edits

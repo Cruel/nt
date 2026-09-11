@@ -38,6 +38,26 @@ export type PromoteAndLinkResult =
   | { ok: true; patches: readonly LocalizationMessagePatch[] }
   | { ok: false; message: string };
 
+export interface NamedMessageUsage {
+  readonly id: string;
+  readonly path: string;
+  readonly rewriteable: boolean;
+}
+
+export type DemoteNamedMessageResult =
+  | {
+      ok: true;
+      patches: readonly LocalizationMessagePatch[];
+      messageId: string;
+      copiedLocales: readonly string[];
+    }
+  | { ok: false; message: string };
+
+export type MergeMessageResolution = 'target' | 'source';
+export type MergeMessageResult =
+  | { ok: true; patches: readonly LocalizationMessagePatch[] }
+  | { ok: false; message: string; conflicts?: readonly string[] };
+
 function escapePointer(value: string): string {
   return value.replaceAll('~', '~0').replaceAll('/', '~1');
 }
@@ -213,6 +233,489 @@ export function renameMessageValueReferencePatches(
 
 function sameTranslation(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+type NamedMessageUsageDetail = NamedMessageUsage &
+  (
+    | { family: 'structured'; messagePath: string }
+    | { family: 'typed' }
+    | { family: 'lua'; sourceKey: string; start: number }
+    | { family: 'rml'; sourceKey: string; start: number; end: number }
+  );
+
+function namedMessageUsageDetails(
+  project: AuthoringProject,
+  messageId: string,
+): NamedMessageUsageDetail[] {
+  const message = project.localization.messages[messageId];
+  if (!message || message.kind !== 'named') return [];
+  const usages: NamedMessageUsageDetail[] = [];
+  const visit = (value: unknown, segments: string[]) => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, [...segments, String(index)]));
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    const record = value as Record<string, unknown>;
+    const source = record.source;
+    if (
+      source &&
+      typeof source === 'object' &&
+      !Array.isArray(source) &&
+      (source as Record<string, unknown>).kind === 'localized' &&
+      (source as Record<string, unknown>).key === message.key &&
+      (record.markup === 'plain' || record.markup === 'active-text')
+    ) {
+      const messagePath = buildJsonPointer(segments);
+      const path = `${messagePath}/source`;
+      usages.push({
+        id: `structured:${path}`,
+        path,
+        rewriteable: true,
+        family: 'structured',
+        messagePath,
+      });
+      return;
+    }
+    if (Object.keys(record).length === 1 && record.$message === message.key) {
+      const path = buildJsonPointer([...segments, '$message']);
+      usages.push({ id: `typed:${path}`, path, rewriteable: false, family: 'typed' });
+      return;
+    }
+    for (const [childKey, child] of Object.entries(record)) visit(child, [...segments, childKey]);
+  };
+  visit(project, []);
+
+  for (const source of collectManagedLuaLocalizationSources(project)) {
+    for (const occurrence of analyzeManagedLuaLocalization(source.text).occurrences) {
+      if (occurrence.kind !== 'named' || occurrence.source !== message.key) continue;
+      usages.push({
+        id: `lua:${source.sourceKey}:${occurrence.callStartUtf16}`,
+        path: source.source.sourcePath,
+        rewriteable: true,
+        family: 'lua',
+        sourceKey: source.sourceKey,
+        start: occurrence.callStartUtf16,
+      });
+    }
+  }
+
+  const rmlPattern =
+    /<nt-tr\b[^>]*\bkey\s*=\s*(["'])([^"']*)\1[^>]*(?:\/\s*>|>[\s\S]*?<\/nt-tr\s*>)/giu;
+  for (const source of collectRmlLocalizationSources(project)) {
+    for (const match of source.text.matchAll(rmlPattern)) {
+      if ((match[2] ?? '').trim() !== message.key || match.index === undefined) continue;
+      usages.push({
+        id: `rml:${source.sourceKey}:${match.index}`,
+        path: source.source.sourcePath,
+        rewriteable: true,
+        family: 'rml',
+        sourceKey: source.sourceKey,
+        start: match.index,
+        end: match.index + match[0].length,
+      });
+    }
+  }
+  return usages.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+export function namedMessageUsages(
+  project: AuthoringProject,
+  messageId: string,
+): readonly NamedMessageUsage[] {
+  return Object.freeze(
+    namedMessageUsageDetails(project, messageId).map(({ id, path, rewriteable }) => ({
+      id,
+      path,
+      rewriteable,
+    })),
+  );
+}
+
+export function demoteNamedMessageUsage(
+  project: AuthoringProject,
+  messageId: string,
+  usageId: string,
+  options: Readonly<{ newMessageId?: string; copyDraftLocales: readonly string[] }>,
+): DemoteNamedMessageResult {
+  const message = project.localization.messages[messageId];
+  if (!message || message.kind !== 'named')
+    return { ok: false, message: 'Only a named Message can be made local.' };
+  const usages = namedMessageUsageDetails(project, messageId);
+  const usage = usages.find((candidate) => candidate.id === usageId);
+  if (!usage || !usage.rewriteable)
+    return { ok: false, message: 'The selected named Message usage cannot be made local.' };
+
+  const preserveIdentity = usages.length === 1;
+  const localMessageId = preserveIdentity ? messageId : options.newMessageId;
+  if (!localMessageId)
+    return {
+      ok: false,
+      message: 'Making one of several named usages local requires a new Message ID.',
+    };
+  if (!preserveIdentity && localMessageId === messageId)
+    return { ok: false, message: 'The new local Message must have an independent Message ID.' };
+
+  const patches: LocalizationMessagePatch[] = [];
+  let changedSourceKey: string | null = null;
+  if (usage.family === 'structured') {
+    patches.push({
+      op: 'replace',
+      path: usage.path,
+      value: { kind: 'inline', text: message.source },
+    });
+    patches.push({
+      op: Object.hasOwn(project.localization.structuredMessageIds, usage.messagePath)
+        ? 'replace'
+        : 'add',
+      path: `/localization/structuredMessageIds/${escapePointer(usage.messagePath)}`,
+      value: localMessageId,
+    });
+  } else if (usage.family === 'lua') {
+    const source = collectManagedLuaLocalizationSources(project).find(
+      (candidate) => candidate.sourceKey === usage.sourceKey,
+    );
+    if (!source) return { ok: false, message: 'The selected Lua Message usage no longer exists.' };
+    const occurrence = analyzeManagedLuaLocalization(source.text).occurrences.find(
+      (candidate) => candidate.kind === 'named' && candidate.callStartUtf16 === usage.start,
+    );
+    if (!occurrence)
+      return { ok: false, message: 'The selected Lua Message usage no longer exists.' };
+    const args =
+      occurrence.runtimeArgsStartUtf16 === undefined
+        ? ''
+        : `, ${source.text.slice(occurrence.runtimeArgsStartUtf16, occurrence.runtimeArgsEndUtf16)}`;
+    const metadataEntries = [
+      message.context === undefined ? null : `context = ${luaQuote(message.context)}`,
+      message.translatorNote === undefined ? null : `note = ${luaQuote(message.translatorNote)}`,
+    ].filter((entry): entry is string => entry !== null);
+    const metadata = metadataEntries.length > 0 ? `, { ${metadataEntries.join(', ')} }` : '';
+    const nilArgs = metadata && !args ? ', nil' : '';
+    patches.push({
+      op: 'replace',
+      path: source.source.sourcePath,
+      value: replaceRanges(source.text, [
+        {
+          start: occurrence.callStartUtf16,
+          end: occurrence.callEndUtf16,
+          replacement: `Text.tr(${luaQuote(message.source)}${args}${nilArgs}${metadata})`,
+        },
+      ]),
+    });
+    changedSourceKey = usage.sourceKey;
+  } else if (usage.family === 'rml') {
+    const source = collectRmlLocalizationSources(project).find(
+      (candidate) => candidate.sourceKey === usage.sourceKey,
+    );
+    if (!source) return { ok: false, message: 'The selected RML Message usage no longer exists.' };
+    const authored = source.text.slice(usage.start, usage.end);
+    const openEnd = authored.indexOf('>');
+    if (openEnd < 0) return { ok: false, message: 'The selected RML Message usage is malformed.' };
+    const openTag = authored.slice(0, openEnd + 1).replace(/\s+key\s*=\s*(["'])[^"']*\1/iu, '');
+    const replacement = /\/\s*>$/u.test(openTag)
+      ? `${openTag.replace(/\/\s*>$/u, '>')}${message.source}</nt-tr>`
+      : `${openTag}${message.source}</nt-tr>`;
+    patches.push({
+      op: 'replace',
+      path: source.source.sourcePath,
+      value: replaceRanges(source.text, [{ start: usage.start, end: usage.end, replacement }]),
+    });
+    changedSourceKey = usage.sourceKey;
+  } else {
+    return { ok: false, message: 'Typed Message references must remain named references.' };
+  }
+
+  const refreshChangedTracking = () => {
+    if (!changedSourceKey) return null;
+    const candidateProject = authoringProjectSchema.parse(
+      applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[]).document,
+    );
+    const synchronized = synchronizeLocalizationMessageTracking(candidateProject);
+    const unresolved = synchronized.unresolved.find(
+      (item) => `${item.family}:${item.ownerKey}:${item.sourcePath}` === changedSourceKey,
+    );
+    if (unresolved)
+      return `Localization tracking for '${unresolved.sourcePath}' became ambiguous during demotion.`;
+    const tracking = structuredClone(synchronized.project.localization.sourceMessageTracking);
+    const entry = tracking[changedSourceKey];
+    if (!entry) return 'The demoted Message did not produce localization tracking.';
+    const previousIds = new Set(
+      project.localization.sourceMessageTracking[changedSourceKey]?.occurrences.map(
+        (occurrence) => occurrence.messageId,
+      ) ?? [],
+    );
+    const occurrence =
+      entry.occurrences.find(
+        (candidate) =>
+          candidate.sourceSnapshot === message.source && !previousIds.has(candidate.messageId),
+      ) ?? entry.occurrences.find((candidate) => candidate.sourceSnapshot === message.source);
+    if (!occurrence) return 'The demoted Message could not be identified in localization tracking.';
+    occurrence.messageId = localMessageId;
+    patches.push({
+      op: 'replace',
+      path: '/localization/sourceMessageTracking',
+      value: tracking,
+    });
+    return null;
+  };
+
+  if (preserveIdentity) {
+    patches.push({
+      op: 'remove',
+      path: `/localization/messages/${escapePointer(messageId)}`,
+    });
+    const trackingError = refreshChangedTracking();
+    if (trackingError) return { ok: false, message: trackingError };
+    return { ok: true, patches, messageId: localMessageId, copiedLocales: [] };
+  }
+
+  const copiedLocales: string[] = [];
+  for (const locale of options.copyDraftLocales) {
+    const sourceTarget = project.localization.translations[locale]?.[messageId];
+    if (!sourceTarget) continue;
+    const localeTargets = project.localization.translations[locale];
+    const copiedTarget = { ...sourceTarget, review: 'needs-review' as const };
+    if (!localeTargets) {
+      patches.push({
+        op: 'add',
+        path: `/localization/translations/${escapePointer(locale)}`,
+        value: { [localMessageId]: copiedTarget },
+      });
+    } else {
+      patches.push({
+        op: Object.hasOwn(localeTargets, localMessageId) ? 'replace' : 'add',
+        path: `/localization/translations/${escapePointer(locale)}/${escapePointer(localMessageId)}`,
+        value: copiedTarget,
+      });
+    }
+    copiedLocales.push(locale);
+  }
+  const trackingError = refreshChangedTracking();
+  if (trackingError) return { ok: false, message: trackingError };
+  return { ok: true, patches, messageId: localMessageId, copiedLocales };
+}
+
+function rewriteLocalMessageIntoNamed(
+  project: AuthoringProject,
+  messageId: string,
+  key: string,
+): PromoteAndLinkResult {
+  const patches: LocalizationMessagePatch[] = [];
+  const structured = structuredMessageById(project, messageId);
+  if (structured?.text?.source.kind === 'inline') {
+    patches.push({
+      op: 'replace',
+      path: `${structured.path}/source`,
+      value: { kind: 'localized', key },
+    });
+    if (Object.hasOwn(project.localization.structuredMessageIds, structured.path))
+      patches.push({
+        op: 'remove',
+        path: `/localization/structuredMessageIds/${escapePointer(structured.path)}`,
+      });
+  }
+
+  const changedSourceKeys = new Set<string>();
+  for (const source of collectManagedLuaLocalizationSources(project)) {
+    const analyzed = analyzeManagedLuaLocalization(source.text);
+    const edits: { start: number; end: number; replacement: string }[] = [];
+    analyzed.occurrences.forEach((occurrence, ordinal) => {
+      if (occurrence.kind !== 'local') return;
+      const candidate = source.source.occurrences[ordinal];
+      if (!candidate) return;
+      const id = resolveLocalizationSourceIdentity(
+        project.localization,
+        source.source,
+        candidate,
+      ).messageId;
+      if (id !== messageId) return;
+      const args =
+        occurrence.runtimeArgsStartUtf16 === undefined
+          ? ''
+          : `, ${source.text.slice(occurrence.runtimeArgsStartUtf16, occurrence.runtimeArgsEndUtf16)}`;
+      edits.push({
+        start: occurrence.callStartUtf16,
+        end: occurrence.callEndUtf16,
+        replacement: `Text.msg(${luaQuote(key)}${args})`,
+      });
+    });
+    if (edits.length > 0) {
+      changedSourceKeys.add(source.sourceKey);
+      patches.push({
+        op: 'replace',
+        path: source.source.sourcePath,
+        value: replaceRanges(source.text, edits),
+      });
+    }
+  }
+
+  for (const source of collectRmlLocalizationSources(project)) {
+    const edits: { start: number; end: number; replacement: string }[] = [];
+    source.localNodes.forEach((node, ordinal) => {
+      const candidate = source.source.occurrences[ordinal];
+      if (!candidate) return;
+      const id = resolveLocalizationSourceIdentity(
+        project.localization,
+        source.source,
+        candidate,
+      ).messageId;
+      if (id !== messageId) return;
+      const openTag = node.selfClosing
+        ? node.openTag.replace(/\/\s*>$/u, ` key=${JSON.stringify(key)} />`)
+        : node.openTag.replace(/>$/u, ` key=${JSON.stringify(key)}>`);
+      edits.push({
+        start: node.start,
+        end: node.end,
+        replacement: node.selfClosing ? openTag : `${openTag}</nt-tr>`,
+      });
+    });
+    if (edits.length > 0) {
+      changedSourceKeys.add(source.sourceKey);
+      patches.push({
+        op: 'replace',
+        path: source.source.sourcePath,
+        value: replaceRanges(source.text, edits),
+      });
+    }
+  }
+
+  if (patches.length === 0)
+    return {
+      ok: false,
+      message: 'This local Message does not have a supported merge refactor path.',
+    };
+
+  const tracking = structuredClone(project.localization.sourceMessageTracking);
+  let trackingChanged = false;
+  for (const [trackingKey, entry] of Object.entries(tracking)) {
+    const occurrences = entry.occurrences.filter(
+      (occurrence) => occurrence.messageId !== messageId,
+    );
+    if (occurrences.length === entry.occurrences.length) continue;
+    trackingChanged = true;
+    if (occurrences.length === 0) delete tracking[trackingKey];
+    else tracking[trackingKey] = { ...entry, occurrences };
+  }
+  if (trackingChanged)
+    patches.push({ op: 'replace', path: '/localization/sourceMessageTracking', value: tracking });
+
+  if (changedSourceKeys.size > 0) {
+    const candidateProject = authoringProjectSchema.parse(
+      applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[]).document,
+    );
+    const synchronized = synchronizeLocalizationMessageTracking(candidateProject);
+    const unresolvedChangedSource = synchronized.unresolved.find((item) =>
+      changedSourceKeys.has(`${item.family}:${item.ownerKey}:${item.sourcePath}`),
+    );
+    if (unresolvedChangedSource)
+      return {
+        ok: false,
+        message: `Localization tracking for '${unresolvedChangedSource.sourcePath}' became ambiguous during merge.`,
+      };
+    const refreshedTracking = structuredClone(tracking);
+    for (const sourceKey of changedSourceKeys) {
+      const refreshed = synchronized.project.localization.sourceMessageTracking[sourceKey];
+      if (refreshed) refreshedTracking[sourceKey] = refreshed;
+      else delete refreshedTracking[sourceKey];
+    }
+    const trackingPatch = patches.find(
+      (patch) => patch.path === '/localization/sourceMessageTracking',
+    );
+    if (trackingPatch && trackingPatch.op !== 'remove') trackingPatch.value = refreshedTracking;
+    else if (
+      JSON.stringify(refreshedTracking) !==
+      JSON.stringify(project.localization.sourceMessageTracking)
+    )
+      patches.push({
+        op: 'replace',
+        path: '/localization/sourceMessageTracking',
+        value: refreshedTracking,
+      });
+  }
+  return { ok: true, patches };
+}
+
+export function mergeMessageIntoNamed(
+  project: AuthoringProject,
+  sourceMessageId: string,
+  targetMessageId: string,
+  resolutions: Readonly<Record<string, MergeMessageResolution>>,
+): MergeMessageResult {
+  if (sourceMessageId === targetMessageId)
+    return { ok: false, message: 'Choose two different Messages to merge.' };
+  const source = localizationMessageWorkflowView(project, sourceMessageId);
+  const target = localizationMessageWorkflowView(project, targetMessageId);
+  const targetMessage = project.localization.messages[targetMessageId];
+  if (!source) return { ok: false, message: `Message '${sourceMessageId}' does not exist.` };
+  if (!target || !targetMessage || targetMessage.kind !== 'named')
+    return { ok: false, message: 'The merge target must be a named Message.' };
+
+  const conflicts: string[] = [];
+  for (const locale of Object.keys(project.localization.locales)) {
+    const sourceTarget = project.localization.translations[locale]?.[sourceMessageId];
+    const targetTarget = project.localization.translations[locale]?.[targetMessageId];
+    if (
+      sourceTarget &&
+      targetTarget &&
+      !sameTranslation(sourceTarget, targetTarget) &&
+      !resolutions[locale]
+    )
+      conflicts.push(locale);
+  }
+  if (conflicts.length > 0)
+    return {
+      ok: false,
+      message: `Target work for locale '${conflicts[0]}' conflicts; choose which translation to keep.`,
+      conflicts,
+    };
+
+  const patches: LocalizationMessagePatch[] = [];
+  if (source.kind === 'local') {
+    const rewrite = rewriteLocalMessageIntoNamed(project, sourceMessageId, targetMessage.key);
+    if (!rewrite.ok) return rewrite;
+    patches.push(...rewrite.patches);
+  } else {
+    const sourceMessage = project.localization.messages[sourceMessageId];
+    if (!sourceMessage || sourceMessage.kind !== 'named')
+      return { ok: false, message: 'The source Message cannot be merged.' };
+    patches.push(
+      ...renameMessageValueReferencePatches(project, sourceMessage.key, targetMessage.key),
+    );
+    patches.push({
+      op: 'remove',
+      path: `/localization/messages/${escapePointer(sourceMessageId)}`,
+    });
+  }
+
+  for (const locale of Object.keys(project.localization.locales)) {
+    const localeTargets = project.localization.translations[locale];
+    if (!localeTargets) continue;
+    const sourceTarget = localeTargets[sourceMessageId];
+    const targetTarget = localeTargets[targetMessageId];
+    const resolution = resolutions[locale];
+    if (sourceTarget && (!targetTarget || resolution === 'source')) {
+      const selected =
+        source.sourceFingerprint === target.sourceFingerprint
+          ? sourceTarget
+          : {
+              ...sourceTarget,
+              sourceFingerprint: target.sourceFingerprint,
+              review: 'needs-review' as const,
+            };
+      patches.push({
+        op: targetTarget ? 'replace' : 'add',
+        path: `/localization/translations/${escapePointer(locale)}/${escapePointer(targetMessageId)}`,
+        value: selected,
+      });
+    }
+    if (sourceTarget)
+      patches.push({
+        op: 'remove',
+        path: `/localization/translations/${escapePointer(locale)}/${escapePointer(sourceMessageId)}`,
+      });
+  }
+
+  return { ok: true, patches };
 }
 
 export function promoteAndLinkLocalMessages(

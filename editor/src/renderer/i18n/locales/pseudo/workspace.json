@@ -101,7 +101,26 @@
     "cancel": "⟦Cancel⟧",
     "promote": "⟦Promote to named Message⟧",
     "invalidKey": "⟦Enter a valid semantic key.⟧",
-    "commandLabel": "⟦Promote Message to {{key}}⟧"
+    "commandLabel": "⟦Promote Message to {{key}}⟧",
+    "makeUsageLocal": "⟦Make usage local⟧",
+    "usageToMakeLocal": "⟦Usage to make local⟧",
+    "usageToMakeLocalAria": "⟦Usage to make local for {{key}}⟧",
+    "demoteNewIdentity": "⟦This usage gets a new independent Message identity. You can copy existing targets as draft starting material; copied targets are always Needs review.⟧",
+    "copyDraftAria": "⟦Copy {{locale}} draft for {{key}}⟧",
+    "soleUsagePreserves": "⟦This is the sole named usage, so its stable Message identity and existing target history are preserved.⟧",
+    "makeLocal": "⟦Make local⟧",
+    "mergeIntoNamed": "⟦Merge into named Message⟧",
+    "mergeTargetAria": "⟦Merge target for {{label}}⟧",
+    "selectNamed": "⟦Select a named Message⟧",
+    "mergeConflict": "⟦{{locale}} conflict⟧",
+    "mergeConflictSummary": "⟦Named: {{named}} · Local: {{local}}⟧",
+    "mergeResolutionAria": "⟦Resolve {{locale}} merge conflict⟧",
+    "chooseTranslation": "⟦Choose translation⟧",
+    "keepNamedTranslation": "⟦Keep named translation⟧",
+    "useLocalTranslation": "⟦Use local translation⟧",
+    "mergeMessage": "⟦Merge Message⟧",
+    "demoteCommandLabel": "⟦Make named Message usage local⟧",
+    "mergeCommandLabel": "⟦Merge Message into named Message⟧"
   },
   "assetProfiler": {
     "tabs": {
