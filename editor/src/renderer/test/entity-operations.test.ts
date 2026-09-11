@@ -89,6 +89,39 @@ describe('authoring entity operations', () => {
     expect(undoCommand(result.state).state.document).toEqual(state.document);
   });
 
+  it('duplicates local Message ownership independently while preserving named references', () => {
+    const project = projectWithRooms();
+    project.localization.messages['11111111-1111-4111-8111-111111111111'] = {
+      kind: 'named',
+      key: 'ui.shared.room-title',
+      source: 'Shared title',
+    };
+    project.rooms.foyer!.data.displayName = 'Local room name';
+    project.rooms.foyer!.data.description = {
+      markup: 'plain',
+      source: { kind: 'localized', key: 'ui.shared.room-title' },
+    };
+    const sourceLocalId = structuredMessageForPath(project, '/rooms/foyer/data/displayName')!.id;
+    const state = createInitialCommandBusState(toJsonValue(project));
+
+    const result = executeCommand(state, {
+      type: 'entity.duplicateRecord',
+      payload: { collection: 'rooms', sourceId: 'foyer', targetId: 'foyer-copy' },
+    });
+
+    expect(result.ok).toBe(true);
+    const duplicated = authoringProjectSchema.parse(result.state.document);
+    const copiedLocalId = structuredMessageForPath(
+      duplicated,
+      '/rooms/foyer-copy/data/displayName',
+    )!.id;
+    expect(copiedLocalId).not.toBe(sourceLocalId);
+    expect(duplicated.rooms['foyer-copy']!.data.description.source).toEqual({
+      kind: 'localized',
+      key: 'ui.shared.room-title',
+    });
+  });
+
   it('blocks referenced deletes unless forced', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
     expect(

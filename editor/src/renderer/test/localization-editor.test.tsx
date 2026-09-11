@@ -13,6 +13,7 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   createLocalizationTranslation,
   localizationMessageWorkflowView,
+  localizationMessageWorkflowViews,
 } from '../../shared/authoring-localization-workflow';
 import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
 import { testTranslation } from './fixtures/localization-workflow';
@@ -232,6 +233,171 @@ describe('LocalizationEditor', () => {
       key: 'ui.shared.same',
       source: 'Same words',
     });
+  });
+
+  it('merges a named Message into another named Message from the Messages surface', async () => {
+    const user = userEvent.setup();
+    const project = loadProject();
+    const sourceId = '11111111-1111-4111-8111-111111111111';
+    const targetId = '22222222-2222-4222-8222-222222222222';
+    project.localization.messages[sourceId] = {
+      kind: 'named',
+      key: 'ui.old.confirm',
+      source: 'Confirm',
+    };
+    project.localization.messages[targetId] = {
+      kind: 'named',
+      key: 'ui.confirm',
+      source: 'Confirm',
+    };
+    const room = defaultRoomData('Room');
+    room.description = {
+      markup: 'active-text',
+      source: { kind: 'localized', key: 'ui.old.confirm' },
+    };
+    project.rooms.room = { id: 'room', label: 'Room', data: room };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Messages' }));
+    const sourceSection = screen.getByDisplayValue('ui.old.confirm').closest('section')!;
+    await user.click(
+      within(sourceSection).getByRole('button', { name: 'Merge into named Message' }),
+    );
+    await user.click(
+      within(sourceSection).getByRole('combobox', { name: 'Merge target for ui.old.confirm' }),
+    );
+    await user.click(await screen.findByRole('option', { name: 'ui.confirm' }));
+    await user.click(within(sourceSection).getByRole('button', { name: 'Merge Message' }));
+
+    const updated = useProjectStore.getState().document as AuthoringProject;
+    expect(updated.localization.messages[sourceId]).toBeUndefined();
+    expect(updated.localization.messages[targetId]).toBeDefined();
+    expect(updated.rooms.room!.data.description.source).toEqual({
+      kind: 'localized',
+      key: 'ui.confirm',
+    });
+  });
+
+  it('shows explicit draft reuse when making one named usage local', async () => {
+    const user = userEvent.setup();
+    const project = loadProject();
+    const messageId = '11111111-1111-4111-8111-111111111111';
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.shared.hello',
+      source: 'Hello',
+    };
+    const first = defaultRoomData('First');
+    first.description = {
+      markup: 'active-text',
+      source: { kind: 'localized', key: 'ui.shared.hello' },
+    };
+    const second = defaultRoomData('Second');
+    second.description = {
+      markup: 'active-text',
+      source: { kind: 'localized', key: 'ui.shared.hello' },
+    };
+    project.rooms.first = { id: 'first', label: 'First', data: first };
+    project.rooms.second = { id: 'second', label: 'Second', data: second };
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    const view = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Bonjour', 'human', { review: 'reviewed' }),
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Messages' }));
+    await user.click(screen.getByRole('button', { name: 'Make usage local' }));
+
+    expect(screen.getByText(/new independent Message identity/i)).toBeInTheDocument();
+    expect(screen.getByText(/Bonjour/)).toBeInTheDocument();
+    const copyDraft = screen.getByRole('checkbox', { name: 'Copy fr draft for ui.shared.hello' });
+    expect(copyDraft).not.toBeChecked();
+    await user.click(copyDraft);
+    await user.click(screen.getByRole('button', { name: 'Make local' }));
+
+    const updated = useProjectStore.getState().document as AuthoringProject;
+    const localIds = Object.values(updated.localization.structuredMessageIds).filter(
+      (id) => id !== messageId,
+    );
+    expect(localIds).toHaveLength(1);
+    expect(updated.localization.translations.fr?.[localIds[0]!]).toMatchObject({
+      text: 'Bonjour',
+      review: 'needs-review',
+    });
+    expect(updated.localization.translations.fr?.[messageId]).toMatchObject({ review: 'reviewed' });
+  });
+
+  it('requires an explicit locale choice before merging conflicting translations', async () => {
+    const user = userEvent.setup();
+    const project = loadProject();
+    const namedId = '11111111-1111-4111-8111-111111111111';
+    project.localization.messages[namedId] = {
+      kind: 'named',
+      key: 'ui.confirm',
+      source: 'Confirm',
+    };
+    const room = defaultRoomData('Room');
+    room.description = inlineTextContent('Continue');
+    project.rooms.room = { id: 'room', label: 'Room', data: room };
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    const localView = localizationMessageWorkflowViews(project).find(
+      (view) => view.source === 'Continue',
+    )!;
+    const namedView = localizationMessageWorkflowView(project, namedId)!;
+    project.localization.translations.fr = {
+      [namedId]: createLocalizationTranslation(namedView, 'Confirmer', 'human', {
+        review: 'reviewed',
+      }),
+      [localView.id]: createLocalizationTranslation(localView, 'Continuer', 'human', {
+        review: 'reviewed',
+      }),
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    const continueSection = screen.getByDisplayValue('Continue').closest('section')!;
+    await user.click(
+      within(continueSection).getByRole('button', { name: 'Merge into named Message' }),
+    );
+    await user.click(
+      within(continueSection).getByRole('combobox', { name: 'Merge target for Continue' }),
+    );
+    await user.click(await screen.findByRole('option', { name: 'ui.confirm' }));
+
+    expect(screen.getByText('Named: Confirmer · Local: Continuer')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Merge Message' }));
+    expect(screen.getByText(/choose which translation to keep/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: 'Resolve fr merge conflict' }));
+    await user.click(await screen.findByRole('option', { name: 'Use local translation' }));
+    await user.click(screen.getByRole('button', { name: 'Merge Message' }));
+
+    const updated = useProjectStore.getState().document as AuthoringProject;
+    expect(updated.rooms.room!.data.description.source).toEqual({
+      kind: 'localized',
+      key: 'ui.confirm',
+    });
+    expect(updated.localization.translations.fr?.[namedId]).toMatchObject({
+      text: 'Continuer',
+      review: 'needs-review',
+    });
+    expect(updated.localization.translations.fr?.[localView.id]).toBeUndefined();
   });
 
   it('attributes structured source edits to the owning record save unit', async () => {

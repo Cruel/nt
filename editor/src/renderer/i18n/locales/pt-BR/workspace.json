@@ -101,7 +101,26 @@
     "cancel": "Cancelar",
     "promote": "Promover para Mensagem nomeada",
     "invalidKey": "Insira uma chave semântica válida.",
-    "commandLabel": "Promover Mensagem para {{key}}"
+    "commandLabel": "Promover Mensagem para {{key}}",
+    "makeUsageLocal": "Tornar uso local",
+    "usageToMakeLocal": "Uso a tornar local",
+    "usageToMakeLocalAria": "Uso a tornar local para {{key}}",
+    "demoteNewIdentity": "Este uso recebe uma nova identidade de Mensagem independente. Você pode copiar traduções existentes como rascunho inicial; traduções copiadas sempre ficam como Precisa de revisão.",
+    "copyDraftAria": "Copiar rascunho de {{locale}} para {{key}}",
+    "soleUsagePreserves": "Este é o único uso nomeado, portanto a identidade estável da Mensagem e o histórico existente de traduções são preservados.",
+    "makeLocal": "Tornar local",
+    "mergeIntoNamed": "Mesclar em Mensagem nomeada",
+    "mergeTargetAria": "Destino da mesclagem para {{label}}",
+    "selectNamed": "Selecionar uma Mensagem nomeada",
+    "mergeConflict": "Conflito em {{locale}}",
+    "mergeConflictSummary": "Nomeada: {{named}} · Local: {{local}}",
+    "mergeResolutionAria": "Resolver conflito de mesclagem em {{locale}}",
+    "chooseTranslation": "Escolher tradução",
+    "keepNamedTranslation": "Manter tradução nomeada",
+    "useLocalTranslation": "Usar tradução local",
+    "mergeMessage": "Mesclar Mensagem",
+    "demoteCommandLabel": "Tornar local um uso de Mensagem nomeada",
+    "mergeCommandLabel": "Mesclar Mensagem em Mensagem nomeada"
   },
   "assetProfiler": {
     "tabs": {
