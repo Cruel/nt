@@ -3,6 +3,98 @@
 namespace noveltea::core::compiled::wire::detail {
 namespace {
 
+std::optional<MessagePattern> decode_message_pattern(Decoder& decoder, const nlohmann::json& value,
+                                                     std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"nodes", "root"}))
+        return std::nullopt;
+    const auto* root_value = decoder.member(value, "root", pointer);
+    const auto* nodes_value = decoder.member(value, "nodes", pointer);
+    auto root = root_value ? decoder.unsigned_integer<std::uint32_t>(*root_value,
+                                                                     pointer_child(pointer, "root"))
+                           : std::nullopt;
+    auto nodes =
+        nodes_value
+            ? decoder.array<MessagePatternNode>(
+                  *nodes_value, pointer_child(pointer, "nodes"),
+                  [&](const nlohmann::json& node,
+                      const std::string& node_pointer) -> std::optional<MessagePatternNode> {
+                      const auto* kind_value = decoder.member(node, "kind", node_pointer);
+                      auto kind = kind_value ? decoder.string(*kind_value,
+                                                              pointer_child(node_pointer, "kind"))
+                                             : std::nullopt;
+                      if (!kind)
+                          return std::nullopt;
+                      if (*kind == "text") {
+                          if (!decoder.object(node, node_pointer, {"kind", "text"}))
+                              return std::nullopt;
+                          const auto* text_value = decoder.member(node, "text", node_pointer);
+                          auto text =
+                              text_value
+                                  ? decoder.string(*text_value, pointer_child(node_pointer, "text"))
+                                  : std::nullopt;
+                          if (!text)
+                              return std::nullopt;
+                          return MessagePatternNode{
+                              MessagePatternNodeKind::Text, std::move(*text), {}, {}};
+                      }
+                      if (*kind != "plural" && *kind != "select") {
+                          decoder.error(k_code_variant,
+                                        "Unknown Message pattern node kind '" + *kind + "'.",
+                                        pointer_child(node_pointer, "kind"));
+                          return std::nullopt;
+                      }
+                      if (!decoder.object(node, node_pointer, {"argument", "cases", "kind"}))
+                          return std::nullopt;
+                      const auto* argument_value = decoder.member(node, "argument", node_pointer);
+                      const auto* cases_value = decoder.member(node, "cases", node_pointer);
+                      auto argument =
+                          argument_value
+                              ? decoder.string(*argument_value,
+                                               pointer_child(node_pointer, "argument"), false, true)
+                              : std::nullopt;
+                      auto cases =
+                          cases_value
+                              ? decoder.array<MessagePatternCase>(
+                                    *cases_value, pointer_child(node_pointer, "cases"),
+                                    [&](const nlohmann::json& item, const std::string& item_pointer)
+                                        -> std::optional<MessagePatternCase> {
+                                        if (!decoder.object(item, item_pointer, {"key", "node"}))
+                                            return std::nullopt;
+                                        const auto* key_value =
+                                            decoder.member(item, "key", item_pointer);
+                                        const auto* child_value =
+                                            decoder.member(item, "node", item_pointer);
+                                        auto key =
+                                            key_value
+                                                ? decoder.string(*key_value,
+                                                                 pointer_child(item_pointer, "key"),
+                                                                 false, true)
+                                                : std::nullopt;
+                                        auto child = child_value
+                                                         ? decoder.unsigned_integer<std::uint32_t>(
+                                                               *child_value,
+                                                               pointer_child(item_pointer, "node"))
+                                                         : std::nullopt;
+                                        if (!key || !child)
+                                            return std::nullopt;
+                                        return MessagePatternCase{std::move(*key), *child};
+                                    })
+                              : std::nullopt;
+                      if (!argument || !cases)
+                          return std::nullopt;
+                      return MessagePatternNode{*kind == "plural" ? MessagePatternNodeKind::Plural
+                                                                  : MessagePatternNodeKind::Select,
+                                                {},
+                                                std::move(*argument),
+                                                std::move(*cases)};
+                  })
+            : std::nullopt;
+    if (!root || !nodes)
+        return std::nullopt;
+    return MessagePattern{*root, std::move(*nodes)};
+}
+
 std::optional<PropertyValueType> decode_value_type(Decoder& decoder, const nlohmann::json& value,
                                                    const nlohmann::json& enum_values,
                                                    std::string_view pointer,
@@ -194,8 +286,9 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                     [&](const nlohmann::json& entry,
                                         const std::string& entry_pointer)
                                         -> std::optional<LocalizationEntry> {
-                                        if (!decoder.object(entry, entry_pointer,
-                                                            {"arguments", "messageId", "value"}))
+                                        if (!decoder.object(
+                                                entry, entry_pointer,
+                                                {"arguments", "messageId", "pattern", "value"}))
                                             return std::nullopt;
                                         const auto* id_value =
                                             decoder.member(entry, "messageId", entry_pointer);
@@ -204,6 +297,10 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                         const auto* arguments_value =
                                             entry.contains("arguments")
                                                 ? decoder.member(entry, "arguments", entry_pointer)
+                                                : nullptr;
+                                        const auto* pattern_value =
+                                            entry.contains("pattern")
+                                                ? decoder.member(entry, "pattern", entry_pointer)
                                                 : nullptr;
                                         auto message_id =
                                             id_value ? decoder.unsigned_integer<MessageId>(
@@ -275,9 +372,18 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                                         std::move(*name), decoded_type};
                                                 });
                                         }
+                                        std::optional<MessagePattern> pattern;
+                                        if (pattern_value) {
+                                            pattern = decode_message_pattern(
+                                                decoder, *pattern_value,
+                                                pointer_child(entry_pointer, "pattern"));
+                                            if (!pattern)
+                                                return std::nullopt;
+                                        }
                                         if (message_id && text && arguments)
                                             return LocalizationEntry{*message_id, std::move(*text),
-                                                                     std::move(*arguments)};
+                                                                     std::move(*arguments),
+                                                                     std::move(pattern)};
                                         return std::nullopt;
                                     })
                               : std::nullopt;

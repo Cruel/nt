@@ -28,6 +28,52 @@ export const messageArgumentsSchema = z.record(
   messageArgumentTypeSchema,
 );
 
+const messageSelectorArgumentSchema = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_-]*$/u, 'Message selector argument name is invalid.');
+const pluralCaseKeySchema = z.enum(['zero', 'one', 'two', 'few', 'many', 'other']);
+
+export type MessagePattern =
+  | { kind: 'text'; text: string }
+  | { kind: 'plural'; argument: string; cases: Record<string, MessagePattern> }
+  | { kind: 'select'; argument: string; cases: Record<string, MessagePattern> };
+
+export const messagePatternSchema: z.ZodType<MessagePattern> = z.lazy(() =>
+  z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('text'), text: z.string() }).strict(),
+    z
+      .object({
+        kind: z.literal('plural'),
+        argument: messageSelectorArgumentSchema,
+        cases: z.partialRecord(pluralCaseKeySchema, messagePatternSchema),
+      })
+      .strict()
+      .superRefine((pattern, context) => {
+        if (!Object.hasOwn(pattern.cases, 'other'))
+          context.addIssue({
+            code: 'custom',
+            path: ['cases', 'other'],
+            message: "Plural Message selector requires an 'other' case.",
+          });
+      }),
+    z
+      .object({
+        kind: z.literal('select'),
+        argument: messageSelectorArgumentSchema,
+        cases: z.record(z.string().min(1), messagePatternSchema),
+      })
+      .strict()
+      .superRefine((pattern, context) => {
+        if (!Object.hasOwn(pattern.cases, 'other'))
+          context.addIssue({
+            code: 'custom',
+            path: ['cases', 'other'],
+            message: "Select Message selector requires an 'other' fallback.",
+          });
+      }),
+  ]),
+);
+
 export function messagePlaceholderNames(source: string): readonly string[] {
   const names = new Set<string>();
   for (let index = 0; index < source.length; index += 1) {
@@ -45,6 +91,96 @@ export function messagePlaceholderNames(source: string): readonly string[] {
   return Object.freeze([...names].sort());
 }
 
+export function messagePatternPlaceholderNames(pattern: MessagePattern): readonly string[] {
+  const names = new Set<string>();
+  const visit = (node: MessagePattern) => {
+    if (node.kind === 'text') {
+      messagePlaceholderNames(node.text).forEach((name) => names.add(name));
+      return;
+    }
+    Object.values(node.cases).forEach(visit);
+  };
+  visit(pattern);
+  return Object.freeze([...names].sort());
+}
+
+export type MessageSelectorContract = {
+  argument: string;
+  kind: 'plural' | 'select';
+  selectCases?: readonly string[];
+};
+
+export function requiredPluralCategories(locale: string): readonly string[] {
+  const language = locale.toLowerCase().split('-')[0] ?? locale.toLowerCase();
+  if (['zh', 'ja', 'ko', 'th', 'vi', 'id', 'ms'].includes(language))
+    return Object.freeze(['other']);
+  if (language === 'ar') return Object.freeze(['zero', 'one', 'two', 'few', 'many', 'other']);
+  if (['ru', 'uk', 'be', 'pl'].includes(language))
+    return Object.freeze(['one', 'few', 'many', 'other']);
+  if (['cs', 'sk', 'lt'].includes(language)) return Object.freeze(['one', 'few', 'many', 'other']);
+  if (language === 'sl') return Object.freeze(['one', 'two', 'few', 'other']);
+  if (language === 'ro') return Object.freeze(['one', 'few', 'other']);
+  if (language === 'he') return Object.freeze(['one', 'two', 'other']);
+  return Object.freeze(['one', 'other']);
+}
+
+export type MessagePluralCategoryGap = { argument: string; category: string };
+
+export function messagePatternPluralCategoryGaps(
+  pattern: MessagePattern,
+  locale: string,
+): readonly MessagePluralCategoryGap[] {
+  const gaps: MessagePluralCategoryGap[] = [];
+  const required = requiredPluralCategories(locale);
+  const visit = (node: MessagePattern) => {
+    if (node.kind === 'text') return;
+    if (node.kind === 'plural')
+      for (const category of required)
+        if (!Object.hasOwn(node.cases, category)) gaps.push({ argument: node.argument, category });
+    Object.values(node.cases).forEach(visit);
+  };
+  visit(pattern);
+  return Object.freeze(gaps);
+}
+
+export function messagePatternSelectorSignatures(pattern: MessagePattern): readonly string[] {
+  const signatures: string[] = [];
+  const visit = (node: MessagePattern) => {
+    if (node.kind === 'text') return;
+    const keys = node.kind === 'select' ? Object.keys(node.cases).sort() : [];
+    signatures.push(`${node.kind}:${node.argument}${keys.map((key) => `:${key}`).join('')}`);
+    Object.values(node.cases).forEach(visit);
+  };
+  visit(pattern);
+  return Object.freeze(signatures.sort());
+}
+
+export function messagePatternSelectorContracts(
+  pattern: MessagePattern,
+): readonly MessageSelectorContract[] {
+  const contracts = new Map<string, MessageSelectorContract>();
+  const visit = (node: MessagePattern) => {
+    if (node.kind === 'text') return;
+    const current: MessageSelectorContract = {
+      argument: node.argument,
+      kind: node.kind,
+      ...(node.kind === 'select' ? { selectCases: Object.keys(node.cases).sort() } : {}),
+    };
+    const existing = contracts.get(node.argument);
+    if (!existing) contracts.set(node.argument, current);
+    else if (
+      existing.kind !== current.kind ||
+      JSON.stringify(existing.selectCases ?? []) !== JSON.stringify(current.selectCases ?? [])
+    )
+      contracts.set(node.argument, { argument: node.argument, kind: 'select', selectCases: [] });
+    Object.values(node.cases).forEach(visit);
+  };
+  visit(pattern);
+  return Object.freeze(
+    [...contracts.values()].sort((a, b) => a.argument.localeCompare(b.argument)),
+  );
+}
+
 const messageGuidanceFields = {
   context: z.string().optional(),
   translatorNote: z.string().optional(),
@@ -55,6 +191,7 @@ const localMessageSchema = z
   .object({
     kind: z.literal('local'),
     source: z.string(),
+    pattern: messagePatternSchema.optional(),
     ...messageGuidanceFields,
   })
   .strict();
@@ -64,6 +201,7 @@ const namedMessageSchema = z
     kind: z.literal('named'),
     key: namedMessageKeySchema,
     source: z.string(),
+    pattern: messagePatternSchema.optional(),
     ...messageGuidanceFields,
   })
   .strict();
@@ -79,6 +217,7 @@ const localizationWorkflowFingerprintSchema = z
 export const localizationTranslationRecordSchema = z
   .object({
     text: z.string(),
+    pattern: messagePatternSchema.optional(),
     sourceFingerprint: localizationWorkflowFingerprintSchema,
     origin: z.enum(['human', 'ai', 'imported', 'unknown']),
     review: z.enum(['needs-review', 'reviewed']),
@@ -195,13 +334,36 @@ export const authoringLocalizationSchema = z
     const namedKeys = new Map<string, string>();
     for (const [messageId, message] of Object.entries(localization.messages)) {
       const argumentNames = new Set(Object.keys(message.arguments ?? {}));
-      for (const placeholder of messagePlaceholderNames(message.source))
+      const placeholders = new Set(messagePlaceholderNames(message.source));
+      if (message.pattern)
+        messagePatternPlaceholderNames(message.pattern).forEach((name) => placeholders.add(name));
+      for (const placeholder of placeholders)
         if (!argumentNames.has(placeholder))
           context.addIssue({
             code: 'custom',
-            path: ['messages', messageId, 'source'],
+            path: ['messages', messageId, message.pattern ? 'pattern' : 'source'],
             message: `Message placeholder '{${placeholder}}' requires a declared argument.`,
           });
+      if (message.pattern) {
+        for (const selector of messagePatternSelectorContracts(message.pattern)) {
+          const expectedType = selector.kind === 'plural' ? 'plural-number' : 'string';
+          if (message.arguments?.[selector.argument] !== expectedType)
+            context.addIssue({
+              code: 'custom',
+              path: ['messages', messageId, 'arguments', selector.argument],
+              message: `Message ${selector.kind} selector '${selector.argument}' requires argument type '${expectedType}'.`,
+            });
+        }
+        for (const gap of messagePatternPluralCategoryGaps(
+          message.pattern,
+          localization.sourceLocale,
+        ))
+          context.addIssue({
+            code: 'custom',
+            path: ['messages', messageId, 'pattern'],
+            message: `Plural selector '${gap.argument}' requires '${gap.category}' for locale '${localization.sourceLocale}'.`,
+          });
+      }
       if (message.kind !== 'named') continue;
       const previous = namedKeys.get(message.key);
       if (previous) {

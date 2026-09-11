@@ -261,6 +261,53 @@ TEST_CASE("Message realization validates typed arguments and formats values for 
         {7, "de", {{"name", std::string{"Ada"}}, {"count", 1.0}, {"score", 2.0}}}));
 }
 
+TEST_CASE("Message realization applies locale plural rules and exact selectors through one pattern")
+{
+    compiled::Localization localization;
+    localization.source_locale = "en";
+    localization.default_locale = "ru";
+    localization.locales = {{"en", std::nullopt, true}, {"ru", std::nullopt, true}};
+
+    compiled::MessagePattern pattern;
+    pattern.root = 0;
+    pattern.nodes = {
+        {compiled::MessagePatternNodeKind::Plural,
+         {},
+         "count",
+         {{"one", 1}, {"few", 2}, {"many", 3}, {"other", 4}}},
+        {compiled::MessagePatternNodeKind::Select, {}, "gender", {{"feminine", 5}, {"other", 6}}},
+        {compiled::MessagePatternNodeKind::Text, "{count} предмета", {}, {}},
+        {compiled::MessagePatternNodeKind::Text, "{count} предметов", {}, {}},
+        {compiled::MessagePatternNodeKind::Text, "{count} предмета", {}, {}},
+        {compiled::MessagePatternNodeKind::Text, "{count} предмет для неё", {}, {}},
+        {compiled::MessagePatternNodeKind::Text, "{count} предмет", {}, {}},
+    };
+    const std::vector<compiled::MessageArgumentDefinition> arguments = {
+        {"count", compiled::MessageArgumentType::PluralNumber},
+        {"gender", compiled::MessageArgumentType::String},
+    };
+    localization.catalogs = {
+        {"en", {{9, "{count} items", arguments, pattern}}},
+        {"ru", {{9, "{count} предметов", arguments, pattern}}},
+    };
+
+    const MessageRealizer realizer(localization);
+    const auto one = realizer.realize(
+        {9, "ru", {{"count", std::int64_t{21}}, {"gender", std::string{"feminine"}}}});
+    REQUIRE(one);
+    CHECK(one->text == "21 предмет для неё");
+
+    const auto few = realizer.realize(
+        {9, "ru", {{"count", std::int64_t{22}}, {"gender", std::string{"other"}}}});
+    REQUIRE(few);
+    CHECK(few->text == "22 предмета");
+
+    const auto many = realizer.realize(
+        {9, "ru", {{"count", std::int64_t{25}}, {"gender", std::string{"other"}}}});
+    REQUIRE(many);
+    CHECK(many->text == "25 предметов");
+}
+
 TEST_CASE("engine waits create typed owner-bound logical state and complete or cancel exactly")
 {
     const auto project = make_project();

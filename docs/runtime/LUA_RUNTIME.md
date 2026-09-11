@@ -13,12 +13,17 @@ script.
 
 ### Managed localization calls
 
-Direct `Text.tr(sourceLiteral, args?, metadata?)` and `Text.msg(namedKeyLiteral, args?)` calls are the
-one narrow syntax-aware authoring transform. The source analyzer recognizes them token-wise, so
-whitespace and comments do not matter, but aliases, constructed source/key expressions, and dynamic
-named keys are not inferred as managed localization. `Text.tr` metadata is a literal table whose
-`context` and `note` values are read statically; tooling never executes Lua to discover localization
-metadata.
+Direct `Text.tr(sourceLiteral, args?, metadata?)`, `Text.msg(namedKeyLiteral, args?)`,
+`Text.plural(selector, literalCases, metadata?)`, and `Text.select(selector, literalCases, metadata?)`
+calls are the one narrow syntax-aware authoring transform. The source analyzer recognizes them
+token-wise, so whitespace and comments do not matter, but aliases, constructed source/key
+expressions, dynamic named keys, and dynamically constructed plural/select case tables are not
+inferred as managed localization. `Text.tr`/selector metadata is a literal table whose `context` and
+`note` values are read statically; tooling never executes Lua to discover localization metadata.
+`Text.plural` accepts only literal CLDR category branches (`zero`, `one`, `two`, `few`, `many`,
+`other`) and `Text.select` accepts literal exact-string branches; both require `other`. These local Lua
+helpers intentionally expose one selector, while named Message patterns are recursive and may contain
+multiple selectors.
 
 The authoring compiler replaces recognized calls with package-local `Text.__message(messageId, args?)`
 references, removes the managed source/key/translator metadata from the compiled Lua payload, and
@@ -31,12 +36,15 @@ be strings, finite numbers, integers, booleans for printable arguments, or the n
 by a declared `string`, `number`, `integer`, or `plural-number` argument. Formatting and placeholder
 realization happen only in `MessageRealizer`; Lua does not implement locale formatting itself.
 
-Focused Room preview still uses the same narrow managed-call lowering and injects the referenced
-default-locale Message source into its isolated Lua source rather than exposing authored `Text.tr` or
-`Text.msg` at runtime. Localization lowering remains a narrow source transform, not a general Lua
-parser, formatter, optimizer, or minifier. A causal Dialogue/ActiveText Lua expression is evaluated at
-the occurrence boundary; the realized string therefore captures the argument values for that semantic
-presentation occurrence instead of becoming a live binding that can change later.
+Focused Room preview still uses the same narrow managed-call lowering and injects a small
+preview-local Message realization shim into its isolated Lua source rather than exposing authored
+`Text.tr`, `Text.msg`, `Text.plural`, or `Text.select` at runtime. The shim carries the effective
+default-locale Message text/pattern, runtime arguments, exact-select behavior, and plural-category
+selection so dynamic selector previews remain representative without requiring a published Compiled
+Project. Localization lowering remains a narrow source transform, not a general Lua parser, formatter,
+optimizer, or minifier. A causal Dialogue/ActiveText Lua expression is evaluated at the occurrence
+boundary; the realized string therefore captures the argument values for that semantic presentation
+occurrence instead of becoming a live binding that can change later.
 
 Typed Message-valued Properties expose an opaque Message reference to Lua rather than the authored
 semantic key or a localized string. `Text.msg_ref(messageRef, args?)` accepts only that typed runtime

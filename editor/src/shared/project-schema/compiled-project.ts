@@ -2290,11 +2290,29 @@ const compiledMessageArgumentTypeSchema = z.enum([
   'integer',
   'plural-number',
 ]);
+const compiledMessagePatternNodeSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('text'), text: z.string() }),
+  strict({
+    kind: z.literal('plural'),
+    argument: z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]*$/u),
+    cases: z.array(strict({ key: z.string(), node: z.number().int().nonnegative() })).min(1),
+  }),
+  strict({
+    kind: z.literal('select'),
+    argument: z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]*$/u),
+    cases: z.array(strict({ key: z.string(), node: z.number().int().nonnegative() })).min(1),
+  }),
+]);
+const compiledMessagePatternSchema = strict({
+  root: z.number().int().nonnegative(),
+  nodes: z.array(compiledMessagePatternNodeSchema).min(1),
+});
 const localizationCatalogSchema = strict({
   entries: z.array(
     strict({
       messageId: z.number().int().nonnegative(),
       value: z.string(),
+      pattern: compiledMessagePatternSchema.optional(),
       arguments: z
         .array(
           strict({

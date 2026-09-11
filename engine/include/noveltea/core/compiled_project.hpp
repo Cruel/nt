@@ -94,10 +94,33 @@ struct MessageArgumentDefinition {
     MessageArgumentType type = MessageArgumentType::Printable;
     bool operator==(const MessageArgumentDefinition&) const = default;
 };
+enum class MessagePatternNodeKind : std::uint8_t {
+    Text,
+    Plural,
+    Select
+};
+struct MessagePatternCase {
+    std::string key;
+    std::uint32_t node = 0;
+    bool operator==(const MessagePatternCase&) const = default;
+};
+struct MessagePatternNode {
+    MessagePatternNodeKind kind = MessagePatternNodeKind::Text;
+    std::string text;
+    std::string argument;
+    std::vector<MessagePatternCase> cases;
+    bool operator==(const MessagePatternNode&) const = default;
+};
+struct MessagePattern {
+    std::uint32_t root = 0;
+    std::vector<MessagePatternNode> nodes;
+    bool operator==(const MessagePattern&) const = default;
+};
 struct LocalizationEntry {
     MessageId message_id = 0;
     std::string value;
     std::vector<MessageArgumentDefinition> arguments;
+    std::optional<MessagePattern> pattern;
 };
 struct LocalizationCatalog {
     std::string locale;
