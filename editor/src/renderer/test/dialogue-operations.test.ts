@@ -7,6 +7,7 @@ import {
   defaultDialogueData,
 } from '../../shared/project-schema/authoring-dialogues';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
+import { structuredMessageId } from '../../shared/authoring-structured-messages';
 
 describe('dialogue commands', () => {
   it('creates strict Dialogue data through entity.createRecord', () => {
@@ -27,6 +28,44 @@ describe('dialogue commands', () => {
             completion: { kind: 'end' },
           },
         },
+      },
+    });
+  });
+
+  it('preserves structured Message identity for an explicit segment rename', () => {
+    const project = createAuthoringProject();
+    const dialogue = defaultDialogueData('Intro');
+    const block = dialogue.blocks[0];
+    if (block?.type !== 'sequence' || block.segments[0]?.type !== 'line')
+      throw new Error('Expected default dialogue line.');
+    block.segments[0].text = inlineTextContent('Hello.');
+    const oldSegmentId = block.segments[0].id;
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    const oldPrefix = `/dialogues/intro/data/blocks/@${block.id}/segments/@${oldSegmentId}`;
+    const messageId = structuredMessageId(`${oldPrefix}/text`);
+    project.localization.translations.fr = { [messageId]: 'Bonjour.' };
+
+    const renamed = structuredClone(dialogue);
+    const renamedBlock = renamed.blocks[0];
+    if (renamedBlock?.type !== 'sequence' || !renamedBlock.segments[0])
+      throw new Error('Expected cloned dialogue line.');
+    renamedBlock.segments[0].id = 'welcome-line';
+    const newPrefix = `/dialogues/intro/data/blocks/@${block.id}/segments/@welcome-line`;
+    const result = executeCommand(createInitialCommandBusState(toJsonValue(project)), {
+      type: 'dialogue.replaceData',
+      payload: {
+        dialogueId: 'intro',
+        data: renamed,
+        semanticOwnerMoves: [{ fromPrefix: oldPrefix, toPrefix: newPrefix }],
+      },
+    });
+
+    expect(result.ok, JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    expect(result.document).toMatchObject({
+      localization: {
+        structuredMessageIds: { [`${newPrefix}/text`]: messageId },
+        translations: { fr: { [messageId]: 'Bonjour.' } },
       },
     });
   });

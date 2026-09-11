@@ -7,10 +7,15 @@ import {
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
+import {
+  preserveStructuredMessageIdentityPatches,
+  type StructuredMessageOwnerMove,
+} from './structured-message-operations';
 
 export interface ReplaceDialogueDataPayload {
   dialogueId: string;
   data: unknown;
+  semanticOwnerMoves?: StructuredMessageOwnerMove[];
 }
 
 function error(message: string, path?: string): EntityOperationDiagnostic {
@@ -46,10 +51,22 @@ export function replaceDialogueDataPatches(
   const diagnostics = validateDialogueData(document, payload.dialogueId, { ...record, data });
   const failure = diagnostics.find((item) => item.severity === 'error');
   if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
+  const messageIdentity = preserveStructuredMessageIdentityPatches(
+    document,
+    payload.semanticOwnerMoves ?? [],
+  );
+  if (messageIdentity.conflict)
+    return {
+      patches: [],
+      diagnostics: [error(messageIdentity.conflict.message, messageIdentity.conflict.path)],
+    };
   const patch: JsonPatchOperation = {
     op: 'replace',
     path: pathForDialogueData(payload.dialogueId),
     value: toJsonValue(data),
   };
-  return { patches: [patch], affectedPaths: [patch.path] };
+  return {
+    patches: [patch, ...messageIdentity.patches],
+    affectedPaths: [patch.path, ...messageIdentity.affectedPaths],
+  };
 }

@@ -52,11 +52,16 @@ import {
   scenePreviewRevision,
 } from '../../../shared/project-schema/scene-project';
 
-function commitScene(sceneId: string, data: SceneData, label: string) {
+function commitScene(
+  sceneId: string,
+  data: SceneData,
+  label: string,
+  semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
+) {
   return useCommandStore.getState().executeCommand({
     type: 'scene.replaceData',
     label,
-    payload: { sceneId, data },
+    payload: { sceneId, data, semanticOwnerMoves },
     originSaveUnitId: recordSaveUnitId('scenes', sceneId),
     persistencePolicy: 'manual-save',
   });
@@ -339,7 +344,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
       anchorId: anchor.id,
     }));
   });
-  const commit = (next: SceneData, label = 'Update scene') => commitScene(sceneId, next, label);
+  const commit = (
+    next: SceneData,
+    label = 'Update scene',
+    semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
+  ) => commitScene(sceneId, next, label, semanticOwnerMoves);
   const replaceStep = (next: SceneStepData) =>
     commit(
       { ...data, events: data.events.map((step) => (step.id === next.id ? next : step)) },
@@ -497,7 +506,12 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
         };
       return renamed;
     });
-    commit({ ...data, events: steps }, 'Rename scene event');
+    commit({ ...data, events: steps }, 'Rename scene event', [
+      {
+        fromPrefix: `/scenes/${sceneId}/data/events/@${previousId}`,
+        toPrefix: `/scenes/${sceneId}/data/events/@${nextId}`,
+      },
+    ]);
     setSelectedId(nextId);
   };
 

@@ -17,12 +17,15 @@ choices remain editor-local. `traits.json`, `localization.json`, and `editor.jso
 contextual fragments. `localization.json` owns the canonical Message model: one Source locale, one
 Supported Default locale, explicit Supported/work-in-progress locale metadata with optional parent
 locale inheritance, stable UUID identities for explicit local/named Messages, optional Message-level
-Context and Translator note guidance, and sparse target translations keyed by stable Message identity.
-Schema-designated player-facing structured text remains colocated with its owning Room, Dialogue,
-Scene, Verb, Map, archetype, or other gameplay record. Those structured local Messages derive an
-opaque stable Message identity from semantic record/nested IDs plus the field role/path; source prose
-is therefore not copied into `localization.json`, does not participate in identity, and survives prose
-edits and stable-ID reordering without losing target translations. Ordinary IDs, record labels,
+Context and Translator note guidance, sparse target translations keyed by stable Message identity,
+and sparse `structuredMessageIds` ownership overrides used only when an editor-mediated semantic
+refactor must preserve an existing structured Message identity across a path change. Schema-designated
+player-facing structured text remains colocated with its owning Room, Dialogue, Scene, Verb, Map,
+archetype, or other gameplay record. Structured local Messages normally derive an opaque stable
+Message identity from semantic record/nested IDs plus the field role/path; an ownership override wins
+when a known refactor has moved that same Message. Source prose is therefore not copied into
+`localization.json`, does not participate in identity, and survives prose edits, stable-ID reordering,
+and editor-mediated owner renames without losing target translations or Message identity. Ordinary IDs, record labels,
 developer notes, filenames, and generic gameplay strings are not localized merely because they are
 strings. Direct structured-file edits are discovered read-only from the same deterministic ownership
 rules; validation does not materialize tracking metadata or dirty the workspace. The editor's

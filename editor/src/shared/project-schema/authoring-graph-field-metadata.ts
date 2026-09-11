@@ -152,6 +152,7 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     valueDependent('localization-catalog-entry'),
   ],
   [/^\/localization\/messages\/\*\/(?:context|translatorNote)$/, NONE],
+  [/^\/localization\/structuredMessageIds\/\*$/, valueDependent('localization-catalog-entry')],
   [/^\/localization\/sourceLocale$/, valueDependent('localization-catalog-entry')],
   [/^\/localization\/translations\/\*\/\*$/, valueDependent('localization-catalog-entry')],
   // #157 adds persisted supplemental prefetch intent. Every hint leaf changes the generated Flow
@@ -964,7 +965,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
-    localization: 'c8882828',
+    localization: 'c8e1c470',
     maps: '9d711bea',
     materials: '546711ca',
     prefetchHints: 'b985056c',

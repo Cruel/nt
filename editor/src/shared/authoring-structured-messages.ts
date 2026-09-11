@@ -89,7 +89,7 @@ function buildIndex(project: AuthoringProject): StructuredMessageIndex {
     sourcePath: string | null = text ? `${path}/source/text` : path,
   ): void => {
     const occurrence: StructuredMessageOccurrence = {
-      id: structuredMessageId(path),
+      id: project.localization.structuredMessageIds[path] ?? structuredMessageId(path),
       source,
       path,
       sourcePath,

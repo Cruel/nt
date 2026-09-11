@@ -708,7 +708,12 @@ const interactableReplaceDataSchema = z.object({
   interactableId: entityIdSchema,
   data: z.unknown(),
 });
-const dialogueReplaceDataSchema = z.object({ dialogueId: entityIdSchema, data: z.unknown() });
+const semanticOwnerMoveSchema = z.object({ fromPrefix: z.string(), toPrefix: z.string() });
+const dialogueReplaceDataSchema = z.object({
+  dialogueId: entityIdSchema,
+  data: z.unknown(),
+  semanticOwnerMoves: z.array(semanticOwnerMoveSchema).optional(),
+});
 const roomReplaceDataSchema = z.object({ roomId: entityIdSchema, data: z.unknown() });
 const roomHotspotSchema = z.object({ roomId: entityIdSchema, hotspotId: entityIdSchema });
 const roomAddHotspotSchema = z.object({ roomId: entityIdSchema, hotspot: roomHotspotDataSchema });
@@ -787,7 +792,11 @@ const interactableSetHotspotModeSchema = z.object({
   interactableId: entityIdSchema,
   kind: z.enum(['none', 'sprite-alpha', 'custom']),
 });
-const sceneReplaceDataSchema = z.object({ sceneId: entityIdSchema, data: z.unknown() });
+const sceneReplaceDataSchema = z.object({
+  sceneId: entityIdSchema,
+  data: z.unknown(),
+  semanticOwnerMoves: z.array(semanticOwnerMoveSchema).optional(),
+});
 const testReplaceDataSchema = z.object({ testId: entityIdSchema, data: z.unknown() });
 const layoutReplaceDataSchema = z.object({ layoutId: entityIdSchema, data: z.unknown() });
 const verbReplaceDataSchema = z.object({ verbId: entityIdSchema, data: z.unknown() });
