@@ -20,6 +20,7 @@ import {
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { buildFocusedRoomPreview } from '../preview/room-focused-preview-builder';
+import { testTranslation } from './fixtures/localization-workflow';
 
 function fixture() {
   const project = createAuthoringProject({ id: 'focused-room', name: 'Focused Room' });
@@ -253,7 +254,9 @@ describe('graph-driven Room builder', () => {
       fr: { supported: false, parentLocale: null },
       'fr-CA': { supported: true, parentLocale: 'fr' },
     };
-    project.localization.translations.fr = { [messageId]: 'Une chambre calme.' };
+    project.localization.translations.fr = {
+      [messageId]: testTranslation('Une chambre calme.'),
+    };
 
     const result = await build(project);
 
@@ -273,7 +276,9 @@ describe('graph-driven Room builder', () => {
     };
     project.localization.locales.fr = { supported: true, parentLocale: null };
     project.localization.defaultLocale = 'fr';
-    project.localization.translations.fr = { [messageId]: 'Message aperçu' };
+    project.localization.translations.fr = {
+      [messageId]: testTranslation('Message aperçu'),
+    };
     project.rooms.bedroom!.data.description = {
       markup: 'plain',
       source: {

@@ -227,7 +227,7 @@ export function resolveStructuredMessageText(
   while (current && current !== project.localization.sourceLocale && !visited.has(current)) {
     visited.add(current);
     const translated = project.localization.translations[current]?.[message.id];
-    if (translated !== undefined) return { text: translated, locale: current };
+    if (translated !== undefined) return { text: translated.text, locale: current };
     current =
       project.localization.locales[current]?.parentLocale ?? project.localization.sourceLocale;
   }

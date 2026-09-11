@@ -8,6 +8,7 @@ import {
 } from '../../shared/project-schema/authoring-dialogues';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { structuredMessageId } from '../../shared/authoring-structured-messages';
+import { testTranslation } from './fixtures/localization-workflow';
 
 describe('dialogue commands', () => {
   it('creates strict Dialogue data through entity.createRecord', () => {
@@ -44,7 +45,8 @@ describe('dialogue commands', () => {
     project.localization.locales.fr = { supported: false, parentLocale: null };
     const oldPrefix = `/dialogues/intro/data/blocks/@${block.id}/segments/@${oldSegmentId}`;
     const messageId = structuredMessageId(`${oldPrefix}/text`);
-    project.localization.translations.fr = { [messageId]: 'Bonjour.' };
+    const translation = testTranslation('Bonjour.');
+    project.localization.translations.fr = { [messageId]: translation };
 
     const renamed = structuredClone(dialogue);
     const renamedBlock = renamed.blocks[0];
@@ -65,7 +67,7 @@ describe('dialogue commands', () => {
     expect(result.document).toMatchObject({
       localization: {
         structuredMessageIds: { [`${newPrefix}/text`]: messageId },
-        translations: { fr: { [messageId]: 'Bonjour.' } },
+        translations: { fr: { [messageId]: translation } },
       },
     });
   });

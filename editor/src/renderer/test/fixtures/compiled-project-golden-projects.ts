@@ -31,6 +31,7 @@ import {
   type AuthoringProject,
 } from '../../../shared/project-schema/authoring-project';
 import { assetRef as projectAssetRef } from '../../../shared/project-schema/authoring-project-settings';
+import { testTranslation } from './localization-workflow';
 import {
   defaultRoomData,
   roomAssetRef,
@@ -1054,11 +1055,11 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     },
   };
   project.localization.translations.es = {
-    '018f4f8c-9b5d-7ae2-9b36-4c8af613f101': 'Bienvenido.',
-    '018f4f8c-9b5d-7ae2-9b36-4c8af613f102': 'Mapa de la casa',
-    '018f4f8c-9b5d-7ae2-9b36-4c8af613f103': 'La sala inicial.',
-    '018f4f8c-9b5d-7ae2-9b36-4c8af613f104': 'Torre',
-    '018f4f8c-9b5d-7ae2-9b36-4c8af613f105': 'Elige un camino.',
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f101': testTranslation('Bienvenido.'),
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f102': testTranslation('Mapa de la casa'),
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f103': testTranslation('La sala inicial.'),
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f104': testTranslation('Torre'),
+    '018f4f8c-9b5d-7ae2-9b36-4c8af613f105': testTranslation('Elige un camino.'),
   };
   project.scripts.bootstrap!.data = {
     kind: 'script-module',

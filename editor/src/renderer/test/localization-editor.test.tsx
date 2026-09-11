@@ -7,6 +7,11 @@ import { useProjectStore } from '@/project/project-store';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import {
+  createLocalizationTranslation,
+  localizationMessageWorkflowView,
+} from '../../shared/authoring-localization-workflow';
+import { testTranslation } from './fixtures/localization-workflow';
 
 const tab = {
   id: 'tab:localization',
@@ -113,16 +118,73 @@ describe('LocalizationEditor', () => {
     await user.tab();
 
     expect(useProjectStore.getState().document).toMatchObject({
-      localization: { translations: { es: { [messageId]: 'Jugar' } } },
+      localization: {
+        translations: {
+          es: {
+            [messageId]: {
+              text: 'Jugar',
+              origin: 'human',
+              review: 'needs-review',
+            },
+          },
+        },
+      },
     });
 
     const persistedTarget = screen.getByLabelText('Target content for ui.menu.play');
     await user.clear(persistedTarget);
     await user.tab();
     const afterClear = useProjectStore.getState().document as {
-      localization: { translations: Record<string, Record<string, string>> };
+      localization: { translations: Record<string, Record<string, unknown>> };
     };
     expect(afterClear.localization.translations.es?.[messageId]).toBeUndefined();
+  });
+
+  it('preserves AI provenance through review but human edits reset origin without auto-reviewing', async () => {
+    const user = userEvent.setup();
+    const project = loadProject();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f022';
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.ai-copy',
+      source: 'Continue',
+    };
+    const view = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Continuer', 'ai', {
+        provider: 'provider',
+        model: 'model',
+        review: 'reviewed',
+      }),
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    const target = screen.getByLabelText('Target content for ui.ai-copy');
+    expect(screen.getByText(/Current · ai · reviewed/i)).toBeInTheDocument();
+    await user.clear(target);
+    await user.type(target, 'Poursuivre');
+    await user.tab();
+
+    expect(useProjectStore.getState().document).toMatchObject({
+      localization: {
+        translations: {
+          fr: {
+            [messageId]: {
+              text: 'Poursuivre',
+              origin: 'human',
+              review: 'needs-review',
+            },
+          },
+        },
+      },
+    });
   });
 
   it('attributes structured source edits to the owning record save unit', async () => {
@@ -164,7 +226,7 @@ describe('LocalizationEditor', () => {
       source: 'Hello',
     };
     project.localization.translations.fr = {
-      '018f4f8c-9b5d-7ae2-9b36-4c8af613f001': 'Bonjour',
+      '018f4f8c-9b5d-7ae2-9b36-4c8af613f001': testTranslation('Bonjour'),
     };
     useProjectStore.getState().loadProjectDocument({
       document: project,

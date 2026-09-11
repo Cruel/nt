@@ -24,6 +24,11 @@ import type { NovelTeaCliNativeToolService } from '../../cli/native-tool-service
 import type { NovelTeaCliPlatformToolService } from '../../cli/platform-tool-service';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
+import {
+  createLocalizationTranslation,
+  localizationMessageWorkflowView,
+} from '../../shared/authoring-localization-workflow';
 import { createDefaultAuthoringRecord } from '../project/entity-operations';
 import {
   createAuthoringProject,
@@ -145,6 +150,161 @@ function projectWithSourceReference() {
 }
 
 describe('NovelTea headless CLI', () => {
+  it('joins localization work queues and keeps accept independent from human review', async () => {
+    const project = validProject();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f099';
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.greeting',
+      source: 'Hello',
+      context: 'Greeting',
+    };
+    const initialView = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(initialView, 'Bonjour', 'ai', {
+        provider: 'OpenAI',
+        model: 'test-model',
+      }),
+    };
+    project.localization.messages[messageId]!.source = 'Hello there';
+    const value = fixture(project);
+
+    const outdated = await runNovelTeaCli(
+      ['--json', 'localization', 'view', 'fr', '--status', 'outdated'],
+      options(value),
+    );
+    expect(outdated.exitCode).toBe(0);
+    expect(JSON.parse(outdated.stdout)).toMatchObject({
+      locale: 'fr',
+      statusFilter: 'outdated',
+      messages: [
+        {
+          id: messageId,
+          status: 'outdated',
+          context: 'Greeting',
+          target: {
+            text: 'Bonjour',
+            origin: 'ai',
+            review: 'needs-review',
+            provider: 'OpenAI',
+            model: 'test-model',
+          },
+        },
+      ],
+    });
+
+    const blockedReview = await runNovelTeaCli(
+      ['--json', 'localization', 'review', 'fr', messageId],
+      options(value),
+    );
+    expect(blockedReview.exitCode).toBe(4);
+    expect(JSON.parse(blockedReview.stdout).diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'localization.review.outdated' }),
+    );
+
+    const accepted = await runNovelTeaCli(
+      ['--json', 'localization', 'accept', 'fr', messageId],
+      options(value),
+    );
+    expect(accepted.exitCode).toBe(0);
+    expect(JSON.parse(accepted.stdout)).toMatchObject({ writes: ['localization.json'] });
+
+    const reviewed = await runNovelTeaCli(
+      ['--json', 'localization', 'review', 'fr', messageId],
+      options(value),
+    );
+    expect(reviewed.exitCode).toBe(0);
+    const current = await runNovelTeaCli(
+      ['--json', 'localization', 'view', 'fr', '--status', 'reviewed'],
+      options(value),
+    );
+    expect(JSON.parse(current.stdout)).toMatchObject({
+      messages: [
+        {
+          id: messageId,
+          status: 'current',
+          target: { text: 'Bonjour', origin: 'ai', review: 'reviewed' },
+        },
+      ],
+    });
+  });
+
+  it('rejects a mixed bulk review atomically when any selected target is Missing', async () => {
+    const project = validProject();
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    const currentId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f097';
+    const missingId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f098';
+    project.localization.messages[currentId] = {
+      kind: 'named',
+      key: 'ui.current',
+      source: 'Current',
+    };
+    project.localization.messages[missingId] = {
+      kind: 'named',
+      key: 'ui.missing',
+      source: 'Missing',
+    };
+    const currentView = localizationMessageWorkflowView(project, currentId)!;
+    project.localization.translations.fr = {
+      [currentId]: createLocalizationTranslation(currentView, 'Actuel'),
+    };
+    const value = fixture(project);
+    const before = await value.fileSystem.readText(`${root}/localization.json`);
+
+    const result = await runNovelTeaCli(
+      ['--json', 'localization', 'review', 'fr', currentId, missingId],
+      options(value),
+    );
+
+    expect(result.exitCode).toBe(4);
+    expect(JSON.parse(result.stdout).diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'localization.workflow.missing' }),
+    );
+    expect(await value.fileSystem.readText(`${root}/localization.json`)).toBe(before);
+  });
+
+  it('refuses human review for structurally invalid target content', async () => {
+    const project = validProject();
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f096';
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'verb.use.command',
+      source: 'Use {target}',
+    };
+    const verb = defaultVerbData('Use');
+    verb.slots = [
+      {
+        id: 'target',
+        label: { source: { kind: 'inline', text: 'Target' }, markup: 'plain' },
+        prompt: { source: { kind: 'inline', text: 'Choose target' }, markup: 'plain' },
+        selectors: [{ kind: 'any-subject' }],
+      },
+    ];
+    verb.bindingOrder = ['target'];
+    verb.completedCommandText = {
+      source: { kind: 'localized', key: 'verb.use.command' },
+      markup: 'plain',
+    };
+    project.verbs.use = { id: 'use', label: 'Use', data: verb };
+    const view = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Utiliser {missing}'),
+    };
+    const value = fixture(project);
+
+    const result = await runNovelTeaCli(
+      ['--json', 'localization', 'review', 'fr', messageId],
+      options(value),
+    );
+
+    expect(result.exitCode).toBe(4);
+    expect(JSON.parse(result.stdout).diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'localization.review.invalid' }),
+    );
+  });
+
   it('keeps localization discovery read-only until deterministic sync is requested', async () => {
     const project = validProject();
     project.scripts.bootstrap!.data.source = {
@@ -1056,6 +1216,9 @@ describe('NovelTea headless CLI', () => {
     expect(PHASE_SIX_NODE_REFERENCE_COMMANDS).toEqual([
       'validate',
       'localization sync',
+      'localization view',
+      'localization accept',
+      'localization review',
       'entity create',
       'entity rename',
       'entity delete',
@@ -1064,6 +1227,23 @@ describe('NovelTea headless CLI', () => {
     const commands: readonly string[][] = [
       ['--json', 'validate'],
       ['--json', 'localization', 'sync', '--dry-run'],
+      ['--json', 'localization', 'view', 'fr'],
+      [
+        '--json',
+        'localization',
+        'accept',
+        'fr',
+        '11111111-1111-4111-8111-111111111111',
+        '--dry-run',
+      ],
+      [
+        '--json',
+        'localization',
+        'review',
+        'fr',
+        '11111111-1111-4111-8111-111111111111',
+        '--dry-run',
+      ],
       ['--json', 'entity', 'create', 'rooms', 'new-room', '--dry-run'],
       [
         '--json',

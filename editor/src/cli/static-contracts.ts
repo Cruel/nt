@@ -18,6 +18,9 @@ Commands:
   comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
   validate
   localization sync [--dry-run]
+  localization view <locale> [--status <missing|current|outdated|needs-review|reviewed|human|ai|imported|unknown|attention>]
+  localization accept <locale> <message-id>... [--dry-run]
+  localization review <locale> <message-id>... [--dry-run]
   asset audit
   asset import <path>... [--dry-run]
   entity create <collection> <id> [--dry-run]

@@ -8,6 +8,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import { testTranslation } from './fixtures/localization-workflow';
 
 function projectWithRoom() {
   const project = createAuthoringProject({ id: 'structured-localization', name: 'Structured' });
@@ -83,7 +84,9 @@ describe('structured localization Messages', () => {
     expect(description).not.toBeNull();
     if (!description) return;
     project.localization.locales.fr = { supported: false, parentLocale: null };
-    project.localization.translations.fr = { [description.id]: 'Un foyer tranquille.' };
+    project.localization.translations.fr = {
+      [description.id]: testTranslation('Un foyer tranquille.'),
+    };
 
     expect(validateAuthoringProject(project)).not.toContainEqual(
       expect.objectContaining({ code: 'localization.translation.message-missing' }),
