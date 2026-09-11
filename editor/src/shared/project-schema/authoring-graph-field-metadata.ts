@@ -154,9 +154,10 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/localization\/messages\/\*\/(?:context|translatorNote)$/, NONE],
   [/^\/localization\/structuredMessageIds\/\*$/, valueDependent('localization-catalog-entry')],
   [
-    /^\/localization\/sourceMessageTracking\/\*\/(?:anchorFingerprint|family|occurrences\/\*\/(?:anchorFingerprint|messageId|ordinal|sourceFingerprint|structuralFingerprint)|ownerKey|sourcePath|sourceSnapshotFingerprint)$/,
+    /^\/localization\/sourceMessageTracking\/\*\/(?:anchorFingerprint|family|occurrences\/\*\/(?:anchorFingerprint|contextSnapshot|messageId|ordinal|sourceFingerprint|sourceSnapshot|structuralFingerprint|translatorNoteSnapshot)|ownerKey|sourcePath|sourceSnapshotFingerprint)$/,
     valueDependent('localization-catalog-entry'),
   ],
+  [/^\/localization\/orphanedMessages(?:\/|$)/, NONE],
   [/^\/localization\/sourceLocale$/, valueDependent('localization-catalog-entry')],
   [/^\/localization\/translations\/\*\/\*$/, valueDependent('localization-catalog-entry')],
   [
@@ -973,7 +974,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
-    localization: '1c561dc6',
+    localization: 'bc7360df',
     maps: '9d711bea',
     materials: '546711ca',
     prefetchHints: 'b985056c',

@@ -75,6 +75,9 @@ export const sourceMessageTrackingOccurrenceSchema = z
     structuralFingerprint: sourceTrackingFingerprintSchema,
     anchorFingerprint: sourceTrackingFingerprintSchema,
     sourceFingerprint: sourceTrackingFingerprintSchema,
+    sourceSnapshot: z.string(),
+    contextSnapshot: z.string().optional(),
+    translatorNoteSnapshot: z.string().optional(),
   })
   .strict();
 
@@ -88,6 +91,17 @@ export const sourceMessageTrackingEntrySchema = z
   })
   .strict();
 
+export const orphanedLocalizationMessageSchema = z
+  .object({
+    family: z.enum(['lua', 'rml']),
+    ownerKey: z.string().min(1),
+    sourcePath: z.string().min(1),
+    sourceSnapshotFingerprint: sourceTrackingFingerprintSchema,
+    occurrence: sourceMessageTrackingOccurrenceSchema,
+    translations: z.record(localeIdSchema, localizationTranslationRecordSchema),
+  })
+  .strict();
+
 export const authoringLocalizationSchema = z
   .object({
     sourceLocale: localeIdSchema,
@@ -96,6 +110,7 @@ export const authoringLocalizationSchema = z
     messages: z.record(messageIdSchema, authoringMessageSchema),
     structuredMessageIds: z.record(z.string().min(1), messageIdSchema),
     sourceMessageTracking: z.record(z.string().min(1), sourceMessageTrackingEntrySchema),
+    orphanedMessages: z.record(messageIdSchema, orphanedLocalizationMessageSchema),
     translations: z.record(localeIdSchema, localizationTranslationSchema),
   })
   .strict()
@@ -129,6 +144,22 @@ export const authoringLocalizationSchema = z
           path: ['sourceMessageTracking', trackingKey],
           message: `Source Message tracking key must be '${expectedKey}'.`,
         });
+    }
+
+    for (const [messageId, orphan] of Object.entries(localization.orphanedMessages)) {
+      if (orphan.occurrence.messageId !== messageId)
+        context.addIssue({
+          code: 'custom',
+          path: ['orphanedMessages', messageId, 'occurrence', 'messageId'],
+          message: `Orphaned Message key '${messageId}' must match its occurrence Message ID.`,
+        });
+      for (const locale of Object.keys(orphan.translations))
+        if (!Object.hasOwn(localization.locales, locale) || locale === localization.sourceLocale)
+          context.addIssue({
+            code: 'custom',
+            path: ['orphanedMessages', messageId, 'translations', locale],
+            message: `Orphaned Message translation locale '${locale}' must be a declared target locale.`,
+          });
     }
 
     const namedKeys = new Map<string, string>();
@@ -201,6 +232,7 @@ export type AuthoringMessage = z.infer<typeof authoringMessageSchema>;
 export type LocalizationTranslation = z.infer<typeof localizationTranslationRecordSchema>;
 export type SourceMessageTrackingOccurrence = z.infer<typeof sourceMessageTrackingOccurrenceSchema>;
 export type SourceMessageTrackingEntry = z.infer<typeof sourceMessageTrackingEntrySchema>;
+export type OrphanedLocalizationMessage = z.infer<typeof orphanedLocalizationMessageSchema>;
 export type AuthoringLocalization = z.infer<typeof authoringLocalizationSchema>;
 
 export function defaultAuthoringLocalization(): AuthoringLocalization {
@@ -211,6 +243,7 @@ export function defaultAuthoringLocalization(): AuthoringLocalization {
     messages: {},
     structuredMessageIds: {},
     sourceMessageTracking: {},
+    orphanedMessages: {},
     translations: {},
   };
 }

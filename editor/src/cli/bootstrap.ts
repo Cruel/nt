@@ -155,6 +155,7 @@ export function bootstrapNovelTeaCli(argv: readonly string[]): NovelTeaCliBootst
     command[0] === 'validate' ||
     (command[0] === 'localization' &&
       (command[1] === 'sync' ||
+        command[1] === 'reconcile' ||
         command[1] === 'view' ||
         command[1] === 'accept' ||
         command[1] === 'review')) ||
@@ -186,6 +187,7 @@ export function novelTeaCliCommandNeedsZod(command: readonly string[]): boolean 
   if (command[0] === 'localization')
     return (
       command[1] === 'sync' ||
+      command[1] === 'reconcile' ||
       command[1] === 'view' ||
       command[1] === 'accept' ||
       command[1] === 'review'

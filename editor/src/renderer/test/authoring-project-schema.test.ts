@@ -28,6 +28,7 @@ describe('authoring project schema', () => {
         messages: {},
         structuredMessageIds: {},
         sourceMessageTracking: {},
+        orphanedMessages: {},
         translations: {},
       },
       editor: { schema: EDITOR_PROJECT_STATE_SCHEMA, recordMetadata: {} },
@@ -59,6 +60,7 @@ describe('authoring project schema', () => {
       },
       structuredMessageIds: {},
       sourceMessageTracking: {},
+      orphanedMessages: {},
       translations: {
         fr: { '018f4f8c-9b5d-7ae2-9b36-4c8af613f013': testTranslation('Hall') },
       },

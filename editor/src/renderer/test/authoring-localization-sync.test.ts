@@ -92,6 +92,56 @@ describe('localization source tracking sync', () => {
     ).toBe('record:scripts:moved');
   });
 
+  it('does not passively share one tracked identity across a direct-file duplicate', () => {
+    const project = createAuthoringProject({ id: 'duplicated-sync', name: 'Duplicated Sync' });
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Original")\n',
+    };
+    const first = synchronizeLocalizationMessageTracking(project).project;
+    const [messageId] = trackedIds(first);
+    expect(messageId).toBeDefined();
+
+    first.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: [
+        'local first = Text.tr("Original")',
+        'local second = Text.tr("Original")',
+        'return first .. second',
+        '',
+      ].join('\n'),
+    };
+    const changedSource = collectManagedLuaLocalizationSources(first)[0]!;
+    const resolutions = changedSource.source.occurrences.map((occurrence) =>
+      resolveLocalizationSourceIdentity(first.localization, changedSource.source, occurrence),
+    );
+
+    expect(resolutions.every((resolution) => !resolution.tracked)).toBe(true);
+    expect(new Set(resolutions.map((resolution) => resolution.messageId)).size).toBe(2);
+    expect(resolutions.map((resolution) => resolution.messageId)).not.toContain(messageId);
+  });
+
+  it('does not passively share identity when a managed occurrence is copied to another source path', () => {
+    const project = createAuthoringProject({ id: 'cross-source-copy', name: 'Cross Source Copy' });
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Original")\n',
+    };
+    const first = synchronizeLocalizationMessageTracking(project).project;
+    const source = collectManagedLuaLocalizationSources(first)[0]!.source;
+    const occurrence = source.occurrences[0]!;
+    const original = resolveLocalizationSourceIdentity(first.localization, source, occurrence);
+    const copiedSource = {
+      ...source,
+      sourcePath: `${source.sourcePath}/copy`,
+    };
+    const copied = resolveLocalizationSourceIdentity(first.localization, copiedSource, occurrence);
+
+    expect(original.tracked).toBe(true);
+    expect(copied.tracked).toBe(false);
+    expect(copied.messageId).not.toBe(original.messageId);
+  });
+
   it('does not guess when multiple old and new occurrences have the same free-form structure', () => {
     const project = createAuthoringProject({ id: 'ambiguous-sync', name: 'Ambiguous Sync' });
     project.scripts.bootstrap!.data.source = {

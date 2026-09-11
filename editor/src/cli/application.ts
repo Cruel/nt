@@ -252,9 +252,12 @@ export async function runNovelTeaCli(
 
   let stdinJson: unknown;
   if (
-    globals.command.length === 2 &&
-    globals.command[0] === 'test' &&
-    (globals.command[1] === 'run-spec' || globals.command[1] === 'run-ui-spec')
+    (globals.command.length === 2 &&
+      globals.command[0] === 'test' &&
+      (globals.command[1] === 'run-spec' || globals.command[1] === 'run-ui-spec')) ||
+    (globals.command[0] === 'localization' &&
+      globals.command[1] === 'reconcile' &&
+      globals.command.includes('--apply'))
   ) {
     try {
       const stdinText = options.stdinText ?? options.readStdinText?.();

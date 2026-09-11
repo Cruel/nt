@@ -108,6 +108,11 @@ export function collectManagedLuaLocalizationSources(
             `${normalizeLuaTrackingText(before)}|<message>|${normalizeLuaTrackingText(after)}`,
           ),
           sourceFingerprint: localizationTrackingFingerprint(occurrence.source),
+          sourceSnapshot: occurrence.source,
+          ...(occurrence.context === undefined ? {} : { contextSnapshot: occurrence.context }),
+          ...(occurrence.translatorNote === undefined
+            ? {}
+            : { translatorNoteSnapshot: occurrence.translatorNote }),
         };
       },
     );

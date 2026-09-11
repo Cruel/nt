@@ -3,6 +3,7 @@ import { assetImportCommand } from './asset-import-command';
 import { entityCreateCommand } from './entity-create-command';
 import { entityDeleteCommand } from './entity-delete-command';
 import { entityRenameCommand } from './entity-rename-command';
+import { localizationReconcileCommand } from './localization-reconcile-command';
 import { localizationSyncCommand } from './localization-sync-command';
 import {
   localizationAcceptCommand,
@@ -36,6 +37,7 @@ const commands: readonly CliCommandDefinition[] = Object.freeze([
   entityRenameCommand,
   entityDeleteCommand,
   localizationSyncCommand,
+  localizationReconcileCommand,
   localizationViewCommand,
   localizationAcceptCommand,
   localizationReviewCommand,

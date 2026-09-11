@@ -5,12 +5,16 @@ import { LocalizationEditor } from '@/editors/localization/LocalizationEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  createAuthoringProject,
+  type AuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   createLocalizationTranslation,
   localizationMessageWorkflowView,
 } from '../../shared/authoring-localization-workflow';
+import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
 import { testTranslation } from './fixtures/localization-workflow';
 
 const tab = {
@@ -45,6 +49,7 @@ describe('LocalizationEditor', () => {
     expect(screen.getByRole('button', { name: 'Translations' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Languages' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Messages' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reconciliation' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Languages' }));
     await user.type(screen.getByLabelText('New locale'), 'fr-ca');
@@ -214,6 +219,69 @@ describe('LocalizationEditor', () => {
     expect(useProjectStore.getState().document).toMatchObject({
       rooms: { foyer: { data: { description: { source: { text: 'A renovated foyer.' } } } } },
     });
+  });
+
+  it('resolves ambiguous external duplication without sharing Message identity', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Original", nil, { note = "Keep this" })\n',
+    };
+    const tracked = synchronizeLocalizationMessageTracking(project).project;
+    const messageId = Object.values(tracked.localization.sourceMessageTracking)[0]!.occurrences[0]!
+      .messageId;
+    tracked.localization.locales.fr = { supported: false, parentLocale: null };
+    const workflow = localizationMessageWorkflowView(tracked, messageId)!;
+    tracked.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(workflow, 'Original traduit', 'human', {
+        review: 'reviewed',
+      }),
+    };
+    tracked.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: [
+        'local first = Text.tr("Original", nil, { note = "Keep this" })',
+        'local second = Text.tr("Original", nil, { note = "Keep this" })',
+        'return first .. second',
+        '',
+      ].join('\n'),
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: tracked,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Reconciliation' }));
+    expect(screen.getByText('Decision required')).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('combobox', {
+        name: /Resolution for .*bootstrap.* occurrence 0/,
+      }),
+    );
+    await user.click(
+      await screen.findByRole('option', { name: /Relink .*Original.*preserves work/ }),
+    );
+    await user.click(
+      screen.getByRole('combobox', {
+        name: /Resolution for .*bootstrap.* occurrence 1/,
+      }),
+    );
+    await user.click(await screen.findByRole('option', { name: 'Create a new Message identity' }));
+    await user.click(screen.getByRole('button', { name: 'Apply reconciliation' }));
+
+    const document = useProjectStore.getState().document as AuthoringProject;
+    const ids = Object.values(document.localization.sourceMessageTracking).flatMap((entry) =>
+      entry.occurrences.map((occurrence) => occurrence.messageId),
+    );
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids).toContain(messageId);
+    expect(document.localization.translations.fr?.[messageId]?.text).toBe('Original traduit');
+    expect(document.localization.orphanedMessages).toEqual({});
   });
 
   it('blocks source-locale changes after target translation work exists', async () => {

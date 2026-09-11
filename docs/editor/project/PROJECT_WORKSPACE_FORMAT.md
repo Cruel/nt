@@ -21,9 +21,12 @@ Context and Translator note guidance, sparse target translation records keyed by
 identity, sparse `structuredMessageIds` ownership overrides used only when an editor-mediated semantic
 refactor must preserve an existing structured Message identity across a path change, and
 `sourceMessageTracking` entries for free-form managed Lua/RML occurrences. Those entries are keyed by
-source family plus semantic owner/source path and keep compact source-snapshot, structural, anchor,
-and source fingerprints with the durable Message ID; they never inject opaque tracking IDs into Lua,
-RML, or structured gameplay JSON. Each target translation record stores target text, the compact
+source family plus semantic owner/source path and keep the last managed source/guidance occurrence
+snapshot together with compact source-snapshot, structural, anchor, and source fingerprints and the
+durable Message ID; they never inject opaque tracking IDs into Lua, RML, or structured gameplay JSON.
+`orphanedMessages` retains disappeared free-form Message snapshots plus valuable target translation,
+review, provenance, and guidance work outside the live catalog until an author relinks or discards it.
+Each target translation record stores target text, the compact
 semantic source fingerprint it was translated from, current-content origin (`human`, `ai`, `imported`,
 or `unknown`), human review state (`needs-review` or `reviewed`), optional compact provider/model
 provenance, and optional presentation/guidance acknowledgement fingerprints. Missing is represented by
@@ -40,8 +43,11 @@ developer notes, filenames, and generic gameplay strings are not localized merel
 strings. Direct structured-file edits are discovered read-only from the same deterministic ownership
 rules. Managed Lua/RML edits are likewise analyzed read-only; `noveltea localization sync` is the
 explicit mutation boundary that materializes definitely new identities and deterministic one-to-one
-tracking updates. Ambiguous duplicate/many-to-many cases remain unresolved for reconciliation rather
-than being guessed. Validation, preview, source analysis, and passive editor watching do not
+tracking updates. Ambiguous duplicate/many-to-many cases remain unresolved for `noveltea localization
+reconcile` rather than being guessed. Reconciliation can relink a current occurrence to exactly one
+prior/orphaned Message identity, create independent new identities, move valuable abandoned work to
+Orphaned storage, and garbage-collect valueless stale tracking. Validation, preview, source analysis,
+and passive editor watching do not
 materialize tracking metadata or dirty the workspace. The editor's
 Localization workspace joins these derived Messages with explicit Messages for translation and usage
 views. Human material edits through the Localization workspace create current Human + Needs review
@@ -149,14 +155,18 @@ project-root override and is validated by the same workspace-v1 rules.
 Ordinary agent edits are direct edits to tracked JSON, Lua, RML, and RCSS source files. Managed
 localizable Lua/RML edits are followed by `noveltea localization sync` and then `noveltea validate`;
 all passive discovery remains read-only. Semantic commands are reserved for operations that need
-project-wide graph or transaction semantics: `localization sync`, `localization view`, `localization
-accept`, `localization review`, `entity create`, `entity rename`, `entity delete`, and `usages`.
+project-wide graph or transaction semantics: `localization sync`, `localization reconcile`,
+`localization view`, `localization accept`, `localization review`, `entity create`, `entity rename`,
+`entity delete`, and `usages`.
 `localization view` is read-only and joins normalized target records with current source/guidance and
 derived workflow status; `localization accept` and `localization review` are independent revisioned
 mutations. `localization sync --dry-run` reports the deterministic tracking plan
 without writing; normal sync commits only localization tracking through the Project Workspace
-revisioned writer and never rewrites the source file merely to store identity. `entity
-create` uses the same authoring record defaults as the editor and does not provide a generic Asset
+revisioned writer and never rewrites the source file merely to store identity. `localization
+reconcile` is read-only when producing a plan; `--apply` consumes a JSON plan/resolution object whose
+expected workspace revision and reconciliation fingerprint must still match before the normal Project
+Workspace writer transaction may commit `localization.json`. Stale plans are recomputed/reported and
+never overwrite a newer editor or CLI decision. `entity create` uses the same authoring record defaults as the editor and does not provide a generic Asset
 creator. Rename/delete source-reference policy comes from the shared dependency graph: recognized
 rewriteable references are rewritten on rename, exact manual references block rename, possible
 lexical references require `--allow-possible-source-references`, and delete still requires `--force`
