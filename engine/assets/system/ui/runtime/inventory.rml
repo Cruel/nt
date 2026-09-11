@@ -7,8 +7,8 @@
 <body data-model="noveltea">
     <div id="nt_inventory_panel">
         <div class="nt-inventory-header">
-            <h1>Inventory</h1>
-            <button class="nt-inventory-close" onclick="noveltea_inventory.dismiss(event, element, document)">Close</button>
+            <h1><nt-tr key="noveltea.inventory.title"/></h1>
+            <button class="nt-inventory-close" onclick="noveltea_inventory.dismiss(event, element, document)"><nt-tr key="noveltea.common.close"/></button>
         </div>
         <p class="nt-inventory-empty"
            data-if="gameplay.inventory.presented_key != '' && gameplay.inventory.items.size == 0">

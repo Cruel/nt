@@ -29,6 +29,7 @@ Author-visible contract:
 - The element remains live at runtime. Locale changes re-resolve mounted `nt-tr` nodes without remounting their Layouts.
 - Local translatable rich content is limited to text plus `span`, `em`, `strong`, `b`, `i`, `u`, `s`, and `br`. Those inline tags may use `class` and `style`.
 - Do not nest `nt-tr`, put arbitrary interactive/layout subtrees inside it, or invent `nt-case`. Complex plural/select grammar belongs in a named Message.
+- The `noveltea.*` named Message namespace is engine-owned. Built-in system Layouts use those keys and receive engine-provided source/target defaults without Project duplication. A Project may override a defined system Message, but it may not introduce new Project-owned keys under `noveltea.*`; system overrides use the normal localization freshness, provenance, and review workflow.
 
 ## `nt-active-text`
 

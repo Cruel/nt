@@ -182,6 +182,11 @@ public:
     }
 
     void publish_runtime_shell_view(core::RuntimeShellViewState) override {}
+    [[nodiscard]] std::optional<std::string>
+    realize_system_message(std::string_view key) const override
+    {
+        return std::string{key};
+    }
     void request_shell_quit() override {}
 
     bool fail_next_mount = false;

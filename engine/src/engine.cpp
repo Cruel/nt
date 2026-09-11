@@ -5,6 +5,7 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/core/json_access.hpp"
+#include "noveltea/core/message_realization.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/material_codec.hpp"
 #include "noveltea/preview_bridge.hpp"
@@ -1397,6 +1398,19 @@ core::RuntimeShellViewState Engine::Impl::build_runtime_shell_view(
 void Engine::Impl::publish_runtime_shell_view(core::RuntimeShellViewState view)
 {
     m_runtime_ui.apply_runtime_shell_view(std::move(view));
+}
+
+std::optional<std::string> Engine::Impl::realize_system_message(std::string_view key) const
+{
+    const auto* running_game = m_game_host.running_game();
+    if (!running_game)
+        return std::nullopt;
+    const auto message_id = core::system_message_id(key);
+    if (!message_id)
+        return std::nullopt;
+    const core::MessageRealizer realizer(running_game->package().project().localization());
+    const auto realized = realizer.realize({*message_id, running_game->runtime_locale()});
+    return realized ? std::optional<std::string>{std::move(realized->text)} : std::nullopt;
 }
 
 void Engine::Impl::request_shell_quit() { m_platform.request_quit(); }

@@ -1,8 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "noveltea/core/message_realization.hpp"
+
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -15,6 +18,31 @@ std::string read_source_file(const std::filesystem::path& path)
 }
 
 } // namespace
+
+TEST_CASE("built-in player UI system Message keys resolve through MessageRealizer identities")
+{
+    const auto root = std::filesystem::path(NOVELTEA_SOURCE_DIR) / "engine/assets/system/ui";
+    const std::regex key_pattern(R"re(<nt-tr\s+key="(noveltea\.[^"]+)")re");
+    std::size_t references = 0;
+
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".rml")
+            continue;
+        const auto rml = read_source_file(entry.path());
+        for (auto match = std::sregex_iterator(rml.begin(), rml.end(), key_pattern);
+             match != std::sregex_iterator(); ++match) {
+            const auto key = (*match)[1].str();
+            INFO(entry.path().string());
+            INFO(key);
+            const auto id = noveltea::core::system_message_id(key);
+            REQUIRE(id);
+            CHECK(noveltea::core::system_message_key(*id) == key);
+            ++references;
+        }
+    }
+
+    CHECK(references > 0);
+}
 
 TEST_CASE("built-in title layout uses the NovelTea data model")
 {

@@ -6,7 +6,7 @@
 </head>
 <body data-model="noveltea" onshow="noveltea_verb_menu.position(event, element, document)">
     <div id="nt_verb_menu" data-if="gameplay.interaction.verb_menu_open">
-        <p class="nt-verb-menu-heading">Actions</p>
+        <p class="nt-verb-menu-heading"><nt-tr key="noveltea.verb_menu.actions"/></p>
         <button data-for="action : gameplay.interaction.actions"
                 class="nt-verb-menu-action"
                 data-class-disabled="!action.enabled"
@@ -14,7 +14,7 @@
                 data-event-click="ui_invoke_interaction(action.verb_id)">
             {{ action.label }}
         </button>
-        <button class="nt-verb-menu-close" data-event-click="ui_clear_selection()">Close</button>
+        <button class="nt-verb-menu-close" data-event-click="ui_clear_selection()"><nt-tr key="noveltea.common.close"/></button>
     </div>
 </body>
 </rml>

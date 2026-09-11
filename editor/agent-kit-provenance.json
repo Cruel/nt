@@ -313,14 +313,17 @@
       ]
     },
     "docs/RMLUI_CUSTOM_COMPONENTS.md": {
-      "reviewed": "2026-08-28",
-      "strategy": "Document only the supported NovelTea `nt-*` authoring contract and visible limitations of ActiveText/Map hosts; keep generated markup and C++ rendering/lifecycle machinery explicitly outside the public surface.",
+      "reviewed": "2026-09-11",
+      "strategy": "Document only the supported NovelTea `nt-*` authoring contract, reserved engine system Message behavior, and visible limitations of ActiveText/Map hosts; keep generated markup and C++ rendering/lifecycle machinery explicitly outside the public surface.",
       "sources": [
         {
           "source": "noveltea",
           "areas": [
             "docs/ui/RMLUI_CUSTOM_COMPONENTS.md",
             "docs/ui/RMLUI_DATA_MODEL_CONTRACT.md",
+            "editor/src/shared/authoring-rml-localization-lowering.ts",
+            "editor/src/shared/project-schema/system-messages.ts",
+            "engine/src/core/message_realization.cpp",
             "engine/src/ui/rmlui/rmlui_custom_components.cpp",
             "engine/src/ui/rmlui/active_text_presenter.cpp",
             "engine/src/ui/rmlui/runtime_ui.cpp",

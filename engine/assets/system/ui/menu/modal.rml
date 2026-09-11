@@ -6,12 +6,12 @@
 <body data-model="noveltea">
     <main class="nt-shell-root">
         <section class="nt-shell-panel">
-            <p class="nt-shell-kicker">Confirm</p>
-            <h1>Are you sure?</h1>
+            <p class="nt-shell-kicker"><nt-tr key="noveltea.confirmation.confirm"/></p>
+            <h1><nt-tr key="noveltea.confirmation.prompt"/></h1>
             <p id="nt-modal-prompt">{{ shell.confirmation.prompt }}</p>
             <div class="nt-shell-actions">
-                <button data-event-click="shell_confirm()">Confirm</button>
-                <button data-event-click="shell_cancel()">Cancel</button>
+                <button data-event-click="shell_confirm()"><nt-tr key="noveltea.confirmation.confirm"/></button>
+                <button data-event-click="shell_cancel()"><nt-tr key="noveltea.confirmation.cancel"/></button>
             </div>
             <p id="nt-shell-status">{{ shell.status }}</p>
         </section>

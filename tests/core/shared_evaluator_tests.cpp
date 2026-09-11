@@ -245,6 +245,34 @@ TEST_CASE("Message realization negotiates supported locale tags independently of
     CHECK(source->locale == "en");
 }
 
+TEST_CASE("Message realization supplies engine system defaults and accepts Project overrides")
+{
+    compiled::Localization localization;
+    localization.source_locale = "en";
+    localization.default_locale = "pt-BR";
+    localization.locales = {{"en", std::nullopt, true}, {"pt-BR", std::nullopt, true}};
+    localization.catalogs = {{"en", {}}, {"pt-BR", {}}};
+
+    const auto settings_id = system_message_id("noveltea.shell.settings");
+    REQUIRE(settings_id);
+    MessageRealizer defaults(localization);
+    const auto translated = defaults.realize({*settings_id, "pt-BR"});
+    REQUIRE(translated);
+    CHECK(translated->text == "Configurações");
+    CHECK(translated->locale == "pt-BR");
+
+    localization.catalogs[0].entries.push_back({*settings_id, "Options"});
+    localization.catalogs[1].entries.push_back({*settings_id, "Opções"});
+    MessageRealizer overridden(localization);
+    const auto project_target = overridden.realize({*settings_id, "pt-BR"});
+    REQUIRE(project_target);
+    CHECK(project_target->text == "Opções");
+    const auto project_source = overridden.realize({*settings_id, "es"});
+    REQUIRE(project_source);
+    CHECK(project_source->text == "Options");
+    CHECK(project_source->locale == "en");
+}
+
 TEST_CASE("Message realization validates typed arguments and formats values for the active locale")
 {
     compiled::Localization localization;

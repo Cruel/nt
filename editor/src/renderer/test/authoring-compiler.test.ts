@@ -42,6 +42,7 @@ import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/
 import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
+import { systemMessageDefinitionForKey } from '../../shared/project-schema/system-messages';
 import { comprehensiveGoldenProject } from './fixtures/compiled-project-golden-projects';
 
 function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
@@ -56,6 +57,127 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('resolves reserved engine system Messages without Project catalog duplication', () => {
+    const project = validProject();
+    const layout = defaultLayoutData('System Message', 'document');
+    layout.rml.sourceText =
+      '<rml><head></head><body><nt-tr key="noveltea.shell.settings"/></body></rml>';
+    project.layouts['system-message'] = {
+      id: 'system-message',
+      label: 'System Message',
+      data: layout,
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok, result.ok ? '' : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    if (!result.ok) return;
+
+    const definition = systemMessageDefinitionForKey('noveltea.shell.settings');
+    expect(definition).not.toBeNull();
+    const compiled = result.project.resources.layouts.find(
+      (candidate) => candidate.id === 'system-message',
+    );
+    expect(compiled?.rml).toEqual(
+      expect.objectContaining({
+        kind: 'inline',
+        text: expect.stringContaining(`message="${definition!.id}"`),
+      }),
+    );
+    expect(
+      result.project.localization.catalogs
+        .flatMap((catalog) => catalog.entries)
+        .some((entry) => entry.messageId === definition!.id),
+    ).toBe(false);
+  });
+
+  it('lowers Project overrides of reserved system Messages onto their engine runtime identity', () => {
+    const project = validProject();
+    const stableId = '11111111-1111-4111-8111-111111111119';
+    project.localization.messages[stableId] = {
+      kind: 'named',
+      key: 'noveltea.shell.settings',
+      source: 'Options',
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok, result.ok ? '' : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    if (!result.ok) return;
+
+    const definition = systemMessageDefinitionForKey('noveltea.shell.settings')!;
+    expect(result.project.localization.catalogs[0]?.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ messageId: definition.id, value: 'Options' }),
+      ]),
+    );
+  });
+
+  it('compiles target-locale overrides of engine system Messages through ordinary translation records', () => {
+    const project = validProject();
+    const stableId = '11111111-1111-4111-8111-111111111117';
+    project.localization.messages[stableId] = {
+      kind: 'named',
+      key: 'noveltea.shell.settings',
+      source: 'Options',
+    };
+    project.localization.locales['pt-BR'] = { supported: true, parentLocale: null };
+    const view = localizationMessageWorkflowView(project, stableId)!;
+    project.localization.translations['pt-BR'] = {
+      [stableId]: createLocalizationTranslation(view, 'Opções do jogo', 'human', {
+        review: 'reviewed',
+      }),
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok, result.ok ? '' : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    if (!result.ok) return;
+
+    const definition = systemMessageDefinitionForKey('noveltea.shell.settings')!;
+    const targetCatalog = result.project.localization.catalogs.find(
+      (catalog) => catalog.locale === 'pt-BR',
+    );
+    expect(targetCatalog?.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ messageId: definition.id, value: 'Opções do jogo' }),
+      ]),
+    );
+  });
+
+  it('rejects system Message overrides that change the engine-owned argument contract', () => {
+    const project = validProject();
+    project.localization.messages['11111111-1111-4111-8111-111111111116'] = {
+      kind: 'named',
+      key: 'noveltea.shell.settings',
+      source: 'Options {section}',
+      arguments: { section: 'string' },
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'AUTHORING_SCHEMA_CUSTOM',
+          message: expect.stringContaining('engine-owned argument contract'),
+        }),
+      ]),
+    );
+  });
+
+  it('rejects Project-owned named Messages in the reserved noveltea namespace', () => {
+    const project = validProject();
+    project.localization.messages['11111111-1111-4111-8111-111111111118'] = {
+      kind: 'named',
+      key: 'noveltea.project.custom',
+      source: 'Collision',
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'AUTHORING_SCHEMA_CUSTOM' })]),
+    );
+  });
+
   it('lowers typed Message Variables to compiled Message identities and rejects stale keys', () => {
     const project = validProject();
     project.localization.messages['11111111-1111-4111-8111-111111111111'] = {

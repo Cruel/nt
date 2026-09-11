@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isReservedSystemMessageKey, systemMessageDefinitionForKey } from './system-messages';
 
 export const localeIdSchema = z.string().check(z.trim(), z.minLength(1, 'Locale is required.'));
 export const messageIdSchema = z.string().uuid('Message ID must be a UUID.');
@@ -23,6 +24,7 @@ export const messageArgumentTypeSchema = z.enum([
   'integer',
   'plural-number',
 ]);
+export type MessageArgumentType = z.infer<typeof messageArgumentTypeSchema>;
 export const messageArgumentsSchema = z.record(
   z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]*$/u, 'Message argument name is invalid.'),
   messageArgumentTypeSchema,
@@ -366,6 +368,28 @@ export const authoringLocalizationSchema = z
           });
       }
       if (message.kind !== 'named') continue;
+      const systemMessage = systemMessageDefinitionForKey(message.key);
+      if (isReservedSystemMessageKey(message.key) && !systemMessage) {
+        context.addIssue({
+          code: 'custom',
+          path: ['messages', messageId, 'key'],
+          message: `Named Message key '${message.key}' is reserved for engine-owned NovelTea Messages.`,
+        });
+      }
+      if (systemMessage) {
+        const authoredArguments = Object.entries(message.arguments ?? {}).sort(([left], [right]) =>
+          left.localeCompare(right),
+        );
+        const systemArguments = Object.entries(systemMessage.arguments).sort(([left], [right]) =>
+          left.localeCompare(right),
+        );
+        if (JSON.stringify(authoredArguments) !== JSON.stringify(systemArguments))
+          context.addIssue({
+            code: 'custom',
+            path: ['messages', messageId, 'arguments'],
+            message: `System Message '${message.key}' must preserve its engine-owned argument contract.`,
+          });
+      }
       const previous = namedKeys.get(message.key);
       if (previous) {
         context.addIssue({

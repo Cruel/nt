@@ -11,8 +11,8 @@
             <p id="nt-title-subtitle">{{ project.subtitle }}</p>
             <nav id="nt-title-actions">
                 <button id="nt-title-start" data-event-click="shell_start()">{{ project.start_label }}</button>
-                <button id="nt-title-load" data-event-click="shell_open_load()">Load</button>
-                <button id="nt-title-settings" data-event-click="shell_open_settings()">Settings</button>
+                <button id="nt-title-load" data-event-click="shell_open_load()"><nt-tr key="noveltea.shell.load"/></button>
+                <button id="nt-title-settings" data-event-click="shell_open_settings()"><nt-tr key="noveltea.shell.settings"/></button>
             </nav>
             <p id="nt-title-diagnostic"></p>
             <p id="nt-shell-status">{{ shell.status }}</p>
