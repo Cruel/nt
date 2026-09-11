@@ -23,6 +23,7 @@ import {
 import type { NovelTeaCliNativeToolService } from '../../cli/native-tool-service';
 import type { NovelTeaCliPlatformToolService } from '../../cli/platform-tool-service';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { createDefaultAuthoringRecord } from '../project/entity-operations';
 import {
   createAuthoringProject,
@@ -144,6 +145,57 @@ function projectWithSourceReference() {
 }
 
 describe('NovelTea headless CLI', () => {
+  it('keeps localization discovery read-only until deterministic sync is requested', async () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'local greeting = Text.tr("Hello")\nreturn greeting\n',
+    };
+    const layout = defaultLayoutData('Localized HUD', 'document');
+    layout.rml.sourceText = '<rml><body><nt-tr>Welcome</nt-tr></body></rml>';
+    project.layouts.hud = { id: 'hud', label: 'Localized HUD', data: layout };
+    const value = fixture(project);
+    const localizationBefore = await value.fileSystem.readText(`${root}/localization.json`);
+    const scriptBefore = await value.fileSystem.readText(`${root}/scripts/bootstrap.lua`);
+    const rmlBefore = await value.fileSystem.readText(`${root}/records/layouts/hud/layout.rml`);
+
+    const validation = await runNovelTeaCli(['--json', 'validate'], options(value));
+    expect(validation.exitCode).toBe(0);
+    expect(await value.fileSystem.readText(`${root}/localization.json`)).toBe(localizationBefore);
+
+    const dryRun = await runNovelTeaCli(
+      ['--json', 'localization', 'sync', '--dry-run'],
+      options(value),
+    );
+    expect(dryRun.exitCode).toBe(0);
+    expect(JSON.parse(dryRun.stdout)).toMatchObject({ changed: true, writes: [] });
+    expect(await value.fileSystem.readText(`${root}/localization.json`)).toBe(localizationBefore);
+
+    const synchronized = await runNovelTeaCli(['--json', 'localization', 'sync'], options(value));
+    expect(synchronized.exitCode).toBe(0);
+    expect(JSON.parse(synchronized.stdout)).toMatchObject({
+      changed: true,
+      materializedMessageIds: expect.any(Array),
+      unresolved: [],
+      writes: ['localization.json'],
+    });
+    const localization = JSON.parse(
+      await value.fileSystem.readText(`${root}/localization.json`),
+    ) as { sourceMessageTracking: Record<string, { family: string }> };
+    expect(
+      Object.values(localization.sourceMessageTracking)
+        .map((entry) => entry.family)
+        .sort(),
+    ).toEqual(['lua', 'rml']);
+    expect(await value.fileSystem.readText(`${root}/scripts/bootstrap.lua`)).toBe(scriptBefore);
+    expect(await value.fileSystem.readText(`${root}/records/layouts/hud/layout.rml`)).toBe(
+      rmlBefore,
+    );
+
+    const repeated = await runNovelTeaCli(['--json', 'localization', 'sync'], options(value));
+    expect(JSON.parse(repeated.stdout)).toMatchObject({ changed: false, writes: [] });
+  });
+
   it('lists platform profiles with copyable export ids', async () => {
     const value = fixture();
     const profile = defaultPlatformExportProfile('linux');
@@ -1003,6 +1055,7 @@ describe('NovelTea headless CLI', () => {
   it('exposes one reusable Node-reference runner covering every supported command path', async () => {
     expect(PHASE_SIX_NODE_REFERENCE_COMMANDS).toEqual([
       'validate',
+      'localization sync',
       'entity create',
       'entity rename',
       'entity delete',
@@ -1010,6 +1063,7 @@ describe('NovelTea headless CLI', () => {
     ]);
     const commands: readonly string[][] = [
       ['--json', 'validate'],
+      ['--json', 'localization', 'sync', '--dry-run'],
       ['--json', 'entity', 'create', 'rooms', 'new-room', '--dry-run'],
       [
         '--json',

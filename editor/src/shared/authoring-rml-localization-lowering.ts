@@ -1,11 +1,26 @@
-import { structuredMessageId } from './authoring-structured-messages';
 import type { AuthoringProject } from './project-schema/authoring-project';
+import {
+  localizationOwnerKey,
+  localizationSourceKey,
+  localizationTrackingFingerprint,
+  resolveLocalizationSourceIdentity,
+  type LocalizationSourceCandidate,
+  type LocalizationSourceOccurrenceCandidate,
+} from './localization-source-tracking';
 
 export interface RmlMessageOccurrence {
   id: string;
   layoutId: string;
   ordinal: number;
   source: string;
+}
+
+export interface RmlLocalizationSource {
+  readonly sourceKey: string;
+  readonly source: LocalizationSourceCandidate;
+  readonly layoutId: string;
+  readonly text: string;
+  readonly localNodes: readonly NtTrNode[];
 }
 
 export interface RmlLocalizationDiagnostic {
@@ -195,14 +210,17 @@ function validateInlineMarkup(
   }
 }
 
-function localOccurrenceId(layoutId: string, ordinal: number): string {
-  return structuredMessageId(`/layouts/${layoutId}/data/rml/nt-tr/${ordinal}`);
+function normalizeRmlTrackingMarkup(value: string): string {
+  return value
+    .replace(/>([^<]+)</gu, (_match, text: string) => `>${text.trim() === '' ? '' : '<text>'}<`)
+    .replace(/\s+/gu, ' ')
+    .trim();
 }
 
-export function collectRmlLocalMessages(
+export function collectRmlLocalizationSources(
   project: AuthoringProject,
-): readonly RmlMessageOccurrence[] {
-  const occurrences: RmlMessageOccurrence[] = [];
+): readonly RmlLocalizationSource[] {
+  const result: RmlLocalizationSource[] = [];
   for (const [layoutId, record] of Object.entries(project.layouts).sort(([left], [right]) =>
     left.localeCompare(right),
   )) {
@@ -211,18 +229,61 @@ export function collectRmlLocalMessages(
     const rml = (data as { rml?: { sourceMode?: string; sourceText?: string } }).rml;
     if (rml?.sourceMode !== 'inline' || typeof rml.sourceText !== 'string') continue;
     const parsed = findNtTrNodes(rml.sourceText);
-    let ordinal = 0;
-    for (const node of parsed.nodes) {
-      const key = attribute(node, 'key')?.value?.trim();
-      if (key) continue;
+    if (parsed.malformed) continue;
+    const localNodes = parsed.nodes.filter((node) => !attribute(node, 'key')?.value?.trim());
+    const ownerKey = localizationOwnerKey({ kind: 'record', collection: 'layouts', id: layoutId });
+    const sourcePath = `/layouts/${layoutId}/data/rml/sourceText`;
+    const occurrences: LocalizationSourceOccurrenceCandidate[] = localNodes.map((node, ordinal) => {
+      const openTag = node.openTag.replace(/\s+/gu, ' ').trim();
+      const before = rml.sourceText!.slice(Math.max(0, node.start - 128), node.start);
+      const after = rml.sourceText!.slice(
+        node.end,
+        Math.min(rml.sourceText!.length, node.end + 128),
+      );
+      return {
+        ordinal,
+        structuralFingerprint: localizationTrackingFingerprint(
+          `${openTag}|${normalizeRmlTrackingMarkup(node.content)}`,
+        ),
+        anchorFingerprint: localizationTrackingFingerprint(
+          `${normalizeRmlTrackingMarkup(before)}|<nt-tr>|${normalizeRmlTrackingMarkup(after)}`,
+        ),
+        sourceFingerprint: localizationTrackingFingerprint(node.content),
+      };
+    });
+    const source: LocalizationSourceCandidate = {
+      family: 'rml',
+      ownerKey,
+      sourcePath,
+      sourceSnapshotFingerprint: localizationTrackingFingerprint(rml.sourceText),
+      occurrences: Object.freeze(occurrences),
+    };
+    result.push({
+      sourceKey: localizationSourceKey('rml', ownerKey, sourcePath),
+      source,
+      layoutId,
+      text: rml.sourceText,
+      localNodes: Object.freeze(localNodes),
+    });
+  }
+  return Object.freeze(result.sort((a, b) => a.sourceKey.localeCompare(b.sourceKey)));
+}
+
+export function collectRmlLocalMessages(
+  project: AuthoringProject,
+): readonly RmlMessageOccurrence[] {
+  const occurrences: RmlMessageOccurrence[] = [];
+  for (const trackedSource of collectRmlLocalizationSources(project)) {
+    trackedSource.localNodes.forEach((node, ordinal) => {
+      const candidate = trackedSource.source.occurrences[ordinal]!;
       occurrences.push({
-        id: localOccurrenceId(layoutId, ordinal),
-        layoutId,
+        id: resolveLocalizationSourceIdentity(project.localization, trackedSource.source, candidate)
+          .messageId,
+        layoutId: trackedSource.layoutId,
         ordinal,
         source: node.content,
       });
-      ordinal += 1;
-    }
+    });
   }
   return Object.freeze(occurrences);
 }
@@ -254,10 +315,21 @@ export function lowerRmlLocalization(
   }
 
   let localOrdinal = 0;
+  const trackingSource = collectRmlLocalizationSources(project).find(
+    (candidate) => candidate.source.sourcePath === basePath,
+  );
   const replacements: { start: number; end: number; value: string }[] = [];
   for (const node of parsed.nodes) {
     const key = attribute(node, 'key')?.value?.trim();
-    const localStableId = key ? null : localOccurrenceId(layoutId, localOrdinal++);
+    const localCandidate = key ? null : trackingSource?.source.occurrences[localOrdinal++];
+    const localStableId =
+      key || !trackingSource || !localCandidate
+        ? null
+        : resolveLocalizationSourceIdentity(
+            project.localization,
+            trackingSource.source,
+            localCandidate,
+          ).messageId;
     if (node.nested) {
       diagnostics.push({
         code: 'authoring.localization.rml_nested_message',

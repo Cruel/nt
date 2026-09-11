@@ -26,6 +26,7 @@ describe('authoring project schema', () => {
         locales: { en: { supported: true, parentLocale: null } },
         messages: {},
         structuredMessageIds: {},
+        sourceMessageTracking: {},
         translations: {},
       },
       editor: { schema: EDITOR_PROJECT_STATE_SCHEMA, recordMetadata: {} },
@@ -56,6 +57,7 @@ describe('authoring project schema', () => {
         },
       },
       structuredMessageIds: {},
+      sourceMessageTracking: {},
       translations: {
         fr: { '018f4f8c-9b5d-7ae2-9b36-4c8af613f013': 'Hall' },
       },
@@ -67,6 +69,11 @@ describe('authoring project schema', () => {
     };
     delete withoutStructuredOwnership.localization.structuredMessageIds;
     expect(isAuthoringProject(withoutStructuredOwnership)).toBe(false);
+    const withoutSourceTracking = structuredClone(project) as unknown as {
+      localization: Record<string, unknown>;
+    };
+    delete withoutSourceTracking.localization.sourceMessageTracking;
+    expect(isAuthoringProject(withoutSourceTracking)).toBe(false);
     expect(
       isAuthoringProject({
         ...project,

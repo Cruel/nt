@@ -157,9 +157,29 @@ function validateLocalizationReferences(
     else structuredOwners.set(message.id, message.path);
   }
 
+  const trackedSourceOwners = new Map<string, string>();
+  for (const [sourceKey, entry] of Object.entries(project.localization.sourceMessageTracking)) {
+    entry.occurrences.forEach((occurrence, index) => {
+      const path = `/localization/sourceMessageTracking/${escapePathSegment(sourceKey)}/occurrences/${index}/messageId`;
+      const structuredOwner = structuredOwners.get(occurrence.messageId);
+      const previousTrackedOwner = trackedSourceOwners.get(occurrence.messageId);
+      if (explicitMessageIds.has(occurrence.messageId) || structuredOwner || previousTrackedOwner)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            path,
+            `Tracked source Message '${occurrence.messageId}' conflicts with another Message identity owner.`,
+            'Localization',
+            'localization.source-message.id-conflict',
+          ),
+        );
+      else trackedSourceOwners.set(occurrence.messageId, path);
+    });
+  }
   const knownMessageIds = new Set([
     ...explicitMessageIds,
     ...structured.map((message) => message.id),
+    ...trackedSourceOwners.keys(),
   ]);
   for (const [locale, translations] of Object.entries(project.localization.translations)) {
     for (const messageId of Object.keys(translations)) {
