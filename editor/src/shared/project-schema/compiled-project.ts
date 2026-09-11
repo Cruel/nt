@@ -2330,6 +2330,7 @@ const compiledLocaleSchema = strict({
   locale: z.string().check(z.trim(), z.minLength(1)),
   parentLocale: z.string().check(z.trim(), z.minLength(1)).nullable(),
   supported: z.boolean(),
+  fontStack: z.array(assetReferenceSchema),
 });
 const runtimeSettingsSchema = strict({
   display: strict({
@@ -2393,7 +2394,10 @@ const runtimeSettingsSchema = strict({
     }),
   ),
   roomNavigationTransition: roomNavigationTransitionSchema,
-  text: strict({ defaultFont: assetReferenceSchema.nullable() }),
+  text: strict({
+    defaultFont: assetReferenceSchema.nullable(),
+    fontStack: z.array(assetReferenceSchema),
+  }),
   titleScreen: strict({
     showAuthor: z.boolean(),
     showProjectTitle: z.boolean(),

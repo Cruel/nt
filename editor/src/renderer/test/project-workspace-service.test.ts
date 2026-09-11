@@ -52,14 +52,18 @@ describe('ProjectWorkspaceService', () => {
     first.traits = Object.fromEntries(entries.map((id) => [id, definition(id)]));
     second.traits = Object.fromEntries([...entries].reverse().map((id) => [id, definition(id)]));
     first.localization.locales = {
-      en: { supported: true, parentLocale: null },
-      ...Object.fromEntries(entries.map((id) => [id, { supported: false, parentLocale: null }])),
+      en: { supported: true, parentLocale: null, fontStack: null },
+      ...Object.fromEntries(
+        entries.map((id) => [id, { supported: false, parentLocale: null, fontStack: null }]),
+      ),
     };
     second.localization.locales = {
       ...Object.fromEntries(
-        [...entries].reverse().map((id) => [id, { supported: false, parentLocale: null }]),
+        [...entries]
+          .reverse()
+          .map((id) => [id, { supported: false, parentLocale: null, fontStack: null }]),
       ),
-      en: { supported: true, parentLocale: null },
+      en: { supported: true, parentLocale: null, fontStack: null },
     };
     first.layouts.main = {
       id: 'main',

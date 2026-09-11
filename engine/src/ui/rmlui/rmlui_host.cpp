@@ -97,7 +97,7 @@ bool RmlUiHost::initialize(const Config& config)
         return false;
     }
 
-    if (!Rml::LoadFontFace(kRuntimeUiSystemFontAsset, true)) {
+    if (!Rml::LoadFontFace(kRuntimeUiSystemFontAsset, false)) {
         std::fprintf(stderr, "[runtime_ui] failed to load font: %s\n", kRuntimeUiSystemFontAsset);
         if (!Rml::LoadFontFace(kRuntimeUiFontAsset, true)) {
             std::fprintf(stderr, "[runtime_ui] (optional) failed to load font: %s\n",
@@ -108,6 +108,61 @@ bool RmlUiHost::initialize(const Config& config)
     std::printf("[runtime_ui] RmlUi initialized %s\n",
                 format_resolved_context_metrics(m_default_context_metrics).c_str());
     return true;
+}
+
+bool RmlUiHost::configure_fonts(const assets::FontAssetConfig& config)
+{
+    if (!m_rml_initialized)
+        return false;
+
+    const auto active_stack = [&]() -> const std::vector<std::string>& {
+        const auto found =
+            std::find_if(config.locale_fallbacks.begin(), config.locale_fallbacks.end(),
+                         [&](const assets::LocaleFontStackAssetConfig& stack) {
+                             return stack.locale == config.active_locale;
+                         });
+        return found == config.locale_fallbacks.end() ? config.fallback_aliases : found->aliases;
+    }();
+    const auto is_fallback = [&](std::string_view alias) {
+        return std::find(active_stack.begin(), active_stack.end(), alias) != active_stack.end();
+    };
+    bool ok = true;
+    const auto load_family = [&](const assets::FontFamilyAssetDesc& family, bool fallback) {
+        const auto load = [&](const FontDesc& face, Rml::Style::FontStyle style,
+                              Rml::Style::FontWeight weight) {
+            if (!Rml::LoadFontFace(face.asset_path.generic_string(), family.alias, style, weight,
+                                   fallback, static_cast<int>(face.face_index)))
+                ok = false;
+        };
+        load(family.regular, Rml::Style::FontStyle::Normal, Rml::Style::FontWeight::Normal);
+        if (family.bold)
+            load(*family.bold, Rml::Style::FontStyle::Normal, Rml::Style::FontWeight::Bold);
+        if (family.italic)
+            load(*family.italic, Rml::Style::FontStyle::Italic, Rml::Style::FontWeight::Normal);
+        if (family.bold_italic)
+            load(*family.bold_italic, Rml::Style::FontStyle::Italic, Rml::Style::FontWeight::Bold);
+    };
+
+    // Register explicitly addressable families first, then locale fallbacks in authored order.
+    // RmlUi resolves fallback faces in registration order, so iterating config.families here would
+    // make the effective locale stack depend on Asset declaration order instead of author intent.
+    for (const auto& family : config.families) {
+        if (!is_fallback(family.alias))
+            load_family(family, false);
+    }
+    for (const auto& alias : active_stack) {
+        const auto family = std::find_if(
+            config.families.begin(), config.families.end(),
+            [&](const assets::FontFamilyAssetDesc& candidate) { return candidate.alias == alias; });
+        if (family != config.families.end())
+            load_family(*family, true);
+    }
+
+    constexpr std::string_view system_fallback_family = "__noveltea_system_fallback";
+    if (!Rml::LoadFontFace(kRuntimeUiSystemFontAsset, std::string(system_fallback_family),
+                           Rml::Style::FontStyle::Normal, Rml::Style::FontWeight::Normal, true))
+        ok = false;
+    return ok;
 }
 
 void RmlUiHost::shutdown()

@@ -2763,11 +2763,13 @@
     "defaultLocale": "en",
     "locales": [
       {
+        "fontStack": [],
         "locale": "en",
         "parentLocale": null,
         "supported": true
       },
       {
+        "fontStack": [],
         "locale": "es",
         "parentLocale": null,
         "supported": true
@@ -3354,7 +3356,8 @@
       "defaultFont": {
         "id": "font-main",
         "kind": "asset"
-      }
+      },
+      "fontStack": []
     },
     "titleScreen": {
       "showAuthor": false,

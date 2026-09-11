@@ -64,7 +64,7 @@ describe('authoring entity operations', () => {
   it('preserves structured Message translations across a known record ID rename', () => {
     const project = projectWithRooms();
     project.rooms.foyer!.data.description = inlineTextContent('A quiet foyer.');
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const oldMessageId = structuredMessageId('/rooms/foyer/data/description');
     project.localization.translations.fr = {
       [oldMessageId]: testTranslation('Un foyer tranquille.'),

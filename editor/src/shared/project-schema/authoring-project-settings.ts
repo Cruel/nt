@@ -32,6 +32,7 @@ const imageAssetRefSchema = assetRecordRefSchema.nullable();
 export const projectTextSettingsSchema = z
   .object({
     defaultFont: fontAssetRefSchema.default(null),
+    fontStack: z.array(assetRecordRefSchema),
   })
   .strict();
 
@@ -225,7 +226,7 @@ export const typedProjectSettingsSchema = z
       })
       .strict()
       .default({ defaultVerbMenuLayout: null }),
-    text: projectTextSettingsSchema.default({ defaultFont: null }),
+    text: projectTextSettingsSchema.default({ defaultFont: null, fontStack: [] }),
     titleScreen: projectTitleScreenSettingsSchema.default({
       titleImage: null,
       showProjectTitle: true,
@@ -386,6 +387,9 @@ export function projectSettingsForEditing(project: AuthoringProject): TypedProje
       defaultFont: Object.prototype.hasOwnProperty.call(rawText, 'defaultFont')
         ? rawText.defaultFont
         : null,
+      fontStack: Object.prototype.hasOwnProperty.call(rawText, 'fontStack')
+        ? rawText.fontStack
+        : [],
     },
     titleScreen: {
       titleImage: null,
@@ -679,6 +683,9 @@ export function validateTypedProjectSettings(
     '/settings/text/defaultFont',
     'font',
     diagnostics,
+  );
+  settings.text.fontStack.forEach((ref, index) =>
+    validateAssetRef(project, ref, `/settings/text/fontStack/${index}`, 'font', diagnostics),
   );
   validateAssetRef(
     project,

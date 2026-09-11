@@ -183,7 +183,7 @@ describe('room commands', () => {
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const placementMessageId = structuredMessageId(
       '/rooms/foyer/data/placements/@door/presentation/label',
     );

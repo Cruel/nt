@@ -16,6 +16,7 @@ namespace noveltea {
 struct ActiveTextLayoutOptions {
     Rect bounds{};
     std::string default_font_alias;
+    std::vector<std::string> fallback_font_aliases;
     float default_text_size = 24.0f;
     float line_spacing = 1.2f;
     TextAlign alignment = TextAlign::Start;

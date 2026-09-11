@@ -10,10 +10,17 @@ export const namedMessageKeySchema = z
     'Named Message key must use semantic identifier segments.',
   );
 
+const fontAssetRefSchema = z
+  .object({
+    $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict(),
+  })
+  .strict();
+
 const localeDefinitionSchema = z
   .object({
     supported: z.boolean(),
     parentLocale: localeIdSchema.nullable(),
+    fontStack: z.array(fontAssetRefSchema).nullable(),
   })
   .strict();
 
@@ -464,7 +471,7 @@ export function defaultAuthoringLocalization(): AuthoringLocalization {
   return {
     sourceLocale: 'en',
     defaultLocale: 'en',
-    locales: { en: { supported: true, parentLocale: null } },
+    locales: { en: { supported: true, parentLocale: null, fontStack: null } },
     messages: {},
     structuredMessageIds: {},
     sourceMessageTracking: {},

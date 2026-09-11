@@ -1864,9 +1864,28 @@ private:
                       "Shapes.",
                       path);
         }
+        const auto validate_font_asset = [&](const AssetId& id, const std::string& path) {
+            require(m_assets, id, "asset", path);
+            const auto asset =
+                std::find_if(m_input.assets.begin(), m_input.assets.end(),
+                             [&](const AssetResource& value) { return value.id == id; });
+            if (asset != m_input.assets.end() && asset->kind != AssetKind::Font)
+                error("compiled_project.invalid_font_stack",
+                      "Font stack entries must reference font Assets.", path);
+        };
         if (m_input.settings.text.default_font)
-            require(m_assets, *m_input.settings.text.default_font, "asset",
-                    "/settings/text/defaultFont");
+            validate_font_asset(*m_input.settings.text.default_font, "/settings/text/defaultFont");
+        for (std::size_t index = 0; index < m_input.settings.text.font_stack.size(); ++index)
+            validate_font_asset(m_input.settings.text.font_stack[index],
+                                "/settings/text/fontStack/" + std::to_string(index));
+        for (std::size_t locale_index = 0; locale_index < m_input.localization.locales.size();
+             ++locale_index) {
+            const auto& stack = m_input.localization.locales[locale_index].font_stack;
+            for (std::size_t font_index = 0; font_index < stack.size(); ++font_index)
+                validate_font_asset(stack[font_index],
+                                    "/localization/locales/" + std::to_string(locale_index) +
+                                        "/fontStack/" + std::to_string(font_index));
+        }
         if (m_input.settings.title_screen.title_image)
             require(m_assets, *m_input.settings.title_screen.title_image, "asset",
                     "/settings/titleScreen/titleImage");

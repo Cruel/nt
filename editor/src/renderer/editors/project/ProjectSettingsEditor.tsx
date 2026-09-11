@@ -1156,6 +1156,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const fontAssets = Object.entries(project.assets)
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'font')
     .map(([id, asset]) => ({ id, label: asset.label || id }));
+  const projectFontStack = settings.text.fontStack;
   const entrypointIsRoom = project.entrypoint?.kind === 'room' ? project.entrypoint.id : null;
   const entrypointCollection = project.entrypoint ? (`${project.entrypoint.kind}s` as const) : null;
   const entrypointRecord =
@@ -1211,6 +1212,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   function setDefaultFont(assetId: string | null) {
     return commandSucceeded(
       runProjectCommand('project.setDefaultFont', { assetId }, 'Set default font'),
+    );
+  }
+
+  function setProjectFontStack(assetIds: readonly string[]) {
+    return commandSucceeded(
+      runProjectCommand(
+        'project.replaceAtPath',
+        {
+          path: '/settings/text/fontStack',
+          value: assetIds.map((id) => ({ $ref: { collection: 'assets', id } })),
+        },
+        'Set Project font stack',
+      ),
     );
   }
 
@@ -1583,6 +1597,89 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="space-y-1" data-workbench-anchor="projectSettings.field.fontStack">
+                <Label htmlFor="project-font-stack-add">Fallback font stack</Label>
+                <p className="text-xs text-muted-foreground">
+                  Used after the selected or default font. Locale-specific stacks may override this
+                  order.
+                </p>
+                <select
+                  id="project-font-stack-add"
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  value=""
+                  onChange={(event) => {
+                    const assetId = event.currentTarget.value;
+                    if (assetId && !projectFontStack.some((ref) => ref.$ref.id === assetId))
+                      setProjectFontStack([...projectFontStack.map((ref) => ref.$ref.id), assetId]);
+                    event.currentTarget.value = '';
+                  }}
+                >
+                  <option value="">Add fallback font…</option>
+                  {fontAssets
+                    .filter((asset) => !projectFontStack.some((ref) => ref.$ref.id === asset.id))
+                    .map((asset) => (
+                      <option key={asset.id} value={asset.id}>
+                        {asset.label} ({asset.id})
+                      </option>
+                    ))}
+                </select>
+                <div className="flex flex-wrap gap-1">
+                  {projectFontStack.map((ref, index) => (
+                    <div
+                      key={ref.$ref.id}
+                      className="flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                    >
+                      <span>{project.assets[ref.$ref.id]?.label ?? ref.$ref.id}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-5 px-1"
+                        disabled={index === 0}
+                        onClick={() => {
+                          const ids = projectFontStack.map((entry) => entry.$ref.id);
+                          [ids[index - 1], ids[index]] = [ids[index]!, ids[index - 1]!];
+                          setProjectFontStack(ids);
+                        }}
+                        aria-label={`Move ${ref.$ref.id} earlier`}
+                      >
+                        ↑
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-5 px-1"
+                        disabled={index === projectFontStack.length - 1}
+                        onClick={() => {
+                          const ids = projectFontStack.map((entry) => entry.$ref.id);
+                          [ids[index], ids[index + 1]] = [ids[index + 1]!, ids[index]!];
+                          setProjectFontStack(ids);
+                        }}
+                        aria-label={`Move ${ref.$ref.id} later`}
+                      >
+                        ↓
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-5 px-1"
+                        onClick={() =>
+                          setProjectFontStack(
+                            projectFontStack
+                              .filter((entry) => entry.$ref.id !== ref.$ref.id)
+                              .map((entry) => entry.$ref.id),
+                          )
+                        }
+                        aria-label={`Remove ${ref.$ref.id} from fallback stack`}
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </div>
               <div className="space-y-1">
                 <Label htmlFor="default-inventory-layout">Default Inventory Layout</Label>

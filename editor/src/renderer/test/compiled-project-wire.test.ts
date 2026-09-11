@@ -40,7 +40,7 @@ function representativeWireFixture() {
       },
       inventory: { playerInventory: 'player', defaultLayout: null },
       interaction: { defaultVerbMenuLayout: null },
-      text: { defaultFont: null },
+      text: { defaultFont: null, fontStack: [] },
       titleScreen: {
         titleImage: null,
         showProjectTitle: true,
@@ -81,7 +81,7 @@ function representativeWireFixture() {
     localization: {
       sourceLocale: 'en',
       defaultLocale: 'en',
-      locales: [{ locale: 'en', parentLocale: null, supported: true }],
+      locales: [{ locale: 'en', parentLocale: null, supported: true, fontStack: [] }],
       catalogs: [
         {
           locale: 'en',
@@ -511,6 +511,26 @@ describe('compiled project wire', () => {
     };
 
     expect(compiledProjectWireSchema.safeParse(provisional).success).toBe(false);
+  });
+
+  it('requires current font-stack fields within Compiled Project Format V1', () => {
+    const fixture = representativeWireFixture();
+    const { fontStack: _textFontStack, ...textWithoutFontStack } = fixture.settings.text;
+    expect(
+      compiledProjectWireSchema.safeParse({
+        ...fixture,
+        settings: { ...fixture.settings, text: textWithoutFontStack },
+      }).success,
+    ).toBe(false);
+
+    const { fontStack: _localeFontStack, ...localeWithoutFontStack } =
+      fixture.localization.locales[0]!;
+    expect(
+      compiledProjectWireSchema.safeParse({
+        ...fixture,
+        localization: { ...fixture.localization, locales: [localeWithoutFontStack] },
+      }).success,
+    ).toBe(false);
   });
 
   it('requires sampling on images and forbids it on non-image resources', () => {

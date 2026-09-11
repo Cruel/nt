@@ -17,7 +17,7 @@ describe('localization workflow state', () => {
   it('derives linguistic freshness separately from guidance attention', () => {
     const project = createAuthoringProject();
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f031';
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     project.localization.messages[messageId] = {
       kind: 'named',
       key: 'ui.continue',
@@ -55,7 +55,7 @@ describe('localization workflow state', () => {
 
   it('derives structured presentation attention without linguistic staleness', () => {
     const project = createAuthoringProject();
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const room = defaultRoomData('Foyer');
     room.description = inlineTextContent('Welcome', 'plain');
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
@@ -76,10 +76,22 @@ describe('localization workflow state', () => {
   it('inherits sparse whole-Message targets across locale chains and preserves explicit use-source intent', () => {
     const project = createAuthoringProject();
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f032';
-    project.localization.locales.fr = { supported: true, parentLocale: null };
-    project.localization.locales['fr-CA'] = { supported: true, parentLocale: 'fr' };
-    project.localization.locales['fr-CA-QC'] = { supported: false, parentLocale: 'fr-CA' };
-    project.localization.locales['fr-BE'] = { supported: true, parentLocale: null };
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    project.localization.locales['fr-CA'] = {
+      supported: true,
+      parentLocale: 'fr',
+      fontStack: null,
+    };
+    project.localization.locales['fr-CA-QC'] = {
+      supported: false,
+      parentLocale: 'fr-CA',
+      fontStack: null,
+    };
+    project.localization.locales['fr-BE'] = {
+      supported: true,
+      parentLocale: null,
+      fontStack: null,
+    };
     project.localization.messages[messageId] = {
       kind: 'named',
       key: 'ui.confirm',
@@ -119,7 +131,7 @@ describe('localization workflow state', () => {
 
   it('derives presentation-only RML attention without marking the target linguistically outdated', () => {
     const project = createAuthoringProject();
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const layout = defaultLayoutData('HUD', 'document');
     layout.rml.sourceText = '<rml><body><nt-tr>Hello <em>traveler</em>.</nt-tr></body></rml>';
     project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };

@@ -1327,6 +1327,11 @@ void ui::rmlui::RuntimeUiFacadeAccess::set_context_render_observer(
         runtime_ui.m_state->host->set_context_render_observer(std::move(observer));
 }
 
+bool RuntimeUI::configure_fonts(const assets::FontAssetConfig& config)
+{
+    return m_state && m_state->host && m_state->host->configure_fonts(config);
+}
+
 RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event)
 {
     RuntimeUiEventResult result;

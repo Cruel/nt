@@ -151,6 +151,107 @@ TEST_CASE("StyledText preserves synthetic font style on positioned glyphs")
     }));
 }
 
+TEST_CASE("StyledText resolves missing shaped clusters through ordered fallback families")
+{
+    auto assets = make_assets();
+    assets.mount_directory("fixtures", NOVELTEA_SOURCE_DIR "/refs/RmlUi/Samples/assets");
+    noveltea::text::TextEngine engine(assets);
+
+    FontFamilyDesc body;
+    body.alias = "body";
+    body.regular = FontDesc{"fixtures:/LatoLatin-Regular.ttf"};
+    const auto body_family = engine.register_font_family(body);
+    REQUIRE(body_family);
+    const auto body_face = engine.resolve_font(body_family, TextFontRegular).face;
+    REQUIRE(body_face);
+
+    FontFamilyDesc emoji;
+    emoji.alias = "emoji";
+    emoji.regular = FontDesc{"fixtures:/NotoEmoji-Regular.ttf"};
+    const auto emoji_family = engine.register_font_family(emoji);
+    REQUIRE(emoji_family);
+    const auto emoji_face = engine.resolve_font(emoji_family, TextFontRegular).face;
+    REQUIRE(emoji_face);
+
+    StyledText text;
+    text.value = "A\xE2\x98\xBA";
+    text.bounds = {0.0f, 0.0f, 500.0f, 0.0f};
+    text.language = "en";
+    text.fallback_font_aliases = {"emoji"};
+    text.spans.push_back(TextSpan{.source_byte_begin = 0,
+                                  .source_byte_end = static_cast<uint32_t>(text.value.size()),
+                                  .font_alias = "body",
+                                  .size = 24.0f});
+
+    const auto glyphs = glyphs_for(engine.layout_text(text));
+    REQUIRE_FALSE(glyphs.empty());
+    CHECK(std::ranges::any_of(glyphs, [&](const PositionedGlyph& glyph) {
+        return glyph.source_byte_begin == 0 && glyph.font == body_face;
+    }));
+    CHECK(std::ranges::any_of(glyphs, [&](const PositionedGlyph& glyph) {
+        return glyph.source_byte_begin == 1 && glyph.font == emoji_face && glyph.glyph_id != 0;
+    }));
+    CHECK(engine.unresolved_clusters(text).empty());
+}
+
+TEST_CASE("TextEngine coverage diagnostics report unresolved shaped clusters")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const auto body = register_liberation_regular(engine, "body");
+    REQUIRE(body);
+    engine.set_default_font_family(body);
+
+    StyledText text;
+    text.value = "ok \xF4\x8F\xBF\xBF";
+    text.bounds = {0.0f, 0.0f, 500.0f, 0.0f};
+    text.language = "en";
+    text.spans.push_back(TextSpan{.source_byte_begin = 0,
+                                  .source_byte_end = static_cast<uint32_t>(text.value.size()),
+                                  .font_alias = "body",
+                                  .size = 24.0f});
+
+    const auto gaps = engine.unresolved_clusters(text);
+    REQUIRE(gaps.size() == 1);
+    CHECK(gaps.front().source_byte_begin == 3);
+    CHECK(gaps.front().source_byte_end == 7);
+    CHECK(gaps.front().text == "\xF4\x8F\xBF\xBF");
+}
+
+TEST_CASE("TextEngine coverage diagnostics retain locale Message and effective stack attribution")
+{
+    auto assets = make_assets();
+    noveltea::text::TextEngine engine(assets);
+    const auto body = register_liberation_regular(engine, "body");
+    REQUIRE(body);
+    engine.set_default_font_family(body);
+
+    StyledText text;
+    text.value = "missing \xF4\x8F\xBF\xBF";
+    text.bounds = {0.0f, 0.0f, 500.0f, 0.0f};
+    text.language = "ja";
+    text.fallback_font_aliases = {"jp", "symbols"};
+    text.spans.push_back(TextSpan{.source_byte_begin = 0,
+                                  .source_byte_end = static_cast<uint32_t>(text.value.size()),
+                                  .font_alias = "body",
+                                  .size = 24.0f});
+
+    noveltea::text::TextCoverageContext context{
+        .locale = "ja",
+        .message_id = "msg-dialogue-1",
+        .source_path = "/localization/translations/ja/msg-dialogue-1",
+        .effective_font_stack = {"jp", "symbols", "system"}};
+    const auto diagnostics = engine.coverage_diagnostics(text, context);
+    REQUIRE(diagnostics.size() == 1);
+    CHECK(diagnostics.front().gap.text == "\xF4\x8F\xBF\xBF");
+    CHECK(diagnostics.front().context.locale == "ja");
+    CHECK(diagnostics.front().context.message_id == "msg-dialogue-1");
+    CHECK(diagnostics.front().context.source_path ==
+          "/localization/translations/ja/msg-dialogue-1");
+    CHECK(diagnostics.front().context.effective_font_stack ==
+          std::vector<std::string>{"jp", "symbols", "system"});
+}
+
 TEST_CASE("StyledText mixed sizes affect real advances line height and wrapping")
 {
     auto assets = make_assets();

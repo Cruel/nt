@@ -1664,7 +1664,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       interaction: {
         defaultVerbMenuLayout: layoutRef(settings.interaction.defaultVerbMenuLayout),
       },
-      text: { defaultFont: assetRef(settings.text.defaultFont) },
+      text: {
+        defaultFont: assetRef(settings.text.defaultFont),
+        fontStack: settings.text.fontStack.map((ref) => assetRef(ref)!),
+      },
       titleScreen: {
         titleImage: assetRef(settings.titleScreen.titleImage),
         showProjectTitle: settings.titleScreen.showProjectTitle,

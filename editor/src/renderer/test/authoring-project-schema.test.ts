@@ -47,9 +47,9 @@ describe('authoring project schema', () => {
       sourceLocale: 'en',
       defaultLocale: 'fr',
       locales: {
-        en: { supported: true, parentLocale: null },
-        fr: { supported: true, parentLocale: null },
-        'pt-BR': { supported: false, parentLocale: null },
+        en: { supported: true, parentLocale: null, fontStack: null },
+        fr: { supported: true, parentLocale: null, fontStack: null },
+        'pt-BR': { supported: false, parentLocale: null, fontStack: null },
       },
       messages: {
         '018f4f8c-9b5d-7ae2-9b36-4c8af613f012': { kind: 'local', source: 'Open' },
@@ -114,15 +114,27 @@ describe('authoring project schema', () => {
 
   it('rejects invalid locale policy and inheritance cycles', () => {
     const project = createAuthoringProject();
-    project.localization.locales.fr = { supported: false, parentLocale: 'pt-BR' };
-    project.localization.locales['pt-BR'] = { supported: true, parentLocale: 'fr' };
+    project.localization.locales.fr = {
+      supported: false,
+      parentLocale: 'pt-BR',
+      fontStack: null,
+    };
+    project.localization.locales['pt-BR'] = {
+      supported: true,
+      parentLocale: 'fr',
+      fontStack: null,
+    };
     project.localization.defaultLocale = 'fr';
 
     expect(isAuthoringProject(project)).toBe(false);
 
     project.localization.defaultLocale = 'en';
-    project.localization.locales.fr = { supported: false, parentLocale: null };
-    project.localization.locales['pt-BR'] = { supported: false, parentLocale: 'fr' };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    project.localization.locales['pt-BR'] = {
+      supported: false,
+      parentLocale: 'fr',
+      fontStack: null,
+    };
     expect(isAuthoringProject(project)).toBe(true);
   });
 

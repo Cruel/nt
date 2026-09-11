@@ -83,7 +83,7 @@ describe('structured localization Messages', () => {
     const description = structuredMessageForPath(project, '/rooms/foyer/data/description');
     expect(description).not.toBeNull();
     if (!description) return;
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     project.localization.translations.fr = {
       [description.id]: testTranslation('Un foyer tranquille.'),
     };

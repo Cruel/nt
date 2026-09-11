@@ -227,6 +227,7 @@
     "defaultLocale": "en",
     "locales": [
       {
+        "fontStack": [],
         "locale": "en",
         "parentLocale": null,
         "supported": true
@@ -380,7 +381,8 @@
       }
     ],
     "text": {
-      "defaultFont": null
+      "defaultFont": null,
+      "fontStack": []
     },
     "titleScreen": {
       "showAuthor": false,

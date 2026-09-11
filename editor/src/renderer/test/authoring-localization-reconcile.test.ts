@@ -20,7 +20,7 @@ function duplicatedLuaProject() {
   const first = synchronizeLocalizationMessageTracking(project).project;
   const messageId = Object.values(first.localization.sourceMessageTracking)[0]!.occurrences[0]!
     .messageId;
-  first.localization.locales.fr = { supported: true, parentLocale: null };
+  first.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
   const workflow = localizationMessageWorkflowViews(first).find((item) => item.id === messageId)!;
   first.localization.translations.fr = {
     [messageId]: createLocalizationTranslation(workflow, 'Original traduit', 'human', {
@@ -168,7 +168,7 @@ describe('localization reconciliation', () => {
     const messageIds = Object.values(tracked.localization.sourceMessageTracking)
       .flatMap((entry) => entry.occurrences.map((occurrence) => occurrence.messageId))
       .sort();
-    tracked.localization.locales.fr = { supported: true, parentLocale: null };
+    tracked.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
     const views = localizationMessageWorkflowViews(tracked);
     tracked.localization.translations.fr = Object.fromEntries(
       messageIds.map((messageId, index) => [

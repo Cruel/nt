@@ -1026,7 +1026,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   }
 
   project.localization.defaultLocale = 'en';
-  project.localization.locales.es = { supported: true, parentLocale: null };
+  project.localization.locales.es = { supported: true, parentLocale: null, fontStack: null };
   project.localization.messages = {
     '018f4f8c-9b5d-7ae2-9b36-4c8af613f101': {
       kind: 'named',

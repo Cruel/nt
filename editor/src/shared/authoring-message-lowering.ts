@@ -154,6 +154,10 @@ export function compileLocalization(
       locale,
       parentLocale: definition.parentLocale,
       supported: definition.supported,
+      fontStack: (definition.fontStack ?? project.settings.text.fontStack).map((ref) => ({
+        kind: 'asset' as const,
+        id: ref.$ref.id,
+      })),
     })),
     catalogs: sortedEntries(localization.locales).map(([locale]) => ({
       locale,

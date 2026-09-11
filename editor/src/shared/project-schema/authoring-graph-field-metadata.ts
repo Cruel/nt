@@ -432,6 +432,11 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // Property's compiled default and localization dependency.
   [/^\/variables\/\*\/data\/nullable$/, OWNER],
   [/^\/variables\/\*\/data\/value\/\$message$/, OWNER],
+  // #212 adds ordered Project and locale-specific font fallback references at the preserved
+  // authoring schema version. They change the compiled text/localization projection and resource
+  // dependency surface, so classify the new leaves explicitly instead of shifting legacy review slots.
+  [/^\/settings\/text\/fontStack(?:\/|$)/, OWNER],
+  [/^\/localization\/locales\/\*\/fontStack(?:\/|$)/, OWNER],
 ]);
 
 function explicitFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
@@ -985,7 +990,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
-    localization: 'd6d24c03',
+    localization: '9ed625e2',
     maps: '9d711bea',
     materials: '546711ca',
     prefetchHints: 'b985056c',
@@ -994,7 +999,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     scenes: '9d060243',
     schema: '63fb9bb9',
     scripts: 'f3482815',
-    settings: '955fcf25',
+    settings: '67b8f0c4',
     shaders: '94d3aa6e',
     tests: '99f1bf10',
     traits: '371bbceb',

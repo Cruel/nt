@@ -854,6 +854,11 @@ function semanticEdgeOptions(
       'default-font',
       ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
     ],
+    [
+      /^(?:\/settings\/text\/fontStack\/\d+|\/localization\/locales\/[^/]+\/fontStack\/\d+)\/\$ref$/,
+      'font-stack',
+      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+    ],
   ];
   const match = rules.find(([pattern]) => pattern.test(path));
   if (!match) {
@@ -899,6 +904,7 @@ function semanticEdgeOptions(
       'layout-script',
       'layout-template',
       'default-font',
+      'font-stack',
     ].includes(role)
   ) {
     targetImpactPaths = recordImpactPaths(target, [
@@ -1702,6 +1708,7 @@ function roomProjectFieldEdges(
     { path: '/settings/display', facets: ['preview-visual', 'preview-ui'] },
     { path: '/settings/accessibility', facets: ['preview-ui'] },
     { path: '/settings/text/defaultFont', facets: ['preview-ui', 'resource'] },
+    { path: '/settings/text/fontStack', facets: ['preview-ui', 'resource'] },
     { path: '/settings/ui/systemLayouts/game-hud', facets: ['preview-ui'] },
   ];
   return fields.map((field) =>
@@ -1893,6 +1900,16 @@ function projectFieldSpecs(project: AuthoringProject): readonly {
       label: 'Default font',
     },
     {
+      path: '/settings/text/fontStack',
+      value: project.settings.text.fontStack,
+      label: 'Default font stack',
+    },
+    ...Object.entries(project.localization.locales).map(([locale, definition]) => ({
+      path: `/localization/locales/${escapeJsonPointerSegment(locale)}/fontStack` as JsonPointer,
+      value: definition.fontStack,
+      label: `Locale font stack: ${locale}`,
+    })),
+    {
       path: '/settings/inventory/defaultLayout',
       value: project.settings.inventory.defaultLayout,
       label: 'Default Inventory Layout',
@@ -2016,6 +2033,7 @@ function deriveStructuralContributionByKey(
       );
     } else if (
       field.path.startsWith('/settings/') ||
+      /^\/localization\/locales\/[^/]+\/fontStack$/u.test(field.path) ||
       field.path === '/undefinedInteractionProgram' ||
       field.path === '/prefetchHints'
     ) {

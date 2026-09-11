@@ -150,8 +150,12 @@ describe('LocalizationEditor', () => {
     const user = userEvent.setup();
     const project = loadProject();
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f021';
-    project.localization.locales.fr = { supported: true, parentLocale: null };
-    project.localization.locales['fr-CA'] = { supported: true, parentLocale: 'fr' };
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    project.localization.locales['fr-CA'] = {
+      supported: true,
+      parentLocale: 'fr',
+      fontStack: null,
+    };
     project.localization.messages[messageId] = {
       kind: 'named',
       key: 'ui.confirm',
@@ -215,7 +219,7 @@ describe('LocalizationEditor', () => {
     const user = userEvent.setup();
     const project = loadProject();
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f022';
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     project.localization.messages[messageId] = {
       kind: 'named',
       key: 'ui.ai-copy',
@@ -267,7 +271,7 @@ describe('LocalizationEditor', () => {
     second.description = inlineTextContent('Same words');
     project.rooms.first = { id: 'first', label: 'First', data: first };
     project.rooms.second = { id: 'second', label: 'Second', data: second };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
@@ -369,7 +373,7 @@ describe('LocalizationEditor', () => {
     };
     project.rooms.first = { id: 'first', label: 'First', data: first };
     project.rooms.second = { id: 'second', label: 'Second', data: second };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const view = localizationMessageWorkflowView(project, messageId)!;
     project.localization.translations.fr = {
       [messageId]: createLocalizationTranslation(view, 'Bonjour', 'human', { review: 'reviewed' }),
@@ -415,7 +419,7 @@ describe('LocalizationEditor', () => {
     const room = defaultRoomData('Room');
     room.description = inlineTextContent('Continue');
     project.rooms.room = { id: 'room', label: 'Room', data: room };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const localView = localizationMessageWorkflowViews(project).find(
       (view) => view.source === 'Continue',
     )!;
@@ -471,7 +475,7 @@ describe('LocalizationEditor', () => {
     const room = defaultRoomData('Foyer');
     room.description = inlineTextContent('A quiet foyer.');
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
@@ -504,7 +508,7 @@ describe('LocalizationEditor', () => {
     const tracked = synchronizeLocalizationMessageTracking(project).project;
     const messageId = Object.values(tracked.localization.sourceMessageTracking)[0]!.occurrences[0]!
       .messageId;
-    tracked.localization.locales.fr = { supported: false, parentLocale: null };
+    tracked.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const workflow = localizationMessageWorkflowView(tracked, messageId)!;
     tracked.localization.translations.fr = {
       [messageId]: createLocalizationTranslation(workflow, 'Original traduit', 'human', {
@@ -560,7 +564,7 @@ describe('LocalizationEditor', () => {
   it('blocks source-locale changes after target translation work exists', async () => {
     const user = userEvent.setup();
     const project = loadProject();
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     project.localization.messages['018f4f8c-9b5d-7ae2-9b36-4c8af613f001'] = {
       kind: 'named',
       key: 'ui.greeting',

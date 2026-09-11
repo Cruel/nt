@@ -46,8 +46,16 @@ struct FontFamilyAssetDesc {
     bool synthetic_styles = true;
 };
 
+struct LocaleFontStackAssetConfig {
+    std::string locale;
+    std::vector<std::string> aliases;
+};
+
 struct FontAssetConfig {
     std::string default_alias = "sys";
+    std::vector<std::string> fallback_aliases;
+    std::string active_locale;
+    std::vector<LocaleFontStackAssetConfig> locale_fallbacks;
     std::vector<FontFamilyAssetDesc> families;
 };
 

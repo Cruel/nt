@@ -108,7 +108,7 @@ describe('localization Message operations', () => {
     const layout = defaultLayoutData('HUD', 'document');
     layout.rml.sourceText = '<rml><body><nt-tr class="copy">Hello</nt-tr></body></rml>';
     project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const tracked = synchronizeLocalizationMessageTracking(project).project;
     const views = localizationMessageWorkflowViews(tracked).filter(
       (message) => message.source === 'Hello',
@@ -166,7 +166,7 @@ describe('localization Message operations', () => {
       source:
         'return Text.tr("Continue", nil, { context = "Menu action", note = "Keep concise" })\n',
     };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const tracked = synchronizeLocalizationMessageTracking(project).project;
     const message = localizationMessageWorkflowViews(tracked).find(
       (candidate) => candidate.source === 'Continue',
@@ -226,7 +226,7 @@ describe('localization Message operations', () => {
     };
     project.rooms.first = { id: 'first', label: 'First', data: first };
     project.rooms.second = { id: 'second', label: 'Second', data: second };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     project.localization.translations.fr = {
       [namedId]: {
         text: 'Bonjour',
@@ -339,7 +339,7 @@ describe('localization Message operations', () => {
     const room = defaultRoomData('Only');
     room.description = { markup: 'active-text', source: { kind: 'localized', key: 'ui.single' } };
     project.rooms.only = { id: 'only', label: 'Only', data: room };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     project.localization.translations.fr = {
       [namedId]: {
         text: 'Seulement ici',
@@ -376,7 +376,7 @@ describe('localization Message operations', () => {
     const room = defaultRoomData('Room');
     room.description = inlineTextContent('Continue');
     project.rooms.room = { id: 'room', label: 'Room', data: room };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const local = localizationMessageWorkflowViews(project).find(
       (view) => view.source === 'Continue',
     )!;
@@ -434,7 +434,7 @@ describe('localization Message operations', () => {
       source: { kind: 'localized', key: 'ui.old.confirm' },
     };
     project.rooms.room = { id: 'room', label: 'Room', data: room };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const sourceView = localizationMessageWorkflowView(project, sourceId)!;
     project.localization.translations.fr = {
       [sourceId]: {
@@ -473,7 +473,7 @@ describe('localization Message operations', () => {
     second.description = inlineTextContent('Same');
     project.rooms.first = { id: 'first', label: 'First', data: first };
     project.rooms.second = { id: 'second', label: 'Second', data: second };
-    project.localization.locales.fr = { supported: false, parentLocale: null };
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
     const views = localizationMessageWorkflowViews(project).filter(
       (message) => message.source === 'Same',
     );
