@@ -44,6 +44,30 @@ export const authoringMessageSchema = z.discriminatedUnion('kind', [
 ]);
 export const localizationTranslationSchema = z.record(messageIdSchema, z.string());
 
+const sourceTrackingFingerprintSchema = z
+  .string()
+  .regex(/^fnv1a:[0-9a-f]{32}$/u, 'Localization source tracking fingerprint is invalid.');
+
+export const sourceMessageTrackingOccurrenceSchema = z
+  .object({
+    messageId: messageIdSchema,
+    ordinal: z.number().int().nonnegative(),
+    structuralFingerprint: sourceTrackingFingerprintSchema,
+    anchorFingerprint: sourceTrackingFingerprintSchema,
+    sourceFingerprint: sourceTrackingFingerprintSchema,
+  })
+  .strict();
+
+export const sourceMessageTrackingEntrySchema = z
+  .object({
+    family: z.enum(['lua', 'rml']),
+    ownerKey: z.string().min(1),
+    sourcePath: z.string().min(1),
+    sourceSnapshotFingerprint: sourceTrackingFingerprintSchema,
+    occurrences: z.array(sourceMessageTrackingOccurrenceSchema),
+  })
+  .strict();
+
 export const authoringLocalizationSchema = z
   .object({
     sourceLocale: localeIdSchema,
@@ -51,6 +75,7 @@ export const authoringLocalizationSchema = z
     locales: z.record(localeIdSchema, localeDefinitionSchema),
     messages: z.record(messageIdSchema, authoringMessageSchema),
     structuredMessageIds: z.record(z.string().min(1), messageIdSchema),
+    sourceMessageTracking: z.record(z.string().min(1), sourceMessageTrackingEntrySchema),
     translations: z.record(localeIdSchema, localizationTranslationSchema),
   })
   .strict()
@@ -74,6 +99,16 @@ export const authoringLocalizationSchema = z
         path: ['locales', localization.defaultLocale, 'supported'],
         message: `Default locale '${localization.defaultLocale}' must be Supported.`,
       });
+    }
+
+    for (const [trackingKey, entry] of Object.entries(localization.sourceMessageTracking)) {
+      const expectedKey = `${entry.family}:${entry.ownerKey}:${entry.sourcePath}`;
+      if (trackingKey !== expectedKey)
+        context.addIssue({
+          code: 'custom',
+          path: ['sourceMessageTracking', trackingKey],
+          message: `Source Message tracking key must be '${expectedKey}'.`,
+        });
     }
 
     const namedKeys = new Map<string, string>();
@@ -143,6 +178,8 @@ export const authoringLocalizationSchema = z
   });
 
 export type AuthoringMessage = z.infer<typeof authoringMessageSchema>;
+export type SourceMessageTrackingOccurrence = z.infer<typeof sourceMessageTrackingOccurrenceSchema>;
+export type SourceMessageTrackingEntry = z.infer<typeof sourceMessageTrackingEntrySchema>;
 export type AuthoringLocalization = z.infer<typeof authoringLocalizationSchema>;
 
 export function defaultAuthoringLocalization(): AuthoringLocalization {
@@ -152,6 +189,7 @@ export function defaultAuthoringLocalization(): AuthoringLocalization {
     locales: { en: { supported: true, parentLocale: null } },
     messages: {},
     structuredMessageIds: {},
+    sourceMessageTracking: {},
     translations: {},
   };
 }

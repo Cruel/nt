@@ -18,6 +18,7 @@ export const novelTeaNodeReferenceRunner: NovelTeaCliReferenceRunner = {
 
 export const PHASE_SIX_NODE_REFERENCE_COMMANDS = Object.freeze([
   'validate',
+  'localization sync',
   'entity create',
   'entity rename',
   'entity delete',

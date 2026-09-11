@@ -6,7 +6,14 @@ import { packageMessageIds } from './authoring-message-lowering';
 import { resolveMessage } from './message-resolution';
 import { parseJsonPointer } from './json-pointer';
 import type { AuthoringProject } from './project-schema/authoring-project';
-import { structuredMessageId } from './authoring-structured-messages';
+import {
+  localizationOwnerKey,
+  localizationSourceKey,
+  localizationTrackingFingerprint,
+  resolveLocalizationSourceIdentity,
+  type LocalizationSourceCandidate,
+  type LocalizationSourceOccurrenceCandidate,
+} from './localization-source-tracking';
 
 export interface ManagedLuaLoweringDiagnostic {
   code: string;
@@ -30,6 +37,96 @@ type SourceEdit = {
   endUtf16: number;
   replacement: string;
 };
+
+export interface ManagedLuaLocalizationSource {
+  readonly sourceKey: string;
+  readonly source: LocalizationSourceCandidate;
+  readonly text: string;
+  readonly occurrences: readonly ReturnType<
+    typeof analyzeManagedLuaLocalization
+  >['occurrences'][number][];
+}
+
+function normalizeLuaTrackingText(value: string): string {
+  return value
+    .replace(/--\[(=*)\[[\s\S]*?\]\1\]/gu, '')
+    .replace(/--[^\r\n]*/gu, '')
+    .replace(/\s+/gu, '');
+}
+
+export function collectManagedLuaLocalizationSources(
+  project: AuthoringProject,
+): readonly ManagedLuaLocalizationSource[] {
+  const result: ManagedLuaLocalizationSource[] = [];
+  const seenPaths = new Set<string>();
+  for (const descriptor of collectAuthoringLuaSources(project)) {
+    if (descriptor.sourceKind !== 'lua' || descriptor.inlineText === undefined) continue;
+    if (seenPaths.has(descriptor.sourcePath)) continue;
+    seenPaths.add(descriptor.sourcePath);
+    const analyzed = analyzeManagedLuaLocalization(descriptor.inlineText);
+    const ownerKey = localizationOwnerKey(descriptor.semanticOwner);
+    const occurrenceCandidates: LocalizationSourceOccurrenceCandidate[] = analyzed.occurrences.map(
+      (occurrence, ordinal) => {
+        const call = descriptor.inlineText!.slice(
+          occurrence.callStartUtf16,
+          occurrence.callEndUtf16,
+        );
+        const structuralEdits = [
+          {
+            start: occurrence.sourceLiteral.regionStartUtf16 - occurrence.callStartUtf16,
+            end: occurrence.sourceLiteral.regionEndUtf16 - occurrence.callStartUtf16,
+            replacement: '<source>',
+          },
+          ...(occurrence.metadataStartUtf16 === undefined ||
+          occurrence.metadataEndUtf16 === undefined
+            ? []
+            : [
+                {
+                  start: occurrence.metadataStartUtf16 - occurrence.callStartUtf16,
+                  end: occurrence.metadataEndUtf16 - occurrence.callStartUtf16,
+                  replacement: '<metadata>',
+                },
+              ]),
+        ].sort((left, right) => right.start - left.start);
+        let structural = call;
+        for (const edit of structuralEdits)
+          structural = `${structural.slice(0, edit.start)}${edit.replacement}${structural.slice(edit.end)}`;
+        const before = descriptor.inlineText!.slice(
+          Math.max(0, occurrence.callStartUtf16 - 96),
+          occurrence.callStartUtf16,
+        );
+        const after = descriptor.inlineText!.slice(
+          occurrence.callEndUtf16,
+          Math.min(descriptor.inlineText!.length, occurrence.callEndUtf16 + 96),
+        );
+        return {
+          ordinal,
+          structuralFingerprint: localizationTrackingFingerprint(
+            `${occurrence.kind}|${normalizeLuaTrackingText(structural)}`,
+          ),
+          anchorFingerprint: localizationTrackingFingerprint(
+            `${normalizeLuaTrackingText(before)}|<message>|${normalizeLuaTrackingText(after)}`,
+          ),
+          sourceFingerprint: localizationTrackingFingerprint(occurrence.source),
+        };
+      },
+    );
+    const source: LocalizationSourceCandidate = {
+      family: 'lua',
+      ownerKey,
+      sourcePath: descriptor.sourcePath,
+      sourceSnapshotFingerprint: localizationTrackingFingerprint(descriptor.inlineText),
+      occurrences: Object.freeze(occurrenceCandidates),
+    };
+    result.push({
+      sourceKey: localizationSourceKey('lua', ownerKey, descriptor.sourcePath),
+      source,
+      text: descriptor.inlineText,
+      occurrences: analyzed.occurrences,
+    });
+  }
+  return Object.freeze(result.sort((a, b) => a.sourceKey.localeCompare(b.sourceKey)));
+}
 
 function valueAtPointer(root: unknown, pointer: string): unknown {
   let current = root;
@@ -74,6 +171,12 @@ export function lowerManagedLuaLocalization(project: AuthoringProject): {
   const diagnostics: ManagedLuaLoweringDiagnostic[] = [];
   const pending: PendingOccurrence[] = [];
   const seenPaths = new Set<string>();
+  const trackingSources = new Map(
+    collectManagedLuaLocalizationSources(project).map((source) => [
+      source.source.sourcePath,
+      source,
+    ]),
+  );
   const namedMessageIds = new Map<string, string>();
   for (const [messageId, message] of Object.entries(project.localization.messages))
     if (message.kind === 'named') namedMessageIds.set(message.key, messageId);
@@ -97,7 +200,21 @@ export function lowerManagedLuaLocalization(project: AuthoringProject): {
     analyzed.occurrences.forEach((occurrence, ordinal) => {
       let stableMessageId: string | null = null;
       if (occurrence.kind === 'local') {
-        stableMessageId = structuredMessageId(`lua:${descriptor.sourcePath}:${ordinal}`);
+        const trackingSource = trackingSources.get(descriptor.sourcePath);
+        const trackingOccurrence = trackingSource?.source.occurrences[ordinal];
+        if (!trackingSource || !trackingOccurrence) {
+          diagnostics.push({
+            code: 'authoring.localization.lua_message_tracking_failed',
+            path: descriptor.sourcePath,
+            message: 'Managed Lua Message could not be assigned source tracking identity.',
+          });
+          return;
+        }
+        stableMessageId = resolveLocalizationSourceIdentity(
+          project.localization,
+          trackingSource.source,
+          trackingOccurrence,
+        ).messageId;
         lowered.localization.messages[stableMessageId] = {
           kind: 'local',
           source: occurrence.source,
