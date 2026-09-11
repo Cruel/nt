@@ -13,8 +13,9 @@ the validated compiled object together with the exact canonical gameplay JSON. P
 must not independently parse, lower, canonicalize, or serialize a compiled project. Localized text
 remains a semantic Message reference through compilation rather than being rendered into the current
 locale. Project localization stores opaque stable Message identities, one Source locale, one Supported
-Default locale, explicit locale metadata, and sparse target translations. Lowering deterministically
-sorts stable Message IDs into dense package-local `MessageId` values and emits source/target Message
+Default locale, explicit locale metadata, sparse target translations, and sparse structured-owner
+identity overrides for editor-mediated semantic refactors. Lowering deterministically sorts stable
+Message IDs into dense package-local `MessageId` values and emits source/target Message
 catalogs without publishing authoring UUIDs. The shared authoring Message-resolution seam owns
 requested-locale parent traversal and Source-locale fallback for tooling that needs a concrete value,
 including focused preview and dependency invalidation, so callers do not duplicate realization policy.

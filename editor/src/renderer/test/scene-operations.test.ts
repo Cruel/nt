@@ -7,6 +7,8 @@ import {
   defaultSceneStep,
   sceneDialogueRef,
 } from '../../shared/project-schema/authoring-scenes';
+import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
+import { structuredMessageId } from '../../shared/authoring-structured-messages';
 
 describe('scene commands', () => {
   it('creates a strict scene record', () => {
@@ -28,6 +30,46 @@ describe('scene commands', () => {
             events: [{ type: 'comment' }],
           },
         },
+      },
+    });
+  });
+
+  it('preserves structured Message identity for an explicit event rename', () => {
+    const project = createAuthoringProject();
+    const scene = defaultSceneData('Opening');
+    scene.events = [
+      {
+        ...defaultSceneStep('show-text'),
+        id: 'line',
+        text: inlineTextContent('Welcome.'),
+      },
+    ];
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    const messageId = structuredMessageId('/scenes/opening/data/events/@line/text');
+    project.localization.translations.fr = { [messageId]: 'Bienvenue.' };
+
+    const renamed = structuredClone(scene);
+    renamed.events[0]!.id = 'welcome-line';
+    const result = executeCommand(createInitialCommandBusState(toJsonValue(project)), {
+      type: 'scene.replaceData',
+      payload: {
+        sceneId: 'opening',
+        data: renamed,
+        semanticOwnerMoves: [
+          {
+            fromPrefix: '/scenes/opening/data/events/@line',
+            toPrefix: '/scenes/opening/data/events/@welcome-line',
+          },
+        ],
+      },
+    });
+
+    expect(result.ok, JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    expect(result.document).toMatchObject({
+      localization: {
+        structuredMessageIds: { '/scenes/opening/data/events/@welcome-line/text': messageId },
+        translations: { fr: { [messageId]: 'Bienvenue.' } },
       },
     });
   });

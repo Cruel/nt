@@ -50,6 +50,7 @@ export const authoringLocalizationSchema = z
     defaultLocale: localeIdSchema,
     locales: z.record(localeIdSchema, localeDefinitionSchema),
     messages: z.record(messageIdSchema, authoringMessageSchema),
+    structuredMessageIds: z.record(z.string().min(1), messageIdSchema),
     translations: z.record(localeIdSchema, localizationTranslationSchema),
   })
   .strict()
@@ -150,6 +151,7 @@ export function defaultAuthoringLocalization(): AuthoringLocalization {
     defaultLocale: 'en',
     locales: { en: { supported: true, parentLocale: null } },
     messages: {},
+    structuredMessageIds: {},
     translations: {},
   };
 }

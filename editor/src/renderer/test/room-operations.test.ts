@@ -11,6 +11,8 @@ import { defaultInteractionData } from '../../shared/project-schema/authoring-in
 import { defaultInteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import { defaultRoomData, roomRoomRef } from '../../shared/project-schema/authoring-rooms';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
+import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
+import { structuredMessageId } from '../../shared/authoring-structured-messages';
 
 describe('room commands', () => {
   it('creates typed room data through entity.createRecord', () => {
@@ -154,6 +156,58 @@ describe('room commands', () => {
             },
           },
         },
+      },
+    });
+  });
+
+  it('preserves structured Message identity when Room semantic owner IDs are renamed', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'door',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: inlineTextContent('Door', 'plain'), layout: null },
+      },
+    ];
+    room.exits = [
+      {
+        id: 'north',
+        label: 'North',
+        direction: 'north',
+        target: roomRoomRef('hall'),
+        condition: { kind: 'always' },
+        onRejected: [],
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    project.localization.locales.fr = { supported: false, parentLocale: null };
+    const placementMessageId = structuredMessageId(
+      '/rooms/foyer/data/placements/@door/presentation/label',
+    );
+    const exitMessageId = structuredMessageId('/rooms/foyer/data/exits/@north/label');
+    project.localization.translations.fr = {
+      [placementMessageId]: 'Porte',
+      [exitMessageId]: 'Nord',
+    };
+
+    const renamed = structuredClone(room);
+    renamed.placements[0]!.id = 'entry-door';
+    renamed.exits[0]!.id = 'north-exit';
+    const result = executeCommand(createInitialCommandBusState(toJsonValue(project)), {
+      type: 'room.replaceData',
+      payload: { roomId: 'foyer', data: renamed },
+    });
+
+    expect(result.ok, JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    expect(result.document).toMatchObject({
+      localization: {
+        structuredMessageIds: {
+          '/rooms/foyer/data/placements/@entry-door/presentation/label': placementMessageId,
+          '/rooms/foyer/data/exits/@north-exit/label': exitMessageId,
+        },
+        translations: { fr: { [placementMessageId]: 'Porte', [exitMessageId]: 'Nord' } },
       },
     });
   });

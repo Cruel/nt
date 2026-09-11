@@ -4,10 +4,15 @@ import { parseSceneData, validateSceneData } from '../../shared/project-schema/a
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
+import {
+  preserveStructuredMessageIdentityPatches,
+  type StructuredMessageOwnerMove,
+} from './structured-message-operations';
 
 export interface ReplaceSceneDataPayload {
   sceneId: string;
   data: unknown;
+  semanticOwnerMoves?: StructuredMessageOwnerMove[];
 }
 
 function error(message: string, path?: string): EntityOperationDiagnostic {
@@ -43,10 +48,22 @@ export function replaceSceneDataPatches(
   const diagnostics = validateSceneData(document, payload.sceneId, { ...record, data });
   const failure = diagnostics.find((item) => item.severity === 'error');
   if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
+  const messageIdentity = preserveStructuredMessageIdentityPatches(
+    document,
+    payload.semanticOwnerMoves ?? [],
+  );
+  if (messageIdentity.conflict)
+    return {
+      patches: [],
+      diagnostics: [error(messageIdentity.conflict.message, messageIdentity.conflict.path)],
+    };
   const patch: JsonPatchOperation = {
     op: 'replace',
     path: pathForSceneData(payload.sceneId),
     value: toJsonValue(data),
   };
-  return { patches: [patch], affectedPaths: [patch.path] };
+  return {
+    patches: [patch, ...messageIdentity.patches],
+    affectedPaths: [patch.path, ...messageIdentity.affectedPaths],
+  };
 }

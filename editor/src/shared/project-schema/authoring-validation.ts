@@ -129,9 +129,37 @@ function validateLocalizationReferences(
   };
   visit(project, '');
 
+  const explicitMessageIds = new Set(Object.keys(project.localization.messages));
+  const structured = structuredMessages(project);
+  const structuredOwners = new Map<string, string>();
+  for (const message of structured) {
+    if (explicitMessageIds.has(message.id))
+      diagnostics.push(
+        diagnostic(
+          'error',
+          message.path,
+          `Structured Message '${message.id}' conflicts with an explicit Message identity.`,
+          'Localization',
+          'localization.structured-message.id-conflict',
+        ),
+      );
+    const previousOwner = structuredOwners.get(message.id);
+    if (previousOwner && previousOwner !== message.path)
+      diagnostics.push(
+        diagnostic(
+          'error',
+          message.path,
+          `Structured Message '${message.id}' is already owned by '${previousOwner}'.`,
+          'Localization',
+          'localization.structured-message.id-conflict',
+        ),
+      );
+    else structuredOwners.set(message.id, message.path);
+  }
+
   const knownMessageIds = new Set([
-    ...Object.keys(project.localization.messages),
-    ...structuredMessages(project).map((message) => message.id),
+    ...explicitMessageIds,
+    ...structured.map((message) => message.id),
   ]);
   for (const [locale, translations] of Object.entries(project.localization.translations)) {
     for (const messageId of Object.keys(translations)) {

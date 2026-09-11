@@ -234,11 +234,16 @@ function parseDialogueEditorTabState(
   };
 }
 
-function commitDialogue(dialogueId: string, next: DialogueData, label: string) {
+function commitDialogue(
+  dialogueId: string,
+  next: DialogueData,
+  label: string,
+  semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
+) {
   return useCommandStore.getState().executeCommand({
     type: 'dialogue.replaceData',
     label,
-    payload: { dialogueId, data: next },
+    payload: { dialogueId, data: next, semanticOwnerMoves },
     originSaveUnitId: recordSaveUnitId('dialogues', dialogueId),
     persistencePolicy: 'manual-save',
   });
@@ -617,8 +622,12 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     }),
   };
 
-  function commit(next: DialogueData, label = 'Update dialogue') {
-    commitDialogue(activeDialogueId, next, label);
+  function commit(
+    next: DialogueData,
+    label = 'Update dialogue',
+    semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
+  ) {
+    commitDialogue(activeDialogueId, next, label, semanticOwnerMoves);
   }
 
   function selectBlock(id: string) {
@@ -685,6 +694,12 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
         edges,
       },
       'Rename dialogue block',
+      [
+        {
+          fromPrefix: `/dialogues/${activeDialogueId}/data/blocks/@${oldId}`,
+          toPrefix: `/dialogues/${activeDialogueId}/data/blocks/@${newId}`,
+        },
+      ],
     );
     setSelectedBlockId(newId);
     setGraphPositions((positions) => {
@@ -854,12 +869,27 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     );
     if (newId === oldId) return true;
     if (!isValidEntityId(newId) || ids.includes(newId)) return false;
-    replaceBlock({
+    const renamedBlock = {
       ...block,
       segments: block.segments.map((segment) =>
         segment.id === oldId ? { ...segment, id: newId } : segment,
       ),
-    });
+    };
+    commit(
+      {
+        ...data,
+        blocks: data.blocks.map((candidate) =>
+          candidate.id === block.id ? renamedBlock : candidate,
+        ),
+      },
+      'Rename dialogue segment',
+      [
+        {
+          fromPrefix: `/dialogues/${activeDialogueId}/data/blocks/@${block.id}/segments/@${oldId}`,
+          toPrefix: `/dialogues/${activeDialogueId}/data/blocks/@${block.id}/segments/@${newId}`,
+        },
+      ],
+    );
     setSelectedSegmentId(newId);
     return true;
   }
@@ -953,6 +983,12 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
         edges: data.edges.map((edge) => (edge.id === oldId ? { ...edge, id: newId } : edge)),
       },
       'Rename dialogue edge',
+      [
+        {
+          fromPrefix: `/dialogues/${activeDialogueId}/data/edges/@${oldId}`,
+          toPrefix: `/dialogues/${activeDialogueId}/data/edges/@${newId}`,
+        },
+      ],
     );
     return true;
   }

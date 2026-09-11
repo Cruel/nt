@@ -7,9 +7,15 @@ import {
 } from './command-test-utils';
 import { toJsonValue } from '@/project/json-value';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  authoringProjectSchema,
+  createAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
-import { structuredMessageId } from '../../shared/authoring-structured-messages';
+import {
+  structuredMessageForPath,
+  structuredMessageId,
+} from '../../shared/authoring-structured-messages';
 
 function projectWithRooms() {
   const project = createAuthoringProject();
@@ -59,7 +65,6 @@ describe('authoring entity operations', () => {
     project.rooms.foyer!.data.description = inlineTextContent('A quiet foyer.');
     project.localization.locales.fr = { supported: false, parentLocale: null };
     const oldMessageId = structuredMessageId('/rooms/foyer/data/description');
-    const newMessageId = structuredMessageId('/rooms/entry-hall/data/description');
     project.localization.translations.fr = { [oldMessageId]: 'Un foyer tranquille.' };
     const state = createInitialCommandBusState(toJsonValue(project));
 
@@ -69,13 +74,15 @@ describe('authoring entity operations', () => {
     });
 
     expect(result.ok).toBe(true);
-    const translations = (
-      result.state.document as {
-        localization: { translations: Record<string, Record<string, string>> };
-      }
-    ).localization.translations.fr!;
-    expect(translations[newMessageId]).toBe('Un foyer tranquille.');
-    expect(translations[oldMessageId]).toBeUndefined();
+    const renamedProject = authoringProjectSchema.parse(result.state.document);
+    const translations = renamedProject.localization.translations.fr!;
+    expect(translations[oldMessageId]).toBe('Un foyer tranquille.');
+    expect(structuredMessageForPath(renamedProject, '/rooms/entry-hall/data/description')?.id).toBe(
+      oldMessageId,
+    );
+    expect(
+      renamedProject.localization.structuredMessageIds['/rooms/entry-hall/data/description'],
+    ).toBe(oldMessageId);
     expect(undoCommand(result.state).state.document).toEqual(state.document);
   });
 

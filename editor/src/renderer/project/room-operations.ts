@@ -10,6 +10,7 @@ import { isAuthoringProject } from '../../shared/project-schema/authoring-projec
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 import { overridesForGameplayInstanceEdit } from './archetype-operations';
+import { preserveStructuredMessageIdentityPatches } from './structured-message-operations';
 
 export interface ReplaceRoomDataPayload {
   roomId: string;
@@ -33,19 +34,31 @@ interface PlacementChanges {
   renamed: Map<string, string>;
 }
 
+function renamedSemanticIds(
+  previous: readonly { id: string }[],
+  next: readonly { id: string }[],
+): Map<string, string> {
+  const nextIds = new Set(next.map((item) => item.id));
+  return new Map(
+    previous.flatMap((item, index) => {
+      const replacement = next[index];
+      return replacement && replacement.id !== item.id && !nextIds.has(item.id)
+        ? [[item.id, replacement.id] as const]
+        : [];
+    }),
+  );
+}
+
 function placementChanges(previous: RoomData, next: RoomData): PlacementChanges {
   const nextIds = new Set(next.placements.map((placement) => placement.id));
   return {
     nextIds,
-    renamed: new Map(
-      previous.placements.flatMap((placement, index) => {
-        const replacement = next.placements[index];
-        return replacement && replacement.id !== placement.id && !nextIds.has(placement.id)
-          ? [[placement.id, replacement.id] as const]
-          : [];
-      }),
-    ),
+    renamed: renamedSemanticIds(previous.placements, next.placements),
   };
+}
+
+function escapeSemanticPathToken(value: string) {
+  return value.replaceAll('~', '~0').replaceAll('/', '~1');
 }
 
 function repairedPlacementId(placementId: string, changes: PlacementChanges) {
@@ -106,8 +119,29 @@ export function replaceRoomDataPatches(
       patches: [],
       diagnostics: [error('Room Archetype configuration cannot be resolved.')],
     };
+  const roomMessageBase = `/rooms/${escapeSemanticPathToken(payload.roomId)}/data`;
+  const identityMoves = changes
+    ? [
+        ...[...changes.renamed].map(([fromId, toId]) => ({
+          fromPrefix: `${roomMessageBase}/placements/@${escapeSemanticPathToken(fromId)}`,
+          toPrefix: `${roomMessageBase}/placements/@${escapeSemanticPathToken(toId)}`,
+        })),
+        ...[...renamedSemanticIds(previous?.exits ?? [], data.exits)].map(([fromId, toId]) => ({
+          fromPrefix: `${roomMessageBase}/exits/@${escapeSemanticPathToken(fromId)}`,
+          toPrefix: `${roomMessageBase}/exits/@${escapeSemanticPathToken(toId)}`,
+        })),
+      ]
+    : [];
+  const messageIdentity = preserveStructuredMessageIdentityPatches(document, identityMoves);
+  if (messageIdentity.conflict)
+    return {
+      patches: [],
+      diagnostics: [error(messageIdentity.conflict.message, messageIdentity.conflict.path)],
+    };
+
   const patches: JsonPatchOperation[] = [
     { op: 'replace', path: pathForRoomData(payload.roomId), value: toJsonValue(data) },
+    ...messageIdentity.patches,
   ];
   if (record.archetype)
     patches.push({
