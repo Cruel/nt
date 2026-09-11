@@ -38,6 +38,12 @@ export interface LocalizationTargetWorkflowView extends LocalizationMessageWorkf
   readonly attention: readonly LocalizationAttention[];
 }
 
+export interface EffectiveLocalizationTarget {
+  readonly target: LocalizationTranslation | null;
+  readonly locale: string | null;
+  readonly inherited: boolean;
+}
+
 function normalizeLinguisticText(value: string): string {
   return value
     .replace(/<[^>]*>/gu, '')
@@ -215,19 +221,36 @@ export function localizationMessageWorkflowView(
   );
 }
 
+export function effectiveLocalizationTarget(
+  project: AuthoringProject,
+  locale: string,
+  messageId: string,
+): EffectiveLocalizationTarget {
+  const visited = new Set<string>();
+  let current: string | null = locale;
+  while (current && current !== project.localization.sourceLocale && !visited.has(current)) {
+    visited.add(current);
+    const target = project.localization.translations[current]?.[messageId];
+    if (target) return { target, locale: current, inherited: current !== locale };
+    current = project.localization.locales[current]?.parentLocale ?? null;
+  }
+  return { target: null, locale: null, inherited: false };
+}
+
 export function localizationTargetWorkflowView(
   project: AuthoringProject,
   locale: string,
   message: LocalizationMessageWorkflowView,
 ): LocalizationTargetWorkflowView {
-  const translation = project.localization.translations[locale]?.[message.id] ?? null;
+  const effective = effectiveLocalizationTarget(project, locale, message.id);
+  const translation = effective.target;
   const freshness: LocalizationFreshness = !translation
     ? 'missing'
-    : translation.sourceFingerprint === message.sourceFingerprint
+    : translation.useSource || translation.sourceFingerprint === message.sourceFingerprint
       ? 'current'
       : 'outdated';
   const attention: LocalizationAttention[] = [];
-  if (translation) {
+  if (translation && !translation.useSource) {
     if (
       translation.acknowledgedPresentationFingerprint !== undefined &&
       translation.acknowledgedPresentationFingerprint !== message.presentationFingerprint
@@ -261,5 +284,19 @@ export function createLocalizationTranslation(
     acknowledgedGuidanceFingerprint: message.guidanceFingerprint,
     ...(options.provider === undefined ? {} : { provider: options.provider }),
     ...(options.model === undefined ? {} : { model: options.model }),
+  };
+}
+
+export function createUseSourceLocalizationTarget(
+  message: LocalizationMessageWorkflowView,
+): LocalizationTranslation {
+  return {
+    text: '',
+    sourceFingerprint: message.sourceFingerprint,
+    origin: 'unknown',
+    review: 'reviewed',
+    acknowledgedPresentationFingerprint: message.presentationFingerprint,
+    acknowledgedGuidanceFingerprint: message.guidanceFingerprint,
+    useSource: true,
   };
 }

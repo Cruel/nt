@@ -47,7 +47,9 @@ export function resolveMessage(
     const translation = localization.translations[locale]?.[messageId];
     if (translation !== undefined)
       return {
-        resolved: { messageId, text: translation.text, locale },
+        resolved: translation.useSource
+          ? { messageId, text: message.source, locale: localization.sourceLocale }
+          : { messageId, text: translation.text, locale },
         consultedLocales: Object.freeze(consultedLocales),
       };
     locale = localization.locales[locale]?.parentLocale ?? null;

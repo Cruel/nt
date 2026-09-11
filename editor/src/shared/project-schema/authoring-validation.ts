@@ -233,7 +233,7 @@ function validateLocalizationReferences(
         continue;
       }
       const message = sourceMessages.get(messageId);
-      if (!message) continue;
+      if (!message || translation.useSource) continue;
       if (!!message.pattern !== !!translation.pattern) {
         diagnostics.push(
           diagnostic(
@@ -1867,7 +1867,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
           );
         for (const [locale, translations] of Object.entries(project.localization.translations)) {
           const translation = translations[messageId];
-          if (translation === undefined) continue;
+          if (translation === undefined || translation.useSource) continue;
           const message = template.validate(translation.text, slotIds);
           if (message)
             diagnostics.push(

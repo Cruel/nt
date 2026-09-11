@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
   createLocalizationTranslation,
+  createUseSourceLocalizationTarget,
+  effectiveLocalizationTarget,
   localizationMessageWorkflowView,
   localizationTargetWorkflowView,
 } from '../../shared/authoring-localization-workflow';
@@ -69,6 +71,50 @@ describe('localization workflow state', () => {
     const target = localizationTargetWorkflowView(changed, 'fr', updated);
     expect(target.freshness).toBe('current');
     expect(target.attention).toEqual(['presentation']);
+  });
+
+  it('inherits sparse whole-Message targets across locale chains and preserves explicit use-source intent', () => {
+    const project = createAuthoringProject();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f032';
+    project.localization.locales.fr = { supported: true, parentLocale: null };
+    project.localization.locales['fr-CA'] = { supported: true, parentLocale: 'fr' };
+    project.localization.locales['fr-CA-QC'] = { supported: false, parentLocale: 'fr-CA' };
+    project.localization.locales['fr-BE'] = { supported: true, parentLocale: null };
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.confirm',
+      source: 'Confirm',
+    };
+    const view = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Confirmer', 'human', {
+        review: 'reviewed',
+      }),
+    };
+
+    expect(effectiveLocalizationTarget(project, 'fr-CA-QC', messageId)).toMatchObject({
+      locale: 'fr',
+      inherited: true,
+      target: { text: 'Confirmer', review: 'reviewed' },
+    });
+    expect(localizationTargetWorkflowView(project, 'fr-CA-QC', view)).toMatchObject({
+      freshness: 'current',
+      translation: { text: 'Confirmer', review: 'reviewed' },
+    });
+    expect(project.localization.translations['fr-CA']).toBeUndefined();
+    expect(project.localization.translations['fr-CA-QC']).toBeUndefined();
+    expect(localizationTargetWorkflowView(project, 'fr-BE', view).freshness).toBe('missing');
+
+    project.localization.translations['fr-CA'] = {
+      [messageId]: createUseSourceLocalizationTarget(view),
+    };
+    const inheritedSource = effectiveLocalizationTarget(project, 'fr-CA-QC', messageId);
+    expect(inheritedSource).toMatchObject({
+      locale: 'fr-CA',
+      inherited: true,
+      target: { useSource: true },
+    });
+    expect(localizationTargetWorkflowView(project, 'fr-CA-QC', view).freshness).toBe('current');
   });
 
   it('derives presentation-only RML attention without marking the target linguistically outdated', () => {

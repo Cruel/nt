@@ -126,6 +126,17 @@ export function compileLocalization(
   const sourceArgumentContracts = new Map(
     sourceMessages.map((message) => [message.stableId, message.arguments] as const),
   );
+  const effectiveTarget = (locale: string, stableId: string) => {
+    const visited = new Set<string>();
+    let current: string | null = locale;
+    while (current && current !== localization.sourceLocale && !visited.has(current)) {
+      visited.add(current);
+      const target = localization.translations[current]?.[stableId];
+      if (target) return target;
+      current = localization.locales[current]?.parentLocale ?? null;
+    }
+    return null;
+  };
   return {
     sourceLocale: localization.sourceLocale,
     defaultLocale: localization.defaultLocale,
@@ -144,19 +155,20 @@ export function compileLocalization(
               ...patternFields,
               ...(arguments_.length === 0 ? {} : { arguments: arguments_ }),
             }))
-          : sortedEntries(localization.translations[locale] ?? {}).map(
-              ([stableId, translation]) => {
-                const arguments_ = sourceArgumentContracts.get(stableId) ?? [];
-                return {
+          : allMessageIds(project).flatMap((stableId) => {
+              const target = effectiveTarget(locale, stableId);
+              if (!target) return [];
+              const arguments_ = sourceArgumentContracts.get(stableId) ?? [];
+              if (target.useSource) return [];
+              return [
+                {
                   messageId: ids.get(stableId)!,
-                  value: translation.text,
-                  ...(translation.pattern
-                    ? { pattern: compileMessagePattern(translation.pattern) }
-                    : {}),
+                  value: target.text,
+                  ...(target.pattern ? { pattern: compileMessagePattern(target.pattern) } : {}),
                   ...(arguments_.length === 0 ? {} : { arguments: arguments_ }),
-                };
-              },
-            ),
+                },
+              ];
+            }),
     })),
   };
 }
