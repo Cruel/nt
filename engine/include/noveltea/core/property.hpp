@@ -33,11 +33,12 @@ struct BooleanPropertyType {};
 struct IntegerPropertyType {};
 struct NumberPropertyType {};
 struct StringPropertyType {};
+struct MessagePropertyType {};
 struct EnumPropertyType {
     std::vector<std::string> values;
 };
 using PropertyValueType = std::variant<BooleanPropertyType, IntegerPropertyType, NumberPropertyType,
-                                       StringPropertyType, EnumPropertyType>;
+                                       StringPropertyType, MessagePropertyType, EnumPropertyType>;
 
 struct PropertyDefinitionInput {
     PropertyId id;
@@ -223,6 +224,8 @@ property_target_owner_kind(const PropertyTargetRef& target) noexcept
                        std::holds_alternative<double>(value);
             else if constexpr (std::is_same_v<T, StringPropertyType>)
                 return std::holds_alternative<std::string>(value);
+            else if constexpr (std::is_same_v<T, MessagePropertyType>)
+                return std::holds_alternative<MessageRef>(value);
             else {
                 const auto* string = std::get_if<std::string>(&value);
                 return string != nullptr && std::find(type.values.begin(), type.values.end(),

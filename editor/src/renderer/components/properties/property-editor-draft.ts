@@ -1,6 +1,6 @@
 import {
   propertyValueTypeValues,
-  type AuthoredRuntimeValue,
+  type AuthoredPropertyValue,
   type OwnerDefaultProperty,
   type OwnerLocalProperty,
 } from '../../../shared/project-schema/authoring-properties';
@@ -76,7 +76,7 @@ export function typedPropertyDraftForSchema(
     nullable: boolean;
     enumValues?: readonly string[];
   },
-  value: AuthoredRuntimeValue | undefined,
+  value: AuthoredPropertyValue | undefined,
   valuePresent = value !== undefined,
 ): TypedPropertyDraft {
   return {
@@ -96,7 +96,7 @@ export function typedPropertyDraftForSchema(
 export function typedPropertyValueFromDraft(
   draft: TypedPropertyDraft,
 ):
-  | { ok: true; value: AuthoredRuntimeValue; enumValues?: string[] }
+  | { ok: true; value: AuthoredPropertyValue; enumValues?: string[] }
   | { ok: false; message: string } {
   const enumValues = draft.type === 'enum' ? parseEnumValuesText(draft.enumText) : undefined;
   if (draft.type === 'enum' && (!enumValues || enumValues.length === 0))
@@ -140,7 +140,7 @@ export function ownerDefaultPropertyFromDraft(
     return { ok: false, message: 'Enum properties require at least one value.' };
   if (enumValues && new Set(enumValues).size !== enumValues.length)
     return { ok: false, message: 'Enum values must be unique.' };
-  let defaultValue: AuthoredRuntimeValue | undefined;
+  let defaultValue: AuthoredPropertyValue | undefined;
   if (draft.valuePresent) {
     const parsed = parseVariableValueText(draft.type, draft.valueText, enumValues, draft.nullable);
     if (!parsed.ok) return parsed;
@@ -165,6 +165,7 @@ export function propertyTypeLabel(type: VariableType) {
   if (type === 'integer') return 'Integer';
   if (type === 'number') return 'Number';
   if (type === 'string') return 'String';
+  if (type === 'message') return 'Message';
   return 'Enum';
 }
 

@@ -179,6 +179,7 @@ private:
     static int project_import_callback(lua_State* state);
     static int project_hook_register_callback(lua_State* state);
     static int managed_message_callback(lua_State* state);
+    static int message_ref_callback(lua_State* state);
     void clear_project_modules() noexcept;
 
     struct Impl;

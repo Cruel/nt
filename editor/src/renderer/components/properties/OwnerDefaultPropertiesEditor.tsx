@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import {
   arePropertySchemasCompatible,
   authoredRuntimeValuesEqual,
-  type AuthoredRuntimeValue,
+  type AuthoredPropertyValue,
   type OwnerDefaultProperty,
   type PropertyOwnerKind,
   type TraitDefinition,
@@ -25,7 +25,7 @@ export interface InheritedDefaultProperty {
 interface EffectiveRow {
   id: string;
   contract: OwnerDefaultProperty | TraitProperty;
-  defaultValue?: AuthoredRuntimeValue;
+  defaultValue?: AuthoredPropertyValue;
   source: 'local' | 'inherited' | 'trait';
   sourceLabel: string;
   traitIds: string[];

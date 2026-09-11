@@ -793,14 +793,18 @@
       "integer": "⟦Integer⟧",
       "number": "⟦Number⟧",
       "string": "⟦String⟧",
-      "enum": "⟦Enum⟧"
+      "enum": "⟦Enum⟧",
+      "message": "⟦Message⟧"
     },
     "values": {
       "conflictingDefaults": "⟦Conflicting Defaults⟧",
       "missing": "⟦Required value missing⟧",
       "null": "⟦null⟧",
       "nullLabel": "⟦Null⟧",
-      "emptyString": "⟦Empty string⟧"
+      "emptyString": "⟦Empty string⟧",
+      "selectMessage": "⟦Select a named Message⟧",
+      "noNamedMessages": "⟦Create a named Message in Localization first.⟧",
+      "missingMessage": "⟦Missing named Message: {{key}}⟧"
     }
   },
   "features": {

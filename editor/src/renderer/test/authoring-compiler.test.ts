@@ -51,6 +51,44 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('lowers typed Message Variables to compiled Message identities and rejects stale keys', () => {
+    const project = validProject();
+    project.localization.messages['11111111-1111-4111-8111-111111111111'] = {
+      kind: 'named',
+      key: 'ui.prompt',
+      source: 'Prompt',
+    };
+    const data = defaultVariableData('message');
+    data.nullable = false;
+    data.value = { $message: 'ui.prompt' };
+    project.variables.prompt = { id: 'prompt', label: 'Prompt', data };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(
+      true,
+    );
+    if (!result.ok) return;
+    expect(result.project.properties).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'prompt',
+          type: 'message',
+          defaultValue: expect.objectContaining({ kind: 'message', id: expect.any(Number) }),
+        }),
+      ]),
+    );
+
+    data.value = { $message: 'ui.missing' };
+    const stale = compileAuthoringProject(project);
+    expect(stale.ok).toBe(false);
+    if (stale.ok) return;
+    expect(stale.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'AUTHORING_LOCALIZATION_MESSAGE_REFERENCE_MISSING' }),
+      ]),
+    );
+  });
+
   it('narrowly lowers direct managed Lua localization calls to package Message references', () => {
     const project = validProject();
     project.localization.messages['11111111-1111-4111-8111-111111111111'] = {

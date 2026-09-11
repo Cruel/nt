@@ -7,7 +7,7 @@ import type { AuthoringProject } from './authoring-project';
 import {
   arePropertySchemasCompatible,
   authoredRuntimeValuesEqual,
-  type AuthoredRuntimeValue,
+  type AuthoredPropertyValue,
   type OwnerDefaultProperty,
   type OwnerLocalProperty,
   type TraitProperty,
@@ -18,13 +18,13 @@ export type InteractablePropertyContract = OwnerDefaultProperty | TraitProperty;
 export interface EffectiveInteractableProperty {
   id: string;
   contract: InteractablePropertyContract;
-  defaultValue?: AuthoredRuntimeValue;
+  defaultValue?: AuthoredPropertyValue;
   source: 'definition' | 'archetype' | 'trait';
   traitIds: string[];
 }
 
 export interface EffectiveInteractableInstanceProperty extends EffectiveInteractableProperty {
-  value?: AuthoredRuntimeValue;
+  value?: AuthoredPropertyValue;
   hasValue: boolean;
   localOnly: boolean;
   localProperty?: OwnerLocalProperty;
@@ -33,7 +33,7 @@ export interface EffectiveInteractableInstanceProperty extends EffectiveInteract
 export interface EffectiveInteractableFeatureProperty {
   id: string;
   contract: InteractablePropertyContract;
-  value?: AuthoredRuntimeValue;
+  value?: AuthoredPropertyValue;
   hasValue: boolean;
   overridden: boolean;
   source: 'feature' | 'trait';

@@ -22,7 +22,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTranslation } from 'react-i18next';
 import { useState, type ReactNode } from 'react';
-import type { AuthoredRuntimeValue } from '../../../shared/project-schema/authoring-properties';
+import type { AuthoredPropertyValue } from '../../../shared/project-schema/authoring-properties';
 import type { VariableType } from '../../../shared/project-schema/authoring-variables';
 
 export interface PropertyManagerTraitSource {
@@ -38,7 +38,7 @@ export interface PropertyManagerRow {
   type: VariableType;
   nullable: boolean;
   enumValues?: readonly string[];
-  value?: AuthoredRuntimeValue;
+  value?: AuthoredPropertyValue;
   valueState?: 'normal' | 'missing' | 'conflict';
   sourceLabel?: string;
   usageCount?: number;
@@ -212,6 +212,7 @@ export function PropertyTable({
     if (row.value === null) return t('propertyManager.values.null');
     if (typeof row.value === 'string')
       return row.value === '' ? t('propertyManager.values.emptyString') : JSON.stringify(row.value);
+    if (typeof row.value === 'object') return row.value.$message;
     return String(row.value);
   };
   const typeLabel = (type: VariableType) => t(`propertyManager.types.${type}`);

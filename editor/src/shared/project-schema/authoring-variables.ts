@@ -1,8 +1,15 @@
 import { z } from 'zod';
-import type { AuthoredRuntimeValue } from './authoring-properties';
+import { authoredPropertyValueSchema, type AuthoredPropertyValue } from './authoring-properties';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
-export const variableTypeValues = ['boolean', 'integer', 'number', 'string', 'enum'] as const;
+export const variableTypeValues = [
+  'boolean',
+  'integer',
+  'number',
+  'string',
+  'enum',
+  'message',
+] as const;
 export const variableScopeValues = ['global'] as const;
 
 export type VariableType = (typeof variableTypeValues)[number];
@@ -15,7 +22,7 @@ export const variableDataSchema = z
     kind: z.literal('variable').default('variable'),
     type: z.enum(variableTypeValues),
     nullable: z.boolean().default(false),
-    value: z.union([z.null(), z.boolean(), z.number().finite(), z.string()]),
+    value: authoredPropertyValueSchema,
     scope: z.enum(variableScopeValues).default('global'),
     enumValues: z.array(z.string()).optional(),
   })
@@ -63,15 +70,25 @@ export function parseVariableData(value: unknown): VariableData | null {
 export function defaultValueForVariableType(
   type: VariableType,
   enumValues?: readonly string[],
-): Exclude<AuthoredRuntimeValue, null> {
+): Exclude<AuthoredPropertyValue, null> {
   if (type === 'boolean') return false;
   if (type === 'integer') return 0;
   if (type === 'number') return 0;
   if (type === 'string') return '';
+  if (type === 'message') return { $message: 'message.required' };
   return normalizedEnumValues(enumValues)[0] ?? 'default';
 }
 
 export function defaultVariableData(type: VariableType = 'boolean'): VariableData {
+  if (type === 'message') {
+    return variableDataSchema.parse({
+      kind: 'variable',
+      type,
+      scope: 'global',
+      nullable: true,
+      value: null,
+    });
+  }
   if (type === 'enum') {
     return variableDataSchema.parse({
       kind: 'variable',
@@ -96,12 +113,20 @@ export function isVariableValueCompatible(
   value: unknown,
   enumValues?: readonly string[],
   nullable = false,
-): value is AuthoredRuntimeValue {
+): value is AuthoredPropertyValue {
   if (value === null) return nullable;
   if (type === 'boolean') return typeof value === 'boolean';
   if (type === 'integer') return isFiniteNumber(value) && Number.isInteger(value);
   if (type === 'number') return isFiniteNumber(value);
   if (type === 'string') return typeof value === 'string';
+  if (type === 'message')
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.keys(value).length === 1 &&
+      typeof (value as { $message?: unknown }).$message === 'string'
+    );
   const values = normalizedEnumValues(enumValues);
   return typeof value === 'string' && values.includes(value);
 }
@@ -111,7 +136,7 @@ export function normalizeVariableValue(
   value: unknown,
   enumValues?: readonly string[],
   nullable = false,
-): AuthoredRuntimeValue {
+): AuthoredPropertyValue {
   if (isVariableValueCompatible(type, value, enumValues, nullable)) return value;
   return defaultValueForVariableType(type, enumValues);
 }
@@ -119,6 +144,13 @@ export function normalizeVariableValue(
 export function variableValueToText(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { $message?: unknown }).$message === 'string'
+  )
+    return (value as { $message: string }).$message;
   return value === undefined || value === null ? '' : JSON.stringify(value);
 }
 
@@ -127,7 +159,7 @@ export function parseVariableValueText(
   text: string,
   enumValues?: readonly string[],
   nullable = false,
-): { ok: true; value: AuthoredRuntimeValue } | { ok: false; message: string } {
+): { ok: true; value: AuthoredPropertyValue } | { ok: false; message: string } {
   const trimmed = text.trim();
   if (nullable && trimmed === 'null') return { ok: true, value: null };
   if (type === 'boolean') {
@@ -146,6 +178,10 @@ export function parseVariableValueText(
     return { ok: false, message: 'Number values must be finite numbers.' };
   }
   if (type === 'string') return { ok: true, value: text };
+  if (type === 'message') {
+    if (trimmed) return { ok: true, value: { $message: trimmed } };
+    return { ok: false, message: 'Message values must reference a named Message.' };
+  }
   const values = normalizedEnumValues(enumValues);
   if (values.includes(text)) return { ok: true, value: text };
   return { ok: false, message: 'Enum values must match one of the declared enum values.' };

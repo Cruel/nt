@@ -4,7 +4,7 @@
 
 Variable is the editor-facing name for a Global Property. NovelTea has one runtime Property system for typed custom gameplay state; Variables are not a second runtime value family.
 
-The Variables editor remains the convenient authoring surface for globally scoped flags, counters, numbers, strings, and enums. Compilation lowers those records into ordinary `PropertyDefinition` entries with `scope: "global"` in the current `noveltea.compiled.project` format.
+The Variables editor remains the convenient authoring surface for globally scoped flags, counters, numbers, strings, enums, and typed localized Message references. Compilation lowers those records into ordinary `PropertyDefinition` entries with `scope: "global"` in the current `noveltea.compiled.project` format.
 
 ## Authoring model
 
@@ -19,7 +19,7 @@ Their authoring data is intentionally concise:
 ```ts
 interface VariableData {
   kind: 'variable';
-  type: 'boolean' | 'integer' | 'number' | 'string' | 'enum';
+  type: 'boolean' | 'integer' | 'number' | 'string' | 'enum' | 'message';
   nullable: boolean;
   value: unknown;
   scope: 'global';
@@ -27,7 +27,7 @@ interface VariableData {
 }
 ```
 
-Global Variables always require a concrete authored Value. Nullable Variables may author `null` as that Value. Non-null numbers must be finite, integers must be finite whole numbers, and enum Values must be one of the declared enum values.
+Global Variables always require a concrete authored Value. Nullable Variables may author `null` as that Value. Non-null numbers must be finite, integers must be finite whole numbers, and enum Values must be one of the declared enum values. A non-null `message` Value is authored as an explicit `{ $message: "semantic.named-key" }` reference to a named Message; ordinary strings are never interpreted as localization keys. The Property Manager selects these values from the named Message catalog and preserves broken keys as visible invalid references until repaired.
 
 Variable IDs share the normal project entity-ID syntax and become the compiled `PropertyId`. They
 are unique among Variables, but may use the same key as an owner-local Property because identity
@@ -58,7 +58,7 @@ defaultValue
 enumValues
 ```
 
-The compiled Global Property preserves the authored Variable nullability and always carries `defaultValue`, which is the authored Value.
+The compiled Global Property preserves the authored Variable nullability and always carries `defaultValue`, which is the authored Value. Message Values lower from their semantic named key to the package-local typed `{ kind: "message", id }` runtime representation. Compilation fails when the authored key no longer resolves.
 
 Identity Properties compile as exact declarations with `scope: "identity"` plus an exact `owner`
 reference when a standalone declaration is needed. Concrete authored state is emitted on the owning

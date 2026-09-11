@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import {
   arePropertySchemasCompatible,
   authoredRuntimeValuesEqual,
-  type AuthoredRuntimeValue,
+  type AuthoredPropertyValue,
   type OwnerDefaultProperty,
   type OwnerLocalProperty,
   type PropertyOwnerKind,
@@ -59,7 +59,7 @@ function resolvedTraitDefault(sources: readonly TraitSource[]) {
 
 function ownerLocalFromContract(
   contract: TraitProperty | OwnerDefaultProperty,
-  value: AuthoredRuntimeValue,
+  value: AuthoredPropertyValue,
 ): OwnerLocalProperty {
   return {
     id: contract.id,
@@ -202,6 +202,7 @@ export function OwnerLocalPropertiesEditor({
     localByProperty,
     properties,
     sourcesByProperty,
+    traits,
     traitColorFor,
     usageCountFor,
   ]);

@@ -1167,7 +1167,9 @@ function scanStructuralReferences(
   const localizedKey =
     structuralValue.kind === 'localized' && typeof structuralValue.key === 'string'
       ? structuralValue.key
-      : null;
+      : typeof structuralValue.$message === 'string'
+        ? structuralValue.$message
+        : null;
   if (localizedKey) {
     const defaultLocale = project.localization.defaultLocale;
     const resolution = resolveMessage(project.localization, {
@@ -1243,12 +1245,18 @@ function collectDerivationDependencies(
     return;
   }
   if (!isRecord(value)) return;
-  if (value.kind === 'localized' && typeof value.key === 'string') {
+  const localizedKey =
+    value.kind === 'localized' && typeof value.key === 'string'
+      ? value.key
+      : typeof value.$message === 'string'
+        ? value.$message
+        : null;
+  if (localizedKey) {
     const resolution = resolveMessage(project.localization, {
-      key: value.key,
+      key: localizedKey,
       locale: project.localization.defaultLocale,
     });
-    dependencies.push({ kind: 'localization-lookup', key: value.key });
+    dependencies.push({ kind: 'localization-lookup', key: localizedKey });
     dependencies.push({ kind: 'project-field', path: '/localization/defaultLocale' });
     if (resolution.resolved?.locale === project.localization.sourceLocale)
       dependencies.push({ kind: 'project-field', path: '/localization/sourceLocale' });

@@ -419,8 +419,11 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // Instances that have no exact authored occurrence. It changes only the owning Room projection.
   [/^\/rooms\/\*\/data\/fallbackInteractablePlacementId$/, OWNER],
   // Nullable is a new Variable runtime semantic in #136. The renamed authored `value` leaf is
-  // preserved against the previous `defaultValue` review slot below.
+  // preserved against the previous `defaultValue` review slot below. #205 adds the nested
+  // `$message` leaf for the typed Message value alternative; it changes the owning global
+  // Property's compiled default and localization dependency.
   [/^\/variables\/\*\/data\/nullable$/, OWNER],
+  [/^\/variables\/\*\/data\/value\/\$message$/, OWNER],
 ]);
 
 function explicitFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
@@ -965,12 +968,12 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     archetypes: 'f71e0c56',
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
-    characters: '53873c0e',
+    characters: '5e8f854a',
     dialogues: '81f2a616',
     entrypoint: 'a61673d4',
     export: '58f8ce43',
-    interactableInstances: '287ef173',
-    interactables: '81498bf0',
+    interactableInstances: '33e3748f',
+    interactables: '29b3f7ad',
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
@@ -979,16 +982,16 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '546711ca',
     prefetchHints: 'b985056c',
     project: 'da3be83d',
-    rooms: '4bfeca2e',
+    rooms: '32830ef1',
     scenes: '9d060243',
     schema: '63fb9bb9',
     scripts: 'f3482815',
     settings: '955fcf25',
     shaders: '94d3aa6e',
     tests: '99f1bf10',
-    traits: 'f6534a48',
+    traits: '371bbceb',
     undefinedInteractionProgram: 'da7c64b8',
-    variables: '9c9e4800',
+    variables: 'c5d1f73c',
     verbs: 'ede9b385',
   });
 

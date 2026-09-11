@@ -25,6 +25,8 @@ std::optional<PropertyValueType> decode_value_type(Decoder& decoder, const nlohm
         return PropertyValueType{NumberPropertyType{}};
     if (*type == "string")
         return PropertyValueType{StringPropertyType{}};
+    if (*type == "message")
+        return PropertyValueType{MessagePropertyType{}};
     if (*type == "enum")
         return PropertyValueType{EnumPropertyType{decoded_enum_values}};
     decoder.error(k_code_enum, "Unknown scalar declaration type '" + *type + "'.",

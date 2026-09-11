@@ -15,7 +15,17 @@ const strict = <Shape extends z.ZodRawShape>(shape: Shape) => z.object(shape).st
 const id = entityIdSchema;
 const finiteNumber = z.number().finite();
 const positiveFiniteNumber = finiteNumber.positive();
-const runtimeValueSchema = z.union([z.null(), z.boolean(), finiteNumber, z.string()]);
+const runtimeMessageRefSchema = strict({
+  kind: z.literal('message'),
+  id: z.number().int().nonnegative(),
+});
+const runtimeValueSchema = z.union([
+  z.null(),
+  z.boolean(),
+  finiteNumber,
+  z.string(),
+  runtimeMessageRefSchema,
+]);
 
 const typedReference = <Collection extends string>(collection: Collection) =>
   strict({
@@ -890,7 +900,7 @@ const ownerPropertyContractSchema = strict({
   id,
   label: z.string().min(1),
   description: z.string(),
-  type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
+  type: z.enum(['boolean', 'integer', 'number', 'string', 'enum', 'message']),
   nullable: z.boolean(),
   enumValues: z.array(z.string().min(1)),
   defaultValue: runtimeValueSchema.optional(),
@@ -925,7 +935,7 @@ const traitPropertySchema = strict({
   id,
   label: z.string().min(1),
   description: z.string(),
-  type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
+  type: z.enum(['boolean', 'integer', 'number', 'string', 'enum', 'message']),
   nullable: z.boolean(),
   enumValues: z.array(z.string().min(1)),
   defaultValue: runtimeValueSchema.optional(),
@@ -944,7 +954,7 @@ const propertyDefinitionCommon = {
   id,
   label: z.string().min(1),
   nullable: z.boolean(),
-  type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
+  type: z.enum(['boolean', 'integer', 'number', 'string', 'enum', 'message']),
 };
 
 const propertyDefinitionSchema = z.union([
