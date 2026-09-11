@@ -240,8 +240,19 @@ than invoking a Hotspot directly.
 
 ## Custom Runtime Elements
 
-Ordinary state-driven UI should use the data model. Two custom tags remain exceptions:
+Ordinary state-driven UI should use the data model. Three custom tags remain semantic exceptions:
 
+- `nt-tr` is the live localization node. Local authoring uses `<nt-tr>source text</nt-tr>`; reusable
+  Messages use `<nt-tr key="semantic.key" ...></nt-tr>`. Named runtime argument bindings use
+  `arg-<name>` attributes and may contain normal RmlUi data expressions. Compilation removes the
+  authored source or `key`, replaces it with the package-local `message` identity, and preserves the
+  `arg-*` bindings on the live element. Runtime realization always goes through `MessageRealizer`, so
+  rebinding the runtime locale updates mounted `nt-tr` nodes without remounting their Layouts. V1
+  translatable inline presentation content is limited to text plus `span`, `em`, `strong`, `b`, `i`,
+  `u`, `s`, and `br`; those inline tags may use `class` and `style`. Nested `nt-tr`, arbitrary
+  interactive/layout elements, and inline plural/select grammar such as `nt-case` are invalid;
+  complex grammar belongs in a named Message. NovelTea does not add localization-specific `data-*`
+  attributes; RmlUi's existing `data-*` namespace remains available for ordinary data binding.
 - `nt-active-text` is the mature engine-rendered ActiveText host. RuntimeUI updates only the first
   tag in the active `game-hud` system document; its RmlUi content box and computed presentation
   values feed engine shaping/rendering and native hit testing.

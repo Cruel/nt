@@ -1736,7 +1736,7 @@ describe('NovelTea headless CLI', () => {
     const customTags = [...componentSource.matchAll(/RegisterElementInstancer\("([^"]+)"/g)].map(
       (match) => match[1],
     );
-    expect(customTags).toEqual(['nt-active-text', 'nt-map-view']);
+    expect(customTags).toEqual(['nt-tr', 'nt-active-text', 'nt-map-view']);
 
     const payload = createNovelTeaAgentKitPayload();
     const bindingGuide = payload.files['docs/RMLUI_DATA_BINDING.md']!;

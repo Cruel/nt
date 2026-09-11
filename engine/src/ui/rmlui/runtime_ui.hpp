@@ -125,6 +125,9 @@ public:
     void bind_title_document(const std::string& project_title, const std::string& subtitle,
                              const std::string& start_label) override;
     void bind_layout_gameplay_admission(std::function<bool()> admission);
+    void bind_message_localization(const core::compiled::Localization& localization,
+                                   std::string runtime_locale);
+    void clear_message_localization() noexcept;
 
     void enable_render_perf_logging(bool enabled = true);
 

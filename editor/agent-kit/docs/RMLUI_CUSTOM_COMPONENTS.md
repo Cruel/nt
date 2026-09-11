@@ -5,11 +5,30 @@ Use this reference only when a Layout needs a documented NovelTea `nt-*` element
 The current public custom-element surface is exactly:
 
 ```text
+nt-tr
 nt-active-text
 nt-map-view
 ```
 
 There is no current `nt-text-log` element. Text Log is ordinary data-bound RML over `gameplay.text_log.entries`; use `.noveltea/agent/docs/RMLUI_DATA_BINDING.md` for that model.
+
+## `nt-tr`
+
+`nt-tr` is NovelTea's live RML localization element. Prefer local source content for one-off text and a named Message key for reusable/complex text:
+
+```xml
+<nt-tr>Hello <em>traveler</em>.</nt-tr>
+<nt-tr key="inventory.item-count" arg-count="{{ gameplay.inventory.items.size() }}"></nt-tr>
+```
+
+Author-visible contract:
+
+- Local source is the element content. A named Message uses `key="..."`; do not combine a named key with local source content.
+- Runtime argument bindings use `arg-<name>` attributes. NovelTea does not define localization-specific `data-*` attributes; ordinary RmlUi data binding remains available for normal UI behavior.
+- Compilation removes the authored local source or named key and replaces it with an internal package Message identity. Do not author the compiled `message` attribute yourself.
+- The element remains live at runtime. Locale changes re-resolve mounted `nt-tr` nodes without remounting their Layouts.
+- Local translatable rich content is limited to text plus `span`, `em`, `strong`, `b`, `i`, `u`, `s`, and `br`. Those inline tags may use `class` and `style`.
+- Do not nest `nt-tr`, put arbitrary interactive/layout subtrees inside it, or invent `nt-case`. Complex plural/select grammar belongs in a named Message.
 
 ## `nt-active-text`
 
@@ -72,6 +91,6 @@ Text Log uses the normal `noveltea` model:
 
 Use ordinary RML/data binding for lists, labels, buttons, menus, choices, exits, inventory, interaction actions, save/load slots, settings controls, Text Log, and other state-driven UI covered by the `noveltea` model.
 
-Use a documented custom element only when NovelTea owns specialized rendering/input behavior that ordinary RML cannot express—currently ActiveText and Map presentation/input.
+Use a documented custom element only when NovelTea owns specialized localization, rendering, or input behavior that ordinary RML cannot express—currently live Message localization, ActiveText, and Map presentation/input.
 
 If a requested `nt-*` tag is not listed in this document, it is not part of the current game-authoring contract. Do not derive tag names from engine types, old NovelTea code, screenshots, CSS class names, or generated runtime markup.

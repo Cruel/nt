@@ -5,6 +5,7 @@
 #include <string>
 
 #include <noveltea/core/feature_view.hpp>
+#include <noveltea/core/message_realization.hpp>
 #include <noveltea/core/rich_text.hpp>
 
 #include <RmlUi/Core/Element.h>
@@ -42,6 +43,13 @@ make_active_text_snapshot(const core::TypedRuntimeUIViewState& state);
 make_map_view_snapshot(const core::TypedRuntimeUIViewState& state,
                        std::optional<core::MapId> map = std::nullopt);
 [[nodiscard]] std::string map_view_rml(const TypedMapViewComponentSnapshot& snapshot);
+
+class NtTrElement final : public Rml::Element {
+public:
+    RMLUI_RTTI_DeclareWithParent(NtTrElement,
+                                 Rml::Element) explicit NtTrElement(const Rml::String& tag);
+    [[nodiscard]] bool realize(const core::MessageRealizer& realizer, std::string_view locale);
+};
 
 class NtActiveTextElement final : public Rml::Element {
 public:
@@ -93,6 +101,7 @@ public:
     RuntimeUiComponentRegistry& operator=(const RuntimeUiComponentRegistry&) = delete;
 
 private:
+    std::unique_ptr<Rml::ElementInstancer> m_translation;
     std::unique_ptr<Rml::ElementInstancer> m_active_text;
     std::unique_ptr<Rml::ElementInstancer> m_map_view;
 };

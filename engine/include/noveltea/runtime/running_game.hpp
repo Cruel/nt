@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace noveltea::runtime {
@@ -54,6 +55,7 @@ public:
            const core::SaveStateCodecPort& save_codec, std::string runtime_locale = {});
 
     [[nodiscard]] const core::LoadedCompiledPackage& package() const noexcept { return m_package; }
+    [[nodiscard]] std::string_view runtime_locale() const noexcept { return m_runtime_locale; }
     [[nodiscard]] RuntimeSession& session() noexcept { return *m_session; }
     [[nodiscard]] const RuntimeSession& session() const noexcept { return *m_session; }
     [[nodiscard]] core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>

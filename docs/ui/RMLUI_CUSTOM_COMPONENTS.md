@@ -6,6 +6,14 @@ Track the custom RmlUi element/component strategy for complex NovelTea runtime w
 
 ## Current Components
 
+- `nt-tr`: registered as a C++ RmlUi element and kept live after compilation. Local authoring puts
+  source text inside the element; reusable Messages use `key="..."`, and named argument bindings use
+  `arg-<name>` attributes. Compilation replaces authored source/key metadata with package-local
+  `message` identity while preserving argument bindings. Runtime resolution goes through
+  `MessageRealizer`; changing the bound locale re-realizes mounted elements without remounting their
+  Layout. The v1 inline presentation subset is text plus `span`, `em`, `strong`, `b`, `i`, `u`, `s`,
+  and `br`, with `class`/`style` on those inline tags. Nested `nt-tr`, arbitrary interactive/layout
+  subtrees, and inline `nt-case` grammar are rejected.
 - `nt-active-text`: registered as a C++ RmlUi element. It is a layout/input host rather than a glyph
   markup renderer. It binds typed Room/Dialogue/Scene text state, drives deterministic reveal and
   alpha playback through the coordinator-owned typed presentation lifecycle, and preserves

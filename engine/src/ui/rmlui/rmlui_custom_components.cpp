@@ -1,6 +1,7 @@
 #include "ui/rmlui/rmlui_custom_components.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 
 #include <fast_float/fast_float.h>
@@ -10,9 +11,10 @@
 
 namespace noveltea::ui::rmlui {
 
-RMLUI_RTTI_Define(NtActiveTextElement) RMLUI_RTTI_Define(NtMapViewElement)
+RMLUI_RTTI_Define(NtTrElement) RMLUI_RTTI_Define(NtActiveTextElement)
+    RMLUI_RTTI_Define(NtMapViewElement)
 
-    namespace
+        namespace
 {
     std::string escape_lua_string(std::string_view value)
     {
@@ -257,6 +259,24 @@ std::string map_view_rml(const TypedMapViewComponentSnapshot& snapshot)
     }
     out << "</div></div>";
     return out.str();
+}
+
+NtTrElement::NtTrElement(const Rml::String& tag) : Rml::Element(tag) {}
+
+bool NtTrElement::realize(const core::MessageRealizer& realizer, std::string_view locale)
+{
+    const auto encoded = GetAttribute<Rml::String>("message", "");
+    core::MessageId message_id = 0;
+    const auto parsed =
+        std::from_chars(encoded.data(), encoded.data() + encoded.size(), message_id);
+    if (encoded.empty() || parsed.ec != std::errc{} ||
+        parsed.ptr != encoded.data() + encoded.size())
+        return false;
+    const auto realized = realizer.realize({message_id, locale});
+    if (!realized)
+        return false;
+    SetInnerRML(Rml::String(realized->text));
+    return true;
 }
 
 NtActiveTextElement::NtActiveTextElement(const Rml::String& tag) : Rml::Element(tag) {}
@@ -525,9 +545,11 @@ void NtMapViewElement::ProcessDefaultAction(Rml::Event& event)
 }
 
 RuntimeUiComponentRegistry::RuntimeUiComponentRegistry()
-    : m_active_text(std::make_unique<Rml::ElementInstancerGeneric<NtActiveTextElement>>()),
+    : m_translation(std::make_unique<Rml::ElementInstancerGeneric<NtTrElement>>()),
+      m_active_text(std::make_unique<Rml::ElementInstancerGeneric<NtActiveTextElement>>()),
       m_map_view(std::make_unique<Rml::ElementInstancerGeneric<NtMapViewElement>>())
 {
+    Rml::Factory::RegisterElementInstancer("nt-tr", m_translation.get());
     Rml::Factory::RegisterElementInstancer("nt-active-text", m_active_text.get());
     Rml::Factory::RegisterElementInstancer("nt-map-view", m_map_view.get());
 }

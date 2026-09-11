@@ -86,6 +86,7 @@ public:
     [[nodiscard]] ContextKey context_key_or_default(const std::string& id) const noexcept;
     [[nodiscard]] bool has_document(const std::string& id) const noexcept;
     [[nodiscard]] bool has_visible_document(Rml::Context* context) const noexcept;
+    void for_each_document(const std::function<void(Rml::ElementDocument&)>& visitor) const;
 
     [[nodiscard]] std::uintptr_t add_event_listener(const std::string& document_id,
                                                     const std::string& element_id,

@@ -11,7 +11,12 @@ import {
   COMPILED_PROJECT_FORMAT_VERSION,
 } from './project-schema/compiled-project';
 import type { TextContent } from './project-schema/authoring-flow';
-import { compileLocalization, compileMessageText } from './authoring-message-lowering';
+import {
+  compileLocalization,
+  compileMessageText,
+  packageMessageIds,
+} from './authoring-message-lowering';
+import { lowerRmlLocalization } from './authoring-rml-localization-lowering';
 import { compileCondition } from './authoring-condition-lowering';
 import type {
   FeatureData,
@@ -419,6 +424,24 @@ function compileLayoutSource(source: LayoutSourceData) {
   return { kind: 'inline' as const, text: source.sourceText };
 }
 
+function compileRmlLayoutSource(
+  project: AuthoringProject,
+  layoutId: string,
+  source: LayoutSourceData,
+  diagnostics: SharedLoweringDiagnostic[],
+) {
+  const compiled = compileLayoutSource(source);
+  if (compiled.kind !== 'inline') return compiled;
+  const lowered = lowerRmlLocalization(
+    project,
+    layoutId,
+    compiled.text,
+    packageMessageIds(project),
+  );
+  diagnostics.push(...lowered.diagnostics);
+  return { kind: 'inline' as const, text: lowered.text };
+}
+
 function compileEntrypoint(
   entrypoint: NonNullable<AuthoringProject['entrypoint']>,
 ): CompiledProjectWire['entrypoint'] {
@@ -499,7 +522,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       ...(contract.inputs.length > 0 || contract.signals.length > 0 || contract.state !== null
         ? { contract }
         : {}),
-      rml: compileLayoutSource(data.rml),
+      rml: compileRmlLayoutSource(project, id, data.rml, diagnostics),
       rcss: compileLayoutSource(data.rcss),
       lua: compileLayoutSource(data.lua),
       script: { enabled: data.script.enabled, namespace: data.script.namespace ?? null },
