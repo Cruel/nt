@@ -24,6 +24,7 @@ local.properties
 *.iml
 .idea/
 node_modules/
+site/.astro/
 *.swp
 *.swo
 *~
