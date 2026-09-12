@@ -156,7 +156,8 @@ public:
                 runtime::ScriptCancellationReason reason) override;
     void invalidate_capabilities(runtime::CapabilityGeneration generation) noexcept override;
     void set_runtime_locale(std::string_view locale) noexcept override;
-    void synchronize_runtime_localization(const core::compiled::Localization& localization) override;
+    void
+    synchronize_runtime_localization(const core::compiled::Localization& localization) override;
 
     void replace_runtime_capabilities(runtime::RuntimeCapabilitySet capabilities) noexcept;
     void clear_runtime_capabilities() noexcept;

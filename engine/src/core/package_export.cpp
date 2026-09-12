@@ -317,8 +317,7 @@ void collect_text_entries(const PackageExportOptions& options, std::vector<Pendi
     for (const auto& text_entry : options.text_entries) {
         if (!ProjectPackageWriter::is_safe_package_path(text_entry.package_path) ||
             !has_allowed_package_prefix(text_entry.package_path)) {
-            add_diagnostic(result, PackageExportSeverity::Error, "asset",
-                           text_entry.package_path,
+            add_diagnostic(result, PackageExportSeverity::Error, "asset", text_entry.package_path,
                            "Generated text entry is outside the runtime package layout.");
             continue;
         }

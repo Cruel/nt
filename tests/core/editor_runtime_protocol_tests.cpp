@@ -168,9 +168,8 @@ TEST_CASE("focused Room decoder carries mounted Layout contracts with runtime de
               {"signals", nlohmann::json::array({{{"id", "selected"}}})},
               {"state", nullptr}},
              {{"inputs", nlohmann::json::array()},
-              {"signals",
-               nlohmann::json::array(
-                   {{{"id", "selected"}, {"fields", nlohmann::json::array({nullptr})}}})},
+              {"signals", nlohmann::json::array({{{"id", "selected"},
+                                                  {"fields", nlohmann::json::array({nullptr})}}})},
               {"state", nullptr}}}) {
         auto malformed = focused_room_document();
         malformed["world"]["overlays"] = document["world"]["overlays"];

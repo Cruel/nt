@@ -587,27 +587,26 @@ TEST_CASE("ScriptRuntime retains the returned managed Message occurrence across 
     REQUIRE(capabilities);
 
     const auto invoke_text = [&](std::string source, std::string chunk_name) {
-        auto invoked = fixture.runtime.invoke(
-            {.source = std::move(source),
-             .chunk_name = std::move(chunk_name),
-             .owner = std::nullopt,
-             .invocation = std::nullopt,
-             .source_context = {},
-             .result_kind = runtime::ScriptInvocationResultKind::Text,
-             .asset_path = std::nullopt},
-            *capabilities);
+        auto invoked =
+            fixture.runtime.invoke({.source = std::move(source),
+                                    .chunk_name = std::move(chunk_name),
+                                    .owner = std::nullopt,
+                                    .invocation = std::nullopt,
+                                    .source_context = {},
+                                    .result_kind = runtime::ScriptInvocationResultKind::Text,
+                                    .asset_path = std::nullopt},
+                                   *capabilities);
         REQUIRE(invoked);
-        const auto* completed =
-            std::get_if<runtime::ScriptInvocationCompleted>(invoked.value_if());
+        const auto* completed = std::get_if<runtime::ScriptInvocationCompleted>(invoked.value_if());
         REQUIRE(completed != nullptr);
         const auto* text = std::get_if<runtime::ScriptTextResult>(&completed->value);
         REQUIRE(text != nullptr);
         return *text;
     };
 
-    const auto ignored_first = invoke_text(
-        "local ignored = Text.__message(0); return Text.__message(1)",
-        "managed-message-ignored-first");
+    const auto ignored_first =
+        invoke_text("local ignored = Text.__message(0); return Text.__message(1)",
+                    "managed-message-ignored-first");
     CHECK(ignored_first.text == "Welcome.");
     REQUIRE(ignored_first.localized_message);
     CHECK(ignored_first.localized_message->message_id == 1);
@@ -619,9 +618,9 @@ TEST_CASE("ScriptRuntime retains the returned managed Message occurrence across 
     REQUIRE(returned_first.localized_message);
     CHECK(returned_first.localized_message->message_id == 1);
 
-    const auto repeated_same = invoke_text(
-        "local used = Text.__message(1); local again = Text.__message(1); return used",
-        "managed-message-repeated-same");
+    const auto repeated_same =
+        invoke_text("local used = Text.__message(1); local again = Text.__message(1); return used",
+                    "managed-message-repeated-same");
     CHECK(repeated_same.text == "Welcome.");
     REQUIRE(repeated_same.localized_message);
     CHECK(repeated_same.localized_message->message_id == 1);
@@ -653,8 +652,8 @@ TEST_CASE("ScriptRuntime synchronizes detached locale catalogs with runtime resi
     CHECK(before_install.value() == "Coin");
 
     fixture.runtime.synchronize_runtime_localization(resident.localization());
-    auto installed = fixture.runtime.evaluate_string(
-        "Text.__message(0)", "managed-message-after-detached-catalog");
+    auto installed = fixture.runtime.evaluate_string("Text.__message(0)",
+                                                     "managed-message-after-detached-catalog");
     REQUIRE(installed);
     CHECK(installed.value() == "Moneda");
 

@@ -15,8 +15,7 @@ uint64_t noveltea_tooling_run_ui_test_json(const uint8_t* request, uint64_t requ
                                            uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_export_package_json(const uint8_t* request, uint64_t request_size,
                                               uint8_t* response, uint64_t response_capacity);
-uint64_t noveltea_tooling_validate_font_coverage_json(const uint8_t* request,
-                                                      uint64_t request_size,
+uint64_t noveltea_tooling_validate_font_coverage_json(const uint8_t* request, uint64_t request_size,
                                                       uint8_t* response,
                                                       uint64_t response_capacity);
 uint64_t noveltea_tooling_shaderc_json(const uint8_t* request, uint64_t request_size,

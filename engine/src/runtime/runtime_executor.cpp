@@ -1175,32 +1175,35 @@ RuntimeExecutor::resolve(const core::TextSource& source, std::string_view runtim
 }
 
 core::Result<runtime::ScriptTextResult, RuntimeExecutionError>
-RuntimeExecutor::resolve_causal_text(const core::TextSource& source, std::string_view runtime_locale)
+RuntimeExecutor::resolve_causal_text(const core::TextSource& source,
+                                     std::string_view runtime_locale)
 {
     if (const auto* lua = std::get_if<core::LuaTextExpression>(&source)) {
-        runtime::ScriptInvocationRequest request{.source = lua->source,
-                                                 .chunk_name = "lua-text-expression",
-                                                 .owner = std::nullopt,
-                                                 .invocation = std::nullopt,
-                                                 .source_context = m_gateway.current_source_context(),
-                                                 .result_kind =
-                                                     runtime::ScriptInvocationResultKind::Text,
-                                                 .asset_path = std::nullopt};
+        runtime::ScriptInvocationRequest request{
+            .source = lua->source,
+            .chunk_name = "lua-text-expression",
+            .owner = std::nullopt,
+            .invocation = std::nullopt,
+            .source_context = m_gateway.current_source_context(),
+            .result_kind = runtime::ScriptInvocationResultKind::Text,
+            .asset_path = std::nullopt};
         auto result = m_scripts.invoke(request, m_expression_capabilities);
         const auto* outcome = result.value_if();
         if (outcome == nullptr)
             return core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::failure(
                 result.error());
         const auto* completed = std::get_if<runtime::ScriptInvocationCompleted>(outcome);
-        const auto* value =
-            completed == nullptr ? nullptr : std::get_if<runtime::ScriptTextResult>(&completed->value);
-        return value ? core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::success(*value)
-                     : core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::failure(
-                           RuntimeExecutionError{runtime::ScriptInvocationError{
-                               .code = runtime::ScriptInvocationErrorCode::InvalidResult,
-                               .message = "Lua text expression did not return text",
-                               .chunk = request.chunk_name,
-                               .traceback = {}}});
+        const auto* value = completed == nullptr
+                                ? nullptr
+                                : std::get_if<runtime::ScriptTextResult>(&completed->value);
+        return value
+                   ? core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::success(*value)
+                   : core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::failure(
+                         RuntimeExecutionError{runtime::ScriptInvocationError{
+                             .code = runtime::ScriptInvocationErrorCode::InvalidResult,
+                             .message = "Lua text expression did not return text",
+                             .chunk = request.chunk_name,
+                             .traceback = {}}});
     }
     auto resolved = m_primitives.resolve(source, runtime_locale);
     const auto* text = resolved.value_if();
@@ -1210,7 +1213,8 @@ RuntimeExecutor::resolve_causal_text(const core::TextSource& source, std::string
     runtime::ScriptTextResult result{*text, std::nullopt};
     if (const auto* message = std::get_if<core::MessageRef>(&source))
         result.localized_message = core::CapturedMessageOccurrence{message->id, {}};
-    return core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::success(std::move(result));
+    return core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::success(
+        std::move(result));
 }
 
 core::Result<core::WaitEvaluation, core::Diagnostics>
@@ -1811,9 +1815,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         return fault(execution_error("execution.invalid_text_result",
                                                      "Scene text produced no value"));
                     auto presented = m_state.present_text(
-                        m_project,
-                        {value.speaker, resolved_text->text, value.text.markup,
-                         resolved_text->localized_message});
+                        m_project, {value.speaker, resolved_text->text, value.text.markup,
+                                    resolved_text->localized_message});
                     if (!presented)
                         return fault(presented.error());
                     auto logged = m_state.append_text_log(
@@ -2229,7 +2232,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     return commit(frame->scene, step,
                                   {value.fallback_instruction_id, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T, core::compiled::ChoiceSceneInstruction>) {
-                    core::SceneChoiceState state{frame->scene, step, std::nullopt, {}, std::nullopt};
+                    core::SceneChoiceState state{
+                        frame->scene, step, std::nullopt, {}, std::nullopt};
                     if (value.prompt) {
                         auto prompt = resolve_causal_text(value.prompt->source, runtime_locale);
                         if (!prompt) {
@@ -2703,7 +2707,8 @@ core::Result<core::SceneView, core::Diagnostics> RuntimeExecutor::scene_view() c
             background = candidate.background;
     }
     core::SceneView view{.scene = frame->scene,
-                         .text_step = m_state.presented_text() ? frame->position.next_step : std::nullopt,
+                         .text_step =
+                             m_state.presented_text() ? frame->position.next_step : std::nullopt,
                          .background = std::move(background),
                          .actors = {},
                          .text = m_state.presented_text(),

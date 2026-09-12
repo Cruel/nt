@@ -990,7 +990,7 @@ struct MandatoryAssetGate::Impl {
 
     template<class Root>
     runtime::FlowPredictionProjection predict_useful(const Root& root,
-                                                      const runtime::FlowPredictionContext& context)
+                                                     const runtime::FlowPredictionContext& context)
     {
         if (package == nullptr)
             return {};
@@ -1000,8 +1000,8 @@ struct MandatoryAssetGate::Impl {
         for (;;) {
             runtime::FlowPredictor predictor(package->project(), limit);
             auto projection = predictor.predict(root, context);
-            const auto structural = std::ranges::find_if(
-                projection.diagnostics, [](const auto& diagnostic) {
+            const auto structural =
+                std::ranges::find_if(projection.diagnostics, [](const auto& diagnostic) {
                     return diagnostic.code == "assets.flow_prediction_structural_limit";
                 });
             if (structural == projection.diagnostics.end() || !dependency_index ||
@@ -1089,11 +1089,14 @@ struct MandatoryAssetGate::Impl {
         // publication's values while projecting these future continuations.
         const runtime::FlowPredictionContext suspended_context{};
         for (const auto& root : prediction_context.suspended_scenes)
-            suspended_predictions.push_back(mark_suspended(predict_useful(root, suspended_context)));
+            suspended_predictions.push_back(
+                mark_suspended(predict_useful(root, suspended_context)));
         for (const auto& root : prediction_context.suspended_dialogues)
-            suspended_predictions.push_back(mark_suspended(predict_useful(root, suspended_context)));
+            suspended_predictions.push_back(
+                mark_suspended(predict_useful(root, suspended_context)));
         for (const auto& root : prediction_context.suspended_interactions)
-            suspended_predictions.push_back(mark_suspended(predict_useful(root, suspended_context)));
+            suspended_predictions.push_back(
+                mark_suspended(predict_useful(root, suspended_context)));
         for (const auto& root : prediction_context.suspended_room_transitions)
             suspended_predictions.push_back(
                 mark_suspended(predict_useful(root, suspended_context)));
@@ -1766,7 +1769,8 @@ core::Diagnostics MandatoryAssetGate::update_active_scene_prediction_on_owner(
         m_impl->record_prefetch_replacement_on_owner(
             previous_generation, submitted.value(),
             m_impl->latest_snapshot
-                ? std::optional<core::PresentationSnapshotRevision>{m_impl->latest_snapshot->revision}
+                ? std::optional<core::PresentationSnapshotRevision>{m_impl->latest_snapshot
+                                                                        ->revision}
                 : std::nullopt);
 #endif
     }
@@ -1796,7 +1800,6 @@ core::Diagnostics MandatoryAssetGate::update_active_dialogue_prediction_on_owner
     }
     if (!context_changed && (root_matches || absence_matches))
         return {};
-
 
     if (context_changed && root_matches && m_impl->package != nullptr) {
         m_impl->active_dialogue_prediction = m_impl->predict_useful(*root, context);
@@ -1845,7 +1848,8 @@ core::Diagnostics MandatoryAssetGate::update_active_dialogue_prediction_on_owner
         m_impl->record_prefetch_replacement_on_owner(
             previous_generation, submitted.value(),
             m_impl->latest_snapshot
-                ? std::optional<core::PresentationSnapshotRevision>{m_impl->latest_snapshot->revision}
+                ? std::optional<core::PresentationSnapshotRevision>{m_impl->latest_snapshot
+                                                                        ->revision}
                 : std::nullopt);
 #endif
     }
@@ -1874,7 +1878,6 @@ core::Diagnostics MandatoryAssetGate::update_resident_room_prediction_on_owner(
     }
     if (!context_changed && (root_matches || absence_matches))
         return {};
-
 
     if (context_changed && root_matches && m_impl->package != nullptr) {
         m_impl->resident_prediction = m_impl->predict_useful(*root, context);
@@ -1922,7 +1925,8 @@ core::Diagnostics MandatoryAssetGate::update_resident_room_prediction_on_owner(
         m_impl->record_prefetch_replacement_on_owner(
             previous_generation, submitted.value(),
             m_impl->latest_snapshot
-                ? std::optional<core::PresentationSnapshotRevision>{m_impl->latest_snapshot->revision}
+                ? std::optional<core::PresentationSnapshotRevision>{m_impl->latest_snapshot
+                                                                        ->revision}
                 : std::nullopt);
 #endif
     }

@@ -342,8 +342,9 @@ FlowExecutor::advance_dialogue_reveal(const DialogueId& dialogue,
                                     "Dialogue reveal progress does not match the active position"));
     if (!std::isfinite(reveal_progress) || reveal_progress < frame->position.reveal_progress ||
         reveal_progress < 0.0 || reveal_progress > 1.0 || next_cue < frame->position.next_cue)
-        return fail(execution_error("execution.invalid_dialogue_reveal_progress",
-                                    "Dialogue reveal progress must be finite, normalized, and monotonic"));
+        return fail(
+            execution_error("execution.invalid_dialogue_reveal_progress",
+                            "Dialogue reveal progress must be finite, normalized, and monotonic"));
     frame->position.next_cue = next_cue;
     frame->position.reveal_progress = reveal_progress;
     return Result<void, Diagnostics>::success();
@@ -404,10 +405,10 @@ Result<void, Diagnostics> FlowExecutor::choose_dialogue_option(const FlowFrameId
         return fail(recorded.error());
     if (compiled_edge->logged && logs_choices(dialogue->settings.log_mode)) {
         auto logged = m_state.append_text_log(
-            m_project, TextLogEntry{TextLogEntryKind::Choice,
-                                    DialogueChoiceTextLogOrigin{frame->dialogue, edge},
-                                    std::nullopt, selected->label, selected->markup,
-                                    selected->localized_message});
+            m_project,
+            TextLogEntry{TextLogEntryKind::Choice,
+                         DialogueChoiceTextLogOrigin{frame->dialogue, edge}, std::nullopt,
+                         selected->label, selected->markup, selected->localized_message});
         if (!logged)
             return fail(logged.error());
     }

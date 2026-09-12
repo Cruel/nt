@@ -392,10 +392,9 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
         const auto* owner_value = decoder.member(value, "owner", pointer);
         const auto* property_value = decoder.member(value, "property", pointer);
         const auto* runtime_value = decoder.member(value, "value", pointer);
-        auto owner = owner_value
-                         ? decode_prediction_identity_operand(decoder, *owner_value,
-                                                             pointer_child(pointer, "owner"))
-                         : std::nullopt;
+        auto owner = owner_value ? decode_prediction_identity_operand(
+                                       decoder, *owner_value, pointer_child(pointer, "owner"))
+                                 : std::nullopt;
         auto property =
             property_value
                 ? decode_reference<PropertyId>(decoder, *property_value,
@@ -414,10 +413,9 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
         const auto* owner_value = decoder.member(value, "owner", pointer);
         const auto* trait_value = decoder.member(value, "trait", pointer);
         const auto* present_value = decoder.member(value, "present", pointer);
-        auto owner = owner_value
-                         ? decode_prediction_identity_operand(decoder, *owner_value,
-                                                             pointer_child(pointer, "owner"))
-                         : std::nullopt;
+        auto owner = owner_value ? decode_prediction_identity_operand(
+                                       decoder, *owner_value, pointer_child(pointer, "owner"))
+                                 : std::nullopt;
         auto trait = trait_value
                          ? decode_reference<TraitId>(decoder, *trait_value,
                                                      pointer_child(pointer, "trait"), "trait")
@@ -425,10 +423,10 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
         auto present = present_value
                            ? decoder.boolean(*present_value, pointer_child(pointer, "present"))
                            : std::nullopt;
-        return owner && trait && present
-                   ? std::optional<FlowPredictionCommand>{make_command(FlowPredictionSetTraitPresence{
-                         std::move(*owner), std::move(*trait), *present})}
-                   : std::nullopt;
+        return owner && trait && present ? std::optional<FlowPredictionCommand>{make_command(
+                                               FlowPredictionSetTraitPresence{
+                                                   std::move(*owner), std::move(*trait), *present})}
+                                         : std::nullopt;
     }
     if (*kind == "set-location") {
         const auto* subject_value = decoder.member(value, "subject", pointer);
@@ -438,8 +436,8 @@ std::optional<FlowPredictionCommand> decode_flow_prediction_command(Decoder& dec
                                  decoder, *subject_value, pointer_child(pointer, "subject"))
                            : std::nullopt;
         auto location = location_value
-                            ? decode_prediction_location_operand(
-                                  decoder, *location_value, pointer_child(pointer, "location"))
+                            ? decode_prediction_location_operand(decoder, *location_value,
+                                                                 pointer_child(pointer, "location"))
                             : std::nullopt;
         return subject && location
                    ? std::optional<FlowPredictionCommand>{make_command(
@@ -914,14 +912,17 @@ std::optional<FlowPredictionIndex> decode_flow_prediction_index(Decoder& decoder
                                                                  decoder, command, command_pointer);
                                                          })
                                                    : std::nullopt;
-                      if (!point || !resume_points || !dependency_groups || !false_successor_ok || !control ||
-                          !frontier || !program)
+                      if (!point || !resume_points || !dependency_groups || !false_successor_ok ||
+                          !control || !frontier || !program)
                           return std::nullopt;
-                      return FlowPredictionSlice{
-                          std::move(*point),         std::move(*resume_points),
-                          std::move(*dependency_groups), std::move(condition),
-                          false_successor,           std::move(*control),
-                          *frontier,                 std::move(*program)};
+                      return FlowPredictionSlice{std::move(*point),
+                                                 std::move(*resume_points),
+                                                 std::move(*dependency_groups),
+                                                 std::move(condition),
+                                                 false_successor,
+                                                 std::move(*control),
+                                                 *frontier,
+                                                 std::move(*program)};
                   })
             : std::nullopt;
     if (!groups || !hints || !slices)
@@ -1556,12 +1557,12 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     NOVELTEA_DUPLICATE_DEFINITION(maps, "/definitions/maps", MapId);
 #undef NOVELTEA_DUPLICATE_DEFINITION
 
-    const bool complete =
-        schema && version && identity && settings && entrypoint && bootstrap && save_contract &&
-        localization && inventories && properties && traits &&
-        archetypes && interactable_instances && assets && layouts && material_interfaces &&
-        scripts && characters && rooms && interactables && verbs && interactions &&
-        undefined_interaction_valid && scenes && dialogues && maps;
+    const bool complete = schema && version && identity && settings && entrypoint && bootstrap &&
+                          save_contract && localization && inventories && properties && traits &&
+                          archetypes && interactable_instances && assets && layouts &&
+                          material_interfaces && scripts && characters && rooms && interactables &&
+                          verbs && interactions && undefined_interaction_valid && scenes &&
+                          dialogues && maps;
     if (!complete || decoder.failed())
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 

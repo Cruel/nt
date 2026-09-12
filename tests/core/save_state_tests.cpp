@@ -636,7 +636,8 @@ TEST_CASE("Dialogue cue cursor round-trips independently of locale-specific cue 
     auto pending_after_progress = encoded.value();
     pending_after_progress["flowStack"][0]["position"]["nextCue"] = 0;
     pending_after_progress["flowStack"][0]["position"]["revealProgress"] = 0.6;
-    CHECK(decode_save_state(project, pending_after_progress, "dialogue-cue-pending-after-progress.json"));
+    CHECK(decode_save_state(project, pending_after_progress,
+                            "dialogue-cue-pending-after-progress.json"));
 
     auto invalid_progress = encoded.value();
     invalid_progress["flowStack"][0]["position"]["revealProgress"] = 1.1;

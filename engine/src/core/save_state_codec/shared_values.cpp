@@ -529,8 +529,8 @@ nlohmann::json encode_captured_message(const std::optional<CapturedMessageOccurr
         return nullptr;
     nlohmann::json arguments = nlohmann::json::array();
     for (const auto& argument : value->arguments) {
-        const RuntimeValue runtime_value = std::visit(
-            [](const auto& item) -> RuntimeValue { return item; }, argument.value);
+        const RuntimeValue runtime_value =
+            std::visit([](const auto& item) -> RuntimeValue { return item; }, argument.value);
         arguments.push_back({{"name", argument.name}, {"value", encode_value(runtime_value)}});
     }
     return {{"messageId", value->message_id}, {"arguments", std::move(arguments)}};
@@ -545,8 +545,9 @@ decode_captured_message(Decoder& d, const nlohmann::json& value, std::string_vie
         return std::nullopt;
     const auto* id_value = d.member(value, "messageId", pointer);
     const auto* arguments_value = d.member(value, "arguments", pointer);
-    auto message_id = id_value ? d.unsigned_integer<MessageId>(*id_value, child(pointer, "messageId"))
-                               : std::nullopt;
+    auto message_id = id_value
+                          ? d.unsigned_integer<MessageId>(*id_value, child(pointer, "messageId"))
+                          : std::nullopt;
     if (!message_id || !arguments_value || !arguments_value->is_array())
         return std::nullopt;
     std::vector<MessageArgument> arguments;
@@ -559,8 +560,9 @@ decode_captured_message(Decoder& d, const nlohmann::json& value, std::string_vie
         const auto* name_value = d.member(*entry, "name", item_pointer);
         const auto* argument_value = d.member(*entry, "value", item_pointer);
         auto name = name_value ? d.string(*name_value, child(item_pointer, "name")) : std::nullopt;
-        auto decoded = argument_value ? decode_value(d, *argument_value, child(item_pointer, "value"))
-                                      : std::nullopt;
+        auto decoded = argument_value
+                           ? decode_value(d, *argument_value, child(item_pointer, "value"))
+                           : std::nullopt;
         if (!name || !decoded)
             return std::nullopt;
         MessageArgumentValue message_value;
@@ -586,9 +588,9 @@ nlohmann::json encode_text_log(const CompiledProject& project, const TextLogEntr
     std::string text = entry.text;
     if (entry.localized_message) {
         const MessageRealizer realizer(project.localization());
-        if (const auto realized = realizer.realize(
-                {entry.localized_message->message_id, project.localization().source_locale,
-                 entry.localized_message->arguments});
+        if (const auto realized = realizer.realize({entry.localized_message->message_id,
+                                                    project.localization().source_locale,
+                                                    entry.localized_message->arguments});
             realized)
             text = realized->text;
     }
@@ -619,10 +621,9 @@ std::optional<TextLogEntry> decode_text_log(Decoder& d, const nlohmann::json& va
                               : Decoder::OptionalId<CharacterId>{};
     auto contents = text ? d.string(*text, child(pointer, "text")) : std::nullopt;
     auto markup_name = markup ? d.string(*markup, child(pointer, "markup")) : std::nullopt;
-    auto captured = localized_message
-                        ? decode_captured_message(d, *localized_message,
-                                                  child(pointer, "localizedMessage"))
-                        : std::nullopt;
+    auto captured = localized_message ? decode_captured_message(d, *localized_message,
+                                                                child(pointer, "localizedMessage"))
+                                      : std::nullopt;
     if (!kind_name || !saved_origin || !speaker_id || !contents || !markup_name || !captured)
         return std::nullopt;
     TextLogEntryKind decoded_kind;
@@ -645,8 +646,8 @@ std::optional<TextLogEntry> decode_text_log(Decoder& d, const nlohmann::json& va
         d.error(k_variant, "Unknown text markup '" + *markup_name + "'.", child(pointer, "markup"));
         return std::nullopt;
     }
-    return TextLogEntry{decoded_kind, std::move(*saved_origin), std::move(speaker_id.value),
-                        std::move(*contents), decoded_markup, std::move(*captured)};
+    return TextLogEntry{decoded_kind,         std::move(*saved_origin), std::move(speaker_id.value),
+                        std::move(*contents), decoded_markup,           std::move(*captured)};
 }
 
 nlohmann::json encode_mode(const RuntimeMode& mode)

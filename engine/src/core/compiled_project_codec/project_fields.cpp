@@ -126,6 +126,137 @@ std::optional<PropertyValueType> decode_value_type(Decoder& decoder, const nlohm
     return std::nullopt;
 }
 
+std::optional<PluralOperand> decode_plural_operand(Decoder& decoder, const nlohmann::json& value,
+                                                   std::string_view pointer)
+{
+    auto operand = decoder.string(value, pointer, false, true);
+    if (!operand)
+        return std::nullopt;
+    if (*operand == "n")
+        return PluralOperand::N;
+    if (*operand == "i")
+        return PluralOperand::I;
+    if (*operand == "v")
+        return PluralOperand::V;
+    if (*operand == "w")
+        return PluralOperand::W;
+    if (*operand == "f")
+        return PluralOperand::F;
+    if (*operand == "t")
+        return PluralOperand::T;
+    if (*operand == "e")
+        return PluralOperand::E;
+    decoder.error(k_code_enum, "Unknown plural operand '" + *operand + "'.", std::string(pointer));
+    return std::nullopt;
+}
+
+std::optional<PluralRange> decode_plural_range(Decoder& decoder, const nlohmann::json& value,
+                                               std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"maximum", "minimum"}))
+        return std::nullopt;
+    const auto* minimum_value = decoder.member(value, "minimum", pointer);
+    const auto* maximum_value = decoder.member(value, "maximum", pointer);
+    auto minimum = minimum_value
+                       ? decoder.finite_number(*minimum_value, pointer_child(pointer, "minimum"))
+                       : std::nullopt;
+    auto maximum = maximum_value
+                       ? decoder.finite_number(*maximum_value, pointer_child(pointer, "maximum"))
+                       : std::nullopt;
+    return minimum && maximum ? std::optional<PluralRange>{PluralRange{*minimum, *maximum}}
+                              : std::nullopt;
+}
+
+std::optional<PluralRelation> decode_plural_relation(Decoder& decoder, const nlohmann::json& value,
+                                                     std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"modulo", "negated", "operand", "ranges"}))
+        return std::nullopt;
+    const auto* operand_value = decoder.member(value, "operand", pointer);
+    const auto* modulo_value = decoder.member(value, "modulo", pointer);
+    const auto* negated_value = decoder.member(value, "negated", pointer);
+    const auto* ranges_value = decoder.member(value, "ranges", pointer);
+    auto operand = operand_value ? decode_plural_operand(decoder, *operand_value,
+                                                         pointer_child(pointer, "operand"))
+                                 : std::nullopt;
+    std::optional<std::uint64_t> modulo;
+    bool modulo_ok = modulo_value != nullptr;
+    if (modulo_value && !modulo_value->is_null()) {
+        modulo = decoder.unsigned_integer<std::uint64_t>(*modulo_value,
+                                                         pointer_child(pointer, "modulo"));
+        modulo_ok = modulo.has_value();
+    }
+    auto negated = negated_value
+                       ? decoder.boolean(*negated_value, pointer_child(pointer, "negated"))
+                       : std::nullopt;
+    auto ranges = ranges_value
+                      ? decoder.array<PluralRange>(
+                            *ranges_value, pointer_child(pointer, "ranges"),
+                            [&](const nlohmann::json& range, const std::string& range_pointer) {
+                                return decode_plural_range(decoder, range, range_pointer);
+                            })
+                      : std::nullopt;
+    return operand && modulo_ok && negated && ranges
+               ? std::optional<PluralRelation>{PluralRelation{*operand, std::move(modulo), *negated,
+                                                              std::move(*ranges)}}
+               : std::nullopt;
+}
+
+std::optional<PluralRule> decode_plural_rule(Decoder& decoder, const nlohmann::json& value,
+                                             std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"alternatives", "category"}))
+        return std::nullopt;
+    const auto* category_value = decoder.member(value, "category", pointer);
+    const auto* alternatives_value = decoder.member(value, "alternatives", pointer);
+    auto category = category_value ? decoder.string(*category_value,
+                                                    pointer_child(pointer, "category"), false, true)
+                                   : std::nullopt;
+    auto alternatives =
+        alternatives_value
+            ? decoder.array<std::vector<PluralRelation>>(
+                  *alternatives_value, pointer_child(pointer, "alternatives"),
+                  [&](const nlohmann::json& alternative, const std::string& alternative_pointer) {
+                      return decoder.array<PluralRelation>(
+                          alternative, alternative_pointer,
+                          [&](const nlohmann::json& relation, const std::string& relation_pointer) {
+                              return decode_plural_relation(decoder, relation, relation_pointer);
+                          });
+                  })
+            : std::nullopt;
+    return category && alternatives ? std::optional<PluralRule>{PluralRule{
+                                          std::move(*category), std::move(*alternatives)}}
+                                    : std::nullopt;
+}
+
+std::optional<LocalizedDialogueCuePlacement>
+decode_localized_dialogue_cue_placement(Decoder& decoder, const nlohmann::json& value,
+                                        std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"id", "position"}))
+        return std::nullopt;
+    const auto* cue_id_value = decoder.member(value, "id", pointer);
+    const auto* position_value = decoder.member(value, "position", pointer);
+    auto cue_id = cue_id_value
+                      ? decoder.id<DialogueCueId>(*cue_id_value, pointer_child(pointer, "id"))
+                      : std::nullopt;
+    if (!position_value ||
+        !decoder.object(*position_value, pointer_child(pointer, "position"), {"offset", "order"}))
+        return std::nullopt;
+    const auto position_pointer = pointer_child(pointer, "position");
+    const auto* offset_value = decoder.member(*position_value, "offset", position_pointer);
+    const auto* order_value = decoder.member(*position_value, "order", position_pointer);
+    auto offset = offset_value ? decoder.unsigned_integer<std::uint64_t>(
+                                     *offset_value, pointer_child(position_pointer, "offset"))
+                               : std::nullopt;
+    auto order = order_value ? decoder.unsigned_integer<std::uint64_t>(
+                                   *order_value, pointer_child(position_pointer, "order"))
+                             : std::nullopt;
+    return cue_id && offset && order
+               ? std::optional{LocalizedDialogueCuePlacement{*cue_id, *offset, *order}}
+               : std::nullopt;
+}
+
 } // namespace
 
 std::optional<ProjectIdentity>
@@ -232,8 +363,10 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                       const auto* locale_value = decoder.member(item, "locale", item_pointer);
                       const auto* parent_value = decoder.member(item, "parentLocale", item_pointer);
                       const auto* supported_value = decoder.member(item, "supported", item_pointer);
-                      const auto* native_name_value = decoder.member(item, "nativeName", item_pointer);
-                      const auto* display_name_value = decoder.member(item, "displayName", item_pointer);
+                      const auto* native_name_value =
+                          decoder.member(item, "nativeName", item_pointer);
+                      const auto* display_name_value =
+                          decoder.member(item, "displayName", item_pointer);
                       const auto* right_to_left_value =
                           decoder.member(item, "rightToLeft", item_pointer);
                       const auto* font_stack_value =
@@ -244,9 +377,10 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                           decoder.member(item, "pluralRules", item_pointer);
                       const auto* number_format_value =
                           decoder.member(item, "numberFormat", item_pointer);
-                      const auto* catalog_path_value = item.contains("catalogPath")
-                                                           ? decoder.member(item, "catalogPath", item_pointer)
-                                                           : nullptr;
+                      const auto* catalog_path_value =
+                          item.contains("catalogPath")
+                              ? decoder.member(item, "catalogPath", item_pointer)
+                              : nullptr;
                       auto locale =
                           locale_value
                               ? decoder.string(*locale_value, pointer_child(item_pointer, "locale"),
@@ -268,12 +402,14 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                       auto native_name =
                           native_name_value
                               ? decoder.string(*native_name_value,
-                                               pointer_child(item_pointer, "nativeName"), false, true)
+                                               pointer_child(item_pointer, "nativeName"), false,
+                                               true)
                               : std::nullopt;
                       auto display_name =
                           display_name_value
                               ? decoder.string(*display_name_value,
-                                               pointer_child(item_pointer, "displayName"), false, true)
+                                               pointer_child(item_pointer, "displayName"), false,
+                                               true)
                               : std::nullopt;
                       auto right_to_left =
                           right_to_left_value
@@ -297,189 +433,17 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                     pointer_child(item_pointer, "pluralCategories"),
                                     [&](const nlohmann::json& category,
                                         const std::string& category_pointer) {
-                                        return decoder.string(category, category_pointer, false, true);
+                                        return decoder.string(category, category_pointer, false,
+                                                              true);
                                     })
                               : std::nullopt;
                       auto plural_rules =
                           plural_rules_value
                               ? decoder.array<PluralRule>(
-                                    *plural_rules_value,
-                                    pointer_child(item_pointer, "pluralRules"),
+                                    *plural_rules_value, pointer_child(item_pointer, "pluralRules"),
                                     [&](const nlohmann::json& rule,
-                                        const std::string& rule_pointer)
-                                        -> std::optional<PluralRule> {
-                                        if (!decoder.object(rule, rule_pointer,
-                                                            {"alternatives", "category"}))
-                                            return std::nullopt;
-                                        const auto* category_value =
-                                            decoder.member(rule, "category", rule_pointer);
-                                        const auto* alternatives_value =
-                                            decoder.member(rule, "alternatives", rule_pointer);
-                                        auto category =
-                                            category_value
-                                                ? decoder.string(
-                                                      *category_value,
-                                                      pointer_child(rule_pointer, "category"), false,
-                                                      true)
-                                                : std::nullopt;
-                                        auto alternatives =
-                                            alternatives_value
-                                                ? decoder.array<std::vector<PluralRelation>>(
-                                                      *alternatives_value,
-                                                      pointer_child(rule_pointer, "alternatives"),
-                                                      [&](const nlohmann::json& alternative,
-                                                          const std::string& alternative_pointer)
-                                                          -> std::optional<
-                                                              std::vector<PluralRelation>> {
-                                                          return decoder.array<PluralRelation>(
-                                                              alternative, alternative_pointer,
-                                                              [&](const nlohmann::json& relation,
-                                                                  const std::string& relation_pointer)
-                                                                  -> std::optional<PluralRelation> {
-                                                                  if (!decoder.object(
-                                                                          relation, relation_pointer,
-                                                                          {"modulo", "negated",
-                                                                           "operand", "ranges"}))
-                                                                      return std::nullopt;
-                                                                  const auto* operand_value =
-                                                                      decoder.member(
-                                                                          relation, "operand",
-                                                                          relation_pointer);
-                                                                  const auto* modulo_value =
-                                                                      decoder.member(
-                                                                          relation, "modulo",
-                                                                          relation_pointer);
-                                                                  const auto* negated_value =
-                                                                      decoder.member(
-                                                                          relation, "negated",
-                                                                          relation_pointer);
-                                                                  const auto* ranges_value =
-                                                                      decoder.member(
-                                                                          relation, "ranges",
-                                                                          relation_pointer);
-                                                                  auto operand =
-                                                                      operand_value
-                                                                          ? decoder.string(
-                                                                                *operand_value,
-                                                                                pointer_child(
-                                                                                    relation_pointer,
-                                                                                    "operand"),
-                                                                                false, true)
-                                                                          : std::nullopt;
-                                                                  std::optional<std::uint64_t> modulo;
-                                                                  bool modulo_ok =
-                                                                      modulo_value != nullptr;
-                                                                  if (modulo_value &&
-                                                                      !modulo_value->is_null()) {
-                                                                      modulo = decoder
-                                                                                   .unsigned_integer<
-                                                                                       std::uint64_t>(
-                                                                                       *modulo_value,
-                                                                                       pointer_child(
-                                                                                           relation_pointer,
-                                                                                           "modulo"));
-                                                                      modulo_ok =
-                                                                          modulo.has_value();
-                                                                  }
-                                                                  auto negated =
-                                                                      negated_value
-                                                                          ? decoder.boolean(
-                                                                                *negated_value,
-                                                                                pointer_child(
-                                                                                    relation_pointer,
-                                                                                    "negated"))
-                                                                          : std::nullopt;
-                                                                  auto ranges =
-                                                                      ranges_value
-                                                                          ? decoder.array<PluralRange>(
-                                                                                *ranges_value,
-                                                                                pointer_child(
-                                                                                    relation_pointer,
-                                                                                    "ranges"),
-                                                                                [&](const nlohmann::json& range,
-                                                                                    const std::string& range_pointer)
-                                                                                    -> std::optional<PluralRange> {
-                                                                                    if (!decoder.object(
-                                                                                            range,
-                                                                                            range_pointer,
-                                                                                            {"maximum",
-                                                                                             "minimum"}))
-                                                                                        return std::nullopt;
-                                                                                    const auto* minimum_value = decoder.member(
-                                                                                        range,
-                                                                                        "minimum",
-                                                                                        range_pointer);
-                                                                                    const auto* maximum_value = decoder.member(
-                                                                                        range,
-                                                                                        "maximum",
-                                                                                        range_pointer);
-                                                                                    auto minimum = minimum_value
-                                                                                                       ? decoder.finite_number(
-                                                                                                             *minimum_value,
-                                                                                                             pointer_child(
-                                                                                                                 range_pointer,
-                                                                                                                 "minimum"))
-                                                                                                       : std::nullopt;
-                                                                                    auto maximum = maximum_value
-                                                                                                       ? decoder.finite_number(
-                                                                                                             *maximum_value,
-                                                                                                             pointer_child(
-                                                                                                                 range_pointer,
-                                                                                                                 "maximum"))
-                                                                                                       : std::nullopt;
-                                                                                    return minimum && maximum
-                                                                                               ? std::optional<PluralRange>{
-                                                                                                     PluralRange{*minimum,
-                                                                                                                 *maximum}}
-                                                                                               : std::nullopt;
-                                                                                })
-                                                                          : std::nullopt;
-                                                                  PluralOperand decoded_operand;
-                                                                  bool operand_ok = operand.has_value();
-                                                                  if (operand) {
-                                                                      if (*operand == "n")
-                                                                          decoded_operand = PluralOperand::N;
-                                                                      else if (*operand == "i")
-                                                                          decoded_operand = PluralOperand::I;
-                                                                      else if (*operand == "v")
-                                                                          decoded_operand = PluralOperand::V;
-                                                                      else if (*operand == "w")
-                                                                          decoded_operand = PluralOperand::W;
-                                                                      else if (*operand == "f")
-                                                                          decoded_operand = PluralOperand::F;
-                                                                      else if (*operand == "t")
-                                                                          decoded_operand = PluralOperand::T;
-                                                                      else if (*operand == "e")
-                                                                          decoded_operand = PluralOperand::E;
-                                                                      else {
-                                                                          decoder.error(
-                                                                              k_code_enum,
-                                                                              "Unknown plural operand '" +
-                                                                                  *operand + "'.",
-                                                                              pointer_child(
-                                                                                  relation_pointer,
-                                                                                  "operand"));
-                                                                          operand_ok = false;
-                                                                      }
-                                                                  }
-                                                                  return operand_ok && modulo_ok &&
-                                                                                 negated && ranges
-                                                                             ? std::optional<
-                                                                                   PluralRelation>{
-                                                                                   PluralRelation{
-                                                                                       decoded_operand,
-                                                                                       std::move(modulo),
-                                                                                       *negated,
-                                                                                       std::move(*ranges)}}
-                                                                             : std::nullopt;
-                                                              });
-                                                      })
-                                                : std::nullopt;
-                                        return category && alternatives
-                                                   ? std::optional<PluralRule>{PluralRule{
-                                                         std::move(*category),
-                                                         std::move(*alternatives)}}
-                                                   : std::nullopt;
+                                        const std::string& rule_pointer) {
+                                        return decode_plural_rule(decoder, rule, rule_pointer);
                                     })
                               : std::nullopt;
                       std::optional<LocaleNumberFormat> number_format;
@@ -489,14 +453,14 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                          {"decimalSeparator", "digits", "groupSeparator",
                                           "primaryGroupSize", "secondaryGroupSize"})) {
                           const auto number_pointer = pointer_child(item_pointer, "numberFormat");
-                          const auto* decimal_value =
-                              decoder.member(*number_format_value, "decimalSeparator", number_pointer);
-                          const auto* group_value =
-                              decoder.member(*number_format_value, "groupSeparator", number_pointer);
-                          const auto* primary_value =
-                              decoder.member(*number_format_value, "primaryGroupSize", number_pointer);
-                          const auto* secondary_value =
-                              decoder.member(*number_format_value, "secondaryGroupSize", number_pointer);
+                          const auto* decimal_value = decoder.member(
+                              *number_format_value, "decimalSeparator", number_pointer);
+                          const auto* group_value = decoder.member(
+                              *number_format_value, "groupSeparator", number_pointer);
+                          const auto* primary_value = decoder.member(
+                              *number_format_value, "primaryGroupSize", number_pointer);
+                          const auto* secondary_value = decoder.member(
+                              *number_format_value, "secondaryGroupSize", number_pointer);
                           const auto* digits_value =
                               decoder.member(*number_format_value, "digits", number_pointer);
                           auto decimal = decimal_value
@@ -505,30 +469,30 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                                                             "decimalSeparator"),
                                                               false, true)
                                              : std::nullopt;
-                          auto group = group_value
-                                           ? decoder.string(*group_value,
-                                                            pointer_child(number_pointer,
-                                                                          "groupSeparator"))
-                                           : std::nullopt;
-                          auto primary = primary_value
-                                             ? decoder.unsigned_integer<std::uint8_t>(
-                                                   *primary_value,
-                                                   pointer_child(number_pointer,
-                                                                 "primaryGroupSize"))
-                                             : std::nullopt;
-                          auto secondary = secondary_value
-                                               ? decoder.unsigned_integer<std::uint8_t>(
-                                                     *secondary_value,
-                                                     pointer_child(number_pointer,
-                                                                   "secondaryGroupSize"))
-                                               : std::nullopt;
+                          auto group =
+                              group_value
+                                  ? decoder.string(*group_value,
+                                                   pointer_child(number_pointer, "groupSeparator"))
+                                  : std::nullopt;
+                          auto primary =
+                              primary_value ? decoder.unsigned_integer<std::uint8_t>(
+                                                  *primary_value,
+                                                  pointer_child(number_pointer, "primaryGroupSize"))
+                                            : std::nullopt;
+                          auto secondary =
+                              secondary_value
+                                  ? decoder.unsigned_integer<std::uint8_t>(
+                                        *secondary_value,
+                                        pointer_child(number_pointer, "secondaryGroupSize"))
+                                  : std::nullopt;
                           auto digits =
                               digits_value
                                   ? decoder.array<std::string>(
                                         *digits_value, pointer_child(number_pointer, "digits"),
                                         [&](const nlohmann::json& digit,
                                             const std::string& digit_pointer) {
-                                            return decoder.string(digit, digit_pointer, false, true);
+                                            return decoder.string(digit, digit_pointer, false,
+                                                                  true);
                                         })
                                   : std::nullopt;
                           if (decimal && group && primary && secondary && digits &&
@@ -538,7 +502,8 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                               decoded_format.group_separator = std::move(*group);
                               decoded_format.primary_group_size = *primary;
                               decoded_format.secondary_group_size = *secondary;
-                              std::move(digits->begin(), digits->end(), decoded_format.digits.begin());
+                              std::move(digits->begin(), digits->end(),
+                                        decoded_format.digits.begin());
                               number_format = std::move(decoded_format);
                           }
                       }
@@ -553,11 +518,16 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                       if (locale && parent_ok && supported && native_name && display_name &&
                           right_to_left && font_stack && plural_categories && plural_rules &&
                           number_format && catalog_path_ok)
-                          return LocaleDefinition{std::move(*locale), std::move(parent), *supported,
-                                                  std::move(*native_name), std::move(*display_name),
-                                                  *right_to_left, std::move(*font_stack),
+                          return LocaleDefinition{std::move(*locale),
+                                                  std::move(parent),
+                                                  *supported,
+                                                  std::move(*native_name),
+                                                  std::move(*display_name),
+                                                  *right_to_left,
+                                                  std::move(*font_stack),
                                                   std::move(*plural_categories),
-                                                  std::move(*plural_rules), std::move(*number_format),
+                                                  std::move(*plural_rules),
+                                                  std::move(*number_format),
                                                   std::move(catalog_path)};
                       return std::nullopt;
                   })
@@ -613,7 +583,8 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                                 : nullptr;
                                         const auto* dialogue_cues_value =
                                             entry.contains("dialogueCues")
-                                                ? decoder.member(entry, "dialogueCues", entry_pointer)
+                                                ? decoder.member(entry, "dialogueCues",
+                                                                 entry_pointer)
                                                 : nullptr;
                                         auto message_id =
                                             id_value ? decoder.unsigned_integer<MessageId>(
@@ -697,70 +668,15 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
                                             dialogue_cues{
                                                 std::vector<LocalizedDialogueCuePlacement>{}};
                                         if (dialogue_cues_value) {
-                                            dialogue_cues =
-                                                decoder.array<LocalizedDialogueCuePlacement>(
-                                                    *dialogue_cues_value,
-                                                    pointer_child(entry_pointer, "dialogueCues"),
-                                                    [&](const nlohmann::json& placement,
-                                                        const std::string& placement_pointer)
-                                                        -> std::optional<
-                                                            LocalizedDialogueCuePlacement> {
-                                                        if (!decoder.object(placement,
-                                                                            placement_pointer,
-                                                                            {"id", "position"}))
-                                                            return std::nullopt;
-                                                        const auto* cue_id_value = decoder.member(
-                                                            placement, "id", placement_pointer);
-                                                        const auto* position_value = decoder.member(
-                                                            placement, "position",
-                                                            placement_pointer);
-                                                        auto cue_id =
-                                                            cue_id_value
-                                                                ? decoder.id<DialogueCueId>(
-                                                                      *cue_id_value,
-                                                                      pointer_child(
-                                                                          placement_pointer, "id"))
-                                                                : std::nullopt;
-                                                        if (!position_value ||
-                                                            !decoder.object(*position_value,
-                                                                            pointer_child(
-                                                                                placement_pointer,
-                                                                                "position"),
-                                                                            {"offset", "order"}))
-                                                            return std::nullopt;
-                                                        const auto position_pointer = pointer_child(
-                                                            placement_pointer, "position");
-                                                        const auto* offset_value = decoder.member(
-                                                            *position_value, "offset",
-                                                            position_pointer);
-                                                        const auto* order_value = decoder.member(
-                                                            *position_value, "order",
-                                                            position_pointer);
-                                                        auto offset =
-                                                            offset_value
-                                                                ? decoder.unsigned_integer<
-                                                                      std::uint64_t>(
-                                                                      *offset_value,
-                                                                      pointer_child(
-                                                                          position_pointer,
-                                                                          "offset"))
-                                                                : std::nullopt;
-                                                        auto order =
-                                                            order_value
-                                                                ? decoder.unsigned_integer<
-                                                                      std::uint64_t>(
-                                                                      *order_value,
-                                                                      pointer_child(
-                                                                          position_pointer,
-                                                                          "order"))
-                                                                : std::nullopt;
-                                                        return cue_id && offset && order
-                                                                   ? std::optional{
-                                                                         LocalizedDialogueCuePlacement{
-                                                                             *cue_id, *offset,
-                                                                             *order}}
-                                                                   : std::nullopt;
-                                                    });
+                                            dialogue_cues = decoder.array<
+                                                LocalizedDialogueCuePlacement>(
+                                                *dialogue_cues_value,
+                                                pointer_child(entry_pointer, "dialogueCues"),
+                                                [&](const nlohmann::json& placement,
+                                                    const std::string& placement_pointer) {
+                                                    return decode_localized_dialogue_cue_placement(
+                                                        decoder, placement, placement_pointer);
+                                                });
                                         }
                                         if (message_id && text && arguments && dialogue_cues)
                                             return LocalizationEntry{*message_id, std::move(*text),
@@ -2072,18 +1988,19 @@ decode_localization_catalog_json(std::string_view text, std::string source_path)
               {"fontStack", nlohmann::json::array()},
               {"pluralCategories", nlohmann::json::array({"other"})},
               {"pluralRules", nlohmann::json::array()},
-              {"numberFormat",
-               nlohmann::json::object({
-                   {"decimalSeparator", "."},
-                   {"groupSeparator", ","},
-                   {"primaryGroupSize", 3},
-                   {"secondaryGroupSize", 3},
-                   {"digits", nlohmann::json::array({"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"})},
-               })},
+              {"numberFormat", nlohmann::json::object({
+                                   {"decimalSeparator", "."},
+                                   {"groupSeparator", ","},
+                                   {"primaryGroupSize", 3},
+                                   {"secondaryGroupSize", 3},
+                                   {"digits", nlohmann::json::array({"0", "1", "2", "3", "4", "5",
+                                                                     "6", "7", "8", "9"})},
+                               })},
           })})},
          {"catalogs", nlohmann::json::array({std::move(document)})}});
     compiled::wire::detail::Decoder decoder(std::move(source_path));
-    auto localization = compiled::wire::detail::decode_localization(decoder, wrapper, "/localization");
+    auto localization =
+        compiled::wire::detail::decode_localization(decoder, wrapper, "/localization");
     auto diagnostics = decoder.take_diagnostics();
     if (!localization || !diagnostics.empty() || localization->catalogs.size() != 1)
         return Result<compiled::LocalizationCatalog, Diagnostics>::failure(std::move(diagnostics));

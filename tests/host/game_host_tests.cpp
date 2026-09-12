@@ -262,47 +262,46 @@ std::string localized_dialogue_cue_compiled_project_fixture()
     REQUIRE_FALSE(project.is_discarded());
 
     constexpr core::MessageId message_id = 4;
-    project["definitions"]["dialogues"] = nlohmann::json::array({
-        {{"id", "localized"},
-         {"displayName",
-          {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Localized"}}}}},
-         {"defaultSpeaker", nullptr},
-         {"settings", {{"logMode", "everything"}, {"showDisabledChoices", false}}},
-         {"stageSlots", nlohmann::json::array()},
-         {"mediaSlots", nlohmann::json::array()},
-         {"program",
-          {{"blocks",
-            nlohmann::json::array(
-                {{{"id", "start"},
-                  {"kind", "sequence"},
-                  {"defaultSpeaker", nullptr},
-                  {"segments",
-                   nlohmann::json::array(
-                       {{{"id", "line"},
-                         {"kind", "line"},
-                         {"autosaveSafePoint", false},
-                         {"cues",
-                          nlohmann::json::array(
-                              {{{"id", "localized-camera"},
-                                {"kind", "camera"},
-                                {"position", {{"offset", 8}, {"order", 0}}},
-                                {"emphasis",
-                                 {{"kind", "flash"},
-                                  {"color", "#ffffff"},
-                                  {"opacity", 0.75},
-                                  {"durationMs", 60},
-                                  {"waitForCompletion", false},
-                                  {"skippable", true}}}}})},
-                         {"effects", nlohmann::json::array()},
-                         {"logged", true},
-                         {"showOnce", false},
-                         {"speaker", nullptr},
-                         {"text",
-                          {{"markup", "active-text"},
-                           {"source", {{"kind", "message"}, {"id", message_id}}}}}}})}}})},
-           {"edges", nlohmann::json::array()},
-           {"entryBlockId", "start"}}},
-         {"completion", {{"kind", "end"}}}}});
+    project["definitions"]["dialogues"] = nlohmann::json::array(
+        {{{"id", "localized"},
+          {"displayName",
+           {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Localized"}}}}},
+          {"defaultSpeaker", nullptr},
+          {"settings", {{"logMode", "everything"}, {"showDisabledChoices", false}}},
+          {"stageSlots", nlohmann::json::array()},
+          {"mediaSlots", nlohmann::json::array()},
+          {"program",
+           {{"blocks",
+             nlohmann::json::array(
+                 {{{"id", "start"},
+                   {"kind", "sequence"},
+                   {"defaultSpeaker", nullptr},
+                   {"segments",
+                    nlohmann::json::array(
+                        {{{"id", "line"},
+                          {"kind", "line"},
+                          {"autosaveSafePoint", false},
+                          {"cues", nlohmann::json::array(
+                                       {{{"id", "localized-camera"},
+                                         {"kind", "camera"},
+                                         {"position", {{"offset", 8}, {"order", 0}}},
+                                         {"emphasis",
+                                          {{"kind", "flash"},
+                                           {"color", "#ffffff"},
+                                           {"opacity", 0.75},
+                                           {"durationMs", 60},
+                                           {"waitForCompletion", false},
+                                           {"skippable", true}}}}})},
+                          {"effects", nlohmann::json::array()},
+                          {"logged", true},
+                          {"showOnce", false},
+                          {"speaker", nullptr},
+                          {"text",
+                           {{"markup", "active-text"},
+                            {"source", {{"kind", "message"}, {"id", message_id}}}}}}})}}})},
+            {"edges", nlohmann::json::array()},
+            {"entryBlockId", "start"}}},
+          {"completion", {{"kind", "end"}}}}});
     project["entrypoint"] = {{"kind", "dialogue"},
                              {"dialogue", {{"kind", "dialogue"}, {"id", "localized"}}}};
 
@@ -310,9 +309,8 @@ std::string localized_dialogue_cue_compiled_project_fixture()
     english["entries"].push_back(
         {{"messageId", message_id},
          {"value", "0123456789"},
-         {"dialogueCues",
-          nlohmann::json::array(
-              {{{"id", "localized-camera"}, {"position", {{"offset", 8}, {"order", 0}}}}})}});
+         {"dialogueCues", nlohmann::json::array({{{"id", "localized-camera"},
+                                                  {"position", {{"offset", 8}, {"order", 0}}}}})}});
 
     auto spanish_locale = project["localization"]["locales"][0];
     spanish_locale["locale"] = "es";
@@ -702,12 +700,14 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     CHECK(host.running_game()->runtime_locale() == "es");
 }
 
-TEST_CASE("GameHost defers locale-positioned Dialogue Cues until explicit post-commit reconciliation")
+TEST_CASE(
+    "GameHost defers locale-positioned Dialogue Cues until explicit post-commit reconciliation")
 {
     assets::AssetManager assets;
     auto project_assets = std::make_shared<assets::MemoryAssetSource>();
     const auto fixture = localized_dialogue_cue_compiled_project_fixture();
-    project_assets->add("localized-dialogue.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+    project_assets->add("localized-dialogue.json",
+                        assets::AssetBytes(fixture.begin(), fixture.end()),
                         "game-host-localized-dialogue-test");
     assets.mount("project", project_assets);
 
@@ -740,10 +740,10 @@ TEST_CASE("GameHost defers locale-positioned Dialogue Cues until explicit post-c
                    .diagnostic_sink = {}});
 
     auto loaded = host.load_compiled_project({.logical_path = "project:/localized-dialogue.json",
-                                               .runtime_locale = "en",
-                                               .load_title_screen = false,
-                                               .stop_runtime_after_load = true},
-                                              {});
+                                              .runtime_locale = "en",
+                                              .load_title_screen = false,
+                                              .stop_runtime_after_load = true},
+                                             {});
     if (!loaded)
         for (const auto& diagnostic : loaded.error())
             INFO(diagnostic.code << ": " << diagnostic.message);
@@ -772,7 +772,8 @@ TEST_CASE("GameHost defers locale-positioned Dialogue Cues until explicit post-c
     REQUIRE_FALSE(reconciled.accepted());
     REQUIRE(reconciled.publication);
     REQUIRE(reconciled.diagnostics.size() == 1);
-    CHECK(reconciled.diagnostics.front().code == "presentation.world_transition_backend_unavailable");
+    CHECK(reconciled.diagnostics.front().code ==
+          "presentation.world_transition_backend_unavailable");
 }
 
 TEST_CASE("GameHost constructs stopped loads in a dedicated Project Lua VM")
@@ -905,10 +906,10 @@ TEST_CASE("RunningGame synchronizes detached locale catalog residency into Proje
                    .diagnostic_sink = {}});
 
     auto loaded = host.load_compiled_project({.logical_path = "project:/detached-locale.ntpkg",
-                                               .runtime_locale = "en",
-                                               .load_title_screen = false,
-                                               .stop_runtime_after_load = true},
-                                              runtime_package_source(fixture, detached_files), {});
+                                              .runtime_locale = "en",
+                                              .load_title_screen = false,
+                                              .stop_runtime_after_load = true},
+                                             runtime_package_source(fixture, detached_files), {});
     if (!loaded)
         for (const auto& diagnostic : loaded.error())
             INFO(diagnostic.code << ": " << diagnostic.message);
@@ -920,8 +921,7 @@ TEST_CASE("RunningGame synchronizes detached locale catalog residency into Proje
     REQUIRE(before);
     CHECK(before.value() == "Minimal room.");
 
-    auto catalog =
-        core::decode_localization_catalog_json(detached_catalog, "localization/es.json");
+    auto catalog = core::decode_localization_catalog_json(detached_catalog, "localization/es.json");
     REQUIRE(catalog);
     REQUIRE(host.running_game()->install_locale_catalog(std::move(*catalog.value_if())));
     auto installed =
@@ -930,8 +930,7 @@ TEST_CASE("RunningGame synchronizes detached locale catalog residency into Proje
     CHECK(installed.value() == "Sala mínima.");
 
     host.running_game()->retain_locale_catalogs("en");
-    auto retained =
-        project_scripts->evaluate_string("Text.__message(0)", "detached-after-retain");
+    auto retained = project_scripts->evaluate_string("Text.__message(0)", "detached-after-retain");
     REQUIRE(retained);
     CHECK(retained.value() == "Minimal room.");
 }
@@ -1522,8 +1521,7 @@ TEST_CASE("GameHost rolls back when initial predecessor realization fails")
     REQUIRE_FALSE(project.is_discarded());
     const auto baseline_fixture = project.dump();
     project["definitions"]["scenes"].push_back(
-        {{"displayName",
-          {{"markup", "plain"}, {"source", {{"kind", "message"}, {"id", 1}}}}},
+        {{"displayName", {{"markup", "plain"}, {"source", {{"kind", "message"}, {"id", 1}}}}},
          {"id", "startup-transition"},
          {"inputs", nlohmann::json::array()},
          {"outcomes", nlohmann::json::array()},

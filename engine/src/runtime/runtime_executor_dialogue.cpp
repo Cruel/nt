@@ -432,9 +432,8 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
                                              "Dialogue line did not create an input blocker"));
 
             auto presented = m_state.present_text(
-                m_project,
-                core::PresentedTextState{speaker, text->text, line->text.markup,
-                                         text->localized_message});
+                m_project, core::PresentedTextState{speaker, text->text, line->text.markup,
+                                                    text->localized_message});
             if (!presented) {
                 (void)m_flow.cancel_blocker(core::flow_blocker_owner(blocked->blocker),
                                             core::flow_blocker_handle(blocked->blocker));
@@ -634,8 +633,7 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
                 return fault(execution_error("execution.invalid_text_result",
                                              "Dialogue choice label produced no value"));
             choices.options.push_back({edge->id, std::move(label->text), enabled,
-                                       edge->label.markup,
-                                       std::move(label->localized_message)});
+                                       edge->label.markup, std::move(label->localized_message)});
         }
 
         auto waiting = begin(core::WaitSpec{core::InputWait{}});

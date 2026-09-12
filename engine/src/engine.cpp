@@ -1928,19 +1928,18 @@ void Engine::Impl::service_pending_runtime_locale_change()
     };
 
     // Package exports keep only source plus the startup/default Message catalog resident. Load the
-    // requested target catalog before any visible locale state changes, then retain only source plus
-    // the newly active target after commit.
+    // requested target catalog before any visible locale state changes, then retain only source
+    // plus the newly active target after commit.
     if (running_game->package().project().find_localization_catalog(target) == nullptr) {
         const auto& localization = running_game->package().project().localization();
         const auto definition = std::ranges::find_if(
-            localization.locales,
-            [&](const core::compiled::LocaleDefinition& candidate) {
+            localization.locales, [&](const core::compiled::LocaleDefinition& candidate) {
                 return candidate.locale == target;
             });
         if (definition == localization.locales.end() || !definition->catalog_path) {
-            const core::Diagnostic diagnostic{
-                .code = "runtime.locale_catalog_unavailable",
-                .message = "Target locale Message catalog is unavailable."};
+            const core::Diagnostic diagnostic{.code = "runtime.locale_catalog_unavailable",
+                                              .message =
+                                                  "Target locale Message catalog is unavailable."};
             append_runtime_diagnostics({diagnostic});
             fail_change(diagnostic);
             return;
@@ -1948,9 +1947,9 @@ void Engine::Impl::service_pending_runtime_locale_change()
         const std::string logical_path = "project:/" + *definition->catalog_path;
         auto text = m_assets.read_text(logical_path);
         if (!text) {
-            const core::Diagnostic diagnostic{
-                .code = "runtime.locale_catalog_read_failed",
-                .message = "Failed to read target locale Message catalog."};
+            const core::Diagnostic diagnostic{.code = "runtime.locale_catalog_read_failed",
+                                              .message =
+                                                  "Failed to read target locale Message catalog."};
             append_runtime_diagnostics({diagnostic});
             fail_change(diagnostic);
             return;
@@ -1958,9 +1957,9 @@ void Engine::Impl::service_pending_runtime_locale_change()
         auto decoded = core::decode_localization_catalog_json(*text.value, logical_path);
         if (!decoded || decoded.value_if()->locale != target) {
             auto diagnostics = decoded ? core::Diagnostics{} : std::move(decoded).error();
-            const core::Diagnostic diagnostic{
-                .code = "runtime.locale_catalog_invalid",
-                .message = "Target locale Message catalog is invalid."};
+            const core::Diagnostic diagnostic{.code = "runtime.locale_catalog_invalid",
+                                              .message =
+                                                  "Target locale Message catalog is invalid."};
             if (diagnostics.empty())
                 diagnostics.push_back(diagnostic);
             append_runtime_diagnostics(std::move(diagnostics));
@@ -1972,9 +1971,9 @@ void Engine::Impl::service_pending_runtime_locale_change()
             auto diagnostics = std::move(installed).error();
             const auto diagnostic =
                 diagnostics.empty()
-                    ? core::Diagnostic{
-                          .code = "runtime.locale_catalog_invalid",
-                          .message = "Target locale Message catalog is incompatible with source Messages."}
+                    ? core::Diagnostic{.code = "runtime.locale_catalog_invalid",
+                                       .message = "Target locale Message catalog is incompatible "
+                                                  "with source Messages."}
                     : diagnostics.front();
             append_runtime_diagnostics(std::move(diagnostics));
             fail_change(diagnostic);
@@ -2099,9 +2098,9 @@ void Engine::Impl::service_pending_runtime_locale_change()
     m_runtime_ui.bind_message_localization(running_game->package().project().localization(),
                                            target);
 
-    // Locale-positioned Dialogue Cues are semantic post-commit work. Reconcile them only after every
-    // commit-critical locale surface has published successfully, so a failed locale switch cannot
-    // consume a Cue or emit its effect before the old locale is restored.
+    // Locale-positioned Dialogue Cues are semantic post-commit work. Reconcile them only after
+    // every commit-critical locale surface has published successfully, so a failed locale switch
+    // cannot consume a Cue or emit its effect before the old locale is restored.
     auto cue_reconciliation = m_game_host.reconcile_committed_locale_cues();
     if (!cue_reconciliation.accepted() || !cue_reconciliation.diagnostics.empty())
         append_runtime_diagnostics(std::move(cue_reconciliation.diagnostics));

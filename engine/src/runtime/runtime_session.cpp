@@ -31,8 +31,8 @@ core::DialogueCueId dialogue_cue_id(const core::compiled::DialogueSemanticCue& c
     return std::visit([](const auto& value) { return value.id; }, cue);
 }
 
-const core::compiled::DialogueLineSegment*
-find_dialogue_line(const core::CompiledProject& project, const core::DialogueFrame& frame)
+const core::compiled::DialogueLineSegment* find_dialogue_line(const core::CompiledProject& project,
+                                                              const core::DialogueFrame& frame)
 {
     if (!frame.position.segment)
         return nullptr;
@@ -789,8 +789,8 @@ core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics> RuntimeSession:
     if (runtime_locale.empty())
         runtime_locale = project.localization().default_locale;
     const core::MessageRealizer restore_realizer(project.localization());
-    const auto realize_restored = [&](const core::CapturedMessageOccurrence& occurrence)
-        -> std::optional<std::string> {
+    const auto realize_restored =
+        [&](const core::CapturedMessageOccurrence& occurrence) -> std::optional<std::string> {
         const auto realized =
             restore_realizer.realize({occurrence.message_id, runtime_locale, occurrence.arguments});
         return realized ? std::optional<std::string>{realized->text} : std::nullopt;
@@ -799,7 +799,8 @@ core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics> RuntimeSession:
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
             {core::Diagnostic{
                 .code = "runtime.restored_localized_message_unavailable",
-                .message = "Restored localized presentation cannot be realized in the current locale"}});
+                .message =
+                    "Restored localized presentation cannot be realized in the current locale"}});
     };
     if (auto& presented = decoded.value_if()->presented_text;
         presented && presented->localized_message) {
@@ -1684,7 +1685,8 @@ RuntimeSession::advance_dialogue_reveal(const core::AdvanceDialogueRevealInput& 
                                        : (sequence->default_speaker ? sequence->default_speaker
                                                                     : dialogue->default_speaker);
     const auto presented_text = m_kernel->state().presented_text();
-    const auto realized_text = presented_text ? std::string_view{presented_text->text} : std::string_view{};
+    const auto realized_text =
+        presented_text ? std::string_view{presented_text->text} : std::string_view{};
     std::optional<core::MessageId> message_id;
     if (presented_text && presented_text->localized_message)
         message_id = presented_text->localized_message->message_id;
@@ -1779,9 +1781,10 @@ RuntimeSession::advance_dialogue_reveal(const core::AdvanceDialogueRevealInput& 
                 return std::move(accepted).error();
             if (completion) {
                 m_pending_audio = operation;
-                m_dialogue_audio_wait = DialogueAudioWait{
-                    {frame->frame_id, frame->dialogue, input.segment, input.progress, input.skipping},
-                    *completion};
+                m_dialogue_audio_wait =
+                    DialogueAudioWait{{frame->frame_id, frame->dialogue, input.segment,
+                                       input.progress, input.skipping},
+                                      *completion};
                 return {};
             }
             continue;
@@ -1819,9 +1822,10 @@ RuntimeSession::advance_dialogue_reveal(const core::AdvanceDialogueRevealInput& 
                 return std::move(accepted).error();
             if (completion) {
                 m_pending_audio = operation;
-                m_dialogue_audio_wait = DialogueAudioWait{
-                    {frame->frame_id, frame->dialogue, input.segment, input.progress, input.skipping},
-                    *completion};
+                m_dialogue_audio_wait =
+                    DialogueAudioWait{{frame->frame_id, frame->dialogue, input.segment,
+                                       input.progress, input.skipping},
+                                      *completion};
                 return {};
             }
             continue;
@@ -2593,8 +2597,8 @@ RuntimeDispatchResult RuntimeSession::commit_locale(std::string locale)
     m_scripts.set_runtime_locale(m_runtime_locale);
 
     const core::MessageRealizer realizer(m_project.localization());
-    const auto realize_occurrence = [&](const core::CapturedMessageOccurrence& occurrence)
-        -> std::optional<std::string> {
+    const auto realize_occurrence =
+        [&](const core::CapturedMessageOccurrence& occurrence) -> std::optional<std::string> {
         const auto realized =
             realizer.realize({occurrence.message_id, m_runtime_locale, occurrence.arguments});
         return realized ? std::optional<std::string>{realized->text} : std::nullopt;
@@ -2608,9 +2612,9 @@ RuntimeDispatchResult RuntimeSession::commit_locale(std::string locale)
             if (!refreshed)
                 core::append_diagnostics(result.diagnostics, std::move(refreshed).error());
         } else {
-            result.diagnostics.push_back(diagnostic(
-                "runtime.localized_message_unavailable",
-                "Active localized text could not be realized for the requested locale"));
+            result.diagnostics.push_back(
+                diagnostic("runtime.localized_message_unavailable",
+                           "Active localized text could not be realized for the requested locale"));
         }
     }
 
@@ -2667,9 +2671,11 @@ RuntimeDispatchResult RuntimeSession::commit_locale(std::string locale)
     }
 
     if (result.diagnostics.empty() && !m_kernel->state().flow_stack().empty()) {
-        if (auto* frame = std::get_if<core::DialogueFrame>(&m_kernel->state().flow_stack().back())) {
+        if (auto* frame =
+                std::get_if<core::DialogueFrame>(&m_kernel->state().flow_stack().back())) {
             const auto* line = find_dialogue_line(m_project, *frame);
-            if (line && frame->position.stage == core::DialogueFramePosition::Stage::ApplySegmentEffects)
+            if (line &&
+                frame->position.stage == core::DialogueFramePosition::Stage::ApplySegmentEffects)
                 m_pending_locale_cue_reconciliation = core::AdvanceDialogueRevealInput{
                     frame->frame_id, frame->dialogue, *frame->position.segment,
                     frame->position.reveal_progress, false};
@@ -2715,9 +2721,9 @@ RuntimeDispatchResult RuntimeSession::reconcile_committed_locale_cues()
     runtime::RuntimeDispatchResult result;
     if (m_dispatch_active) {
         result.disposition = runtime::RuntimeInputDisposition::Failed;
-        result.diagnostics.push_back(diagnostic(
-            "runtime.reentrant_locale_cue_reconciliation",
-            "Locale cue reconciliation cannot run during dispatch"));
+        result.diagnostics.push_back(
+            diagnostic("runtime.reentrant_locale_cue_reconciliation",
+                       "Locale cue reconciliation cannot run during dispatch"));
         return result;
     }
     if (!m_pending_locale_cue_reconciliation) {
@@ -2895,8 +2901,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 result.diagnostics =
                                     advance_dialogue_reveal(core::AdvanceDialogueRevealInput{
                                         dialogue->frame_id, dialogue->dialogue,
-                                        *dialogue->position.segment,
-                                        1.0, true});
+                                        *dialogue->position.segment, 1.0, true});
                                 if (!result.diagnostics.empty() || m_dialogue_audio_wait ||
                                     m_dialogue_presentation_wait)
                                     return;
@@ -2957,8 +2962,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                             result.diagnostics =
                                 advance_dialogue_reveal(core::AdvanceDialogueRevealInput{
                                     dialogue->frame_id, dialogue->dialogue,
-                                    *dialogue->position.segment,
-                                    1.0, true});
+                                    *dialogue->position.segment, 1.0, true});
                             if (!result.diagnostics.empty() || m_dialogue_audio_wait ||
                                 m_dialogue_presentation_wait)
                                 return;
