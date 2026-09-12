@@ -666,6 +666,7 @@ if(TARGET noveltea-sandbox)
             "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; fi"
     )
     set_tests_properties(noveltea_rmlui_readback_capture PROPERTIES
+        TIMEOUT 60
         LABELS "rmlui;gpu"
     )
     add_test(
@@ -682,6 +683,7 @@ if(TARGET noveltea-sandbox)
             "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/feature_fixtures.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_FEATURE_FIXTURES_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/feature_fixtures.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_FEATURE_FIXTURES_PPM}' --no-imgui; fi"
     )
     set_tests_properties(noveltea_rmlui_feature_fixtures_capture PROPERTIES
+        TIMEOUT 60
         LABELS "rmlui;gpu"
     )
     add_test(
@@ -698,6 +700,7 @@ if(TARGET noveltea-sandbox)
             "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1920x1080,1423x1869,1920x1080 --resize-interval-frames 2 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1920x1080,1423x1869,1920x1080 --resize-interval-frames 2 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; fi"
     )
     set_tests_properties(noveltea_rmlui_resize_readback_capture PROPERTIES
+        TIMEOUT 60
         LABELS "rmlui;gpu"
     )
     add_test(
@@ -715,6 +718,7 @@ if(TARGET noveltea-sandbox)
     )
     set_tests_properties(noveltea_presentation_readback_capture PROPERTIES
         RUN_SERIAL TRUE
+        TIMEOUT 60
         LABELS "rmlui;gpu;presentation"
     )
     add_test(
@@ -731,6 +735,7 @@ if(TARGET noveltea-sandbox)
             "exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 2560x1440 --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --skip-title-screen --run-runtime --frames 30 --screenshot '${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}' --no-imgui"
     )
     set_tests_properties(noveltea_world_presentation_readback_capture PROPERTIES
+        TIMEOUT 60
         LABELS "gpu;presentation;world"
     )
     add_test(
@@ -769,10 +774,11 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_world_transition_readback_capture
         COMMAND /bin/sh -c
-            "set -e; rm -f '${NOVELTEA_WORLD_TRANSITION_CUT_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM}' '${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}'; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_cut_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 3 --screenshot '${NOVELTEA_WORLD_TRANSITION_CUT_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 3 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 6 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 8 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_dissolve_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 6 --screenshot '${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}' --no-imgui --no-audio"
+            "set -e; rm -f '${NOVELTEA_WORLD_TRANSITION_CUT_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM}' '${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}'; ${NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_cut_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 3 --screenshot '${NOVELTEA_WORLD_TRANSITION_CUT_PPM}' --no-imgui --no-audio; ${NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 3 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM}' --no-imgui --no-audio; ${NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 6 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM}' --no-imgui --no-audio; ${NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 8 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM}' --no-imgui --no-audio; ${NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_dissolve_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 6 --screenshot '${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}' --no-imgui --no-audio"
     )
     set_tests_properties(noveltea_world_transition_readback_capture PROPERTIES
         RUN_SERIAL TRUE
+        TIMEOUT 60
         LABELS "gpu;presentation;world;transition;rmlui"
     )
     add_test(
@@ -797,6 +803,7 @@ if(TARGET noveltea-sandbox)
     )
     set_tests_properties(noveltea_postprocess_scope_readback_capture PROPERTIES
         RUN_SERIAL TRUE
+        TIMEOUT 60
         LABELS "gpu;presentation;world;postprocess;rmlui"
     )
     add_test(
@@ -814,6 +821,7 @@ if(TARGET noveltea-sandbox)
     )
     set_tests_properties(noveltea_texture_sampling_readback_capture PROPERTIES
         RUN_SERIAL TRUE
+        TIMEOUT 60
         LABELS "gpu;presentation;texture;sampling"
     )
     add_test(
@@ -1010,4 +1018,16 @@ if(TARGET noveltea-sandbox)
         LABELS "runtime;assets"
         PASS_REGULAR_EXPRESSION "\\[runtime_ui\\] loaded title document"
     )
+    if(NOVELTEA_SANDBOX_XVFB_RUN)
+        add_test(
+            NAME noveltea_sandbox_invalid_compiled_project_exits
+            COMMAND /bin/sh -c
+                "exec ${NOVELTEA_SANDBOX_SMOKE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --demo none --compiled-project project:/projects/missing-regression-fixture.ntpkg --frames 1 --no-imgui"
+        )
+        set_tests_properties(noveltea_sandbox_invalid_compiled_project_exits PROPERTIES
+            WILL_FAIL TRUE
+            TIMEOUT 10
+            LABELS "runtime;assets;failure-path"
+        )
+    endif()
 endif()
