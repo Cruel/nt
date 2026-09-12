@@ -1,0 +1,44 @@
+---
+import '../styles/site.css';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const {
+  title,
+  description = 'NovelTea is an in-development engine and editor for expressive narrative games.',
+} = Astro.props;
+const pageTitle = title === 'NovelTea' ? title : `${title} · NovelTea`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={description} />
+    <meta name="generator" content={Astro.generator} />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <header class="nt-shell nt-header">
+      <a class="nt-brand" href="/">
+        <span class="nt-mark" aria-hidden="true">N</span>
+        <span>NovelTea</span>
+      </a>
+      <nav class="nt-nav" aria-label="Primary navigation">
+        <a href="/docs/dev/">Docs</a>
+        <a href="/examples/dev/">Examples</a>
+        <a href="/download/">Download</a>
+      </nav>
+    </header>
+    <main class="nt-shell">
+      <slot />
+    </main>
+    <footer class="nt-shell nt-footer">
+      NovelTea is under active development. Public interfaces may change before the first release.
+    </footer>
+  </body>
+</html>

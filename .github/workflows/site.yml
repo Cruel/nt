@@ -1,0 +1,117 @@
+name: Site
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "site/**"
+      - "scripts/run-site.sh"
+      - ".node-version"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/site.yml"
+  pull_request:
+    paths:
+      - "site/**"
+      - "scripts/run-site.sh"
+      - ".node-version"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+jobs:
+  verify:
+    name: Verify site
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --filter @noveltea/site... --frozen-lockfile
+
+      - name: Check site
+        run: pnpm -C site run check
+
+      - name: Build site
+        run: pnpm -C site run build
+
+      - name: Test static site contract
+        run: pnpm -C site run test
+
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-site
+          path: site/dist
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy site
+    needs: verify
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'site-preview' || 'site-production' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --filter @noveltea/site... --frozen-lockfile
+
+      - name: Download verified site
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-site
+          path: site/dist
+
+      - name: Ensure Cloudflare Pages project exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          projects="$(pnpm -C site exec wrangler pages project list --json)"
+          if ! node -e '
+            const projects = JSON.parse(process.argv[1]);
+            process.exit(projects.some((project) => project.name === "noveltea") ? 0 : 1);
+          ' "$projects"; then
+            pnpm -C site exec wrangler pages project create noveltea --production-branch master
+          fi
+
+      - name: Deploy production
+        if: ${{ github.event_name != 'pull_request' }}
+        run: pnpm -C site exec wrangler pages deploy dist --project-name noveltea --branch master
+
+      - name: Deploy pull-request preview
+        if: ${{ github.event_name == 'pull_request' }}
+        run: pnpm -C site exec wrangler pages deploy dist --project-name noveltea --branch "pr-${{ github.event.pull_request.number }}"

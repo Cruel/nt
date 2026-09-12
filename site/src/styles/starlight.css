@@ -1,0 +1,30 @@
+@import './tokens.css';
+
+:root {
+  --sl-font: var(--nt-font-sans);
+  --sl-color-bg: var(--nt-color-bg);
+  --sl-color-bg-nav: color-mix(in srgb, var(--nt-color-bg) 92%, transparent);
+  --sl-color-bg-sidebar: var(--nt-color-bg);
+  --sl-color-hairline-light: var(--nt-color-border);
+  --sl-color-accent: var(--nt-color-accent);
+  --sl-color-accent-high: #b8f5df;
+  --sl-color-accent-low: #12372f;
+  --sl-color-text: var(--nt-color-text);
+  --sl-color-text-accent: var(--nt-color-accent);
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-high: #075f4c;
+  --sl-color-accent: #0d8f73;
+  --sl-color-accent-low: #d7f3ea;
+}
+
+.site-title {
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.content-panel h1 {
+  font-family: var(--nt-font-display);
+  letter-spacing: -0.025em;
+}
