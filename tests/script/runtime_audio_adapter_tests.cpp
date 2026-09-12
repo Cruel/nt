@@ -149,6 +149,7 @@ public:
             return {};
         const AudioVoiceHandle voice{next_voice++};
         active[voice.id] = true;
+        normalized_positions[voice.id] = desc.start_normalized_position.value_or(0.0);
         last_playback = desc;
         return voice;
     }
@@ -166,6 +167,14 @@ public:
     {
         const auto found = active.find(voice.id);
         return found != active.end() && found->second;
+    }
+    std::optional<double> voice_normalized_position(AudioVoiceHandle voice) const override
+    {
+        if (!seekable)
+            return std::nullopt;
+        const auto found = normalized_positions.find(voice.id);
+        return found == normalized_positions.end() ? std::nullopt
+                                                   : std::optional<double>{found->second};
     }
     AudioBackendStats stats() const override { return {}; }
     void collect_finished_voices() override {}
@@ -186,6 +195,7 @@ public:
     std::uint32_t next_clip = 1;
     std::uint32_t next_voice = 1;
     std::unordered_map<std::uint32_t, bool> active;
+    std::unordered_map<std::uint32_t, double> normalized_positions;
     std::unordered_map<std::uint32_t, float> volumes;
     std::unordered_map<std::uint32_t, bool> paused_voices;
     std::unordered_map<std::uint32_t, float> pans;
@@ -193,6 +203,27 @@ public:
     std::optional<AudioPlaybackDesc> last_playback;
     std::size_t max_active_voices = 0;
     bool fail_preparation = false;
+    bool seekable = true;
+};
+
+class MutableAudioAssetService final : public RuntimeUiAssetService {
+public:
+    void bind(core::AssetId asset, std::string path)
+    {
+        m_asset = std::move(asset);
+        m_path = std::move(path);
+    }
+
+    [[nodiscard]] std::optional<std::string> resolve(const core::AssetId& asset) const override
+    {
+        if (!m_asset || *m_asset != asset)
+            return std::nullopt;
+        return m_path;
+    }
+
+private:
+    std::optional<core::AssetId> m_asset;
+    std::string m_path;
 };
 
 class PublishedAudioAssets final {
@@ -230,6 +261,12 @@ public:
         auto transaction = m_publication.begin_transaction_on_owner(
             std::move(*leases), m_assets.source_generation_on_owner());
         REQUIRE(transaction.commit_on_owner(false));
+    }
+
+    void run_until_idle()
+    {
+        REQUIRE(m_executor.run_until_idle(32));
+        (void)m_executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
     }
 
 private:
@@ -900,6 +937,323 @@ TEST_CASE("runtime presentation bridge retains exact script audio completion tar
     REQUIRE(input != nullptr);
     CHECK(*input == core::CompleteAudioInput{operation.id, owner, completion});
     CHECK(bridge.checkpoint_status().active_barriers.empty());
+}
+
+TEST_CASE("locale media transition rebinds pending playback preparation before delivery")
+{
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    jobs::InlineJobExecutor executor;
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(
+        assets::ResidencyBudget{.source_bytes = 1024,
+                                .prepared_cpu_bytes = 1024,
+                                .gpu_bytes = 1024,
+                                .audio_bytes = 1024,
+                                .temporary_bytes = 1024});
+    REQUIRE(assets.configure_async_requests(executor, residency));
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    const auto asset = core::AssetId::create("audio-voice").value();
+    MutableAudioAssetService resolver;
+    resolver.bind(asset, "project:/assets/audio/voice.ogg");
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
+    RuntimePresentationBridge bridge(adapter);
+
+    const core::AudioOperation operation{.id = core::AudioOperationId::from_number(93),
+                                         .action = core::compiled::AudioAction::Play,
+                                         .purpose = core::compiled::AudioPurpose::Voice,
+                                         .audio_owner = session_audio_owner(),
+                                         .asset = asset,
+                                         .gain = 1.0};
+    REQUIRE(bridge.accept(operation));
+    auto pending = bridge.flush();
+    REQUIRE(pending.diagnostics.empty());
+    CHECK(backend_ptr->active_voice_count() == 0);
+    REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
+
+    resolver.bind(asset, "project:/assets/audio/voice-es.ogg");
+    bridge.begin_locale_media_transition();
+    REQUIRE(executor.run_until_idle(32));
+    auto delivered = bridge.flush();
+    REQUIRE(delivered.diagnostics.empty());
+    REQUIRE(backend_ptr->last_request);
+    CHECK(backend_ptr->last_request->path == "project:/assets/audio/voice-es.ogg");
+    CHECK(backend_ptr->active_voice_count() == 1);
+    CHECK(backend_ptr->next_voice == 2);
+    REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
+
+    bridge.terminate(core::PresentationCancellationReason::ExplicitRequest);
+    executor.begin_shutdown();
+    (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+    REQUIRE(executor.shutdown_complete());
+}
+
+TEST_CASE("locale media replacement preserves active audio operation progress and completion")
+{
+    const auto project = load_project();
+    auto state = core::SessionState::create(project);
+    REQUIRE(state);
+    const auto completion_owner = core::flow_frame_id(state.value().flow_stack().back());
+    auto completion = core::ScriptInvocationHandle::create(94);
+    REQUIRE(completion);
+
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
+    const auto asset = core::AssetId::create("audio-voice").value();
+    MutableAudioAssetService resolver;
+    resolver.bind(asset, "project:/assets/audio/voice.ogg");
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
+    RuntimePresentationBridge bridge(adapter);
+
+    const core::AudioOperation operation{
+        .id = core::AudioOperationId::from_number(94),
+        .action = core::compiled::AudioAction::Play,
+        .purpose = core::compiled::AudioPurpose::Voice,
+        .audio_owner = session_audio_owner(),
+        .asset = asset,
+        .gain = 1.0,
+        .completion_owner = completion_owner,
+        .completion = core::AudioCompletionHandle{completion.value()},
+    };
+    REQUIRE(bridge.accept(operation));
+    REQUIRE(bridge.flush().diagnostics.empty());
+    REQUIRE(backend_ptr->active_voice_count() == 1);
+    backend_ptr->normalized_positions[1] = 0.42;
+
+    resolver.bind(asset, "project:/assets/audio/voice-es.ogg");
+    bridge.begin_locale_media_transition();
+    CHECK(backend_ptr->paused_voices[1]);
+    CHECK(backend_ptr->volumes[1] == Catch::Approx(0.0F));
+    CHECK(bridge.checkpoint_status().active_barriers.size() == 1);
+
+    published_audio.run_until_idle();
+    auto replaced = bridge.poll_audio();
+    REQUIRE(replaced.diagnostics.empty());
+    CHECK(replaced.inputs.empty());
+    REQUIRE(backend_ptr->last_request);
+    CHECK(backend_ptr->last_request->path == "project:/assets/audio/voice-es.ogg");
+    REQUIRE(backend_ptr->last_playback);
+    REQUIRE(backend_ptr->last_playback->start_normalized_position);
+    CHECK(*backend_ptr->last_playback->start_normalized_position == Catch::Approx(0.42));
+    CHECK(backend_ptr->active_voice_count() == 1);
+    CHECK(bridge.checkpoint_status().active_barriers.size() == 1);
+
+    backend_ptr->finish_all();
+    auto completed = bridge.poll_audio();
+    REQUIRE(completed.diagnostics.empty());
+    REQUIRE(completed.inputs.size() == 1);
+    const auto* input = std::get_if<core::CompleteAudioInput>(&completed.inputs.front());
+    REQUIRE(input != nullptr);
+    CHECK(*input ==
+          core::CompleteAudioInput{operation.id, completion_owner, *operation.completion});
+    CHECK(bridge.checkpoint_status().active_barriers.empty());
+}
+
+TEST_CASE(
+    "locale media replacement restarts only the physical realization when seeking is unavailable")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    backend_ptr->seekable = false;
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
+    const auto asset = core::AssetId::create("audio-voice").value();
+    MutableAudioAssetService resolver;
+    resolver.bind(asset, "project:/assets/audio/voice.ogg");
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
+    RuntimePresentationBridge bridge(adapter);
+
+    const core::AudioOperation operation{.id = core::AudioOperationId::from_number(95),
+                                         .action = core::compiled::AudioAction::Play,
+                                         .purpose = core::compiled::AudioPurpose::Voice,
+                                         .audio_owner = session_audio_owner(),
+                                         .asset = asset,
+                                         .gain = 1.0};
+    REQUIRE(bridge.accept(operation));
+    REQUIRE(bridge.flush().diagnostics.empty());
+
+    resolver.bind(asset, "project:/assets/audio/voice-es.ogg");
+    bridge.begin_locale_media_transition();
+    published_audio.run_until_idle();
+    REQUIRE(bridge.poll_audio().diagnostics.empty());
+    REQUIRE(backend_ptr->last_playback);
+    CHECK_FALSE(backend_ptr->last_playback->start_normalized_position.has_value());
+    CHECK(bridge.checkpoint_status().active_barriers.size() == 1);
+}
+
+TEST_CASE("locale media replacement does not resurrect a transient track that is already stopping")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
+    const auto asset = core::AssetId::create("audio-voice").value();
+    MutableAudioAssetService resolver;
+    resolver.bind(asset, "project:/assets/audio/voice.ogg");
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
+
+    const core::AudioOperation play{.id = core::AudioOperationId::from_number(97),
+                                    .action = core::compiled::AudioAction::Play,
+                                    .purpose = core::compiled::AudioPurpose::Voice,
+                                    .audio_owner = session_audio_owner(),
+                                    .asset = asset,
+                                    .gain = 1.0};
+    REQUIRE(adapter.apply(play));
+    REQUIRE(backend_ptr->active_voice_count() == 1);
+    const auto next_voice_after_play = backend_ptr->next_voice;
+
+    REQUIRE(adapter.apply(core::AudioOperation{
+        .id = core::AudioOperationId::from_number(98),
+        .action = core::compiled::AudioAction::FadeOut,
+        .purpose = core::compiled::AudioPurpose::Voice,
+        .audio_owner = session_audio_owner(),
+        .fade = std::chrono::milliseconds{500},
+        .gain = 1.0,
+        .target = core::AudioPlaybackOperationTarget{play.id},
+    }));
+    CHECK(backend_ptr->active_voice_count() == 1);
+
+    resolver.bind(asset, "project:/assets/audio/voice-es.ogg");
+    adapter.begin_locale_audio_transition(1);
+    published_audio.run_until_idle();
+    adapter.poll_preparations();
+    CHECK(backend_ptr->next_voice == next_voice_after_play);
+    REQUIRE(backend_ptr->last_request);
+    CHECK(backend_ptr->last_request->path == "project:/assets/audio/voice.ogg");
+    CHECK_FALSE(backend_ptr->paused_voices[1]);
+
+    audio.update(0.5F);
+    CHECK(backend_ptr->active_voice_count() == 0);
+}
+
+TEST_CASE("locale media replacement rebinds desired looping audio without a new semantic instance")
+{
+    const auto project = load_project();
+    auto state = core::SessionState::create(project);
+    REQUIRE(state);
+    const auto owner = state.value().session_presentation_owner();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
+    const auto asset = core::AssetId::create("audio-voice").value();
+    MutableAudioAssetService resolver;
+    resolver.bind(asset, "project:/assets/audio/voice.ogg");
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
+
+    const core::PresentationDesiredAudio desired{
+        .instance = core::DesiredAudioInstanceId::create("localized-ambience").value(),
+        .owner = owner,
+        .purpose = core::compiled::AudioPurpose::Ambience,
+        .pause_policy = core::compiled::AudioPausePolicy::Gameplay,
+        .asset = asset,
+        .gain = 0.5,
+        .pan = -0.25,
+    };
+    REQUIRE(adapter.reconcile_desired({desired}));
+    REQUIRE(backend_ptr->active_voice_count() == 1);
+    backend_ptr->normalized_positions[1] = 0.6;
+
+    resolver.bind(asset, "project:/assets/audio/ambience-es.ogg");
+    adapter.begin_locale_audio_transition(1);
+    CHECK(backend_ptr->paused_voices[1]);
+    CHECK(backend_ptr->volumes[1] == Catch::Approx(0.0F));
+
+    published_audio.run_until_idle();
+    adapter.poll_preparations();
+    REQUIRE(adapter.take_async_diagnostics().empty());
+    REQUIRE(backend_ptr->last_request);
+    CHECK(backend_ptr->last_request->path == "project:/assets/audio/ambience-es.ogg");
+    REQUIRE(backend_ptr->last_playback);
+    CHECK(backend_ptr->last_playback->loop);
+    CHECK(backend_ptr->last_playback->bus == AudioBus::Ambience);
+    CHECK(backend_ptr->last_playback->pan == Catch::Approx(-0.25F));
+    REQUIRE(backend_ptr->last_playback->start_normalized_position);
+    CHECK(*backend_ptr->last_playback->start_normalized_position == Catch::Approx(0.6));
+    CHECK(backend_ptr->active_voice_count() == 1);
+
+    const auto voices_after_replacement = backend_ptr->next_voice;
+    REQUIRE(adapter.reconcile_desired({desired}));
+    CHECK(backend_ptr->next_voice == voices_after_replacement);
+}
+
+TEST_CASE("newer locale media generation rejects stale ready replacement and leaves nonlocalized "
+          "audio alone")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
+    const auto localized_asset = core::AssetId::create("audio-voice").value();
+    MutableAudioAssetService resolver;
+    resolver.bind(localized_asset, "project:/assets/audio/voice.ogg");
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
+    RuntimePresentationBridge bridge(adapter);
+
+    const core::AudioOperation operation{.id = core::AudioOperationId::from_number(96),
+                                         .action = core::compiled::AudioAction::Play,
+                                         .purpose = core::compiled::AudioPurpose::Voice,
+                                         .audio_owner = session_audio_owner(),
+                                         .asset = localized_asset,
+                                         .gain = 1.0};
+    REQUIRE(bridge.accept(operation));
+    REQUIRE(bridge.flush().diagnostics.empty());
+    backend_ptr->normalized_positions[1] = 0.25;
+
+    const auto next_voice_after_source = backend_ptr->next_voice;
+    bridge.begin_locale_media_transition();
+    CHECK(backend_ptr->next_voice == next_voice_after_source);
+    CHECK_FALSE(backend_ptr->paused_voices[1]);
+
+    resolver.bind(localized_asset, "project:/assets/audio/voice-es.ogg");
+    bridge.begin_locale_media_transition();
+    published_audio.run_until_idle();
+
+    resolver.bind(localized_asset, "project:/assets/audio/voice-fr.ogg");
+    bridge.begin_locale_media_transition();
+    published_audio.run_until_idle();
+    auto replaced = bridge.poll_audio();
+    REQUIRE(replaced.diagnostics.empty());
+    REQUIRE(backend_ptr->last_request);
+    CHECK(backend_ptr->last_request->path == "project:/assets/audio/voice-fr.ogg");
+    CHECK(backend_ptr->next_voice == next_voice_after_source + 1);
+    REQUIRE(backend_ptr->last_playback);
+    REQUIRE(backend_ptr->last_playback->start_normalized_position);
+    CHECK(*backend_ptr->last_playback->start_normalized_position == Catch::Approx(0.25));
 }
 
 TEST_CASE("runtime audio adapter completes an awaited fade-out after AudioSystem update")

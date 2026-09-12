@@ -796,6 +796,16 @@ public:
         ma_sound_set_volume(&voice->sound, desc.volume);
         ma_sound_set_pitch(&voice->sound, desc.pitch > 0.0f ? desc.pitch : 1.0f);
         ma_sound_set_looping(&voice->sound, desc.loop ? MA_TRUE : MA_FALSE);
+        if (desc.start_normalized_position) {
+            ma_uint64 length = 0;
+            if (ma_sound_get_length_in_pcm_frames(&voice->sound, &length) == MA_SUCCESS &&
+                length > 0) {
+                const double normalized = std::clamp(*desc.start_normalized_position, 0.0, 1.0);
+                const ma_uint64 frame = std::min(
+                    length - 1, static_cast<ma_uint64>(normalized * static_cast<double>(length)));
+                (void)ma_sound_seek_to_pcm_frame(&voice->sound, frame);
+            }
+        }
 
         result = ma_sound_start(&voice->sound);
         if (result != MA_SUCCESS) {
@@ -823,6 +833,7 @@ public:
         auto it = m_voices.find(voice.id);
         if (it != m_voices.end() && it->second) {
             ma_sound_stop(&it->second->sound);
+            it->second->paused = false;
         }
     }
 
@@ -907,6 +918,20 @@ public:
             return false;
         return ma_sound_at_end(&it->second->sound) == MA_FALSE &&
                (it->second->paused || ma_sound_is_playing(&it->second->sound) == MA_TRUE);
+    }
+
+    std::optional<double> voice_normalized_position(AudioVoiceHandle voice) const override
+    {
+        auto it = m_voices.find(voice.id);
+        if (it == m_voices.end() || !it->second)
+            return std::nullopt;
+        ma_uint64 cursor = 0;
+        ma_uint64 length = 0;
+        if (ma_sound_get_cursor_in_pcm_frames(&it->second->sound, &cursor) != MA_SUCCESS ||
+            ma_sound_get_length_in_pcm_frames(&it->second->sound, &length) != MA_SUCCESS ||
+            length == 0)
+            return std::nullopt;
+        return std::clamp(static_cast<double>(cursor) / static_cast<double>(length), 0.0, 1.0);
     }
 
     AudioBackendStats stats() const override

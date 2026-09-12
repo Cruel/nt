@@ -6,6 +6,7 @@
 #include "noveltea/runtime/runtime_ports.hpp"
 #include "noveltea/runtime_audio_adapter.hpp"
 
+#include <cstdint>
 #include <functional>
 #include <optional>
 
@@ -76,6 +77,7 @@ public:
     [[nodiscard]] core::Result<bool, core::Diagnostics> prepare_published_snapshot_resources();
     [[nodiscard]] core::Result<void, core::Diagnostics>
     commit_prepared_published_snapshot_resources();
+    void begin_locale_media_transition();
     [[nodiscard]] core::Result<void, core::Diagnostics> reapply_published_snapshot_backend();
     void cancel_prepared_published_snapshot_resources() noexcept;
     [[nodiscard]] RuntimePresentationDispatchResult poll_audio();
@@ -138,6 +140,7 @@ private:
     std::optional<core::RuntimePresentationSnapshot> m_pending_mandatory_snapshot;
     std::optional<core::RuntimePresentationSnapshot> m_published_snapshot;
     bool m_hold_mandatory_commit = false;
+    std::uint64_t m_locale_transition_generation = 0;
 };
 
 } // namespace noveltea

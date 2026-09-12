@@ -28,8 +28,11 @@ AudioVoiceHandle AudioPreviewAdapter::play_sfx(const std::string& path, float vo
         return {};
     }
 
-    AudioPlaybackDesc playback{
-        .bus = AudioBus::Sfx, .volume = volume, .pitch = pitch, .loop = false};
+    AudioPlaybackDesc playback{.bus = AudioBus::Sfx,
+                               .volume = volume,
+                               .pitch = pitch,
+                               .loop = false,
+                               .start_normalized_position = std::nullopt};
     m_pending_sfx.push_back(
         {.request = std::move(*requested.value_if()), .playback = playback, .path = path});
     const std::uint32_t token = m_next_request_token++;
@@ -56,7 +59,10 @@ AudioTrackHandle AudioPreviewAdapter::play_track(const AudioTrackId& track_id,
         return {};
     }
 
-    AudioTrackDesc playback{.track_id = backend_id, .volume = volume, .loop = loop};
+    AudioTrackDesc playback{.track_id = backend_id,
+                            .volume = volume,
+                            .loop = loop,
+                            .start_normalized_position = std::nullopt};
     m_pending_tracks.push_back({.request = std::move(*requested.value_if()),
                                 .tooling_id = tooling_id,
                                 .backend_id = backend_id,

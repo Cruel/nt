@@ -250,6 +250,28 @@ runtime track identity and uses asynchronous Demand requests before handing leas
 Music and Ambience desired instances reconstruct from their declared beginning/loop entry after load;
 save state retains semantic configuration rather than decoder position, sample cursor, or fade phase.
 
+Runtime locale changes deliberately exclude already-playing streaming audio from the atomic
+commit-critical Asset set. After the catalog/font/visible-presentation locale commit succeeds,
+`RuntimePresentationBridge` advances one locale-transition generation and asks `RuntimeAudioAdapter`
+to reconcile the physical realization of every active semantic audio Asset. A track whose resolved
+physical path is unchanged is left alone. An accepted playback operation that is still preparing its
+old-locale Asset is rebound to the target-locale request before delivery, preserving whether delivery
+has already been observed. A localized track whose path changes is immediately muted and paused, then
+its target physical Asset is requested as nonblocking Demand work. When that request becomes ready in
+the still-current generation, the adapter replaces the physical voice on the same track while retaining
+the existing `AudioOperationId`, coordinator lifecycle, and exact completion waiter; no Dialogue Cue,
+Scene event, Lua call, or gameplay effect is re-issued. A newer locale commit cancels the older
+generation so a stale ready request cannot publish over the newer language.
+
+If the audio backend can report a normalized playback cursor, replacement starts at the equivalent
+normalized position. Backends that cannot report/seek normalized progress restart only the new
+physical realization from its beginning; semantic operation identity and completion ownership do not
+restart. Explicit stop, owner cancellation, fast-forward, reset, and checkpoint replacement cancel
+pending locale-media work with the same operation lifecycle they already own. Runtime video playback
+is not yet an admitted presentation backend; when it is added, its localized physical replacement
+must use this same bridge-owned locale-transition generation rather than joining the atomic locale
+commit gate or introducing a second semantic playback system.
+
 ## Presentation coordination
 
 Live presentation and audio outputs are accepted by the engine-owned `RuntimePresentationBridge`
