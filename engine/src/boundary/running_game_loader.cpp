@@ -22,6 +22,30 @@
 namespace noveltea::runtime {
 namespace {
 
+std::string startup_runtime_locale(const core::compiled::Localization& localization,
+                                   std::string_view requested_locale)
+{
+    std::string startup_catalog_locale = localization.default_locale;
+    if (!requested_locale.empty()) {
+        auto candidate = requested_locale;
+        while (!candidate.empty()) {
+            const auto definition = std::ranges::find_if(
+                localization.locales, [&](const core::compiled::LocaleDefinition& locale) {
+                    return locale.locale == candidate && locale.supported;
+                });
+            if (definition != localization.locales.end()) {
+                startup_catalog_locale = definition->locale;
+                break;
+            }
+            const auto separator = candidate.rfind('-');
+            if (separator == std::string_view::npos)
+                break;
+            candidate = candidate.substr(0, separator);
+        }
+    }
+    return startup_catalog_locale;
+}
+
 core::Diagnostics load_failure(std::string code, std::string message, std::string source_path)
 {
     return {{.code = std::move(code),
@@ -182,25 +206,8 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
     // Locale catalogs outside the startup source/default pair are package-local payloads. Validate
     // each detached document against the resident source Message contract, then immediately return
     // to the bounded startup residency set rather than retaining every packaged language.
-    const auto& localization = project.value_if()->localization();
-    std::string startup_catalog_locale = localization.default_locale;
-    if (!requested_runtime_locale.empty()) {
-        auto candidate = requested_runtime_locale;
-        while (!candidate.empty()) {
-            const auto definition = std::ranges::find_if(
-                localization.locales, [&](const core::compiled::LocaleDefinition& locale) {
-                    return locale.locale == candidate && locale.supported;
-                });
-            if (definition != localization.locales.end()) {
-                startup_catalog_locale = definition->locale;
-                break;
-            }
-            const auto separator = candidate.rfind('-');
-            if (separator == std::string_view::npos)
-                break;
-            candidate = candidate.substr(0, separator);
-        }
-    }
+    const auto startup_catalog_locale =
+        startup_runtime_locale(project.value_if()->localization(), requested_runtime_locale);
     for (const auto& locale : project.value_if()->localization().locales) {
         if (!locale.catalog_path)
             continue;
@@ -218,11 +225,12 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
                 std::move(catalog).error());
         if (catalog.value_if()->locale != locale.locale)
             return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
-                load_failure("content.runtime_locale_catalog_mismatch",
-                             "Locale catalog identity does not match its compiled locale definition.",
-                             package_entry_source(logical_path, *locale.catalog_path)));
-        auto installed =
-            project.value_if()->install_runtime_localization_catalog(std::move(*catalog.value_if()));
+                load_failure(
+                    "content.runtime_locale_catalog_mismatch",
+                    "Locale catalog identity does not match its compiled locale definition.",
+                    package_entry_source(logical_path, *locale.catalog_path)));
+        auto installed = project.value_if()->install_runtime_localization_catalog(
+            std::move(*catalog.value_if()));
         if (!installed)
             return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
                 std::move(installed).error());
@@ -268,6 +276,8 @@ resolve_indexed_runtime_package(std::shared_ptr<assets::ZipAssetSource> package_
         return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
             std::move(decoded_package).error());
 
+    runtime_locale = startup_runtime_locale(decoded_package.value_if()->project().localization(),
+                                            runtime_locale);
     assets::AssetManager::NamespaceMounts project_mounts;
     project_mounts.push_back(std::move(package_source));
     RunningGameLoadInput input{.package = std::move(*decoded_package.value_if()),
@@ -283,6 +293,7 @@ make_loose_project_load_input(core::CompiledProject project,
                               std::optional<ShaderMaterialProject> shader_materials,
                               std::string runtime_locale)
 {
+    runtime_locale = startup_runtime_locale(project.localization(), runtime_locale);
     std::vector<core::RuntimePackageFile> files{{"game", 0, std::nullopt}};
     core::RuntimePackageManifest manifest{
         .kind = core::RuntimePackageKind::Runtime,

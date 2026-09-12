@@ -756,18 +756,20 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
 const compiled::LocalizationCatalog*
 CompiledProject::find_localization_catalog(std::string_view locale) const noexcept
 {
-    const auto found = std::ranges::find_if(
-        m_localization.catalogs,
-        [locale](const compiled::LocalizationCatalog& catalog) { return catalog.locale == locale; });
+    const auto found = std::ranges::find_if(m_localization.catalogs,
+                                            [locale](const compiled::LocalizationCatalog& catalog) {
+                                                return catalog.locale == locale;
+                                            });
     return found == m_localization.catalogs.end() ? nullptr : &*found;
 }
 
 Result<void, Diagnostics>
 CompiledProject::install_runtime_localization_catalog(compiled::LocalizationCatalog catalog)
 {
-    const auto definition = std::ranges::find_if(
-        m_localization.locales,
-        [&](const compiled::LocaleDefinition& candidate) { return candidate.locale == catalog.locale; });
+    const auto definition = std::ranges::find_if(m_localization.locales,
+                                                 [&](const compiled::LocaleDefinition& candidate) {
+                                                     return candidate.locale == catalog.locale;
+                                                 });
     if (definition == m_localization.locales.end())
         return Result<void, Diagnostics>::failure(
             invalid_model("Runtime localization catalog locale is not declared."));
@@ -786,46 +788,31 @@ CompiledProject::install_runtime_localization_catalog(compiled::LocalizationCata
                 return candidate.message_id == entry.message_id;
             });
         if (source_entry == source->entries.end())
-            return Result<void, Diagnostics>::failure(
-                invalid_model("Runtime localization catalog references an unknown source Message ID."));
+            return Result<void, Diagnostics>::failure(invalid_model(
+                "Runtime localization catalog references an unknown source Message ID."));
         if (entry.arguments != source_entry->arguments)
-            return Result<void, Diagnostics>::failure(
-                invalid_model("Runtime localization catalog Message arguments do not match source."));
+            return Result<void, Diagnostics>::failure(invalid_model(
+                "Runtime localization catalog Message arguments do not match source."));
         if (entry.pattern.has_value() != source_entry->pattern.has_value())
-            return Result<void, Diagnostics>::failure(
-                invalid_model("Runtime localization catalog Message pattern does not match source."));
+            return Result<void, Diagnostics>::failure(invalid_model(
+                "Runtime localization catalog Message pattern does not match source."));
         if (entry.dialogue_cues.size() != source_entry->dialogue_cues.size())
-            return Result<void, Diagnostics>::failure(
-                invalid_model("Runtime localization catalog Dialogue Cue contract does not match source."));
+            return Result<void, Diagnostics>::failure(invalid_model(
+                "Runtime localization catalog Dialogue Cue contract does not match source."));
         for (std::size_t index = 0; index < entry.dialogue_cues.size(); ++index)
             if (entry.dialogue_cues[index].id != source_entry->dialogue_cues[index].id)
-                return Result<void, Diagnostics>::failure(
-                    invalid_model("Runtime localization catalog Dialogue Cue IDs do not match source."));
-        if (entry.pattern) {
-            const auto& target_pattern = *entry.pattern;
-            const auto& source_pattern = *source_entry->pattern;
-            if (target_pattern.nodes.size() != source_pattern.nodes.size())
-                return Result<void, Diagnostics>::failure(
-                    invalid_model("Runtime localization catalog Message selector topology does not match source."));
-            for (std::size_t index = 0; index < target_pattern.nodes.size(); ++index) {
-                const auto& target_node = target_pattern.nodes[index];
-                const auto& source_node = source_pattern.nodes[index];
-                if (target_node.kind != source_node.kind || target_node.argument != source_node.argument ||
-                    target_node.cases.size() != source_node.cases.size())
-                    return Result<void, Diagnostics>::failure(
-                        invalid_model("Runtime localization catalog Message selector contract does not match source."));
-                for (std::size_t case_index = 0; case_index < target_node.cases.size(); ++case_index)
-                    if (target_node.cases[case_index].key != source_node.cases[case_index].key ||
-                        target_node.cases[case_index].node != source_node.cases[case_index].node)
-                        return Result<void, Diagnostics>::failure(
-                            invalid_model("Runtime localization catalog Message selector cases do not match source."));
-            }
-        }
+                return Result<void, Diagnostics>::failure(invalid_model(
+                    "Runtime localization catalog Dialogue Cue IDs do not match source."));
+        if (entry.pattern && compiled::detail::message_selector_contract(entry) !=
+                                 compiled::detail::message_selector_contract(*source_entry))
+            return Result<void, Diagnostics>::failure(invalid_model(
+                "Runtime localization catalog Message selector contract does not match source."));
     }
 
-    const auto existing = std::ranges::find_if(
-        m_localization.catalogs,
-        [&](const compiled::LocalizationCatalog& candidate) { return candidate.locale == catalog.locale; });
+    const auto existing = std::ranges::find_if(m_localization.catalogs,
+                                               [&](const compiled::LocalizationCatalog& candidate) {
+                                                   return candidate.locale == catalog.locale;
+                                               });
     if (existing == m_localization.catalogs.end())
         m_localization.catalogs.push_back(std::move(catalog));
     else

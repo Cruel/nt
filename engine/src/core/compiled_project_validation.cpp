@@ -1538,32 +1538,6 @@ private:
             }
             return result;
         };
-        const auto pattern_contract = [&](const LocalizationEntry& entry) {
-            std::vector<std::string> result;
-            if (!entry.pattern)
-                return result;
-            for (const auto& node : entry.pattern->nodes) {
-                if (node.kind == MessagePatternNodeKind::Text)
-                    continue;
-                std::string signature =
-                    node.kind == MessagePatternNodeKind::Plural ? "plural:" : "select:";
-                signature += node.argument;
-                if (node.kind == MessagePatternNodeKind::Select) {
-                    std::vector<std::string_view> keys;
-                    keys.reserve(node.cases.size());
-                    for (const auto& message_case : node.cases)
-                        keys.push_back(message_case.key);
-                    std::sort(keys.begin(), keys.end());
-                    for (const auto key : keys) {
-                        signature.push_back(':');
-                        signature.append(key);
-                    }
-                }
-                result.push_back(std::move(signature));
-            }
-            std::sort(result.begin(), result.end());
-            return result;
-        };
         const auto required_plural_categories = [&](std::string_view locale) {
             const auto definition = std::ranges::find_if(
                 m_input.localization.locales,
@@ -1819,14 +1793,16 @@ private:
                                         return target.id == source.id;
                                     }))
                         error("compiled_project.invalid_dialogue_cue_contract",
-                              "Localized Dialogue Cue placements must preserve source Cue IDs and semantic order.",
+                              "Localized Dialogue Cue placements must preserve source Cue IDs and "
+                              "semantic order.",
                               entry_path + "/dialogueCues");
                     if (entry.pattern.has_value() != source_entry->pattern.has_value())
                         error("compiled_project.invalid_message_pattern",
                               "Localized Message pattern presence must match the source Message.",
                               entry_path + "/pattern");
                     else if (entry.pattern && source_entry->pattern &&
-                             pattern_contract(entry) != pattern_contract(*source_entry))
+                             message_selector_contract(entry) !=
+                                 message_selector_contract(*source_entry))
                         error("compiled_project.invalid_message_pattern",
                               "Localized Message selector contract must match the source Message.",
                               entry_path + "/pattern");
@@ -3392,39 +3368,40 @@ private:
             const auto& candidate = m_input.scenes[found->second];
             bool safe = true;
             for (const auto& instruction : candidate.program.instructions) {
-                safe = safe &&
-                       std::visit(
-                           [&](const auto& value) {
-                               using T = std::decay_t<decltype(value)>;
-                               if constexpr (std::is_same_v<T, CallDialogueSceneInstruction> ||
-                                             std::is_same_v<T, ChoiceSceneInstruction> ||
-                                             std::is_same_v<T, CallInteractionSceneInstruction> ||
-                                             std::is_same_v<T, DirectedRoomChangeSceneInstruction> ||
-                                             std::is_same_v<T, NavigationAttemptSceneInstruction> ||
-                                             std::is_same_v<T, WaitInputInstruction> ||
-                                             std::is_same_v<T, WaitOperationInstruction> ||
-                                             std::is_same_v<T, WaitAudioInstruction> ||
-                                             std::is_same_v<T, WaitLayoutSignalInstruction>)
-                                   return false;
-                               else if constexpr (std::is_same_v<T, ShowTextInstruction>)
-                                   return !std::holds_alternative<InputWait>(value.wait);
-                               else if constexpr (std::is_same_v<T, RunLuaSceneInstruction>)
-                                   return !value.may_yield;
-                               else if constexpr (std::is_same_v<T, CallSceneSceneInstruction> ||
-                                                  std::is_same_v<T, StartDetachedSceneInstruction>)
-                                   return detached_scene_safe(value.scene, visiting);
-                               else if constexpr (std::is_same_v<T, SetBackgroundInstruction> ||
-                                                  std::is_same_v<T, ActorCueInstruction> ||
-                                                  std::is_same_v<T, SetLayoutInstruction> ||
-                                                  std::is_same_v<T, MaterialParameterInstruction> ||
-                                                  std::is_same_v<T, TransitionGroupInstruction>)
-                                   return std::holds_alternative<ImmediateWait>(value.wait);
-                               else if constexpr (std::is_same_v<T, AudioCueInstruction>)
-                                   return std::holds_alternative<ImmediateWait>(value.wait);
-                               else
-                                   return true;
-                           },
-                           instruction);
+                safe =
+                    safe &&
+                    std::visit(
+                        [&](const auto& value) {
+                            using T = std::decay_t<decltype(value)>;
+                            if constexpr (std::is_same_v<T, CallDialogueSceneInstruction> ||
+                                          std::is_same_v<T, ChoiceSceneInstruction> ||
+                                          std::is_same_v<T, CallInteractionSceneInstruction> ||
+                                          std::is_same_v<T, DirectedRoomChangeSceneInstruction> ||
+                                          std::is_same_v<T, NavigationAttemptSceneInstruction> ||
+                                          std::is_same_v<T, WaitInputInstruction> ||
+                                          std::is_same_v<T, WaitOperationInstruction> ||
+                                          std::is_same_v<T, WaitAudioInstruction> ||
+                                          std::is_same_v<T, WaitLayoutSignalInstruction>)
+                                return false;
+                            else if constexpr (std::is_same_v<T, ShowTextInstruction>)
+                                return !std::holds_alternative<InputWait>(value.wait);
+                            else if constexpr (std::is_same_v<T, RunLuaSceneInstruction>)
+                                return !value.may_yield;
+                            else if constexpr (std::is_same_v<T, CallSceneSceneInstruction> ||
+                                               std::is_same_v<T, StartDetachedSceneInstruction>)
+                                return detached_scene_safe(value.scene, visiting);
+                            else if constexpr (std::is_same_v<T, SetBackgroundInstruction> ||
+                                               std::is_same_v<T, ActorCueInstruction> ||
+                                               std::is_same_v<T, SetLayoutInstruction> ||
+                                               std::is_same_v<T, MaterialParameterInstruction> ||
+                                               std::is_same_v<T, TransitionGroupInstruction>)
+                                return std::holds_alternative<ImmediateWait>(value.wait);
+                            else if constexpr (std::is_same_v<T, AudioCueInstruction>)
+                                return std::holds_alternative<ImmediateWait>(value.wait);
+                            else
+                                return true;
+                        },
+                        instruction);
                 if (!safe)
                     break;
             }
@@ -4751,6 +4728,33 @@ private:
 };
 
 } // namespace
+
+std::vector<std::string> message_selector_contract(const LocalizationEntry& entry)
+{
+    std::vector<std::string> result;
+    if (!entry.pattern)
+        return result;
+    for (const auto& node : entry.pattern->nodes) {
+        if (node.kind == MessagePatternNodeKind::Text)
+            continue;
+        std::string signature = node.kind == MessagePatternNodeKind::Plural ? "plural:" : "select:";
+        signature += node.argument;
+        if (node.kind == MessagePatternNodeKind::Select) {
+            std::vector<std::string_view> keys;
+            keys.reserve(node.cases.size());
+            for (const auto& message_case : node.cases)
+                keys.push_back(message_case.key);
+            std::sort(keys.begin(), keys.end());
+            for (const auto key : keys) {
+                signature.push_back(':');
+                signature.append(key);
+            }
+        }
+        result.push_back(std::move(signature));
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+}
 
 Diagnostics validate_semantics(const CompiledProjectInput& input) { return Validator(input).run(); }
 
