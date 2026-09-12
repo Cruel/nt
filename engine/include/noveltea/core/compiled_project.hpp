@@ -155,6 +155,7 @@ enum class AssetKind : std::uint8_t {
     Image,
     Font,
     Audio,
+    Video,
     Script,
     ShaderSource,
     Text,
@@ -165,6 +166,16 @@ enum class ImageSampling : std::uint8_t {
     Linear,
     Nearest
 };
+enum class LocalizedAssetRealizationState : std::uint8_t {
+    Source,
+    Variant
+};
+struct LocalizedAssetRealization {
+    std::string locale;
+    LocalizedAssetRealizationState state = LocalizedAssetRealizationState::Source;
+    std::optional<AssetId> asset;
+    bool operator==(const LocalizedAssetRealization&) const = default;
+};
 struct AssetResource {
     AssetId id;
     AssetKind kind;
@@ -173,6 +184,7 @@ struct AssetResource {
     std::optional<ImageSampling> sampling;
     std::optional<std::uint32_t> width;
     std::optional<std::uint32_t> height;
+    std::vector<LocalizedAssetRealization> localized;
 };
 struct InlineLayoutSource {
     std::string text;
@@ -2188,6 +2200,8 @@ public:
     [[nodiscard]] const compiled::InventoryDefinition*
     find_inventory(const compiled::InventoryRef& reference) const noexcept;
     [[nodiscard]] const compiled::AssetResource* find_asset(const AssetId& id) const noexcept;
+    [[nodiscard]] const compiled::AssetResource*
+    resolve_asset(const AssetId& id, std::string_view locale) const noexcept;
     [[nodiscard]] const compiled::LayoutResource* find_layout(const LayoutId& id) const noexcept;
     [[nodiscard]] const compiled::MaterialInterfaceResource*
     find_material_interface(const MaterialId& id) const noexcept;

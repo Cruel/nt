@@ -21,7 +21,7 @@ public:
     RuntimeUiProjectAssetService(RuntimeUiProjectAssetService&&) = delete;
     RuntimeUiProjectAssetService& operator=(RuntimeUiProjectAssetService&&) = delete;
 
-    void install(const core::CompiledProject& project);
+    void install(const core::CompiledProject& project, std::string_view active_locale = {});
     void clear() noexcept { m_assets.clear(); }
 
     [[nodiscard]] std::optional<std::string> resolve(const core::AssetId& asset) const override;

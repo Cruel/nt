@@ -73,6 +73,11 @@ public:
         const runtime::FlowPredictionContext& context = {});
     [[nodiscard]] core::Result<void, core::Diagnostics>
     prime_snapshot_backend(const core::RuntimePresentationSnapshot& snapshot);
+    [[nodiscard]] core::Result<bool, core::Diagnostics> prepare_published_snapshot_resources();
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    commit_prepared_published_snapshot_resources();
+    [[nodiscard]] core::Result<void, core::Diagnostics> reapply_published_snapshot_backend();
+    void cancel_prepared_published_snapshot_resources() noexcept;
     [[nodiscard]] RuntimePresentationDispatchResult poll_audio();
     [[nodiscard]] RuntimePresentationFastForwardResult fast_forward_one();
     void terminate(core::PresentationCancellationReason reason) override;
@@ -84,6 +89,10 @@ public:
     void bind_world_transition_backend(WorldTransitionBackend* backend) noexcept;
     void bind_mandatory_asset_gate(assets::MandatoryAssetGate* gate) noexcept;
     [[nodiscard]] bool mandatory_assets_pending() const noexcept;
+    [[nodiscard]] bool mandatory_asset_commit_held() const noexcept
+    {
+        return m_hold_mandatory_commit;
+    }
     [[nodiscard]] bool mandatory_assets_failed() const noexcept;
     [[nodiscard]] bool mandatory_asset_overlay_visible() const noexcept;
     [[nodiscard]] const core::LoadingProgress* mandatory_asset_progress() const noexcept;
@@ -128,6 +137,7 @@ private:
     assets::MandatoryAssetGate* m_mandatory_asset_gate = nullptr;
     std::optional<core::RuntimePresentationSnapshot> m_pending_mandatory_snapshot;
     std::optional<core::RuntimePresentationSnapshot> m_published_snapshot;
+    bool m_hold_mandatory_commit = false;
 };
 
 } // namespace noveltea

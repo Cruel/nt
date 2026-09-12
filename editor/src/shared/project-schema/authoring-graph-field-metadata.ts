@@ -178,6 +178,10 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^\/localization\/translations\/\*\/\*\/dialogueCues(?:\/|$)/,
     valueDependent('localization-catalog-entry'),
   ],
+  // #215 localized physical realizations affect resource resolution while semantic Asset refs stay stable.
+  // Treat every mapping/status leaf as localization-driven Asset resolution input so graph invalidation
+  // follows the existing Project graph rather than introducing a second localization-only asset graph.
+  [/^\/localization\/assets(?:\/|$)/, valueDependent('localization-asset-realization')],
   // #157 adds persisted supplemental prefetch intent. Every hint leaf changes the generated Flow
   // Prediction Index and therefore the owning Project tooling/runtime optimization projection.
   [/^\/prefetchHints(?:\/|$)/, OWNER],
@@ -996,7 +1000,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
-    localization: 'e31f9a7a',
+    localization: '0e5f44a2',
     maps: '9d711bea',
     materials: '546711ca',
     prefetchHints: 'b985056c',

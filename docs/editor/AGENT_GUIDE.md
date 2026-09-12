@@ -151,6 +151,8 @@ Stable user-facing editor strings should use i18n resources under `editor/src/re
 
 Game Project localization is a separate authoring/runtime subsystem. A target locale may declare one explicit authoring parent; target storage stays sparse and resolves the nearest whole-Message parent target for authoring status and preview. Inherited targets are read-only in the Localization workspace until the author creates a whole-Message override. `Use source intentionally` is persisted target intent and counts as an effective target rather than Missing; it may itself be inherited. Do not treat ordinary runtime source fallback as localization completeness.
 
+Localized physical Assets follow the same sparse target/inheritance rule for image, audio, and video Assets. Gameplay and authoring references always keep the semantic base Asset ID; target mappings either explicitly use source or point at another ordinary compatible Asset. Inherited Asset mappings remain read-only until overridden. Base-content fingerprints drive Current/Outdated status, while fonts continue to use locale font stacks and scripts/shaders/data are never implicitly localized.
+
 Compilation flattens explicit authoring inheritance into each locale catalog. Runtime locale negotiation must not consult `parentLocale`: it selects an exact Supported locale, then an available less-specific Supported locale, and finally falls back to packaged Project source content for an unresolved Message. This keeps BCP 47-style runtime matching independent from author-defined translation inheritance.
 
 ### UI Components

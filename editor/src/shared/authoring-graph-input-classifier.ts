@@ -96,6 +96,15 @@ function valueDependentImpact(
     const owners = reverseDependencyOwners([dependencyKind, assetId], indexes);
     return incrementalImpact(owners, owners);
   }
+  if (classify === 'localization-asset-realization') {
+    const baseAssetId = segments[3];
+    if (!baseAssetId) return { kind: 'full-rebuild', reason: 'classifier-fallback' };
+    const owners = [
+      ...reverseDependencyOwners(['source-asset', baseAssetId], indexes),
+      ...reverseDependencyOwners(['source-resolution-asset', baseAssetId], indexes),
+    ];
+    return incrementalImpact(owners, owners);
+  }
   if (classify === 'localization-catalog-entry') {
     if (segments[1] === 'translations') {
       const messageId = segments[3];

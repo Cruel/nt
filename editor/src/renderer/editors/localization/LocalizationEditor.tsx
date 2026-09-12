@@ -38,6 +38,7 @@ import {
 import {
   namedMessageKeySchema,
   type AuthoringMessage,
+  type LocalizationAssetTarget,
   type LocalizationTranslation,
 } from '../../../shared/project-schema/authoring-localization';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
@@ -50,15 +51,21 @@ import {
   type LocalizationMessageWorkflowView,
 } from '../../../shared/authoring-localization-workflow';
 import {
+  createLocalizedAssetVariant,
+  isLocalizableAssetKind,
+  localizationAssetWorkflowView,
+} from '../../../shared/authoring-localized-assets';
+import {
   applyLocalizationReconciliation,
   planLocalizationReconciliation,
 } from '../../../shared/authoring-localization-reconcile';
 
-type Surface = 'overview' | 'translations' | 'languages' | 'messages' | 'reconciliation';
+type Surface = 'overview' | 'translations' | 'assets' | 'languages' | 'messages' | 'reconciliation';
 
 const surfaces: readonly { id: Surface; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'translations', label: 'Translations' },
+  { id: 'assets', label: 'Assets' },
   { id: 'languages', label: 'Languages' },
   { id: 'messages', label: 'Messages' },
   { id: 'reconciliation', label: 'Reconciliation' },
@@ -103,8 +110,14 @@ function localeDirection(locale: string): 'ltr' | 'rtl' {
   }
 }
 
-function hasMeaningfulLocaleWork(translations: Record<string, Record<string, unknown>>) {
-  return Object.values(translations).some((entries) => Object.keys(entries).length > 0);
+function hasMeaningfulLocaleWork(
+  translations: Record<string, Record<string, unknown>>,
+  assets: Record<string, Record<string, unknown>>,
+) {
+  return (
+    Object.values(translations).some((entries) => Object.keys(entries).length > 0) ||
+    Object.values(assets).some((entries) => Object.keys(entries).length > 0)
+  );
 }
 
 function originLabel(origin: 'human' | 'ai' | 'imported' | 'unknown') {
@@ -229,6 +242,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const fontAssets = Object.values(project.assets)
     .filter((asset) => parseAssetData(asset.data)?.kind === 'font')
     .sort((a, b) => a.label.localeCompare(b.label));
+  const localizableAssets = Object.entries(project.assets)
+    .flatMap(([id, record]) => {
+      const data = parseAssetData(record.data);
+      return data && isLocalizableAssetKind(data.kind) ? [{ id, record, data }] : [];
+    })
+    .sort((left, right) => left.record.label.localeCompare(right.record.label));
   const namedMessages = Object.entries(localization.messages)
     .filter(
       (entry): entry is [string, Extract<AuthoringMessage, { kind: 'named' }>] =>
@@ -253,7 +272,10 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     .sort((left, right) =>
       messageLabel(left.message, left.id).localeCompare(messageLabel(right.message, right.id)),
     );
-  const sourceChangeBlocked = hasMeaningfulLocaleWork(localization.translations);
+  const sourceChangeBlocked = hasMeaningfulLocaleWork(
+    localization.translations,
+    localization.assets,
+  );
   const reconciliationPlan = planLocalizationReconciliation(project);
 
   function run(
@@ -314,6 +336,11 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       patches.push({
         op: 'remove',
         path: `/localization/translations/${escapeJsonPointerToken(locale)}`,
+      });
+    if (Object.hasOwn(localization.assets, locale))
+      patches.push({
+        op: 'remove',
+        path: `/localization/assets/${escapeJsonPointerToken(locale)}`,
       });
     patches.push({ op: 'remove', path: `/localization/locales/${escapeJsonPointerToken(locale)}` });
     for (const [childLocale, definition] of Object.entries(localization.locales)) {
@@ -387,6 +414,41 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       locale,
       stack.map((ref) => ref.$ref.id).filter((id) => id !== assetId),
     );
+  }
+
+  function setLocalizedAssetTarget(
+    locale: string,
+    baseAssetId: string,
+    target: LocalizationAssetTarget | null,
+  ) {
+    const encodedLocale = escapeJsonPointerToken(locale);
+    const encodedAsset = escapeJsonPointerToken(baseAssetId);
+    const localeTargets = localization.assets[locale];
+    const existing = localeTargets?.[baseAssetId];
+    if (target === null) {
+      if (!existing) return;
+      run(`Clear localized Asset ${baseAssetId} for ${locale}`, [
+        { op: 'remove', path: `/localization/assets/${encodedLocale}/${encodedAsset}` },
+      ]);
+      return;
+    }
+    if (!localeTargets) {
+      run(`Set localized Asset ${baseAssetId} for ${locale}`, [
+        {
+          op: 'add',
+          path: `/localization/assets/${encodedLocale}`,
+          value: { [baseAssetId]: target },
+        },
+      ]);
+      return;
+    }
+    run(`Set localized Asset ${baseAssetId} for ${locale}`, [
+      {
+        op: existing ? 'replace' : 'add',
+        path: `/localization/assets/${encodedLocale}/${encodedAsset}`,
+        value: target,
+      },
+    ]);
   }
 
   function updateMessageDraft(field: keyof MessageDraft, value: string) {
@@ -963,6 +1025,231 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 ))}
               </div>
             </section>
+          </div>
+        )}
+
+        {surface === 'assets' && (
+          <div className="space-y-4">
+            <div className="max-w-sm space-y-1">
+              <Label htmlFor="asset-target-locale">Target locale</Label>
+              <Select
+                value={effectiveTargetLocale}
+                onValueChange={(value) => {
+                  if (value) setTargetLocale(value);
+                }}
+                disabled={targetLocales.length === 0}
+              >
+                <SelectTrigger id="asset-target-locale" aria-label="Localized Asset target locale">
+                  <SelectValue placeholder="Add a target language first" />
+                </SelectTrigger>
+                <SelectContent>
+                  {targetLocales.map((locale) => (
+                    <SelectItem key={locale} value={locale}>
+                      {locale} · {displayLocale(locale)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {!effectiveTargetLocale ? (
+              <div className="rounded border p-4 text-sm text-muted-foreground">
+                Add a target language on Languages to localize Assets.
+              </div>
+            ) : localizableAssets.length === 0 ? (
+              <div className="rounded border p-4 text-sm text-muted-foreground">
+                Import an image, audio, or video Asset to create locale-specific physical variants.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {localizableAssets.map(({ id: baseAssetId, record, data }) => {
+                  const view = localizationAssetWorkflowView(
+                    project,
+                    effectiveTargetLocale,
+                    baseAssetId,
+                  );
+                  if (!view) return null;
+                  const localTarget =
+                    localization.assets[effectiveTargetLocale]?.[baseAssetId] ?? null;
+                  const effectiveTarget = view.target;
+                  const effectiveVariantId =
+                    effectiveTarget && !('useSource' in effectiveTarget)
+                      ? effectiveTarget.asset.$ref.id
+                      : null;
+                  const targetData = effectiveVariantId
+                    ? parseAssetData(project.assets[effectiveVariantId]?.data)
+                    : null;
+                  const compatibleVariants = localizableAssets.filter(
+                    (candidate) =>
+                      candidate.id !== baseAssetId && candidate.data.kind === data.kind,
+                  );
+                  const stateLabel = !effectiveTarget
+                    ? 'Missing'
+                    : 'useSource' in effectiveTarget
+                      ? 'Use source intentionally'
+                      : view.freshness === 'outdated'
+                        ? 'Localized · Outdated'
+                        : 'Localized';
+                  const selectValue = !localTarget
+                    ? '__missing__'
+                    : 'useSource' in localTarget
+                      ? '__source__'
+                      : localTarget.asset.$ref.id;
+                  return (
+                    <section key={baseAssetId} className="rounded border p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium">{record.label}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {baseAssetId} · {data.kind}
+                          </div>
+                        </div>
+                        <div className="text-right text-xs text-muted-foreground">
+                          {stateLabel}
+                          {view.inherited && view.effectiveLocale
+                            ? ` · inherited from ${view.effectiveLocale}`
+                            : ''}
+                          {effectiveTarget && !('useSource' in effectiveTarget)
+                            ? ` · ${originLabel(effectiveTarget.origin)} · ${reviewLabel(effectiveTarget.review)}`
+                            : ''}
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-3 @3xl:grid-cols-2">
+                        <div className="rounded bg-muted/30 p-3 text-xs">
+                          <div className="font-medium">Source</div>
+                          <div className="mt-1 break-all text-muted-foreground">
+                            {data.source.path}
+                          </div>
+                          <div className="mt-1 break-all text-muted-foreground">
+                            {data.contentHash ?? 'No content hash'}
+                          </div>
+                        </div>
+                        <div className="rounded bg-muted/30 p-3 text-xs">
+                          <div className="font-medium">Effective target</div>
+                          <div className="mt-1 break-all text-muted-foreground">
+                            {!effectiveTarget
+                              ? 'Missing'
+                              : 'useSource' in effectiveTarget
+                                ? data.source.path
+                                : (targetData?.source.path ?? effectiveVariantId ?? 'Missing')}
+                          </div>
+                          <div className="mt-1 break-all text-muted-foreground">
+                            {!effectiveTarget
+                              ? 'No localized target'
+                              : 'useSource' in effectiveTarget
+                                ? (data.contentHash ?? 'No content hash')
+                                : (targetData?.contentHash ?? 'No content hash')}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-3 max-w-md space-y-1">
+                        <Label htmlFor={`localized-asset-${baseAssetId}`}>Locale realization</Label>
+                        {view.inherited && !localTarget ? (
+                          <div className="rounded border p-3 text-xs">
+                            <p className="text-muted-foreground">
+                              This realization is inherited from {view.effectiveLocale}. Create an
+                              override before editing it for {effectiveTargetLocale}.
+                            </p>
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="mt-2"
+                              onClick={() => {
+                                if (!effectiveTarget) return;
+                                if ('useSource' in effectiveTarget) {
+                                  setLocalizedAssetTarget(effectiveTargetLocale, baseAssetId, {
+                                    useSource: true,
+                                  });
+                                  return;
+                                }
+                                setLocalizedAssetTarget(effectiveTargetLocale, baseAssetId, {
+                                  ...effectiveTarget,
+                                  review: 'needs-review',
+                                });
+                              }}
+                            >
+                              Override for {effectiveTargetLocale}
+                            </Button>
+                          </div>
+                        ) : (
+                          <Select
+                            value={selectValue}
+                            onValueChange={(value) => {
+                              if (!value) return;
+                              if (value === '__missing__') {
+                                setLocalizedAssetTarget(effectiveTargetLocale, baseAssetId, null);
+                                return;
+                              }
+                              if (value === '__source__') {
+                                setLocalizedAssetTarget(effectiveTargetLocale, baseAssetId, {
+                                  useSource: true,
+                                });
+                                return;
+                              }
+                              const variant = createLocalizedAssetVariant(
+                                project,
+                                baseAssetId,
+                                value,
+                              );
+                              if (variant)
+                                setLocalizedAssetTarget(
+                                  effectiveTargetLocale,
+                                  baseAssetId,
+                                  variant,
+                                );
+                            }}
+                          >
+                            <SelectTrigger
+                              id={`localized-asset-${baseAssetId}`}
+                              aria-label={`Localized Asset for ${record.label}`}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__missing__">Missing</SelectItem>
+                              <SelectItem value="__source__">Use source intentionally</SelectItem>
+                              {compatibleVariants.map((candidate) => (
+                                <SelectItem key={candidate.id} value={candidate.id}>
+                                  {candidate.record.label} · {candidate.data.source.path}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                        {localTarget &&
+                          !('useSource' in localTarget) &&
+                          localTarget.review === 'needs-review' && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                setLocalizedAssetTarget(effectiveTargetLocale, baseAssetId, {
+                                  ...localTarget,
+                                  sourceFingerprint: view.sourceFingerprint,
+                                  review: 'reviewed',
+                                })
+                              }
+                            >
+                              Mark reviewed
+                            </Button>
+                          )}
+                        {compatibleVariants.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            No other compatible {data.kind} Assets are available as variants.
+                          </p>
+                        )}
+                        {view.freshness === 'outdated' && (
+                          <p className="text-xs text-destructive">
+                            The base Asset changed after this localized variant was assigned.
+                            Reassign or review the variant against the current source.
+                          </p>
+                        )}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

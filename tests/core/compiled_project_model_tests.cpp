@@ -370,6 +370,51 @@ TEST_CASE("compiled project publishes immutable collections and checked indexes"
     CHECK(project.rooms()[1].identity.traits[0] == id<TraitId>("dimly-lit"));
 }
 
+TEST_CASE("compiled project resolves localized physical Assets through explicit locale inheritance")
+{
+    auto input = project_input();
+    input.localization.locales.push_back({"fr", std::nullopt, true, {}});
+    input.localization.locales.push_back({"fr-CA", std::string{"fr"}, true, {}});
+    input.localization.locales.push_back({"de", std::nullopt, true, {}});
+    input.localization.catalogs.push_back({"fr", {}});
+    input.localization.catalogs.push_back({"fr-CA", {}});
+    input.localization.catalogs.push_back({"de", {}});
+    const auto base_id = id<AssetId>("title-card");
+    const auto french_id = id<AssetId>("title-card-fr");
+    input.assets.push_back(compiled::AssetResource{
+        .id = base_id,
+        .kind = compiled::AssetKind::Image,
+        .path = "assets/title-card.png",
+        .aliases = {},
+        .sampling = compiled::ImageSampling::Linear,
+        .width = 640,
+        .height = 360,
+        .localized = {{"fr", compiled::LocalizedAssetRealizationState::Variant, french_id},
+                      {"de", compiled::LocalizedAssetRealizationState::Source, std::nullopt}},
+    });
+    input.assets.push_back(compiled::AssetResource{
+        .id = french_id,
+        .kind = compiled::AssetKind::Image,
+        .path = "assets/title-card-fr.png",
+        .aliases = {},
+        .sampling = compiled::ImageSampling::Linear,
+        .width = 640,
+        .height = 360,
+    });
+
+    auto result = CompiledProject::create(std::move(input));
+    REQUIRE(result);
+    const auto& project = result.value();
+    REQUIRE(project.resolve_asset(base_id, "fr") != nullptr);
+    CHECK(project.resolve_asset(base_id, "fr")->id == french_id);
+    REQUIRE(project.resolve_asset(base_id, "fr-CA") != nullptr);
+    CHECK(project.resolve_asset(base_id, "fr-CA")->id == french_id);
+    REQUIRE(project.resolve_asset(base_id, "de") != nullptr);
+    CHECK(project.resolve_asset(base_id, "de")->id == base_id);
+    REQUIRE(project.resolve_asset(base_id, "es") != nullptr);
+    CHECK(project.resolve_asset(base_id, "es")->id == base_id);
+}
+
 TEST_CASE("compiled project rejects an invalid project default Room transition")
 {
     auto input = project_input();
@@ -394,6 +439,41 @@ TEST_CASE("compiled project construction rejects structurally invalid public inp
     auto oversized_display_result = CompiledProject::create(std::move(oversized_display));
     REQUIRE_FALSE(oversized_display_result);
     CHECK(oversized_display_result.error().front().code == "compiled.invalid_model");
+
+    auto undeclared_localized_asset_locale = project_input();
+    const auto undeclared_base_id = id<AssetId>("localized-undeclared-base");
+    undeclared_localized_asset_locale.assets.push_back(compiled::AssetResource{
+        .id = undeclared_base_id,
+        .kind = compiled::AssetKind::Image,
+        .path = "assets/localized-undeclared-base.png",
+        .aliases = {},
+        .sampling = compiled::ImageSampling::Linear,
+        .width = 64,
+        .height = 64,
+        .localized = {{"fr", compiled::LocalizedAssetRealizationState::Source, std::nullopt}},
+    });
+    auto undeclared_localized_asset_locale_result =
+        CompiledProject::create(std::move(undeclared_localized_asset_locale));
+    REQUIRE_FALSE(undeclared_localized_asset_locale_result);
+    CHECK(undeclared_localized_asset_locale_result.error().front().code ==
+          "compiled.invalid_model");
+
+    auto self_localized_asset = project_input();
+    const auto self_base_id = id<AssetId>("localized-self-base");
+    self_localized_asset.localization.locales.push_back({"fr", std::nullopt, true, {}});
+    self_localized_asset.assets.push_back(compiled::AssetResource{
+        .id = self_base_id,
+        .kind = compiled::AssetKind::Image,
+        .path = "assets/localized-self-base.png",
+        .aliases = {},
+        .sampling = compiled::ImageSampling::Linear,
+        .width = 64,
+        .height = 64,
+        .localized = {{"fr", compiled::LocalizedAssetRealizationState::Variant, self_base_id}},
+    });
+    auto self_localized_asset_result = CompiledProject::create(std::move(self_localized_asset));
+    REQUIRE_FALSE(self_localized_asset_result);
+    CHECK(self_localized_asset_result.error().front().code == "compiled.invalid_model");
 
     auto reserved_layout = project_input();
     reserved_layout.layouts.push_back(compiled::LayoutResource{

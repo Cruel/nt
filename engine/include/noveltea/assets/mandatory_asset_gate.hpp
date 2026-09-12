@@ -225,7 +225,8 @@ public:
     [[nodiscard]] core::DiagnosticResult<void>
     bind_package_on_owner(const core::LoadedCompiledPackage& package,
                           std::string_view active_renderer_variant,
-                          AssetSourceGeneration generation);
+                          AssetSourceGeneration generation, std::string_view active_locale = {});
+    [[nodiscard]] core::DiagnosticResult<void> set_active_locale_on_owner(std::string_view locale);
     void clear_package_on_owner() noexcept;
 
     [[nodiscard]] MandatoryAssetGateResult

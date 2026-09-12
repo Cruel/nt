@@ -172,6 +172,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     host::DebugUiCommandExecutor m_debug_ui_command_executor;
     std::vector<host::DebugUiCommand> m_pending_debug_ui_commands;
     std::optional<std::string> m_pending_runtime_locale_change;
+    bool m_runtime_locale_resources_preparing = false;
     std::optional<core::RuntimeLocaleChangeResultView> m_runtime_locale_change_result;
     bool m_initialized = false;
     bool m_running = false;

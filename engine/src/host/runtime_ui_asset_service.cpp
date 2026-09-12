@@ -6,12 +6,16 @@
 
 namespace noveltea::host {
 
-void RuntimeUiProjectAssetService::install(const core::CompiledProject& project)
+void RuntimeUiProjectAssetService::install(const core::CompiledProject& project,
+                                           std::string_view active_locale)
 {
     m_assets.clear();
     m_assets.reserve(project.assets().size());
-    for (const auto& resource : project.assets())
-        m_assets.push_back({resource.id, "project:/" + resource.path});
+    for (const auto& resource : project.assets()) {
+        const auto* resolved = project.resolve_asset(resource.id, active_locale);
+        if (resolved != nullptr)
+            m_assets.push_back({resource.id, "project:/" + resolved->path});
+    }
 }
 
 std::optional<std::string> RuntimeUiProjectAssetService::resolve(const core::AssetId& asset) const

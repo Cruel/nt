@@ -243,6 +243,35 @@ TEST_CASE("world background fit policy implements cover contain stretch and cent
     CHECK(center.rect.height == 1000.0f);
 }
 
+TEST_CASE("world resource invalidation re-resolves an unchanged semantic snapshot")
+{
+    FakeWorldResources resources;
+    resources.add_texture("background", 7, 640, 360);
+    WorldPresentationBackend backend(resources);
+
+    auto snapshot = base_snapshot();
+    snapshot.background = PresentationBackground{.asset = id<AssetId>("background"),
+                                                 .color = std::nullopt,
+                                                 .fit = compiled::BackgroundFit::Cover,
+                                                 .material = std::nullopt};
+
+    auto initial = backend.reconcile(snapshot, {1280.0f, 720.0f});
+    REQUIRE(initial);
+    CHECK(initial.value());
+    CHECK(resources.resolve_calls == 1);
+
+    auto unchanged = backend.reconcile(snapshot, {1280.0f, 720.0f});
+    REQUIRE(unchanged);
+    CHECK_FALSE(unchanged.value());
+    CHECK(resources.resolve_calls == 1);
+
+    backend.invalidate_resources();
+    auto refreshed = backend.reconcile(snapshot, {1280.0f, 720.0f});
+    REQUIRE(refreshed);
+    CHECK(refreshed.value());
+    CHECK(resources.resolve_calls == 2);
+}
+
 TEST_CASE("world actor layout centralizes logical slots room anchors and pose layering")
 {
     FakeWorldResources resources;

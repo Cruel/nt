@@ -53,7 +53,7 @@ public:
 
     [[nodiscard]] static StructuredAssetDependencyIndex
     build(const core::LoadedCompiledPackage& package, std::string_view active_renderer_variant,
-          AssetSourceGeneration source_generation);
+          AssetSourceGeneration source_generation, std::string_view active_locale = {});
 
     StructuredAssetDependencyIndex(const StructuredAssetDependencyIndex&) noexcept = default;
     StructuredAssetDependencyIndex&

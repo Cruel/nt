@@ -54,6 +54,7 @@ describe('LocalizationEditor', () => {
 
     expect(screen.getByRole('button', { name: 'Overview' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Translations' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Assets' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Languages' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Messages' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reconciliation' })).toBeInTheDocument();
@@ -77,6 +78,66 @@ describe('LocalizationEditor', () => {
       localization: { locales: { 'fr-CA': { supported: true } } },
     });
     expect(within(row).getByRole('button', { name: 'Remove fr-CA' })).toBeDisabled();
+  });
+
+  it('assigns localized physical Asset variants while preserving the semantic base Asset', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    project.assets.logo = {
+      id: 'logo',
+      label: 'Logo',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/logo.png' },
+        aliases: [],
+        contentHash: 'sha256:logo',
+        imageMetadata: { width: 640, height: 360, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.assets['logo-fr'] = {
+      id: 'logo-fr',
+      label: 'Logo French',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/logo-fr.png' },
+        aliases: [],
+        contentHash: 'sha256:logo-fr',
+        imageMetadata: { width: 640, height: 360, hasAlpha: true, orientation: 1 },
+      },
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<LocalizationEditor tab={tab} />);
+
+    await user.click(screen.getByRole('button', { name: 'Assets' }));
+    const realization = screen.getByRole('combobox', { name: 'Localized Asset for Logo' });
+    await user.click(realization);
+    await user.click(await screen.findByRole('option', { name: /Logo French/ }));
+
+    expect(useProjectStore.getState().document).toMatchObject({
+      localization: {
+        assets: {
+          fr: {
+            logo: {
+              asset: { $ref: { collection: 'assets', id: 'logo-fr' } },
+              origin: 'human',
+              review: 'needs-review',
+            },
+          },
+        },
+      },
+    });
+    expect(screen.getByText(/Localized · Human · Needs review/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: 'Localized Asset for Logo' }));
+    await user.click(await screen.findByRole('option', { name: 'Use source intentionally' }));
+    expect(useProjectStore.getState().document).toMatchObject({
+      localization: { assets: { fr: { logo: { useSource: true } } } },
+    });
   });
 
   it('creates named Messages, edits metadata, and stores target text sparsely', async () => {
