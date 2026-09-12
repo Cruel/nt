@@ -240,12 +240,104 @@ TEST_CASE("runtime package retains only source plus the negotiated startup local
     auto resolved = runtime::resolve_running_game_package_source(
         std::make_shared<assets::ZipAssetSource>(archive), "memory.ntpkg", "es-MX");
     REQUIRE(resolved.has_value());
+    CHECK(resolved.value_if()->input.runtime_locale == "es");
     const auto& localization = resolved.value_if()->input.package.project().localization();
     REQUIRE(localization.catalogs.size() == 2);
     CHECK(std::ranges::any_of(localization.catalogs,
                               [](const auto& value) { return value.locale == "en"; }));
     CHECK(std::ranges::any_of(localization.catalogs,
                               [](const auto& value) { return value.locale == "es"; }));
+
+    auto default_resolved = runtime::resolve_running_game_package_source(
+        std::make_shared<assets::ZipAssetSource>(archive), "memory.ntpkg");
+    REQUIRE(default_resolved.has_value());
+    const auto& default_localization =
+        default_resolved.value_if()->input.package.project().localization();
+    REQUIRE(default_localization.catalogs.size() == 1);
+    CHECK(default_localization.catalogs.front().locale == "en");
+}
+
+TEST_CASE("loose compiled project propagates the negotiated startup locale")
+{
+    auto gameplay = minimal_gameplay();
+    auto locale = gameplay["localization"]["locales"].front();
+    locale["displayName"] = "español";
+    locale["locale"] = "es";
+    locale["nativeName"] = "español";
+    gameplay["localization"]["locales"].push_back(std::move(locale));
+
+    auto catalog = gameplay["localization"]["catalogs"].front();
+    catalog["locale"] = "es";
+    gameplay["localization"]["catalogs"].push_back(std::move(catalog));
+
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    source->add("project:/game", json_bytes(gameplay));
+    assets::AssetManager manager;
+    manager.mount("project", source);
+
+    auto resolved = runtime::resolve_running_game_source(manager, "project:/game", "es-MX");
+    REQUIRE(resolved.has_value());
+    CHECK(resolved.value_if()->input.runtime_locale == "es");
+}
+
+TEST_CASE("runtime package accepts detached locale-specific plural branches",
+          "[assets][localization][residency-matrix]")
+{
+    auto gameplay = minimal_gameplay();
+    auto& source_entry = gameplay["localization"]["catalogs"].front()["entries"].front();
+
+    source_entry["arguments"] =
+        nlohmann::json::array({{{"name", "count"}, {"type", "plural-number"}}});
+    source_entry["pattern"] = {
+        {"root", 0},
+        {"nodes", nlohmann::json::array(
+                      {{{"kind", "plural"},
+                        {"argument", "count"},
+                        {"cases", nlohmann::json::array({{{"key", "one"}, {"node", 1}},
+                                                         {{"key", "other"}, {"node", 2}}})}},
+                       {{"kind", "text"}, {"text", "One"}},
+                       {{"kind", "text"}, {"text", "Many"}}})}};
+    auto locale = gameplay["localization"]["locales"].front();
+    locale["catalogPath"] = "localization/ja.json";
+    locale["displayName"] = "日本語";
+    locale["locale"] = "ja";
+    locale["pluralCategories"] = nlohmann::json::array({"other"});
+    locale["pluralRules"] = nlohmann::json::array();
+    locale["nativeName"] = "日本語";
+    gameplay["localization"]["locales"].push_back(std::move(locale));
+
+    auto catalog = gameplay["localization"]["catalogs"].front();
+    catalog["locale"] = "ja";
+    for (auto& entry : catalog["entries"])
+        if (entry.contains("value"))
+            entry["value"] = "ES " + entry["value"].get<std::string>();
+    auto& pattern = catalog["entries"].front()["pattern"];
+    pattern["nodes"][0]["cases"] = nlohmann::json::array({{{"key", "other"}, {"node", 1}}});
+    pattern["nodes"].erase(2);
+    pattern["nodes"][1]["text"] = "個";
+    const auto gameplay_bytes = json_bytes(gameplay);
+    const auto catalog_bytes = json_bytes(catalog);
+    const std::array declared = {
+        std::pair<std::string, std::uint64_t>{"game", gameplay_bytes.size()},
+        std::pair<std::string, std::uint64_t>{"localization/ja.json", catalog_bytes.size()},
+    };
+    const auto manifest = runtime_manifest(gameplay, declared);
+    const auto archive = make_zip(std::array{
+        ZipFixtureEntry{"manifest.json", json_bytes(manifest)},
+        ZipFixtureEntry{"game", gameplay_bytes},
+        ZipFixtureEntry{"localization/ja.json", catalog_bytes},
+    });
+
+    auto resolved = runtime::resolve_running_game_package_source(
+        std::make_shared<assets::ZipAssetSource>(archive), "memory.ntpkg", "ja-JP");
+    REQUIRE(resolved.has_value());
+    CHECK(resolved.value_if()->input.runtime_locale == "ja");
+    const auto& localization = resolved.value_if()->input.package.project().localization();
+    REQUIRE(localization.catalogs.size() == 2);
+    CHECK(std::ranges::any_of(localization.catalogs,
+                              [](const auto& value) { return value.locale == "en"; }));
+    CHECK(std::ranges::any_of(localization.catalogs,
+                              [](const auto& value) { return value.locale == "ja"; }));
 
     auto default_resolved = runtime::resolve_running_game_package_source(
         std::make_shared<assets::ZipAssetSource>(archive), "memory.ntpkg");

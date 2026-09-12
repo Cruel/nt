@@ -682,6 +682,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     }
     if (existing?.text === value) return;
     const translation = createLocalizationTranslation(view, value, 'human');
+    if (existing?.pattern !== undefined) translation.pattern = structuredClone(existing.pattern);
     if (existing?.dialogueCues !== undefined)
       translation.dialogueCues = existing.dialogueCues.map((cue) => structuredClone(cue));
     if (!localeTranslations) {
@@ -1763,7 +1764,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor={`message-source-${messageId}`}>Source content</Label>
-                      <Input
+                      <textarea
+                        className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
                         id={`message-source-${messageId}`}
                         defaultValue={message.source}
                         onBlur={(event) =>
@@ -2248,7 +2250,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                           <Label htmlFor={`source-${messageId}`}>
                             {localization.sourceLocale} source
                           </Label>
-                          <Input
+                          <textarea
+                            className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
                             id={`source-${messageId}`}
                             key={`source:${messageId}:${message.source}`}
                             defaultValue={message.source}
@@ -2260,7 +2263,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                           <Label htmlFor={`target-${messageId}`}>
                             {effectiveTargetLocale} target
                           </Label>
-                          <Input
+                          <textarea
+                            className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
                             id={`target-${messageId}`}
                             aria-label={`Target content for ${label}`}
                             key={`${effectiveTargetLocale}:${messageId}:${translated}:${effective.locale ?? 'missing'}`}

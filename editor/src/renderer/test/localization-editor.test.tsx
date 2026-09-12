@@ -794,3 +794,82 @@ describe('LocalizationEditor', () => {
     expect(screen.getByText(/Source locale migration is outside v1/i)).toBeInTheDocument();
   });
 });
+
+describe('LocalizationEditor content preservation', () => {
+  function loadMessage(pattern = false) {
+    const project = createAuthoringProject();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f022';
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.copy',
+      source: 'First line\nSecond line',
+      ...(pattern
+        ? {
+            arguments: { count: 'plural-number' as const },
+            pattern: {
+              kind: 'plural' as const,
+              argument: 'count',
+              cases: {
+                one: { kind: 'text' as const, text: 'One' },
+                other: { kind: 'text' as const, text: 'Many' },
+              },
+            },
+          }
+        : {}),
+    };
+    const view = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: {
+        ...createLocalizationTranslation(view, 'Première ligne\nDeuxième ligne'),
+        ...(pattern
+          ? { pattern: structuredClone(project.localization.messages[messageId]!.pattern) }
+          : {}),
+      },
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<LocalizationEditor tab={tab} />);
+    return { project, messageId };
+  }
+
+  it('preserves multiline source and target content on untouched blur', async () => {
+    const user = userEvent.setup();
+    const { project, messageId } = loadMessage();
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(
+      screen.getAllByLabelText('en source').find((field) => field.id === `source-${messageId}`)!,
+    );
+    await user.tab();
+    await user.click(screen.getByLabelText('Target content for ui.copy'));
+    await user.tab();
+    await user.click(screen.getByRole('button', { name: 'Messages' }));
+    await user.click(screen.getByLabelText('Source content'));
+    await user.tab();
+    const updated = useProjectStore.getState().document as AuthoringProject;
+    expect(updated.localization.messages[messageId]?.source).toBe(
+      project.localization.messages[messageId]?.source,
+    );
+    expect(updated.localization.translations.fr?.[messageId]?.text).toBe(
+      project.localization.translations.fr?.[messageId]?.text,
+    );
+  });
+
+  it('preserves selector branches when target text changes', async () => {
+    const user = userEvent.setup();
+    const { project, messageId } = loadMessage(true);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    const target = screen.getByLabelText('Target content for ui.copy');
+    await user.clear(target);
+    await user.type(target, 'Poursuivre');
+    await user.tab();
+    const updated = useProjectStore.getState().document as AuthoringProject;
+    expect(updated.localization.translations.fr?.[messageId]?.text).toBe('Poursuivre');
+    expect(updated.localization.translations.fr?.[messageId]?.pattern).toEqual(
+      project.localization.translations.fr?.[messageId]?.pattern,
+    );
+  });
+});
