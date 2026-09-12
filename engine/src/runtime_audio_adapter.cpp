@@ -135,7 +135,7 @@ float RuntimeAudioAdapter::effective_gain(core::compiled::AudioPurpose purpose,
     const bool voice_active =
         std::any_of(m_active.begin(), m_active.end(), [&](const ActiveTrack& active) {
             return active.purpose == core::compiled::AudioPurpose::Voice &&
-                   m_audio.track_active(active.track);
+                   !active.locale_suspended && m_audio.track_active(active.track);
         });
     if (voice_active && m_mix_settings.voice_ducking.enabled) {
         if (purpose == core::compiled::AudioPurpose::Music)
@@ -159,14 +159,20 @@ bool RuntimeAudioAdapter::should_pause(core::compiled::AudioPausePolicy policy,
 void RuntimeAudioAdapter::refresh_mix_and_pause() noexcept
 {
     for (const auto& active : m_active) {
-        m_audio.set_track_volume(active.track, effective_gain(active.purpose, active.gain));
-        m_audio.set_track_paused(active.track, should_pause(active.pause_policy, active.owner));
+        m_audio.set_track_volume(active.track, active.locale_suspended
+                                                   ? 0.0F
+                                                   : effective_gain(active.purpose, active.gain));
+        m_audio.set_track_paused(active.track, active.locale_suspended ||
+                                                   should_pause(active.pause_policy, active.owner));
     }
     for (const auto& desired : m_desired) {
-        m_audio.set_track_volume(desired.track,
-                                 effective_gain(desired.desired.purpose, desired.desired.gain));
-        m_audio.set_track_paused(desired.track,
-                                 should_pause(desired.desired.pause_policy, desired.desired.owner));
+        m_audio.set_track_volume(
+            desired.track, desired.locale_suspended
+                               ? 0.0F
+                               : effective_gain(desired.desired.purpose, desired.desired.gain));
+        m_audio.set_track_paused(
+            desired.track, desired.locale_suspended ||
+                               should_pause(desired.desired.pause_policy, desired.desired.owner));
     }
 }
 
@@ -183,6 +189,7 @@ void RuntimeAudioAdapter::cancel_owner(const core::PresentationOwner& owner) noe
     for (const auto& active : m_active) {
         if (active.owner != owner)
             continue;
+        cancel_locale_replacement(active.track);
         m_audio.stop_track(active.track);
         cancelled.push_back(active.operation);
     }
@@ -196,8 +203,10 @@ void RuntimeAudioAdapter::cancel_owner(const core::PresentationOwner& owner) noe
         return true;
     });
     for (const auto& desired : m_desired) {
-        if (desired.desired.owner == owner)
+        if (desired.desired.owner == owner) {
+            cancel_locale_replacement(desired.track);
             m_audio.stop_track(desired.track);
+        }
     }
     std::erase_if(m_desired, [&](const RealizedDesiredTrack& desired) {
         return desired.desired.owner == owner;
@@ -308,7 +317,8 @@ RuntimeAudioAdapter::start_playback(const core::AudioOperation& operation,
                                                ? seconds(operation.fade)
                                                : 0.0F,
                         .fade_out_seconds = 0.0F,
-                        .replace_mode = AudioTrackReplaceMode::Replace};
+                        .replace_mode = AudioTrackReplaceMode::Replace,
+                        .start_normalized_position = std::nullopt};
     if (!m_audio.play_track(track, lease, desc)) {
         return Result::failure(audio_error("runtime_audio.play_failed",
                                            "Audio backend could not start typed playback"));
@@ -317,8 +327,9 @@ RuntimeAudioAdapter::start_playback(const core::AudioOperation& operation,
         operation.causality == core::compiled::AudioCausality::Causal && !operation.completion;
     m_active.push_back(ActiveTrack{
         operation.id, operation.purpose, operation.pause_policy, *operation.audio_owner,
-        operation.gain, track,
-        report_termination ? std::optional<core::AudioOperationId>{operation.id} : std::nullopt});
+        operation.causality, *operation.asset, operation.gain, operation.pan, track, lease->path,
+        report_termination ? std::optional<core::AudioOperationId>{operation.id} : std::nullopt,
+        false, false});
     m_audio.set_track_paused(track, should_pause(operation.pause_policy, *operation.audio_owner));
     refresh_mix_and_pause();
 
@@ -405,9 +416,11 @@ RuntimeAudioAdapter::apply(const core::AudioOperation& operation)
                 },
                 operation.target);
         };
-        for (const auto& active : m_active) {
+        for (auto& active : m_active) {
             if (!matches_transient(active))
                 continue;
+            cancel_locale_replacement(active.track);
+            active.stopping = true;
             stopped_tracks.push_back(active.track);
             m_audio.stop_track(active.track,
                                operation.action == core::compiled::AudioAction::FadeOut
@@ -423,6 +436,7 @@ RuntimeAudioAdapter::apply(const core::AudioOperation& operation)
             const bool matches = matches_desired(desired);
             if (!matches)
                 continue;
+            cancel_locale_replacement(desired.track);
             stopped_tracks.push_back(desired.track);
             m_audio.stop_track(desired.track,
                                operation.action == core::compiled::AudioAction::FadeOut
@@ -503,6 +517,324 @@ void RuntimeAudioAdapter::poll_preparations()
         }
         ++current;
     }
+    poll_locale_replacements();
+}
+
+void RuntimeAudioAdapter::cancel_locale_replacement(const AudioTrackId& track) noexcept
+{
+    std::erase_if(m_locale_replacements, [&](auto& replacement) {
+        if (replacement.track != track)
+            return false;
+        replacement.handle.cancel();
+        return true;
+    });
+}
+
+void RuntimeAudioAdapter::fail_locale_replacement(const PendingLocaleReplacement& replacement,
+                                                  core::Diagnostic diagnostic)
+{
+    m_audio.stop_track(replacement.track);
+    if (replacement.operation) {
+        const auto operation = *replacement.operation;
+        const auto active = std::find_if(m_active.begin(), m_active.end(), [&](const auto& value) {
+            return value.operation == operation && value.track == replacement.track;
+        });
+        const bool disposable = active != m_active.end() &&
+                                active->causality == core::compiled::AudioCausality::Disposable;
+        std::erase_if(m_active, [&](const ActiveTrack& value) {
+            return value.operation == operation && value.track == replacement.track;
+        });
+        std::erase_if(m_pending, [&](const PendingCompletion& pending) {
+            return pending.input.operation == operation;
+        });
+        if (disposable) {
+            diagnostic.message = "Cosmetic localized audio was dropped: " + diagnostic.message;
+            m_async_diagnostics.push_back(std::move(diagnostic));
+        } else {
+            m_preparation_failures.push_back({operation, std::move(diagnostic)});
+        }
+    } else {
+        std::erase_if(m_desired, [&](const RealizedDesiredTrack& desired) {
+            return desired.track == replacement.track;
+        });
+        diagnostic.message = "Localized desired audio was dropped: " + diagnostic.message;
+        m_async_diagnostics.push_back(std::move(diagnostic));
+    }
+    refresh_mix_and_pause();
+}
+
+void RuntimeAudioAdapter::poll_locale_replacements()
+{
+    for (auto current = m_locale_replacements.begin(); current != m_locale_replacements.end();) {
+        if (current->generation != m_locale_transition_generation) {
+            current->handle.cancel();
+            current = m_locale_replacements.erase(current);
+            continue;
+        }
+
+        const bool still_active =
+            current->operation
+                ? std::any_of(m_active.begin(), m_active.end(),
+                              [&](const auto& value) {
+                                  return value.operation == *current->operation &&
+                                         value.track == current->track &&
+                                         value.asset == current->asset && value.locale_suspended;
+                              })
+                : std::any_of(m_desired.begin(), m_desired.end(), [&](const auto& value) {
+                      return value.track == current->track &&
+                             value.desired.asset == current->asset && value.locale_suspended;
+                  });
+        if (!still_active) {
+            current->handle.cancel();
+            current = m_locale_replacements.erase(current);
+            continue;
+        }
+
+        const auto state = current->handle.state();
+        if (state == assets::AssetRequestState::Pending) {
+            ++current;
+            continue;
+        }
+        if (state != assets::AssetRequestState::Ready) {
+            auto diagnostics = current->handle.diagnostics();
+            auto diagnostic =
+                diagnostics.empty()
+                    ? audio_error("runtime_audio.locale_replacement_preparation_failed",
+                                  "Localized audio replacement could not be prepared")
+                    : std::move(diagnostics.front());
+            auto failed = current++;
+            fail_locale_replacement(*failed, std::move(diagnostic));
+            m_locale_replacements.erase(failed);
+            continue;
+        }
+
+        auto lease = std::move(current->handle).take_ready();
+        if (!lease) {
+            auto failed = current++;
+            fail_locale_replacement(
+                *failed,
+                audio_error(
+                    "runtime_audio.locale_replacement_lease_missing",
+                    "Ready localized audio replacement did not provide a reservation lease"));
+            m_locale_replacements.erase(failed);
+            continue;
+        }
+
+        bool started = false;
+        if (current->operation) {
+            const auto active =
+                std::find_if(m_active.begin(), m_active.end(), [&](const auto& value) {
+                    return value.operation == *current->operation &&
+                           value.track == current->track && value.asset == current->asset &&
+                           value.locale_suspended;
+                });
+            if (active != m_active.end()) {
+                AudioTrackDesc desc{.track_id = active->track,
+                                    .bus = audio_bus(active->purpose),
+                                    .volume = effective_gain(active->purpose, active->gain),
+                                    .pitch = 1.0F,
+                                    .pan = static_cast<float>(active->pan),
+                                    .loop = false,
+                                    .fade_in_seconds = 0.0F,
+                                    .fade_out_seconds = 0.0F,
+                                    .replace_mode = AudioTrackReplaceMode::Replace,
+                                    .start_normalized_position = current->normalized_progress};
+                started = static_cast<bool>(m_audio.play_track(active->track, *lease, desc));
+                if (started) {
+                    active->physical_path = current->request.path;
+                    active->locale_suspended = false;
+                }
+            }
+        } else {
+            const auto desired =
+                std::find_if(m_desired.begin(), m_desired.end(), [&](const auto& value) {
+                    return value.track == current->track && value.desired.asset == current->asset &&
+                           value.locale_suspended;
+                });
+            if (desired != m_desired.end()) {
+                AudioTrackDesc desc{
+                    .track_id = desired->track,
+                    .bus = audio_bus(desired->desired.purpose),
+                    .volume = effective_gain(desired->desired.purpose, desired->desired.gain),
+                    .pitch = 1.0F,
+                    .pan = static_cast<float>(desired->desired.pan),
+                    .loop = true,
+                    .fade_in_seconds = 0.0F,
+                    .fade_out_seconds = 0.0F,
+                    .replace_mode = AudioTrackReplaceMode::Replace,
+                    .start_normalized_position = current->normalized_progress};
+                started = static_cast<bool>(m_audio.play_track(desired->track, *lease, desc));
+                if (started) {
+                    desired->physical_path = current->request.path;
+                    desired->locale_suspended = false;
+                }
+            }
+        }
+
+        if (!started) {
+            auto failed = current++;
+            fail_locale_replacement(
+                *failed,
+                audio_error("runtime_audio.locale_replacement_play_failed",
+                            "Audio backend could not realize localized replacement playback"));
+            m_locale_replacements.erase(failed);
+            continue;
+        }
+
+        current = m_locale_replacements.erase(current);
+        refresh_mix_and_pause();
+    }
+}
+
+void RuntimeAudioAdapter::begin_locale_audio_transition(std::uint64_t generation)
+{
+    m_locale_transition_generation = generation;
+    for (auto& replacement : m_locale_replacements)
+        replacement.handle.cancel();
+    m_locale_replacements.clear();
+
+    std::vector<core::AudioOperationId> failed_preparations;
+    auto fail_preparation = [&](PendingPreparation& preparation, core::Diagnostic diagnostic) {
+        if (preparation.operation.causality == core::compiled::AudioCausality::Disposable) {
+            diagnostic.message = "Cosmetic localized audio was dropped: " + diagnostic.message;
+            m_async_diagnostics.push_back(std::move(diagnostic));
+        } else {
+            m_preparation_failures.push_back({preparation.operation.id, std::move(diagnostic)});
+        }
+        failed_preparations.push_back(preparation.operation.id);
+    };
+    for (auto& preparation : m_preparations) {
+        auto request = resolve_request(preparation.operation);
+        if (!request) {
+            fail_preparation(preparation, std::move(request).error());
+            continue;
+        }
+        if (request.value_if()->path == preparation.request.path)
+            continue;
+
+        const auto urgency =
+            preparation.operation.causality == core::compiled::AudioCausality::Causal
+                ? assets::AssetRequestUrgency::Blocking
+                : assets::AssetRequestUrgency::Background;
+        auto submitted = m_typed_assets.request_audio(*request.value_if(),
+                                                      assets::AssetRequestReason::Demand, urgency);
+        if (!submitted) {
+            fail_preparation(preparation, std::move(submitted).error());
+            continue;
+        }
+
+        preparation.request = *request.value_if();
+        preparation.handle = std::move(*submitted.value_if());
+        preparation.ready_lease.reset();
+    }
+    if (!failed_preparations.empty()) {
+        std::erase_if(m_preparations, [&](const PendingPreparation& preparation) {
+            return std::find(failed_preparations.begin(), failed_preparations.end(),
+                             preparation.operation.id) != failed_preparations.end();
+        });
+    }
+
+    std::vector<core::AudioOperationId> failed_operations;
+    auto fail_active = [&](ActiveTrack& active, core::Diagnostic diagnostic) {
+        m_audio.stop_track(active.track);
+        if (active.causality == core::compiled::AudioCausality::Disposable) {
+            diagnostic.message = "Cosmetic localized audio was dropped: " + diagnostic.message;
+            m_async_diagnostics.push_back(std::move(diagnostic));
+        } else {
+            m_preparation_failures.push_back({active.operation, std::move(diagnostic)});
+        }
+        failed_operations.push_back(active.operation);
+    };
+    for (auto& active : m_active) {
+        if (active.stopping || !m_audio.track_active(active.track))
+            continue;
+        const auto target_path = m_assets.resolve(active.asset);
+        if (!target_path) {
+            fail_active(active,
+                        audio_error("runtime_audio.locale_replacement_asset_unavailable",
+                                    "Localized audio replacement Asset cannot be resolved"));
+            continue;
+        }
+        if (*target_path == active.physical_path) {
+            active.locale_suspended = false;
+            continue;
+        }
+
+        const auto progress = m_audio.track_normalized_position(active.track);
+        const assets::AudioAssetRequest request{
+            .path = *target_path, .mode = AudioLoadMode::Auto, .kind = audio_kind(active.purpose)};
+        auto submitted = m_typed_assets.request_audio(request, assets::AssetRequestReason::Demand,
+                                                      assets::AssetRequestUrgency::Background);
+        if (!submitted) {
+            fail_active(active, std::move(submitted).error());
+            continue;
+        }
+        active.locale_suspended = true;
+        m_locale_replacements.push_back({.generation = generation,
+                                         .track = active.track,
+                                         .asset = active.asset,
+                                         .operation = active.operation,
+                                         .normalized_progress = progress,
+                                         .request = request,
+                                         .handle = std::move(*submitted.value_if())});
+    }
+    if (!failed_operations.empty()) {
+        std::erase_if(m_active, [&](const ActiveTrack& active) {
+            return std::find(failed_operations.begin(), failed_operations.end(),
+                             active.operation) != failed_operations.end();
+        });
+        std::erase_if(m_pending, [&](const PendingCompletion& pending) {
+            return std::find(failed_operations.begin(), failed_operations.end(),
+                             pending.input.operation) != failed_operations.end();
+        });
+    }
+
+    std::vector<AudioTrackId> failed_desired;
+    for (auto& desired : m_desired) {
+        const auto target_path = m_assets.resolve(desired.desired.asset);
+        if (!target_path) {
+            m_audio.stop_track(desired.track);
+            m_async_diagnostics.push_back(
+                audio_error("runtime_audio.locale_replacement_asset_unavailable",
+                            "Localized desired audio replacement Asset cannot be resolved"));
+            failed_desired.push_back(desired.track);
+            continue;
+        }
+        if (*target_path == desired.physical_path) {
+            desired.locale_suspended = false;
+            continue;
+        }
+
+        const auto progress = m_audio.track_normalized_position(desired.track);
+        const assets::AudioAssetRequest request{.path = *target_path,
+                                                .mode = AudioLoadMode::Auto,
+                                                .kind = audio_kind(desired.desired.purpose)};
+        auto submitted = m_typed_assets.request_audio(request, assets::AssetRequestReason::Demand,
+                                                      assets::AssetRequestUrgency::Background);
+        if (!submitted) {
+            m_audio.stop_track(desired.track);
+            auto diagnostic = std::move(submitted).error();
+            diagnostic.message = "Localized desired audio was dropped: " + diagnostic.message;
+            m_async_diagnostics.push_back(std::move(diagnostic));
+            failed_desired.push_back(desired.track);
+            continue;
+        }
+        desired.locale_suspended = true;
+        m_locale_replacements.push_back({.generation = generation,
+                                         .track = desired.track,
+                                         .asset = desired.desired.asset,
+                                         .operation = std::nullopt,
+                                         .normalized_progress = progress,
+                                         .request = request,
+                                         .handle = std::move(*submitted.value_if())});
+    }
+    if (!failed_desired.empty()) {
+        std::erase_if(m_desired, [&](const RealizedDesiredTrack& desired) {
+            return std::find(failed_desired.begin(), failed_desired.end(), desired.track) !=
+                   failed_desired.end();
+        });
+    }
+    refresh_mix_and_pause();
 }
 
 bool RuntimeAudioAdapter::causal_preparation_pending() const noexcept
@@ -572,7 +904,8 @@ RuntimeAudioAdapter::reconcile_desired(const std::vector<core::PresentationDesir
                             .loop = true,
                             .fade_in_seconds = seconds(start.desired.fade_in),
                             .fade_out_seconds = seconds(start.desired.fade_out),
-                            .replace_mode = AudioTrackReplaceMode::Replace};
+                            .replace_mode = AudioTrackReplaceMode::Replace,
+                            .start_normalized_position = std::nullopt};
         const bool started = static_cast<bool>(m_audio.play_track(start.track, start.lease, desc));
         if (!started) {
             for (const auto& track : started_tracks)
@@ -589,8 +922,10 @@ RuntimeAudioAdapter::reconcile_desired(const std::vector<core::PresentationDesir
                                          [&current](const core::PresentationDesiredAudio& value) {
                                              return desired_key_equal(current.desired, value);
                                          });
-        if (target == desired.end() || !desired_playback_equal(current.desired, *target))
+        if (target == desired.end() || !desired_playback_equal(current.desired, *target)) {
+            cancel_locale_replacement(current.track);
             m_audio.stop_track(current.track, seconds(current.desired.fade_out));
+        }
     }
 
     std::vector<RealizedDesiredTrack> realized;
@@ -602,7 +937,8 @@ RuntimeAudioAdapter::reconcile_desired(const std::vector<core::PresentationDesir
             });
         if (current != m_desired.end()) {
             m_audio.set_track_pan(current->track, static_cast<float>(candidate.pan));
-            realized.push_back(RealizedDesiredTrack{candidate, current->track});
+            realized.push_back(RealizedDesiredTrack{
+                candidate, current->track, current->physical_path, current->locale_suspended});
             continue;
         }
         const auto started =
@@ -610,7 +946,8 @@ RuntimeAudioAdapter::reconcile_desired(const std::vector<core::PresentationDesir
                 return desired_key_equal(value.desired, candidate);
             });
         if (started != starts.end())
-            realized.push_back(RealizedDesiredTrack{candidate, started->track});
+            realized.push_back(
+                RealizedDesiredTrack{candidate, started->track, started->lease->path, false});
     }
     m_desired = std::move(realized);
     refresh_mix_and_pause();
@@ -666,8 +1003,10 @@ void RuntimeAudioAdapter::snap_operation(core::AudioOperationId operation) noexc
         return true;
     });
     for (const auto& active : m_active) {
-        if (active.operation == operation || active.termination == operation)
+        if (active.operation == operation || active.termination == operation) {
+            cancel_locale_replacement(active.track);
             m_audio.stop_track(active.track);
+        }
     }
     for (const auto& pending : m_pending) {
         if (pending.input.operation != operation)
@@ -685,6 +1024,10 @@ void RuntimeAudioAdapter::reset(
             preparation.handle.cancel();
     }
     m_preparations.clear();
+    for (auto& replacement : m_locale_replacements)
+        replacement.handle.cancel();
+    m_locale_replacements.clear();
+    m_locale_transition_generation = 0;
     m_preparation_failures.clear();
     m_async_diagnostics.clear();
     m_pending.clear();

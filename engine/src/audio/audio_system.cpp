@@ -193,6 +193,7 @@ AudioTrackHandle AudioSystem::play_track(const AudioTrackId& track_id,
     playback.pitch = desc.pitch;
     playback.pan = std::clamp(desc.pan, -1.0f, 1.0f);
     playback.loop = desc.loop;
+    playback.start_normalized_position = desc.start_normalized_position;
     const AudioVoiceHandle voice = play(std::move(asset), playback);
     if (!voice)
         return {};
@@ -243,8 +244,10 @@ void AudioSystem::set_track_paused(const AudioTrackId& track_id, bool paused)
     const auto found = m_tracks.find(track_id.empty() ? AudioTrackId{"bgm"} : track_id);
     if (found == m_tracks.end())
         return;
-    for (auto& voice : found->second)
-        m_backend->set_paused(voice.voice, paused);
+    for (auto& voice : found->second) {
+        if (m_backend->voice_active(voice.voice))
+            m_backend->set_paused(voice.voice, paused);
+    }
 }
 
 void AudioSystem::set_track_pan(const AudioTrackId& track_id, float pan)
@@ -269,6 +272,24 @@ bool AudioSystem::track_active(const AudioTrackId& track_id) const noexcept
     return std::any_of(
         found->second.begin(), found->second.end(),
         [this](const ManagedVoice& voice) { return m_backend->voice_active(voice.voice); });
+}
+
+std::optional<double>
+AudioSystem::track_normalized_position(const AudioTrackId& track_id) const noexcept
+{
+    if (!m_backend || !m_initialized)
+        return std::nullopt;
+    const auto found = m_tracks.find(track_id.empty() ? AudioTrackId{"bgm"} : track_id);
+    if (found == m_tracks.end())
+        return std::nullopt;
+    for (auto voice = found->second.rbegin(); voice != found->second.rend(); ++voice) {
+        if (!m_backend->voice_active(voice->voice))
+            continue;
+        auto progress = m_backend->voice_normalized_position(voice->voice);
+        if (progress)
+            return std::clamp(*progress, 0.0, 1.0);
+    }
+    return std::nullopt;
 }
 
 void AudioSystem::update(float dt)

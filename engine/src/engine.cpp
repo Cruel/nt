@@ -1924,7 +1924,7 @@ void Engine::Impl::service_pending_runtime_locale_change()
 
     // Prepare fonts and the bounded currently visible localized Asset set while the old semantic
     // locale and old mandatory publication remain active. The bridge deliberately excludes active
-    // audio from this hold; #216 owns post-commit voice/video replacement.
+    // streaming media from this hold; physical replacement belongs to post-commit reconciliation.
     if (!m_runtime_locale_resources_preparing) {
         if (!m_runtime_ui.prepare_fonts(candidate_fonts)) {
             const core::Diagnostic diagnostic{
@@ -2038,6 +2038,9 @@ void Engine::Impl::service_pending_runtime_locale_change()
 
     m_runtime_ui.bind_message_localization(running_game->package().project().localization(),
                                            target);
+    // Streaming localized media is deliberately outside the atomic commit gate. Start physical
+    // replacement only after every commit-critical locale surface has published successfully.
+    m_game_host.runtime_presentation().begin_locale_media_transition();
     m_runtime_locale_change_result = core::RuntimeLocaleChangeResultView{
         .requested_locale = target,
         .succeeded = true,

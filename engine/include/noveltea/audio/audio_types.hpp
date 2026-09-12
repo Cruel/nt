@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace noveltea {
@@ -58,6 +59,7 @@ struct AudioPlaybackDesc {
     float pitch = 1.0f;
     float pan = 0.0f;
     bool loop = false;
+    std::optional<double> start_normalized_position;
 };
 
 struct AudioSfxDesc {
@@ -76,6 +78,7 @@ struct AudioTrackDesc {
     float fade_in_seconds = 0.0f;
     float fade_out_seconds = 0.0f;
     AudioTrackReplaceMode replace_mode = AudioTrackReplaceMode::Replace;
+    std::optional<double> start_normalized_position;
 };
 
 } // namespace noveltea

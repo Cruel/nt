@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace noveltea::assets {
 class AssetManager;
@@ -63,6 +64,12 @@ public:
     virtual void pause() = 0;
     virtual void resume() = 0;
     [[nodiscard]] virtual bool voice_active(AudioVoiceHandle voice) const = 0;
+    [[nodiscard]] virtual std::optional<double>
+    voice_normalized_position(AudioVoiceHandle voice) const
+    {
+        (void)voice;
+        return std::nullopt;
+    }
     [[nodiscard]] virtual AudioBackendStats stats() const = 0;
     virtual void collect_finished_voices() = 0;
 };

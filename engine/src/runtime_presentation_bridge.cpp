@@ -591,9 +591,9 @@ RuntimePresentationBridge::prepare_published_snapshot_resources()
 
     const auto snapshot = *m_published_snapshot;
     auto commit_critical_snapshot = snapshot;
-    // Active localized voice/video replacement belongs to post-commit reconciliation. Exclude
-    // already-playing audio from this bounded locale refresh so streaming media cannot hold the
-    // locale commit open; #216 replaces it afterward under locale-transition generations.
+    // Active localized streaming-media replacement belongs to post-commit reconciliation. Exclude
+    // already-playing audio from this bounded locale refresh so large media cannot hold the locale
+    // commit open; physical replacement runs afterward under locale-transition generations.
     commit_critical_snapshot.desired_audio.clear();
     auto started = m_mandatory_asset_gate->begin_on_owner(commit_critical_snapshot);
     if (started.disposition == assets::MandatoryAssetGateDisposition::Failed ||
@@ -615,6 +615,14 @@ RuntimePresentationBridge::commit_prepared_published_snapshot_resources()
     if (committed)
         m_hold_mandatory_commit = false;
     return committed;
+}
+
+void RuntimePresentationBridge::begin_locale_media_transition()
+{
+    ++m_locale_transition_generation;
+    if (m_locale_transition_generation == 0)
+        ++m_locale_transition_generation;
+    m_audio.begin_locale_audio_transition(m_locale_transition_generation);
 }
 
 core::Result<void, core::Diagnostics>

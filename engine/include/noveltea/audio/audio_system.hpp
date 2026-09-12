@@ -4,6 +4,7 @@
 #include "noveltea/audio/audio_backend.hpp"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -51,6 +52,8 @@ public:
     void set_track_paused(const AudioTrackId& track_id, bool paused);
     void set_track_pan(const AudioTrackId& track_id, float pan);
     [[nodiscard]] bool track_active(const AudioTrackId& track_id) const noexcept;
+    [[nodiscard]] std::optional<double>
+    track_normalized_position(const AudioTrackId& track_id) const noexcept;
 
     void update(float dt);
 
