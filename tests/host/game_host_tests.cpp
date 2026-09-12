@@ -5,6 +5,7 @@
 #include "core/editor_asset_profiler_service.hpp"
 #endif
 #include "noveltea/assets/asset_source.hpp"
+#include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/package_export.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
@@ -253,6 +254,97 @@ std::string minimal_compiled_project_fixture()
     std::ifstream file(path, std::ios::binary);
     REQUIRE(file.good());
     return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+std::string localized_dialogue_cue_compiled_project_fixture()
+{
+    auto project = nlohmann::json::parse(minimal_compiled_project_fixture(), nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
+
+    constexpr core::MessageId message_id = 4;
+    project["definitions"]["dialogues"] = nlohmann::json::array({
+        {{"id", "localized"},
+         {"displayName",
+          {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Localized"}}}}},
+         {"defaultSpeaker", nullptr},
+         {"settings", {{"logMode", "everything"}, {"showDisabledChoices", false}}},
+         {"stageSlots", nlohmann::json::array()},
+         {"mediaSlots", nlohmann::json::array()},
+         {"program",
+          {{"blocks",
+            nlohmann::json::array(
+                {{{"id", "start"},
+                  {"kind", "sequence"},
+                  {"defaultSpeaker", nullptr},
+                  {"segments",
+                   nlohmann::json::array(
+                       {{{"id", "line"},
+                         {"kind", "line"},
+                         {"autosaveSafePoint", false},
+                         {"cues",
+                          nlohmann::json::array(
+                              {{{"id", "localized-camera"},
+                                {"kind", "camera"},
+                                {"position", {{"offset", 8}, {"order", 0}}},
+                                {"emphasis",
+                                 {{"kind", "flash"},
+                                  {"color", "#ffffff"},
+                                  {"opacity", 0.75},
+                                  {"durationMs", 60},
+                                  {"waitForCompletion", false},
+                                  {"skippable", true}}}}})},
+                         {"effects", nlohmann::json::array()},
+                         {"logged", true},
+                         {"showOnce", false},
+                         {"speaker", nullptr},
+                         {"text",
+                          {{"markup", "active-text"},
+                           {"source", {{"kind", "message"}, {"id", message_id}}}}}}})}}})},
+           {"edges", nlohmann::json::array()},
+           {"entryBlockId", "start"}}},
+         {"completion", {{"kind", "end"}}}}});
+    project["entrypoint"] = {{"kind", "dialogue"},
+                             {"dialogue", {{"kind", "dialogue"}, {"id", "localized"}}}};
+
+    auto& english = project["localization"]["catalogs"][0];
+    english["entries"].push_back(
+        {{"messageId", message_id},
+         {"value", "0123456789"},
+         {"dialogueCues",
+          nlohmann::json::array(
+              {{{"id", "localized-camera"}, {"position", {{"offset", 8}, {"order", 0}}}}})}});
+
+    auto spanish_locale = project["localization"]["locales"][0];
+    spanish_locale["locale"] = "es";
+    spanish_locale["nativeName"] = "español";
+    spanish_locale["displayName"] = "español";
+    project["localization"]["locales"].push_back(std::move(spanish_locale));
+    nlohmann::json spanish_entry = {{"messageId", message_id}, {"value", "abcdefghij"}};
+    spanish_entry["dialogueCues"] = nlohmann::json::array(
+        {{{"id", "localized-camera"}, {"position", {{"offset", 2}, {"order", 0}}}}});
+    project["localization"]["catalogs"].push_back(
+        {{"locale", "es"}, {"entries", nlohmann::json::array({std::move(spanish_entry)})}});
+
+    auto decoded = core::decode_compiled_project(project, "localized-dialogue-host-test.json");
+    if (!decoded)
+        for (const auto& diagnostic : decoded.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message << " @ "
+                                          << diagnostic.source_path);
+    REQUIRE(decoded);
+    return project.dump();
+}
+
+std::string detached_spanish_catalog_compiled_project_fixture()
+{
+    auto project = nlohmann::json::parse(minimal_compiled_project_fixture(), nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
+    auto locale = project["localization"]["locales"].front();
+    locale["locale"] = "es";
+    locale["nativeName"] = "español";
+    locale["displayName"] = "español";
+    locale["catalogPath"] = "localization/es.json";
+    project["localization"]["locales"].push_back(std::move(locale));
+    return project.dump();
 }
 
 std::string spanish_default_compiled_project_fixture()
@@ -610,6 +702,79 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     CHECK(host.running_game()->runtime_locale() == "es");
 }
 
+TEST_CASE("GameHost defers locale-positioned Dialogue Cues until explicit post-commit reconciliation")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = localized_dialogue_cue_compiled_project_fixture();
+    project_assets->add("localized-dialogue.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-localized-dialogue-test");
+    assets.mount("project", project_assets);
+
+    FakeScriptInvocationPort scripts;
+    script::ScriptRuntime script_certifier;
+    REQUIRE(script_certifier.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    FakeRuntimeUiHost runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .diagnostic_sink = {}});
+
+    auto loaded = host.load_compiled_project({.logical_path = "project:/localized-dialogue.json",
+                                               .runtime_locale = "en",
+                                               .load_title_screen = false,
+                                               .stop_runtime_after_load = true},
+                                              {});
+    if (!loaded)
+        for (const auto& diagnostic : loaded.error())
+            INFO(diagnostic.code << ": " << diagnostic.message);
+    REQUIRE(loaded);
+    auto started = host.submit_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.accepted());
+    REQUIRE(started.publication);
+    REQUIRE(started.publication->gameplay_ui.dialogue);
+    REQUIRE(started.publication->gameplay_ui.dialogue->segment);
+    const auto frame = started.publication->gameplay_ui.dialogue->frame;
+    const auto dialogue = started.publication->gameplay_ui.dialogue->dialogue;
+    const auto segment = *started.publication->gameplay_ui.dialogue->segment;
+
+    auto halfway = host.submit_runtime_input(core::RuntimeInputMessage{
+        core::AdvanceDialogueRevealInput{frame, dialogue, segment, 0.5, false}});
+    REQUIRE(halfway.accepted());
+
+    auto changed = host.commit_runtime_locale("es");
+    REQUIRE(changed.accepted());
+    REQUIRE(changed.publication);
+    REQUIRE(changed.publication->gameplay_ui.dialogue);
+    REQUIRE(changed.publication->gameplay_ui.dialogue->line);
+    CHECK(changed.publication->gameplay_ui.dialogue->line->text == "abcdefghij");
+
+    auto reconciled = host.reconcile_committed_locale_cues();
+    REQUIRE_FALSE(reconciled.accepted());
+    REQUIRE(reconciled.publication);
+    REQUIRE(reconciled.diagnostics.size() == 1);
+    CHECK(reconciled.diagnostics.front().code == "presentation.world_transition_backend_unavailable");
+}
+
 TEST_CASE("GameHost constructs stopped loads in a dedicated Project Lua VM")
 {
     assets::AssetManager assets;
@@ -701,6 +866,74 @@ TEST_CASE("GameHost constructs stopped loads in a dedicated Project Lua VM")
     CHECK(*fresh_vm.value_if());
     CHECK(host.running_game()->session().gateway().global_property(hook_count).value() ==
           core::RuntimeValue{std::int64_t{1}});
+}
+
+TEST_CASE("RunningGame synchronizes detached locale catalog residency into Project Lua")
+{
+    assets::AssetManager assets;
+    const auto fixture = detached_spanish_catalog_compiled_project_fixture();
+    const std::string detached_catalog =
+        R"({"locale":"es","entries":[{"messageId":0,"value":"Sala mínima."}]})";
+    const std::array<std::pair<std::string, std::string>, 1> detached_files = {
+        std::pair{std::string{"localization/es.json"}, detached_catalog}};
+
+    script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    FakeRuntimeUiHost runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = scripts,
+                   .diagnostic_sink = {}});
+
+    auto loaded = host.load_compiled_project({.logical_path = "project:/detached-locale.ntpkg",
+                                               .runtime_locale = "en",
+                                               .load_title_screen = false,
+                                               .stop_runtime_after_load = true},
+                                              runtime_package_source(fixture, detached_files), {});
+    if (!loaded)
+        for (const auto& diagnostic : loaded.error())
+            INFO(diagnostic.code << ": " << diagnostic.message);
+    REQUIRE(loaded);
+    auto* project_scripts = host.project_script_runtime();
+    REQUIRE(project_scripts);
+    project_scripts->set_runtime_locale("es");
+    auto before = project_scripts->evaluate_string("Text.__message(0)", "detached-before-install");
+    REQUIRE(before);
+    CHECK(before.value() == "Minimal room.");
+
+    auto catalog =
+        core::decode_localization_catalog_json(detached_catalog, "localization/es.json");
+    REQUIRE(catalog);
+    REQUIRE(host.running_game()->install_locale_catalog(std::move(*catalog.value_if())));
+    auto installed =
+        project_scripts->evaluate_string("Text.__message(0)", "detached-after-install");
+    REQUIRE(installed);
+    CHECK(installed.value() == "Sala mínima.");
+
+    host.running_game()->retain_locale_catalogs("en");
+    auto retained =
+        project_scripts->evaluate_string("Text.__message(0)", "detached-after-retain");
+    REQUIRE(retained);
+    CHECK(retained.value() == "Minimal room.");
 }
 
 TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")

@@ -160,6 +160,8 @@ public:
     apply(const core::Effect& effect, std::string_view chunk_name = "typed-effect");
     [[nodiscard]] core::Result<std::string, RuntimeExecutionError>
     resolve(const core::TextSource& source, std::string_view runtime_locale);
+    [[nodiscard]] core::Result<runtime::ScriptTextResult, RuntimeExecutionError>
+    resolve_causal_text(const core::TextSource& source, std::string_view runtime_locale);
 
     [[nodiscard]] core::Result<core::WaitEvaluation, core::Diagnostics>
     begin(const core::WaitSpec& wait);

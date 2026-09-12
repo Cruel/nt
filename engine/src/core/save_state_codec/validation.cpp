@@ -1424,11 +1424,26 @@ bool valid_desired_audio_record(const CompiledProject& project, const SaveState&
            audio.fade_in.count() >= 0 && audio.fade_out.count() >= 0;
 }
 
+bool valid_captured_message(const CompiledProject& project,
+                            const std::optional<CapturedMessageOccurrence>& occurrence) noexcept
+{
+    if (!occurrence)
+        return true;
+    const MessageRealizer realizer(project.localization());
+    return realizer
+        .realize({occurrence->message_id, project.localization().source_locale,
+                  occurrence->arguments})
+        .has_value();
+}
+
 bool valid_presented_text(const CompiledProject& project, const SaveState& save,
                           const std::optional<PresentedTextState>& text) noexcept
 {
-    return !text || (text->markup <= TextMarkup::ActiveText &&
-                     (!text->speaker || resolved_character(project, save, *text->speaker)));
+    if (!text)
+        return true;
+    return text->markup <= TextMarkup::ActiveText &&
+           (!text->speaker || resolved_character(project, save, *text->speaker)) &&
+           valid_captured_message(project, text->localized_message);
 }
 
 bool valid_active_choice(const CompiledProject& project,
@@ -1451,13 +1466,15 @@ bool valid_active_choice(const CompiledProject& project,
                 std::unordered_set<std::string> seen;
                 return std::all_of(
                     value.options.begin(), value.options.end(),
-                    [&definition, &seen](const SceneChoiceOptionState& option) {
+                    [&project, &definition, &seen](const SceneChoiceOptionState& option) {
                         return seen.insert(option.option.text()).second &&
+                               valid_captured_message(project, option.localized_message) &&
                                std::any_of(definition->options.begin(), definition->options.end(),
                                            [&option](const compiled::SceneChoiceOption& candidate) {
                                                return candidate.id == option.option;
                                            });
-                    });
+                    }) &&
+                       valid_captured_message(project, value.localized_prompt);
             } else {
                 const auto* dialogue = project.find_dialogue(value.dialogue);
                 const auto* block = dialogue ? dialogue_block(*dialogue, value.block) : nullptr;
@@ -1468,11 +1485,12 @@ bool valid_active_choice(const CompiledProject& project,
                 std::unordered_set<std::string> seen;
                 return std::all_of(
                     value.options.begin(), value.options.end(),
-                    [&dialogue, &value, &seen](const DialogueChoiceOptionState& option) {
+                    [&project, &dialogue, &value, &seen](const DialogueChoiceOptionState& option) {
                         const auto* edge = dialogue_edge(*dialogue, option.edge);
                         const auto* choice_edge =
                             edge ? std::get_if<compiled::DialogueChoiceEdge>(edge) : nullptr;
                         return option.markup <= TextMarkup::ActiveText &&
+                               valid_captured_message(project, option.localized_message) &&
                                seen.insert(option.edge.text()).second && choice_edge != nullptr &&
                                choice_edge->from_block_id == value.block;
                     });
@@ -1841,8 +1859,10 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                 }
             },
             entry.origin);
-        if (!origin_ok || (entry.speaker && !resolved_character(project, save, *entry.speaker)))
-            error("save_codec.invalid_text_log", "Text log entry has a stale origin or speaker.");
+        if (!origin_ok || (entry.speaker && !resolved_character(project, save, *entry.speaker)) ||
+            !valid_captured_message(project, entry.localized_message))
+            error("save_codec.invalid_text_log",
+                  "Text log entry has a stale origin, speaker, or localized Message occurrence.");
     }
     std::unordered_set<std::uint64_t> timer_ids;
     for (const auto& item : save.logical_timers)

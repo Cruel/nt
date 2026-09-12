@@ -136,6 +136,7 @@ public:
     [[nodiscard]] HostRuntimeDispatchResult
     submit_runtime_input(core::RuntimeInputMessage input) override;
     [[nodiscard]] HostRuntimeDispatchResult commit_runtime_locale(std::string locale);
+    [[nodiscard]] HostRuntimeDispatchResult reconcile_committed_locale_cues();
     [[nodiscard]] HostRuntimeDispatchResult submit_runtime_input(GameSessionGeneration generation,
                                                                  core::RuntimeInputMessage input);
     [[nodiscard]] bool submit_runtime_ui_shell_command(core::RuntimeShellCommand command);

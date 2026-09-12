@@ -168,7 +168,7 @@ export const STRUCTURAL_AUTO_COMMIT_RULES: readonly AutoCommitRule[] = [
   {
     commandType: 'project.applyPatch',
     unsafeRebasePolicy: 'reject-command',
-    allowedOriginPrefixes: ['workflow:'],
+    allowedOriginPrefixes: ['workflow:', 'editor-local:'],
   },
   {
     commandType: 'transaction',
@@ -314,7 +314,11 @@ export function buildAutoCommitPlan(input: AutoCommitPlanBuildInput): AutoCommit
       input.affectedPaths[0] ?? '/',
     );
   }
-  if (!input.savedDocument) {
+  const persistenceTarget =
+    input.commandType === 'project.applyPatch' && input.originSaveUnitId.startsWith('editor-local:')
+      ? 'editor-metadata'
+      : (rule.persistenceTarget ?? 'project-content');
+  if (!input.savedDocument && persistenceTarget !== 'editor-metadata') {
     if (rule.unsafeRebasePolicy === 'convert-to-manual-save') {
       return {
         status: 'convert-to-manual-save',
@@ -327,7 +331,6 @@ export function buildAutoCommitPlan(input: AutoCommitPlanBuildInput): AutoCommit
     );
   }
 
-  const persistenceTarget = rule.persistenceTarget ?? 'project-content';
   let forwardBaselinePatches: JsonPatchOperation[] = [];
   let inverseBaselinePatches: JsonPatchOperation[] = [];
   if (persistenceTarget === 'project-content') {
@@ -594,8 +597,16 @@ export async function persistAutoCommitPlan(
   direction: 'forward' | 'undo' | 'redo',
 ): Promise<StructuralPersistenceResult> {
   const projectState = useProjectStore.getState();
+  if (!projectState.document) {
+    return { status: 'rejected', diagnostics: [] };
+  }
+  const snapshot = buildEditorProjectStateSnapshot();
+  if (plan.persistenceTarget === 'editor-metadata' && !projectState.projectSessionId) {
+    setLoadedEditorProjectState(snapshot);
+    useProjectStore.getState().markEditorMetadataPersisted(snapshot);
+    return { status: 'persisted', diagnostics: [] };
+  }
   if (
-    !projectState.document ||
     !projectState.savedDocument ||
     !projectState.projectFilePath ||
     !projectState.projectSessionId
@@ -608,7 +619,6 @@ export async function persistAutoCommitPlan(
       diagnostics: [],
     };
   }
-  const snapshot = buildEditorProjectStateSnapshot();
   const remappedRecovery = remapRecoveryForAutoCommit(snapshot.recovery, plan.identityRemap);
   const discardedRecoverySaveUnitIds = new Set<SaveUnitId>(
     direction === 'undo' ? [] : plan.discardRecoverySaveUnitIds,

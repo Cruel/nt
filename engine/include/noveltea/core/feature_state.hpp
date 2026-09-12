@@ -1,5 +1,7 @@
 #pragma once
 
+#include "noveltea/core/message_realization.hpp"
+
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/flow.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
@@ -410,12 +412,14 @@ struct TextLogEntry {
     std::optional<CharacterId> speaker;
     std::string text;
     TextMarkup markup = TextMarkup::Plain;
+    std::optional<CapturedMessageOccurrence> localized_message;
 };
 
 struct PresentedTextState {
     std::optional<CharacterId> speaker;
     std::string text;
     TextMarkup markup = TextMarkup::Plain;
+    std::optional<CapturedMessageOccurrence> localized_message;
     bool operator==(const PresentedTextState&) const = default;
 };
 
@@ -423,6 +427,7 @@ struct SceneChoiceOptionState {
     SceneChoiceOptionId option;
     std::string label;
     bool enabled = true;
+    std::optional<CapturedMessageOccurrence> localized_message;
     bool operator==(const SceneChoiceOptionState&) const = default;
 };
 struct SceneChoiceState {
@@ -430,6 +435,7 @@ struct SceneChoiceState {
     SceneStepId step;
     std::optional<std::string> prompt;
     std::vector<SceneChoiceOptionState> options;
+    std::optional<CapturedMessageOccurrence> localized_prompt;
     bool operator==(const SceneChoiceState&) const = default;
 };
 
@@ -438,6 +444,7 @@ struct DialogueChoiceOptionState {
     std::string label;
     bool enabled = true;
     TextMarkup markup = TextMarkup::Plain;
+    std::optional<CapturedMessageOccurrence> localized_message;
     bool operator==(const DialogueChoiceOptionState&) const = default;
 };
 struct DialogueChoiceState {

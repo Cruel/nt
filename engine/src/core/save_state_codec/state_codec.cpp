@@ -538,7 +538,7 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
                                   {"count", value.count}});
     nlohmann::json log = nlohmann::json::array();
     for (const auto& value : save.text_log)
-        log.push_back(encode_text_log(value));
+        log.push_back(encode_text_log(project, value));
     nlohmann::json timers = nlohmann::json::array();
     for (const auto& value : save.logical_timers)
         timers.push_back(
@@ -600,7 +600,7 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
          {"textLog", std::move(log)},
          {"logicalTimers", std::move(timers)},
          {"pendingTimerCompletions", std::move(completions)},
-         {"presentation", encode_presentation_records(save)},
+         {"presentation", encode_presentation_records(project, save)},
          {"mode", encode_mode(save.mode)},
          {"flowStack", std::move(frames)},
          {"blocker", encode_blocker(save.blocker)},

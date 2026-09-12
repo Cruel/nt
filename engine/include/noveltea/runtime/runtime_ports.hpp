@@ -2,6 +2,7 @@
 
 #include "noveltea/core/checkpoint_contracts.hpp"
 #include "noveltea/core/diagnostic.hpp"
+#include "noveltea/core/message_realization.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
 #include "noveltea/core/result.hpp"
 #include "noveltea/core/runtime_messages.hpp"
@@ -89,7 +90,8 @@ struct ProjectHookExplanation {
 enum class ScriptInvocationResultKind : std::uint8_t {
     None,
     Boolean,
-    String
+    String,
+    Text
 };
 
 struct ScriptInvocationRequest {
@@ -103,7 +105,13 @@ struct ScriptInvocationRequest {
     bool operator==(const ScriptInvocationRequest&) const = default;
 };
 
-using ScriptInvocationValue = std::variant<std::monostate, bool, std::string>;
+struct ScriptTextResult {
+    std::string text;
+    std::optional<core::CapturedMessageOccurrence> localized_message;
+    bool operator==(const ScriptTextResult&) const = default;
+};
+
+using ScriptInvocationValue = std::variant<std::monostate, bool, std::string, ScriptTextResult>;
 
 struct ProjectHookInvocationRequest {
     ProjectHookSemanticKind semantic_kind = ProjectHookSemanticKind::Room;
@@ -181,6 +189,8 @@ public:
     virtual void cancel(const core::ScriptInvocationHandle& invocation,
                         ScriptCancellationReason reason) = 0;
     virtual void invalidate_capabilities(CapabilityGeneration generation) noexcept = 0;
+    virtual void set_runtime_locale(std::string_view) noexcept {}
+    virtual void synchronize_runtime_localization(const core::compiled::Localization&) {}
 };
 
 struct ScriptSourceError {

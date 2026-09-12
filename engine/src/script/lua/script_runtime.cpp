@@ -482,7 +482,32 @@ struct ScriptRuntime::Impl {
     bool bootstrap_complete = false;
     bool hooks_frozen = false;
     bool game_ready_running = false;
+    struct CapturedMessage {
+        core::CapturedMessageOccurrence occurrence;
+        std::string realized_text;
+    };
+
     std::optional<core::compiled::Localization> localization;
+    std::string runtime_locale;
+    bool capture_managed_messages = false;
+    std::vector<CapturedMessage> captured_messages;
+
+    [[nodiscard]] std::optional<core::CapturedMessageOccurrence>
+    captured_occurrence_for(std::string_view text) const
+    {
+        std::optional<core::CapturedMessageOccurrence> candidate;
+        for (const auto& captured : captured_messages) {
+            if (captured.realized_text != text)
+                continue;
+            if (!candidate) {
+                candidate = captured.occurrence;
+                continue;
+            }
+            if (*candidate != captured.occurrence)
+                return std::nullopt;
+        }
+        return candidate;
+    }
 
     lua_State* thread(int reference)
     {
@@ -703,6 +728,9 @@ void ScriptRuntime::clear_project_modules() noexcept
     m_impl->project_modules.clear();
     m_impl->bootstrap_module.reset();
     m_impl->localization.reset();
+    m_impl->runtime_locale.clear();
+    m_impl->capture_managed_messages = false;
+    m_impl->captured_messages.clear();
     m_impl->project_hooks.clear();
     m_impl->bootstrap_running = false;
     m_impl->bootstrap_complete = false;
@@ -721,6 +749,7 @@ ScriptRuntime::prepare_project_modules(const core::CompiledProject& project)
     clear_project_modules();
     m_impl->runtime_api->clear_capabilities();
     m_impl->localization = project.localization();
+    m_impl->runtime_locale = project.localization().default_locale;
     for (const auto& resource : project.scripts()) {
         Impl::ProjectModule module;
         if (const auto* inline_source =
@@ -774,11 +803,16 @@ int ScriptRuntime::managed_message_callback(lua_State* state)
     if (!arguments)
         return luaL_error(state, "Managed Message arguments must be a table of printable values");
     const core::MessageRealizer realizer(*runtime->m_impl->localization);
+    const auto locale = runtime->m_impl->runtime_locale.empty()
+                            ? std::string_view{runtime->m_impl->localization->default_locale}
+                            : std::string_view{runtime->m_impl->runtime_locale};
     const auto realized =
-        realizer.realize({static_cast<core::MessageId>(raw_id),
-                          runtime->m_impl->localization->default_locale, *arguments});
+        realizer.realize({static_cast<core::MessageId>(raw_id), locale, *arguments});
     if (!realized)
         return luaL_error(state, "Managed Message could not be realized");
+    if (runtime->m_impl->capture_managed_messages)
+        runtime->m_impl->captured_messages.push_back(
+            {{static_cast<core::MessageId>(raw_id), *arguments}, realized->text});
     lua_pushlstring(state, realized->text.data(), realized->text.size());
     return 1;
 }
@@ -795,10 +829,15 @@ int ScriptRuntime::message_ref_callback(lua_State* state)
     if (!arguments)
         return luaL_error(state, "Text.msg_ref arguments must be a table of printable values");
     const core::MessageRealizer realizer(*runtime->m_impl->localization);
-    const auto realized = realizer.realize(
-        {reference->value.id, runtime->m_impl->localization->default_locale, *arguments});
+    const auto locale = runtime->m_impl->runtime_locale.empty()
+                            ? std::string_view{runtime->m_impl->localization->default_locale}
+                            : std::string_view{runtime->m_impl->runtime_locale};
+    const auto realized = realizer.realize({reference->value.id, locale, *arguments});
     if (!realized)
         return luaL_error(state, "Message reference could not be realized");
+    if (runtime->m_impl->capture_managed_messages)
+        runtime->m_impl->captured_messages.push_back(
+            {{reference->value.id, *arguments}, realized->text});
     lua_pushlstring(state, realized->text.data(), realized->text.size());
     return 1;
 }
@@ -1661,6 +1700,21 @@ ScriptRuntime::invoke_in_environment(ScriptEnvironmentHandle environment,
         return value ? Result::success(runtime::ScriptInvocationCompleted{*value.value_if()})
                      : Result::failure(std::move(value).error());
     }
+    if (request.result_kind == runtime::ScriptInvocationResultKind::Text) {
+        m_impl->captured_messages.clear();
+        m_impl->capture_managed_messages = true;
+        const auto expression = string_chunk_expression(request.source);
+        auto value = evaluate_string_in_environment(environment, expression, request.chunk_name);
+        m_impl->capture_managed_messages = false;
+        if (!value) {
+            m_impl->captured_messages.clear();
+            return Result::failure(std::move(value).error());
+        }
+        runtime::ScriptTextResult text{*value.value_if(),
+                                       m_impl->captured_occurrence_for(*value.value_if())};
+        m_impl->captured_messages.clear();
+        return Result::success(runtime::ScriptInvocationCompleted{std::move(text)});
+    }
     std::string asset_source;
     std::string_view source = request.source;
     std::string chunk_name = request.chunk_name;
@@ -1738,6 +1792,21 @@ ScriptRuntime::invoke(const runtime::ScriptInvocationRequest& request,
         return value ? Result::success(runtime::ScriptInvocationCompleted{*value})
                      : Result::failure(std::move(result).error());
     }
+    case runtime::ScriptInvocationResultKind::Text: {
+        m_impl->captured_messages.clear();
+        m_impl->capture_managed_messages = true;
+        const auto expression = string_chunk_expression(request.source);
+        auto result = evaluate_string(expression, request.chunk_name);
+        m_impl->capture_managed_messages = false;
+        const auto* value = result.value_if();
+        if (value == nullptr) {
+            m_impl->captured_messages.clear();
+            return Result::failure(std::move(result).error());
+        }
+        runtime::ScriptTextResult text{*value, m_impl->captured_occurrence_for(*value)};
+        m_impl->captured_messages.clear();
+        return Result::success(runtime::ScriptInvocationCompleted{std::move(text)});
+    }
     }
     return Result::failure(make_error(ScriptErrorCode::InvalidResult,
                                       "Script invocation result kind is invalid",
@@ -1783,6 +1852,19 @@ void ScriptRuntime::cancel(const core::ScriptInvocationHandle& invocation,
 void ScriptRuntime::invalidate_capabilities(runtime::CapabilityGeneration) noexcept
 {
     clear_runtime_capabilities();
+}
+
+void ScriptRuntime::set_runtime_locale(std::string_view locale) noexcept
+{
+    if (m_impl)
+        m_impl->runtime_locale = locale;
+}
+
+void ScriptRuntime::synchronize_runtime_localization(
+    const core::compiled::Localization& localization)
+{
+    if (m_impl)
+        m_impl->localization = localization;
 }
 
 void ScriptRuntime::replace_runtime_capabilities(

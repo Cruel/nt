@@ -487,6 +487,7 @@ export function buildEditorProjectStateSnapshot(
       options.includeRecovery === false
         ? { sequence: 0, saveUnitsById: {} }
         : buildRecoveryEntries(),
+    previewLocale: currentEditorState.previewLocale,
     ...((currentEditorState.lastSuccessfulPlatformExportIdentity ??
     recoveryContext.editorState.lastSuccessfulPlatformExportIdentity)
       ? {

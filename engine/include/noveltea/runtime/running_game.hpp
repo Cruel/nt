@@ -60,6 +60,7 @@ public:
     install_locale_catalog(core::compiled::LocalizationCatalog catalog);
     void retain_locale_catalogs(std::string_view active_locale);
     [[nodiscard]] RuntimeDispatchResult commit_locale(std::string locale);
+    [[nodiscard]] RuntimeDispatchResult reconcile_committed_locale_cues();
     [[nodiscard]] RuntimeSession& session() noexcept { return *m_session; }
     [[nodiscard]] const RuntimeSession& session() const noexcept { return *m_session; }
     [[nodiscard]] core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>

@@ -4,6 +4,7 @@ import {
   createUseSourceLocalizationTarget,
   effectiveLocalizationTarget,
   localizationMessageWorkflowView,
+  localizationMessageWorkflowViews,
   localizationTargetWorkflowView,
 } from '../../shared/authoring-localization-workflow';
 import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
@@ -77,6 +78,125 @@ describe('localization workflow state', () => {
     const target = localizationTargetWorkflowView(changed, 'fr', updated);
     expect(target.freshness).toBe('current');
     expect(target.attention).toEqual(['presentation']);
+  });
+
+  it('treats ActiveText presentation-token edits as attention without linguistic staleness', () => {
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    const room = defaultRoomData('Foyer');
+    room.description = inlineTextContent('[b]Welcome[/b]', 'active-text');
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const messageId = structuredMessageForPath(project, '/rooms/foyer/data/description')!.id;
+    const original = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(original, '[b]Bienvenue[/b]'),
+    };
+
+    const changed = structuredClone(project);
+    changed.rooms.foyer!.data.description.source = { kind: 'inline', text: '[i]Welcome[/i]' };
+    const updated = localizationMessageWorkflowView(changed, messageId)!;
+    const target = localizationTargetWorkflowView(changed, 'fr', updated);
+
+    expect(target.freshness).toBe('current');
+    expect(target.attention).toEqual(['presentation']);
+  });
+
+  it('treats ActiveText object identity as semantic while allowing visual markup changes', () => {
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    const room = defaultRoomData('Foyer');
+    room.description = inlineTextContent('[[Key|key-a]] [b]Welcome[/b]', 'active-text');
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const messageId = structuredMessageForPath(project, '/rooms/foyer/data/description')!.id;
+    const original = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(original, '[[Clé|key-a]] [b]Bienvenue[/b]'),
+    };
+
+    const visualOnly = structuredClone(project);
+    visualOnly.rooms.foyer!.data.description.source = {
+      kind: 'inline',
+      text: '[[Key|key-a]] [i]Welcome[/i]',
+    };
+    const visualTarget = localizationTargetWorkflowView(
+      visualOnly,
+      'fr',
+      localizationMessageWorkflowView(visualOnly, messageId)!,
+    );
+    expect(visualTarget.freshness).toBe('current');
+    expect(visualTarget.attention).toEqual(['presentation']);
+
+    const retargetedObject = structuredClone(project);
+    retargetedObject.rooms.foyer!.data.description.source = {
+      kind: 'inline',
+      text: '[[Key|key-b]] [b]Welcome[/b]',
+    };
+    const objectTarget = localizationTargetWorkflowView(
+      retargetedObject,
+      'fr',
+      localizationMessageWorkflowView(retargetedObject, messageId)!,
+    );
+    expect(objectTarget.freshness).toBe('outdated');
+
+    const relabeledObject = structuredClone(project);
+    relabeledObject.rooms.foyer!.data.description.source = {
+      kind: 'inline',
+      text: '[[Door key|key-a]] [b]Welcome[/b]',
+    };
+    const labelTarget = localizationTargetWorkflowView(
+      relabeledObject,
+      'fr',
+      localizationMessageWorkflowView(relabeledObject, messageId)!,
+    );
+    expect(labelTarget.freshness).toBe('outdated');
+
+    const ordered = createAuthoringProject();
+    ordered.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    const orderedRoom = defaultRoomData('Foyer');
+    orderedRoom.description = inlineTextContent('[[Use|key-a]] [[Use|key-b]]', 'active-text');
+    ordered.rooms.foyer = { id: 'foyer', label: 'Foyer', data: orderedRoom };
+    const orderedId = structuredMessageForPath(ordered, '/rooms/foyer/data/description')!.id;
+    const orderedView = localizationMessageWorkflowView(ordered, orderedId)!;
+    ordered.localization.translations.fr = {
+      [orderedId]: createLocalizationTranslation(
+        orderedView,
+        '[[Utiliser|key-a]] [[Utiliser|key-b]]',
+      ),
+    };
+    const swapped = structuredClone(ordered);
+    swapped.rooms.foyer!.data.description.source = {
+      kind: 'inline',
+      text: '[[Use|key-b]] [[Use|key-a]]',
+    };
+    expect(
+      localizationTargetWorkflowView(
+        swapped,
+        'fr',
+        localizationMessageWorkflowView(swapped, orderedId)!,
+      ).freshness,
+    ).toBe('outdated');
+  });
+
+  it('keeps bracket markup literal for plain structured text freshness', () => {
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    const room = defaultRoomData('Foyer');
+    room.description = inlineTextContent('[b]Welcome[/b]', 'plain');
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const messageId = structuredMessageForPath(project, '/rooms/foyer/data/description')!.id;
+    const original = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(original, '[b]Bienvenue[/b]'),
+    };
+
+    const changed = structuredClone(project);
+    changed.rooms.foyer!.data.description.source = { kind: 'inline', text: '[i]Welcome[/i]' };
+    const target = localizationTargetWorkflowView(
+      changed,
+      'fr',
+      localizationMessageWorkflowView(changed, messageId)!,
+    );
+    expect(target.freshness).toBe('outdated');
   });
 
   it('treats source Dialogue Cue movement as presentation attention while preserving target placement', () => {
@@ -174,6 +294,64 @@ describe('localization workflow state', () => {
     );
   });
 
+  it('treats selector-branch visual markup edits as presentation attention, not linguistic staleness', () => {
+    const project = createAuthoringProject();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f099';
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'items.count',
+      source: 'Items',
+      arguments: { count: 'plural-number' },
+      pattern: {
+        kind: 'plural',
+        argument: 'count',
+        cases: {
+          one: { kind: 'text', text: '[b]One item[/b]' },
+          other: { kind: 'text', text: '[b]{count} items[/b]' },
+        },
+      },
+    };
+    const original = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(original, 'Articles'),
+    };
+
+    const visualOnly = structuredClone(project);
+    visualOnly.localization.messages[messageId]!.pattern = {
+      kind: 'plural',
+      argument: 'count',
+      cases: {
+        one: { kind: 'text', text: '[i]One item[/i]' },
+        other: { kind: 'text', text: '[i]{count} items[/i]' },
+      },
+    };
+    const visualTarget = localizationTargetWorkflowView(
+      visualOnly,
+      'fr',
+      localizationMessageWorkflowView(visualOnly, messageId)!,
+    );
+    expect(visualTarget.freshness).toBe('current');
+    expect(visualTarget.attention).toEqual(['presentation']);
+
+    const linguisticChange = structuredClone(project);
+    linguisticChange.localization.messages[messageId]!.pattern = {
+      kind: 'plural',
+      argument: 'count',
+      cases: {
+        one: { kind: 'text', text: '[b]A single item[/b]' },
+        other: { kind: 'text', text: '[b]{count} items[/b]' },
+      },
+    };
+    expect(
+      localizationTargetWorkflowView(
+        linguisticChange,
+        'fr',
+        localizationMessageWorkflowView(linguisticChange, messageId)!,
+      ).freshness,
+    ).toBe('outdated');
+  });
+
   it('inherits sparse whole-Message targets across locale chains and preserves explicit use-source intent', () => {
     const project = createAuthoringProject();
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f032';
@@ -228,6 +406,47 @@ describe('localization workflow state', () => {
       target: { useSource: true },
     });
     expect(localizationTargetWorkflowView(project, 'fr-CA-QC', view).freshness).toBe('current');
+  });
+
+  it('keeps square-bracket text literal in RML linguistic freshness', () => {
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.rml.sourceText = '<rml><body><nt-tr>[b]Hello[/b]</nt-tr></body></rml>';
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    const firstSync = synchronizeLocalizationMessageTracking(project).project;
+    const trackingEntry = Object.values(firstSync.localization.sourceMessageTracking)[0]!;
+    const messageId = trackingEntry.occurrences[0]!.messageId;
+    const original = localizationMessageWorkflowView(firstSync, messageId)!;
+    firstSync.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(original, '[b]Bonjour[/b]'),
+    };
+
+    firstSync.layouts.hud!.data.rml.sourceText =
+      '<rml><body><nt-tr>[i]Hello[/i]</nt-tr></body></rml>';
+    const secondSync = synchronizeLocalizationMessageTracking(firstSync).project;
+    const updated = localizationMessageWorkflowView(secondSync, messageId)!;
+    expect(localizationTargetWorkflowView(secondSync, 'fr', updated).freshness).toBe('outdated');
+  });
+
+  it('exposes managed Lua and local RML placeholder contracts in joined localization views', () => {
+    const project = createAuthoringProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Hello {name}", { name = player_name })\n',
+    };
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.rml.sourceText =
+      '<rml><body><nt-tr arg-count="{{ count }}">Found {count} items.</nt-tr></body></rml>';
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+
+    const synced = synchronizeLocalizationMessageTracking(project).project;
+    const views = localizationMessageWorkflowViews(synced);
+    const lua = views.find((view) => view.source === 'Hello {name}');
+    const rml = views.find((view) => view.source === 'Found {count} items.');
+
+    expect(lua?.arguments).toEqual({ name: 'printable' });
+    expect(rml?.arguments).toEqual({ count: 'printable' });
   });
 
   it('derives presentation-only RML attention without marking the target linguistically outdated', () => {

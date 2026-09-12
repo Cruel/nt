@@ -407,7 +407,7 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
                     return commit(next);
             }
 
-            auto resolved = resolve(line->text.source, runtime_locale);
+            auto resolved = resolve_causal_text(line->text.source, runtime_locale);
             if (!resolved)
                 return fault(execution_diagnostics(resolved.error()));
             auto* text = resolved.value_if();
@@ -432,7 +432,9 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
                                              "Dialogue line did not create an input blocker"));
 
             auto presented = m_state.present_text(
-                m_project, core::PresentedTextState{speaker, *text, line->text.markup});
+                m_project,
+                core::PresentedTextState{speaker, text->text, line->text.markup,
+                                         text->localized_message});
             if (!presented) {
                 (void)m_flow.cancel_blocker(core::flow_blocker_owner(blocked->blocker),
                                             core::flow_blocker_handle(blocked->blocker));
@@ -449,7 +451,8 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
                     m_project,
                     core::TextLogEntry{core::TextLogEntryKind::Line,
                                        core::DialogueLineTextLogOrigin{frame.dialogue, line->id},
-                                       speaker, *text, line->text.markup});
+                                       speaker, text->text, line->text.markup,
+                                       text->localized_message});
                 if (!logged) {
                     (void)m_flow.cancel_blocker(core::flow_blocker_owner(blocked->blocker),
                                                 core::flow_blocker_handle(blocked->blocker));
@@ -623,14 +626,16 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
             }
             if (!enabled && !dialogue->settings.show_disabled_choices)
                 continue;
-            auto resolved = resolve(edge->label.source, runtime_locale);
+            auto resolved = resolve_causal_text(edge->label.source, runtime_locale);
             if (!resolved)
                 return fault(execution_diagnostics(resolved.error()));
             auto* label = resolved.value_if();
             if (label == nullptr)
                 return fault(execution_error("execution.invalid_text_result",
                                              "Dialogue choice label produced no value"));
-            choices.options.push_back({edge->id, std::move(*label), enabled, edge->label.markup});
+            choices.options.push_back({edge->id, std::move(label->text), enabled,
+                                       edge->label.markup,
+                                       std::move(label->localized_message)});
         }
 
         auto waiting = begin(core::WaitSpec{core::InputWait{}});

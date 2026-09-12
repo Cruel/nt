@@ -20,6 +20,13 @@ using MessageArgumentValue = std::variant<std::string, double, std::int64_t, boo
 struct MessageArgument {
     std::string name;
     MessageArgumentValue value;
+    bool operator==(const MessageArgument&) const = default;
+};
+
+struct CapturedMessageOccurrence {
+    MessageId message_id = 0;
+    std::vector<MessageArgument> arguments;
+    bool operator==(const CapturedMessageOccurrence&) const = default;
 };
 
 struct MessageRealizationRequest {

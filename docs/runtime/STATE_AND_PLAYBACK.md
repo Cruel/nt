@@ -190,6 +190,16 @@ Save/load requests travel through `SaveRuntimeInput` and `LoadRuntimeInput`. Uns
 save points return typed outcomes/diagnostics. `SaveDocument` and controller checkpoint JSON no
 longer exist.
 
+Localized causal presentation state is checkpointed by semantic Message occurrence rather than by
+runtime locale. Active Scene/Dialogue text, open Scene/Dialogue choices, and runtime Text Log entries
+retain the compact Message identity plus the argument values captured for that occurrence. The save
+wire canonicalizes their redundant rendered text against the package's stable runtime source/default
+catalog, never stores the player's active locale, and restore re-realizes those occurrences in the
+current runtime locale before restored execution and `On Game Ready` proceed. Locale changes similarly
+re-realize open choices and localized Text Log entries in place without re-running causal Lua. If the
+locale publication fails, the previous PresentedText, active choice, Text Log, script locale, and cue
+reconciliation state are restored together.
+
 System save/load menus consume the published `CheckpointRuntimeObservation` and query
 `TypedSaveSlotStore` for slot contents, then dispatch the same typed runtime inputs. Menu navigation,
 confirmation state, and the mounted shell stack remain shell-owned ephemeral state and are cleared by

@@ -52,32 +52,15 @@ find_dialogue_line(const core::CompiledProject& project, const core::DialogueFra
     return nullptr;
 }
 
-const core::compiled::ShowTextInstruction*
-find_scene_text(const core::CompiledProject& project, const core::SceneFrame& frame)
-{
-    if (!frame.position.next_step ||
-        !std::holds_alternative<core::SceneInstructionCompletionPosition>(frame.position.substate))
-        return nullptr;
-    const auto* scene = project.find_scene(frame.scene);
-    if (!scene)
-        return nullptr;
-    for (const auto& instruction : scene->program.instructions) {
-        const auto* text = std::get_if<core::compiled::ShowTextInstruction>(&instruction);
-        if (text && text->id == *frame.position.next_step)
-            return text;
-    }
-    return nullptr;
-}
-
-double dialogue_cue_progress(const core::compiled::DialogueLineSegment& line,
-                             const core::compiled::DialogueSemanticCue& cue,
+double dialogue_cue_progress(const core::compiled::DialogueSemanticCue& cue,
                              const core::CompiledProject& project, std::string_view locale,
+                             std::optional<core::MessageId> message_id,
                              std::string_view realized_text)
 {
     std::uint64_t offset = std::visit([](const auto& value) { return value.position.offset; }, cue);
-    if (const auto* message = std::get_if<core::MessageRef>(&line.text.source)) {
+    if (message_id) {
         const core::MessageRealizer realizer(project.localization());
-        if (const auto* entry = realizer.resolved_entry(message->id, locale)) {
+        if (const auto* entry = realizer.resolved_entry(*message_id, locale)) {
             const auto id = dialogue_cue_id(cue);
             const auto placement = std::ranges::find_if(
                 entry->dialogue_cues,
@@ -449,6 +432,7 @@ RuntimeSession::RuntimeSession(const core::CompiledProject& project, ScriptInvoc
                                               : std::move(runtime_locale)),
       m_owner_thread(std::this_thread::get_id())
 {
+    m_scripts.set_runtime_locale(m_runtime_locale);
     m_kernel->gateway().bind_services(this);
     m_kernel->bind_scene_event_dependency_checker([this](const core::FlowFrameId& owner,
                                                          const core::SceneId& scene,
@@ -757,6 +741,9 @@ RuntimeSession::create(const core::CompiledProject& project, runtime::ScriptInvo
                               .message =
                                   "Runtime instruction and command budgets must be positive"}});
     }
+    if (runtime_locale.empty())
+        runtime_locale = project.localization().default_locale;
+    scripts.set_runtime_locale(runtime_locale);
     auto kernel = RuntimeExecutor::create(project, scripts, presentation_model);
     if (!kernel)
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
@@ -799,6 +786,66 @@ core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics> RuntimeSession:
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
             std::move(decoded).error());
 
+    if (runtime_locale.empty())
+        runtime_locale = project.localization().default_locale;
+    const core::MessageRealizer restore_realizer(project.localization());
+    const auto realize_restored = [&](const core::CapturedMessageOccurrence& occurrence)
+        -> std::optional<std::string> {
+        const auto realized =
+            restore_realizer.realize({occurrence.message_id, runtime_locale, occurrence.arguments});
+        return realized ? std::optional<std::string>{realized->text} : std::nullopt;
+    };
+    const auto unavailable = []() {
+        return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
+            {core::Diagnostic{
+                .code = "runtime.restored_localized_message_unavailable",
+                .message = "Restored localized presentation cannot be realized in the current locale"}});
+    };
+    if (auto& presented = decoded.value_if()->presented_text;
+        presented && presented->localized_message) {
+        auto text = realize_restored(*presented->localized_message);
+        if (!text)
+            return unavailable();
+        presented->text = std::move(*text);
+    }
+    if (auto& choice = decoded.value_if()->active_choice; choice) {
+        bool valid = true;
+        std::visit(
+            [&](auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::SceneChoiceState>) {
+                    if (value.localized_prompt) {
+                        auto text = realize_restored(*value.localized_prompt);
+                        if (text)
+                            value.prompt = std::move(*text);
+                        else
+                            valid = false;
+                    }
+                }
+                for (auto& option : value.options) {
+                    if (!option.localized_message)
+                        continue;
+                    auto text = realize_restored(*option.localized_message);
+                    if (text)
+                        option.label = std::move(*text);
+                    else
+                        valid = false;
+                }
+            },
+            *choice);
+        if (!valid)
+            return unavailable();
+    }
+    for (auto& entry : decoded.value_if()->text_log) {
+        if (!entry.localized_message)
+            continue;
+        auto text = realize_restored(*entry.localized_message);
+        if (!text)
+            return unavailable();
+        entry.text = std::move(*text);
+    }
+
+    scripts.set_runtime_locale(runtime_locale);
     auto kernel = RuntimeExecutor::restore(project, scripts, presentation_model,
                                            *decoded.value_if(), save_codec);
     if (!kernel)
@@ -812,6 +859,7 @@ core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics> RuntimeSession:
     auto session = std::unique_ptr<RuntimeSession>(new RuntimeSession(
         project, scripts, presentation_model, presentation, saves, save_codec,
         std::move(*kernel.value_if()), std::move(runtime_locale), runtime_budget));
+
     auto checkpoint = session->m_checkpoint_service.prepare_loaded_checkpoint(
         std::move(stored.value_if()->encoded_save), *decoded.value_if(),
         std::move(stored.value_if()->metadata), std::move(stored.value_if()->thumbnail));
@@ -1635,15 +1683,19 @@ RuntimeSession::advance_dialogue_reveal(const core::AdvanceDialogueRevealInput& 
     const auto speaker = line->speaker ? line->speaker
                                        : (sequence->default_speaker ? sequence->default_speaker
                                                                     : dialogue->default_speaker);
-    const auto realized_text = m_kernel->state().presented_text()
-                                   ? std::string_view{m_kernel->state().presented_text()->text}
-                                   : std::string_view{};
+    const auto presented_text = m_kernel->state().presented_text();
+    const auto realized_text = presented_text ? std::string_view{presented_text->text} : std::string_view{};
+    std::optional<core::MessageId> message_id;
+    if (presented_text && presented_text->localized_message)
+        message_id = presented_text->localized_message->message_id;
+    else if (const auto* message = std::get_if<core::MessageRef>(&line->text.source))
+        message_id = message->id;
 
     while (frame->position.next_cue < line->cues.size()) {
         const std::size_t cue_index = frame->position.next_cue;
         const auto& cue = line->cues[cue_index];
         const auto cue_progress =
-            dialogue_cue_progress(*line, cue, m_project, m_runtime_locale, realized_text);
+            dialogue_cue_progress(cue, m_project, m_runtime_locale, message_id, realized_text);
         if (cue_progress > input.progress)
             break;
 
@@ -2531,47 +2583,96 @@ RuntimeDispatchResult RuntimeSession::commit_locale(std::string locale)
 
     const auto previous_locale = m_runtime_locale;
     const auto previous_presented_text = m_kernel->state().presented_text();
+    const auto previous_active_choice = m_kernel->state().active_choice();
+    const auto previous_text_log = m_kernel->state().text_log();
+    m_pending_locale_cue_reconciliation.reset();
     m_dispatch_active = true;
     m_transaction_budget_outcome = {};
     m_session_replacement_request.reset();
     m_runtime_locale = std::move(locale);
+    m_scripts.set_runtime_locale(m_runtime_locale);
 
-    if (!m_kernel->state().flow_stack().empty()) {
-        auto refresh_presented_message = [&](const core::TextSource& source) {
-            if (!std::holds_alternative<core::MessageRef>(source))
-                return;
-            auto realized = m_kernel->resolve(source, m_runtime_locale);
-            if (!realized) {
-                core::append_diagnostics(result.diagnostics,
-                                         as_diagnostics(std::move(realized).error()));
-                return;
-            }
-            const auto* text = realized.value_if();
-            auto presented = m_kernel->state().presented_text();
-            if (!text || !presented)
-                return;
-            presented->text = *text;
+    const core::MessageRealizer realizer(m_project.localization());
+    const auto realize_occurrence = [&](const core::CapturedMessageOccurrence& occurrence)
+        -> std::optional<std::string> {
+        const auto realized =
+            realizer.realize({occurrence.message_id, m_runtime_locale, occurrence.arguments});
+        return realized ? std::optional<std::string>{realized->text} : std::nullopt;
+    };
+
+    if (auto presented = m_kernel->state().presented_text();
+        presented && presented->localized_message) {
+        if (auto text = realize_occurrence(*presented->localized_message)) {
+            presented->text = std::move(*text);
             auto refreshed = m_kernel->state().present_text(m_project, *presented);
             if (!refreshed)
                 core::append_diagnostics(result.diagnostics, std::move(refreshed).error());
-        };
+        } else {
+            result.diagnostics.push_back(diagnostic(
+                "runtime.localized_message_unavailable",
+                "Active localized text could not be realized for the requested locale"));
+        }
+    }
 
+    if (result.diagnostics.empty() && m_kernel->state().active_choice()) {
+        auto choice = *m_kernel->state().active_choice();
+        bool choice_ok = true;
+        std::visit(
+            [&](auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::SceneChoiceState>) {
+                    if (value.localized_prompt) {
+                        auto text = realize_occurrence(*value.localized_prompt);
+                        if (text)
+                            value.prompt = std::move(*text);
+                        else
+                            choice_ok = false;
+                    }
+                }
+                for (auto& option : value.options) {
+                    if (!option.localized_message)
+                        continue;
+                    auto text = realize_occurrence(*option.localized_message);
+                    if (text)
+                        option.label = std::move(*text);
+                    else
+                        choice_ok = false;
+                }
+            },
+            choice);
+        if (!choice_ok) {
+            result.diagnostics.push_back(diagnostic(
+                "runtime.localized_choice_unavailable",
+                "Active localized choice text could not be realized for the requested locale"));
+        } else {
+            auto refreshed = m_kernel->state().present_choice(m_project, std::move(choice));
+            if (!refreshed)
+                core::append_diagnostics(result.diagnostics, std::move(refreshed).error());
+        }
+    }
+
+    if (result.diagnostics.empty()) {
+        for (auto& entry : m_kernel->state().m_text_log) {
+            if (!entry.localized_message)
+                continue;
+            auto text = realize_occurrence(*entry.localized_message);
+            if (!text) {
+                result.diagnostics.push_back(diagnostic(
+                    "runtime.localized_text_log_unavailable",
+                    "Localized Text Log entry could not be realized for the requested locale"));
+                break;
+            }
+            entry.text = std::move(*text);
+        }
+    }
+
+    if (result.diagnostics.empty() && !m_kernel->state().flow_stack().empty()) {
         if (auto* frame = std::get_if<core::DialogueFrame>(&m_kernel->state().flow_stack().back())) {
             const auto* line = find_dialogue_line(m_project, *frame);
-            if (line && frame->position.stage == core::DialogueFramePosition::Stage::ApplySegmentEffects) {
-                refresh_presented_message(line->text.source);
-                if (result.diagnostics.empty()) {
-                    core::append_diagnostics(
-                        result.diagnostics,
-                        advance_dialogue_reveal(core::AdvanceDialogueRevealInput{
-                            frame->frame_id, frame->dialogue, *frame->position.segment,
-                            frame->position.reveal_progress, false}));
-                }
-            }
-        } else if (const auto* frame =
-                       std::get_if<core::SceneFrame>(&m_kernel->state().flow_stack().back())) {
-            if (const auto* text = find_scene_text(m_project, *frame))
-                refresh_presented_message(text->text.source);
+            if (line && frame->position.stage == core::DialogueFramePosition::Stage::ApplySegmentEffects)
+                m_pending_locale_cue_reconciliation = core::AdvanceDialogueRevealInput{
+                    frame->frame_id, frame->dialogue, *frame->position.segment,
+                    frame->position.reveal_progress, false};
         }
     }
 
@@ -2586,8 +2687,13 @@ RuntimeDispatchResult RuntimeSession::commit_locale(std::string locale)
             m_checkpoint_service.observation(m_kernel->state()));
     if (!result.diagnostics.empty()) {
         m_runtime_locale = previous_locale;
+        m_scripts.set_runtime_locale(m_runtime_locale);
+        m_pending_locale_cue_reconciliation.reset();
         if (previous_presented_text)
             (void)m_kernel->state().present_text(m_project, *previous_presented_text);
+        if (previous_active_choice)
+            (void)m_kernel->state().present_choice(m_project, *previous_active_choice);
+        m_kernel->state().m_text_log = previous_text_log;
         m_force_publication = true;
         result.publication.reset();
         result.disposition = runtime::RuntimeInputDisposition::Failed;
@@ -2595,6 +2701,51 @@ RuntimeDispatchResult RuntimeSession::commit_locale(std::string locale)
         result.disposition = runtime::RuntimeInputDisposition::Handled;
         if (result.publication)
             m_current_publication = *result.publication;
+    }
+    result.budget = m_transaction_budget_outcome;
+    m_transaction_impacts.clear();
+    m_transaction_elapsed = std::chrono::milliseconds{0};
+    m_dispatch_active = false;
+    return result;
+}
+
+RuntimeDispatchResult RuntimeSession::reconcile_committed_locale_cues()
+{
+    assert_owner_thread();
+    runtime::RuntimeDispatchResult result;
+    if (m_dispatch_active) {
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        result.diagnostics.push_back(diagnostic(
+            "runtime.reentrant_locale_cue_reconciliation",
+            "Locale cue reconciliation cannot run during dispatch"));
+        return result;
+    }
+    if (!m_pending_locale_cue_reconciliation) {
+        result.disposition = runtime::RuntimeInputDisposition::Handled;
+        return result;
+    }
+
+    const auto input = *m_pending_locale_cue_reconciliation;
+    m_pending_locale_cue_reconciliation.reset();
+    m_dispatch_active = true;
+    m_transaction_budget_outcome = {};
+    m_session_replacement_request.reset();
+
+    result.diagnostics = advance_dialogue_reveal(input);
+    WorkResult work;
+    if (result.diagnostics.empty())
+        project_publication(work, result);
+    core::append_diagnostics(result.diagnostics, settle_transaction());
+    result.events = std::move(work.events);
+    if (result.publication)
+        result.publication->observations.values.emplace_back(
+            m_checkpoint_service.observation(m_kernel->state()));
+    if (result.diagnostics.empty()) {
+        result.disposition = runtime::RuntimeInputDisposition::Handled;
+        if (result.publication)
+            m_current_publication = *result.publication;
+    } else {
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
     }
     result.budget = m_transaction_budget_outcome;
     m_transaction_impacts.clear();

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
 import { collectManagedLuaLocalizationSources } from '../../shared/authoring-lua-localization-lowering';
+import { planLocalizationReconciliation } from '../../shared/authoring-localization-reconcile';
+import {
+  createLocalizationTranslation,
+  localizationMessageWorkflowView,
+} from '../../shared/authoring-localization-workflow';
 import { resolveLocalizationSourceIdentity } from '../../shared/localization-source-tracking';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
@@ -92,6 +97,44 @@ describe('localization source tracking sync', () => {
     ).toBe('record:scripts:moved');
   });
 
+  it('requires reconciliation instead of weakly relinking valuable work to unrelated source', () => {
+    const project = createAuthoringProject({
+      id: 'valuable-weak-match',
+      name: 'Valuable Weak Match',
+    });
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Farewell")\n',
+    };
+    const tracked = synchronizeLocalizationMessageTracking(project).project;
+    const [messageId] = trackedIds(tracked);
+    expect(messageId).toBeDefined();
+    const original = localizationMessageWorkflowView(tracked, messageId!)!;
+    tracked.localization.translations.fr = {
+      [messageId!]: createLocalizationTranslation(original, 'Au revoir'),
+    };
+
+    tracked.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source:
+        'local count = 2\nreturn Text.plural(count, { one = "{value} item", other = "{value} items" })\n',
+    };
+
+    const synced = synchronizeLocalizationMessageTracking(tracked);
+    expect(synced.preservedMessageIds).not.toContain(messageId);
+    expect(synced.unresolved).toEqual([
+      expect.objectContaining({ family: 'lua', ownerKey: 'record:scripts:bootstrap', ordinal: 0 }),
+    ]);
+
+    const plan = planLocalizationReconciliation(tracked);
+    expect(plan.groups).toHaveLength(1);
+    expect(plan.groups[0]).toMatchObject({
+      requiresDecision: true,
+      previousMessageIds: [messageId],
+    });
+  });
+
   it('does not passively share one tracked identity across a direct-file duplicate', () => {
     const project = createAuthoringProject({ id: 'duplicated-sync', name: 'Duplicated Sync' });
     project.scripts.bootstrap!.data.source = {
@@ -178,8 +221,9 @@ describe('localization source tracking sync', () => {
 
     const second = synchronizeLocalizationMessageTracking(first);
 
-    expect(second.unresolved).toHaveLength(2);
-    expect(second.materializedMessageIds).toEqual([]);
-    expect(trackedIds(second.project)).toEqual(oldIds);
+    expect(second.unresolved).toEqual([]);
+    expect(second.materializedMessageIds).toHaveLength(2);
+    expect(trackedIds(second.project)).toEqual([...second.materializedMessageIds].sort());
+    expect(trackedIds(second.project)).not.toEqual(expect.arrayContaining(oldIds));
   });
 });

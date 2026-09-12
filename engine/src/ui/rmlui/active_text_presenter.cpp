@@ -238,7 +238,8 @@ ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float de
 {
     const std::string content_key = view ? active_text_content_key(*view) : std::string{};
     const auto document = view ? active_text_document(*view) : core::RichTextDocument{};
-    const std::string realization_key = document.plain_text;
+    const std::string realization_key =
+        (view ? view->locale.active_locale : std::string{}) + "\x1f" + document.source;
     const bool same_occurrence = !content_key.empty() && content_key == m_content_key;
     const bool realization_changed = view && same_occurrence && realization_key != m_realization_key;
     const double preserved_progress =

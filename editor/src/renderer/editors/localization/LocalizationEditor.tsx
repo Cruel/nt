@@ -75,24 +75,24 @@ type TranslationFilter =
   | 'current'
   | 'attention';
 
-const translationFilters: readonly { id: TranslationFilter; label: string }[] = [
-  { id: 'all', label: 'All Messages' },
-  { id: 'missing', label: 'Missing' },
-  { id: 'outdated', label: 'Outdated' },
-  { id: 'needs-review', label: 'Needs review' },
-  { id: 'ai', label: 'AI' },
-  { id: 'reviewed', label: 'Reviewed' },
-  { id: 'current', label: 'Current' },
-  { id: 'attention', label: 'Attention' },
+const translationFilters: readonly TranslationFilter[] = [
+  'all',
+  'missing',
+  'outdated',
+  'needs-review',
+  'ai',
+  'reviewed',
+  'current',
+  'attention',
 ];
 
-const surfaces: readonly { id: Surface; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'translations', label: 'Translations' },
-  { id: 'assets', label: 'Assets' },
-  { id: 'languages', label: 'Languages' },
-  { id: 'messages', label: 'Messages' },
-  { id: 'reconciliation', label: 'Reconciliation' },
+const surfaces: readonly Surface[] = [
+  'overview',
+  'translations',
+  'assets',
+  'languages',
+  'messages',
+  'reconciliation',
 ];
 
 function escapeJsonPointerToken(value: string) {
@@ -132,15 +132,6 @@ function localeDirection(locale: string): 'ltr' | 'rtl' {
   } catch {
     return 'ltr';
   }
-}
-
-function originLabel(origin: 'human' | 'ai' | 'imported' | 'unknown') {
-  if (origin === 'ai') return 'AI';
-  return origin[0]!.toUpperCase() + origin.slice(1);
-}
-
-function reviewLabel(review: 'needs-review' | 'reviewed') {
-  return review === 'reviewed' ? 'Reviewed' : 'Needs review';
 }
 
 function fieldPatch(
@@ -236,7 +227,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
           const payload = state.payload;
           if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
           const restored = payload as Record<string, unknown>;
-          if (surfaces.some((entry) => entry.id === restored.surface))
+          if (surfaces.some((entry) => entry === restored.surface))
             setSurface(restored.surface as Surface);
           if (typeof restored.targetLocale === 'string') setTargetLocale(restored.targetLocale);
         },
@@ -248,7 +239,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   if (!project)
     return (
       <div className="p-4 text-sm text-muted-foreground">
-        Open a project to manage localization.
+        {t('localizationEditor.errors.openProject')}
       </div>
     );
 
@@ -321,26 +312,32 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function setPreviewLocale(locale: string | null) {
-    run('Set preview locale', [
-      {
-        op: 'replace',
-        path: '/editor/previewLocale',
-        value: locale,
-      },
-    ]);
+    executeCommand({
+      type: 'project.applyPatch',
+      label: t('localizationEditor.commands.setPreviewLocale'),
+      payload: [
+        {
+          op: 'replace',
+          path: '/editor/previewLocale',
+          value: locale,
+        },
+      ],
+      originSaveUnitId: 'editor-local:preview-locale',
+      persistencePolicy: 'auto-commit',
+    });
   }
 
   function addLanguage() {
     const locale = canonicalLocale(newLocale);
     if (!locale) {
-      setLocaleError('Enter a valid BCP 47 locale tag.');
+      setLocaleError(t('localizationEditor.errors.invalidLocale'));
       return;
     }
     if (Object.hasOwn(localization.locales, locale)) {
-      setLocaleError(`${locale} already exists.`);
+      setLocaleError(t('localizationEditor.errors.localeExists', { locale }));
       return;
     }
-    const error = run(`Add locale ${locale}`, [
+    const error = run(t('localizationEditor.commands.addLocale', { locale }), [
       {
         op: 'add',
         path: `/localization/locales/${escapeJsonPointerToken(locale)}`,
@@ -376,36 +373,44 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
           value: null,
         });
     }
-    run(`Remove locale ${locale}`, patches);
+    run(t('localizationEditor.commands.removeLocale', { locale }), patches);
   }
 
   function setSupported(locale: string, supported: boolean) {
     if (!supported && locale === localization.defaultLocale) return;
-    run(`${supported ? 'Support' : 'Un-support'} locale ${locale}`, [
-      {
-        op: 'replace',
-        path: `/localization/locales/${escapeJsonPointerToken(locale)}/supported`,
-        value: supported,
-      },
-    ]);
+    run(
+      t(
+        supported
+          ? 'localizationEditor.commands.supportLocale'
+          : 'localizationEditor.commands.unsupportLocale',
+        { locale },
+      ),
+      [
+        {
+          op: 'replace',
+          path: `/localization/locales/${escapeJsonPointerToken(locale)}/supported`,
+          value: supported,
+        },
+      ],
+    );
   }
 
   function setDefaultLocale(locale: string) {
     if (!localization.locales[locale]?.supported) return;
-    run(`Set default locale ${locale}`, [
+    run(t('localizationEditor.commands.setDefaultLocale', { locale }), [
       { op: 'replace', path: '/localization/defaultLocale', value: locale },
     ]);
   }
 
   function setSourceLocale(locale: string) {
     if (sourceChangeBlocked || locale === localization.sourceLocale) return;
-    run(`Set source locale ${locale}`, [
+    run(t('localizationEditor.commands.setSourceLocale', { locale }), [
       { op: 'replace', path: '/localization/sourceLocale', value: locale },
     ]);
   }
 
   function setParentLocale(locale: string, parentLocale: string | null) {
-    run(`Set parent locale for ${locale}`, [
+    run(t('localizationEditor.commands.setParentLocale', { locale }), [
       {
         op: 'replace',
         path: `/localization/locales/${escapeJsonPointerToken(locale)}/parentLocale`,
@@ -415,7 +420,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function setLocaleFontStack(locale: string, assetIds: readonly string[] | null) {
-    run(`Set font stack for ${locale}`, [
+    run(t('localizationEditor.commands.setFontStack', { locale }), [
       {
         op: 'replace',
         path: `/localization/locales/${escapeJsonPointerToken(locale)}/fontStack`,
@@ -452,13 +457,13 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const existing = localeTargets?.[baseAssetId];
     if (target === null) {
       if (!existing) return;
-      run(`Clear localized Asset ${baseAssetId} for ${locale}`, [
+      run(t('localizationEditor.commands.clearLocalizedAsset', { asset: baseAssetId, locale }), [
         { op: 'remove', path: `/localization/assets/${encodedLocale}/${encodedAsset}` },
       ]);
       return;
     }
     if (!localeTargets) {
-      run(`Set localized Asset ${baseAssetId} for ${locale}`, [
+      run(t('localizationEditor.commands.setLocalizedAsset', { asset: baseAssetId, locale }), [
         {
           op: 'add',
           path: `/localization/assets/${encodedLocale}`,
@@ -467,7 +472,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       ]);
       return;
     }
-    run(`Set localized Asset ${baseAssetId} for ${locale}`, [
+    run(t('localizationEditor.commands.setLocalizedAsset', { asset: baseAssetId, locale }), [
       {
         op: existing ? 'replace' : 'add',
         path: `/localization/assets/${encodedLocale}/${encodedAsset}`,
@@ -484,11 +489,13 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const key = messageDraft.key.trim();
     const parsedKey = namedMessageKeySchema.safeParse(key);
     if (!parsedKey.success) {
-      setMessageError(parsedKey.error.issues[0]?.message ?? 'Enter a valid semantic key.');
+      setMessageError(
+        parsedKey.error.issues[0]?.message ?? t('localizationEditor.errors.invalidSemanticKey'),
+      );
       return;
     }
     if (namedMessages.some(([, message]) => message.key === key)) {
-      setMessageError(`${key} already exists.`);
+      setMessageError(t('localizationEditor.errors.semanticKeyExists', { key }));
       return;
     }
     const messageId = crypto.randomUUID();
@@ -499,7 +506,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     };
     if (messageDraft.context) value.context = messageDraft.context;
     if (messageDraft.translatorNote) value.translatorNote = messageDraft.translatorNote;
-    const error = run(`Create named Message ${key}`, [
+    const error = run(t('localizationEditor.commands.createNamedMessage', { key }), [
       {
         op: 'add',
         path: `/localization/messages/${escapeJsonPointerToken(messageId)}`,
@@ -536,13 +543,16 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       field === 'key' && message.kind === 'named'
         ? renameMessageValueReferencePatches(project!, message.key, trimmed)
         : [];
-    run(`Update Message ${messageLabel(message, messageId)}`, [
-      ...referencePatches,
-      {
-        ...patch,
-        path: `/localization/messages/${escapeJsonPointerToken(messageId)}/${field}`,
-      },
-    ]);
+    run(
+      t('localizationEditor.commands.updateMessage', { label: messageLabel(message, messageId) }),
+      [
+        ...referencePatches,
+        {
+          ...patch,
+          path: `/localization/messages/${escapeJsonPointerToken(messageId)}/${field}`,
+        },
+      ],
+    );
   }
 
   function promoteMessage() {
@@ -619,7 +629,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         ? recordSaveUnitId(recordMatch[1]!, recordMatch[2]!)
         : SAVE_UNIT_IDS.localization;
     run(
-      `Update source Message ${messageLabel(view.message, view.id)}`,
+      t('localizationEditor.commands.updateSourceMessage', {
+        label: messageLabel(view.message, view.id),
+      }),
       [{ op: 'replace', path: view.sourceEditPath, value }],
       originSaveUnitId,
     );
@@ -634,12 +646,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const messagePath = `${localePath}/${escapeJsonPointerToken(view.id)}`;
     const target = createUseSourceLocalizationTarget(view);
     if (!localeTranslations) {
-      run(`Use source for ${locale} Message`, [
+      run(t('localizationEditor.commands.useSource', { locale }), [
         { op: 'add', path: localePath, value: { [view.id]: target } },
       ]);
       return;
     }
-    run(`Use source for ${locale} Message`, [
+    run(t('localizationEditor.commands.useSource', { locale }), [
       { op: existing === undefined ? 'add' : 'replace', path: messagePath, value: target },
     ]);
   }
@@ -658,12 +670,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const messagePath = `${localePath}/${escapeJsonPointerToken(view.id)}`;
     const target = structuredClone(effective.target);
     if (!localeTranslations) {
-      run(`Override inherited ${locale} translation`, [
+      run(t('localizationEditor.commands.overrideInherited', { locale }), [
         { op: 'add', path: localePath, value: { [view.id]: target } },
       ]);
       return;
     }
-    run(`Override inherited ${locale} translation`, [
+    run(t('localizationEditor.commands.overrideInherited', { locale }), [
       { op: 'add', path: messagePath, value: target },
     ]);
   }
@@ -677,7 +689,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const messagePath = `${localePath}/${escapeJsonPointerToken(view.id)}`;
     if (!value) {
       if (existing === undefined) return;
-      run(`Clear ${locale} translation`, [{ op: 'remove', path: messagePath }]);
+      run(t('localizationEditor.commands.clearTranslation', { locale }), [
+        { op: 'remove', path: messagePath },
+      ]);
       return;
     }
     if (existing?.text === value) return;
@@ -686,12 +700,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     if (existing?.dialogueCues !== undefined)
       translation.dialogueCues = existing.dialogueCues.map((cue) => structuredClone(cue));
     if (!localeTranslations) {
-      run(`Translate Message to ${locale}`, [
+      run(t('localizationEditor.commands.translateMessage', { locale }), [
         { op: 'add', path: localePath, value: { [view.id]: translation } },
       ]);
       return;
     }
-    run(`Translate Message to ${locale}`, [
+    run(t('localizationEditor.commands.translateMessage', { locale }), [
       { op: existing === undefined ? 'add' : 'replace', path: messagePath, value: translation },
     ]);
   }
@@ -711,7 +725,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     if (cues[index]!.position[field] === value && existing.dialogueCues !== undefined) return;
     cues[index]!.position[field] = value;
     const path = `${translationRecordPath(locale, view.id)}/dialogueCues`;
-    run(`Place ${locale} Dialogue Cue`, [
+    run(t('localizationEditor.commands.placeDialogueCue', { locale }), [
       { op: existing.dialogueCues === undefined ? 'add' : 'replace', path, value: cues },
     ]);
   }
@@ -744,7 +758,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const existing = localization.translations[locale]?.[view.id];
     if (!locale || !existing) return;
     const path = translationRecordPath(locale, view.id);
-    run(`Accept ${locale} translation`, [
+    run(t('localizationEditor.commands.acceptTranslation', { locale }), [
       {
         op: 'replace',
         path: `${path}/sourceFingerprint`,
@@ -775,7 +789,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const existing = localization.translations[locale]?.[view.id];
     if (!locale || !existing || !translationReviewable(view, locale, existing)) return;
     const path = translationRecordPath(locale, view.id);
-    run(`Review ${locale} translation`, [
+    run(t('localizationEditor.commands.reviewTranslation', { locale }), [
       {
         op: 'replace',
         path: `${path}/review`,
@@ -803,7 +817,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         },
       ];
     });
-    if (patches.length > 0) run(`Review filtered ${locale} translations`, patches);
+    if (patches.length > 0)
+      run(t('localizationEditor.commands.reviewFiltered', { locale }), patches);
   }
 
   function setUsageNote(usageId: string, value: string) {
@@ -811,11 +826,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const current = localization.usageNotes[usageId];
     const note = value.trim();
     if (!note) {
-      if (current !== undefined) run('Clear localization usage note', [{ op: 'remove', path }]);
+      if (current !== undefined)
+        run(t('localizationEditor.commands.clearUsageNote'), [{ op: 'remove', path }]);
       return;
     }
     if (current === note) return;
-    run('Update localization usage note', [
+    run(t('localizationEditor.commands.updateUsageNote'), [
       { op: current === undefined ? 'add' : 'replace', path, value: note },
     ]);
   }
@@ -825,11 +841,14 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const current = localization.locales[locale]?.displayName;
     const trimmed = value.trim();
     if (!trimmed) {
-      if (current !== undefined) run(`Clear display name for ${locale}`, [{ op: 'remove', path }]);
+      if (current !== undefined)
+        run(t('localizationEditor.commands.clearDisplayName', { locale }), [
+          { op: 'remove', path },
+        ]);
       return;
     }
     if (current === trimmed) return;
-    run(`Set display name for ${locale}`, [
+    run(t('localizationEditor.commands.setDisplayName', { locale }), [
       { op: current === undefined ? 'add' : 'replace', path, value: trimmed },
     ]);
   }
@@ -1035,21 +1054,24 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="border-b px-4 pt-4">
-        <h2 className="text-lg font-semibold">Localization</h2>
-        <p className="mb-3 text-xs text-muted-foreground">
-          Manage languages, Messages, and target translations without editing raw localization keys
-          or catalogs.
-        </p>
-        <div className="flex gap-1" role="navigation" aria-label="Localization surfaces">
+        <h2 className="text-lg font-semibold">{t('localizationEditor.title')}</h2>
+        <p className="mb-3 text-xs text-muted-foreground">{t('localizationEditor.description')}</p>
+        <div
+          className="flex gap-1"
+          role="navigation"
+          aria-label={t('localizationEditor.surfacesAria')}
+        >
           {surfaces.map((entry) => (
             <Button
-              key={entry.id}
+              key={entry}
               type="button"
               size="sm"
-              variant={surface === entry.id ? 'secondary' : 'ghost'}
-              onClick={() => setSurface(entry.id)}
+              variant={surface === entry ? 'secondary' : 'ghost'}
+              onClick={() => setSurface(entry)}
             >
-              {entry.id === 'reconciliation' ? t('localizationReconciliation.tab') : entry.label}
+              {entry === 'reconciliation'
+                ? t('localizationReconciliation.tab')
+                : t(`localizationEditor.surfaces.${entry}`)}
             </Button>
           ))}
         </div>
@@ -1059,21 +1081,32 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         {surface === 'overview' && (
           <div className="grid gap-3 @3xl:grid-cols-3">
             <section className="rounded border p-4">
-              <div className="text-xs font-medium text-muted-foreground">Source locale</div>
+              <div className="text-xs font-medium text-muted-foreground">
+                {t('localizationEditor.labels.sourceLocale')}
+              </div>
               <div className="mt-1 text-lg font-semibold">{localization.sourceLocale}</div>
             </section>
             <section className="rounded border p-4">
-              <div className="text-xs font-medium text-muted-foreground">Default locale</div>
+              <div className="text-xs font-medium text-muted-foreground">
+                {t('localizationEditor.labels.defaultLocale')}
+              </div>
               <div className="mt-1 text-lg font-semibold">{localization.defaultLocale}</div>
             </section>
             <section className="rounded border p-4">
-              <div className="text-xs font-medium text-muted-foreground">Translation progress</div>
+              <div className="text-xs font-medium text-muted-foreground">
+                {t('localizationEditor.labels.translationProgress')}
+              </div>
               <div className="mt-1 text-lg font-semibold">
-                {namedMessages.length} named · {targetLocales.length} targets
+                {t('localizationEditor.overview.progress', {
+                  messages: namedMessages.length,
+                  targets: targetLocales.length,
+                })}
               </div>
             </section>
             <section className="rounded border p-4 @3xl:col-span-3">
-              <div className="text-xs font-medium text-muted-foreground">Preview locale</div>
+              <div className="text-xs font-medium text-muted-foreground">
+                {t('localizationEditor.labels.previewLocale')}
+              </div>
               <div className="mt-2 max-w-sm">
                 <Select
                   value={project.editor.previewLocale ?? '__project_default__'}
@@ -1081,12 +1114,14 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                     setPreviewLocale(value === '__project_default__' ? null : value)
                   }
                 >
-                  <SelectTrigger aria-label="Preview locale">
+                  <SelectTrigger aria-label={t('localizationEditor.labels.previewLocale')}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__project_default__">
-                      Project Default ({localization.defaultLocale})
+                      {t('localizationEditor.overview.projectDefault', {
+                        locale: localization.defaultLocale,
+                      })}
                     </SelectItem>
                     <SelectItem value={PSEUDO_PREVIEW_LOCALE}>
                       {t('localizationPreviewLocale.pseudoOption')}
@@ -1094,7 +1129,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                     {previewLocales.map((locale) => (
                       <SelectItem key={locale} value={locale}>
                         {displayLocale(locale)} ({locale})
-                        {localization.locales[locale]?.supported ? '' : ' · Work in progress'}
+                        {localization.locales[locale]?.supported
+                          ? ''
+                          : t('localizationEditor.overview.localeWorkInProgress')}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1105,11 +1142,14 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
               </p>
             </section>
             <section className="rounded border p-4 @3xl:col-span-3">
-              <h3 className="font-medium">Languages</h3>
+              <h3 className="font-medium">{t('localizationEditor.labels.languages')}</h3>
               <div className="mt-2 flex flex-wrap gap-2 text-sm">
                 {localeEntries.map(([locale, definition]) => (
                   <span key={locale} className="rounded bg-muted px-2 py-1">
-                    {locale} · {definition.supported ? 'Supported' : 'Work in progress'}
+                    {locale} ·{' '}
+                    {definition.supported
+                      ? t('localizationEditor.status.supported')
+                      : t('localizationEditor.status.workInProgress')}
                   </span>
                 ))}
               </div>
@@ -1120,7 +1160,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         {surface === 'assets' && (
           <div className="space-y-4">
             <div className="max-w-sm space-y-1">
-              <Label htmlFor="asset-target-locale">Target locale</Label>
+              <Label htmlFor="asset-target-locale">
+                {t('localizationEditor.labels.targetLocale')}
+              </Label>
               <Select
                 value={effectiveTargetLocale}
                 onValueChange={(value) => {
@@ -1128,8 +1170,11 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 }}
                 disabled={targetLocales.length === 0}
               >
-                <SelectTrigger id="asset-target-locale" aria-label="Localized Asset target locale">
-                  <SelectValue placeholder="Add a target language first" />
+                <SelectTrigger
+                  id="asset-target-locale"
+                  aria-label={t('localizationEditor.labels.localizedAssetTargetLocale')}
+                >
+                  <SelectValue placeholder={t('localizationEditor.assets.addTargetFirst')} />
                 </SelectTrigger>
                 <SelectContent>
                   {targetLocales.map((locale) => (
@@ -1142,11 +1187,11 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
             </div>
             {!effectiveTargetLocale ? (
               <div className="rounded border p-4 text-sm text-muted-foreground">
-                Add a target language on Languages to localize Assets.
+                {t('localizationEditor.assets.emptyLocale')}
               </div>
             ) : localizableAssets.length === 0 ? (
               <div className="rounded border p-4 text-sm text-muted-foreground">
-                Import an image, audio, or video Asset to create locale-specific physical variants.
+                {t('localizationEditor.assets.emptyAssets')}
               </div>
             ) : (
               <div className="space-y-3">
@@ -1172,12 +1217,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       candidate.id !== baseAssetId && candidate.data.kind === data.kind,
                   );
                   const stateLabel = !effectiveTarget
-                    ? 'Missing'
+                    ? t('localizationEditor.status.missing')
                     : 'useSource' in effectiveTarget
-                      ? 'Use source intentionally'
+                      ? t('localizationEditor.status.useSource')
                       : view.freshness === 'outdated'
-                        ? 'Localized · Outdated'
-                        : 'Localized';
+                        ? t('localizationEditor.status.localizedOutdated')
+                        : t('localizationEditor.status.localized');
                   const selectValue = !localTarget
                     ? '__missing__'
                     : 'useSource' in localTarget
@@ -1195,48 +1240,61 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                         <div className="text-right text-xs text-muted-foreground">
                           {stateLabel}
                           {view.inherited && view.effectiveLocale
-                            ? ` · inherited from ${view.effectiveLocale}`
+                            ? ` · ${t('localizationEditor.status.inheritedFrom', { locale: view.effectiveLocale })}`
                             : ''}
                           {effectiveTarget && !('useSource' in effectiveTarget)
-                            ? ` · ${originLabel(effectiveTarget.origin)} · ${reviewLabel(effectiveTarget.review)}`
+                            ? ` · ${t(`localizationEditor.status.${effectiveTarget.origin}`)} · ${t(
+                                effectiveTarget.review === 'reviewed'
+                                  ? 'localizationEditor.status.reviewed'
+                                  : 'localizationEditor.status.needsReview',
+                              )}`
                             : ''}
                         </div>
                       </div>
                       <div className="mt-3 grid gap-3 @3xl:grid-cols-2">
                         <div className="rounded bg-muted/30 p-3 text-xs">
-                          <div className="font-medium">Source</div>
+                          <div className="font-medium">{t('localizationEditor.labels.source')}</div>
                           <div className="mt-1 break-all text-muted-foreground">
                             {data.source.path}
                           </div>
                           <div className="mt-1 break-all text-muted-foreground">
-                            {data.contentHash ?? 'No content hash'}
+                            {data.contentHash ?? t('localizationEditor.assets.noContentHash')}
                           </div>
                         </div>
                         <div className="rounded bg-muted/30 p-3 text-xs">
-                          <div className="font-medium">Effective target</div>
-                          <div className="mt-1 break-all text-muted-foreground">
-                            {!effectiveTarget
-                              ? 'Missing'
-                              : 'useSource' in effectiveTarget
-                                ? data.source.path
-                                : (targetData?.source.path ?? effectiveVariantId ?? 'Missing')}
+                          <div className="font-medium">
+                            {t('localizationEditor.labels.effectiveTarget')}
                           </div>
                           <div className="mt-1 break-all text-muted-foreground">
                             {!effectiveTarget
-                              ? 'No localized target'
+                              ? t('localizationEditor.status.missing')
                               : 'useSource' in effectiveTarget
-                                ? (data.contentHash ?? 'No content hash')
-                                : (targetData?.contentHash ?? 'No content hash')}
+                                ? data.source.path
+                                : (targetData?.source.path ??
+                                  effectiveVariantId ??
+                                  t('localizationEditor.status.missing'))}
+                          </div>
+                          <div className="mt-1 break-all text-muted-foreground">
+                            {!effectiveTarget
+                              ? t('localizationEditor.assets.noLocalizedTarget')
+                              : 'useSource' in effectiveTarget
+                                ? (data.contentHash ?? t('localizationEditor.assets.noContentHash'))
+                                : (targetData?.contentHash ??
+                                  t('localizationEditor.assets.noContentHash'))}
                           </div>
                         </div>
                       </div>
                       <div className="mt-3 max-w-md space-y-1">
-                        <Label htmlFor={`localized-asset-${baseAssetId}`}>Locale realization</Label>
+                        <Label htmlFor={`localized-asset-${baseAssetId}`}>
+                          {t('localizationEditor.labels.localeRealization')}
+                        </Label>
                         {view.inherited && !localTarget ? (
                           <div className="rounded border p-3 text-xs">
                             <p className="text-muted-foreground">
-                              This realization is inherited from {view.effectiveLocale}. Create an
-                              override before editing it for {effectiveTargetLocale}.
+                              {t('localizationEditor.assets.inherited', {
+                                locale: view.effectiveLocale,
+                                target: effectiveTargetLocale,
+                              })}
                             </p>
                             <Button
                               type="button"
@@ -1256,7 +1314,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                 });
                               }}
                             >
-                              Override for {effectiveTargetLocale}
+                              {t('localizationEditor.assets.override', {
+                                locale: effectiveTargetLocale,
+                              })}
                             </Button>
                           </div>
                         ) : (
@@ -1289,13 +1349,19 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                           >
                             <SelectTrigger
                               id={`localized-asset-${baseAssetId}`}
-                              aria-label={`Localized Asset for ${record.label}`}
+                              aria-label={t('localizationEditor.assets.assetAria', {
+                                label: record.label,
+                              })}
                             >
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="__missing__">Missing</SelectItem>
-                              <SelectItem value="__source__">Use source intentionally</SelectItem>
+                              <SelectItem value="__missing__">
+                                {t('localizationEditor.status.missing')}
+                              </SelectItem>
+                              <SelectItem value="__source__">
+                                {t('localizationEditor.status.useSource')}
+                              </SelectItem>
                               {compatibleVariants.map((candidate) => (
                                 <SelectItem key={candidate.id} value={candidate.id}>
                                   {candidate.record.label} · {candidate.data.source.path}
@@ -1319,18 +1385,17 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                 })
                               }
                             >
-                              Mark reviewed
+                              {t('localizationEditor.assets.markReviewed')}
                             </Button>
                           )}
                         {compatibleVariants.length === 0 && (
                           <p className="text-xs text-muted-foreground">
-                            No other compatible {data.kind} Assets are available as variants.
+                            {t('localizationEditor.assets.noCompatible', { kind: data.kind })}
                           </p>
                         )}
                         {view.freshness === 'outdated' && (
                           <p className="text-xs text-destructive">
-                            The base Asset changed after this localized variant was assigned.
-                            Reassign or review the variant against the current source.
+                            {t('localizationEditor.assets.baseChanged')}
                           </p>
                         )}
                       </div>
@@ -1456,7 +1521,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
           <div className="space-y-5">
             <section className="grid gap-4 rounded border p-4 @3xl:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="source-locale">Source locale</Label>
+                <Label htmlFor="source-locale">{t('localizationEditor.labels.sourceLocale')}</Label>
                 <Select
                   value={localization.sourceLocale}
                   onValueChange={(value) => {
@@ -1464,7 +1529,10 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                   }}
                   disabled={sourceChangeBlocked}
                 >
-                  <SelectTrigger id="source-locale" aria-label="Source locale">
+                  <SelectTrigger
+                    id="source-locale"
+                    aria-label={t('localizationEditor.labels.sourceLocale')}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1477,24 +1545,28 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 </Select>
                 {sourceChangeBlocked ? (
                   <p className="text-xs text-muted-foreground">
-                    Source locale migration is outside v1 after target translation work exists.
+                    {t('localizationEditor.languages.sourceLocked')}
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Source may be changed during initial setup before target translation work
-                    exists.
+                    {t('localizationEditor.languages.sourceSetup')}
                   </p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="default-locale">Default locale</Label>
+                <Label htmlFor="default-locale">
+                  {t('localizationEditor.labels.defaultLocale')}
+                </Label>
                 <Select
                   value={localization.defaultLocale}
                   onValueChange={(value) => {
                     if (value) setDefaultLocale(value);
                   }}
                 >
-                  <SelectTrigger id="default-locale" aria-label="Default locale">
+                  <SelectTrigger
+                    id="default-locale"
+                    aria-label={t('localizationEditor.labels.defaultLocale')}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1507,24 +1579,26 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Default must be a Supported locale.</p>
+                <p className="text-xs text-muted-foreground">
+                  {t('localizationEditor.languages.defaultSupported')}
+                </p>
               </div>
             </section>
 
             <section className="rounded border p-4">
               <div className="mb-3 flex flex-wrap items-end gap-2">
                 <div className="min-w-52 flex-1 space-y-1">
-                  <Label htmlFor="new-locale">New locale</Label>
+                  <Label htmlFor="new-locale">{t('localizationEditor.labels.newLocale')}</Label>
                   <Input
                     id="new-locale"
-                    aria-label="New locale"
+                    aria-label={t('localizationEditor.labels.newLocale')}
                     value={newLocale}
                     onChange={(event) => setNewLocale(event.currentTarget.value)}
                     placeholder="fr-CA"
                   />
                 </div>
                 <Button type="button" onClick={addLanguage}>
-                  <Plus className="size-4" /> Add language
+                  <Plus className="size-4" /> {t('localizationEditor.actions.addLanguage')}
                 </Button>
               </div>
               {localeError && <p className="mb-3 text-sm text-destructive">{localeError}</p>}
@@ -1547,9 +1621,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                         <div className="font-mono text-xs text-muted-foreground">{locale}</div>
                         <Input
                           className="mt-2 h-8"
-                          aria-label={`Display name override for ${locale}`}
+                          aria-label={t('localizationEditor.languages.displayNameAria', { locale })}
                           defaultValue={definition.displayName ?? ''}
-                          placeholder="Native display name"
+                          placeholder={t('localizationEditor.languages.nativeDisplayName')}
                           onBlur={(event) =>
                             setLocaleDisplayName(locale, event.currentTarget.value)
                           }
@@ -1557,12 +1631,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       </div>
                       <div className="flex items-center gap-2">
                         <Switch
-                          aria-label="Supported"
+                          aria-label={t('localizationEditor.labels.supported')}
                           checked={definition.supported}
                           disabled={locale === localization.defaultLocale}
                           onCheckedChange={(checked) => setSupported(locale, checked)}
                         />
-                        <span className="text-sm">Supported</span>
+                        <span className="text-sm">{t('localizationEditor.labels.supported')}</span>
                       </div>
                       <Select
                         value={definition.parentLocale ?? '__none__'}
@@ -1570,11 +1644,15 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                           setParentLocale(locale, value === '__none__' ? null : value)
                         }
                       >
-                        <SelectTrigger aria-label={`Parent locale for ${locale}`}>
-                          <SelectValue placeholder="No parent" />
+                        <SelectTrigger
+                          aria-label={t('localizationEditor.languages.parentAria', { locale })}
+                        >
+                          <SelectValue placeholder={t('localizationEditor.languages.noParent')} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none__">No parent</SelectItem>
+                          <SelectItem value="__none__">
+                            {t('localizationEditor.languages.noParent')}
+                          </SelectItem>
                           {localeEntries
                             .filter(([candidate]) => candidate !== locale)
                             .map(([candidate]) => (
@@ -1595,12 +1673,14 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                             variant="outline"
                             onClick={() => setLocaleFontStack(locale, [])}
                           >
-                            Use custom font stack
+                            {t('localizationEditor.languages.customFontStack')}
                           </Button>
                         ) : (
                           <>
                             <select
-                              aria-label={`Add fallback font for ${locale}`}
+                              aria-label={t('localizationEditor.languages.addFallbackAria', {
+                                locale,
+                              })}
                               className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
                               value=""
                               onChange={(event) => {
@@ -1608,7 +1688,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                 event.currentTarget.value = '';
                               }}
                             >
-                              <option value="">Add fallback font…</option>
+                              <option value="">
+                                {t('localizationEditor.languages.addFallback')}
+                              </option>
                               {fontAssets
                                 .filter(
                                   (asset) =>
@@ -1628,7 +1710,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                   size="sm"
                                   variant="secondary"
                                   onClick={() => removeLocaleFont(locale, ref.$ref.id)}
-                                  title="Remove fallback font"
+                                  title={t('localizationEditor.languages.removeFallback')}
                                 >
                                   {project.assets[ref.$ref.id]?.label ?? ref.$ref.id} ×
                                 </Button>
@@ -1640,7 +1722,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                               variant="ghost"
                               onClick={() => setLocaleFontStack(locale, null)}
                             >
-                              Use Project font stack
+                              {t('localizationEditor.languages.projectFontStack')}
                             </Button>
                           </>
                         )}
@@ -1651,9 +1733,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                         variant="ghost"
                         disabled={roleLocked}
                         onClick={() => removeLanguage(locale)}
-                        aria-label={`Remove ${locale}`}
+                        aria-label={t('localizationEditor.languages.removeAria', { locale })}
                       >
-                        <Trash2 className="size-4" /> Remove
+                        <Trash2 className="size-4" /> {t('localizationEditor.actions.remove')}
                       </Button>
                     </div>
                   );
@@ -1667,50 +1749,58 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="font-medium">Named Messages</h3>
+                <h3 className="font-medium">{t('localizationEditor.messages.title')}</h3>
                 <p className="text-xs text-muted-foreground">
-                  Reusable Messages have semantic keys; usage is derived from Project references.
+                  {t('localizationEditor.messages.description')}
                 </p>
               </div>
               <Button type="button" onClick={() => setCreatingMessage(true)}>
-                <Plus className="size-4" /> New named message
+                <Plus className="size-4" /> {t('localizationEditor.messages.new')}
               </Button>
             </div>
             {creatingMessage && (
               <section className="grid gap-3 rounded border p-4 @3xl:grid-cols-2">
                 <div className="space-y-1">
-                  <Label htmlFor="new-message-key">Semantic key</Label>
+                  <Label htmlFor="new-message-key">
+                    {t('localizationEditor.labels.semanticKey')}
+                  </Label>
                   <Input
                     id="new-message-key"
-                    aria-label="Semantic key"
+                    aria-label={t('localizationEditor.labels.semanticKey')}
                     value={messageDraft.key}
                     onChange={(event) => updateMessageDraft('key', event.currentTarget.value)}
                     placeholder="ui.menu.play"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="new-message-source">Source content</Label>
+                  <Label htmlFor="new-message-source">
+                    {t('localizationEditor.labels.sourceContent')}
+                  </Label>
                   <Input
                     id="new-message-source"
-                    aria-label="Source content"
+                    aria-label={t('localizationEditor.labels.sourceContent')}
                     value={messageDraft.source}
                     onChange={(event) => updateMessageDraft('source', event.currentTarget.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="new-message-context">Context</Label>
+                  <Label htmlFor="new-message-context">
+                    {t('localizationEditor.labels.context')}
+                  </Label>
                   <Input
                     id="new-message-context"
-                    aria-label="Context"
+                    aria-label={t('localizationEditor.labels.context')}
                     value={messageDraft.context}
                     onChange={(event) => updateMessageDraft('context', event.currentTarget.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="new-message-note">Translator note</Label>
+                  <Label htmlFor="new-message-note">
+                    {t('localizationEditor.labels.translatorNote')}
+                  </Label>
                   <Input
                     id="new-message-note"
-                    aria-label="Translator note"
+                    aria-label={t('localizationEditor.labels.translatorNote')}
                     value={messageDraft.translatorNote}
                     onChange={(event) =>
                       updateMessageDraft('translatorNote', event.currentTarget.value)
@@ -1722,7 +1812,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 )}
                 <div className="flex gap-2 @3xl:col-span-2">
                   <Button type="button" onClick={createNamedMessage}>
-                    Create message
+                    {t('localizationEditor.messages.create')}
                   </Button>
                   <Button
                     type="button"
@@ -1732,7 +1822,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       setMessageError(null);
                     }}
                   >
-                    Cancel
+                    {t('localizationEditor.messages.cancel')}
                   </Button>
                 </div>
               </section>
@@ -1740,7 +1830,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
             <div className="space-y-3">
               {namedMessages.length === 0 && !creatingMessage && (
                 <div className="rounded border p-4 text-sm text-muted-foreground">
-                  No named Messages yet.
+                  {t('localizationEditor.messages.empty')}
                 </div>
               )}
               {namedMessages.map(([messageId, message]) => {
@@ -1753,7 +1843,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                     className="grid gap-3 rounded border p-4 @3xl:grid-cols-2"
                   >
                     <div className="space-y-1">
-                      <Label htmlFor={`message-key-${messageId}`}>Semantic key</Label>
+                      <Label htmlFor={`message-key-${messageId}`}>
+                        {t('localizationEditor.labels.semanticKey')}
+                      </Label>
                       <Input
                         id={`message-key-${messageId}`}
                         defaultValue={message.key}
@@ -1763,7 +1855,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor={`message-source-${messageId}`}>Source content</Label>
+                      <Label htmlFor={`message-source-${messageId}`}>
+                        {t('localizationEditor.labels.sourceContent')}
+                      </Label>
                       <textarea
                         className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
                         id={`message-source-${messageId}`}
@@ -1779,7 +1873,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor={`message-context-${messageId}`}>Context</Label>
+                      <Label htmlFor={`message-context-${messageId}`}>
+                        {t('localizationEditor.labels.context')}
+                      </Label>
                       <Input
                         id={`message-context-${messageId}`}
                         defaultValue={message.context ?? ''}
@@ -1794,7 +1890,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor={`message-note-${messageId}`}>Translator note</Label>
+                      <Label htmlFor={`message-note-${messageId}`}>
+                        {t('localizationEditor.labels.translatorNote')}
+                      </Label>
                       <Input
                         id={`message-note-${messageId}`}
                         defaultValue={message.translatorNote ?? ''}
@@ -1810,7 +1908,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                     </div>
                     <div className="@3xl:col-span-2">
                       <div className="text-xs font-medium text-muted-foreground">
-                        Used in · {usages.length}
+                        {t('localizationEditor.messages.usedIn', { count: usages.length })}
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
                         {t('localizationMessageReuse.sharedSourceImpact')}
@@ -1822,7 +1920,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                           ))}
                         </div>
                       ) : (
-                        <div className="mt-1 text-xs text-muted-foreground">No derived usages.</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {t('localizationEditor.messages.noUsages')}
+                        </div>
                       )}
                       {namedUsages.length > 0 && (
                         <div className="mt-3 space-y-2">
@@ -1838,9 +1938,11 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                 {usage.path}
                               </div>
                               <Input
-                                aria-label={`Usage note for ${usage.path}`}
+                                aria-label={t('localizationEditor.messages.usageNoteAria', {
+                                  path: usage.path,
+                                })}
                                 defaultValue={localization.usageNotes[usage.id] ?? ''}
-                                placeholder="Occurrence-specific translator guidance"
+                                placeholder={t('localizationEditor.messages.usageGuidance')}
                                 onBlur={(event) =>
                                   setUsageNote(usage.id, event.currentTarget.value)
                                 }
@@ -1995,7 +2097,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
           <div className="space-y-4">
             <div className="flex flex-wrap items-end gap-3">
               <div className="min-w-56 max-w-sm flex-1 space-y-1">
-                <Label htmlFor="target-locale">Target locale</Label>
+                <Label htmlFor="target-locale">{t('localizationEditor.labels.targetLocale')}</Label>
                 <Select
                   value={effectiveTargetLocale}
                   onValueChange={(value) => {
@@ -2003,8 +2105,13 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                   }}
                   disabled={targetLocales.length === 0}
                 >
-                  <SelectTrigger id="target-locale" aria-label="Target locale">
-                    <SelectValue placeholder="Add a target language first" />
+                  <SelectTrigger
+                    id="target-locale"
+                    aria-label={t('localizationEditor.labels.targetLocale')}
+                  >
+                    <SelectValue
+                      placeholder={t('localizationEditor.translations.addTargetFirst')}
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {targetLocales.map((locale) => (
@@ -2016,18 +2123,23 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 </Select>
               </div>
               <div className="min-w-48 space-y-1">
-                <Label htmlFor="translation-filter">Status filter</Label>
+                <Label htmlFor="translation-filter">
+                  {t('localizationEditor.labels.statusFilter')}
+                </Label>
                 <Select
                   value={translationFilter}
                   onValueChange={(value) => setTranslationFilter(value as TranslationFilter)}
                 >
-                  <SelectTrigger id="translation-filter" aria-label="Translation status filter">
+                  <SelectTrigger
+                    id="translation-filter"
+                    aria-label={t('localizationEditor.labels.translationStatusFilter')}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {translationFilters.map((filter) => (
-                      <SelectItem key={filter.id} value={filter.id}>
-                        {filter.label}
+                      <SelectItem key={filter} value={filter}>
+                        {t(`localizationEditor.filters.${filter}`)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2039,16 +2151,16 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 onClick={bulkReviewFiltered}
                 disabled={!effectiveTargetLocale || filteredMessages.length === 0}
               >
-                Mark filtered current as reviewed
+                {t('localizationEditor.translations.bulkReview')}
               </Button>
             </div>
             {!effectiveTargetLocale ? (
               <div className="rounded border p-4 text-sm text-muted-foreground">
-                Add a target language on Languages to begin translating.
+                {t('localizationEditor.translations.emptyLocale')}
               </div>
             ) : allMessages.length === 0 ? (
               <div className="rounded border p-4 text-sm text-muted-foreground">
-                No Messages are available yet.
+                {t('localizationEditor.translations.emptyMessages')}
               </div>
             ) : (
               <div className="space-y-3">
@@ -2069,11 +2181,11 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       : translation.text
                     : '';
                   const freshness = !translation
-                    ? 'Missing'
+                    ? t('localizationEditor.status.missing')
                     : translation.useSource ||
                         translation.sourceFingerprint === view.sourceFingerprint
-                      ? 'Current'
-                      : 'Outdated';
+                      ? t('localizationEditor.status.current')
+                      : t('localizationEditor.status.outdated');
                   const reuseCandidates =
                     message.kind === 'local'
                       ? identicalSourceReuseCandidates(project, messageId)
@@ -2085,11 +2197,11 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                           translation.acknowledgedPresentationFingerprint !== undefined &&
                           translation.acknowledgedPresentationFingerprint !==
                             view.presentationFingerprint
-                            ? 'Presentation changed'
+                            ? t('localizationEditor.status.presentationChanged')
                             : null,
                           translation.acknowledgedGuidanceFingerprint !== undefined &&
                           translation.acknowledgedGuidanceFingerprint !== view.guidanceFingerprint
-                            ? 'Guidance changed'
+                            ? t('localizationEditor.status.guidanceChanged')
                             : null,
                         ].filter((value): value is string => value !== null)
                       : [];
@@ -2100,32 +2212,56 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                         <div className="text-right text-xs text-muted-foreground">
                           {freshness}
                           {translation?.useSource
-                            ? ` · Use source intentionally${effective.inherited && effective.locale ? ` · inherited from ${effective.locale}` : ''}`
+                            ? ` · ${t('localizationEditor.status.useSource')}${
+                                effective.inherited && effective.locale
+                                  ? ` · ${t('localizationEditor.status.inheritedFrom', { locale: effective.locale })}`
+                                  : ''
+                              }`
                             : translation
-                              ? ` · ${originLabel(translation.origin)} · ${reviewLabel(translation.review)}${effective.inherited && effective.locale ? ` · inherited from ${effective.locale}` : ''}`
+                              ? ` · ${t(`localizationEditor.status.${translation.origin}`)} · ${t(
+                                  translation.review === 'reviewed'
+                                    ? 'localizationEditor.status.reviewed'
+                                    : 'localizationEditor.status.needsReview',
+                                )}${
+                                  effective.inherited && effective.locale
+                                    ? ` · ${t('localizationEditor.status.inheritedFrom', { locale: effective.locale })}`
+                                    : ''
+                                }`
                               : ''}
                           {attention.length > 0 ? ` · ${attention.join(', ')}` : ''}
                         </div>
                       </div>
                       {(message.context || message.translatorNote || view.usedIn) && (
                         <div className="mb-3 text-xs text-muted-foreground">
-                          {message.context ? `Context: ${message.context}` : ''}
+                          {message.context
+                            ? t('localizationEditor.translations.context', {
+                                value: message.context,
+                              })
+                            : ''}
                           {message.context && (message.translatorNote || view.usedIn) ? ' · ' : ''}
                           {message.translatorNote
-                            ? `Translator note: ${message.translatorNote}`
+                            ? t('localizationEditor.translations.translatorNote', {
+                                value: message.translatorNote,
+                              })
                             : ''}
                           {message.translatorNote && view.usedIn ? ' · ' : ''}
-                          {view.usedIn ? `Used in: ${view.usedIn}` : ''}
+                          {view.usedIn
+                            ? t('localizationEditor.translations.usedIn', { value: view.usedIn })
+                            : ''}
                         </div>
                       )}
                       {view.kind === 'local' && (
                         <div className="mb-3 max-w-xl space-y-1">
-                          <Label htmlFor={`usage-note-${messageId}`}>Usage note</Label>
+                          <Label htmlFor={`usage-note-${messageId}`}>
+                            {t('localizationEditor.labels.usageNote')}
+                          </Label>
                           <Input
                             id={`usage-note-${messageId}`}
-                            aria-label={`Usage note for ${label}`}
+                            aria-label={t('localizationEditor.messages.usageNoteAria', {
+                              path: label,
+                            })}
                             defaultValue={view.usageNote ?? ''}
-                            placeholder="Occurrence-specific translator guidance"
+                            placeholder={t('localizationEditor.messages.usageGuidance')}
                             onBlur={(event) => setUsageNote(view.id, event.currentTarget.value)}
                           />
                         </div>
@@ -2248,7 +2384,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       <div className="grid gap-3 @3xl:grid-cols-2">
                         <div className="space-y-1">
                           <Label htmlFor={`source-${messageId}`}>
-                            {localization.sourceLocale} source
+                            {t('localizationEditor.translations.sourceLabel', {
+                              locale: localization.sourceLocale,
+                            })}
                           </Label>
                           <textarea
                             className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
@@ -2261,15 +2399,17 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                         </div>
                         <div className="space-y-1">
                           <Label htmlFor={`target-${messageId}`}>
-                            {effectiveTargetLocale} target
+                            {t('localizationEditor.translations.targetLabel', {
+                              locale: effectiveTargetLocale,
+                            })}
                           </Label>
                           <textarea
                             className="min-h-20 w-full rounded border border-input bg-background p-2 text-sm"
                             id={`target-${messageId}`}
-                            aria-label={`Target content for ${label}`}
+                            aria-label={t('localizationEditor.translations.targetAria', { label })}
                             key={`${effectiveTargetLocale}:${messageId}:${translated}:${effective.locale ?? 'missing'}`}
                             defaultValue={translated}
-                            placeholder="Missing"
+                            placeholder={t('localizationEditor.status.missing')}
                             disabled={effective.inherited || translation?.useSource}
                             onBlur={(event) => setTranslation(view, event.currentTarget.value)}
                           />
@@ -2279,7 +2419,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                             !translation.useSource && (
                               <div className="space-y-2 rounded-md border p-2">
                                 <div className="text-xs font-medium text-muted-foreground">
-                                  Dialogue Cue placements
+                                  {t('localizationEditor.labels.dialogueCuePlacements')}
                                 </div>
                                 {view.dialogueCues.map((sourceCue) => {
                                   const cue =
@@ -2298,12 +2438,19 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                         {sourceCue.id}
                                       </div>
                                       <div className="space-y-1">
-                                        <Label className="text-[11px]">Offset</Label>
+                                        <Label className="text-[11px]">
+                                          {t('localizationEditor.labels.offset')}
+                                        </Label>
                                         <Input
                                           type="number"
                                           min={0}
                                           step={1}
-                                          aria-label={`Cue ${sourceCue.id} offset`}
+                                          aria-label={t(
+                                            'localizationEditor.translations.cueOffsetAria',
+                                            {
+                                              id: sourceCue.id,
+                                            },
+                                          )}
                                           defaultValue={cue.position.offset}
                                           disabled={effective.inherited || !localTranslation}
                                           onBlur={(event) => {
@@ -2322,12 +2469,19 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                         />
                                       </div>
                                       <div className="space-y-1">
-                                        <Label className="text-[11px]">Order</Label>
+                                        <Label className="text-[11px]">
+                                          {t('localizationEditor.labels.order')}
+                                        </Label>
                                         <Input
                                           type="number"
                                           min={0}
                                           step={1}
-                                          aria-label={`Cue ${sourceCue.id} order`}
+                                          aria-label={t(
+                                            'localizationEditor.translations.cueOrderAria',
+                                            {
+                                              id: sourceCue.id,
+                                            },
+                                          )}
                                           defaultValue={cue.position.order}
                                           disabled={effective.inherited || !localTranslation}
                                           onBlur={(event) => {
@@ -2350,8 +2504,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                 })}
                                 {!dialogueCuesReviewable(view, translation) && (
                                   <p className="text-xs text-destructive">
-                                    Cue placements must preserve every Cue in semantic order and
-                                    stay within the translated text.
+                                    {t('localizationEditor.translations.cueValidation')}
                                   </p>
                                 )}
                               </div>
@@ -2364,7 +2517,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                 variant="outline"
                                 onClick={() => overrideInheritedTarget(view)}
                               >
-                                Override inherited target
+                                {t('localizationEditor.translations.overrideInherited')}
                               </Button>
                             )}
                             {!effective.inherited && !localTranslation?.useSource && (
@@ -2374,7 +2527,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                 variant="outline"
                                 onClick={() => setUseSource(view)}
                               >
-                                Use source intentionally
+                                {t('localizationEditor.translations.useSource')}
                               </Button>
                             )}
                             {localTranslation?.useSource && (
@@ -2384,7 +2537,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                 variant="outline"
                                 onClick={() => setTranslation(view, view.source)}
                               >
-                                Translate instead
+                                {t('localizationEditor.translations.translateInstead')}
                               </Button>
                             )}
                             {translation && !effective.inherited && !translation.useSource && (
@@ -2396,7 +2549,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                     variant="outline"
                                     onClick={() => acceptTranslation(view)}
                                   >
-                                    Accept current source
+                                    {t('localizationEditor.translations.acceptCurrentSource')}
                                   </Button>
                                 )}
                                 <Button
@@ -2409,7 +2562,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                   }
                                   onClick={() => reviewTranslation(view)}
                                 >
-                                  Mark reviewed
+                                  {t('localizationEditor.translations.markReviewed')}
                                 </Button>
                               </>
                             )}

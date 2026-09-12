@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { LocalizationEditor } from '@/editors/localization/LocalizationEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import { currentRecoveryDirtySaveUnitIds } from '@/workbench/project-editor-state';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import {
   createAuthoringProject,
@@ -61,6 +62,12 @@ describe('LocalizationEditor', () => {
     expect(project.localization.defaultLocale).toBe('en');
     expect(Object.keys(project.localization.locales)).toEqual(['en']);
     expect(project.localization.translations).toEqual({});
+    const historyEntry = useCommandStore.getState().history.entries.at(-1);
+    expect(historyEntry).toMatchObject({
+      originSaveUnitId: 'editor-local:preview-locale',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(currentRecoveryDirtySaveUnitIds()).not.toContain('project:localization');
   });
 
   it('exposes the localization work surfaces and manages locale lifecycle through project commands', async () => {

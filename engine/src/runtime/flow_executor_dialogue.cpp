@@ -406,7 +406,8 @@ Result<void, Diagnostics> FlowExecutor::choose_dialogue_option(const FlowFrameId
         auto logged = m_state.append_text_log(
             m_project, TextLogEntry{TextLogEntryKind::Choice,
                                     DialogueChoiceTextLogOrigin{frame->dialogue, edge},
-                                    std::nullopt, selected->label, selected->markup});
+                                    std::nullopt, selected->label, selected->markup,
+                                    selected->localized_message});
         if (!logged)
             return fail(logged.error());
     }

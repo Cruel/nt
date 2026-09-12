@@ -128,6 +128,22 @@ TEST_CASE("ActiveTextPresenter remaps page-local reveal from normalized progress
     CHECK(presenter.render_snapshot().visible_text == "BB");
 }
 
+TEST_CASE("ActiveTextPresenter remaps normalized progress when markup changes but plain text does not")
+{
+    noveltea::core::Diagnostics diagnostics;
+    noveltea::ui::rmlui::ActiveTextPresenter presenter(diagnostics);
+    auto view = make_room_view("AAAA[p]BBBB");
+
+    (void)presenter.advance(&view, 2.0f);
+    presenter.refresh_layout(&view, surface());
+    REQUIRE(presenter.activate(&view, 0.0f, 0.0f).local_state_changed);
+
+    auto replacement = make_room_view("AA[p]AABBBB");
+    (void)presenter.advance(&replacement, 0.0f);
+    presenter.refresh_layout(&replacement, surface());
+    CHECK(presenter.render_snapshot().visible_text == "AA");
+}
+
 TEST_CASE("ActiveTextPresenter scales its fixed base size inside the supplied logical box")
 {
     noveltea::core::Diagnostics diagnostics;

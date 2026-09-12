@@ -1174,6 +1174,45 @@ RuntimeExecutor::resolve(const core::TextSource& source, std::string_view runtim
                  : core::Result<std::string, RuntimeExecutionError>::failure(result.error());
 }
 
+core::Result<runtime::ScriptTextResult, RuntimeExecutionError>
+RuntimeExecutor::resolve_causal_text(const core::TextSource& source, std::string_view runtime_locale)
+{
+    if (const auto* lua = std::get_if<core::LuaTextExpression>(&source)) {
+        runtime::ScriptInvocationRequest request{.source = lua->source,
+                                                 .chunk_name = "lua-text-expression",
+                                                 .owner = std::nullopt,
+                                                 .invocation = std::nullopt,
+                                                 .source_context = m_gateway.current_source_context(),
+                                                 .result_kind =
+                                                     runtime::ScriptInvocationResultKind::Text,
+                                                 .asset_path = std::nullopt};
+        auto result = m_scripts.invoke(request, m_expression_capabilities);
+        const auto* outcome = result.value_if();
+        if (outcome == nullptr)
+            return core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::failure(
+                result.error());
+        const auto* completed = std::get_if<runtime::ScriptInvocationCompleted>(outcome);
+        const auto* value =
+            completed == nullptr ? nullptr : std::get_if<runtime::ScriptTextResult>(&completed->value);
+        return value ? core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::success(*value)
+                     : core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::failure(
+                           RuntimeExecutionError{runtime::ScriptInvocationError{
+                               .code = runtime::ScriptInvocationErrorCode::InvalidResult,
+                               .message = "Lua text expression did not return text",
+                               .chunk = request.chunk_name,
+                               .traceback = {}}});
+    }
+    auto resolved = m_primitives.resolve(source, runtime_locale);
+    const auto* text = resolved.value_if();
+    if (text == nullptr)
+        return core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::failure(
+            resolved.error());
+    runtime::ScriptTextResult result{*text, std::nullopt};
+    if (const auto* message = std::get_if<core::MessageRef>(&source))
+        result.localized_message = core::CapturedMessageOccurrence{message->id, {}};
+    return core::Result<runtime::ScriptTextResult, RuntimeExecutionError>::success(std::move(result));
+}
+
 core::Result<core::WaitEvaluation, core::Diagnostics>
 RuntimeExecutor::begin(const core::WaitSpec& wait)
 {
@@ -1760,7 +1799,7 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         m_gateway.request_autosave_safe_point();
                     return core::FlowPresentationBoundaryOutcome{};
                 } else if constexpr (std::is_same_v<T, core::compiled::ShowTextInstruction>) {
-                    auto text = resolve(value.text.source, runtime_locale);
+                    auto text = resolve_causal_text(value.text.source, runtime_locale);
                     if (!text) {
                         if (const auto* diagnostics = std::get_if<core::Diagnostics>(&text.error()))
                             return fault(*diagnostics);
@@ -1772,13 +1811,16 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         return fault(execution_error("execution.invalid_text_result",
                                                      "Scene text produced no value"));
                     auto presented = m_state.present_text(
-                        m_project, {value.speaker, *resolved_text, value.text.markup});
+                        m_project,
+                        {value.speaker, resolved_text->text, value.text.markup,
+                         resolved_text->localized_message});
                     if (!presented)
                         return fault(presented.error());
                     auto logged = m_state.append_text_log(
                         m_project,
                         {core::TextLogEntryKind::Line, core::SceneTextLogOrigin{frame->scene, step},
-                         value.speaker, *resolved_text, value.text.markup});
+                         value.speaker, resolved_text->text, value.text.markup,
+                         resolved_text->localized_message});
                     if (!logged)
                         return fault(logged.error());
                     if (fast_forward) {
@@ -2187,9 +2229,9 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     return commit(frame->scene, step,
                                   {value.fallback_instruction_id, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T, core::compiled::ChoiceSceneInstruction>) {
-                    core::SceneChoiceState state{frame->scene, step, std::nullopt, {}};
+                    core::SceneChoiceState state{frame->scene, step, std::nullopt, {}, std::nullopt};
                     if (value.prompt) {
-                        auto prompt = resolve(value.prompt->source, runtime_locale);
+                        auto prompt = resolve_causal_text(value.prompt->source, runtime_locale);
                         if (!prompt) {
                             if (const auto* diagnostics =
                                     std::get_if<core::Diagnostics>(&prompt.error()))
@@ -2201,7 +2243,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         if (prompt_value == nullptr)
                             return fault(execution_error("execution.invalid_text_result",
                                                          "Scene choice prompt produced no value"));
-                        state.prompt = std::move(*prompt_value);
+                        state.prompt = std::move(prompt_value->text);
+                        state.localized_prompt = std::move(prompt_value->localized_message);
                     }
                     for (const auto& option : value.options) {
                         bool enabled = true;
@@ -2221,7 +2264,7 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                                     "Scene choice condition produced no value"));
                             enabled = *condition_value;
                         }
-                        auto label = resolve(option.label.source, runtime_locale);
+                        auto label = resolve_causal_text(option.label.source, runtime_locale);
                         if (!label) {
                             if (const auto* diagnostics =
                                     std::get_if<core::Diagnostics>(&label.error()))
@@ -2233,7 +2276,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         if (label_value == nullptr)
                             return fault(execution_error("execution.invalid_text_result",
                                                          "Scene choice label produced no value"));
-                        state.options.push_back({option.id, std::move(*label_value), enabled});
+                        state.options.push_back({option.id, std::move(label_value->text), enabled,
+                                                 std::move(label_value->localized_message)});
                     }
                     auto waiting = begin(core::WaitSpec{core::InputWait{}});
                     if (!waiting)
