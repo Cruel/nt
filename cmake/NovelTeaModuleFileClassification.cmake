@@ -29,7 +29,6 @@ set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/include/noveltea/core/layout_scale_policy.hpp
     engine/include/noveltea/core/loading_progress.hpp
     engine/include/noveltea/core/message_realization.hpp
-    engine/include/noveltea/core/message_resolution.hpp
     engine/include/noveltea/core/presentation_contracts.hpp
     engine/include/noveltea/core/presentation_operation_contracts.hpp
     engine/include/noveltea/core/property.hpp
@@ -39,6 +38,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/include/noveltea/core/room_presentation_contracts.hpp
     engine/include/noveltea/core/runtime_diagnostic_context.hpp
     engine/include/noveltea/core/runtime_instance.hpp
+    engine/include/noveltea/core/runtime_locale.hpp
     engine/include/noveltea/core/runtime_user_settings.hpp
     engine/include/noveltea/core/runtime_presentation_contracts.hpp
     engine/include/noveltea/core/runtime_value.hpp
@@ -60,7 +60,6 @@ set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/src/core/diagnostic.cpp
     engine/src/core/gameplay_pause.cpp
     engine/src/core/message_realization.cpp
-    engine/src/core/message_resolution.cpp
     engine/src/core/property_resolver.cpp
     engine/src/core/rich_text.cpp
     engine/src/core/runtime_user_settings.cpp

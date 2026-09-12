@@ -2266,6 +2266,33 @@ TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to it
     CHECK(ui.active_text_presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Fade);
 }
 
+TEST_CASE("built-in Game HUD realizes system Messages after the first context update")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const noveltea::core::compiled::Localization localization{
+        .source_locale = "en",
+        .default_locale = "en",
+        .locales = {{.locale = "en", .parent_locale = std::nullopt, .supported = true}},
+        .catalogs = {{.locale = "en", .entries = {}}}};
+    ui.bind_message_localization(localization, "en");
+    REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* document = driver->document("runtime_game");
+    REQUIRE(document);
+    auto* menu_button = document->GetElementById("rt_menu");
+    REQUIRE(menu_button);
+    auto* menu_label = menu_button->GetFirstChild();
+    REQUIRE(menu_label);
+    CHECK(menu_label->GetInnerRML().empty());
+
+    ui.begin_frame({});
+    CHECK(menu_label->GetInnerRML() == "Menu");
+}
+
 TEST_CASE("built-in Game HUD navigation button submits the selected Room exit")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});

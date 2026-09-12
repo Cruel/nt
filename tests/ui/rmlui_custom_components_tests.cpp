@@ -99,12 +99,14 @@ TEST_CASE("RuntimeUI re-realizes mounted nt-tr elements when the locale binding 
     REQUIRE(ui::rmlui::RuntimeUiFacadeAccess::load_document_from_memory(
         runtime_ui, "localized",
         "<rml><head></head><body><nt-tr message='7'></nt-tr></body></rml>"));
+    runtime_ui.begin_frame({});
 
     const auto english_listener = ui::rmlui::RuntimeUiFacadeAccess::add_event_listener(
         runtime_ui, "localized", "english", "click", [] {});
     REQUIRE(english_listener != 0);
 
     runtime_ui.bind_message_localization(localization, "es");
+    runtime_ui.begin_frame({});
     const auto spanish_listener = ui::rmlui::RuntimeUiFacadeAccess::add_event_listener(
         runtime_ui, "localized", "spanish", "click", [] {});
     CHECK(spanish_listener != 0);
