@@ -34,7 +34,7 @@ import type {
   ReferenceTarget,
 } from './project-schema/authoring-project';
 import { resolveMessage } from './message-resolution';
-import { structuredMessageById } from './authoring-structured-messages';
+import { localizationMessageWorkflowView } from './authoring-localization-workflow';
 import { systemLayoutRoleValues } from './project-schema/authoring-layouts';
 import { isVariableRef } from './project-schema/authoring-variables';
 import type {
@@ -1980,19 +1980,17 @@ function deriveStructuralContributionByKey(
     )
       return null;
     const [locale, messageId] = parsed;
-    const message = project.localization.messages[messageId];
-    const structuredMessage = message ? null : structuredMessageById(project, messageId);
+    const workflowMessage = localizationMessageWorkflowView(project, messageId);
     const exists =
       locale === project.localization.sourceLocale
-        ? message !== undefined || structuredMessage !== null
+        ? workflowMessage !== null
         : project.localization.translations[locale]?.[messageId] !== undefined;
-    if ((!message && !structuredMessage) || !exists) return null;
+    if (!workflowMessage || !exists) return null;
     const key = localizationMessageNodeKey(locale, messageId);
     const ownerPath =
       locale === project.localization.sourceLocale
-        ? message
-          ? buildJsonPointer(['localization', 'messages', messageId, 'source'])
-          : structuredMessage!.path
+        ? (workflowMessage.sourcePath ??
+          buildJsonPointer(['localization', 'messages', messageId, 'source']))
         : buildJsonPointer(['localization', 'translations', locale, messageId]);
     return {
       key: contributionKey,
@@ -2002,7 +2000,10 @@ function deriveStructuralContributionByKey(
           key,
           keyText: serializeAuthoringDependencyNodeKey(key),
           owningPath: ownerPath,
-          label: message?.kind === 'named' ? message.key : (structuredMessage?.source ?? messageId),
+          label:
+            workflowMessage.kind === 'named'
+              ? (workflowMessage.key ?? messageId)
+              : workflowMessage.source,
         },
       ],
       edges: [],

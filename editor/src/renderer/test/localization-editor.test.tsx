@@ -22,6 +22,7 @@ import {
 } from '../../shared/authoring-localization-workflow';
 import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
 import { structuredMessageForPath } from '../../shared/authoring-structured-messages';
+import { PSEUDO_PREVIEW_LOCALE } from '../../shared/pseudo-localization';
 import { testTranslation } from './fixtures/localization-workflow';
 
 const tab = {
@@ -47,6 +48,21 @@ function loadProject() {
 }
 
 describe('LocalizationEditor', () => {
+  it('selects the virtual pseudo locale through editor-local Preview Locale state only', async () => {
+    const user = userEvent.setup();
+    loadProject();
+    render(<LocalizationEditor tab={tab} />);
+
+    await user.click(screen.getByRole('combobox', { name: 'Preview locale' }));
+    await user.click(screen.getByRole('option', { name: /Pseudo-localized/u }));
+
+    const project = useProjectStore.getState().document as AuthoringProject;
+    expect(project.editor.previewLocale).toBe(PSEUDO_PREVIEW_LOCALE);
+    expect(project.localization.defaultLocale).toBe('en');
+    expect(Object.keys(project.localization.locales)).toEqual(['en']);
+    expect(project.localization.translations).toEqual({});
+  });
+
   it('exposes the localization work surfaces and manages locale lifecycle through project commands', async () => {
     const user = userEvent.setup();
     loadProject();

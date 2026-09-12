@@ -59,6 +59,7 @@ import {
   applyLocalizationReconciliation,
   planLocalizationReconciliation,
 } from '../../../shared/authoring-localization-reconcile';
+import { PSEUDO_PREVIEW_LOCALE } from '../../../shared/pseudo-localization';
 
 type Surface = 'overview' | 'translations' | 'assets' | 'languages' | 'messages' | 'reconciliation';
 
@@ -1001,6 +1002,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                     <SelectItem value="__project_default__">
                       Project Default ({localization.defaultLocale})
                     </SelectItem>
+                    <SelectItem value={PSEUDO_PREVIEW_LOCALE}>
+                      {t('localizationPreviewLocale.pseudoOption')}
+                    </SelectItem>
                     {previewLocales.map((locale) => (
                       <SelectItem key={locale} value={locale}>
                         {displayLocale(locale)} ({locale})
@@ -1011,8 +1015,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 </Select>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                Used by focused previews and Play only. It does not change the Project Source or
-                Default locale.
+                {t('localizationPreviewLocale.description')}
               </p>
             </section>
             <section className="rounded border p-4 @3xl:col-span-3">

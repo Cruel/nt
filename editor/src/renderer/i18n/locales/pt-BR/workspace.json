@@ -69,6 +69,10 @@
     "useDisk": "Usar disco",
     "keepMine": "Manter minhas alterações"
   },
+  "localizationPreviewLocale": {
+    "pseudoOption": "Pseudolocalizado · Localidade virtual de QA",
+    "description": "Usado apenas nas prévias focadas e no Play. A pseudolocalidade é gerada a partir da fonte atual da Mensagem e nunca é armazenada como idioma do Projeto nem distribuída como localidade."
+  },
   "localizationReconciliation": {
     "tab": "Reconciliação",
     "staleError": "As fontes do Projeto mudaram. Revise o plano de reconciliação recalculado.",

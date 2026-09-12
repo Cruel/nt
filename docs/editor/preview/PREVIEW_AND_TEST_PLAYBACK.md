@@ -52,8 +52,14 @@ Localization owns one editor-local **Preview Locale** selection under local edit
 previews and Play resolve against that selection instead of mutating the Project Source or Default
 locale. Any declared locale, including work-in-progress/non-Supported locales, may be selected for
 preview; Play enables that locale only in its detached compilation input so the tracked Project locale
-policy remains unchanged. Removing the selected locale falls back to the Project Default. Preview
-Locale is not part of runtime package/export preparation.
+policy remains unchanged. A virtual **Pseudo-localized** QA choice is generated from the current
+Message source/structure: visible text is marked and expanded while placeholders, selector structure,
+semantic Dialogue Cue identities, and RML/rich-text markup remain intact. Play materializes the
+virtual target only in its detached compilation input, and focused previews derive the corresponding
+presentation directly; no pseudo locale, translations, inheritance, or support policy are persisted to
+Project localization storage or emitted by ordinary package/export preparation. Removing a selected
+real locale falls back to the Project Default. Preview Locale itself is not part of runtime package/export
+preparation.
 
 Finite presentation in Play preview uses the same `PresentationCoordinator` and typed renderer
 backend as packaged playback. Runtime load/reset/project replacement terminates in-flight

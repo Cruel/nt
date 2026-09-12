@@ -5,6 +5,7 @@ import {
   serializeAuthoringDependencyNodeKey,
 } from '../../shared/authoring-dependency-graph';
 import { DEFAULT_PREVIEW_DISPLAY_PREFERENCE } from '../../shared/preview-display';
+import { PSEUDO_PREVIEW_LOCALE, pseudoLocalizeText } from '../../shared/pseudo-localization';
 import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import {
@@ -282,6 +283,48 @@ describe('graph-driven Room builder', () => {
       markup: 'plain',
       source: { kind: 'resolved', text: 'Une chambre calme.' },
     });
+  });
+
+  it('uses generated pseudo-localization in focused Room preview without changing Project locales', async () => {
+    const project = fixture();
+    project.editor.previewLocale = PSEUDO_PREVIEW_LOCALE;
+
+    const result = await build(project);
+
+    expect(project.localization.defaultLocale).toBe('en');
+    expect(Object.keys(project.localization.locales)).toEqual(['en']);
+    expect(result.data.ui.description).toEqual({
+      markup: 'plain',
+      source: { kind: 'resolved', text: pseudoLocalizeText('A quiet bedroom.').text },
+    });
+  });
+
+  it('pseudo-localizes authored RML mounted inside focused Room preview', async () => {
+    const project = fixture();
+    const overlay = defaultLayoutData('Overlay', 'document');
+    overlay.target = 'room-overlay';
+    overlay.rml.sourceText =
+      '<rml><head></head><body><nt-tr>Open <em>door</em>.</nt-tr></body></rml>';
+    project.layouts.overlay = { id: 'overlay', label: 'Overlay', data: overlay };
+    project.rooms.bedroom!.data.overlays = [
+      {
+        id: 'status',
+        layout: { $ref: { collection: 'layouts', id: 'overlay' } },
+        condition: { kind: 'always' },
+        visible: true,
+        order: 3,
+      },
+    ];
+    project.editor.previewLocale = PSEUDO_PREVIEW_LOCALE;
+
+    const result = await build(project);
+    const mounted = result.data.layouts.find((layout) => layout.layoutId === 'overlay');
+    expect(mounted?.source.kind).toBe('authored');
+    if (mounted?.source.kind !== 'authored' || mounted.source.rml.kind !== 'inline') return;
+    expect(mounted.source.rml.text).toContain('<em>');
+    expect(mounted.source.rml.text).toContain('</em>');
+    expect(mounted.source.rml.text).toContain('⟦');
+    expect(project.layouts.overlay.data.rml.sourceText).not.toContain('⟦');
   });
 
   it('prepares managed Lua Messages for focused preview without authored localization literals', async () => {
