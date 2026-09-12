@@ -17,6 +17,8 @@ import {
 } from '../../shared/focused-preview-contracts';
 import { lowerLayoutContractForWire } from '../../shared/layout-contract-lowering';
 import { effectivePreviewDisplay } from '../../shared/preview-display';
+import { effectivePreviewLocale } from '../../shared/preview-locale';
+import { PSEUDO_PREVIEW_LOCALE, pseudoLocalizeRmlMessages } from '../../shared/pseudo-localization';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectOriginalAssetUrl } from '../../shared/project-original-asset';
 import type { AuthoringSourceAnalysisArtifact } from '../../shared/project-schema/authoring-lua-analysis';
@@ -243,8 +245,15 @@ async function materialProjection(
 function layoutSourceComponent(
   project: AuthoringProject,
   source: NonNullable<ReturnType<typeof parseLayoutData>>['rml'],
+  options: Readonly<{ pseudoLocalizeMessages?: boolean }> = {},
 ) {
-  if (source.sourceMode === 'inline') return { kind: 'inline' as const, text: source.sourceText };
+  if (source.sourceMode === 'inline')
+    return {
+      kind: 'inline' as const,
+      text: options.pseudoLocalizeMessages
+        ? pseudoLocalizeRmlMessages(project, source.sourceText)
+        : source.sourceText,
+    };
   const assetId = source.sourceAsset?.$ref.id;
   const asset = assetId ? parseAssetData(project.assets[assetId]?.data) : null;
   if (!asset) throw new Error(`Layout source Asset '${assetId ?? ''}' is missing or invalid.`);
@@ -343,7 +352,9 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
           enabled: layout.script.enabled,
           namespace: layout.script.namespace ?? null,
         },
-        rml: layoutSourceComponent(context.project, layout.rml),
+        rml: layoutSourceComponent(context.project, layout.rml, {
+          pseudoLocalizeMessages: effectivePreviewLocale(context.project) === PSEUDO_PREVIEW_LOCALE,
+        }),
         rcss: layoutSourceComponent(context.project, layout.rcss),
         lua: layoutSourceComponent(context.project, layout.lua),
         scalePolicy,

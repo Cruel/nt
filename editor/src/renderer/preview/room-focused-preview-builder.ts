@@ -20,7 +20,12 @@ import {
   structuredMessageForPath,
 } from '../../shared/authoring-structured-messages';
 import { effectivePreviewDisplay } from '../../shared/preview-display';
-import { effectivePreviewLocale } from '../../shared/preview-locale';
+import { effectivePreviewLocale, projectWithPreviewLocale } from '../../shared/preview-locale';
+import {
+  PSEUDO_PREVIEW_LOCALE,
+  pseudoLocalizeRmlMessages,
+  pseudoLocalizeText,
+} from '../../shared/pseudo-localization';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
   gameplayInstanceKindForCollection,
@@ -211,11 +216,13 @@ function focusedCondition(value: RoomData['overlays'][number]['condition']): Foc
 }
 
 function localizedText(project: AuthoringProject, key: string): string {
+  const locale = effectivePreviewLocale(project);
   const result = resolveMessage(project.localization, {
     key,
-    locale: effectivePreviewLocale(project),
+    locale: locale === PSEUDO_PREVIEW_LOCALE ? project.localization.sourceLocale : locale,
   });
-  return result.resolved?.text ?? '';
+  const text = result.resolved?.text ?? '';
+  return locale === PSEUDO_PREVIEW_LOCALE ? pseudoLocalizeText(text).text : text;
 }
 
 function focusedStructuredString(
@@ -224,9 +231,11 @@ function focusedStructuredString(
   fallback: string,
 ) {
   const message = structuredMessageForPath(project, semanticPath);
-  return message
-    ? resolveStructuredMessageText(project, message, effectivePreviewLocale(project)).text
-    : fallback;
+  if (!message) return fallback;
+  const locale = effectivePreviewLocale(project);
+  return locale === PSEUDO_PREVIEW_LOCALE
+    ? pseudoLocalizeText(message.source).text
+    : resolveStructuredMessageText(project, message, locale).text;
 }
 
 function focusedText(
@@ -314,8 +323,18 @@ function characterVisual(
   };
 }
 
-function sourceComponent(project: AuthoringProject, value: LayoutSourceData) {
-  if (value.sourceMode === 'inline') return { kind: 'inline' as const, text: value.sourceText };
+function sourceComponent(
+  project: AuthoringProject,
+  value: LayoutSourceData,
+  options: Readonly<{ pseudoLocalizeMessages?: boolean }> = {},
+) {
+  if (value.sourceMode === 'inline')
+    return {
+      kind: 'inline' as const,
+      text: options.pseudoLocalizeMessages
+        ? pseudoLocalizeRmlMessages(project, value.sourceText)
+        : value.sourceText,
+    };
   const assetId = value.sourceAsset?.$ref.id;
   const asset = assetId ? parseAssetData(project.assets[assetId]?.data) : null;
   return {
@@ -375,7 +394,9 @@ function buildLayouts(
       return;
     }
     const lua = sourceComponent(project, data.lua);
-    const rml = sourceComponent(project, data.rml);
+    const rml = sourceComponent(project, data.rml, {
+      pseudoLocalizeMessages: effectivePreviewLocale(project) === PSEUDO_PREVIEW_LOCALE,
+    });
     output.push({
       instanceId,
       layoutId,
@@ -854,7 +875,9 @@ export async function buildFocusedRoomPreview(
     activeShaderVariant,
   } = options;
   const diagnostics: Diagnostic[] = [];
-  const managedLua = lowerManagedLuaLocalizationForFocusedPreview(authoredProject);
+  const managedLua = lowerManagedLuaLocalizationForFocusedPreview(
+    projectWithPreviewLocale(authoredProject),
+  );
   const project = managedLua.project;
   diagnostics.push(
     ...managedLua.diagnostics.map((item) => ({

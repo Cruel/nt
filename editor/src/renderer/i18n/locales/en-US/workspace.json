@@ -69,6 +69,10 @@
     "useDisk": "Use Disk",
     "keepMine": "Keep Mine"
   },
+  "localizationPreviewLocale": {
+    "pseudoOption": "Pseudo-localized · Virtual QA locale",
+    "description": "Used by focused previews and Play only. The pseudo locale is generated from current Message source and is never stored as a Project language or shipped locale."
+  },
   "localizationReconciliation": {
     "tab": "Reconciliation",
     "staleError": "Project sources changed. Review the recomputed reconciliation plan.",
