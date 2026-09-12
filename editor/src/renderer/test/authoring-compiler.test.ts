@@ -16,6 +16,7 @@ import {
   createUseSourceLocalizationTarget,
   localizationMessageWorkflowView,
 } from '../../shared/authoring-localization-workflow';
+import { createLocalizedAssetVariant } from '../../shared/authoring-localized-assets';
 import { lowerSceneAndRoomPrograms } from '../../shared/authoring-compiler-scene-room-lowering';
 import { lowerDialogueAndInteractionPrograms } from '../../shared/authoring-compiler-dialogue-interaction-lowering';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
@@ -2002,6 +2003,52 @@ describe('authoring compiler framework', () => {
         height: 180,
       },
     ]);
+  });
+
+  it('compiles locale-specific Asset realizations onto the semantic base Asset', () => {
+    const project = validProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    project.assets.media = {
+      id: 'media',
+      label: 'Media',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/media.png',
+        contentHash: 'base-hash',
+        imageMetadata: { width: 320, height: 180, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.assets['media-fr'] = {
+      id: 'media-fr',
+      label: 'Media FR',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/media-fr.png',
+        contentHash: 'fr-hash',
+        imageMetadata: { width: 320, height: 180, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.localization.assets.fr = {
+      media: createLocalizedAssetVariant(project, 'media', 'media-fr')!,
+      'media-fr': { useSource: true },
+    };
+
+    const result = lowerSharedAuthoringProject(project);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.draft?.resources.assets.find((asset) => asset.id === 'media')).toMatchObject({
+      id: 'media',
+      localized: [
+        {
+          locale: 'fr',
+          state: 'variant',
+          asset: { kind: 'asset', id: 'media-fr' },
+        },
+      ],
+    });
+    expect(result.draft?.resources.assets.find((asset) => asset.id === 'media-fr')).toMatchObject({
+      localized: [{ locale: 'fr', state: 'source' }],
+    });
   });
 
   it('lowers every Scene instruction and ordered Room lifecycle hook without comments or disabled steps', () => {

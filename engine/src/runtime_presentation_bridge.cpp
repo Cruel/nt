@@ -122,6 +122,8 @@ RuntimePresentationDispatchResult RuntimePresentationBridge::flush()
             core::append_diagnostics(result.diagnostics, state.diagnostics);
             return result;
         }
+        if (m_hold_mandatory_commit)
+            return result;
         auto committed = commit_pending_mandatory_snapshot();
         if (!committed) {
             auto diagnostics = std::move(committed).error();
@@ -564,6 +566,75 @@ RuntimePresentationBridge::prime_snapshot_backend(const core::RuntimePresentatio
     return core::Result<void, core::Diagnostics>::success();
 }
 
+core::Result<bool, core::Diagnostics>
+RuntimePresentationBridge::prepare_published_snapshot_resources()
+{
+    if (!m_published_snapshot || m_mandatory_asset_gate == nullptr)
+        return core::Result<bool, core::Diagnostics>::success(true);
+
+    if (m_pending_mandatory_snapshot) {
+        if (!m_hold_mandatory_commit) {
+            return core::Result<bool, core::Diagnostics>::failure(
+                one({.code = "assets.mandatory_refresh_already_pending",
+                     .message = "Cannot prepare localized presentation resources while another "
+                                "mandatory publication is pending"}));
+        }
+        const auto state = m_mandatory_asset_gate->poll_on_owner();
+        if (state.disposition == assets::MandatoryAssetGateDisposition::Pending)
+            return core::Result<bool, core::Diagnostics>::success(false);
+        if (state.disposition == assets::MandatoryAssetGateDisposition::Failed ||
+            state.disposition == assets::MandatoryAssetGateDisposition::Canceled) {
+            return core::Result<bool, core::Diagnostics>::failure(std::move(state.diagnostics));
+        }
+        return core::Result<bool, core::Diagnostics>::success(true);
+    }
+
+    const auto snapshot = *m_published_snapshot;
+    auto commit_critical_snapshot = snapshot;
+    // Active localized voice/video replacement belongs to post-commit reconciliation. Exclude
+    // already-playing audio from this bounded locale refresh so streaming media cannot hold the
+    // locale commit open; #216 replaces it afterward under locale-transition generations.
+    commit_critical_snapshot.desired_audio.clear();
+    auto started = m_mandatory_asset_gate->begin_on_owner(commit_critical_snapshot);
+    if (started.disposition == assets::MandatoryAssetGateDisposition::Failed ||
+        started.disposition == assets::MandatoryAssetGateDisposition::Canceled) {
+        return core::Result<bool, core::Diagnostics>::failure(std::move(started.diagnostics));
+    }
+    m_hold_mandatory_commit = true;
+    m_pending_mandatory_snapshot = snapshot;
+    return core::Result<bool, core::Diagnostics>::success(
+        started.disposition == assets::MandatoryAssetGateDisposition::Ready);
+}
+
+core::Result<void, core::Diagnostics>
+RuntimePresentationBridge::commit_prepared_published_snapshot_resources()
+{
+    if (!m_hold_mandatory_commit || !m_pending_mandatory_snapshot)
+        return core::Result<void, core::Diagnostics>::success();
+    auto committed = commit_pending_mandatory_snapshot();
+    if (committed)
+        m_hold_mandatory_commit = false;
+    return committed;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimePresentationBridge::reapply_published_snapshot_backend()
+{
+    if (!m_published_snapshot || !m_snapshot_backend)
+        return core::Result<void, core::Diagnostics>::success();
+    return m_snapshot_backend(*m_published_snapshot);
+}
+
+void RuntimePresentationBridge::cancel_prepared_published_snapshot_resources() noexcept
+{
+    if (!m_hold_mandatory_commit)
+        return;
+    if (m_mandatory_asset_gate)
+        m_mandatory_asset_gate->rollback_candidate_on_owner();
+    m_pending_mandatory_snapshot.reset();
+    m_hold_mandatory_commit = false;
+}
+
 core::Result<void, core::Diagnostics>
 RuntimePresentationBridge::reconcile(const core::RuntimePresentationSnapshot& snapshot)
 {
@@ -654,6 +725,7 @@ void RuntimePresentationBridge::bind_mandatory_asset_gate(assets::MandatoryAsset
     if (m_mandatory_asset_gate)
         m_mandatory_asset_gate->rollback_candidate_on_owner();
     m_pending_mandatory_snapshot.reset();
+    m_hold_mandatory_commit = false;
     m_mandatory_asset_gate = gate;
 }
 
@@ -686,6 +758,7 @@ void RuntimePresentationBridge::terminate(core::PresentationCancellationReason r
     if (m_mandatory_asset_gate)
         m_mandatory_asset_gate->rollback_candidate_on_owner();
     m_pending_mandatory_snapshot.reset();
+    m_hold_mandatory_commit = false;
     m_published_snapshot.reset();
     m_primed_predecessor_snapshot.reset();
     m_active_text_phase = core::ActiveTextPresentationPhase::Stable;

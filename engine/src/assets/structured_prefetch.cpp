@@ -234,6 +234,7 @@ struct StructuredAssetDependencyIndex::Impl {
     const core::LoadedCompiledPackage* package = nullptr;
     AssetSourceGeneration source_generation;
     std::string renderer_variant;
+    std::string active_locale;
     core::Diagnostics configuration_diagnostics;
     core::Diagnostics diagnostics;
     std::unordered_map<std::string, std::uint64_t> package_entry_sizes;
@@ -709,15 +710,15 @@ StructuredAssetDependencyIndex::StructuredAssetDependencyIndex(
 {
 }
 
-StructuredAssetDependencyIndex
-StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package,
-                                      std::string_view active_renderer_variant,
-                                      AssetSourceGeneration source_generation)
+StructuredAssetDependencyIndex StructuredAssetDependencyIndex::build(
+    const core::LoadedCompiledPackage& package, std::string_view active_renderer_variant,
+    AssetSourceGeneration source_generation, std::string_view active_locale)
 {
     auto impl = std::make_shared<Impl>();
     impl->package = &package;
     impl->source_generation = source_generation;
     impl->renderer_variant = active_renderer_variant;
+    impl->active_locale = active_locale;
 
     if (!source_generation.valid()) {
         add_diagnostic(impl->diagnostics, "assets.prefetch_invalid_source_generation",
@@ -736,7 +737,9 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
     for (const auto& entry : package.manifest().entries)
         impl->package_entry_sizes.emplace(entry.path, entry.size);
     for (const auto& asset : project.assets()) {
-        const auto* registered = package.resources().find_asset(asset.id);
+        const auto* resolved = project.resolve_asset(asset.id, active_locale);
+        const auto* registered =
+            resolved != nullptr ? package.resources().find_asset(resolved->id) : nullptr;
         if (registered != nullptr) {
             impl->assets.emplace(asset.id, registered);
             impl->assets_by_logical_path.emplace(logical_project_path(registered->path),

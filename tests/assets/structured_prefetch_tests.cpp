@@ -414,10 +414,29 @@ core::LoadedCompiledPackage package_from_document(nlohmann::json document, std::
 core::LoadedCompiledPackage collector_package()
 {
     auto document = read_comprehensive_project();
+    document["localization"]["locales"].push_back({{"locale", "fr"},
+                                                   {"parentLocale", nullptr},
+                                                   {"supported", true},
+                                                   {"fontStack", nlohmann::json::array()}});
+    document["localization"]["catalogs"].push_back(
+        {{"locale", "fr"}, {"entries", nlohmann::json::array()}});
+    document["resources"]["assets"].push_back(
+        {{"aliases", nlohmann::json::array()},
+         {"id", "image-current"},
+         {"kind", "image"},
+         {"path", "assets/images/current.png"},
+         {"sampling", "linear"},
+         {"width", 64},
+         {"height", 64},
+         {"localized", nlohmann::json::array({
+                           {{"locale", "fr"},
+                            {"state", "variant"},
+                            {"asset", {{"kind", "asset"}, {"id", "image-current-fr"}}}},
+                       })}});
     document["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
-                                               {"id", "image-current"},
+                                               {"id", "image-current-fr"},
                                                {"kind", "image"},
-                                               {"path", "assets/images/current.png"},
+                                               {"path", "assets/images/current-fr.png"},
                                                {"sampling", "linear"},
                                                {"width", 64},
                                                {"height", 64}});
@@ -848,6 +867,33 @@ TEST_CASE("mandatory collector builds typed publication closure without speculat
         CHECK(std::find(keys.begin(), keys.end(), item.cache_key) == keys.end());
         keys.push_back(item.cache_key);
     }
+}
+
+TEST_CASE("mandatory collector resolves localized physical Assets before residency keys are formed",
+          "[assets][structured-prefetch][localization]")
+{
+    auto package = collector_package();
+    const assets::AssetSourceGeneration generation{42};
+    const auto index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation, "fr");
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-current"),
+                                                       .color = std::nullopt,
+                                                       .fit = core::compiled::BackgroundFit::Cover,
+                                                       .material = std::nullopt};
+    assets::MandatoryAssetDependencyContext context;
+    context.current_presentation = &snapshot;
+
+    const assets::MandatoryAssetDependencyCollector collector(index);
+    const auto collected = collector.collect(context);
+    REQUIRE(find_request<assets::TextureAssetRequest>(collected.requests, [](const auto& request) {
+        return request.path == "project:/assets/images/current-fr.png";
+    }));
+    CHECK_FALSE(
+        find_request<assets::TextureAssetRequest>(collected.requests, [](const auto& request) {
+            return request.path == "project:/assets/images/current.png";
+        }));
 }
 
 TEST_CASE("structured texture dependencies carry alpha coverage into mandatory and prefetch work",

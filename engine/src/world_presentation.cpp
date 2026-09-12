@@ -344,19 +344,23 @@ std::string world_actor_identity(const core::ActorPresentationKey& key)
         key);
 }
 
-void AssetWorldPresentationResourceResolver::bind_project(const core::CompiledProject& project)
+void AssetWorldPresentationResourceResolver::bind_project(const core::CompiledProject& project,
+                                                          std::string_view active_locale)
 {
     WorldPresentationResourceCatalog catalog;
     for (const auto& asset : project.assets()) {
-        if (asset.kind == core::compiled::AssetKind::Image) {
-            assert(asset.sampling.has_value());
-            const auto sampler = *asset.sampling == core::compiled::ImageSampling::Nearest
-                                     ? MaterialTextureSampler::ClampNearest
-                                     : MaterialTextureSampler::ClampLinear;
-            catalog.images.push_back({.asset_id = asset.id,
-                                      .logical_path = "project:/" + asset.path,
-                                      .sampler = sampler});
-        }
+        if (asset.kind != core::compiled::AssetKind::Image)
+            continue;
+        const auto* resolved = project.resolve_asset(asset.id, active_locale);
+        if (resolved == nullptr || resolved->kind != core::compiled::AssetKind::Image)
+            continue;
+        assert(resolved->sampling.has_value());
+        const auto sampler = *resolved->sampling == core::compiled::ImageSampling::Nearest
+                                 ? MaterialTextureSampler::ClampNearest
+                                 : MaterialTextureSampler::ClampLinear;
+        catalog.images.push_back({.asset_id = asset.id,
+                                  .logical_path = "project:/" + resolved->path,
+                                  .sampler = sampler});
     }
     bind_catalog(std::move(catalog));
 }
@@ -591,8 +595,8 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             "presentation.world_viewport_invalid",
             "World presentation requires a finite positive logical viewport", "world")});
     }
-    if (m_snapshot && *m_snapshot == snapshot && m_viewport.width == viewport.width &&
-        m_viewport.height == viewport.height)
+    if (!m_resources_dirty && m_snapshot && *m_snapshot == snapshot &&
+        m_viewport.width == viewport.width && m_viewport.height == viewport.height)
         return core::Result<bool, core::Diagnostics>::success(false);
 
     WorldPresentationFrame candidate;
@@ -946,6 +950,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
     m_snapshots.insert_or_assign(snapshot.revision.number(), snapshot);
     m_frames.insert_or_assign(snapshot.revision.number(), candidate);
     m_frame = std::move(candidate);
+    m_resources_dirty = false;
     if (m_generation != std::numeric_limits<std::uint64_t>::max())
         ++m_generation;
     return core::Result<bool, core::Diagnostics>::success(true);

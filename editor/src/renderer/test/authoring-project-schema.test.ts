@@ -31,6 +31,7 @@ describe('authoring project schema', () => {
         sourceMessageTracking: {},
         orphanedMessages: {},
         translations: {},
+        assets: {},
       },
       editor: { schema: EDITOR_PROJECT_STATE_SCHEMA, recordMetadata: {} },
     });
@@ -66,6 +67,7 @@ describe('authoring project schema', () => {
       translations: {
         fr: { '018f4f8c-9b5d-7ae2-9b36-4c8af613f013': testTranslation('{count} Hall') },
       },
+      assets: {},
     };
 
     expect(isAuthoringProject(project)).toBe(true);

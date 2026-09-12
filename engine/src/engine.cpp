@@ -1040,7 +1040,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_layout_realizer.clear_authored_preview();
         m_shader_materials = std::move(prepared.shader_materials);
         m_renderer.set_shader_material_project(&m_shader_materials);
-        m_world_presentation_resources.bind_project(project);
+        m_world_presentation_resources.bind_project(project, game.runtime_locale());
         m_presentation_settings = prepared.presentation_settings;
         auto presentation =
             make_presentation_metrics(m_platform.surface(), m_presentation_settings);
@@ -1082,7 +1082,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         }
         auto gate_bound = m_mandatory_assets.bind_package_on_owner(
             game.package(), m_renderer.active_shader_variant(),
-            m_assets.source_generation_on_owner());
+            m_assets.source_generation_on_owner(), game.runtime_locale());
         if (!gate_bound) {
             return core::Result<void, core::Diagnostics>::failure({gate_bound.error()});
         }
@@ -1248,6 +1248,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         return false;
     }
     m_pending_runtime_locale_change.reset();
+    m_runtime_locale_resources_preparing = false;
     m_runtime_locale_change_result.reset();
     m_game_host.runtime_presentation().bind_mandatory_asset_gate(&m_mandatory_assets);
     service_loading_frame_jobs();
@@ -1376,6 +1377,12 @@ Engine::Impl::request_runtime_locale_change(std::string locale)
         return core::Result<void, core::Diagnostics>::failure({{
             .code = "runtime_shell.runtime_unavailable",
             .message = "Runtime locale change requires a loaded compiled project.",
+        }});
+    }
+    if (m_pending_runtime_locale_change) {
+        return core::Result<void, core::Diagnostics>::failure({{
+            .code = "runtime_shell.locale_change_pending",
+            .message = "A runtime locale change is already in progress.",
         }});
     }
     const auto& localization = running_game->package().project().localization();
@@ -1883,86 +1890,152 @@ void Engine::Impl::service_loading_frame_jobs()
 
 void Engine::Impl::service_pending_runtime_locale_change()
 {
-    if (!m_pending_runtime_locale_change || m_game_host.mandatory_assets_pending())
+    if (!m_pending_runtime_locale_change)
         return;
+    if (m_game_host.mandatory_assets_pending() && !m_runtime_locale_resources_preparing)
+        return;
+
     auto* running_game = m_game_host.running_game();
     if (!running_game) {
+        if (m_runtime_locale_resources_preparing)
+            m_game_host.runtime_presentation().cancel_prepared_published_snapshot_resources();
+        m_runtime_locale_resources_preparing = false;
         m_pending_runtime_locale_change.reset();
         return;
     }
 
     const std::string target = *m_pending_runtime_locale_change;
+    const std::string previous_locale(running_game->runtime_locale());
     const auto previous_fonts = m_assets.font_config();
     auto candidate_fonts = previous_fonts;
     candidate_fonts.active_locale = target;
 
-    // Loading/registering the target font faces is the bounded preparation phase. It does not
-    // replace fallback priority, the active Message locale, or runtime publication, so a failure
-    // leaves the old presentation environment active.
-    if (!m_runtime_ui.prepare_fonts(candidate_fonts)) {
-        append_runtime_diagnostics({{
-            .code = "runtime.locale_font_environment_failed",
-            .message = "Failed to prepare the target locale font environment.",
-        }});
+    const auto fail_change = [&](const core::Diagnostic& diagnostic) {
         m_runtime_locale_change_result = core::RuntimeLocaleChangeResultView{
             .requested_locale = target,
             .succeeded = false,
-            .diagnostic_code = "runtime.locale_font_environment_failed",
-            .message = "Failed to prepare the target locale font environment.",
+            .diagnostic_code = diagnostic.code,
+            .message = diagnostic.message,
         };
+        m_runtime_locale_resources_preparing = false;
         m_pending_runtime_locale_change.reset();
         m_game_host.system_layouts().refresh();
-        return;
+    };
+
+    // Prepare fonts and the bounded currently visible localized Asset set while the old semantic
+    // locale and old mandatory publication remain active. The bridge deliberately excludes active
+    // audio from this hold; #216 owns post-commit voice/video replacement.
+    if (!m_runtime_locale_resources_preparing) {
+        if (!m_runtime_ui.prepare_fonts(candidate_fonts)) {
+            const core::Diagnostic diagnostic{
+                .code = "runtime.locale_font_environment_failed",
+                .message = "Failed to prepare the target locale font environment."};
+            append_runtime_diagnostics({diagnostic});
+            fail_change(diagnostic);
+            return;
+        }
+        auto localized_assets = m_mandatory_assets.set_active_locale_on_owner(target);
+        if (!localized_assets) {
+            const auto diagnostic = localized_assets.error();
+            append_runtime_diagnostics({diagnostic});
+            fail_change(diagnostic);
+            return;
+        }
+        auto prepared = m_game_host.runtime_presentation().prepare_published_snapshot_resources();
+        if (!prepared) {
+            (void)m_mandatory_assets.set_active_locale_on_owner(previous_locale);
+            auto diagnostics = std::move(prepared).error();
+            const auto diagnostic =
+                diagnostics.empty()
+                    ? core::Diagnostic{.code = "runtime.locale_asset_environment_failed",
+                                       .message = "Failed to prepare localized Asset realizations."}
+                    : diagnostics.front();
+            append_runtime_diagnostics(std::move(diagnostics));
+            fail_change(diagnostic);
+            return;
+        }
+        m_runtime_locale_resources_preparing = true;
+        if (!prepared.value())
+            return;
+    } else {
+        auto prepared = m_game_host.runtime_presentation().prepare_published_snapshot_resources();
+        if (!prepared) {
+            m_game_host.runtime_presentation().cancel_prepared_published_snapshot_resources();
+            (void)m_mandatory_assets.set_active_locale_on_owner(previous_locale);
+            auto diagnostics = std::move(prepared).error();
+            const auto diagnostic =
+                diagnostics.empty()
+                    ? core::Diagnostic{.code = "runtime.locale_asset_environment_failed",
+                                       .message = "Failed to prepare localized Asset realizations."}
+                    : diagnostics.front();
+            append_runtime_diagnostics(std::move(diagnostics));
+            fail_change(diagnostic);
+            return;
+        }
+        if (!prepared.value())
+            return;
     }
 
-    // Activating fallback priority and publishing the new semantic locale occur back-to-back on the
-    // owner thread before another render opportunity. The fallback replacement itself is atomic and
-    // validates every requested family before mutating RmlUi's active list.
+    // The target font set and current visual resources are ready. Publish all commit-critical
+    // locale state back-to-back on the owner thread before another render opportunity.
     if (!m_runtime_ui.activate_font_fallbacks(candidate_fonts)) {
-        append_runtime_diagnostics({{
+        m_game_host.runtime_presentation().cancel_prepared_published_snapshot_resources();
+        (void)m_mandatory_assets.set_active_locale_on_owner(previous_locale);
+        const core::Diagnostic diagnostic{
             .code = "runtime.locale_font_environment_failed",
-            .message = "Failed to activate the target locale font environment.",
-        }});
-        m_runtime_locale_change_result = core::RuntimeLocaleChangeResultView{
-            .requested_locale = target,
-            .succeeded = false,
-            .diagnostic_code = "runtime.locale_font_environment_failed",
-            .message = "Failed to activate the target locale font environment.",
-        };
-        m_pending_runtime_locale_change.reset();
-        m_game_host.system_layouts().refresh();
+            .message = "Failed to activate the target locale font environment."};
+        append_runtime_diagnostics({diagnostic});
+        fail_change(diagnostic);
         return;
     }
 
     auto committed = m_game_host.commit_runtime_locale(target);
     if (!committed.accepted()) {
         (void)m_runtime_ui.activate_font_fallbacks(previous_fonts);
+        m_game_host.runtime_presentation().cancel_prepared_published_snapshot_resources();
+        (void)m_mandatory_assets.set_active_locale_on_owner(previous_locale);
         if (!committed.diagnostics.empty()) {
-            const auto& diagnostic = committed.diagnostics.front();
-            m_runtime_locale_change_result = core::RuntimeLocaleChangeResultView{
-                .requested_locale = target,
-                .succeeded = false,
-                .diagnostic_code = diagnostic.code,
-                .message = diagnostic.message,
-            };
+            const auto diagnostic = committed.diagnostics.front();
             append_runtime_diagnostics(std::move(committed.diagnostics));
+            fail_change(diagnostic);
         } else {
-            m_runtime_locale_change_result = core::RuntimeLocaleChangeResultView{
-                .requested_locale = target,
-                .succeeded = false,
-                .diagnostic_code = "runtime.locale_commit_failed",
-                .message = "Failed to commit the target locale environment.",
-            };
+            const core::Diagnostic diagnostic{
+                .code = "runtime.locale_commit_failed",
+                .message = "Failed to commit the target locale environment."};
+            append_runtime_diagnostics({diagnostic});
+            fail_change(diagnostic);
         }
-        m_pending_runtime_locale_change.reset();
-        m_game_host.system_layouts().refresh();
         return;
     }
 
-    // Commit the package-local font selector and all mounted nt-tr nodes in the same owner-frame
-    // transaction as the typed runtime publication. Documents stay mounted, so focus and local
-    // RmlUi state survive and bound nt-tr arguments are read again from the live data model.
     m_assets.set_font_locale(target);
+    m_world_presentation_resources.bind_project(running_game->package().project(), target);
+    m_world_presentation.invalidate_resources();
+    auto published =
+        m_game_host.runtime_presentation().commit_prepared_published_snapshot_resources();
+    if (!published) {
+        (void)m_runtime_ui.activate_font_fallbacks(previous_fonts);
+        m_assets.set_font_locale(previous_locale);
+        m_world_presentation_resources.bind_project(running_game->package().project(),
+                                                    previous_locale);
+        m_world_presentation.invalidate_resources();
+        (void)m_game_host.commit_runtime_locale(previous_locale);
+        m_game_host.runtime_presentation().cancel_prepared_published_snapshot_resources();
+        (void)m_mandatory_assets.set_active_locale_on_owner(previous_locale);
+        auto diagnostics = std::move(published).error();
+        auto reapplied = m_game_host.runtime_presentation().reapply_published_snapshot_backend();
+        if (!reapplied)
+            core::append_diagnostics(diagnostics, std::move(reapplied).error());
+        const auto diagnostic =
+            diagnostics.empty()
+                ? core::Diagnostic{.code = "runtime.locale_asset_environment_failed",
+                                   .message = "Failed to publish localized Asset realizations."}
+                : diagnostics.front();
+        append_runtime_diagnostics(std::move(diagnostics));
+        fail_change(diagnostic);
+        return;
+    }
+
     m_runtime_ui.bind_message_localization(running_game->package().project().localization(),
                                            target);
     m_runtime_locale_change_result = core::RuntimeLocaleChangeResultView{
@@ -1971,6 +2044,7 @@ void Engine::Impl::service_pending_runtime_locale_change()
         .diagnostic_code = {},
         .message = {},
     };
+    m_runtime_locale_resources_preparing = false;
     m_pending_runtime_locale_change.reset();
     m_game_host.system_layouts().refresh();
 }

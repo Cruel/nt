@@ -964,8 +964,8 @@ struct MandatoryAssetGate::Impl {
                             "package"});
         }
 
-        auto index =
-            StructuredAssetDependencyIndex::build(*package, active_renderer_variant, generation);
+        auto index = StructuredAssetDependencyIndex::build(*package, active_renderer_variant,
+                                                           generation, active_locale);
         dependency_generation = generation;
         dependency_index.emplace(index);
         collector.emplace(std::move(index));
@@ -1347,6 +1347,7 @@ struct MandatoryAssetGate::Impl {
     PrefetchPlanner prefetch;
     const core::LoadedCompiledPackage* package = nullptr;
     std::string active_renderer_variant;
+    std::string active_locale;
     std::optional<StructuredAssetDependencyIndex> dependency_index;
     std::optional<MandatoryAssetDependencyCollector> collector;
     runtime::FlowPredictionProjection entry_prediction;
@@ -1394,10 +1395,9 @@ MandatoryAssetGate& MandatoryAssetGate::operator=(MandatoryAssetGate&& other) no
     return *this;
 }
 
-core::DiagnosticResult<void>
-MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& package,
-                                          std::string_view active_renderer_variant,
-                                          AssetSourceGeneration generation)
+core::DiagnosticResult<void> MandatoryAssetGate::bind_package_on_owner(
+    const core::LoadedCompiledPackage& package, std::string_view active_renderer_variant,
+    AssetSourceGeneration generation, std::string_view active_locale)
 {
     rollback_candidate_on_owner();
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
@@ -1411,6 +1411,7 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
     }
 #endif
     m_impl->active_renderer_variant = std::string(active_renderer_variant);
+    m_impl->active_locale = std::string(active_locale);
     if (generation != m_impl->assets.source_generation_on_owner()) {
         m_impl->dependency_index.reset();
         m_impl->collector.reset();
@@ -1435,8 +1436,8 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
             {.code = "assets.mandatory_gate_stale_source_generation",
              .message = "Mandatory asset dependency collection targets a stale source generation"});
     }
-    auto index =
-        StructuredAssetDependencyIndex::build(package, m_impl->active_renderer_variant, generation);
+    auto index = StructuredAssetDependencyIndex::build(package, m_impl->active_renderer_variant,
+                                                       generation, m_impl->active_locale);
     m_impl->package = &package;
     m_impl->dependency_generation = generation;
     m_impl->dependency_index.emplace(index);
@@ -1460,6 +1461,41 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
     m_impl->prediction_context = {};
     m_impl->latest_snapshot.reset();
     m_impl->runtime_prediction_observed = false;
+    return core::DiagnosticResult<void>::success();
+}
+
+core::DiagnosticResult<void> MandatoryAssetGate::set_active_locale_on_owner(std::string_view locale)
+{
+    if (m_impl->active_locale == locale)
+        return core::DiagnosticResult<void>::success();
+    if (m_impl->package == nullptr) {
+        return core::DiagnosticResult<void>::failure(
+            {.code = "assets.mandatory_gate_package_unbound",
+             .message =
+                 "Cannot change localized Asset resolution without a bound compiled package"});
+    }
+
+    rollback_candidate_on_owner();
+    m_impl->prefetch.clear_on_owner();
+    m_impl->active_locale = std::string(locale);
+    auto rebuilt = m_impl->rebuild_index_on_owner(m_impl->assets.source_generation_on_owner());
+    if (!rebuilt)
+        return rebuilt;
+
+    m_impl->entry_prediction = m_impl->predict_useful(m_impl->package->project().entrypoint(), {});
+    if (m_impl->active_scene_root)
+        m_impl->active_scene_prediction =
+            m_impl->predict_useful(*m_impl->active_scene_root, m_impl->prediction_context);
+    if (m_impl->active_dialogue_root)
+        m_impl->active_dialogue_prediction =
+            m_impl->predict_useful(*m_impl->active_dialogue_root, m_impl->prediction_context);
+    if (m_impl->resident_root)
+        m_impl->resident_prediction =
+            m_impl->predict_useful(*m_impl->resident_root, m_impl->prediction_context);
+    m_impl->rebuild_detached_predictions();
+    m_impl->adjacent_prediction_plan = {};
+    if (m_impl->latest_snapshot)
+        m_impl->append_adjacent_room_predictions(*m_impl->latest_snapshot);
     return core::DiagnosticResult<void>::success();
 }
 
@@ -1496,6 +1532,7 @@ void MandatoryAssetGate::clear_package_on_owner() noexcept
     m_impl->runtime_prediction_observed = false;
     m_impl->package = nullptr;
     m_impl->active_renderer_variant.clear();
+    m_impl->active_locale.clear();
     m_impl->publication.clear_on_owner();
 }
 
@@ -1619,7 +1656,8 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
                               "Causal audio preparation requires a bound compiled package")});
     }
 
-    const auto* asset = m_impl->package->project().find_asset(*operation.asset);
+    const auto* asset =
+        m_impl->package->project().resolve_asset(*operation.asset, m_impl->active_locale);
     if (asset == nullptr) {
         return core::Result<void, core::Diagnostics>::failure({group_diagnostic(
             "assets.mandatory_audio_asset_missing",

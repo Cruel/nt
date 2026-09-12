@@ -65,7 +65,7 @@ public:
     {
     }
 
-    void bind_project(const core::CompiledProject& project);
+    void bind_project(const core::CompiledProject& project, std::string_view active_locale = {});
     void bind_catalog(WorldPresentationResourceCatalog catalog);
     void
     bind_builtin_program_validator(std::function<bool(HotspotMaterialInterface)> validator) noexcept
@@ -262,6 +262,7 @@ public:
 
     [[nodiscard]] core::Result<bool, core::Diagnostics>
     reconcile(const core::RuntimePresentationSnapshot& snapshot, Size viewport);
+    void invalidate_resources() noexcept { m_resources_dirty = true; }
     void realize(const core::RuntimeClockUpdate& clock);
     [[nodiscard]] core::Result<bool, core::Diagnostics> resize(Size viewport);
     void reset();
@@ -299,6 +300,7 @@ private:
     std::unordered_map<std::string, LoopEpoch> m_loop_epochs;
     std::uint64_t m_generation = 0;
     HotspotInteractionVisualState m_hotspot_visual_state;
+    bool m_resources_dirty = false;
 };
 
 } // namespace noveltea

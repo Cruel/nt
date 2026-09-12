@@ -1,6 +1,7 @@
 import type { ToolDiagnostic, ToolSeverity } from '../editor-tooling';
 import { collectAuthoringLuaSources } from '../authoring-source-analysis';
 import { localizationMessageWorkflowViews } from '../authoring-localization-workflow';
+import { isLocalizableAssetKind } from '../authoring-localized-assets';
 import { dialogueMessageCueUsages, structuredMessages } from '../authoring-structured-messages';
 import { analyzeHookRegistry } from '../hook-registry-analysis';
 import {
@@ -1617,6 +1618,69 @@ function validateAssets(project: AuthoringProject, diagnostics: ProjectValidatio
           ),
         );
       else aliases.set(alias, id);
+    }
+  }
+
+  for (const [locale, targets] of Object.entries(project.localization.assets)) {
+    for (const [baseAssetId, target] of Object.entries(targets)) {
+      const targetPath = `/localization/assets/${escapePathSegment(locale)}/${escapePathSegment(baseAssetId)}`;
+      const base = parseAssetData(project.assets[baseAssetId]?.data);
+      if (!base) {
+        diagnostics.push(
+          diagnostic(
+            'error',
+            targetPath,
+            `Localized Asset base '${baseAssetId}' does not exist.`,
+            'Localization',
+          ),
+        );
+        continue;
+      }
+      if (!isLocalizableAssetKind(base.kind)) {
+        diagnostics.push(
+          diagnostic(
+            'error',
+            targetPath,
+            `Asset kind '${base.kind}' cannot have localized physical variants.`,
+            'Localization',
+          ),
+        );
+        continue;
+      }
+      if ('useSource' in target) continue;
+      const variantId = target.asset.$ref.id;
+      if (variantId === baseAssetId) {
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${targetPath}/asset`,
+            'Localized Asset variants must name a distinct Asset; use Use source intentionally to keep the base Asset.',
+            'Localization',
+          ),
+        );
+        continue;
+      }
+      const variant = parseAssetData(project.assets[variantId]?.data);
+      if (!variant) {
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${targetPath}/asset`,
+            `Localized Asset variant '${variantId}' does not exist.`,
+            'Localization',
+          ),
+        );
+        continue;
+      }
+      if (variant.kind !== base.kind)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${targetPath}/asset`,
+            `Localized Asset variant '${variantId}' must be kind '${base.kind}', not '${variant.kind}'.`,
+            'Localization',
+          ),
+        );
     }
   }
 }

@@ -6,6 +6,7 @@
 #include <limits>
 #include <string_view>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 
 namespace noveltea::core {
@@ -315,13 +316,47 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
         const bool sampling_matches_kind = asset.kind == compiled::AssetKind::Image
                                                ? asset.sampling.has_value()
                                                : !asset.sampling.has_value();
+        const bool localizable_kind = asset.kind == compiled::AssetKind::Image ||
+                                      asset.kind == compiled::AssetKind::Audio ||
+                                      asset.kind == compiled::AssetKind::Video;
         if (!enum_at_most(asset.kind, compiled::AssetKind::Binary) || !sampling_matches_kind ||
             (asset.sampling && !enum_at_most(*asset.sampling, compiled::ImageSampling::Nearest)) ||
-            asset.path.empty() ||
+            asset.path.empty() || (!localizable_kind && !asset.localized.empty()) ||
             std::any_of(asset.aliases.begin(), asset.aliases.end(),
                         [](const std::string& alias) { return alias.empty(); })) {
             diagnostics = invalid_model("Asset resource is invalid");
             return false;
+        }
+        std::unordered_set<std::string> localized_locales;
+        for (const auto& realization : asset.localized) {
+            const bool declared_locale = std::ranges::any_of(
+                input.localization.locales, [&](const compiled::LocaleDefinition& candidate) {
+                    return candidate.locale == realization.locale;
+                });
+            if (realization.locale.empty() ||
+                realization.locale == input.localization.source_locale || !declared_locale ||
+                !localized_locales.insert(realization.locale).second ||
+                !enum_at_most(realization.state,
+                              compiled::LocalizedAssetRealizationState::Variant) ||
+                (realization.state == compiled::LocalizedAssetRealizationState::Source &&
+                 realization.asset) ||
+                (realization.state == compiled::LocalizedAssetRealizationState::Variant &&
+                 !realization.asset)) {
+                diagnostics = invalid_model("Localized Asset realization is invalid");
+                return false;
+            }
+            if (realization.asset) {
+                const auto variant = std::ranges::find_if(
+                    input.assets, [&](const compiled::AssetResource& candidate) {
+                        return candidate.id == *realization.asset;
+                    });
+                if (variant == input.assets.end() || variant->id == asset.id ||
+                    variant->kind != asset.kind) {
+                    diagnostics =
+                        invalid_model("Localized Asset variant is missing or incompatible");
+                    return false;
+                }
+            }
         }
     }
     for (const auto& layout : input.layouts) {
@@ -680,6 +715,39 @@ FIND(property, properties, PropertyId, PropertyDefinition)
 FIND(trait, traits, TraitId, compiled::TraitDefinition)
 FIND(archetype, archetypes, ArchetypeId, compiled::ArchetypeDefinition)
 FIND(asset, assets, AssetId, compiled::AssetResource)
+
+const compiled::AssetResource*
+CompiledProject::resolve_asset(const AssetId& id, std::string_view locale) const noexcept
+{
+    const auto* base = find_asset(id);
+    if (base == nullptr || base->localized.empty() || locale.empty() ||
+        locale == m_localization.source_locale)
+        return base;
+
+    std::unordered_set<std::string> visited;
+    std::string current(locale);
+    while (!current.empty() && current != m_localization.source_locale &&
+           visited.insert(current).second) {
+        const auto realization = std::ranges::find_if(
+            base->localized, [&](const compiled::LocalizedAssetRealization& candidate) {
+                return candidate.locale == current;
+            });
+        if (realization != base->localized.end()) {
+            if (realization->state == compiled::LocalizedAssetRealizationState::Source)
+                return base;
+            return realization->asset ? find_asset(*realization->asset) : base;
+        }
+        const auto definition = std::ranges::find_if(
+            m_localization.locales, [&](const compiled::LocaleDefinition& candidate) {
+                return candidate.locale == current;
+            });
+        if (definition == m_localization.locales.end() || !definition->parent_locale)
+            break;
+        current = *definition->parent_locale;
+    }
+    return base;
+}
+
 FIND(material_interface, material_interfaces, MaterialId, compiled::MaterialInterfaceResource)
 FIND(script, scripts, ScriptId, compiled::ScriptResource)
 FIND(character, characters, CharacterId, compiled::CharacterDefinition)

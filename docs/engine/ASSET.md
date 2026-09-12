@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Asset records describe imported project resources such as images, fonts, audio, scripts, shader sources, text/data files, and opaque binary files. Assets provide stable IDs, safe project-relative source paths, aliases, metadata, and preview information used by the editor and later runtime/package export.
+Asset records describe imported project resources such as images, fonts, audio, video, scripts, shader sources, text/data files, and opaque binary files. Assets provide stable IDs, safe project-relative source paths, aliases, metadata, and preview information used by the editor and later runtime/package export.
 
 This document covers the new authoring asset model. It does not describe the old NovelTea asset manager as a compatibility contract.
 
@@ -85,6 +85,14 @@ The editor uses assets as stable referenced records. Components may reference an
 
 At runtime, the asset manager works through logical asset paths and typed loaders. Export is responsible for copying project asset files into package paths and translating authoring references into runtime-usable paths or metadata.
 
+### Localized physical realizations
+
+Image, audio, and video Assets may opt into locale-specific physical realizations without changing their semantic Asset ID. Localization stores sparse mappings by target locale and semantic base Asset. Each mapping is either `Use source intentionally` or a reference to another ordinary Asset of the same kind. Locale inheritance uses the same explicit authoring `parentLocale` chain as Message translation authoring; an explicit `Use source intentionally` mapping stops inheritance for that Asset.
+
+Localized variants carry a fingerprint of the semantic base Asset content identity plus origin/review metadata. Replacing the base content makes an independently authored variant Outdated; `Use source intentionally` always follows the current base content and therefore remains Current. Fonts are not localized through this mechanism because locale font stacks already select them. Scripts, shader sources, text/data, and binary Assets are not implicitly localized.
+
+Compiled gameplay and presentation references continue to name the semantic base Asset. The compiled Asset resource carries locale realization metadata, and `CompiledProject::resolve_asset()` selects the effective physical Asset for an active locale. The structured mandatory/prefetch dependency index performs that resolution before typed requests and cache/residency keys are formed, so residency tracks the physical locale realization without creating a second localization-only Asset runtime.
+
 ## Data Model
 
 `kind` is one of:
@@ -93,6 +101,7 @@ At runtime, the asset manager works through logical asset paths and typed loader
 image
 font
 audio
+video
 script
 shader-source
 text
@@ -142,6 +151,7 @@ Asset kind is inferred from extension:
 - images: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`, `.svg`;
 - fonts: `.ttf`, `.otf`, `.woff`, `.woff2`;
 - audio: `.mp3`, `.ogg`, `.wav`, `.flac`, `.m4a`;
+- video: `.mp4`, `.webm`, `.mkv`, `.mov`, `.m4v`;
 - scripts: `.lua`;
 - shader sources: `.sc`, `.glsl`, `.vert`, `.frag`, `.vs`, `.fs`;
 - text: `.txt`, `.md`, `.rml`, `.rcss`, `.css`;

@@ -2160,6 +2160,10 @@ const mapDefinitionSchema = strict({
   }),
 });
 
+const localizedAssetRealizationSchema = z.discriminatedUnion('state', [
+  strict({ locale: z.string().min(1), state: z.literal('source') }),
+  strict({ locale: z.string().min(1), state: z.literal('variant'), asset: assetReferenceSchema }),
+]);
 const assetResourceSchema = z.discriminatedUnion('kind', [
   strict({
     aliases: z.array(z.string().min(1)),
@@ -2169,12 +2173,14 @@ const assetResourceSchema = z.discriminatedUnion('kind', [
     sampling: z.enum(imageSamplingValues),
     width: z.number().int().positive(),
     height: z.number().int().positive(),
+    localized: z.array(localizedAssetRealizationSchema).optional(),
   }),
   strict({
     aliases: z.array(z.string().min(1)),
     id,
-    kind: z.enum(['font', 'audio', 'script', 'shader-source', 'text', 'data', 'binary']),
+    kind: z.enum(['font', 'audio', 'video', 'script', 'shader-source', 'text', 'data', 'binary']),
     path: z.string().min(1),
+    localized: z.array(localizedAssetRealizationSchema).optional(),
   }),
 ]);
 const layoutSourceSchema = z.discriminatedUnion('kind', [

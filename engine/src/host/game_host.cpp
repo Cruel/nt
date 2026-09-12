@@ -456,7 +456,8 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
         if (!m_running_game)
             return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
 
-        m_runtime_ui_asset_service.install(m_running_game->package().project());
+        m_runtime_ui_asset_service.install(m_running_game->package().project(),
+                                           m_running_game->runtime_locale());
         if (hooks.restore_previous_resources) {
             auto restored_resources = hooks.restore_previous_resources(*m_running_game);
             if (!restored_resources)
@@ -483,7 +484,8 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     m_runtime_publication = *candidate_publication;
     m_runtime_events = std::move(candidate_events);
     m_runtime_observations = candidate_publication->observations;
-    m_runtime_ui_asset_service.install(m_running_game->package().project());
+    m_runtime_ui_asset_service.install(m_running_game->package().project(),
+                                       m_running_game->runtime_locale());
 
     if (candidate_presentation_predecessor) {
         auto primed =
@@ -638,7 +640,8 @@ HostRuntimeDispatchResult GameHost::commit_runtime_locale(std::string locale)
                                   .message = "Locale change requires an active running game"});
         return result;
     }
-    if (m_dispatch_active || m_backend_reset_active || mandatory_assets_pending()) {
+    if (m_dispatch_active || m_backend_reset_active ||
+        (mandatory_assets_pending() && !m_runtime_presentation.mandatory_asset_commit_held())) {
         result.diagnostics =
             one({.code = "host.locale_change_not_ready",
                  .message = "Locale change cannot commit while runtime presentation is busy"});
@@ -687,6 +690,8 @@ HostRuntimeDispatchResult GameHost::commit_runtime_locale(std::string locale)
         core::append_diagnostics(result.diagnostics, std::move(application_diagnostics));
         result.disposition = runtime::RuntimeInputDisposition::Failed;
     } else {
+        m_runtime_ui_asset_service.install(m_running_game->package().project(),
+                                           m_running_game->runtime_locale());
         deliver_runtime_ui_events(result.events);
     }
     m_system_layouts.refresh();

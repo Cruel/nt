@@ -1195,6 +1195,7 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
                                                      {{"image", AssetKind::Image},
                                                       {"font", AssetKind::Font},
                                                       {"audio", AssetKind::Audio},
+                                                      {"video", AssetKind::Video},
                                                       {"script", AssetKind::Script},
                                                       {"shader-source", AssetKind::ShaderSource},
                                                       {"text", AssetKind::Text},
@@ -1205,15 +1206,18 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
         return std::nullopt;
 
     if (*kind == AssetKind::Image) {
-        decoder.object(value, pointer,
-                       {"aliases", "height", "id", "kind", "path", "sampling", "width"});
+        decoder.object(
+            value, pointer,
+            {"aliases", "height", "id", "kind", "localized", "path", "sampling", "width"});
     } else {
-        decoder.object(value, pointer, {"aliases", "id", "kind", "path"});
+        decoder.object(value, pointer, {"aliases", "id", "kind", "localized", "path"});
     }
 
     const auto* id_value = decoder.member(value, "id", pointer);
     const auto* path_value = decoder.member(value, "path", pointer);
     const auto* aliases_value = decoder.member(value, "aliases", pointer);
+    const auto* localized_value =
+        value.contains("localized") ? decoder.member(value, "localized", pointer) : nullptr;
     const auto* sampling_value =
         *kind == AssetKind::Image ? decoder.member(value, "sampling", pointer) : nullptr;
     const auto* width_value =
@@ -1231,6 +1235,48 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
                                  return decoder.string(alias, alias_pointer, true);
                              })
                        : std::nullopt;
+    auto localized =
+        localized_value
+            ? decoder.array<LocalizedAssetRealization>(
+                  *localized_value, pointer_child(pointer, "localized"),
+                  [&](const nlohmann::json& item,
+                      const std::string& item_pointer) -> std::optional<LocalizedAssetRealization> {
+                      if (!decoder.object(item, item_pointer, {"asset", "locale", "state"}))
+                          return std::nullopt;
+                      const auto* locale_value = decoder.member(item, "locale", item_pointer);
+                      const auto* state_value = decoder.member(item, "state", item_pointer);
+                      auto locale =
+                          locale_value ? decoder.string(*locale_value,
+                                                        pointer_child(item_pointer, "locale"), true)
+                                       : std::nullopt;
+                      auto state = state_value
+                                       ? decoder.enumeration<LocalizedAssetRealizationState>(
+                                             *state_value, pointer_child(item_pointer, "state"),
+                                             {{"source", LocalizedAssetRealizationState::Source},
+                                              {"variant", LocalizedAssetRealizationState::Variant}})
+                                       : std::nullopt;
+                      if (!locale || !state)
+                          return std::nullopt;
+                      std::optional<AssetId> asset;
+                      if (*state == LocalizedAssetRealizationState::Variant) {
+                          const auto* asset_value = decoder.member(item, "asset", item_pointer);
+                          if (!asset_value)
+                              return std::nullopt;
+                          asset = decode_reference<AssetId>(
+                              decoder, *asset_value, pointer_child(item_pointer, "asset"), "asset");
+                          if (!asset)
+                              return std::nullopt;
+                      } else if (item.contains("asset")) {
+                          decoder.error(k_code_unknown,
+                                        "Source localized Asset realization cannot name an Asset.",
+                                        pointer_child(item_pointer, "asset"));
+                          return std::nullopt;
+                      }
+                      return LocalizedAssetRealization{std::move(*locale), *state,
+                                                       std::move(asset)};
+                  })
+            : std::optional<std::vector<LocalizedAssetRealization>>{
+                  std::vector<LocalizedAssetRealization>{}};
     auto sampling =
         sampling_value
             ? decoder.enumeration<ImageSampling>(
@@ -1244,14 +1290,14 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
     auto height = height_value ? decoder.unsigned_integer<std::uint32_t>(
                                      *height_value, pointer_child(pointer, "height"))
                                : std::optional<std::uint32_t>{};
-    if (!id || !path || !aliases ||
+    if (!id || !path || !aliases || !localized ||
         (*kind == AssetKind::Image &&
          (!sampling || !width || !height || *width == 0 || *height == 0)))
         return std::nullopt;
     return AssetResource{std::move(*id),      *kind,
                          std::move(*path),    std::move(*aliases),
                          std::move(sampling), std::move(width),
-                         std::move(height)};
+                         std::move(height),   std::move(*localized)};
 }
 
 std::optional<LayoutStateShape>

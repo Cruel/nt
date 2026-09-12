@@ -10,11 +10,12 @@ export const namedMessageKeySchema = z
     'Named Message key must use semantic identifier segments.',
   );
 
-const fontAssetRefSchema = z
+const assetRefSchema = z
   .object({
     $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict(),
   })
   .strict();
+const fontAssetRefSchema = assetRefSchema;
 
 const localeDefinitionSchema = z
   .object({
@@ -256,6 +257,27 @@ export const localizationTranslationSchema = z.record(
   localizationTranslationRecordSchema,
 );
 
+export const localizationAssetVariantSchema = z
+  .object({
+    asset: assetRefSchema,
+    sourceFingerprint: localizationWorkflowFingerprintSchema,
+    origin: z.enum(['human', 'ai', 'imported', 'unknown']),
+    review: z.enum(['needs-review', 'reviewed']),
+    provider: z.string().min(1).optional(),
+    model: z.string().min(1).optional(),
+  })
+  .strict();
+
+export const localizationAssetTargetSchema = z.union([
+  z.object({ useSource: z.literal(true) }).strict(),
+  localizationAssetVariantSchema,
+]);
+
+export const localizationAssetTargetsSchema = z.record(
+  localeIdSchema,
+  z.record(z.string().min(1), localizationAssetTargetSchema),
+);
+
 const sourceTrackingFingerprintSchema = z
   .string()
   .regex(/^fnv1a:[0-9a-f]{32}$/u, 'Localization source tracking fingerprint is invalid.');
@@ -304,6 +326,7 @@ export const authoringLocalizationSchema = z
     sourceMessageTracking: z.record(z.string().min(1), sourceMessageTrackingEntrySchema),
     orphanedMessages: z.record(messageIdSchema, orphanedLocalizationMessageSchema),
     translations: z.record(localeIdSchema, localizationTranslationSchema),
+    assets: localizationAssetTargetsSchema,
   })
   .strict()
   .superRefine((localization, context) => {
@@ -471,11 +494,28 @@ export const authoringLocalizationSchema = z
         });
       }
     }
+
+    for (const locale of Object.keys(localization.assets)) {
+      if (!Object.hasOwn(localization.locales, locale))
+        context.addIssue({
+          code: 'custom',
+          path: ['assets', locale],
+          message: `Localized Asset locale '${locale}' must be declared.`,
+        });
+      if (locale === localization.sourceLocale)
+        context.addIssue({
+          code: 'custom',
+          path: ['assets', locale],
+          message: 'Source locale uses semantic base Assets directly.',
+        });
+    }
   });
 
 export type AuthoringMessage = z.infer<typeof authoringMessageSchema>;
 export type DialogueCuePlacement = z.infer<typeof dialogueCuePlacementSchema>;
 export type LocalizationTranslation = z.infer<typeof localizationTranslationRecordSchema>;
+export type LocalizationAssetVariant = z.infer<typeof localizationAssetVariantSchema>;
+export type LocalizationAssetTarget = z.infer<typeof localizationAssetTargetSchema>;
 export type SourceMessageTrackingOccurrence = z.infer<typeof sourceMessageTrackingOccurrenceSchema>;
 export type SourceMessageTrackingEntry = z.infer<typeof sourceMessageTrackingEntrySchema>;
 export type OrphanedLocalizationMessage = z.infer<typeof orphanedLocalizationMessageSchema>;
@@ -491,5 +531,6 @@ export function defaultAuthoringLocalization(): AuthoringLocalization {
     sourceMessageTracking: {},
     orphanedMessages: {},
     translations: {},
+    assets: {},
   };
 }

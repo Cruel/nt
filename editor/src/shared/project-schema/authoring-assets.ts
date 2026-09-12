@@ -5,6 +5,7 @@ export const assetKindValues = [
   'image',
   'font',
   'audio',
+  'video',
   'script',
   'shader-source',
   'text',
@@ -111,6 +112,7 @@ export type AssetDataImportMetadata =
 const imageExt = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.svg']);
 const fontExt = new Set(['.ttf', '.otf', '.woff', '.woff2']);
 const audioExt = new Set(['.mp3', '.ogg', '.wav', '.flac', '.m4a']);
+const videoExt = new Set(['.mp4', '.webm', '.mkv', '.mov', '.m4v']);
 const scriptExt = new Set(['.lua']);
 const shaderExt = new Set(['.sc', '.glsl', '.vert', '.frag', '.vs', '.fs']);
 const textExt = new Set(['.txt', '.md', '.rml', '.rcss', '.css']);
@@ -141,6 +143,7 @@ export function inferAssetKindFromExtension(extensionOrFilename: string): AssetK
   if (imageExt.has(extension)) return 'image';
   if (fontExt.has(extension)) return 'font';
   if (audioExt.has(extension)) return 'audio';
+  if (videoExt.has(extension)) return 'video';
   if (scriptExt.has(extension)) return 'script';
   if (shaderExt.has(extension)) return 'shader-source';
   if (textExt.has(extension)) return 'text';
@@ -156,6 +159,8 @@ export function assetFolderForKind(kind: AssetKind): string {
       return 'assets/fonts';
     case 'audio':
       return 'assets/audio';
+    case 'video':
+      return 'assets/video';
     case 'script':
       return 'assets/scripts';
     case 'shader-source':

@@ -508,6 +508,16 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   for (const [id, record] of sortedEntries(project.assets)) {
     const data = requireData(parseAssetData(record.data), `/assets/${id}/data`);
     if (data) {
+      const localized = sortedEntries(project.localization.assets).flatMap(([locale, targets]) => {
+        const target = targets[id];
+        if (!target) return [];
+        return [
+          'useSource' in target
+            ? { locale, state: 'source' as const }
+            : { locale, state: 'variant' as const, asset: assetRef(target.asset)! },
+        ];
+      });
+      const localizedFields = localized.length === 0 ? {} : { localized };
       if (data.kind === 'image') {
         if (!data.imageMetadata) {
           diagnostics.push({
@@ -525,6 +535,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           sampling: data.sampling ?? 'linear',
           width: data.imageMetadata.width,
           height: data.imageMetadata.height,
+          ...localizedFields,
         });
       } else {
         assets.push({
@@ -532,6 +543,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           kind: data.kind,
           path: data.source.path,
           aliases: [...data.aliases],
+          ...localizedFields,
         });
       }
     }

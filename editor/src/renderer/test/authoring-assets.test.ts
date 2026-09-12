@@ -14,6 +14,7 @@ describe('authoring asset schema helpers', () => {
     expect(inferAssetKindFromExtension('cover.png')).toBe('image');
     expect(inferAssetKindFromExtension('body.ttf')).toBe('font');
     expect(inferAssetKindFromExtension('click.mp3')).toBe('audio');
+    expect(inferAssetKindFromExtension('intro.webm')).toBe('video');
     expect(inferAssetKindFromExtension('init.lua')).toBe('script');
     expect(inferAssetKindFromExtension('effect.sc')).toBe('shader-source');
     expect(inferAssetKindFromExtension('notes.md')).toBe('text');
