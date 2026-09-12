@@ -31,7 +31,7 @@ struct ShaderMaterialProject;
 namespace assets {
 class AssetManager;
 struct FontAssetConfig;
-}
+} // namespace assets
 
 namespace ui::rmlui {
 

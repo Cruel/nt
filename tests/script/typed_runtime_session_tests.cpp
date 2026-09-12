@@ -390,9 +390,9 @@ core::CompiledProject make_localized_lua_dialogue_project(
             continue;
         auto& line = dialogue["program"]["blocks"][0]["segments"][0];
         line["cues"] = nlohmann::json::array();
-        line["text"] = {{"markup", "plain"},
-                        {"source",
-                         {{"kind", "lua-expression"}, {"source", std::move(lua_source)}}}};
+        line["text"] = {
+            {"markup", "plain"},
+            {"source", {{"kind", "lua-expression"}, {"source", std::move(lua_source)}}}};
     }
     const auto arguments = nlohmann::json::array({{{"name", "name"}, {"type", "printable"}}});
     for (auto& catalog : document["localization"]["catalogs"]) {
@@ -405,9 +405,7 @@ core::CompiledProject make_localized_lua_dialogue_project(
             }
         } else if (catalog["locale"] == "es") {
             catalog["entries"].push_back(
-                {{"messageId", 23},
-                 {"value", "Hola {name}"},
-                 {"arguments", arguments}});
+                {{"messageId", 23}, {"value", "Hola {name}"}, {"arguments", arguments}});
         }
     }
     document["entrypoint"] = {{"kind", "dialogue"},
@@ -423,8 +421,7 @@ core::CompiledProject make_localized_lua_scene_choice_project()
         {{{"id", "choice"},
           {"kind", "choice"},
           {"autosaveSafePoint", false},
-          {"prompt",
-           {{"markup", "plain"}, {"source", {{"kind", "message"}, {"id", 5}}}}},
+          {"prompt", {{"markup", "plain"}, {"source", {{"kind", "message"}, {"id", 5}}}}},
           {"options",
            nlohmann::json::array(
                {{{"id", "pick"},
@@ -462,8 +459,7 @@ core::CompiledProject make_localized_lua_scene_choice_project()
                 {{"messageId", 23}, {"value", "Elige {name}"}, {"arguments", arguments}});
         }
     }
-    document["entrypoint"] = {{"kind", "scene"},
-                              {"scene", {{"kind", "scene"}, {"id", "opening"}}}};
+    document["entrypoint"] = {{"kind", "scene"}, {"scene", {{"kind", "scene"}, {"id", "opening"}}}};
     return decode_document(std::move(document), "localized-lua-scene-choice.json");
 }
 
@@ -475,41 +471,39 @@ core::CompiledProject make_localized_lua_dialogue_choice_project()
             continue;
         dialogue["settings"]["logMode"] = "everything";
         dialogue["program"] = {
-            {"blocks",
-             nlohmann::json::array(
-                 {{{"id", "choice"}, {"kind", "choice"}},
-                  {{"id", "final"},
-                   {"kind", "sequence"},
-                   {"defaultSpeaker", nullptr},
-                   {"segments",
-                    nlohmann::json::array(
-                        {{{"id", "done"},
-                          {"kind", "line"},
-                          {"autosaveSafePoint", false},
-                          {"cues", nlohmann::json::array()},
-                          {"effects", nlohmann::json::array()},
-                          {"logged", false},
-                          {"showOnce", false},
-                          {"speaker", nullptr},
-                          {"text",
-                           {{"markup", "plain"},
-                            {"source", {{"kind", "inline"}, {"text", "Done"}}}}}}})}}})},
-            {"edges",
-             nlohmann::json::array(
-                 {{{"id", "pick"},
-                   {"kind", "choice"},
-                   {"fromBlockId", "choice"},
-                   {"toBlockId", "final"},
-                   {"autosaveSafePoint", false},
-                   {"condition", {{"kind", "always"}}},
-                   {"effects", nlohmann::json::array()},
-                   {"logged", true},
-                   {"label",
-                    {{"markup", "plain"},
-                     {"source",
-                      {{"kind", "lua-expression"},
-                       {"source", "lua_choice_runs = (lua_choice_runs or 0) + 1; "
-                                  "return Text.__message(23, { name = 'Ada' })"}}}}}}})},
+            {"blocks", nlohmann::json::array(
+                           {{{"id", "choice"}, {"kind", "choice"}},
+                            {{"id", "final"},
+                             {"kind", "sequence"},
+                             {"defaultSpeaker", nullptr},
+                             {"segments",
+                              nlohmann::json::array(
+                                  {{{"id", "done"},
+                                    {"kind", "line"},
+                                    {"autosaveSafePoint", false},
+                                    {"cues", nlohmann::json::array()},
+                                    {"effects", nlohmann::json::array()},
+                                    {"logged", false},
+                                    {"showOnce", false},
+                                    {"speaker", nullptr},
+                                    {"text",
+                                     {{"markup", "plain"},
+                                      {"source", {{"kind", "inline"}, {"text", "Done"}}}}}}})}}})},
+            {"edges", nlohmann::json::array(
+                          {{{"id", "pick"},
+                            {"kind", "choice"},
+                            {"fromBlockId", "choice"},
+                            {"toBlockId", "final"},
+                            {"autosaveSafePoint", false},
+                            {"condition", {{"kind", "always"}}},
+                            {"effects", nlohmann::json::array()},
+                            {"logged", true},
+                            {"label",
+                             {{"markup", "plain"},
+                              {"source",
+                               {{"kind", "lua-expression"},
+                                {"source", "lua_choice_runs = (lua_choice_runs or 0) + 1; "
+                                           "return Text.__message(23, { name = 'Ada' })"}}}}}}})},
             {"entryBlockId", "choice"},
         };
         dialogue["completion"] = {{"kind", "end"}};
@@ -525,9 +519,7 @@ core::CompiledProject make_localized_lua_dialogue_choice_project()
             }
         } else if (catalog["locale"] == "es") {
             catalog["entries"].push_back(
-                {{"messageId", 23},
-                 {"value", "Elige {name}"},
-                 {"arguments", arguments}});
+                {{"messageId", 23}, {"value", "Elige {name}"}, {"arguments", arguments}});
         }
     }
     document["entrypoint"] = {{"kind", "dialogue"},
@@ -556,9 +548,7 @@ core::CompiledProject make_localized_lua_dialogue_cue_project()
         line["cues"] = nlohmann::json::array({cue});
         line["text"] = {
             {"markup", "active-text"},
-            {"source",
-             {{"kind", "lua-expression"},
-              {"source", "return Text.__message(23, {})"}}}};
+            {"source", {{"kind", "lua-expression"}, {"source", "return Text.__message(23, {})"}}}};
     }
     for (auto& catalog : document["localization"]["catalogs"]) {
         if (catalog["locale"] == "en") {
@@ -574,8 +564,8 @@ core::CompiledProject make_localized_lua_dialogue_cue_project()
                 {{"messageId", 23},
                  {"value", "abcdefghij"},
                  {"dialogueCues",
-                  nlohmann::json::array({{{"id", "localized-sfx"},
-                                          {"position", {{"offset", 2}, {"order", 0}}}}})}});
+                  nlohmann::json::array(
+                      {{{"id", "localized-sfx"}, {"position", {{"offset", 2}, {"order", 0}}}}})}});
         }
     }
     document["entrypoint"] = {{"kind", "dialogue"},
@@ -602,8 +592,7 @@ core::CompiledProject make_localized_dialogue_cue_project()
             continue;
         auto& line = dialogue["program"]["blocks"][0]["segments"][0];
         line["cues"] = nlohmann::json::array({cue});
-        line["text"] = {{"markup", "active-text"},
-                        {"source", {{"kind", "message"}, {"id", 23}}}};
+        line["text"] = {{"markup", "active-text"}, {"source", {{"kind", "message"}, {"id", 23}}}};
     }
     for (auto& catalog : document["localization"]["catalogs"]) {
         if (catalog["locale"] == "en") {
@@ -619,8 +608,8 @@ core::CompiledProject make_localized_dialogue_cue_project()
                 {{"messageId", 23},
                  {"value", "abcdefghij"},
                  {"dialogueCues",
-                  nlohmann::json::array({{{"id", "localized-sfx"},
-                                          {"position", {{"offset", 2}, {"order", 0}}}}})}});
+                  nlohmann::json::array(
+                      {{{"id", "localized-sfx"}, {"position", {{"offset", 2}, {"order", 0}}}}})}});
         }
     }
     document["entrypoint"] = {{"kind", "dialogue"},
@@ -977,7 +966,8 @@ TEST_CASE("locale commit re-realizes active Dialogue text and fires newly due Cu
     prepare_project_scripts(runtime, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -1009,7 +999,8 @@ TEST_CASE("locale commit re-realizes active Dialogue text and fires newly due Cu
     auto reconciled = session->reconcile_committed_locale_cues();
     REQUIRE(reconciled.diagnostics.empty());
     REQUIRE(presentation.audio_operations.size() == 1);
-    CHECK(presentation.audio_operations.back().purpose == core::compiled::AudioPurpose::SoundEffect);
+    CHECK(presentation.audio_operations.back().purpose ==
+          core::compiled::AudioPurpose::SoundEffect);
 
     auto unchanged = session->commit_locale("es");
     REQUIRE(unchanged.diagnostics.empty());
@@ -1039,7 +1030,8 @@ TEST_CASE("rolled-back locale preparation does not consume newly due Dialogue Cu
     prepare_project_scripts(runtime, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -1080,7 +1072,8 @@ TEST_CASE("failed locale commit restores localized causal presentation state ato
     prepare_project_scripts(runtime, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -1108,12 +1101,14 @@ TEST_CASE("failed locale commit restores localized causal presentation state ato
     CHECK(current.publication->gameplay_ui.dialogue->line->text == "Hello Ada");
     REQUIRE(current.publication->gameplay_ui.text_log.entries.size() == 1);
     CHECK(current.publication->gameplay_ui.text_log.entries.front().text == "Hello Ada");
-    auto unchanged_runs = runtime.evaluate_bool("lua_localized_runs == 1", "localized-rollback-run-count");
+    auto unchanged_runs =
+        runtime.evaluate_bool("lua_localized_runs == 1", "localized-rollback-run-count");
     REQUIRE(unchanged_runs);
     CHECK(unchanged_runs.value());
 }
 
-TEST_CASE("locale commit re-realizes captured Lua managed Message arguments without re-executing Lua")
+TEST_CASE(
+    "locale commit re-realizes captured Lua managed Message arguments without re-executing Lua")
 {
     auto project = make_localized_lua_dialogue_project();
     test_support::MemoryScriptSource sources;
@@ -1122,7 +1117,8 @@ TEST_CASE("locale commit re-realizes captured Lua managed Message arguments with
     prepare_project_scripts(runtime, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -1148,17 +1144,18 @@ TEST_CASE("locale commit re-realizes captured Lua managed Message arguments with
 
 TEST_CASE("locale commit re-realizes the returned Lua Message when other managed calls are ignored")
 {
-    auto project = make_localized_lua_dialogue_project(
-        "lua_localized_runs = (lua_localized_runs or 0) + 1; "
-        "local ignored = Text.__message(0); "
-        "return Text.__message(23, { name = 'Ada' })");
+    auto project =
+        make_localized_lua_dialogue_project("lua_localized_runs = (lua_localized_runs or 0) + 1; "
+                                            "local ignored = Text.__message(0); "
+                                            "return Text.__message(23, { name = 'Ada' })");
     test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
     REQUIRE(runtime.initialize({&sources}));
     prepare_project_scripts(runtime, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -1191,7 +1188,8 @@ TEST_CASE("locale commit uses captured Lua Message identity for translated Dialo
     prepare_project_scripts(runtime, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -1215,7 +1213,8 @@ TEST_CASE("locale commit uses captured Lua Message identity for translated Dialo
     auto reconciled = session->reconcile_committed_locale_cues();
     REQUIRE(reconciled.diagnostics.empty());
     REQUIRE(presentation.audio_operations.size() == 1);
-    CHECK(presentation.audio_operations.back().purpose == core::compiled::AudioPurpose::SoundEffect);
+    CHECK(presentation.audio_operations.back().purpose ==
+          core::compiled::AudioPurpose::SoundEffect);
 }
 
 TEST_CASE("locale commit re-realizes an active Scene choice without re-executing Lua")
@@ -1227,7 +1226,8 @@ TEST_CASE("locale commit re-realizes an active Scene choice without re-executing
     prepare_project_scripts(runtime, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -1256,7 +1256,8 @@ TEST_CASE("locale commit re-realizes an active Scene choice without re-executing
     REQUIRE(after_rejection.publication->gameplay_ui.scene->choice);
     REQUIRE(after_rejection.publication->gameplay_ui.scene->choice->prompt);
     CHECK(*after_rejection.publication->gameplay_ui.scene->choice->prompt == "Choose a path.");
-    CHECK(after_rejection.publication->gameplay_ui.scene->choice->options.front().label == "Pick Ada");
+    CHECK(after_rejection.publication->gameplay_ui.scene->choice->options.front().label ==
+          "Pick Ada");
 
     auto changed = session->commit_locale("es");
     REQUIRE(changed.diagnostics.empty());
@@ -1302,7 +1303,8 @@ TEST_CASE("locale commit re-realizes an active Scene choice without re-executing
     CHECK(restored_runs.value());
 }
 
-TEST_CASE("locale commit re-realizes an active Lua-managed Dialogue choice without re-executing Lua")
+TEST_CASE(
+    "locale commit re-realizes an active Lua-managed Dialogue choice without re-executing Lua")
 {
     auto project = make_localized_lua_dialogue_choice_project();
     test_support::MemoryScriptSource sources;
@@ -1313,14 +1315,15 @@ TEST_CASE("locale commit re-realizes an active Lua-managed Dialogue choice witho
         project.find_dialogue(core::DialogueId::create("intro").value());
     REQUIRE(dialogue_definition);
     REQUIRE(dialogue_definition->program.edges.size() == 1);
-    const auto* choice_edge =
-        std::get_if<core::compiled::DialogueChoiceEdge>(&dialogue_definition->program.edges.front());
+    const auto* choice_edge = std::get_if<core::compiled::DialogueChoiceEdge>(
+        &dialogue_definition->program.edges.front());
     REQUIRE(choice_edge);
     CHECK(choice_edge->logged);
     CHECK(dialogue_definition->settings.log_mode == core::compiled::DialogueLogMode::Everything);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -1342,7 +1345,8 @@ TEST_CASE("locale commit re-realizes an active Lua-managed Dialogue choice witho
     REQUIRE(changed.publication->gameplay_ui.dialogue->choice->options.size() == 1);
     CHECK(changed.publication->gameplay_ui.dialogue->choice->options.front().label == "Elige Ada");
     const auto edge = changed.publication->gameplay_ui.dialogue->choice->options.front().edge;
-    auto unchanged_runs = runtime.evaluate_bool("lua_choice_runs == 1", "localized-choice-run-count");
+    auto unchanged_runs =
+        runtime.evaluate_bool("lua_choice_runs == 1", "localized-choice-run-count");
     REQUIRE(unchanged_runs);
     CHECK(unchanged_runs.value());
 
@@ -1354,11 +1358,11 @@ TEST_CASE("locale commit re-realizes an active Lua-managed Dialogue choice witho
     const auto choice_json = nlohmann::json::parse(choice_checkpoint.value_if()->encoded_save);
     REQUIRE(choice_json["presentation"]["activeChoice"]["options"].size() == 1);
     CHECK(choice_json["presentation"]["activeChoice"]["options"][0]["label"] == "Choose Ada");
-    REQUIRE(choice_json["presentation"]["activeChoice"]["options"][0]["localizedMessage"]
-                .is_object());
+    REQUIRE(
+        choice_json["presentation"]["activeChoice"]["options"][0]["localizedMessage"].is_object());
 
-    auto selected = session->dispatch(
-        core::RuntimeInputMessage{core::SelectDialogueChoiceInput{edge}});
+    auto selected =
+        session->dispatch(core::RuntimeInputMessage{core::SelectDialogueChoiceInput{edge}});
     REQUIRE(selected.diagnostics.empty());
     REQUIRE(selected.publication);
 
@@ -1395,7 +1399,8 @@ TEST_CASE("locale commit re-realizes an active Lua-managed Dialogue choice witho
     CHECK(restore_runs.value());
 }
 
-TEST_CASE("checkpoint restore re-realizes captured Lua Message text in the current locale without re-executing Lua")
+TEST_CASE("checkpoint restore re-realizes captured Lua Message text in the current locale without "
+          "re-executing Lua")
 {
     auto project = make_localized_lua_dialogue_project();
     test_support::MemoryScriptSource sources;
@@ -1404,7 +1409,8 @@ TEST_CASE("checkpoint restore re-realizes captured Lua Message text in the curre
     prepare_project_scripts(runtime, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -1452,7 +1458,8 @@ TEST_CASE("checkpoint restore re-realizes captured Lua Message text in the curre
     REQUIRE(publication.publication->gameplay_ui.dialogue->line);
     CHECK(publication.publication->gameplay_ui.locale.active_locale == "es");
     CHECK(publication.publication->gameplay_ui.dialogue->line->text == "Hola Ada");
-    auto unchanged_runs = runtime.evaluate_bool("lua_localized_runs == 1", "localized-restore-run-count");
+    auto unchanged_runs =
+        runtime.evaluate_bool("lua_localized_runs == 1", "localized-restore-run-count");
     REQUIRE(unchanged_runs);
     CHECK(unchanged_runs.value());
 }
@@ -1670,9 +1677,9 @@ TEST_CASE("On Game Ready observes the requested runtime locale before candidate 
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::SaveRuntimeInput{slot}})
             .diagnostics.empty());
 
-    auto spanish = test_support::create_runtime_session(
-        fixture.project, fixture.script_port, fixture.presentation, fixture.saves, "es",
-        fixture.runtime_budget);
+    auto spanish = test_support::create_runtime_session(fixture.project, fixture.script_port,
+                                                        fixture.presentation, fixture.saves, "es",
+                                                        fixture.runtime_budget);
     REQUIRE(spanish);
     REQUIRE(fixture.script_port.ready_locales.size() == 2);
     CHECK(fixture.script_port.ready_locales.back() == "es");

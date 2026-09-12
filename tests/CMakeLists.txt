@@ -729,10 +729,17 @@ if(TARGET noveltea-sandbox)
         DEPENDS noveltea_presentation_readback_capture
         LABELS "rmlui;gpu;presentation"
     )
+    find_program(NOVELTEA_LAYOUT_SCALE_XVFB_RUN xvfb-run)
+    if(NOVELTEA_LAYOUT_SCALE_XVFB_RUN)
+        set(NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX
+            "'${NOVELTEA_LAYOUT_SCALE_XVFB_RUN}' -a ")
+    else()
+        set(NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX "")
+    endif()
     add_test(
         NAME noveltea_world_presentation_readback_capture
         COMMAND /bin/sh -c
-            "exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 2560x1440 --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --skip-title-screen --run-runtime --frames 30 --screenshot '${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}' --no-imgui"
+            "set -e; rm -f '${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}'; exec ${NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --window-size 2560x1440 --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --skip-title-screen --run-runtime --frames 30 --screenshot '${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}' --no-imgui"
     )
     set_tests_properties(noveltea_world_presentation_readback_capture PROPERTIES
         TIMEOUT 60
@@ -746,13 +753,6 @@ if(TARGET noveltea-sandbox)
         DEPENDS noveltea_world_presentation_readback_capture
         LABELS "gpu;presentation;world"
     )
-    find_program(NOVELTEA_LAYOUT_SCALE_XVFB_RUN xvfb-run)
-    if(NOVELTEA_LAYOUT_SCALE_XVFB_RUN)
-        set(NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX
-            "'${NOVELTEA_LAYOUT_SCALE_XVFB_RUN}' -a ")
-    else()
-        set(NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX "")
-    endif()
     add_test(
         NAME noveltea_layout_scale_readback_capture
         COMMAND /bin/sh -c

@@ -438,10 +438,9 @@ decode_dialogue_position(Decoder& d, const nlohmann::json& value, std::string_vi
     auto next_cue_index =
         next_cue ? d.unsigned_integer<std::size_t>(*next_cue, child(pointer, "nextCue"))
                  : std::nullopt;
-    auto reveal_value = reveal_progress
-                            ? decode_finite_number(d, *reveal_progress,
-                                                   child(pointer, "revealProgress"))
-                            : std::nullopt;
+    auto reveal_value = reveal_progress ? decode_finite_number(d, *reveal_progress,
+                                                               child(pointer, "revealProgress"))
+                                        : std::nullopt;
     auto effect_command_id = effect_command ? d.optional_id<InteractionInstructionId>(
                                                   *effect_command, child(pointer, "effectCommand"))
                                             : Decoder::OptionalId<InteractionInstructionId>{};

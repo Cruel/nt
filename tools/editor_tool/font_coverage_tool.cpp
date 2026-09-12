@@ -54,7 +54,8 @@ std::filesystem::path executable_path()
 {
 #if defined(_WIN32)
     std::wstring buffer(32768, L'\0');
-    const auto length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    const auto length =
+        GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
     if (length == 0 || length >= buffer.size())
         return {};
     buffer.resize(length);
@@ -223,14 +224,14 @@ nlohmann::json validate_font_coverage_request(const nlohmann::json& request)
                     {"locale", locale},
                     {"cluster", diagnostic.gap.text},
                     {"fontStack", diagnostic.context.effective_font_stack},
-                    {"message",
-                     "Locale '" + locale + "' cannot shape cluster '" + diagnostic.gap.text +
-                         "' with its effective font stack."},
+                    {"message", "Locale '" + locale + "' cannot shape cluster '" +
+                                    diagnostic.gap.text + "' with its effective font stack."},
                 }));
             }
         }
     }
-    return {{"ok", true}, {"success", diagnostics.empty()}, {"diagnostics", std::move(diagnostics)}};
+    return {
+        {"ok", true}, {"success", diagnostics.empty()}, {"diagnostics", std::move(diagnostics)}};
 }
 
 } // namespace
@@ -239,15 +240,13 @@ namespace noveltea::tooling {
 
 NativeOperationResult validate_font_coverage(std::string_view request_json)
 {
-    const auto request = request_json.empty()
-                             ? nlohmann::json::object()
-                             : nlohmann::json::parse(request_json, nullptr, false);
+    const auto request = request_json.empty() ? nlohmann::json::object()
+                                              : nlohmann::json::parse(request_json, nullptr, false);
     if (request.is_discarded() || !request.is_object())
         return {.exit_code = 1,
                 .response_json = failure("Malformed font coverage request JSON.").dump()};
     auto response = validate_font_coverage_request(request);
-    return {.exit_code = response.value("ok", false) ? 0 : 1,
-            .response_json = response.dump()};
+    return {.exit_code = response.value("ok", false) ? 0 : 1, .response_json = response.dump()};
 }
 
 } // namespace noveltea::tooling

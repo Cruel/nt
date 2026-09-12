@@ -69,7 +69,8 @@ core::Result<core::RuntimeValue, core::Diagnostics> runtime_value(const sol::obj
     }
     return Result::failure(core::Diagnostics{core::Diagnostic{
         .code = "script_host.invalid_runtime_value",
-        .message = "Host values must be nil, boolean, finite number, integer, string, or an admitted Message reference",
+        .message = "Host values must be nil, boolean, finite number, integer, string, or an "
+                   "admitted Message reference",
     }});
 }
 

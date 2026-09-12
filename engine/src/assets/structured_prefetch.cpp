@@ -1302,9 +1302,9 @@ void merge_cost_upper_bound(ResidencyCost& target, const ResidencyCost& value) n
     return retained.request.index() == requested.request.index();
 }
 
-[[nodiscard]] bool same_provenance_set(
-    const std::vector<runtime::FlowPredictionProvenance>& left,
-    const std::vector<runtime::FlowPredictionProvenance>& right) noexcept
+[[nodiscard]] bool
+same_provenance_set(const std::vector<runtime::FlowPredictionProvenance>& left,
+                    const std::vector<runtime::FlowPredictionProvenance>& right) noexcept
 {
     if (left.size() != right.size())
         return false;

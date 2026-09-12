@@ -112,7 +112,8 @@ TEST_CASE("ActiveTextPresenter owns local page playback but not desired gameplay
     CHECK(presenter.render_snapshot().visible_text == "Replacement second");
 }
 
-TEST_CASE("ActiveTextPresenter remaps page-local reveal from normalized progress after realization changes")
+TEST_CASE("ActiveTextPresenter remaps page-local reveal from normalized progress after realization "
+          "changes")
 {
     noveltea::core::Diagnostics diagnostics;
     noveltea::ui::rmlui::ActiveTextPresenter presenter(diagnostics);
@@ -128,7 +129,8 @@ TEST_CASE("ActiveTextPresenter remaps page-local reveal from normalized progress
     CHECK(presenter.render_snapshot().visible_text == "BB");
 }
 
-TEST_CASE("ActiveTextPresenter remaps normalized progress when markup changes but plain text does not")
+TEST_CASE(
+    "ActiveTextPresenter remaps normalized progress when markup changes but plain text does not")
 {
     noveltea::core::Diagnostics diagnostics;
     noveltea::ui::rmlui::ActiveTextPresenter presenter(diagnostics);

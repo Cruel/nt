@@ -36,8 +36,8 @@ std::optional<RuntimeValue> decode_runtime_value(Decoder& decoder, const nlohman
             return std::nullopt;
         const auto* kind_value = decoder.member(value, "kind", pointer);
         const auto* id_value = decoder.member(value, "id", pointer);
-        auto kind = kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind"))
-                               : std::nullopt;
+        auto kind =
+            kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
         auto message_id = id_value
                               ? decoder.integer<MessageId>(*id_value, pointer_child(pointer, "id"))
                               : std::nullopt;
@@ -1604,9 +1604,9 @@ decode_prediction_location_subject_operand(Decoder& decoder, const nlohmann::jso
     return decode_location_subject_operand(decoder, value, pointer);
 }
 
-std::optional<LocationOperand>
-decode_prediction_location_operand(Decoder& decoder, const nlohmann::json& value,
-                                   std::string_view pointer)
+std::optional<LocationOperand> decode_prediction_location_operand(Decoder& decoder,
+                                                                  const nlohmann::json& value,
+                                                                  std::string_view pointer)
 {
     return decode_location_operand(decoder, value, pointer);
 }

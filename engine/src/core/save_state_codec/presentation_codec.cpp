@@ -947,9 +947,9 @@ nlohmann::json encode_presented_text(const CompiledProject& project,
     std::string text = value->text;
     if (value->localized_message) {
         const MessageRealizer realizer(project.localization());
-        if (const auto realized = realizer.realize(
-                {value->localized_message->message_id, project.localization().source_locale,
-                 value->localized_message->arguments});
+        if (const auto realized = realizer.realize({value->localized_message->message_id,
+                                                    project.localization().source_locale,
+                                                    value->localized_message->arguments});
             realized)
             text = realized->text;
     }
@@ -977,14 +977,13 @@ decode_presented_text(Decoder& d, const nlohmann::json& value, std::string_view 
     auto markup = markup_value ? decode_enum(d, *markup_value, child(pointer, "markup"),
                                              TextMarkup::ActiveText)
                                : std::nullopt;
-    auto localized_message =
-        localized_message_value
-            ? decode_captured_message(d, *localized_message_value, child(pointer, "localizedMessage"))
-            : std::nullopt;
+    auto localized_message = localized_message_value
+                                 ? decode_captured_message(d, *localized_message_value,
+                                                           child(pointer, "localizedMessage"))
+                                 : std::nullopt;
     return speaker && text && markup && localized_message
                ? std::optional<std::optional<PresentedTextState>>{PresentedTextState{
-                     std::move(*speaker), std::move(*text), *markup,
-                     std::move(*localized_message)}}
+                     std::move(*speaker), std::move(*text), *markup, std::move(*localized_message)}}
                : std::nullopt;
 }
 
@@ -1008,29 +1007,27 @@ nlohmann::json encode_choice(const CompiledProject& project,
             nlohmann::json options = nlohmann::json::array();
             if constexpr (std::is_same_v<T, SceneChoiceState>) {
                 for (const auto& option : choice.options)
-                    options.push_back({{"option", option.option.text()},
-                                       {"label", canonical_text(option.label, option.localized_message)},
-                                       {"enabled", option.enabled},
-                                       {"localizedMessage",
-                                        encode_captured_message(option.localized_message)}});
+                    options.push_back(
+                        {{"option", option.option.text()},
+                         {"label", canonical_text(option.label, option.localized_message)},
+                         {"enabled", option.enabled},
+                         {"localizedMessage", encode_captured_message(option.localized_message)}});
                 return {{"kind", "scene"},
                         {"scene", choice.scene.text()},
                         {"step", choice.step.text()},
-                        {"prompt",
-                         choice.prompt
-                             ? nlohmann::json(canonical_text(*choice.prompt,
-                                                             choice.localized_prompt))
-                             : nlohmann::json(nullptr)},
+                        {"prompt", choice.prompt ? nlohmann::json(canonical_text(
+                                                       *choice.prompt, choice.localized_prompt))
+                                                 : nlohmann::json(nullptr)},
                         {"localizedPrompt", encode_captured_message(choice.localized_prompt)},
                         {"options", std::move(options)}};
             } else {
                 for (const auto& option : choice.options)
-                    options.push_back({{"edge", option.edge.text()},
-                                       {"label", canonical_text(option.label, option.localized_message)},
-                                       {"enabled", option.enabled},
-                                       {"markup", encode_enum(option.markup)},
-                                       {"localizedMessage",
-                                        encode_captured_message(option.localized_message)}});
+                    options.push_back(
+                        {{"edge", option.edge.text()},
+                         {"label", canonical_text(option.label, option.localized_message)},
+                         {"enabled", option.enabled},
+                         {"markup", encode_enum(option.markup)},
+                         {"localizedMessage", encode_captured_message(option.localized_message)}});
                 return {{"kind", "dialogue"},
                         {"dialogue", choice.dialogue.text()},
                         {"block", choice.block.text()},
@@ -1054,8 +1051,7 @@ decode_choice(Decoder& d, const nlohmann::json& value, std::string_view pointer)
     if (!kind)
         return std::nullopt;
     if (*kind == "scene") {
-        d.object(value, pointer,
-                 {"kind", "scene", "step", "prompt", "localizedPrompt", "options"});
+        d.object(value, pointer, {"kind", "scene", "step", "prompt", "localizedPrompt", "options"});
         const auto* scene_value = d.member(value, "scene", pointer);
         const auto* step_value = d.member(value, "step", pointer);
         const auto* prompt_value = d.member(value, "prompt", pointer);
@@ -1069,9 +1065,8 @@ decode_choice(Decoder& d, const nlohmann::json& value, std::string_view pointer)
                           ? decode_optional_string(d, *prompt_value, child(pointer, "prompt"))
                           : std::nullopt;
         auto localized_prompt = localized_prompt_value
-                                    ? decode_captured_message(
-                                          d, *localized_prompt_value,
-                                          child(pointer, "localizedPrompt"))
+                                    ? decode_captured_message(d, *localized_prompt_value,
+                                                              child(pointer, "localizedPrompt"))
                                     : std::nullopt;
         auto options =
             options_value
@@ -1133,8 +1128,7 @@ decode_choice(Decoder& d, const nlohmann::json& value, std::string_view pointer)
                       [&d](const nlohmann::json& entry, const std::string& entry_pointer)
                           -> std::optional<DialogueChoiceOptionState> {
                           if (!d.object(entry, entry_pointer,
-                                        {"edge", "label", "enabled", "markup",
-                                         "localizedMessage"}))
+                                        {"edge", "label", "enabled", "markup", "localizedMessage"}))
                               return std::nullopt;
                           const auto* edge_value = d.member(entry, "edge", entry_pointer);
                           const auto* label_value = d.member(entry, "label", entry_pointer);
@@ -1163,10 +1157,10 @@ decode_choice(Decoder& d, const nlohmann::json& value, std::string_view pointer)
                                         child(entry_pointer, "localizedMessage"))
                                   : std::nullopt;
                           return edge && label && enabled && markup && localized_message
-                                     ? std::optional<DialogueChoiceOptionState>{
-                                           DialogueChoiceOptionState{
-                                               std::move(*edge), std::move(*label), *enabled,
-                                               *markup, std::move(*localized_message)}}
+                                     ? std::optional<
+                                           DialogueChoiceOptionState>{DialogueChoiceOptionState{
+                                           std::move(*edge), std::move(*label), *enabled, *markup,
+                                           std::move(*localized_message)}}
                                      : std::nullopt;
                       })
                 : std::nullopt;

@@ -853,8 +853,7 @@ noveltea_tooling_export_package_json(const std::uint8_t* request, std::uint64_t 
 
 extern "C" std::uint64_t
 noveltea_tooling_validate_font_coverage_json(const std::uint8_t* request,
-                                             std::uint64_t request_size,
-                                             std::uint8_t* response,
+                                             std::uint64_t request_size, std::uint8_t* response,
                                              std::uint64_t response_capacity)
 {
     return noveltea::tooling::copy_result(

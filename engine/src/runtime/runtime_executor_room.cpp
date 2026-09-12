@@ -98,9 +98,8 @@ std::span<const core::GameplayCommand>
 room_lifecycle_program(const RuntimeWorld& world, const core::RoomTransitionFrame& transition,
                        core::RoomTransitionStage stage)
 {
-    const auto* source = transition.source_room
-                             ? world.resolved_configuration(*transition.source_room)
-                             : nullptr;
+    const auto* source =
+        transition.source_room ? world.resolved_configuration(*transition.source_room) : nullptr;
     const auto* target = world.resolved_configuration(transition.target_room);
     switch (stage) {
     case core::RoomTransitionStage::BeforeLeave:

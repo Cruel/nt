@@ -30,8 +30,7 @@ std::optional<std::string> realize_static_text(const TextContent& text,
                                                const compiled::Localization& localization,
                                                Diagnostics& diagnostics,
                                                std::string_view source_path,
-                                               const std::string& path,
-                                               std::string_view field_name)
+                                               const std::string& path, std::string_view field_name)
 {
     if (const auto* inline_text = std::get_if<InlineText>(&text.source))
         return inline_text->value;
@@ -40,20 +39,20 @@ std::optional<std::string> realize_static_text(const TextContent& text,
         const auto realized = realizer.realize({message->id, localization.default_locale});
         if (realized)
             return std::string(realized->text);
-        diagnostics.push_back(Diagnostic{.code = "compiled_project.unresolved_localization",
-                                         .message = std::string(field_name) +
-                                                    " Message could not be realized.",
-                                         .severity = ErrorSeverity::Error,
-                                         .source_path = std::string(source_path),
-                                         .json_pointer = path});
+        diagnostics.push_back(
+            Diagnostic{.code = "compiled_project.unresolved_localization",
+                       .message = std::string(field_name) + " Message could not be realized.",
+                       .severity = ErrorSeverity::Error,
+                       .source_path = std::string(source_path),
+                       .json_pointer = path});
         return std::nullopt;
     }
-    diagnostics.push_back(Diagnostic{.code = "compiled_project.invalid_localization",
-                                     .message = std::string(field_name) +
-                                                " cannot use Lua text expressions.",
-                                     .severity = ErrorSeverity::Error,
-                                     .source_path = std::string(source_path),
-                                     .json_pointer = path});
+    diagnostics.push_back(
+        Diagnostic{.code = "compiled_project.invalid_localization",
+                   .message = std::string(field_name) + " cannot use Lua text expressions.",
+                   .severity = ErrorSeverity::Error,
+                   .source_path = std::string(source_path),
+                   .json_pointer = path});
     return std::nullopt;
 }
 
@@ -692,8 +691,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                                 properties, &*property_contracts, trait_index,
                                                 diagnostics, source_path, path)
                                 : std::nullopt;
-            auto display_name = realize_display_name(room->display_name, wire.localization, diagnostics,
-                                                     source_path, path + "/displayName");
+            auto display_name =
+                realize_display_name(room->display_name, wire.localization, diagnostics,
+                                     source_path, path + "/displayName");
             if (identity && property_contracts && display_name)
                 configuration = compiled::RoomDefinition{
                     std::move(*identity),
@@ -733,9 +733,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                     properties, &*property_contracts, trait_index, diagnostics,
                                     source_path, path)
                     : std::nullopt;
-            auto display_name = realize_display_name(character->display_name, wire.localization,
-                                                     diagnostics, source_path,
-                                                     path + "/displayName");
+            auto display_name =
+                realize_display_name(character->display_name, wire.localization, diagnostics,
+                                     source_path, path + "/displayName");
             if (identity && property_contracts && display_name)
                 configuration =
                     compiled::CharacterDefinition{std::move(*identity),
@@ -761,9 +761,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                                 &*property_contracts, trait_index, diagnostics,
                                                 source_path, path)
                                 : std::nullopt;
-            auto display_name = realize_display_name(interactable->display_name, wire.localization,
-                                                     diagnostics, source_path,
-                                                     path + "/displayName");
+            auto display_name =
+                realize_display_name(interactable->display_name, wire.localization, diagnostics,
+                                     source_path, path + "/displayName");
             if (identity && property_contracts && display_name)
                 configuration = compiled::InteractableDefinition{
                     std::move(*identity),
@@ -796,9 +796,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                  "/definitions/scenes/" + std::to_string(scenes.size()) +
                                      "/displayName")
                 .value_or(std::string{}),
-            std::move(value.stage), std::move(value.inputs),
-                                                std::move(value.outcomes), std::move(value.program),
-                                                std::move(value.terminal)}));
+            std::move(value.stage), std::move(value.inputs), std::move(value.outcomes),
+            std::move(value.program), std::move(value.terminal)}));
     LINK_DEFINITIONS(
         dialogues, dialogues, DialogueDefinition, DialogueId,
         (compiled::DialogueDefinition{
@@ -807,9 +806,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                  "/definitions/dialogues/" + std::to_string(dialogues.size()) +
                                      "/displayName")
                 .value_or(std::string{}),
-            std::move(value.default_speaker),
-            std::move(value.stage_slots), std::move(value.media_slots), std::move(value.program),
-            std::move(value.settings), std::move(value.completion)}));
+            std::move(value.default_speaker), std::move(value.stage_slots),
+            std::move(value.media_slots), std::move(value.program), std::move(value.settings),
+            std::move(value.completion)}));
     LINK_DEFINITIONS(
         maps, maps, MapDefinition, MapId,
         (compiled::MapDefinition{std::move(identity), std::move(value.connections),
@@ -818,9 +817,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
     auto start_label = realize_static_text(
         wire.settings.title_screen.start_label, wire.localization, diagnostics, source_path,
         "/settings/titleScreen/startLabel", "Title-screen start label");
-    auto subtitle = realize_static_text(
-        wire.settings.title_screen.subtitle, wire.localization, diagnostics, source_path,
-        "/settings/titleScreen/subtitle", "Title-screen subtitle");
+    auto subtitle =
+        realize_static_text(wire.settings.title_screen.subtitle, wire.localization, diagnostics,
+                            source_path, "/settings/titleScreen/subtitle", "Title-screen subtitle");
     if (!diagnostics.empty() || !start_label || !subtitle)
         return Result<CompiledProject, Diagnostics>::failure(std::move(diagnostics));
 
@@ -830,9 +829,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         std::move(wire.settings.system_layouts),
         std::move(wire.settings.text),
         compiled::TitleScreenSettings{wire.settings.title_screen.show_author,
-                            wire.settings.title_screen.show_project_title,
-                            std::move(*start_label), std::move(*subtitle),
-                            std::move(wire.settings.title_screen.title_image)},
+                                      wire.settings.title_screen.show_project_title,
+                                      std::move(*start_label), std::move(*subtitle),
+                                      std::move(wire.settings.title_screen.title_image)},
         std::move(wire.settings.room_navigation_transition),
         std::move(wire.settings.audio),
         std::move(wire.settings.inventory),

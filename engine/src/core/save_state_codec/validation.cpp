@@ -1431,8 +1431,8 @@ bool valid_captured_message(const CompiledProject& project,
         return true;
     const MessageRealizer realizer(project.localization());
     return realizer
-        .realize({occurrence->message_id, project.localization().source_locale,
-                  occurrence->arguments})
+        .realize(
+            {occurrence->message_id, project.localization().source_locale, occurrence->arguments})
         .has_value();
 }
 
@@ -1465,15 +1465,16 @@ bool valid_active_choice(const CompiledProject& project,
                     return false;
                 std::unordered_set<std::string> seen;
                 return std::all_of(
-                    value.options.begin(), value.options.end(),
-                    [&project, &definition, &seen](const SceneChoiceOptionState& option) {
-                        return seen.insert(option.option.text()).second &&
-                               valid_captured_message(project, option.localized_message) &&
-                               std::any_of(definition->options.begin(), definition->options.end(),
-                                           [&option](const compiled::SceneChoiceOption& candidate) {
-                                               return candidate.id == option.option;
-                                           });
-                    }) &&
+                           value.options.begin(), value.options.end(),
+                           [&project, &definition, &seen](const SceneChoiceOptionState& option) {
+                               return seen.insert(option.option.text()).second &&
+                                      valid_captured_message(project, option.localized_message) &&
+                                      std::any_of(
+                                          definition->options.begin(), definition->options.end(),
+                                          [&option](const compiled::SceneChoiceOption& candidate) {
+                                              return candidate.id == option.option;
+                                          });
+                           }) &&
                        valid_captured_message(project, value.localized_prompt);
             } else {
                 const auto* dialogue = project.find_dialogue(value.dialogue);

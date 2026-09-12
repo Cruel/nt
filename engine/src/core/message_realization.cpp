@@ -138,8 +138,8 @@ std::optional<std::string_view> supported_locale(const compiled::Localization& l
     return std::nullopt;
 }
 
-const compiled::LocaleNumberFormat&
-number_format(const compiled::Localization& localization, std::string_view locale) noexcept
+const compiled::LocaleNumberFormat& number_format(const compiled::Localization& localization,
+                                                  std::string_view locale) noexcept
 {
     const auto definition = std::find_if(
         localization.locales.begin(), localization.locales.end(),
@@ -163,8 +163,7 @@ std::string localize_ascii_digits(std::string_view ascii,
     return result;
 }
 
-std::string group_ascii_number(std::string_view ascii,
-                               const compiled::Localization& localization,
+std::string group_ascii_number(std::string_view ascii, const compiled::Localization& localization,
                                std::string_view locale)
 {
     const auto& format = number_format(localization, locale);
@@ -192,8 +191,8 @@ std::string group_ascii_number(std::string_view ascii,
     }
     if (decimal != std::string_view::npos && decimal < mantissa_end) {
         result.append(format.decimal_separator);
-        result.append(localize_ascii_digits(
-            ascii.substr(decimal + 1, mantissa_end - decimal - 1), format));
+        result.append(
+            localize_ascii_digits(ascii.substr(decimal + 1, mantissa_end - decimal - 1), format));
     }
     if (exponent != std::string_view::npos)
         result.append(localize_ascii_digits(ascii.substr(exponent), format));
@@ -227,7 +226,8 @@ std::optional<std::string> format_value(const MessageArgumentValue& value,
             const auto converted = std::to_chars(buffer, buffer + sizeof(buffer), *integer);
             if (converted.ec != std::errc{})
                 return std::nullopt;
-            return group_ascii_number(std::string_view(buffer, converted.ptr), localization, locale);
+            return group_ascii_number(std::string_view(buffer, converted.ptr), localization,
+                                      locale);
         }
         const auto* number = std::get_if<double>(&value);
         if (!number || !std::isfinite(*number))
@@ -537,7 +537,8 @@ MessageRealizer::argument_definitions(MessageId message_id) const noexcept
 const compiled::LocalizationEntry*
 MessageRealizer::resolved_entry(MessageId message_id, std::string_view locale) const noexcept
 {
-    const auto requested = locale.empty() ? std::string_view{m_localization.default_locale} : locale;
+    const auto requested =
+        locale.empty() ? std::string_view{m_localization.default_locale} : locale;
     if (const auto negotiated = supported_locale(m_localization, requested))
         if (const auto* entry = find_message(m_localization, *negotiated, message_id))
             return entry;
@@ -551,9 +552,10 @@ MessageRealizer::realize(const MessageRealizationRequest& request) const
         request.locale.empty() ? std::string_view{m_localization.default_locale} : request.locale;
     if (const auto negotiated = supported_locale(m_localization, requested)) {
         if (const auto* entry = find_message(m_localization, *negotiated, request.message_id)) {
-            auto text = entry->pattern
-                            ? realize_pattern(*entry, request.arguments, m_localization, *negotiated)
-                            : interpolate(*entry, request.arguments, m_localization, *negotiated);
+            auto text =
+                entry->pattern
+                    ? realize_pattern(*entry, request.arguments, m_localization, *negotiated)
+                    : interpolate(*entry, request.arguments, m_localization, *negotiated);
             if (!text)
                 return std::nullopt;
             return RealizedMessage{std::move(*text), *negotiated};
@@ -562,11 +564,10 @@ MessageRealizer::realize(const MessageRealizationRequest& request) const
 
     if (const auto* source =
             find_message(m_localization, m_localization.source_locale, request.message_id)) {
-        auto text = source->pattern
-                        ? realize_pattern(*source, request.arguments, m_localization,
-                                          m_localization.source_locale)
-                        : interpolate(*source, request.arguments, m_localization,
-                                      m_localization.source_locale);
+        auto text = source->pattern ? realize_pattern(*source, request.arguments, m_localization,
+                                                      m_localization.source_locale)
+                                    : interpolate(*source, request.arguments, m_localization,
+                                                  m_localization.source_locale);
         if (!text)
             return std::nullopt;
         return RealizedMessage{std::move(*text), m_localization.source_locale};

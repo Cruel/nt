@@ -133,7 +133,15 @@ struct LocalizationCatalog {
     std::string locale;
     std::vector<LocalizationEntry> entries;
 };
-enum class PluralOperand : std::uint8_t { N, I, V, W, F, T, E };
+enum class PluralOperand : std::uint8_t {
+    N,
+    I,
+    V,
+    W,
+    F,
+    T,
+    E
+};
 struct PluralRange {
     double minimum = 0.0;
     double maximum = 0.0;
@@ -1984,14 +1992,13 @@ struct FlowPredictionIf {
     std::vector<FlowPredictionCommand> else_commands;
 };
 struct FlowPredictionCommand {
-    using Value = std::variant<FlowPredictionSetGlobalProperty,
-                               FlowPredictionSetIdentityProperty,
-                               FlowPredictionSetTraitPresence, FlowPredictionSetLocation,
-                               FlowPredictionInvalidateGlobalProperty,
-                               FlowPredictionInvalidateConditionFacts, FlowPredictionInvalidateState,
-                               FlowPredictionCallScene,
-                               FlowPredictionStartDetachedScene, FlowPredictionCallDialogue,
-                               FlowPredictionEnterRoom, FlowPredictionOpaque, FlowPredictionIf>;
+    using Value =
+        std::variant<FlowPredictionSetGlobalProperty, FlowPredictionSetIdentityProperty,
+                     FlowPredictionSetTraitPresence, FlowPredictionSetLocation,
+                     FlowPredictionInvalidateGlobalProperty, FlowPredictionInvalidateConditionFacts,
+                     FlowPredictionInvalidateState, FlowPredictionCallScene,
+                     FlowPredictionStartDetachedScene, FlowPredictionCallDialogue,
+                     FlowPredictionEnterRoom, FlowPredictionOpaque, FlowPredictionIf>;
     std::optional<InteractionInstructionId> command_id;
     Value value;
 };

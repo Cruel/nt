@@ -106,4 +106,3 @@ noveltea_apply_policy_warnings(noveltea_tooling_native)
 add_executable(noveltea-tooling-bridge tooling_bridge.cpp)
 target_link_libraries(noveltea-tooling-bridge PRIVATE noveltea_tooling_native)
 noveltea_apply_policy_warnings(noveltea-tooling-bridge)
-

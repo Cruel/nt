@@ -160,8 +160,7 @@ public:
         m_delegate->set_runtime_locale(locale);
     }
 
-    void synchronize_runtime_localization(
-        const core::compiled::Localization& localization) override
+    void synchronize_runtime_localization(const core::compiled::Localization& localization) override
     {
         m_delegate->synchronize_runtime_localization(localization);
     }

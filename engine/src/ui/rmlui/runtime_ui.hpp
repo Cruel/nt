@@ -26,7 +26,7 @@ namespace noveltea {
 namespace assets {
 class AssetManager;
 struct FontAssetConfig;
-}
+} // namespace assets
 namespace script {
 class ScriptRuntime;
 } // namespace script

@@ -37,12 +37,12 @@ ActiveTextPlaybackInput playback_input(const core::TypedRuntimeUIViewState& stat
 {
     const auto document = active_text_document(state);
     const auto page = active_text_document_page(document, page_index);
-    return ActiveTextPlaybackInput{
-        .body_key = active_text_content_key(state),
-        .glyph_count = text::utf8_grapheme_count(page.plain_text),
-        .delta_seconds = delta_seconds,
-        .awaiting_continue = state.can_continue,
-        .page_break = page_index + 1u < active_text_page_count(document)};
+    return ActiveTextPlaybackInput{.body_key = active_text_content_key(state),
+                                   .glyph_count = text::utf8_grapheme_count(page.plain_text),
+                                   .delta_seconds = delta_seconds,
+                                   .awaiting_continue = state.can_continue,
+                                   .page_break =
+                                       page_index + 1u < active_text_page_count(document)};
 }
 
 std::uint64_t utf8_codepoint_count(std::string_view value) noexcept
@@ -72,9 +72,9 @@ double active_text_overall_progress(const core::RichTextDocument& document, std:
     options.page_index = page_index;
     options.reveal_progress = page_progress;
     revealed += utf8_codepoint_count(active_text_visible_text(document, options));
-    return total == 0 ? 1.0
-                      : std::clamp(static_cast<double>(revealed) / static_cast<double>(total), 0.0,
-                                   1.0);
+    return total == 0
+               ? 1.0
+               : std::clamp(static_cast<double>(revealed) / static_cast<double>(total), 0.0, 1.0);
 }
 
 void remap_active_text_progress(const core::RichTextDocument& document, double overall_progress,
@@ -88,15 +88,15 @@ void remap_active_text_progress(const core::RichTextDocument& document, double o
     std::uint64_t prefix = 0;
     page_index = 0;
     for (std::size_t page = 0; page < page_count; ++page) {
-        const auto length = utf8_codepoint_count(active_text_document_page(document, page).plain_text);
+        const auto length =
+            utf8_codepoint_count(active_text_document_page(document, page).plain_text);
         if (page + 1u == page_count || target <= static_cast<double>(prefix + length)) {
             page_index = page;
-            page_progress = length == 0
-                                ? 1.0f
-                                : static_cast<float>(std::clamp(
-                                      (target - static_cast<double>(prefix)) /
-                                          static_cast<double>(length),
-                                      0.0, 1.0));
+            page_progress =
+                length == 0 ? 1.0f
+                            : static_cast<float>(std::clamp((target - static_cast<double>(prefix)) /
+                                                                static_cast<double>(length),
+                                                            0.0, 1.0));
             return;
         }
         prefix += length;
@@ -241,7 +241,8 @@ ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float de
     const std::string realization_key =
         (view ? view->locale.active_locale : std::string{}) + "\x1f" + document.source;
     const bool same_occurrence = !content_key.empty() && content_key == m_content_key;
-    const bool realization_changed = view && same_occurrence && realization_key != m_realization_key;
+    const bool realization_changed =
+        view && same_occurrence && realization_key != m_realization_key;
     const double preserved_progress =
         realization_changed
             ? (view->dialogue ? std::clamp(view->dialogue->reveal_progress, 0.0, 1.0)

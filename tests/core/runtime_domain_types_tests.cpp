@@ -147,7 +147,8 @@ TEST_CASE("message properties accept only typed Message references")
     });
     REQUIRE(definition);
     CHECK(property_value_matches(*definition.value_if(), RuntimeValue{MessageRef{9}}));
-    CHECK_FALSE(property_value_matches(*definition.value_if(), RuntimeValue{std::string{"ui.prompt"}}));
+    CHECK_FALSE(
+        property_value_matches(*definition.value_if(), RuntimeValue{std::string{"ui.prompt"}}));
 }
 
 TEST_CASE("enum properties constrain and canonicalize string values")
