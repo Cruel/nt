@@ -29,7 +29,9 @@
                 <div class="nt-shell-actions">
                     <button data-for="locale : shell.locales"
                             data-if="!locale.active && !shell.locale_change_pending"
-                            data-event-click="shell_set_locale(locale.locale)">{{ locale.native_name }}</button>
+                            data-style-direction="locale.direction"
+                            data-style-font-family="locale.font_family"
+                            data-event-click="shell_set_locale(locale.locale)">{{ locale.display_name }}</button>
                 </div>
                 <p data-if="shell.locale_change_result.available">
                     <span data-if="shell.locale_change_result.succeeded"><nt-tr key="noveltea.status.language_updated"/></span>

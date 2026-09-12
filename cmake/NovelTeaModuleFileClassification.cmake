@@ -338,6 +338,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/text/text_breaks.hpp
     engine/src/text/text_engine.cpp
     engine/src/text/text_engine.hpp
+    engine/src/text/text_engine_asset_source.cpp
     engine/src/text/text_layout.cpp
     engine/src/ui/rmlui/active_text_presenter.cpp
     engine/src/ui/rmlui/active_text_presenter.hpp

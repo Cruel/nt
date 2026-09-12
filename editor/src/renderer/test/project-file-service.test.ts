@@ -54,7 +54,12 @@ describe('project-file-service workspace-v1', () => {
     expect(result.success).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'project.json'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'properties.json'))).toBe(false);
-    expect(fs.existsSync(path.join(projectDirectory, 'localization.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'localization.json'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'project.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'messages.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'usage-notes.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'tracking.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'orphans.json'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'editor.json'))).toBe(true);
     expect(fs.readFileSync(path.join(projectDirectory, '.gitignore'), 'utf8')).toBe(
       '/.noveltea/\n/dist/\n',

@@ -869,6 +869,7 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_rmlui_text_scale_patch_tests
         noveltea_rmlui_font_raster_scale_patch_tests
         noveltea_rmlui_font_raster_default_tests
+        noveltea_rmlui_dynamic_fallback_patch_tests
         noveltea_rmlui_lua_event_listener_state_tests
         noveltea_rmlui_readback_verifier
         noveltea_rmlui_resize_readback_verifier

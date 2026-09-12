@@ -6,6 +6,7 @@ import {
   findAuthoringDependencyUsages,
   localizationMessageNodeKey,
 } from '../../shared/authoring-dependency-graph';
+import { projectWorkspaceChangedLocalizationFiles } from '../../shared/project-workspace/project-workspace-service';
 import { cliDiagnostic } from '../contracts';
 import type { CliCommandDefinition, CliCommandContext } from './types';
 import { CliCommandUsageError, parseCommandFlags } from './types';
@@ -92,11 +93,12 @@ export const localizationViewCommand: CliCommandDefinition = {
             ...(message.translatorNote === undefined
               ? {}
               : { translatorNote: message.translatorNote }),
+            ...(message.usageNote === null ? {} : { usageNote: message.usageNote }),
             sourceFingerprint: message.sourceFingerprint,
             status: message.freshness,
             attention: message.attention,
             usages: [
-              message.usageNote,
+              message.usedIn,
               ...Object.keys(project.localization.locales).flatMap((candidateLocale) =>
                 findAuthoringDependencyUsages(
                   graph,
@@ -213,6 +215,10 @@ function workflowMutationCommand(command: 'accept' | 'review'): CliCommandDefini
             if (command === 'review') translation.review = 'reviewed';
             else translation.sourceFingerprint = patch.value;
           }
+          const localizationFiles = projectWorkspaceChangedLocalizationFiles(
+            project.localization,
+            candidate.localization,
+          );
           if (!parsed.dryRun && patches.length > 0)
             await context.workspace.write(
               context.snapshot.projectRoot,
@@ -222,7 +228,7 @@ function workflowMutationCommand(command: 'accept' | 'review'): CliCommandDefini
               context.snapshot.scriptSourcePaths,
               {
                 operationLabel: `cli localization ${command}`,
-                targetFiles: ['localization.json'],
+                targetFiles: localizationFiles,
                 refreshAfterCommit: false,
               },
             );
@@ -233,7 +239,7 @@ function workflowMutationCommand(command: 'accept' | 'review'): CliCommandDefini
               locale: parsed.locale,
               messageIds: parsed.messageIds,
               dryRun: parsed.dryRun,
-              writes: !parsed.dryRun && patches.length > 0 ? ['localization.json'] : [],
+              writes: !parsed.dryRun && patches.length > 0 ? localizationFiles : [],
             },
             humanSuccess: `Localization ${command} updated ${patches.length} Message(s).`,
           };

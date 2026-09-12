@@ -777,11 +777,15 @@ struct LocaleOptionProjection {
     std::string native_name;
     std::string display_name;
     bool right_to_left = false;
+    std::string direction;
+    std::string font_family;
     bool active = false;
     std::string get_locale() { return locale; }
     std::string get_native_name() { return native_name; }
     std::string get_display_name() { return display_name; }
     bool get_right_to_left() { return right_to_left; }
+    std::string get_direction() { return direction; }
+    std::string get_font_family() { return font_family; }
     bool get_active() { return active; }
 };
 
@@ -1046,6 +1050,8 @@ struct RuntimeUiDataModel::Impl {
             NT_MEMBER(LocaleOptionProjection, native_name),
             NT_MEMBER(LocaleOptionProjection, display_name),
             NT_MEMBER(LocaleOptionProjection, right_to_left),
+            NT_MEMBER(LocaleOptionProjection, direction),
+            NT_MEMBER(LocaleOptionProjection, font_family),
             NT_MEMBER(LocaleOptionProjection, active));
         ok &= c.RegisterArray<std::vector<LocaleOptionProjection>>();
         ok &= register_struct<LocaleChangeResultProjection>(
@@ -1557,10 +1563,18 @@ void RuntimeUiDataModel::set_shell(const core::RuntimeShellViewState& view,
         };
     }
     for (const auto& locale : view.locale.available_locales) {
+        std::string font_family;
+        for (const auto& family : locale.font_families) {
+            if (!font_family.empty())
+                font_family += ", ";
+            font_family += family;
+        }
         out.locales.push_back({.locale = locale.locale,
                                .native_name = locale.native_name,
                                .display_name = locale.display_name,
                                .right_to_left = locale.right_to_left,
+                               .direction = locale.right_to_left ? "rtl" : "ltr",
+                               .font_family = std::move(font_family),
                                .active = locale.locale == view.locale.active_locale});
     }
     if (view.checkpoint) {

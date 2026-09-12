@@ -3639,15 +3639,39 @@
     "defaultLocale": "en",
     "locales": [
       {
+        "displayName": "English",
         "fontStack": [],
         "locale": "en",
+        "nativeName": "English",
+        "numberFormat": {
+          "decimalSeparator": ".",
+          "digits": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+          "groupSeparator": ",",
+          "primaryGroupSize": 3,
+          "secondaryGroupSize": 3
+        },
         "parentLocale": null,
+        "pluralCategories": ["one", "other"],
+        "pluralRules": [{"category":"one","alternatives":[[{"operand":"i","modulo":null,"negated":false,"ranges":[{"minimum":1,"maximum":1}]},{"operand":"v","modulo":null,"negated":false,"ranges":[{"minimum":0,"maximum":0}]}]]}],
+        "rightToLeft": false,
         "supported": true
       },
       {
+        "displayName": "español",
         "fontStack": [],
         "locale": "es",
+        "nativeName": "español",
+        "numberFormat": {
+          "decimalSeparator": ",",
+          "digits": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+          "groupSeparator": ".",
+          "primaryGroupSize": 3,
+          "secondaryGroupSize": 3
+        },
         "parentLocale": null,
+        "pluralCategories": ["one", "many", "other"],
+        "pluralRules": [{"category":"one","alternatives":[[{"operand":"n","modulo":null,"negated":false,"ranges":[{"minimum":1,"maximum":1}]}]]},{"category":"many","alternatives":[[{"operand":"e","modulo":null,"negated":false,"ranges":[{"minimum":0,"maximum":0}]},{"operand":"i","modulo":null,"negated":true,"ranges":[{"minimum":0,"maximum":0}]},{"operand":"i","modulo":1000000,"negated":false,"ranges":[{"minimum":0,"maximum":0}]},{"operand":"v","modulo":null,"negated":false,"ranges":[{"minimum":0,"maximum":0}]}],[{"operand":"e","modulo":null,"negated":true,"ranges":[{"minimum":0,"maximum":5}]}]]}],
+        "rightToLeft": false,
         "supported": true
       }
     ],

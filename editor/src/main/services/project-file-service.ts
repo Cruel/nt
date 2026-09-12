@@ -693,7 +693,7 @@ async function copyProjectWorkflows(oldProjectFilePath: string, newProjectFilePa
 const saveAsOwnedDestinationPaths = [
   'project.json',
   'traits.json',
-  'localization.json',
+  'i18n',
   'editor.json',
   'records',
   'scripts',

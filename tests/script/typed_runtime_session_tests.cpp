@@ -741,8 +741,8 @@ TEST_CASE(
     CHECK(initial.locale.available_locales[0].native_name == "English");
     CHECK(initial.locale.available_locales[0].display_name == "English");
     CHECK(initial.locale.available_locales[1].locale == "es");
-    CHECK(initial.locale.available_locales[1].native_name == "Español");
-    CHECK(initial.locale.available_locales[1].display_name == "Spanish");
+    CHECK(initial.locale.available_locales[1].native_name == "español");
+    CHECK(initial.locale.available_locales[1].display_name == "español");
 
     auto changed = fixture.session->commit_locale("es");
     REQUIRE(changed.diagnostics.empty());

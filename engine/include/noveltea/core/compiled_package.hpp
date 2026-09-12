@@ -135,6 +135,15 @@ public:
     {
         return m_resources;
     }
+    [[nodiscard]] Result<void, Diagnostics>
+    install_runtime_localization_catalog(compiled::LocalizationCatalog catalog)
+    {
+        return m_project.install_runtime_localization_catalog(std::move(catalog));
+    }
+    void retain_runtime_localization_catalogs(std::string_view active_locale)
+    {
+        m_project.retain_runtime_localization_catalogs(active_locale);
+    }
 
 private:
     friend Result<LoadedCompiledPackage, Diagnostics>

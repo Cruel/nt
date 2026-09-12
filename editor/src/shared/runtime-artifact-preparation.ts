@@ -191,6 +191,47 @@ function stableStringify(value: unknown): string {
     .join(',')}}`;
 }
 
+function partitionRuntimeLocalizationCatalogs(
+  project: PreparedRuntimeArtifact['compiledProject'],
+): {
+  project: PreparedRuntimeArtifact['compiledProject'];
+  textEntries: PreparedRuntimePackageOptions['textEntries'];
+} {
+  const residentLocales = new Set([
+    project.localization.sourceLocale,
+    project.localization.defaultLocale,
+  ]);
+  const externalCatalogs = project.localization.catalogs.filter(
+    (catalog) => !residentLocales.has(catalog.locale),
+  );
+  if (externalCatalogs.length === 0) return { project, textEntries: [] };
+  const catalogPaths = new Map(
+    externalCatalogs.map(
+      (catalog) => [catalog.locale, `localization/${catalog.locale}.json`] as const,
+    ),
+  );
+  return {
+    project: {
+      ...project,
+      localization: {
+        ...project.localization,
+        locales: project.localization.locales.map((locale) => {
+          const catalogPath = catalogPaths.get(locale.locale);
+          return catalogPath ? { ...locale, catalogPath } : locale;
+        }),
+        catalogs: project.localization.catalogs.filter((catalog) =>
+          residentLocales.has(catalog.locale),
+        ),
+      },
+    },
+    textEntries: externalCatalogs.map((catalog) => ({
+      text: `${stableStringify(catalog)}\n`,
+      packagePath: catalogPaths.get(catalog.locale)!,
+      storage: 'compressed' as const,
+    })),
+  };
+}
+
 function hashString(value: string): string {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -488,12 +529,17 @@ async function assembleRuntimeArtifact(
     if (asset.kind === 'shader-source' && !options.profile.includeShaderSources) return false;
     return true;
   });
-  const compiledProject = localizedCompiledProject
+  const unpartitionedCompiledProject = localizedCompiledProject
     ? {
         ...localizedCompiledProject,
         resources: { ...localizedCompiledProject.resources, assets: includedCompiledAssets },
       }
     : undefined;
+  const partitioned = unpartitionedCompiledProject
+    ? partitionRuntimeLocalizationCatalogs(unpartitionedCompiledProject)
+    : null;
+  const compiledProject = partitioned?.project;
+  const localizationTextEntries = partitioned?.textEntries ?? [];
   const gameplayJson = compiledProject ? serializeCompiledProjectWire(compiledProject) : undefined;
   const fileEntries = includedCompiledAssets.flatMap((asset): ExportFileEntry[] => {
     if (localizationClosure && !localizationClosure.payloadAssetIds.has(asset.id)) return [];
@@ -566,7 +612,12 @@ async function assembleRuntimeArtifact(
   const manifestPreview = {
     projectName: generatedProjectName,
     projectVersion: generatedProjectVersion,
-    entryCount: 1 + fileEntries.length + required.length + (shaderMaterialMetadata ? 1 : 0),
+    entryCount:
+      1 +
+      fileEntries.length +
+      localizationTextEntries.length +
+      required.length +
+      (shaderMaterialMetadata ? 1 : 0),
     assetCount: fileEntries.length,
     shaderVariants,
     requiredShaderBinaryPaths: required,
@@ -589,6 +640,7 @@ async function assembleRuntimeArtifact(
       packagePath,
       storage,
     })),
+    textEntries: localizationTextEntries,
     requiredSeekablePaths: fileEntries
       .filter((entry) => entry.kind === 'audio')
       .map((entry) => entry.packagePath),
@@ -1130,9 +1182,16 @@ export async function verifyPreparedRuntimeArtifact(
   );
   if ('message' in expectedInventory)
     return rejectedEvidence(expectedInventory.message, expectedInventory.path);
+  const expectedPartitioned = partitionRuntimeLocalizationCatalogs({
+    ...expectedLocalization.project,
+    resources: {
+      ...expectedLocalization.project.resources,
+      assets: expectedInventory.compiledAssets,
+    },
+  });
   if (
     stableStringify(artifact.compiledProject.localization) !==
-      stableStringify(expectedLocalization.project.localization) ||
+      stableStringify(expectedPartitioned.project.localization) ||
     stableStringify(artifact.localization) !== stableStringify(expectedLocalization.closure)
   )
     return rejectedEvidence(
@@ -1235,6 +1294,8 @@ export async function verifyPreparedRuntimeArtifact(
       stableStringify(expectedRequiredShaderBinaryPaths) &&
     stableStringify(normalizedPackageFileEntries(artifact.packageOptions.fileEntries)) ===
       stableStringify(normalizedPackageFileEntries(expectedPackageFileEntries)) &&
+    stableStringify(artifact.packageOptions.textEntries) ===
+      stableStringify(expectedPartitioned.textEntries) &&
     stableStringify(artifact.packageOptions.requiredSeekablePaths) ===
       stableStringify(expectedSeekablePaths) &&
     stableStringify(artifact.packageOptions.display) === stableStringify(presentation.display) &&
@@ -1258,6 +1319,7 @@ export async function verifyPreparedRuntimeArtifact(
     entryCount:
       1 +
       expectedInventory.entries.length +
+      expectedPartitioned.textEntries.length +
       expectedRequiredShaderBinaryPaths.length +
       (artifact.shaderMaterialMetadata ? 1 : 0),
     assetCount: expectedInventory.entries.length,

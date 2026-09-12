@@ -227,6 +227,7 @@ struct RuntimeLocaleOptionView {
     std::string native_name;
     std::string display_name;
     bool right_to_left = false;
+    std::vector<std::string> font_families;
     bool operator==(const RuntimeLocaleOptionView&) const = default;
 };
 

@@ -27,6 +27,9 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/architecture/certifications/UNIFIED_AUTHORING_INTEGRATION_CERTIFICATION.md` records the final
   #128 / #115 authoring-guidance, canonical compiler, Running Game, RuntimeUI/Layout, Linux, Web, and
   Agent Kit certification of the unified exact-Interactable-Instance model.
+- `docs/architecture/certifications/FIRST_CLASS_LOCALIZATION_ALIGNMENT_CERTIFICATION.md` records the
+  #175 localization storage/workflow/CLDR/package/runtime alignment and the one remaining conditional
+  video-playback prerequisite.
 - `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` is the durable capability-level evidence map
   for complete, deferred, rejected, duplicate, and tooling dispositions.
 - `docs/rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md` defines current presentation ownership,

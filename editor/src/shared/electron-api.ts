@@ -42,7 +42,7 @@ interface NovelTeaElectronApiContract {
   createProject(request: CreateProjectRequest): Promise<SaveProjectResponse>;
   openProject(projectPath: string): Promise<OpenProjectResponse>;
   closeActiveProject(): Promise<void>;
-  validateProject(project: unknown): Promise<ValidationResponse>;
+  validateProject(projectSessionId: string, project: unknown): Promise<ValidationResponse>;
   listPlaybackTests(project: unknown): Promise<TestListResponse>;
   runPlaybackTest(project: unknown, testId: string): Promise<PlaybackReportResponse>;
   runPlaybackSpec(project: unknown, spec: unknown): Promise<PlaybackReportResponse>;

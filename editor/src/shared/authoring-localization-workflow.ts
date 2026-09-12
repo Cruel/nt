@@ -26,6 +26,7 @@ export interface LocalizationMessageWorkflowView {
   readonly translatorNote?: string;
   readonly sourcePath: string | null;
   readonly sourceEditPath: string | null;
+  readonly usedIn: string | null;
   readonly usageNote: string | null;
   readonly dialogueCues?: readonly DialogueCuePlacement[];
   readonly sourceFingerprint: string;
@@ -79,6 +80,7 @@ function simpleView(
   id: string,
   message: AuthoringMessage,
   sourcePath: string | null,
+  usedIn: string | null,
   usageNote: string | null,
   dialogueCues?: readonly DialogueCuePlacement[],
 ): LocalizationMessageWorkflowView {
@@ -106,6 +108,7 @@ function simpleView(
     ...(message.translatorNote === undefined ? {} : { translatorNote: message.translatorNote }),
     sourcePath,
     sourceEditPath: sourcePath,
+    usedIn,
     usageNote,
     ...(dialogueCues === undefined ? {} : { dialogueCues }),
     sourceFingerprint,
@@ -130,6 +133,7 @@ export function localizationMessageWorkflowViews(
         message,
         `/localization/messages/${id.replaceAll('~', '~0').replaceAll('/', '~1')}/source`,
         null,
+        project.localization.usageNotes[id] ?? null,
         dialogueCueContracts.get(id),
       ),
     );
@@ -140,7 +144,8 @@ export function localizationMessageWorkflowViews(
       occurrence.id,
       message,
       occurrence.sourcePath,
-      occurrence.usageNote,
+      occurrence.usedIn,
+      project.localization.usageNotes[occurrence.id] ?? null,
       occurrence.dialogueCues,
     );
     views.set(
@@ -199,7 +204,13 @@ export function localizationMessageWorkflowViews(
           : { translatorNote: occurrence.translatorNote }),
       };
       views.set(id, {
-        ...simpleView(id, message, source.source.sourcePath, source.source.sourcePath),
+        ...simpleView(
+          id,
+          message,
+          source.source.sourcePath,
+          source.source.sourcePath,
+          project.localization.usageNotes[id] ?? null,
+        ),
         sourceEditPath: null,
       });
     });
@@ -221,7 +232,8 @@ export function localizationMessageWorkflowViews(
         source: node.content,
         sourcePath: source.source.sourcePath,
         sourceEditPath: null,
-        usageNote: source.source.sourcePath,
+        usedIn: source.source.sourcePath,
+        usageNote: project.localization.usageNotes[id] ?? null,
         sourceFingerprint: fingerprint('semantic', semantic),
         presentationFingerprint: fingerprint('presentation', node.content),
         guidanceFingerprint: fingerprint('guidance', ''),

@@ -1456,12 +1456,28 @@ export function WorkspacePage() {
     return () => window.clearInterval(timer);
   }, [checkComfyUiConnection, comfyUiConfig]);
 
-  function validate() {
-    if (!project) return;
+  async function validate() {
+    if (!project || !projectSessionId) return;
     const diagnostics = collectWorkspaceProjectDiagnostics(
       project,
       persistentRecoveryDiagnosticsRef.current,
     );
+    try {
+      const native = await window.noveltea.validateProject(projectSessionId, project);
+      diagnostics.push(
+        ...native.diagnostics.filter((diagnostic) =>
+          diagnostic.code?.startsWith('localization.font_coverage'),
+        ),
+      );
+    } catch (error) {
+      diagnostics.push({
+        code: 'localization.font_coverage.tool',
+        severity: 'error',
+        category: 'Localization font coverage',
+        path: '/localization',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
     setDiagnostics(diagnostics);
     addTimelineEntry({
       source: 'validation',
@@ -1656,7 +1672,7 @@ export function WorkspacePage() {
           void closeProject();
           break;
         case 'validate':
-          validate();
+          void validate();
           break;
         case 'project-settings':
           openProjectSettings();

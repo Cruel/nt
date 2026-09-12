@@ -4,6 +4,7 @@ import {
   type LocalizationReconciliationDecisions,
   type LocalizationReconciliationPlan,
 } from '../../shared/authoring-localization-reconcile';
+import { projectWorkspaceChangedLocalizationFiles } from '../../shared/project-workspace/project-workspace-service';
 import { cliDiagnostic } from '../contracts';
 import type { CliCommandDefinition } from './types';
 import { CliCommandUsageError, parseCommandFlags } from './types';
@@ -137,6 +138,10 @@ export const localizationReconcileCommand: CliCommandDefinition = {
             fields: { plan: result.plan, occurrenceIds: result.occurrenceIds },
           };
 
+        const localizationFiles = projectWorkspaceChangedLocalizationFiles(
+          context.snapshot.project.localization,
+          result.project.localization,
+        );
         if (result.changed)
           await context.workspace.write(
             context.snapshot.projectRoot,
@@ -146,7 +151,7 @@ export const localizationReconcileCommand: CliCommandDefinition = {
             context.snapshot.scriptSourcePaths,
             {
               operationLabel: 'cli localization reconcile',
-              targetFiles: ['localization.json'],
+              targetFiles: localizationFiles,
               refreshAfterCommit: false,
             },
           );
@@ -158,7 +163,7 @@ export const localizationReconcileCommand: CliCommandDefinition = {
             materializedMessageIds: result.materializedMessageIds,
             orphanedMessageIds: result.orphanedMessageIds,
             garbageCollectedMessageIds: result.garbageCollectedMessageIds,
-            writes: result.changed ? ['localization.json'] : [],
+            writes: result.changed ? localizationFiles : [],
           },
           humanSuccess: result.changed
             ? 'Localization reconciliation applied.'

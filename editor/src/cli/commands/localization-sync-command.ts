@@ -1,4 +1,5 @@
 import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
+import { projectWorkspaceChangedLocalizationFiles } from '../../shared/project-workspace/project-workspace-service';
 import { cliDiagnostic } from '../contracts';
 import type { CliCommandDefinition } from './types';
 import { CliCommandUsageError, parseCommandFlags } from './types';
@@ -15,6 +16,10 @@ export const localizationSyncCommand: CliCommandDefinition = {
       mutation: !dryRun,
       async run({ workspace, snapshot }) {
         const result = synchronizeLocalizationMessageTracking(snapshot.project);
+        const localizationFiles = projectWorkspaceChangedLocalizationFiles(
+          snapshot.project.localization,
+          result.project.localization,
+        );
         if (!dryRun && result.changed)
           await workspace.write(
             snapshot.projectRoot,
@@ -24,7 +29,7 @@ export const localizationSyncCommand: CliCommandDefinition = {
             snapshot.scriptSourcePaths,
             {
               operationLabel: 'cli localization sync',
-              targetFiles: ['localization.json'],
+              targetFiles: localizationFiles,
               refreshAfterCommit: false,
             },
           );
@@ -46,7 +51,7 @@ export const localizationSyncCommand: CliCommandDefinition = {
             preservedMessageIds: result.preservedMessageIds,
             unresolved: result.unresolved,
             structuredMessageCount: result.structuredMessageCount,
-            writes: !dryRun && result.changed ? ['localization.json'] : [],
+            writes: !dryRun && result.changed ? localizationFiles : [],
           },
           humanSuccess: result.changed
             ? dryRun

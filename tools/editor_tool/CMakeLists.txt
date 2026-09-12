@@ -22,12 +22,32 @@ if(MSVC)
     target_compile_options(noveltea_shader_tooling PRIVATE /Zc:__cplusplus /Zc:preprocessor)
 endif()
 
+add_library(noveltea_text_tooling STATIC
+    "${CMAKE_SOURCE_DIR}/engine/src/text/text_engine.cpp"
+    "${CMAKE_SOURCE_DIR}/engine/src/text/text_breaks.cpp"
+)
+set_target_properties(noveltea_text_tooling PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_features(noveltea_text_tooling PUBLIC cxx_std_20)
+target_include_directories(noveltea_text_tooling
+    PUBLIC "${CMAKE_SOURCE_DIR}/engine/include"
+    PRIVATE "${CMAKE_SOURCE_DIR}/engine/src"
+)
+target_link_libraries(noveltea_text_tooling PRIVATE
+    noveltea_text_freetype
+    noveltea_text_harfbuzz
+    noveltea_text_sheenbidi
+    noveltea_text_unibreak
+)
+noveltea_apply_runtime_compiler_policy(noveltea_text_tooling)
+noveltea_apply_policy_warnings(noveltea_text_tooling)
+
 add_library(noveltea_tooling_native STATIC
     tooling_native.cpp
     tooling_native.hpp
     tooling_native_c.h
     tooling_native_scriptc.cpp
     tooling_image.cpp
+    font_coverage_tool.cpp
     tooling_archive.cpp
     "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp"
 )
@@ -52,10 +72,12 @@ target_link_libraries(noveltea_tooling_native PUBLIC
     noveltea_presentation
     noveltea_script_lua
     noveltea_shader_tooling
+    noveltea_text_tooling
     PRIVATE noveltea_bimg_texturec_embedded nlohmann_json::nlohmann_json miniz::miniz)
 target_compile_definitions(noveltea_tooling_native PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 target_include_directories(noveltea_tooling_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" PRIVATE
-    "${NOVELTEA_EMBEDDED_SHADERC_INCLUDE_DIR}")
+    "${NOVELTEA_EMBEDDED_SHADERC_INCLUDE_DIR}"
+    "${CMAKE_SOURCE_DIR}/engine/src")
 if(TARGET bgfx::bimg)
     target_link_libraries(noveltea_tooling_native PRIVATE bgfx::bimg)
 elseif(TARGET bimg::bimg)
@@ -84,3 +106,4 @@ noveltea_apply_policy_warnings(noveltea_tooling_native)
 add_executable(noveltea-tooling-bridge tooling_bridge.cpp)
 target_link_libraries(noveltea-tooling-bridge PRIVATE noveltea_tooling_native)
 noveltea_apply_policy_warnings(noveltea-tooling-bridge)
+

@@ -89,7 +89,7 @@ describe('localization Message operations', () => {
     project.rooms.second = { id: 'second', label: 'Second', data: second };
     project.rooms.third = { id: 'third', label: 'Third', data: third };
     const messages = localizationMessageWorkflowViews(project);
-    const canonical = messages.find((message) => message.usageNote?.includes('/rooms/first/'))!;
+    const canonical = messages.find((message) => message.usedIn?.includes('/rooms/first/'))!;
 
     expect(identicalSourceReuseCandidates(project, canonical.id)).toEqual([
       expect.objectContaining({ source: 'Same words', rewriteable: true }),
@@ -113,9 +113,9 @@ describe('localization Message operations', () => {
     const views = localizationMessageWorkflowViews(tracked).filter(
       (message) => message.source === 'Hello',
     );
-    const structured = views.find((message) => message.usageNote?.includes('/rooms/room/'))!;
-    const lua = views.find((message) => message.usageNote?.includes('/scripts/'))!;
-    const rml = views.find((message) => message.usageNote?.includes('/layouts/'))!;
+    const structured = views.find((message) => message.usedIn?.includes('/rooms/room/'))!;
+    const lua = views.find((message) => message.usedIn?.includes('/scripts/'))!;
+    const rml = views.find((message) => message.usedIn?.includes('/layouts/'))!;
     tracked.localization.translations.fr = {
       [lua.id]: {
         text: 'Bonjour',
@@ -270,6 +270,37 @@ describe('localization Message operations', () => {
     expect(demoted.localization.translations.fr?.[namedId]).toMatchObject({ review: 'reviewed' });
   });
 
+  it('keeps free-form named usage identities stable across unrelated offset shifts', () => {
+    const project = createAuthoringProject({ id: 'usage-identity', name: 'Usage Identity' });
+    const namedId = '11111111-1111-4111-8111-111111111111';
+    project.localization.messages[namedId] = {
+      kind: 'named',
+      key: 'ui.shared.continue',
+      source: 'Continue',
+    };
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: `local pad = "${'x'.repeat(140)}"\nreturn Text.msg("ui.shared.continue")\n`,
+    };
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.rml.sourceText = `<rml><body><div>${'x'.repeat(180)}</div><nt-tr key="ui.shared.continue"></nt-tr></body></rml>`;
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+
+    const before = namedMessageUsages(project, namedId);
+    const luaBefore = before.find((usage) => usage.id.startsWith('lua:'))!;
+    const rmlBefore = before.find((usage) => usage.id.startsWith('rml:'))!;
+
+    const shifted = structuredClone(project);
+    const luaSource = shifted.scripts.bootstrap!.data.source;
+    if (luaSource.kind !== 'inline-lua') throw new Error('Expected inline Lua fixture.');
+    luaSource.source = `-- unrelated prefix\n${luaSource.source}`;
+    shifted.layouts.hud!.data.rml.sourceText = `<!-- unrelated prefix -->${shifted.layouts.hud!.data.rml.sourceText}`;
+
+    const after = namedMessageUsages(shifted, namedId);
+    expect(after.find((usage) => usage.id.startsWith('lua:'))?.id).toBe(luaBefore.id);
+    expect(after.find((usage) => usage.id.startsWith('rml:'))?.id).toBe(rmlBefore.id);
+  });
+
   it('demotes managed Lua and RML named usages through their refactor paths', () => {
     const project = createAuthoringProject({ id: 'free-form-demote', name: 'Free Form Demote' });
     const namedId = '11111111-1111-4111-8111-111111111111';
@@ -293,6 +324,7 @@ describe('localization Message operations', () => {
     const luaUsage = namedMessageUsages(project, namedId).find((usage) =>
       usage.id.startsWith('lua:'),
     )!;
+    project.localization.usageNotes[luaUsage.id] = 'Lua occurrence note';
     const luaResult = demoteNamedMessageUsage(project, namedId, luaUsage.id, {
       newMessageId: luaLocalId,
       copyDraftLocales: [],
@@ -307,11 +339,14 @@ describe('localization Message operations', () => {
         'return Text.tr("Continue", { count = 1 }, { context = "Menu action", note = "Keep concise" })\n',
     });
     expect(localizationMessageWorkflowView(afterLua, luaLocalId)?.source).toBe('Continue');
+    expect(afterLua.localization.usageNotes[luaLocalId]).toBe('Lua occurrence note');
+    expect(afterLua.localization.usageNotes[luaUsage.id]).toBeUndefined();
     expect(synchronizeLocalizationMessageTracking(afterLua).changed).toBe(false);
 
     const rmlUsage = namedMessageUsages(afterLua, namedId).find((usage) =>
       usage.id.startsWith('rml:'),
     )!;
+    afterLua.localization.usageNotes[rmlUsage.id] = 'RML occurrence note';
     const rmlResult = demoteNamedMessageUsage(afterLua, namedId, rmlUsage.id, {
       copyDraftLocales: [],
     });
@@ -325,6 +360,8 @@ describe('localization Message operations', () => {
     );
     expect(afterRml.localization.messages[namedId]).toBeUndefined();
     expect(localizationMessageWorkflowView(afterRml, namedId)?.source).toBe('Continue');
+    expect(afterRml.localization.usageNotes[namedId]).toBe('RML occurrence note');
+    expect(afterRml.localization.usageNotes[rmlUsage.id]).toBeUndefined();
     expect(synchronizeLocalizationMessageTracking(afterRml).changed).toBe(false);
   });
 

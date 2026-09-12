@@ -18,6 +18,7 @@ Implemented:
 - RGBA8 atlas pages with grayscale coverage in alpha, updated per glyph region.
 - bgfx coverage shader that samples alpha coverage and multiplies by vertex/style alpha.
 - CPU text tests for UTF-8 clusters, combining marks, emoji ZWJ boundary behavior, kerning, Arabic shaping, mixed bidi runs, explicit newlines, NBSP, CJK break opportunities, wrapping, alignment, overflow, stable metrics, and atlas packing.
+- Localization font-coverage validation uses `TextEngine::coverage_diagnostics` through the native tooling embedded in the `noveltea` CLI. The public `noveltea validate` command runs the check automatically, while the editor uses the private `noveltea __editor-native font-coverage` operation and caches results per locale by effective text and font content identity. Both paths shape effective locale Message text and locale display names through the Project/locale font stack plus the safe system fallback and report unresolved clusters with locale/Message/source-path/font-stack attribution.
 
 ## Dependencies
 
@@ -91,7 +92,7 @@ The longer-term plan is tracked in [`docs/rendering/plans/TEXT_FONT_STYLE_PLAN.m
 - ICU or cpp-unicodelib
 - SDF, MSDF, MTSDF, and `msdfgen`
 - Generic rich text spans and styled-span layout for non-ActiveText text
-- Font-family fallback and real per-style font-face resolution
+- Generalized authored font-family policy beyond the implemented StyledText preferred-family/fallback chain and locale validation stack
 - Color emoji and SVG glyph rendering
 - Dictionary hyphenation
 - Arabic kashida justification

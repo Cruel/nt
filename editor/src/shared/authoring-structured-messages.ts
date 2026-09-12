@@ -12,7 +12,7 @@ export interface StructuredMessageOccurrence {
   source: string;
   path: string;
   sourcePath: string | null;
-  usageNote: string;
+  usedIn: string;
   text?: TextContent;
   dialogueCues?: readonly DialogueCuePlacement[];
 }
@@ -102,7 +102,7 @@ function buildIndex(project: AuthoringProject): StructuredMessageIndex {
       source,
       path,
       sourcePath,
-      usageNote: path,
+      usedIn: path,
       ...(text ? { text } : {}),
     };
     occurrences.push(occurrence);

@@ -34,6 +34,11 @@ export interface PreparedRuntimePackageOptions {
     packagePath: string;
     storage: 'auto' | 'stored' | 'compressed';
   }>;
+  textEntries: Array<{
+    text: string;
+    packagePath: string;
+    storage: 'auto' | 'stored' | 'compressed';
+  }>;
   requiredSeekablePaths: string[];
   display: NonNullable<PackageExportOptions['display']>;
   accessibility: NonNullable<PackageExportOptions['accessibility']>;
@@ -160,6 +165,15 @@ const packageOptionsSchema = z
     shaderMaterialMetadata: shaderMaterialProjectWireSchema.optional(),
     requiredShaderBinaryPaths: z.array(z.string()),
     fileEntries: z.array(fileEntrySchema.pick({ source: true, packagePath: true, storage: true })),
+    textEntries: z.array(
+      z
+        .object({
+          text: z.string(),
+          packagePath: z.string(),
+          storage: z.enum(['auto', 'stored', 'compressed']),
+        })
+        .strict(),
+    ),
     requiredSeekablePaths: z.array(z.string()),
     display: displaySchema,
     accessibility: accessibilitySchema,

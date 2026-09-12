@@ -1564,24 +1564,13 @@ private:
             std::sort(result.begin(), result.end());
             return result;
         };
-        const auto required_plural_categories = [](std::string_view locale) {
-            const auto separator = locale.find('-');
-            const auto language = locale.substr(0, separator);
-            if (language == "zh" || language == "ja" || language == "ko" || language == "th" ||
-                language == "vi" || language == "id" || language == "ms")
-                return std::vector<std::string_view>{"other"};
-            if (language == "ar")
-                return std::vector<std::string_view>{"zero", "one", "two", "few", "many", "other"};
-            if (language == "ru" || language == "uk" || language == "be" || language == "pl" ||
-                language == "cs" || language == "sk" || language == "lt")
-                return std::vector<std::string_view>{"one", "few", "many", "other"};
-            if (language == "sl")
-                return std::vector<std::string_view>{"one", "two", "few", "other"};
-            if (language == "ro")
-                return std::vector<std::string_view>{"one", "few", "other"};
-            if (language == "he")
-                return std::vector<std::string_view>{"one", "two", "other"};
-            return std::vector<std::string_view>{"one", "other"};
+        const auto required_plural_categories = [&](std::string_view locale) {
+            const auto definition = std::ranges::find_if(
+                m_input.localization.locales,
+                [locale](const LocaleDefinition& value) { return value.locale == locale; });
+            return definition == m_input.localization.locales.end()
+                       ? std::vector<std::string>{"other"}
+                       : definition->plural_categories;
         };
         const auto validate_pattern = [&](const LocalizationEntry& entry, const std::string& path,
                                           std::string_view locale) {
@@ -1660,7 +1649,7 @@ private:
                           "Message selector requires an 'other' fallback case.",
                           node_path + "/cases");
                 if (node.kind == MessagePatternNodeKind::Plural) {
-                    for (const auto category : required_plural_categories(locale))
+                    for (const auto& category : required_plural_categories(locale))
                         if (!keys.contains(std::string(category)))
                             error("compiled_project.invalid_message_pattern",
                                   "Plural Message is missing category '" + std::string(category) +
@@ -1762,8 +1751,9 @@ private:
 
         for (std::size_t index = 0; index < m_input.localization.locales.size(); ++index) {
             const auto& locale = m_input.localization.locales[index];
-            if (!catalog_for(locale.locale))
-                error("compiled_project.unresolved_localization", "Declared locale has no catalog.",
+            if (!catalog_for(locale.locale) && !locale.catalog_path)
+                error("compiled_project.unresolved_localization",
+                      "Declared locale has neither a resident catalog nor a package catalog path.",
                       "/localization/locales/" + std::to_string(index) + "/locale");
             if (locale.parent_locale && !locale_exists(*locale.parent_locale))
                 error("compiled_project.unresolved_localization", "Parent locale is not declared.",

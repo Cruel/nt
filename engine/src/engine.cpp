@@ -3,6 +3,7 @@
 #include "noveltea/audio/audio_backend.hpp"
 #include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/assets/asset_source.hpp"
+#include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/core/json_access.hpp"
 #include "noveltea/core/message_realization.hpp"
@@ -1436,7 +1437,7 @@ core::RuntimeShellViewState Engine::Impl::build_runtime_shell_view(
     view.locale.active_locale = std::string(running_game.runtime_locale());
     for (const auto& locale : running_game.package().project().localization().locales) {
         if (locale.supported)
-            view.locale.available_locales.push_back(core::runtime_locale_option(locale.locale));
+            view.locale.available_locales.push_back(core::runtime_locale_option(locale));
     }
 
     const auto& publication = m_game_host.runtime_publication();
@@ -1917,10 +1918,66 @@ void Engine::Impl::service_pending_runtime_locale_change()
             .diagnostic_code = diagnostic.code,
             .message = diagnostic.message,
         };
+        running_game->retain_locale_catalogs(previous_locale);
         m_runtime_locale_resources_preparing = false;
         m_pending_runtime_locale_change.reset();
         m_game_host.system_layouts().refresh();
     };
+
+    // Package exports keep only source plus the startup/default Message catalog resident. Load the
+    // requested target catalog before any visible locale state changes, then retain only source plus
+    // the newly active target after commit.
+    if (running_game->package().project().find_localization_catalog(target) == nullptr) {
+        const auto& localization = running_game->package().project().localization();
+        const auto definition = std::ranges::find_if(
+            localization.locales,
+            [&](const core::compiled::LocaleDefinition& candidate) {
+                return candidate.locale == target;
+            });
+        if (definition == localization.locales.end() || !definition->catalog_path) {
+            const core::Diagnostic diagnostic{
+                .code = "runtime.locale_catalog_unavailable",
+                .message = "Target locale Message catalog is unavailable."};
+            append_runtime_diagnostics({diagnostic});
+            fail_change(diagnostic);
+            return;
+        }
+        const std::string logical_path = "project:/" + *definition->catalog_path;
+        auto text = m_assets.read_text(logical_path);
+        if (!text) {
+            const core::Diagnostic diagnostic{
+                .code = "runtime.locale_catalog_read_failed",
+                .message = "Failed to read target locale Message catalog."};
+            append_runtime_diagnostics({diagnostic});
+            fail_change(diagnostic);
+            return;
+        }
+        auto decoded = core::decode_localization_catalog_json(*text.value, logical_path);
+        if (!decoded || decoded.value_if()->locale != target) {
+            auto diagnostics = decoded ? core::Diagnostics{} : std::move(decoded).error();
+            const core::Diagnostic diagnostic{
+                .code = "runtime.locale_catalog_invalid",
+                .message = "Target locale Message catalog is invalid."};
+            if (diagnostics.empty())
+                diagnostics.push_back(diagnostic);
+            append_runtime_diagnostics(std::move(diagnostics));
+            fail_change(diagnostic);
+            return;
+        }
+        auto installed = running_game->install_locale_catalog(std::move(*decoded.value_if()));
+        if (!installed) {
+            auto diagnostics = std::move(installed).error();
+            const auto diagnostic =
+                diagnostics.empty()
+                    ? core::Diagnostic{
+                          .code = "runtime.locale_catalog_invalid",
+                          .message = "Target locale Message catalog is incompatible with source Messages."}
+                    : diagnostics.front();
+            append_runtime_diagnostics(std::move(diagnostics));
+            fail_change(diagnostic);
+            return;
+        }
+    }
 
     // Prepare fonts and the bounded currently visible localized Asset set while the old semantic
     // locale and old mandatory publication remain active. The bridge deliberately excludes active
@@ -2041,6 +2098,7 @@ void Engine::Impl::service_pending_runtime_locale_change()
     // Streaming localized media is deliberately outside the atomic commit gate. Start physical
     // replacement only after every commit-critical locale surface has published successfully.
     m_game_host.runtime_presentation().begin_locale_media_transition();
+    running_game->retain_locale_catalogs(target);
     m_runtime_locale_change_result = core::RuntimeLocaleChangeResultView{
         .requested_locale = target,
         .succeeded = true,

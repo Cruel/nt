@@ -144,7 +144,8 @@ package_inventory(const std::vector<assets::ZipAssetSource::EntryInventory>& inv
 }
 
 core::Result<core::LoadedCompiledPackage, core::Diagnostics>
-decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string_view logical_path)
+decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string_view logical_path,
+                               std::string_view requested_runtime_locale)
 {
     auto indexed_entries = source.inventory();
     if (!indexed_entries) {
@@ -177,6 +178,56 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
     if (!project)
         return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
             std::move(project).error());
+
+    // Locale catalogs outside the startup source/default pair are package-local payloads. Validate
+    // each detached document against the resident source Message contract, then immediately return
+    // to the bounded startup residency set rather than retaining every packaged language.
+    const auto& localization = project.value_if()->localization();
+    std::string startup_catalog_locale = localization.default_locale;
+    if (!requested_runtime_locale.empty()) {
+        auto candidate = requested_runtime_locale;
+        while (!candidate.empty()) {
+            const auto definition = std::ranges::find_if(
+                localization.locales, [&](const core::compiled::LocaleDefinition& locale) {
+                    return locale.locale == candidate && locale.supported;
+                });
+            if (definition != localization.locales.end()) {
+                startup_catalog_locale = definition->locale;
+                break;
+            }
+            const auto separator = candidate.rfind('-');
+            if (separator == std::string_view::npos)
+                break;
+            candidate = candidate.substr(0, separator);
+        }
+    }
+    for (const auto& locale : project.value_if()->localization().locales) {
+        if (!locale.catalog_path)
+            continue;
+        auto catalog_blob = read_package_blob(source, *locale.catalog_path, logical_path);
+        if (!catalog_blob)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                std::move(catalog_blob).error());
+        const auto& catalog_bytes = catalog_blob.value_if()->bytes;
+        const std::string_view catalog_text(reinterpret_cast<const char*>(catalog_bytes.data()),
+                                            catalog_bytes.size());
+        auto catalog = core::decode_localization_catalog_json(
+            catalog_text, package_entry_source(logical_path, *locale.catalog_path));
+        if (!catalog)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                std::move(catalog).error());
+        if (catalog.value_if()->locale != locale.locale)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                load_failure("content.runtime_locale_catalog_mismatch",
+                             "Locale catalog identity does not match its compiled locale definition.",
+                             package_entry_source(logical_path, *locale.catalog_path)));
+        auto installed =
+            project.value_if()->install_runtime_localization_catalog(std::move(*catalog.value_if()));
+        if (!installed)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                std::move(installed).error());
+        project.value_if()->retain_runtime_localization_catalogs(startup_catalog_locale);
+    }
 
     std::optional<ShaderMaterialProject> shader_materials;
     if (manifest.value_if()->shader_materials) {
@@ -211,7 +262,8 @@ resolve_indexed_runtime_package(std::shared_ptr<assets::ZipAssetSource> package_
                          std::string(logical_path)));
     }
 
-    auto decoded_package = decode_indexed_runtime_package(*package_source, logical_path);
+    auto decoded_package =
+        decode_indexed_runtime_package(*package_source, logical_path, runtime_locale);
     if (!decoded_package)
         return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
             std::move(decoded_package).error());

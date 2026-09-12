@@ -404,6 +404,23 @@ async function copyResources(resourcesRoot) {
     recursive: true,
     dereference: true,
   });
+  const systemFontSource = path.join(
+    repositoryRoot,
+    'engine',
+    'assets',
+    'system',
+    'fonts',
+    'LiberationSans.ttf',
+  );
+  const systemFontDestination = path.join(
+    resourcesRoot,
+    'editor-assets',
+    'system',
+    'fonts',
+    'LiberationSans.ttf',
+  );
+  await mkdir(path.dirname(systemFontDestination), { recursive: true });
+  await cp(systemFontSource, systemFontDestination);
   const destinationCli = path.join(resourcesRoot, 'bin', expectedNovelTeaCliName());
   await mkdir(path.dirname(destinationCli), { recursive: true });
   await cp(cliSource, destinationCli);

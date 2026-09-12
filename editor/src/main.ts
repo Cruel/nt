@@ -62,6 +62,7 @@ import {
 } from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
 import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
+import { LocalizationFontCoverageService } from './main/services/localization-font-coverage-service';
 import {
   compileShaders,
   exportPackage,
@@ -243,6 +244,7 @@ const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   : undefined;
 const activeProjectSessions = new ActiveProjectSessionService();
 const assetMetadataInspectionService = new AssetMetadataInspectionService(activeProjectSessions);
+const localizationFontCoverageService = new LocalizationFontCoverageService();
 const imageThumbnailService = new ImageThumbnailService(
   packageSmokeCacheRoot
     ? path.resolve(packageSmokeCacheRoot)
@@ -912,7 +914,48 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.VALIDATE_PROJECT,
     (arguments_) => validateProjectArgumentsSchema.parse(arguments_),
-    (project) => validateProject(project),
+    async (projectSessionId, project) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      const result = await validateProject(project);
+      try {
+        const fontDiagnostics = await localizationFontCoverageService.validate(
+          projectSessionId,
+          projectRoot,
+          project,
+        );
+        const diagnostics = [
+          ...result.diagnostics,
+          ...fontDiagnostics.map((diagnostic) => ({
+            code: diagnostic.code,
+            severity: diagnostic.severity,
+            category: 'Localization font coverage',
+            path: diagnostic.path,
+            message: `${diagnostic.message} Message: ${diagnostic.messageId}. Effective stack: ${diagnostic.fontStack.join(', ')}.`,
+          })),
+        ];
+        return {
+          ...result,
+          success:
+            result.success && !diagnostics.some((diagnostic) => diagnostic.severity === 'error'),
+          diagnostics,
+        };
+      } catch (error) {
+        return {
+          ...result,
+          success: false,
+          diagnostics: [
+            ...result.diagnostics,
+            {
+              code: 'localization.font_coverage.tool',
+              severity: 'error' as const,
+              category: 'Localization font coverage',
+              path: '/localization',
+              message: error instanceof Error ? error.message : String(error),
+            },
+          ],
+        };
+      }
+    },
   );
 
   guardedIpc.handle(

@@ -677,6 +677,21 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
             options.file_entries.push_back(std::move(file_entry));
         }
     }
+    if (auto entries = json.find("textEntries"); entries != json.end() && entries->is_array()) {
+        for (const auto& entry : *entries) {
+            if (!entry.is_object())
+                continue;
+            PackageExportTextEntry text_entry;
+            text_entry.text = json_access::value_or(entry, "text", std::string{});
+            text_entry.package_path = json_access::value_or(entry, "packagePath", std::string{});
+            const auto storage = json_access::value_or(entry, "storage", std::string("auto"));
+            if (storage == "stored")
+                text_entry.storage = PackageExportStorage::Stored;
+            else if (storage == "compressed")
+                text_entry.storage = PackageExportStorage::Compressed;
+            options.text_entries.push_back(std::move(text_entry));
+        }
+    }
     return options;
 }
 
@@ -833,6 +848,18 @@ noveltea_tooling_export_package_json(const std::uint8_t* request, std::uint64_t 
 {
     return noveltea::tooling::copy_result(
         noveltea::tooling::export_package(noveltea::tooling::request_view(request, request_size)),
+        response, response_capacity);
+}
+
+extern "C" std::uint64_t
+noveltea_tooling_validate_font_coverage_json(const std::uint8_t* request,
+                                             std::uint64_t request_size,
+                                             std::uint8_t* response,
+                                             std::uint64_t response_capacity)
+{
+    return noveltea::tooling::copy_result(
+        noveltea::tooling::validate_font_coverage(
+            noveltea::tooling::request_view(request, request_size)),
         response, response_capacity);
 }
 

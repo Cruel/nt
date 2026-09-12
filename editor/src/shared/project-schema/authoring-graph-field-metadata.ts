@@ -144,7 +144,7 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // and sparse target storage. Default locale preserves its prior reviewed slot; the replacement
   // leaves all participate in localization reverse impact without shifting unrelated legacy effects.
   [
-    /^\/localization\/locales\/\*\/(?:parentLocale|supported)$/,
+    /^\/localization\/locales\/\*\/(?:displayName|parentLocale|supported)$/,
     valueDependent('localization-catalog-entry'),
   ],
   [
@@ -157,6 +157,8 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/localization\/messages\/\*\/pattern(?:\/|$)/, valueDependent('localization-catalog-entry')],
   [/^\/localization\/messages\/\*\/(?:context|translatorNote)$/, NONE],
   [/^\/localization\/structuredMessageIds\/\*$/, valueDependent('localization-catalog-entry')],
+  [/^\/localization\/usageNotes\/\*$/, NONE],
+  [/^\/localization\/sourceLocaleLock$/, NONE],
   [
     /^\/localization\/sourceMessageTracking\/\*\/(?:anchorFingerprint|family|occurrences\/\*\/(?:anchorFingerprint|contextSnapshot|messageId|ordinal|sourceFingerprint|sourceSnapshot|structuralFingerprint|translatorNoteSnapshot)|ownerKey|sourcePath|sourceSnapshotFingerprint)$/,
     valueDependent('localization-catalog-entry'),
@@ -1002,7 +1004,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '35da7f67',
-    localization: '0e5f44a2',
+    localization: '3cedd4cb',
     maps: '9d711bea',
     materials: '546711ca',
     prefetchHints: 'b985056c',

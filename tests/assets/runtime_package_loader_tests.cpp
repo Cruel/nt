@@ -208,6 +208,54 @@ bool has_code(const core::Diagnostics& diagnostics, std::string_view code)
 
 } // namespace
 
+TEST_CASE("runtime package retains only source plus the negotiated startup locale catalog",
+          "[assets][localization][residency-matrix]")
+{
+    auto gameplay = minimal_gameplay();
+    auto locale = gameplay["localization"]["locales"].front();
+    locale["catalogPath"] = "localization/es.json";
+    locale["displayName"] = "español";
+    locale["locale"] = "es";
+    locale["nativeName"] = "español";
+    gameplay["localization"]["locales"].push_back(std::move(locale));
+
+    auto catalog = gameplay["localization"]["catalogs"].front();
+    catalog["locale"] = "es";
+    for (auto& entry : catalog["entries"])
+        if (entry.contains("value"))
+            entry["value"] = "ES " + entry["value"].get<std::string>();
+    const auto gameplay_bytes = json_bytes(gameplay);
+    const auto catalog_bytes = json_bytes(catalog);
+    const std::array declared = {
+        std::pair<std::string, std::uint64_t>{"game", gameplay_bytes.size()},
+        std::pair<std::string, std::uint64_t>{"localization/es.json", catalog_bytes.size()},
+    };
+    const auto manifest = runtime_manifest(gameplay, declared);
+    const auto archive = make_zip(std::array{
+        ZipFixtureEntry{"manifest.json", json_bytes(manifest)},
+        ZipFixtureEntry{"game", gameplay_bytes},
+        ZipFixtureEntry{"localization/es.json", catalog_bytes},
+    });
+
+    auto resolved = runtime::resolve_running_game_package_source(
+        std::make_shared<assets::ZipAssetSource>(archive), "memory.ntpkg", "es-MX");
+    REQUIRE(resolved.has_value());
+    const auto& localization = resolved.value_if()->input.package.project().localization();
+    REQUIRE(localization.catalogs.size() == 2);
+    CHECK(std::ranges::any_of(localization.catalogs,
+                              [](const auto& value) { return value.locale == "en"; }));
+    CHECK(std::ranges::any_of(localization.catalogs,
+                              [](const auto& value) { return value.locale == "es"; }));
+
+    auto default_resolved = runtime::resolve_running_game_package_source(
+        std::make_shared<assets::ZipAssetSource>(archive), "memory.ntpkg");
+    REQUIRE(default_resolved.has_value());
+    const auto& default_localization =
+        default_resolved.value_if()->input.package.project().localization();
+    REQUIRE(default_localization.catalogs.size() == 1);
+    CHECK(default_localization.catalogs.front().locale == "en");
+}
+
 TEST_CASE("runtime package startup mounts a path-backed ZIP without eager extraction",
           "[assets][residency-matrix]")
 {

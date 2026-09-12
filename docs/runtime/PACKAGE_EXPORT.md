@@ -81,11 +81,15 @@ NovelTea charges 768,000 audio bytes per resident stream source and pins the res
 lifetime of playback.
 
 Native and materialized Android package startup opens the `.ntpkg` through `AssetManager`, mounts a
-path-backed `ZipAssetSource` as the `project:/` namespace, and reads only `manifest.json`, `game`, and
-the optional manifest-declared `shader-materials.json` entry. Validation uses the indexed entry
-inventory and central-directory CRC metadata, so unrequested payloads are neither decompressed nor
-copied during startup. After decoding, the generic JSON documents are released and `RunningGame`
-retains only the typed compiled project/package model.
+path-backed `ZipAssetSource` as the `project:/` namespace, and reads `manifest.json`, `game`, the
+optional manifest-declared `shader-materials.json`, plus detached `localization/<locale>.json`
+catalogs one at a time when present. Detached catalogs are strictly decoded and validated against the
+Source Message contract, then released; startup retains only Source plus the negotiated startup
+locale catalog. Other payloads are validated from indexed inventory and central-directory CRC
+metadata without eager decompression. Later locale changes reopen only the requested detached catalog,
+prepare it before semantic commit, and collapse residency back to Source plus active locale after the
+transaction succeeds. After decoding, generic JSON documents are released and `RunningGame` retains
+only the typed compiled project/package model and the bounded active localization working set.
 
 Typed asynchronous preparation is the only production prepared-resource path for visual, font-source,
 and audio assets. Preparation tasks may checkpoint after parsing metadata and request an atomic
@@ -110,9 +114,11 @@ The browser verifies the configured SHA-256 before releasing Emscripten's run de
 initialization it copies the completed bytes directly into the final C++-owned immutable archive
 allocation, clears the JavaScript reference immediately, and constructs a memory-backed
 `ZipAssetSource`; the package is never written to Emscripten's virtual filesystem. The startup loader
-then reads only package metadata and minimum startup entries, while later consumers open other entries
-on demand through the mounted ZIP source. After handoff, Web retains one compressed package backing
-plus the active decompressed working set rather than a VFS package copy or all decompressed entries.
+reads package metadata, minimum startup entries, and any detached locale catalogs sequentially for
+validation without retaining the complete multilingual catalog set; later consumers reopen other
+entries on demand through the mounted ZIP source. After handoff, Web retains one compressed package
+backing plus the active decompressed working set rather than a VFS package copy or all decompressed
+entries/catalogs.
 
 Both threaded and explicit no-thread Web profiles use this same archive handoff and ZIP-entry access
 path. `NOVELTEA_ENABLE_THREADS` selects SDL-worker versus cooperative NovelTea job execution;

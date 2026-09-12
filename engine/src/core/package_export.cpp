@@ -82,7 +82,7 @@ bool has_allowed_package_prefix(std::string_view path)
         return true;
     }
     if (starts_with(path, "assets/") || starts_with(path, "fonts/") ||
-        starts_with(path, "textures/")) {
+        starts_with(path, "textures/") || starts_with(path, "localization/")) {
         return true;
     }
     return std::any_of(auxiliary_prefixes.begin(), auxiliary_prefixes.end(),
@@ -311,6 +311,22 @@ void collect_file_entries(const PackageExportOptions& options, std::vector<Pendi
     }
 }
 
+void collect_text_entries(const PackageExportOptions& options, std::vector<PendingEntry>& entries,
+                          PackageExportResult& result)
+{
+    for (const auto& text_entry : options.text_entries) {
+        if (!ProjectPackageWriter::is_safe_package_path(text_entry.package_path) ||
+            !has_allowed_package_prefix(text_entry.package_path)) {
+            add_diagnostic(result, PackageExportSeverity::Error, "asset",
+                           text_entry.package_path,
+                           "Generated text entry is outside the runtime package layout.");
+            continue;
+        }
+        add_entry(entries, result, text_entry.package_path, string_bytes(text_entry.text),
+                  options.include_checksums, text_entry.storage);
+    }
+}
+
 void collect_shaders(const PackageExportOptions& options, std::vector<PendingEntry>& entries,
                      PackageExportResult& result)
 {
@@ -517,6 +533,7 @@ PackageExportResult write_zip(const nlohmann::json& project, const PackageExport
         collect_asset_root(root, entries, result, options.include_checksums);
     }
     collect_file_entries(options, entries, result);
+    collect_text_entries(options, entries, result);
     collect_shaders(options, entries, result);
     collect_shader_material_metadata(options, entries, result);
 

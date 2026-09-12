@@ -301,8 +301,56 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
         return false;
     }
     for (const auto& locale : input.localization.locales) {
-        if (locale.locale.empty() || (locale.parent_locale && locale.parent_locale->empty())) {
+        if (locale.locale.empty() || (locale.parent_locale && locale.parent_locale->empty()) ||
+            (locale.catalog_path && locale.catalog_path->empty()) ||
+            locale.plural_categories.empty() || locale.number_format.decimal_separator.empty() ||
+            locale.number_format.primary_group_size > 9 ||
+            locale.number_format.secondary_group_size > 9 ||
+            std::ranges::any_of(locale.number_format.digits,
+                                [](const auto& digit) { return digit.empty(); })) {
             diagnostics = invalid_model("Localization locale definition is invalid");
+            return false;
+        }
+        std::unordered_set<std::string> plural_categories;
+        for (const auto& category : locale.plural_categories) {
+            if ((category != "zero" && category != "one" && category != "two" &&
+                 category != "few" && category != "many" && category != "other") ||
+                !plural_categories.insert(category).second) {
+                diagnostics = invalid_model("Localization plural category set is invalid");
+                return false;
+            }
+        }
+        if (!plural_categories.contains("other")) {
+            diagnostics = invalid_model("Localization plural category set requires 'other'");
+            return false;
+        }
+        std::unordered_set<std::string> rule_categories;
+        for (const auto& rule : locale.plural_rules) {
+            if (rule.category == "other" || !plural_categories.contains(rule.category) ||
+                !rule_categories.insert(rule.category).second || rule.alternatives.empty()) {
+                diagnostics = invalid_model("Localization plural rule is invalid");
+                return false;
+            }
+            for (const auto& alternative : rule.alternatives) {
+                if (alternative.empty()) {
+                    diagnostics = invalid_model("Localization plural rule alternative is invalid");
+                    return false;
+                }
+                for (const auto& relation : alternative) {
+                    if (!enum_at_most(relation.operand, compiled::PluralOperand::E) ||
+                        (relation.modulo && *relation.modulo == 0) || relation.ranges.empty() ||
+                        std::ranges::any_of(relation.ranges, [](const auto& range) {
+                            return !finite(range.minimum) || !finite(range.maximum) ||
+                                   range.minimum < 0.0 || range.maximum < range.minimum;
+                        })) {
+                        diagnostics = invalid_model("Localization plural relation is invalid");
+                        return false;
+                    }
+                }
+            }
+        }
+        if (rule_categories.size() + 1 != plural_categories.size()) {
+            diagnostics = invalid_model("Localization plural rules do not cover category set");
             return false;
         }
     }
@@ -703,6 +751,93 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     INDEX_DEFINITION(MapId, map, maps, MapDefinition, "map");
 #undef INDEX_DEFINITION
 #undef INDEX
+}
+
+const compiled::LocalizationCatalog*
+CompiledProject::find_localization_catalog(std::string_view locale) const noexcept
+{
+    const auto found = std::ranges::find_if(
+        m_localization.catalogs,
+        [locale](const compiled::LocalizationCatalog& catalog) { return catalog.locale == locale; });
+    return found == m_localization.catalogs.end() ? nullptr : &*found;
+}
+
+Result<void, Diagnostics>
+CompiledProject::install_runtime_localization_catalog(compiled::LocalizationCatalog catalog)
+{
+    const auto definition = std::ranges::find_if(
+        m_localization.locales,
+        [&](const compiled::LocaleDefinition& candidate) { return candidate.locale == catalog.locale; });
+    if (definition == m_localization.locales.end())
+        return Result<void, Diagnostics>::failure(
+            invalid_model("Runtime localization catalog locale is not declared."));
+    const auto* source = find_localization_catalog(m_localization.source_locale);
+    if (source == nullptr)
+        return Result<void, Diagnostics>::failure(
+            invalid_model("Runtime localization source catalog is unavailable."));
+
+    std::unordered_set<MessageId> ids;
+    for (const auto& entry : catalog.entries) {
+        if (!ids.insert(entry.message_id).second)
+            return Result<void, Diagnostics>::failure(
+                invalid_model("Runtime localization catalog contains duplicate Message IDs."));
+        const auto source_entry = std::ranges::find_if(
+            source->entries, [&](const compiled::LocalizationEntry& candidate) {
+                return candidate.message_id == entry.message_id;
+            });
+        if (source_entry == source->entries.end())
+            return Result<void, Diagnostics>::failure(
+                invalid_model("Runtime localization catalog references an unknown source Message ID."));
+        if (entry.arguments != source_entry->arguments)
+            return Result<void, Diagnostics>::failure(
+                invalid_model("Runtime localization catalog Message arguments do not match source."));
+        if (entry.pattern.has_value() != source_entry->pattern.has_value())
+            return Result<void, Diagnostics>::failure(
+                invalid_model("Runtime localization catalog Message pattern does not match source."));
+        if (entry.dialogue_cues.size() != source_entry->dialogue_cues.size())
+            return Result<void, Diagnostics>::failure(
+                invalid_model("Runtime localization catalog Dialogue Cue contract does not match source."));
+        for (std::size_t index = 0; index < entry.dialogue_cues.size(); ++index)
+            if (entry.dialogue_cues[index].id != source_entry->dialogue_cues[index].id)
+                return Result<void, Diagnostics>::failure(
+                    invalid_model("Runtime localization catalog Dialogue Cue IDs do not match source."));
+        if (entry.pattern) {
+            const auto& target_pattern = *entry.pattern;
+            const auto& source_pattern = *source_entry->pattern;
+            if (target_pattern.nodes.size() != source_pattern.nodes.size())
+                return Result<void, Diagnostics>::failure(
+                    invalid_model("Runtime localization catalog Message selector topology does not match source."));
+            for (std::size_t index = 0; index < target_pattern.nodes.size(); ++index) {
+                const auto& target_node = target_pattern.nodes[index];
+                const auto& source_node = source_pattern.nodes[index];
+                if (target_node.kind != source_node.kind || target_node.argument != source_node.argument ||
+                    target_node.cases.size() != source_node.cases.size())
+                    return Result<void, Diagnostics>::failure(
+                        invalid_model("Runtime localization catalog Message selector contract does not match source."));
+                for (std::size_t case_index = 0; case_index < target_node.cases.size(); ++case_index)
+                    if (target_node.cases[case_index].key != source_node.cases[case_index].key ||
+                        target_node.cases[case_index].node != source_node.cases[case_index].node)
+                        return Result<void, Diagnostics>::failure(
+                            invalid_model("Runtime localization catalog Message selector cases do not match source."));
+            }
+        }
+    }
+
+    const auto existing = std::ranges::find_if(
+        m_localization.catalogs,
+        [&](const compiled::LocalizationCatalog& candidate) { return candidate.locale == catalog.locale; });
+    if (existing == m_localization.catalogs.end())
+        m_localization.catalogs.push_back(std::move(catalog));
+    else
+        *existing = std::move(catalog);
+    return Result<void, Diagnostics>::success();
+}
+
+void CompiledProject::retain_runtime_localization_catalogs(std::string_view active_locale)
+{
+    std::erase_if(m_localization.catalogs, [&](const compiled::LocalizationCatalog& catalog) {
+        return catalog.locale != m_localization.source_locale && catalog.locale != active_locale;
+    });
 }
 
 #define FIND(name, plural, id_type, value_type)                                                    \

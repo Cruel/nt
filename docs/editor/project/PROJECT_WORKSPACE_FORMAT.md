@@ -13,13 +13,22 @@ The Instance registry is not an Explorer collection and is not persisted under `
 `/settings` is the
 Project Settings subtree; `/export` is the independent Export save-unit subtree containing the
 built-in Runtime Package policy and portable platform profiles. Profile selection and other execution
-choices remain editor-local. `traits.json`, `localization.json`, and `editor.json` are required
-contextual fragments. `localization.json` owns the canonical Message model: one Source locale, one
-Supported Default locale, explicit Supported/work-in-progress locale metadata with optional parent
-locale inheritance, stable UUID identities for explicit local/named Messages, optional Message-level
-Context and Translator note guidance, sparse target translation records keyed by stable Message
-identity, sparse `structuredMessageIds` ownership overrides used only when an editor-mediated semantic
-refactor must preserve an existing structured Message identity across a path change, and
+choices remain editor-local. `traits.json`, the tracked `i18n/` tree, and `editor.json` are required
+contextual source. The canonical Message model is physically split for source-owner and locale merge
+locality: `i18n/project.json` owns Source/Default/locale policy plus the managed Source-locale lock;
+`i18n/messages.json` owns explicit local/named Messages, structured ownership overrides, and Message-level Context/Translator-note
+guidance; `i18n/usage-notes.json` owns authored per-occurrence Usage notes; `i18n/tracking.json` owns
+managed free-form source tracking; `i18n/orphans.json` owns disappeared Messages with retained work;
+`i18n/locales/<locale>.json` owns sparse target translations; and `i18n/assets/<locale>.json` owns
+sparse localized-Asset targets. Empty locale/Asset chunks are absent rather than placeholder files.
+The composed model has one Source locale, one Supported Default locale, explicit
+Supported/work-in-progress locale metadata with optional parent locale inheritance, and a nullable
+`sourceLocaleLock`. Once substantive target translation or localized-Asset work exists, parsing
+materializes that lock to the current Source locale; subsequent file-first edits that change
+`sourceLocale` while retaining the lock are invalid. Stable UUID
+identities for explicit local/named Messages, sparse target translation records keyed by stable
+Message identity, sparse `structuredMessageIds` ownership overrides used only when an editor-mediated
+semantic refactor must preserve an existing structured Message identity across a path change, and
 `sourceMessageTracking` entries for free-form managed Lua/RML occurrences. Those entries are keyed by
 source family plus semantic owner/source path and keep the last managed source/guidance occurrence
 snapshot together with compact source-snapshot, structural, anchor, and source fingerprints and the
@@ -36,8 +45,8 @@ Schema-designated player-facing structured text remains colocated with its ownin
 Scene, Verb, Map,
 archetype, or other gameplay record. Structured local Messages normally derive an opaque stable
 Message identity from semantic record/nested IDs plus the field role/path; an ownership override wins
-when a known refactor has moved that same Message. Source prose is therefore not copied into
-`localization.json`, does not participate in identity, and survives prose edits, stable-ID reordering,
+when a known refactor has moved that same Message. Source prose is therefore not copied into the detached `i18n/` Message records,
+does not participate in identity, and survives prose edits, stable-ID reordering,
 and editor-mediated owner renames without losing target translations or Message identity. Ordinary IDs, record labels,
 developer notes, filenames, and generic gameplay strings are not localized merely because they are
 strings. Direct structured-file edits are discovered read-only from the same deterministic ownership
@@ -66,9 +75,10 @@ named references, managed `Text.msg` calls, RML `<nt-tr key>` references, and ty
 values without retaining an old-key alias. Human material edits through the Localization workspace create current Human + Needs review
 content; reviewing unchanged AI content preserves AI origin. Accepting an unchanged target against a
 new source fingerprint advances freshness without changing review. `/localization` remains the
-`project:localization` manual save unit, so language, explicit Message, and target-translation edits
-use the same revisioned Project Workspace transaction/recovery
-path as other tracked project content. `traits.json` owns the self-contained Trait contracts;
+`project:localization` logical manual save unit even though its physical file set is the derived
+`i18n/` fragments above. Language, explicit Message, Usage-note, tracking, target-translation, and
+localized-Asset edits therefore commit atomically through the same revisioned Project Workspace
+transaction/recovery path as other tracked project content. `traits.json` owns the self-contained Trait contracts;
 there is no top-level identity Property fragment. `editor.json` contains exactly collaborator-visible
 `chapters`, `tags`, and `recordMetadata`, including collaborator-visible Trait color metadata.
 
@@ -150,7 +160,7 @@ targets a project root and writes `project.json`; it carries tracked baseline, l
 dirty-only asset bytes, and separately-owned workflows, while excluding generated agent/build/cache,
 transactions, and trash state. A non-empty destination may contain unrelated user files, `.git`,
 documentation, workflows, or unrelated assets, but Save As rejects any pre-existing NovelTea-owned
-canonical source/state namespace (`project.json`, `traits.json`, `localization.json`, `editor.json`,
+canonical source/state namespace (`project.json`, `traits.json`, `i18n/`, `editor.json`,
 `records/`, `scripts/`, `.noveltea/transactions/`, or `.noveltea/editor/`). It also
 fails if an exact Asset source destination is already occupied. Save As therefore never silently
 merges stale records, Layout companions, Script Module sources, local transaction/recovery state, or
@@ -178,7 +188,7 @@ without writing; normal sync commits only localization tracking through the Proj
 revisioned writer and never rewrites the source file merely to store identity. `localization
 reconcile` is read-only when producing a plan; `--apply` consumes a JSON plan/resolution object whose
 expected workspace revision and reconciliation fingerprint must still match before the normal Project
-Workspace writer transaction may commit `localization.json`. Stale plans are recomputed/reported and
+Workspace writer transaction may commit the affected canonical `i18n/` fragments atomically. Stale plans are recomputed/reported and
 never overwrite a newer editor or CLI decision. `entity create` uses the same authoring record defaults as the editor and does not provide a generic Asset
 creator. Rename/delete source-reference policy comes from the shared dependency graph: recognized
 rewriteable references are rewritten on rename, exact manual references block rename, possible

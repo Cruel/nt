@@ -9,6 +9,7 @@ import {
 import type { AuthoringProject, ReferenceTarget } from '../shared/project-schema/authoring-project';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { buildShaderMaterialProject } from '../shared/project-schema/shader-material-project';
+import { localizationFontCoverageLocales } from '../shared/localization-font-coverage';
 import {
   projectWorkspaceFiles,
   type LoadedProjectWorkspaceSnapshot,
@@ -216,6 +217,40 @@ export async function validateCliProject(
       }),
     ),
   );
+  if (nativeTools.validateFontCoverage && !diagnostics.some((item) => item.severity === 'error')) {
+    try {
+      const response = await nativeTools.validateFontCoverage({
+        projectRoot: snapshot.projectRoot,
+        locales: localizationFontCoverageLocales(snapshot.project),
+      });
+      diagnostics.push(
+        ...response.diagnostics.map((item) =>
+          cliDiagnostic(
+            item.code,
+            item.path,
+            `${item.message} Message: ${item.messageId}. Effective stack: ${item.fontStack.join(', ')}.`,
+            item.severity,
+          ),
+        ),
+      );
+      if (!response.ok)
+        diagnostics.push(
+          cliDiagnostic(
+            'native.localization.font_coverage',
+            '/localization',
+            response.error ?? 'Font coverage validation failed.',
+          ),
+        );
+    } catch (error) {
+      diagnostics.push(
+        cliDiagnostic(
+          'native.localization.font_coverage',
+          '/localization',
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+    }
+  }
   const hasShaders =
     Object.keys(snapshot.project.shaders).length > 0 ||
     Object.keys(snapshot.project.materials).length > 0;

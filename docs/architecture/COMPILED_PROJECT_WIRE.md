@@ -14,14 +14,26 @@ material data, are typed discriminated references; generic collection/id
 references, authoring collection maps, legacy Object/Action names, comments, categories, tags, and
 editor state are not legal fields.
 
-Compiled localization contains `sourceLocale`, `defaultLocale`, an explicit locale inventory with
-`parentLocale` and `supported`, and one sparse catalog per declared locale. Catalog entries are
-`{messageId, value}` pairs where `messageId` is a dense package-local unsigned integer assigned
-deterministically from stable authoring Message identity. Authoring UUIDs and named semantic keys are
-not runtime wire identity. Compiled text that refers to localization uses `{kind: "message", id}`;
-the retired `{kind: "localized", key}` and `fallbackLocale`/key-value catalog shapes are invalid at
-the current format version. Runtime realization follows explicit locale parents and then the Source
-locale.
+Compiled localization contains `sourceLocale`, `defaultLocale`, an explicit locale inventory, and
+Message catalogs. Each locale publishes `parentLocale`, `supported`, native and Project-facing display
+names, text direction, its effective font stack, CLDR cardinal categories and a compact compiled
+cardinal-rule program, locale number-format symbols/grouping/digits, and an optional package-local
+`catalogPath`. Catalog entries carry a dense package-local unsigned `messageId`, target value, argument
+contract, optional selector pattern, and localized Dialogue Cue placement as applicable. Dense IDs are
+assigned deterministically from stable authoring Message identity; authoring UUIDs and named semantic
+keys are not runtime wire identity. Compiled text that refers to localization uses
+`{kind: "message", id}`; the retired `{kind: "localized", key}` and
+`fallbackLocale`/key-value catalog shapes are invalid at the current format version.
+
+Ordinary compilation publishes the complete validated locale/catalog model for preview and tooling.
+Runtime-package preparation may partition non-startup catalogs into `localization/<locale>.json`
+entries and set the matching locale's `catalogPath`. The `game` document retains the Source catalog
+and startup/default catalog only. Package loading validates detached catalogs against the Source
+Message contract one at a time without retaining the complete multilingual working set. Runtime
+locale preparation demand-loads a missing target catalog before semantic commit, and the committed
+package retains only Source plus active catalog. Locale negotiation follows canonical BCP 47
+truncation among Supported locales; Message fallback then uses the Source realization when the
+selected catalog has no target entry.
 
 The compiler may additionally publish a `flowPrediction` section containing immutable generated
 optimization metadata. It is runtime-blind and non-authoritative: gameplay execution continues to

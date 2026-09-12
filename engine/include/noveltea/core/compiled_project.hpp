@@ -133,11 +133,40 @@ struct LocalizationCatalog {
     std::string locale;
     std::vector<LocalizationEntry> entries;
 };
+enum class PluralOperand : std::uint8_t { N, I, V, W, F, T, E };
+struct PluralRange {
+    double minimum = 0.0;
+    double maximum = 0.0;
+};
+struct PluralRelation {
+    PluralOperand operand = PluralOperand::N;
+    std::optional<std::uint64_t> modulo;
+    bool negated = false;
+    std::vector<PluralRange> ranges;
+};
+struct PluralRule {
+    std::string category;
+    std::vector<std::vector<PluralRelation>> alternatives;
+};
+struct LocaleNumberFormat {
+    std::string decimal_separator = ".";
+    std::string group_separator = ",";
+    std::uint8_t primary_group_size = 3;
+    std::uint8_t secondary_group_size = 3;
+    std::array<std::string, 10> digits{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+};
 struct LocaleDefinition {
     std::string locale;
     std::optional<std::string> parent_locale;
     bool supported = false;
+    std::string native_name;
+    std::string display_name;
+    bool right_to_left = false;
     std::vector<AssetId> font_stack;
+    std::vector<std::string> plural_categories{"other"};
+    std::vector<PluralRule> plural_rules;
+    LocaleNumberFormat number_format;
+    std::optional<std::string> catalog_path;
 };
 struct Localization {
     std::string source_locale;
@@ -2113,6 +2142,11 @@ public:
     {
         return m_localization;
     }
+    [[nodiscard]] const compiled::LocalizationCatalog*
+    find_localization_catalog(std::string_view locale) const noexcept;
+    [[nodiscard]] Result<void, Diagnostics>
+    install_runtime_localization_catalog(compiled::LocalizationCatalog catalog);
+    void retain_runtime_localization_catalogs(std::string_view active_locale);
 
     [[nodiscard]] const std::vector<PropertyDefinition>& properties() const noexcept
     {

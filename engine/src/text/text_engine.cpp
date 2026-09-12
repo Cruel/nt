@@ -305,7 +305,8 @@ GlyphAtlasUpload make_padded_glyph_upload(const GlyphBitmap& bitmap, uint16_t pa
 }
 
 struct TextEngine::Impl {
-    explicit Impl(const assets::AssetManager& asset_manager) : assets(asset_manager)
+    Impl(FontAssetReader configured_reader, const void* configured_reader_context)
+        : reader(configured_reader), reader_context(configured_reader_context)
     {
         FT_Library raw = nullptr;
         if (FT_Init_FreeType(&raw) == 0) {
@@ -313,7 +314,8 @@ struct TextEngine::Impl {
         }
     }
 
-    const assets::AssetManager& assets;
+    FontAssetReader reader = nullptr;
+    const void* reader_context = nullptr;
     FtLibraryPtr library;
     mutable std::unordered_map<uint32_t, FontResource> fonts;
     std::unordered_map<uint32_t, FontFamilyResource> families;
@@ -393,7 +395,8 @@ struct TextEngine::Impl {
     }
 };
 
-TextEngine::TextEngine(const assets::AssetManager& assets) : m_impl(std::make_unique<Impl>(assets))
+TextEngine::TextEngine(FontAssetReader reader, const void* reader_context)
+    : m_impl(std::make_unique<Impl>(reader, reader_context))
 {
 }
 
@@ -425,14 +428,19 @@ FontHandle TextEngine::load_font(const FontDesc& desc)
     }
 
     const std::string logical_path = logical_font_path(desc.asset_path);
-    auto bytes = m_impl->assets.read_binary(logical_path);
-    if (!bytes || bytes.value->bytes.empty()) {
+    if (!m_impl->reader) {
+        std::fprintf(stderr, "[text] failed to load font: %s (no font asset reader)\n",
+                     logical_path.c_str());
+        return {};
+    }
+    auto bytes = m_impl->reader(m_impl->reader_context, logical_path);
+    if (bytes.bytes.empty()) {
         std::fprintf(stderr, "[text] failed to load font: %s (%s)\n", logical_path.c_str(),
-                     bytes.error.message.c_str());
+                     bytes.error.c_str());
         return {};
     }
 
-    return load_font_from_bytes(desc, std::move(bytes.value->bytes));
+    return load_font_from_bytes(desc, std::move(bytes.bytes));
 }
 
 FontHandle TextEngine::load_font_from_bytes(const FontDesc& desc, std::vector<std::uint8_t> bytes)

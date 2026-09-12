@@ -29,7 +29,18 @@ import {
 import { entityIdSchema } from '../project-schema/authoring-common';
 import { authoringProjectSchema, type AuthoringProject } from '../project-schema/authoring-project';
 import { migrateLegacyAssetMemoryPolicyPercentages } from '../project-schema/platform-export-contracts';
-import { authoringLocalizationSchema } from '../project-schema/authoring-localization';
+import {
+  authoringMessageSchema,
+  hasSubstantiveLocalizationWork,
+  localeDefinitionSchema,
+  localeIdSchema,
+  localizationAssetTargetSchema,
+  localizationTranslationSchema,
+  messageIdSchema,
+  orphanedLocalizationMessageSchema,
+  sourceMessageTrackingEntrySchema,
+  type AuthoringLocalization,
+} from '../project-schema/authoring-localization';
 import { traitDefinitionSchema } from '../project-schema/authoring-properties';
 import { authoringRecordSchemas } from '../project-schema/authoring-records';
 import { validateAuthoringProject } from '../project-schema/authoring-validation';
@@ -329,6 +340,106 @@ function canonicalize(value: unknown, schema?: CanonicalSchema): unknown {
 
 const canonicalJson = (value: unknown, schema?: CanonicalSchema): string =>
   `${JSON.stringify(canonicalize(value, schema), null, 2)}\n`;
+
+const localizationPolicyFragmentSchema = z
+  .object({
+    sourceLocale: localeIdSchema,
+    sourceLocaleLock: localeIdSchema.nullable().default(null),
+    defaultLocale: localeIdSchema,
+    locales: z.record(localeIdSchema, localeDefinitionSchema),
+  })
+  .strict();
+const localizationMessagesFragmentSchema = z
+  .object({
+    messages: z.record(messageIdSchema, authoringMessageSchema),
+    structuredMessageIds: z.record(z.string().min(1), messageIdSchema),
+  })
+  .strict();
+const localizationUsageNotesFragmentSchema = z.record(z.string().min(1), z.string());
+const localizationTrackingFragmentSchema = z.record(
+  z.string().min(1),
+  sourceMessageTrackingEntrySchema,
+);
+const localizationOrphansFragmentSchema = z.record(
+  messageIdSchema,
+  orphanedLocalizationMessageSchema,
+);
+const localizationAssetsLocaleFragmentSchema = z.record(
+  z.string().min(1),
+  localizationAssetTargetSchema,
+);
+
+const LOCALIZATION_POLICY_FILE = 'i18n/project.json';
+const LOCALIZATION_MESSAGES_FILE = 'i18n/messages.json';
+const LOCALIZATION_USAGE_NOTES_FILE = 'i18n/usage-notes.json';
+const LOCALIZATION_TRACKING_FILE = 'i18n/tracking.json';
+const LOCALIZATION_ORPHANS_FILE = 'i18n/orphans.json';
+const localizationTranslationFile = (locale: string) => `i18n/locales/${locale}.json`;
+const localizationAssetsFile = (locale: string) => `i18n/assets/${locale}.json`;
+
+export function projectWorkspaceLocalizationFiles(
+  localization: AuthoringLocalization,
+): Readonly<Record<string, string>> {
+  const files: Record<string, string> = {
+    [LOCALIZATION_POLICY_FILE]: canonicalJson(
+      {
+        sourceLocale: localization.sourceLocale,
+        sourceLocaleLock:
+          localization.sourceLocaleLock ??
+          (hasSubstantiveLocalizationWork(localization) ? localization.sourceLocale : null),
+        defaultLocale: localization.defaultLocale,
+        locales: localization.locales,
+      },
+      localizationPolicyFragmentSchema,
+    ),
+    [LOCALIZATION_MESSAGES_FILE]: canonicalJson(
+      {
+        messages: localization.messages,
+        structuredMessageIds: localization.structuredMessageIds,
+      },
+      localizationMessagesFragmentSchema,
+    ),
+    [LOCALIZATION_USAGE_NOTES_FILE]: canonicalJson(
+      localization.usageNotes,
+      localizationUsageNotesFragmentSchema,
+    ),
+    [LOCALIZATION_TRACKING_FILE]: canonicalJson(
+      localization.sourceMessageTracking,
+      localizationTrackingFragmentSchema,
+    ),
+    [LOCALIZATION_ORPHANS_FILE]: canonicalJson(
+      localization.orphanedMessages,
+      localizationOrphansFragmentSchema,
+    ),
+  };
+  for (const [locale, translations] of Object.entries(localization.translations))
+    if (Object.keys(translations).length > 0)
+      files[localizationTranslationFile(locale)] = canonicalJson(
+        translations,
+        localizationTranslationSchema,
+      );
+  for (const [locale, assets] of Object.entries(localization.assets))
+    if (Object.keys(assets).length > 0)
+      files[localizationAssetsFile(locale)] = canonicalJson(
+        assets,
+        localizationAssetsLocaleFragmentSchema,
+      );
+  return sortKeys(files);
+}
+
+export function projectWorkspaceChangedLocalizationFiles(
+  before: AuthoringLocalization,
+  after: AuthoringLocalization,
+): readonly string[] {
+  const previous = projectWorkspaceLocalizationFiles(before);
+  const next = projectWorkspaceLocalizationFiles(after);
+  return Object.freeze(
+    [...new Set([...Object.keys(previous), ...Object.keys(next)])]
+      .filter((file) => previous[file] !== next[file])
+      .sort(compareProjectWorkspaceUnicodeCodePoints),
+  );
+}
+
 const relative = (value: string) => value.replaceAll('\\', '/');
 const knownCollections = new Set<string>(authoringCollectionKeys);
 const workspaceError = (
@@ -430,7 +541,10 @@ function ownershipFor(
       ],
     },
     'collection:traits': { files: ['traits.json'], paths: ['/traits'] },
-    'project:localization': { files: ['localization.json'], paths: ['/localization'] },
+    'project:localization': {
+      files: Object.keys(projectWorkspaceLocalizationFiles(project.localization)),
+      paths: ['/localization'],
+    },
     'project:chapters': {
       files: ['editor.json'],
       paths: ['/editor/chapters'],
@@ -597,7 +711,7 @@ export function projectWorkspaceFiles(
     project.traits,
     z.record(entityIdSchema, traitDefinitionSchema),
   );
-  files['localization.json'] = canonicalJson(project.localization, authoringLocalizationSchema);
+  Object.assign(files, projectWorkspaceLocalizationFiles(project.localization));
   files['editor.json'] = canonicalJson(
     {
       chapters: editorState.chapters,
@@ -780,10 +894,17 @@ export class ProjectWorkspaceService {
               discovered.projectRoot,
               this.fileSystem.joinPath(discovered.projectRoot, 'traits.json'),
             );
-            await this.assertContained(
-              discovered.projectRoot,
-              this.fileSystem.joinPath(discovered.projectRoot, 'localization.json'),
-            );
+            for (const file of [
+              LOCALIZATION_POLICY_FILE,
+              LOCALIZATION_MESSAGES_FILE,
+              LOCALIZATION_USAGE_NOTES_FILE,
+              LOCALIZATION_TRACKING_FILE,
+              LOCALIZATION_ORPHANS_FILE,
+            ])
+              await this.assertContained(
+                discovered.projectRoot,
+                this.fileSystem.joinPath(discovered.projectRoot, file),
+              );
             await this.assertContained(
               discovered.projectRoot,
               this.fileSystem.joinPath(discovered.projectRoot, 'editor.json'),
@@ -793,11 +914,74 @@ export class ProjectWorkspaceService {
                 this.fileSystem.joinPath(discovered.projectRoot, 'traits.json'),
               ),
             );
-            localization = JSON.parse(
-              await this.fileSystem.readText(
-                this.fileSystem.joinPath(discovered.projectRoot, 'localization.json'),
+            const policy = localizationPolicyFragmentSchema.parse(
+              JSON.parse(
+                await this.fileSystem.readText(
+                  this.fileSystem.joinPath(discovered.projectRoot, LOCALIZATION_POLICY_FILE),
+                ),
               ),
             );
+            const messages = localizationMessagesFragmentSchema.parse(
+              JSON.parse(
+                await this.fileSystem.readText(
+                  this.fileSystem.joinPath(discovered.projectRoot, LOCALIZATION_MESSAGES_FILE),
+                ),
+              ),
+            );
+            const usageNotes = localizationUsageNotesFragmentSchema.parse(
+              JSON.parse(
+                await this.fileSystem.readText(
+                  this.fileSystem.joinPath(discovered.projectRoot, LOCALIZATION_USAGE_NOTES_FILE),
+                ),
+              ),
+            );
+            const sourceMessageTracking = localizationTrackingFragmentSchema.parse(
+              JSON.parse(
+                await this.fileSystem.readText(
+                  this.fileSystem.joinPath(discovered.projectRoot, LOCALIZATION_TRACKING_FILE),
+                ),
+              ),
+            );
+            const orphanedMessages = localizationOrphansFragmentSchema.parse(
+              JSON.parse(
+                await this.fileSystem.readText(
+                  this.fileSystem.joinPath(discovered.projectRoot, LOCALIZATION_ORPHANS_FILE),
+                ),
+              ),
+            );
+            const translations: Record<string, unknown> = {};
+            const assets: Record<string, unknown> = {};
+            const readLocaleChunks = async (
+              directory: 'i18n/locales' | 'i18n/assets',
+              schema: z.ZodType,
+              target: Record<string, unknown>,
+            ) => {
+              const root = this.fileSystem.joinPath(discovered.projectRoot, directory);
+              for (const entry of await this.fileSystem.listDirectory(root)) {
+                if (!entry.endsWith('.json'))
+                  throw new Error(`${directory} contains a non-JSON localization chunk.`);
+                const locale = entry.slice(0, -5);
+                if (!localeIdSchema.safeParse(locale).success)
+                  throw new Error(`${directory} contains an invalid locale chunk '${entry}'.`);
+                const absolute = this.fileSystem.joinPath(root, entry);
+                await this.assertContained(discovered.projectRoot, absolute);
+                const parsed = schema.parse(JSON.parse(await this.fileSystem.readText(absolute)));
+                if (Object.keys(parsed as object).length === 0)
+                  throw new Error(`${directory}/${entry} must not persist an empty sparse chunk.`);
+                target[locale] = parsed;
+              }
+            };
+            await readLocaleChunks('i18n/locales', localizationTranslationSchema, translations);
+            await readLocaleChunks('i18n/assets', localizationAssetsLocaleFragmentSchema, assets);
+            localization = {
+              ...policy,
+              ...messages,
+              usageNotes,
+              sourceMessageTracking,
+              orphanedMessages,
+              translations,
+              assets,
+            };
             const value = JSON.parse(
               await this.fileSystem.readText(
                 this.fileSystem.joinPath(discovered.projectRoot, 'editor.json'),
@@ -814,8 +998,9 @@ export class ProjectWorkspaceService {
             trackedEditor = parseTrackedEditorOrganization(editor);
             if (!trackedEditor)
               return fail('editor.json tracked organization fields are malformed.', '/editor.json');
-          } catch {
-            return fail('Required workspace fragments are missing or malformed.');
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            return fail(`Required workspace fragments are missing or malformed: ${detail}`);
           }
           const collections = Object.fromEntries(
             authoringCollectionKeys.map((key) => [key, {}]),

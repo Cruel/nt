@@ -262,6 +262,7 @@ const windowsGnuRuntimeLibraries = isWindows
 
 const libraries = [
   staticArchive(editorToolRoot, 'noveltea_tooling_native'),
+  staticArchive(editorToolRoot, 'noveltea_text_tooling'),
   staticArchive(editorToolRoot, 'noveltea_bimg_texturec_embedded'),
   staticArchive(engineRoot, 'noveltea_presentation'),
   staticArchive(engineRoot, 'noveltea_script_lua'),
@@ -315,6 +316,15 @@ const libraries = [
   ),
   staticArchive(vcpkgLibRoot, 'lodepng'),
   staticArchive(vcpkgLibRoot, 'tinyexr'),
+  staticArchive(vcpkgLibRoot, 'harfbuzz'),
+  staticArchive(vcpkgLibRoot, 'freetype'),
+  staticArchive(vcpkgLibRoot, 'SheenBidi'),
+  staticArchive(vcpkgLibRoot, 'unibreak'),
+  staticArchive(vcpkgLibRoot, 'png16'),
+  staticArchive(vcpkgLibRoot, 'bz2'),
+  staticArchive(vcpkgLibRoot, 'brotlidec'),
+  staticArchive(vcpkgLibRoot, 'brotlicommon'),
+  staticArchive(vcpkgLibRoot, 'z'),
   staticArchive(vcpkgLibRoot, 'miniz'),
   archive(path.join(vcpkgLibRoot, 'libsquish.a'), path.join(vcpkgLibRoot, 'libsquish.lib')),
   archive(
@@ -476,6 +486,18 @@ try {
     { cwd: stageRoot, env: scriptcBuildEnv },
   );
   run(isWindows ? 'llvm-strip' : 'strip', ['--strip-all', outputPath], { env: buildEnv });
+  const systemFontOutput = path.join(
+    outputDirectory,
+    'assets',
+    'system',
+    'fonts',
+    'LiberationSans.ttf',
+  );
+  await mkdir(path.dirname(systemFontOutput), { recursive: true });
+  await cp(
+    path.join(repositoryRoot, 'engine', 'assets', 'system', 'fonts', 'LiberationSans.ttf'),
+    systemFontOutput,
+  );
 } finally {
   await rm(stageRoot, { recursive: true, force: true });
 }

@@ -36,6 +36,7 @@ import {
   localizationMessageNodeKey,
 } from '../../../shared/authoring-dependency-graph';
 import {
+  hasSubstantiveLocalizationWork,
   namedMessageKeySchema,
   type AuthoringMessage,
   type LocalizationAssetTarget,
@@ -43,11 +44,13 @@ import {
 } from '../../../shared/project-schema/authoring-localization';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
 import {
   createLocalizationTranslation,
   createUseSourceLocalizationTarget,
   effectiveLocalizationTarget,
   localizationMessageWorkflowViews,
+  localizationTargetWorkflowView,
   type LocalizationMessageWorkflowView,
 } from '../../../shared/authoring-localization-workflow';
 import {
@@ -62,6 +65,26 @@ import {
 import { PSEUDO_PREVIEW_LOCALE } from '../../../shared/pseudo-localization';
 
 type Surface = 'overview' | 'translations' | 'assets' | 'languages' | 'messages' | 'reconciliation';
+type TranslationFilter =
+  | 'all'
+  | 'missing'
+  | 'outdated'
+  | 'needs-review'
+  | 'ai'
+  | 'reviewed'
+  | 'current'
+  | 'attention';
+
+const translationFilters: readonly { id: TranslationFilter; label: string }[] = [
+  { id: 'all', label: 'All Messages' },
+  { id: 'missing', label: 'Missing' },
+  { id: 'outdated', label: 'Outdated' },
+  { id: 'needs-review', label: 'Needs review' },
+  { id: 'ai', label: 'AI' },
+  { id: 'reviewed', label: 'Reviewed' },
+  { id: 'current', label: 'Current' },
+  { id: 'attention', label: 'Attention' },
+];
 
 const surfaces: readonly { id: Surface; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -109,16 +132,6 @@ function localeDirection(locale: string): 'ltr' | 'rtl' {
   } catch {
     return 'ltr';
   }
-}
-
-function hasMeaningfulLocaleWork(
-  translations: Record<string, Record<string, unknown>>,
-  assets: Record<string, Record<string, unknown>>,
-) {
-  return (
-    Object.values(translations).some((entries) => Object.keys(entries).length > 0) ||
-    Object.values(assets).some((entries) => Object.keys(entries).length > 0)
-  );
 }
 
 function originLabel(origin: 'human' | 'ai' | 'imported' | 'unknown') {
@@ -201,6 +214,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         .sort((a, b) => a.localeCompare(b))
     : [];
   const [targetLocale, setTargetLocale] = useState<string>('');
+  const [translationFilter, setTranslationFilter] = useState<TranslationFilter>('all');
   const effectiveTargetLocale = targetLocales.includes(targetLocale)
     ? targetLocale
     : (targetLocales[0] ?? '');
@@ -273,11 +287,21 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     .sort((left, right) =>
       messageLabel(left.message, left.id).localeCompare(messageLabel(right.message, right.id)),
     );
-  const sourceChangeBlocked = hasMeaningfulLocaleWork(
-    localization.translations,
-    localization.assets,
-  );
+  const filteredMessages = allMessages.filter((view) => {
+    if (translationFilter === 'all' || !effectiveTargetLocale) return true;
+    const target = localizationTargetWorkflowView(project, effectiveTargetLocale, view);
+    if (translationFilter === 'attention') return target.attention.length > 0;
+    if (translationFilter === target.freshness) return true;
+    if (!target.translation) return false;
+    return (
+      translationFilter === target.translation.review ||
+      translationFilter === target.translation.origin
+    );
+  });
+  const sourceChangeBlocked =
+    localization.sourceLocaleLock !== null || hasSubstantiveLocalizationWork(localization);
   const reconciliationPlan = planLocalizationReconciliation(project);
+  const localizationValidationDiagnostics = validateAuthoringProject(project);
 
   function run(
     label: string,
@@ -728,16 +752,27 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     ]);
   }
 
+  function translationReviewable(
+    view: MessageView,
+    locale: string,
+    translation: LocalizationTranslation,
+    validation = localizationValidationDiagnostics,
+  ) {
+    const path = translationRecordPath(locale, view.id);
+    return (
+      !translation.useSource &&
+      translation.sourceFingerprint === view.sourceFingerprint &&
+      dialogueCuesReviewable(view, translation) &&
+      !validation.some(
+        (diagnostic) => diagnostic.severity === 'error' && diagnostic.path.startsWith(path),
+      )
+    );
+  }
+
   function reviewTranslation(view: MessageView) {
     const locale = effectiveTargetLocale;
     const existing = localization.translations[locale]?.[view.id];
-    if (
-      !locale ||
-      !existing ||
-      existing.sourceFingerprint !== view.sourceFingerprint ||
-      !dialogueCuesReviewable(view, existing)
-    )
-      return;
+    if (!locale || !existing || !translationReviewable(view, locale, existing)) return;
     const path = translationRecordPath(locale, view.id);
     run(`Review ${locale} translation`, [
       {
@@ -745,6 +780,56 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
         path: `${path}/review`,
         value: 'reviewed',
       },
+    ]);
+  }
+
+  function bulkReviewFiltered() {
+    const locale = effectiveTargetLocale;
+    if (!locale) return;
+    const patches = filteredMessages.flatMap((view) => {
+      const translation = localization.translations[locale]?.[view.id];
+      if (
+        !translation ||
+        translation.review === 'reviewed' ||
+        !translationReviewable(view, locale, translation)
+      )
+        return [];
+      return [
+        {
+          op: 'replace',
+          path: `${translationRecordPath(locale, view.id)}/review`,
+          value: 'reviewed',
+        },
+      ];
+    });
+    if (patches.length > 0) run(`Review filtered ${locale} translations`, patches);
+  }
+
+  function setUsageNote(usageId: string, value: string) {
+    const path = `/localization/usageNotes/${escapeJsonPointerToken(usageId)}`;
+    const current = localization.usageNotes[usageId];
+    const note = value.trim();
+    if (!note) {
+      if (current !== undefined) run('Clear localization usage note', [{ op: 'remove', path }]);
+      return;
+    }
+    if (current === note) return;
+    run('Update localization usage note', [
+      { op: current === undefined ? 'add' : 'replace', path, value: note },
+    ]);
+  }
+
+  function setLocaleDisplayName(locale: string, value: string) {
+    const path = `/localization/locales/${escapeJsonPointerToken(locale)}/displayName`;
+    const current = localization.locales[locale]?.displayName;
+    const trimmed = value.trim();
+    if (!trimmed) {
+      if (current !== undefined) run(`Clear display name for ${locale}`, [{ op: 'remove', path }]);
+      return;
+    }
+    if (current === trimmed) return;
+    run(`Set display name for ${locale}`, [
+      { op: current === undefined ? 'add' : 'replace', path, value: trimmed },
     ]);
   }
 
@@ -1456,9 +1541,18 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                     >
                       <div>
                         <div className="font-medium" lang={locale} dir={localeDirection(locale)}>
-                          {displayLocale(locale)}
+                          {definition.displayName ?? displayLocale(locale)}
                         </div>
                         <div className="font-mono text-xs text-muted-foreground">{locale}</div>
+                        <Input
+                          className="mt-2 h-8"
+                          aria-label={`Display name override for ${locale}`}
+                          defaultValue={definition.displayName ?? ''}
+                          placeholder="Native display name"
+                          onBlur={(event) =>
+                            setLocaleDisplayName(locale, event.currentTarget.value)
+                          }
+                        />
                       </div>
                       <div className="flex items-center gap-2">
                         <Switch
@@ -1728,6 +1822,31 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       ) : (
                         <div className="mt-1 text-xs text-muted-foreground">No derived usages.</div>
                       )}
+                      {namedUsages.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {namedUsages.map((usage) => (
+                            <div
+                              key={usage.id}
+                              className="grid gap-1 @3xl:grid-cols-2 @3xl:items-center"
+                            >
+                              <div
+                                className="truncate font-mono text-xs text-muted-foreground"
+                                title={usage.path}
+                              >
+                                {usage.path}
+                              </div>
+                              <Input
+                                aria-label={`Usage note for ${usage.path}`}
+                                defaultValue={localization.usageNotes[usage.id] ?? ''}
+                                placeholder="Occurrence-specific translator guidance"
+                                onBlur={(event) =>
+                                  setUsageNote(usage.id, event.currentTarget.value)
+                                }
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {localizableUsages.length > 0 && (
                         <div className="mt-3 rounded border bg-muted/30 p-3 text-xs">
                           {demotionDraft?.messageId === messageId ? (
@@ -1872,26 +1991,54 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
 
         {surface === 'translations' && (
           <div className="space-y-4">
-            <div className="max-w-sm space-y-1">
-              <Label htmlFor="target-locale">Target locale</Label>
-              <Select
-                value={effectiveTargetLocale}
-                onValueChange={(value) => {
-                  if (value) setTargetLocale(value);
-                }}
-                disabled={targetLocales.length === 0}
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-56 max-w-sm flex-1 space-y-1">
+                <Label htmlFor="target-locale">Target locale</Label>
+                <Select
+                  value={effectiveTargetLocale}
+                  onValueChange={(value) => {
+                    if (value) setTargetLocale(value);
+                  }}
+                  disabled={targetLocales.length === 0}
+                >
+                  <SelectTrigger id="target-locale" aria-label="Target locale">
+                    <SelectValue placeholder="Add a target language first" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {targetLocales.map((locale) => (
+                      <SelectItem key={locale} value={locale}>
+                        {locale} · {displayLocale(locale)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-48 space-y-1">
+                <Label htmlFor="translation-filter">Status filter</Label>
+                <Select
+                  value={translationFilter}
+                  onValueChange={(value) => setTranslationFilter(value as TranslationFilter)}
+                >
+                  <SelectTrigger id="translation-filter" aria-label="Translation status filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {translationFilters.map((filter) => (
+                      <SelectItem key={filter.id} value={filter.id}>
+                        {filter.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={bulkReviewFiltered}
+                disabled={!effectiveTargetLocale || filteredMessages.length === 0}
               >
-                <SelectTrigger id="target-locale" aria-label="Target locale">
-                  <SelectValue placeholder="Add a target language first" />
-                </SelectTrigger>
-                <SelectContent>
-                  {targetLocales.map((locale) => (
-                    <SelectItem key={locale} value={locale}>
-                      {locale} · {displayLocale(locale)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                Mark filtered current as reviewed
+              </Button>
             </div>
             {!effectiveTargetLocale ? (
               <div className="rounded border p-4 text-sm text-muted-foreground">
@@ -1903,7 +2050,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
               </div>
             ) : (
               <div className="space-y-3">
-                {allMessages.map((view) => {
+                {filteredMessages.map((view) => {
                   const { id: messageId, message } = view;
                   const label = messageLabel(message, messageId);
                   const localTranslation =
@@ -1958,17 +2105,27 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                           {attention.length > 0 ? ` · ${attention.join(', ')}` : ''}
                         </div>
                       </div>
-                      {(message.context || message.translatorNote || view.usageNote) && (
+                      {(message.context || message.translatorNote || view.usedIn) && (
                         <div className="mb-3 text-xs text-muted-foreground">
                           {message.context ? `Context: ${message.context}` : ''}
-                          {message.context && (message.translatorNote || view.usageNote)
-                            ? ' · '
-                            : ''}
+                          {message.context && (message.translatorNote || view.usedIn) ? ' · ' : ''}
                           {message.translatorNote
                             ? `Translator note: ${message.translatorNote}`
                             : ''}
-                          {message.translatorNote && view.usageNote ? ' · ' : ''}
-                          {view.usageNote ? `Used in: ${view.usageNote}` : ''}
+                          {message.translatorNote && view.usedIn ? ' · ' : ''}
+                          {view.usedIn ? `Used in: ${view.usedIn}` : ''}
+                        </div>
+                      )}
+                      {view.kind === 'local' && (
+                        <div className="mb-3 max-w-xl space-y-1">
+                          <Label htmlFor={`usage-note-${messageId}`}>Usage note</Label>
+                          <Input
+                            id={`usage-note-${messageId}`}
+                            aria-label={`Usage note for ${label}`}
+                            defaultValue={view.usageNote ?? ''}
+                            placeholder="Occurrence-specific translator guidance"
+                            onBlur={(event) => setUsageNote(view.id, event.currentTarget.value)}
+                          />
                         </div>
                       )}
                       {message.kind === 'local' && promotable && (
@@ -2038,7 +2195,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                         }}
                                       />
                                       <span>
-                                        {candidate.usageNote ?? candidate.id}
+                                        {candidate.usedIn ?? candidate.id}
                                         {!candidate.rewriteable
                                           ? ` · ${t('localizationMessageReuse.unsupportedRefactor')}`
                                           : ''}
@@ -2243,9 +2400,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                   size="sm"
                                   variant="outline"
                                   disabled={
-                                    translation.sourceFingerprint !== view.sourceFingerprint ||
                                     translation.review === 'reviewed' ||
-                                    !dialogueCuesReviewable(view, translation)
+                                    !translationReviewable(view, effectiveTargetLocale, translation)
                                   }
                                   onClick={() => reviewTranslation(view)}
                                 >

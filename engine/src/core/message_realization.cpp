@@ -138,56 +138,72 @@ std::optional<std::string_view> supported_locale(const compiled::Localization& l
     return std::nullopt;
 }
 
-bool language_is(std::string_view locale, std::string_view language) noexcept
+const compiled::LocaleNumberFormat&
+number_format(const compiled::Localization& localization, std::string_view locale) noexcept
 {
-    return locale == language ||
-           (locale.size() > language.size() && locale.substr(0, language.size()) == language &&
-            locale[language.size()] == '-');
+    const auto definition = std::find_if(
+        localization.locales.begin(), localization.locales.end(),
+        [locale](const compiled::LocaleDefinition& value) { return value.locale == locale; });
+    if (definition != localization.locales.end())
+        return definition->number_format;
+    static const compiled::LocaleNumberFormat fallback;
+    return fallback;
 }
 
-struct NumberPunctuation {
-    std::string_view decimal = ".";
-    std::string_view group = ",";
-};
-
-NumberPunctuation number_punctuation(std::string_view locale) noexcept
+std::string localize_ascii_digits(std::string_view ascii,
+                                  const compiled::LocaleNumberFormat& format)
 {
-    if (language_is(locale, "de") || language_is(locale, "es") || language_is(locale, "it") ||
-        language_is(locale, "pt"))
-        return {",", "."};
-    if (language_is(locale, "fr"))
-        return {",", "\xE2\x80\xAF"};
-    return {};
+    std::string result;
+    for (const char character : ascii) {
+        if (character >= '0' && character <= '9')
+            result.append(format.digits[static_cast<std::size_t>(character - '0')]);
+        else
+            result.push_back(character);
+    }
+    return result;
 }
 
-std::string group_ascii_number(std::string_view ascii, std::string_view locale)
+std::string group_ascii_number(std::string_view ascii,
+                               const compiled::Localization& localization,
+                               std::string_view locale)
 {
-    const auto punctuation = number_punctuation(locale);
+    const auto& format = number_format(localization, locale);
     const auto exponent = ascii.find_first_of("eE");
     const auto mantissa_end = exponent == std::string_view::npos ? ascii.size() : exponent;
     const auto decimal = ascii.find('.');
     const auto integer_end =
         decimal == std::string_view::npos || decimal > mantissa_end ? mantissa_end : decimal;
     const auto sign = !ascii.empty() && (ascii.front() == '-' || ascii.front() == '+') ? 1u : 0u;
+    const auto integer_digits = integer_end - sign;
 
     std::string result;
     result.reserve(ascii.size() + ascii.size() / 3);
-    for (std::size_t index = 0; index < integer_end; ++index) {
-        if (index > sign && (integer_end - index) % 3 == 0)
-            result.append(punctuation.group);
-        result.push_back(ascii[index]);
+    if (sign != 0)
+        result.push_back(ascii.front());
+    for (std::size_t offset = 0; offset < integer_digits; ++offset) {
+        const auto remaining = integer_digits - offset;
+        const auto primary = static_cast<std::size_t>(format.primary_group_size);
+        const auto secondary = static_cast<std::size_t>(format.secondary_group_size);
+        if (offset > 0 && !format.group_separator.empty() && primary > 0 && secondary > 0 &&
+            remaining >= primary && (remaining - primary) % secondary == 0)
+            result.append(format.group_separator);
+        const char digit = ascii[sign + offset];
+        result.append(format.digits[static_cast<std::size_t>(digit - '0')]);
     }
     if (decimal != std::string_view::npos && decimal < mantissa_end) {
-        result.append(punctuation.decimal);
-        result.append(ascii.substr(decimal + 1, mantissa_end - decimal - 1));
+        result.append(format.decimal_separator);
+        result.append(localize_ascii_digits(
+            ascii.substr(decimal + 1, mantissa_end - decimal - 1), format));
     }
     if (exponent != std::string_view::npos)
-        result.append(ascii.substr(exponent));
+        result.append(localize_ascii_digits(ascii.substr(exponent), format));
     return result;
 }
 
 std::optional<std::string> format_value(const MessageArgumentValue& value,
-                                        compiled::MessageArgumentType type, std::string_view locale)
+                                        compiled::MessageArgumentType type,
+                                        const compiled::Localization& localization,
+                                        std::string_view locale)
 {
     if (type == compiled::MessageArgumentType::String) {
         if (const auto* text = std::get_if<std::string>(&value))
@@ -202,7 +218,7 @@ std::optional<std::string> format_value(const MessageArgumentValue& value,
         const auto converted = std::to_chars(buffer, buffer + sizeof(buffer), *integer);
         if (converted.ec != std::errc{})
             return std::nullopt;
-        return group_ascii_number(std::string_view(buffer, converted.ptr), locale);
+        return group_ascii_number(std::string_view(buffer, converted.ptr), localization, locale);
     }
     if (type == compiled::MessageArgumentType::Number ||
         type == compiled::MessageArgumentType::PluralNumber) {
@@ -211,7 +227,7 @@ std::optional<std::string> format_value(const MessageArgumentValue& value,
             const auto converted = std::to_chars(buffer, buffer + sizeof(buffer), *integer);
             if (converted.ec != std::errc{})
                 return std::nullopt;
-            return group_ascii_number(std::string_view(buffer, converted.ptr), locale);
+            return group_ascii_number(std::string_view(buffer, converted.ptr), localization, locale);
         }
         const auto* number = std::get_if<double>(&value);
         if (!number || !std::isfinite(*number))
@@ -221,7 +237,7 @@ std::optional<std::string> format_value(const MessageArgumentValue& value,
             std::to_chars(buffer, buffer + sizeof(buffer), *number, std::chars_format::general);
         if (converted.ec != std::errc{})
             return std::nullopt;
-        return group_ascii_number(std::string_view(buffer, converted.ptr), locale);
+        return group_ascii_number(std::string_view(buffer, converted.ptr), localization, locale);
     }
 
     if (const auto* text = std::get_if<std::string>(&value))
@@ -233,7 +249,7 @@ std::optional<std::string> format_value(const MessageArgumentValue& value,
         const auto converted = std::to_chars(buffer, buffer + sizeof(buffer), *integer);
         if (converted.ec != std::errc{})
             return std::nullopt;
-        return group_ascii_number(std::string_view(buffer, converted.ptr), locale);
+        return group_ascii_number(std::string_view(buffer, converted.ptr), localization, locale);
     }
     const auto* number = std::get_if<double>(&value);
     if (!number || !std::isfinite(*number))
@@ -243,11 +259,12 @@ std::optional<std::string> format_value(const MessageArgumentValue& value,
         std::to_chars(buffer, buffer + sizeof(buffer), *number, std::chars_format::general);
     if (converted.ec != std::errc{})
         return std::nullopt;
-    return group_ascii_number(std::string_view(buffer, converted.ptr), locale);
+    return group_ascii_number(std::string_view(buffer, converted.ptr), localization, locale);
 }
 
 std::optional<std::string> interpolate(const compiled::LocalizationEntry& entry,
                                        const std::vector<MessageArgument>& arguments,
+                                       const compiled::Localization& localization,
                                        std::string_view locale)
 {
     if (entry.arguments.empty())
@@ -267,7 +284,7 @@ std::optional<std::string> interpolate(const compiled::LocalizationEntry& entry,
                 return arg.name == definition.name;
             }) != arguments.end())
             return std::nullopt;
-        auto formatted = format_value(first->value, definition.type, locale);
+        auto formatted = format_value(first->value, definition.type, localization, locale);
         if (!formatted)
             return std::nullopt;
         values.emplace_back(definition.name, std::move(*formatted));
@@ -306,120 +323,117 @@ std::optional<std::string> interpolate(const compiled::LocalizationEntry& entry,
     return output;
 }
 
-std::string_view primary_language(std::string_view locale) noexcept
+struct PluralOperands {
+    double n = 0.0;
+    double i = 0.0;
+    double v = 0.0;
+    double w = 0.0;
+    double f = 0.0;
+    double t = 0.0;
+    double e = 0.0;
+};
+
+std::optional<PluralOperands> plural_operands(const MessageArgumentValue& value) noexcept
 {
-    const auto separator = locale.find('-');
-    return locale.substr(0, separator);
+    if (const auto* exact = std::get_if<std::int64_t>(&value)) {
+        const auto magnitude = *exact < 0 ? static_cast<std::uint64_t>(-(*exact + 1)) + 1
+                                          : static_cast<std::uint64_t>(*exact);
+        const double number = static_cast<double>(magnitude);
+        return PluralOperands{.n = number, .i = number};
+    }
+    const auto* real = std::get_if<double>(&value);
+    if (!real || !std::isfinite(*real))
+        return std::nullopt;
+
+    const double absolute = std::fabs(*real);
+    double rounded = absolute;
+    if (absolute <= static_cast<double>(std::numeric_limits<std::uint64_t>::max()) / 1000.0)
+        rounded = std::round(absolute * 1000.0) / 1000.0;
+    const double integer = std::floor(rounded);
+    std::uint64_t fraction = 0;
+    std::uint8_t visible_digits = 0;
+    if (rounded < static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
+        const auto scaled_fraction = std::round((rounded - integer) * 1000.0);
+        fraction = static_cast<std::uint64_t>(std::clamp(scaled_fraction, 0.0, 999.0));
+        if (fraction != 0) {
+            visible_digits = 3;
+            while (fraction % 10 == 0) {
+                fraction /= 10;
+                --visible_digits;
+            }
+        }
+    }
+    return PluralOperands{.n = rounded,
+                          .i = integer,
+                          .v = static_cast<double>(visible_digits),
+                          .w = static_cast<double>(visible_digits),
+                          .f = static_cast<double>(fraction),
+                          .t = static_cast<double>(fraction),
+                          .e = 0.0};
 }
 
-std::string plural_category(const MessageArgumentValue& value, std::string_view locale)
+double plural_operand_value(const PluralOperands& operands,
+                            compiled::PluralOperand operand) noexcept
 {
-    double number = 0.0;
-    bool integer_value = false;
-    std::uint64_t integer = 0;
-    if (const auto* exact = std::get_if<std::int64_t>(&value)) {
-        number = static_cast<double>(*exact);
-        integer_value = true;
-        integer = *exact < 0 ? static_cast<std::uint64_t>(-(*exact + 1)) + 1
-                             : static_cast<std::uint64_t>(*exact);
-    } else if (const auto* real = std::get_if<double>(&value); real && std::isfinite(*real)) {
-        number = *real;
-        const auto absolute = std::fabs(*real);
-        const auto truncated = std::trunc(absolute);
-        integer_value = truncated == absolute &&
-                        truncated <= static_cast<double>(std::numeric_limits<std::uint64_t>::max());
-        if (integer_value)
-            integer = static_cast<std::uint64_t>(truncated);
-    } else {
-        return "other";
+    switch (operand) {
+    case compiled::PluralOperand::N:
+        return operands.n;
+    case compiled::PluralOperand::I:
+        return operands.i;
+    case compiled::PluralOperand::V:
+        return operands.v;
+    case compiled::PluralOperand::W:
+        return operands.w;
+    case compiled::PluralOperand::F:
+        return operands.f;
+    case compiled::PluralOperand::T:
+        return operands.t;
+    case compiled::PluralOperand::E:
+        return operands.e;
     }
+    return 0.0;
+}
 
-    const auto absolute_number = std::fabs(number);
-    const auto mod10 = integer % 10;
-    const auto mod100 = integer % 100;
-    const auto language = primary_language(locale);
+bool plural_relation_matches(const PluralOperands& operands,
+                             const compiled::PluralRelation& relation) noexcept
+{
+    double candidate = plural_operand_value(operands, relation.operand);
+    if (relation.modulo)
+        candidate = std::fmod(candidate, static_cast<double>(*relation.modulo));
+    constexpr double epsilon = 1e-9;
+    const bool integer_relation = std::ranges::all_of(relation.ranges, [](const auto& range) {
+        return std::floor(range.minimum) == range.minimum &&
+               std::floor(range.maximum) == range.maximum;
+    });
+    const bool in_range =
+        (!integer_relation || std::fabs(candidate - std::round(candidate)) <= epsilon) &&
+        std::ranges::any_of(relation.ranges, [&](const auto& range) {
+            return candidate + epsilon >= range.minimum && candidate - epsilon <= range.maximum;
+        });
+    return relation.negated ? !in_range : in_range;
+}
 
-    if (language == "zh" || language == "ja" || language == "ko" || language == "th" ||
-        language == "vi" || language == "id" || language == "ms")
+std::string plural_category(const MessageArgumentValue& value,
+                            const compiled::Localization& localization, std::string_view locale)
+{
+    const auto operands = plural_operands(value);
+    if (!operands)
         return "other";
-    if (language == "ar") {
-        if (absolute_number == 0.0)
-            return "zero";
-        if (absolute_number == 1.0)
-            return "one";
-        if (absolute_number == 2.0)
-            return "two";
-        const auto n100 = std::fmod(absolute_number, 100.0);
-        if (n100 >= 3.0 && n100 <= 10.0)
-            return "few";
-        if (n100 >= 11.0 && n100 <= 99.0)
-            return "many";
+    const auto definition = std::ranges::find_if(
+        localization.locales,
+        [&](const compiled::LocaleDefinition& candidate) { return candidate.locale == locale; });
+    if (definition == localization.locales.end())
         return "other";
+    for (const auto& rule : definition->plural_rules) {
+        const bool matches = std::ranges::any_of(rule.alternatives, [&](const auto& alternative) {
+            return std::ranges::all_of(alternative, [&](const auto& relation) {
+                return plural_relation_matches(*operands, relation);
+            });
+        });
+        if (matches)
+            return rule.category;
     }
-    if (language == "ru" || language == "uk" || language == "be") {
-        if (!integer_value)
-            return "other";
-        if (mod10 == 1 && mod100 != 11)
-            return "one";
-        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14))
-            return "few";
-        return "many";
-    }
-    if (language == "pl") {
-        if (!integer_value)
-            return "other";
-        if (integer == 1)
-            return "one";
-        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14))
-            return "few";
-        return "many";
-    }
-    if (language == "cs" || language == "sk") {
-        if (!integer_value)
-            return "many";
-        if (integer == 1)
-            return "one";
-        if (integer >= 2 && integer <= 4)
-            return "few";
-        return "other";
-    }
-    if (language == "sl") {
-        if (!integer_value)
-            return "few";
-        if (mod100 == 1)
-            return "one";
-        if (mod100 == 2)
-            return "two";
-        if (mod100 == 3 || mod100 == 4)
-            return "few";
-        return "other";
-    }
-    if (language == "lt") {
-        if (!integer_value)
-            return "many";
-        if (mod10 == 1 && (mod100 < 11 || mod100 > 19))
-            return "one";
-        if (mod10 >= 2 && mod10 <= 9 && (mod100 < 11 || mod100 > 19))
-            return "few";
-        return "other";
-    }
-    if (language == "ro") {
-        if (integer_value && integer == 1)
-            return "one";
-        if (!integer_value || absolute_number == 0.0 || (mod100 >= 2 && mod100 <= 19))
-            return "few";
-        return "other";
-    }
-    if (language == "he") {
-        if (integer_value && integer == 1)
-            return "one";
-        if (integer_value && integer == 2)
-            return "two";
-        return "other";
-    }
-    if (language == "fr" || language == "pt")
-        return integer_value && (integer == 0 || integer == 1) ? "one" : "other";
-    return integer_value && integer == 1 ? "one" : "other";
+    return "other";
 }
 
 const MessageArgument* find_argument(const std::vector<MessageArgument>& arguments,
@@ -432,6 +446,7 @@ const MessageArgument* find_argument(const std::vector<MessageArgument>& argumen
 
 std::optional<std::string> realize_pattern(const compiled::LocalizationEntry& entry,
                                            const std::vector<MessageArgument>& arguments,
+                                           const compiled::Localization& localization,
                                            std::string_view locale)
 {
     if (!entry.pattern || entry.pattern->nodes.empty() ||
@@ -447,7 +462,7 @@ std::optional<std::string> realize_pattern(const compiled::LocalizationEntry& en
             auto leaf = entry;
             leaf.value = node.text;
             leaf.pattern.reset();
-            return interpolate(leaf, arguments, locale);
+            return interpolate(leaf, arguments, localization, locale);
         }
 
         const auto* argument = find_argument(arguments, node.argument);
@@ -461,7 +476,7 @@ std::optional<std::string> realize_pattern(const compiled::LocalizationEntry& en
             if (definition == entry.arguments.end() ||
                 definition->type != compiled::MessageArgumentType::PluralNumber)
                 return std::nullopt;
-            key = plural_category(argument->value, locale);
+            key = plural_category(argument->value, localization, locale);
         } else {
             const auto definition = std::find_if(
                 entry.arguments.begin(), entry.arguments.end(),
@@ -536,8 +551,9 @@ MessageRealizer::realize(const MessageRealizationRequest& request) const
         request.locale.empty() ? std::string_view{m_localization.default_locale} : request.locale;
     if (const auto negotiated = supported_locale(m_localization, requested)) {
         if (const auto* entry = find_message(m_localization, *negotiated, request.message_id)) {
-            auto text = entry->pattern ? realize_pattern(*entry, request.arguments, *negotiated)
-                                       : interpolate(*entry, request.arguments, *negotiated);
+            auto text = entry->pattern
+                            ? realize_pattern(*entry, request.arguments, m_localization, *negotiated)
+                            : interpolate(*entry, request.arguments, m_localization, *negotiated);
             if (!text)
                 return std::nullopt;
             return RealizedMessage{std::move(*text), *negotiated};
@@ -547,8 +563,10 @@ MessageRealizer::realize(const MessageRealizationRequest& request) const
     if (const auto* source =
             find_message(m_localization, m_localization.source_locale, request.message_id)) {
         auto text = source->pattern
-                        ? realize_pattern(*source, request.arguments, m_localization.source_locale)
-                        : interpolate(*source, request.arguments, m_localization.source_locale);
+                        ? realize_pattern(*source, request.arguments, m_localization,
+                                          m_localization.source_locale)
+                        : interpolate(*source, request.arguments, m_localization,
+                                      m_localization.source_locale);
         if (!text)
             return std::nullopt;
         return RealizedMessage{std::move(*text), m_localization.source_locale};

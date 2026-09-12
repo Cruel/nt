@@ -37,7 +37,7 @@ describe('structured localization Messages', () => {
     const project = projectWithRoom();
     const path = '/rooms/foyer/data/description';
     const before = structuredMessageForPath(project, path);
-    expect(before).toMatchObject({ source: 'A quiet foyer.', usageNote: path });
+    expect(before).toMatchObject({ source: 'A quiet foyer.', usedIn: path });
 
     const edited = structuredClone(project);
     edited.rooms.foyer!.data.description = inlineTextContent('A renovated foyer.');
