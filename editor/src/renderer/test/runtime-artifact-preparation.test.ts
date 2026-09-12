@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
+import { createLocalizedAssetVariant } from '../../shared/authoring-localized-assets';
+import {
+  createLocalizationTranslation,
+  localizationMessageWorkflowViews,
+} from '../../shared/authoring-localization-workflow';
 import {
   defaultExportProfile,
   type ExportProfileData,
@@ -152,6 +157,251 @@ describe('Prepared Runtime Artifact module', () => {
     });
   });
 
+  it('flattens selected locale inheritance and omits unused source-language catalogs', async () => {
+    const project = roomProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    project.localization.locales['fr-CA'] = {
+      supported: true,
+      parentLocale: 'fr',
+      fontStack: null,
+    };
+    project.localization.translations.fr = Object.fromEntries(
+      localizationMessageWorkflowViews(project).map((message) => [
+        message.id,
+        createLocalizationTranslation(message, `FR ${message.source}`, 'human', {
+          review: 'reviewed',
+        }),
+      ]),
+    );
+    const profile = {
+      ...defaultExportProfile(),
+      compileShadersBeforeExport: false,
+      localization: {
+        locales: ['fr-CA'],
+        defaultLocale: 'fr-CA',
+        quality: 'release' as const,
+      },
+    };
+
+    const result = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile,
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.localization).toEqual({
+      includedLocales: ['fr-CA'],
+      defaultLocale: 'fr-CA',
+      quality: 'release',
+      sourceFallback: { messageCount: 0, assetCount: 1 },
+    });
+    expect(result.compiledProject?.localization).toMatchObject({
+      sourceLocale: 'fr-CA',
+      defaultLocale: 'fr-CA',
+      locales: [expect.objectContaining({ locale: 'fr-CA', parentLocale: null, supported: true })],
+      catalogs: [expect.objectContaining({ locale: 'fr-CA' })],
+    });
+    expect(result.compiledProject?.localization.locales.map((locale) => locale.locale)).toEqual([
+      'fr-CA',
+    ]);
+    expect(result.compiledProject?.localization.catalogs.map((catalog) => catalog.locale)).toEqual([
+      'fr-CA',
+    ]);
+    expect(
+      result.diagnostics.filter((item) => item.code.startsWith('localization.export.message_')),
+    ).toEqual([]);
+  });
+
+  it('prepares localized Asset variants and locale fonts through the same selected-locale closure', async () => {
+    const project = roomProject();
+    project.assets['foyer-fr'] = {
+      id: 'foyer-fr',
+      label: 'Foyer French',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/foyer-fr.png',
+        extension: '.png',
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.assets['font-fr'] = {
+      id: 'font-fr',
+      label: 'French Font',
+      data: assetDataFromImportMetadata({
+        kind: 'font',
+        projectRelativePath: 'assets/fonts/fr.ttf',
+        extension: '.ttf',
+        imageMetadata: null,
+      }),
+    };
+    project.assets['foyer-es'] = {
+      id: 'foyer-es',
+      label: 'Foyer Spanish',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/foyer-es.png',
+        extension: '.png',
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.assets['font-es'] = {
+      id: 'font-es',
+      label: 'Spanish Font',
+      data: assetDataFromImportMetadata({
+        kind: 'font',
+        projectRelativePath: 'assets/fonts/es.ttf',
+        extension: '.ttf',
+        imageMetadata: null,
+      }),
+    };
+    project.localization.locales.fr = {
+      supported: true,
+      parentLocale: null,
+      fontStack: [{ $ref: { collection: 'assets', id: 'font-fr' } }],
+    };
+    project.localization.locales.es = {
+      supported: true,
+      parentLocale: null,
+      fontStack: [{ $ref: { collection: 'assets', id: 'font-es' } }],
+    };
+    project.localization.translations.fr = Object.fromEntries(
+      localizationMessageWorkflowViews(project).map((message) => [
+        message.id,
+        createLocalizationTranslation(message, `FR ${message.source}`, 'human', {
+          review: 'reviewed',
+        }),
+      ]),
+    );
+    const localizedFoyer = createLocalizedAssetVariant(project, 'foyer', 'foyer-fr', 'human')!;
+    localizedFoyer.review = 'reviewed';
+    const localizedFoyerEs = createLocalizedAssetVariant(project, 'foyer', 'foyer-es', 'human')!;
+    localizedFoyerEs.review = 'reviewed';
+    project.localization.assets.fr = { foyer: localizedFoyer };
+    project.localization.assets.es = { foyer: localizedFoyerEs };
+    const profile = {
+      ...defaultExportProfile(),
+      compileShadersBeforeExport: false,
+      localization: { locales: ['fr'], defaultLocale: 'fr', quality: 'release' as const },
+    };
+
+    const result = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile,
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.localization.sourceFallback).toEqual({ messageCount: 0, assetCount: 0 });
+    expect(result.fileEntries.map((entry) => entry.assetId).sort()).toEqual([
+      'font-fr',
+      'foyer-fr',
+    ]);
+    expect(result.fileEntries.map((entry) => entry.assetId)).not.toContain('foyer');
+    expect(result.fileEntries.map((entry) => entry.assetId)).not.toContain('foyer-es');
+    expect(result.fileEntries.map((entry) => entry.assetId)).not.toContain('font-es');
+    expect(result.compiledProject?.resources.assets.map((asset) => asset.id)).not.toContain(
+      'foyer-es',
+    );
+    expect(result.compiledProject?.resources.assets.map((asset) => asset.id)).not.toContain(
+      'font-es',
+    );
+    expect(
+      result.compiledProject?.resources.assets.find((asset) => asset.id === 'foyer')?.localized,
+    ).toEqual([{ locale: 'fr', state: 'variant', asset: { kind: 'asset', id: 'foyer-fr' } }]);
+    expect(result.compiledProject?.localization.locales[0]?.fontStack).toEqual([
+      { kind: 'asset', id: 'font-fr' },
+    ]);
+
+    const prepared = await prepareRuntimeArtifactForTest(project, {
+      projectRoot: '/project',
+      profile,
+    });
+    expect(prepared.status).toBe('prepared');
+    if (prepared.status === 'prepared')
+      expect(
+        (
+          await verifyPreparedRuntimeArtifact(prepared.artifact, {
+            project,
+            projectRoot: '/project',
+            profile,
+            paths: rendererRuntimeArtifactPaths,
+          })
+        ).status,
+      ).toBe('verified');
+  });
+
+  it('retains a locale variant that is also referenced independently at runtime', async () => {
+    const project = roomProject();
+    project.assets['foyer-es'] = {
+      id: 'foyer-es',
+      label: 'Foyer Spanish',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/foyer-es.png',
+        extension: '.png',
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.localization.locales.es = { supported: true, parentLocale: null, fontStack: null };
+    project.localization.assets.es = {
+      foyer: createLocalizedAssetVariant(project, 'foyer', 'foyer-es', 'human')!,
+    };
+    const annex = defaultRoomData('Annex');
+    annex.background.asset = roomAssetRef('foyer-es');
+    project.rooms.annex = { id: 'annex', label: 'Annex', data: annex };
+
+    const result = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(), compileShadersBeforeExport: false },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.fileEntries.map((entry) => entry.assetId).sort()).toEqual(['foyer', 'foyer-es']);
+    expect(
+      result.compiledProject?.resources.assets.find((asset) => asset.id === 'foyer-es')?.localized,
+    ).toEqual([{ locale: 'en', state: 'source' }]);
+  });
+
+  it('reports only required source fallback closure for incomplete selected content', async () => {
+    const project = roomProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    const messages = localizationMessageWorkflowViews(project);
+    const first = messages[0]!;
+    project.localization.translations.fr = {
+      [first.id]: {
+        ...createLocalizationTranslation(first, first.source, 'human'),
+        useSource: true,
+      },
+    };
+    project.localization.assets.fr = { foyer: { useSource: true } };
+    const profile = {
+      ...defaultExportProfile(),
+      compileShadersBeforeExport: false,
+      localization: { locales: ['fr'], defaultLocale: 'fr', quality: 'release' as const },
+    };
+
+    const result = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile,
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.localization.sourceFallback.assetCount).toBe(1);
+    expect(result.localization.sourceFallback.messageCount).toBe(messages.length);
+    expect(result.compiledProject?.localization.locales.map((locale) => locale.locale)).toEqual([
+      'fr',
+    ]);
+    expect(result.compiledProject?.localization.catalogs.map((catalog) => catalog.locale)).toEqual([
+      'fr',
+    ]);
+    expect(result.fileEntries.map((entry) => entry.assetId)).toContain('foyer');
+    expect(
+      result.diagnostics.some((item) => item.code === 'localization.export.message_missing'),
+    ).toBe(true);
+    expect(
+      result.diagnostics.some((item) => item.code === 'localization.export.asset_missing'),
+    ).toBe(false);
+  });
+
   it('excludes unreferenced assets from both gameplay resources and package files by default', async () => {
     const project = roomProject();
     project.assets.unused = {
@@ -192,6 +442,22 @@ describe('Prepared Runtime Artifact module', () => {
       'unused',
     ]);
     expect(complete.fileEntries.map((entry) => entry.assetId)).toEqual(['foyer', 'unused']);
+
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    const localizedPruned = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile: {
+        ...defaultExportProfile(),
+        compileShadersBeforeExport: false,
+        localization: { locales: ['fr'], defaultLocale: 'fr', quality: 'release' },
+      },
+    });
+    expect(localizedPruned.localization.sourceFallback.assetCount).toBe(1);
+    expect(localizedPruned.compiledProject?.resources.assets.map((asset) => asset.id)).toEqual([
+      'foyer',
+    ]);
+    expect(localizedPruned.fileEntries.map((entry) => entry.assetId)).toEqual(['foyer']);
+    expect(localizedPruned.diagnostics.some((item) => item.path.includes('/unused'))).toBe(false);
   });
 
   it('retains assets referenced only by conservative Lua/source analysis', async () => {

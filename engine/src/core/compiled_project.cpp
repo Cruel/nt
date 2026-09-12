@@ -333,8 +333,7 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
                 input.localization.locales, [&](const compiled::LocaleDefinition& candidate) {
                     return candidate.locale == realization.locale;
                 });
-            if (realization.locale.empty() ||
-                realization.locale == input.localization.source_locale || !declared_locale ||
+            if (realization.locale.empty() || !declared_locale ||
                 !localized_locales.insert(realization.locale).second ||
                 !enum_at_most(realization.state,
                               compiled::LocalizedAssetRealizationState::Variant) ||
@@ -719,15 +718,15 @@ FIND(asset, assets, AssetId, compiled::AssetResource)
 const compiled::AssetResource*
 CompiledProject::resolve_asset(const AssetId& id, std::string_view locale) const noexcept
 {
+    // Export closure may rebind the package source locale to the selected export default, so an
+    // explicit realization for that locale must still take precedence over the authored base path.
     const auto* base = find_asset(id);
-    if (base == nullptr || base->localized.empty() || locale.empty() ||
-        locale == m_localization.source_locale)
+    if (base == nullptr || base->localized.empty() || locale.empty())
         return base;
 
     std::unordered_set<std::string> visited;
     std::string current(locale);
-    while (!current.empty() && current != m_localization.source_locale &&
-           visited.insert(current).second) {
+    while (!current.empty() && visited.insert(current).second) {
         const auto realization = std::ranges::find_if(
             base->localized, [&](const compiled::LocalizedAssetRealization& candidate) {
                 return candidate.locale == current;
@@ -737,6 +736,8 @@ CompiledProject::resolve_asset(const AssetId& id, std::string_view locale) const
                 return base;
             return realization->asset ? find_asset(*realization->asset) : base;
         }
+        if (current == m_localization.source_locale)
+            break;
         const auto definition = std::ranges::find_if(
             m_localization.locales, [&](const compiled::LocaleDefinition& candidate) {
                 return candidate.locale == current;

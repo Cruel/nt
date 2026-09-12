@@ -683,6 +683,7 @@ describe('NovelTea headless CLI', () => {
     expect(help.stderr).toBe('');
     expect(help.stdout).toContain('Edit record JSON, Lua, RML, and RCSS source files directly');
     expect(help.stdout).toContain('noveltea validate');
+    expect(help.stdout).toContain('--allow-localization-warnings');
 
     const version = await runNovelTeaCli(['--json', '--version'], { cwd: '/missing' });
     expect(version.exitCode).toBe(0);
@@ -925,6 +926,65 @@ describe('NovelTea headless CLI', () => {
 
     expect(result.exitCode).toBe(0);
     expect(receivedOptions).toMatchObject({ stripShaderSources: false });
+  });
+
+  it('requires an explicit localization warning override for unattended Runtime Package export', async () => {
+    const project = validProject();
+    project.localization.locales.fr = {
+      supported: true,
+      parentLocale: null,
+      fontStack: null,
+    };
+    project.export.runtime.localization = {
+      locales: ['fr'],
+      defaultLocale: 'fr',
+      quality: 'release',
+    };
+    const value = fixture(project);
+    let exports = 0;
+    const nativeTools: NovelTeaCliNativeToolService = {
+      async compileShaders() {
+        return { ok: true, success: true, diagnostics: [], outputs: [] };
+      },
+      async runHeadlessTest() {
+        return { ok: true, success: true };
+      },
+      async runUiTest() {
+        return { ok: true, success: true };
+      },
+      async exportPackage() {
+        exports += 1;
+        return { ok: true, success: true };
+      },
+      shaderc() {
+        return 0;
+      },
+      texturec() {
+        return 0;
+      },
+    };
+
+    const blocked = await runNovelTeaCli(
+      ['--json', 'package', 'export', '--output', 'dist/game.ntpkg'],
+      options(value, root, nativeTools),
+    );
+    expect(blocked.exitCode).not.toBe(0);
+    expect(blocked.stdout).toContain('localization.export.warning_override_required');
+    expect(exports).toBe(0);
+
+    const allowed = await runNovelTeaCli(
+      [
+        '--json',
+        'package',
+        'export',
+        '--output',
+        'dist/game.ntpkg',
+        '--allow-localization-warnings',
+      ],
+      options(value, root, nativeTools),
+    );
+    expect(allowed.exitCode).toBe(0);
+    expect(exports).toBe(1);
   });
 
   it('reads stdin only for the exact test run-spec command path', async () => {

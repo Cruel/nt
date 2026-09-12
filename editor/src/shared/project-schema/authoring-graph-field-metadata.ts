@@ -503,9 +503,11 @@ const retiredExportLeafCount = 3; // capabilityOverrides, signingProfileId, and 
 // Asset-memory policy reuse replaces the old six-leaf embedded Custom selection with a three-leaf
 // built-in/named-policy selector and adds a named policy definition. The canonical definition admits
 // three graph-inert absolute Warm ceilings and no percentage Warm leaf, for a net +7 current export
-// leaves. Export remains graph-inert, so preserve the reviewed pre-change export block size and
-// synthesize `none` for the additional current leaves below.
-const assetMemoryPolicyContractLeafDelta = 7;
+// leaves. #218 adds three graph-inert localization-policy leaves to Runtime Package and three to
+// platform profiles, bringing the current export-contract delta to +13. Export remains graph-inert,
+// so preserve the reviewed pre-change export block size and synthesize `none` for the additional
+// current leaves below.
+const assetMemoryPolicyContractLeafDelta = 13;
 const legacyExportLeafCount =
   exportLeafCount - assetMemoryPolicyContractLeafDelta + retiredExportLeafCount;
 const exportFirstLeafIndex = sortedSchemaLeafPaths.findIndex((path) => path.startsWith('/export/'));
@@ -994,7 +996,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     characters: '5e8f854a',
     dialogues: '81f2a616',
     entrypoint: 'a61673d4',
-    export: '58f8ce43',
+    export: '0ba5bfbc',
     interactableInstances: '33e3748f',
     interactables: '29b3f7ad',
     interactions: '8c02d069',

@@ -134,7 +134,7 @@ editor-owned Project authority, then hands a private temporary local image to th
 bytes must be uploaded. The workflow manager retains image-specific automatic inference, while its strict current manual
 manifest editor can author or repair arbitrary named generic contracts and future classifications.
 
-Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, raw bimg-compatible `noveltea texturec ...` forwarding, headless test/UI-test playback, and package export. Runtime Package export also accepts `--include-unused-assets` and `--include-shader-sources` as explicit developer overrides of the normal pruning/source-stripping policy. `noveltea --help` is authoritative for the installed version's exact syntax.
+Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, raw bimg-compatible `noveltea texturec ...` forwarding, headless test/UI-test playback, and package export. Runtime Package export accepts `--allow-localization-warnings` as the explicit unattended acknowledgement for localization quality warnings, plus `--include-unused-assets` and `--include-shader-sources` as developer overrides of the normal pruning/source-stripping policy. The localization override is scoped: it does not bypass technical export errors. `noveltea --help` is authoritative for the installed version's exact syntax.
 
 Platform publication is a separate command family from Runtime Package creation:
 
@@ -142,6 +142,7 @@ Platform publication is a separate command family from Runtime Package creation:
 noveltea platform profiles
 noveltea platform export --output <path> [--profile <id>] [--template <id>@<build>]
                          [--signing-profile <id>] [--config <file>] [--sign]
+                         [--allow-localization-warnings]
                          [--include-unused-assets] [--include-shader-sources]
                          [--check] [--force]
                          [--allow-untrusted-template] [--allow-identity-change]
@@ -172,10 +173,13 @@ user export config and implies signing. Bare `--sign` is accepted when exactly o
 configuration exists for the selected target; otherwise the CLI requires an explicit ID. Results
 report whether signing was requested and applied. Publication/store upload is not supported.
 
-Unused assets are excluded by default using the same authoring dependency graph as the editor.
-`--include-unused-assets` disables that pruning for diagnostic/developer exports, and
+Localization quality warnings block unattended Runtime Package and platform publication unless
+`--allow-localization-warnings` is supplied. That flag acknowledges only localization quality
+warnings for the current export; technical validation, package, template, signing, and staging errors
+remain blocking. Unused assets are excluded by default using the same authoring dependency graph as
+the editor. `--include-unused-assets` disables that pruning for diagnostic/developer exports, and
 `--include-shader-sources` preserves authored shader sources that normal runtime packaging strips.
-These are the headless equivalents of the Export pane's Developer Mode options.
+The latter two are the headless equivalents of the Export pane's Developer Mode options.
 
 The editor and CLI share reusable machine-level state beneath the NovelTea user configuration root. Durable preferences,
 export configuration, and shared ComfyUI configuration are sections of `~/.noveltea/config.json`; user ComfyUI workflows

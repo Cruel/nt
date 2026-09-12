@@ -8,6 +8,31 @@ export const exportShaderVariantValues = shaderVariantValues;
 export type ExportPackageKind = (typeof exportPackageKindValues)[number];
 export type ExportShaderVariant = ShaderVariant;
 
+export const exportLocalizationQualityValues = [
+  'development',
+  'release',
+  'reviewed-release',
+] as const;
+export type ExportLocalizationQuality = (typeof exportLocalizationQualityValues)[number];
+
+export const exportLocalizationPolicySchema = z
+  .object({
+    locales: z.array(z.string().trim().min(1)).min(1),
+    defaultLocale: z.string().trim().min(1),
+    quality: z.enum(exportLocalizationQualityValues),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.locales.includes(value.defaultLocale))
+      context.addIssue({
+        code: 'custom',
+        path: ['defaultLocale'],
+        message: 'Export default locale must be included in the export locale set.',
+      });
+  });
+
+export type ExportLocalizationPolicy = z.infer<typeof exportLocalizationPolicySchema>;
+
 export const exportProfileSchema = z
   .object({
     id: z.string().min(1).default('runtime-default'),
@@ -25,6 +50,11 @@ export const exportProfileSchema = z
     includeShaderSources: z.boolean().default(false),
     includeTests: z.boolean().default(false),
     previewAfterExport: z.boolean().default(false),
+    localization: exportLocalizationPolicySchema.default({
+      locales: ['en'],
+      defaultLocale: 'en',
+      quality: 'development',
+    }),
   })
   .strict();
 
@@ -42,6 +72,7 @@ export interface ExportProfileData {
   includeShaderSources: boolean;
   includeTests: boolean;
   previewAfterExport: boolean;
+  localization: ExportLocalizationPolicy;
 }
 
 export function defaultExportProfile(
@@ -61,6 +92,11 @@ export function defaultExportProfile(
     includeShaderSources: false,
     includeTests: false,
     previewAfterExport: false,
+    localization: {
+      locales: ['en'],
+      defaultLocale: 'en',
+      quality: 'development',
+    },
   });
 }
 
@@ -75,6 +111,7 @@ export function selectedExportProfile(project: AuthoringProject): ExportProfileD
 export function runtimeExportProfileForPlatform(
   project: AuthoringProject,
   target: 'windows' | 'linux' | 'macos' | 'web' | 'android',
+  localization: ExportLocalizationPolicy = selectedExportProfile(project).localization,
 ): ExportProfileData {
   const profile = selectedExportProfile(project);
   const requiredVariant =
@@ -88,6 +125,7 @@ export function runtimeExportProfileForPlatform(
   const shaderVariants = profile.shaderVariants.filter((variant) => variant === requiredVariant);
   return {
     ...profile,
+    localization,
     shaderVariants: shaderVariants.length > 0 ? shaderVariants : [requiredVariant],
   };
 }

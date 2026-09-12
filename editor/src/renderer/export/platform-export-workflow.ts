@@ -206,6 +206,7 @@ export async function runProjectPlatformExportWorkflow(
       const runtimeProfile = runtimeExportProfileForPlatform(
         request.project as AuthoringProject,
         profile.target,
+        profile.localization,
       );
       const prepared = await prepareRuntimeArtifact({
         project: request.project as AuthoringProject,

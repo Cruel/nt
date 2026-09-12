@@ -52,7 +52,11 @@ afterEach(() => {
 async function prepared(project: ReturnType<typeof exportableProject>, projectRoot = '/project') {
   const profile = parseProjectPlatformExportSettings({ profiles: project.export.profiles })
     .profiles[0]!;
-  const runtimeProfile = runtimeExportProfileForPlatform(project, profile.target);
+  const runtimeProfile = runtimeExportProfileForPlatform(
+    project,
+    profile.target,
+    profile.localization,
+  );
   const result = await prepareRuntimeArtifactForTest(project, {
     projectRoot,
     profile: runtimeProfile,

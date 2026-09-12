@@ -159,6 +159,11 @@ export async function materializePlatformExportAcceptanceFixture(
       includeShaderSources: false,
       includeTests: false,
       previewAfterExport: false,
+      localization: {
+        locales: ['en'],
+        defaultLocale: 'en',
+        quality: 'development',
+      },
     },
     profiles: [profile],
     assetMemoryPolicies: [],

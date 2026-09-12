@@ -43,10 +43,38 @@ directory, installed-template selection, and signing identity are user-local exe
 than committed profile data.
 
 Runtime Package is not an editable platform profile. Package-level behavior common to every export
-lives on the normal Export pane. Normal exports exclude unused assets and strip shader source by
-engine policy. Developer Mode exposes only the exceptional overrides `Exclude Unused Assets` and
-`Include Shader Sources`; checksums, shader compilation, shader-variant closure, and other package
-mechanics remain automatic.
+lives on the normal Export pane. Every Runtime Package and platform profile owns an explicit
+localization policy: a non-empty subset of Project locales marked Supported, an export default locale
+inside that subset, and a Development, Release, or Reviewed release quality level. The Export pane
+edits that policy directly and shows the prepared source-fallback counts separately from the
+player-selectable locale list. New platform profiles initially include all currently Supported
+locales and use the Project default locale.
+
+Normal exports exclude unused assets and strip shader source by engine policy. Developer Mode exposes
+only the exceptional overrides `Exclude Unused Assets` and `Include Shader Sources`; checksums,
+shader compilation, shader-variant closure, and other package mechanics remain automatic.
+
+Localization closure is part of `prepareRuntimeArtifact`, so Runtime Package and every platform
+export consume the same prepared contract. Preparation emits only the selected locale definitions and
+catalogs, clears runtime parent-locale dependencies, and materializes each selected Message catalog
+with its effective inherited or source-fallback realization. The detached package rebinds its compiled
+`sourceLocale` to the export default; explicit localized Asset realization therefore also applies at
+that package source locale. Localized Asset mappings are flattened through the same selected-locale
+closure; only selected variants, required source realizations, and selected-locale font-stack assets
+are forced into normal package payload. Native package validation permits an authored base media file
+to be absent only when every selectable packaged locale resolves that logical Asset to another
+physical realization. When every selected realization is complete, authoring-source Message/media
+payload may disappear entirely. `Use source intentionally`
+retains only that realization and does not make the authoring source locale player-selectable.
+Missing selected content retains only the source fallback closure actually required and records its
+Message/Asset counts on the Prepared Runtime Artifact.
+
+Localization quality findings are warnings rather than Compiled Project invalidity. Development
+reports missing selected content, Release additionally reports outdated translations/variants, and
+Reviewed release additionally reports content still marked Needs review. The editor requires an
+interactive confirmation before exporting through those warnings. Headless Runtime Package and
+platform export refuse to continue unless `--allow-localization-warnings` is supplied; that override
+acknowledges only localization quality warnings and does not bypass technical export blockers.
 
 Each platform profile selects a built-in Low/Balanced/High asset-memory policy or references one
 named Project policy by stable ID. Named policies are edited only in Project Settings; the Export

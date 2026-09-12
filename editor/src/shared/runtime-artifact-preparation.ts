@@ -1,4 +1,5 @@
 import { publishCompiledArtifact } from './compiled-artifact-publication';
+import { applyExportLocalizationClosure } from './export-localization-closure';
 import { buildAuthoringDependencyGraph } from './authoring-dependency-graph';
 import { collectAuthoringSourceRequirements } from './authoring-source-analysis';
 import type {
@@ -75,6 +76,7 @@ export interface RuntimeArtifactAssessment {
   excludedUnusedAssetCount: number;
   manifestPreview: ExportManifestPreview;
   packageOptions: PreparedRuntimePackageOptions;
+  localization: PreparedRuntimeArtifact['localization'];
   diagnostics: ProjectValidationDiagnostic[];
   runtimeDiagnostics: ProjectValidationDiagnostic[];
   runtimeBlockers: ProjectValidationDiagnostic[];
@@ -348,6 +350,13 @@ export function hasAuthoringShadersOrMaterials(project: AuthoringProject) {
   return Object.keys(project.shaders).length > 0 || Object.keys(project.materials).length > 0;
 }
 
+function localizationOwnsAssetReference(sourcePath: string): boolean {
+  return (
+    sourcePath.startsWith('/localization/assets/') ||
+    (sourcePath.startsWith('/localization/locales/') && sourcePath.includes('/fontStack'))
+  );
+}
+
 async function referencedRuntimeAssetIds(
   project: AuthoringProject,
   projectRoot: string | null,
@@ -394,7 +403,11 @@ async function referencedRuntimeAssetIds(
   const graph = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources });
   const referenced = new Set<string>();
   for (const edge of graph.edgesById.values()) {
-    if (edge.target.kind === 'record' && edge.target.collection === 'assets')
+    if (
+      edge.target.kind === 'record' &&
+      edge.target.collection === 'assets' &&
+      !localizationOwnsAssetReference(edge.sourcePath)
+    )
       referenced.add(edge.target.id);
   }
   return referenced;
@@ -442,26 +455,48 @@ async function assembleRuntimeArtifact(
     },
   };
 
-  const compiledAssets = published.ok ? published.project.project.resources.assets : [];
-  const referencedAssetIds = options.profile.excludeUnusedAssets
-    ? await referencedRuntimeAssetIds(project, options.projectRoot ?? null, options.paths)
+  const runtimeReferencedAssetIds = await referencedRuntimeAssetIds(
+    project,
+    options.projectRoot ?? null,
+    options.paths,
+  );
+  const referencedAssetIds = options.profile.excludeUnusedAssets ? runtimeReferencedAssetIds : null;
+  const localizationClosure = published.ok
+    ? applyExportLocalizationClosure(
+        project,
+        published.project.project,
+        options.profile.localization,
+        runtimeReferencedAssetIds,
+      )
     : null;
+  const localizedCompiledProject = localizationClosure?.project;
+  const compiledAssets = localizedCompiledProject?.resources.assets ?? [];
   const excludedUnusedAssetCount = referencedAssetIds
-    ? compiledAssets.filter((asset) => !referencedAssetIds.has(asset.id)).length
+    ? compiledAssets.filter(
+        (asset) =>
+          !referencedAssetIds.has(asset.id) &&
+          !localizationClosure?.requiredLocalizationAssetIds.has(asset.id),
+      ).length
     : 0;
   const includedCompiledAssets = compiledAssets.filter((asset) => {
-    if (referencedAssetIds && !referencedAssetIds.has(asset.id)) return false;
+    if (
+      referencedAssetIds &&
+      !referencedAssetIds.has(asset.id) &&
+      !localizationClosure?.requiredLocalizationAssetIds.has(asset.id)
+    )
+      return false;
     if (asset.kind === 'shader-source' && !options.profile.includeShaderSources) return false;
     return true;
   });
-  const compiledProject = published.ok
+  const compiledProject = localizedCompiledProject
     ? {
-        ...published.project.project,
-        resources: { ...published.project.project.resources, assets: includedCompiledAssets },
+        ...localizedCompiledProject,
+        resources: { ...localizedCompiledProject.resources, assets: includedCompiledAssets },
       }
     : undefined;
   const gameplayJson = compiledProject ? serializeCompiledProjectWire(compiledProject) : undefined;
   const fileEntries = includedCompiledAssets.flatMap((asset): ExportFileEntry[] => {
+    if (localizationClosure && !localizationClosure.payloadAssetIds.has(asset.id)) return [];
     const authored = parseAssetData(project.assets[asset.id]?.data);
     if (!authored) return [];
     return [
@@ -509,6 +544,7 @@ async function assembleRuntimeArtifact(
     compilerDiagnostics,
     shaderDiagnostics,
     preparedShaderMetadata.diagnostics,
+    localizationClosure?.diagnostics ?? [],
     entrypointDiagnostics,
   );
   const runtimeDiagnostics = diagnostics.filter((item) =>
@@ -572,6 +608,12 @@ async function assembleRuntimeArtifact(
     excludedUnusedAssetCount,
     manifestPreview,
     packageOptions,
+    localization: localizationClosure?.closure ?? {
+      includedLocales: options.profile.localization.locales,
+      defaultLocale: options.profile.localization.defaultLocale,
+      quality: options.profile.localization.quality,
+      sourceFallback: { messageCount: 0, assetCount: 0 },
+    },
     diagnostics,
     runtimeDiagnostics,
     runtimeBlockers,
@@ -834,6 +876,7 @@ export async function prepareRuntimeArtifact(
         ? { shaderAssetRoot: options.paths.shaderAssetRoot(options.projectRoot) }
         : {}),
     },
+    localization: assessment.localization,
     diagnostics,
   };
   return { status: 'prepared', artifact, assessment, shaderDiagnostics, shaderOutputs };
@@ -865,6 +908,8 @@ function normalizedPackageFileEntries(
 async function expectedFileEntriesForVerification(
   compiledAssets: PreparedRuntimeArtifact['compiledProject']['resources']['assets'],
   options: VerifyPreparedRuntimeArtifactOptions,
+  payloadAssetIds?: ReadonlySet<string>,
+  requiredLocalizationAssetIds?: ReadonlySet<string>,
 ): Promise<
   | {
       entries: ExportFileEntry[];
@@ -883,12 +928,18 @@ async function expectedFileEntriesForVerification(
       path: '/artifact/compiledProject/resources/assets',
     };
   const expectedCompiledAssets = compiledAssets.filter((asset) => {
-    if (referencedAssetIds && !referencedAssetIds.has(asset.id)) return false;
+    if (
+      referencedAssetIds &&
+      !referencedAssetIds.has(asset.id) &&
+      !requiredLocalizationAssetIds?.has(asset.id)
+    )
+      return false;
     if (asset.kind === 'shader-source' && !options.profile.includeShaderSources) return false;
     return true;
   });
   const packagePaths = new Set<string>();
   for (const asset of expectedCompiledAssets) {
+    if (payloadAssetIds && !payloadAssetIds.has(asset.id)) continue;
     const authored = parseAssetData(options.project.assets[asset.id]?.data);
     if (!authored)
       return {
@@ -900,7 +951,12 @@ async function expectedFileEntriesForVerification(
         message: `Compiled asset '${asset.id}' does not match its current Project asset record.`,
         path: `/artifact/compiledProject/resources/assets/${asset.id}`,
       };
-    if (referencedAssetIds && !referencedAssetIds.has(asset.id)) continue;
+    if (
+      referencedAssetIds &&
+      !referencedAssetIds.has(asset.id) &&
+      !requiredLocalizationAssetIds?.has(asset.id)
+    )
+      continue;
     if (authored.kind === 'shader-source' && !options.profile.includeShaderSources) continue;
     if (packagePaths.has(asset.path))
       return {
@@ -1050,12 +1106,39 @@ export async function verifyPreparedRuntimeArtifact(
       '/artifact/compiledProject/project',
     );
 
+  const localizationBaseAssetIds = await referencedRuntimeAssetIds(
+    options.project,
+    options.projectRoot,
+    options.paths,
+  );
+  if (options.profile.excludeUnusedAssets && localizationBaseAssetIds === null)
+    return rejectedEvidence(
+      'Prepared localization closure cannot be verified because current source references could not be rederived.',
+      '/artifact/localization',
+    );
+  const expectedLocalization = applyExportLocalizationClosure(
+    options.project,
+    freshlyPublished.project.project,
+    options.profile.localization,
+    localizationBaseAssetIds,
+  );
   const expectedInventory = await expectedFileEntriesForVerification(
-    freshlyPublished.project.project.resources.assets,
+    expectedLocalization.project.resources.assets,
     options,
+    expectedLocalization.payloadAssetIds,
+    expectedLocalization.requiredLocalizationAssetIds,
   );
   if ('message' in expectedInventory)
     return rejectedEvidence(expectedInventory.message, expectedInventory.path);
+  if (
+    stableStringify(artifact.compiledProject.localization) !==
+      stableStringify(expectedLocalization.project.localization) ||
+    stableStringify(artifact.localization) !== stableStringify(expectedLocalization.closure)
+  )
+    return rejectedEvidence(
+      'Prepared localization closure does not match the current Project and export profile.',
+      '/artifact/localization',
+    );
   if (
     stableStringify(artifact.compiledProject.resources.assets) !==
     stableStringify(expectedInventory.compiledAssets)

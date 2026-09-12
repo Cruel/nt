@@ -389,7 +389,8 @@ TEST_CASE("compiled project resolves localized physical Assets through explicit 
         .sampling = compiled::ImageSampling::Linear,
         .width = 640,
         .height = 360,
-        .localized = {{"fr", compiled::LocalizedAssetRealizationState::Variant, french_id},
+        .localized = {{"en", compiled::LocalizedAssetRealizationState::Variant, french_id},
+                      {"fr", compiled::LocalizedAssetRealizationState::Variant, french_id},
                       {"de", compiled::LocalizedAssetRealizationState::Source, std::nullopt}},
     });
     input.assets.push_back(compiled::AssetResource{
@@ -405,6 +406,8 @@ TEST_CASE("compiled project resolves localized physical Assets through explicit 
     auto result = CompiledProject::create(std::move(input));
     REQUIRE(result);
     const auto& project = result.value();
+    REQUIRE(project.resolve_asset(base_id, "en") != nullptr);
+    CHECK(project.resolve_asset(base_id, "en")->id == french_id);
     REQUIRE(project.resolve_asset(base_id, "fr") != nullptr);
     CHECK(project.resolve_asset(base_id, "fr")->id == french_id);
     REQUIRE(project.resolve_asset(base_id, "fr-CA") != nullptr);

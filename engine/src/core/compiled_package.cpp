@@ -329,7 +329,16 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
                 "/resources/assets");
         else if (manifest.kind != RuntimePackageKind::Runtime ||
                  asset.kind != compiled::AssetKind::ShaderSource) {
-            if (!declared.contains(path))
+            // Runtime localization may omit the authored base bytes only when every selectable
+            // packaged locale resolves this logical Asset to a different physical realization.
+            const bool source_path_required =
+                manifest.kind != RuntimePackageKind::Runtime || asset.localized.empty() ||
+                std::ranges::any_of(
+                    project.localization().locales, [&](const compiled::LocaleDefinition& locale) {
+                        return locale.supported &&
+                               project.resolve_asset(asset.id, locale.locale) == &asset;
+                    });
+            if (source_path_required && !declared.contains(path))
                 add_assembly_error(diagnostics, "runtime_package.missing_asset",
                                    "Gameplay asset '" + asset.id.text() +
                                        "' is missing package entry '" + path + "'.",
