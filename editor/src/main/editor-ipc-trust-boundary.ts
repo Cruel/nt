@@ -662,6 +662,7 @@ const projectPlatformExportIpcRequestSchema = z
     force: z.boolean().optional(),
     allowUntrustedTemplate: z.boolean().optional(),
     allowIdentityChange: z.boolean().optional(),
+    allowLocalizationWarnings: z.boolean().optional(),
     sign: z.boolean().optional(),
     preparedRuntimeArtifact: preparedRuntimeArtifactSchema.optional(),
     localState: z

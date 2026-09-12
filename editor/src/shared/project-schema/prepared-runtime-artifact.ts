@@ -64,8 +64,28 @@ export interface PreparedRuntimeArtifact {
   fileEntries: ExportFileEntry[];
   manifestPreview: ExportManifestPreview;
   packageOptions: PreparedRuntimePackageOptions;
+  localization: {
+    includedLocales: string[];
+    defaultLocale: string;
+    quality: 'development' | 'release' | 'reviewed-release';
+    sourceFallback: { messageCount: number; assetCount: number };
+  };
   diagnostics: ProjectValidationDiagnostic[];
 }
+
+const preparedLocalizationSchema = z
+  .object({
+    includedLocales: z.array(z.string().min(1)).min(1),
+    defaultLocale: z.string().min(1),
+    quality: z.enum(['development', 'release', 'reviewed-release']),
+    sourceFallback: z
+      .object({
+        messageCount: z.number().int().nonnegative(),
+        assetCount: z.number().int().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict();
 
 const diagnosticSchema = z
   .object({
@@ -174,6 +194,7 @@ export const preparedRuntimeArtifactSchema = z
     fileEntries: z.array(fileEntrySchema),
     manifestPreview: manifestPreviewSchema,
     packageOptions: packageOptionsSchema,
+    localization: preparedLocalizationSchema,
     diagnostics: z.array(diagnosticSchema),
   })
   .strict();

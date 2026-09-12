@@ -245,7 +245,11 @@ async function profileRows(
   templates: readonly InstalledTemplate[],
 ) {
   return profiles.map((profile) => {
-    const runtimeProfile = runtimeExportProfileForPlatform(project, profile.target);
+    const runtimeProfile = runtimeExportProfileForPlatform(
+      project,
+      profile.target,
+      profile.localization,
+    );
     const compatibleTemplate = templates.some((template) => {
       if (template.status === 'corrupted') return false;
       return evaluateTemplateCompatibility(template.descriptor, {
@@ -319,6 +323,7 @@ export const platformExportCommand: CliCommandDefinition = {
         '--sign',
         '--allow-untrusted-template',
         '--allow-identity-change',
+        '--allow-localization-warnings',
         '--include-unused-assets',
         '--include-shader-sources',
       ],
@@ -448,6 +453,7 @@ export const platformExportCommand: CliCommandDefinition = {
             sign: signingRequested,
             allowUntrustedTemplate: parsed.flags.has('--allow-untrusted-template'),
             allowIdentityChange: parsed.flags.has('--allow-identity-change'),
+            allowLocalizationWarnings: parsed.flags.has('--allow-localization-warnings'),
             runtimeOptions:
               parsed.flags.has('--include-unused-assets') ||
               parsed.flags.has('--include-shader-sources')

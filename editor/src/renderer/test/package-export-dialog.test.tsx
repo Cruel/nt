@@ -269,6 +269,30 @@ describe('PackageExportDialog', () => {
     ).toMatchObject({ web: { basePath: '/game/' } });
   });
 
+  it('requires interactive acknowledgement before exporting localization warnings', async () => {
+    const project = exportableProject(false);
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    project.export.runtime.localization = {
+      locales: ['fr'],
+      defaultLocale: 'fr',
+      quality: 'release',
+    };
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderExport(project, 'runtime');
+
+    expect(await screen.findByText(/Source fallback retained:/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringContaining('localization quality warning(s)'),
+    );
+    expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    await waitFor(() => expect(window.noveltea.exportPackage).toHaveBeenCalledTimes(1));
+    confirm.mockRestore();
+  });
+
   it('shows exceptional package controls only in Developer Mode', () => {
     const project = exportableProject();
     const first = renderExport(project);

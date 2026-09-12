@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { exportLocalizationPolicySchema } from './authoring-export';
 import { COMPILED_PROJECT_FORMAT_VERSION } from './compiled-project';
 import {
   preparedRuntimeArtifactSchema,
@@ -701,6 +702,11 @@ const platformProfileBase = z.object({
   excludeUnusedAssets: z.boolean().default(true),
   includeShaderSources: z.boolean().default(false),
   assetMemory: assetMemoryProfileSchema.default({ kind: 'builtin', preset: 'balanced' }),
+  localization: exportLocalizationPolicySchema.default({
+    locales: ['en'],
+    defaultLocale: 'en',
+    quality: 'release',
+  }),
 });
 
 const desktopProfileSchema = platformProfileBase
@@ -804,6 +810,11 @@ export function defaultPlatformExportProfile(
     excludeUnusedAssets: true,
     includeShaderSources: false,
     assetMemory: { kind: 'builtin' as const, preset: 'balanced' as const },
+    localization: {
+      locales: ['en'],
+      defaultLocale: 'en',
+      quality: 'release' as const,
+    },
   };
   if (target === 'web') {
     return platformExportProfileSchema.parse({
@@ -1318,6 +1329,7 @@ export interface ProjectPlatformExportRequest {
   force?: boolean;
   allowUntrustedTemplate?: boolean;
   allowIdentityChange?: boolean;
+  allowLocalizationWarnings?: boolean;
   sign?: boolean;
   runtimeOptions?: {
     excludeUnusedAssets?: boolean;
@@ -1346,6 +1358,7 @@ const projectPlatformExportRequestSchema = z
     force: z.boolean().optional(),
     allowUntrustedTemplate: z.boolean().optional(),
     allowIdentityChange: z.boolean().optional(),
+    allowLocalizationWarnings: z.boolean().optional(),
     sign: z.boolean().optional(),
     runtimeOptions: z
       .object({

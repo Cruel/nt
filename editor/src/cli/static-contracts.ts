@@ -35,10 +35,12 @@ Commands:
   test run-spec
   test run-ui-spec
   package export --output <path> [--profile <profile-id>]
+                 [--allow-localization-warnings]
                  [--include-unused-assets] [--include-shader-sources]
   platform profiles
   platform export --output <path> [--profile <id>] [--template <id>@<build>]
                   [--signing-profile <id>] [--config <file>] [--sign]
+                  [--allow-localization-warnings]
                   [--include-unused-assets] [--include-shader-sources]
                   [--check] [--force]
                   [--allow-untrusted-template] [--allow-identity-change]

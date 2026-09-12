@@ -3,6 +3,7 @@ import { buildShaderMaterialProject } from '../../shared/project-schema/shader-m
 import { buildRuntimePlaybackSpecFromAuthoringTest } from '../../shared/project-schema/test-playback-project';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
 import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
+import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
 import {
   nodeRuntimeArtifactPaths,
   nodeShaderCompilerAdapter,
@@ -191,7 +192,11 @@ export const packageExportCommand: CliCommandDefinition = {
   path: ['package', 'export'],
   parse(arguments_): CliCommandInvocation {
     const valueOptions = new Set(['--output', '--profile']);
-    const flags = new Set(['--include-unused-assets', '--include-shader-sources']);
+    const flags = new Set([
+      '--include-unused-assets',
+      '--include-shader-sources',
+      '--allow-localization-warnings',
+    ]);
     for (let index = 0; index < arguments_.length; index += 1) {
       const value = arguments_[index]!;
       if (flags.has(value)) continue;
@@ -206,6 +211,7 @@ export const packageExportCommand: CliCommandDefinition = {
     const requestedProfile = valueOption(arguments_, '--profile');
     const includeUnusedAssets = arguments_.includes('--include-unused-assets');
     const includeShaderSources = arguments_.includes('--include-shader-sources');
+    const allowLocalizationWarnings = arguments_.includes('--allow-localization-warnings');
     return {
       dryRun: false,
       mutation: false,
@@ -244,6 +250,21 @@ export const packageExportCommand: CliCommandDefinition = {
             diagnostics: prepared.diagnostics.map((item) =>
               cliDiagnostic(item.code, item.path, item.message, item.severity),
             ),
+          };
+        const localizationWarnings = localizationWarningDiagnostics(prepared.artifact.diagnostics);
+        if (localizationWarnings.length > 0 && !allowLocalizationWarnings)
+          return {
+            ok: false,
+            diagnostics: [
+              ...localizationWarnings.map((item) =>
+                cliDiagnostic(item.code, item.path, item.message, item.severity),
+              ),
+              cliDiagnostic(
+                'localization.export.warning_override_required',
+                '/export/runtime/localization',
+                'Localization quality warnings require explicit acknowledgement; pass --allow-localization-warnings to continue.',
+              ),
+            ],
           };
         return nativeSuccess(
           await context.nativeTools.exportPackage({

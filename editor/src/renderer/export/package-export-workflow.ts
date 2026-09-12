@@ -5,6 +5,7 @@ import type { PackageExportResponse, ToolDiagnostic } from '../../shared/editor-
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { ExportProfileData } from '../../shared/project-schema/authoring-export';
 import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
+import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
 import {
   classifyProjectValidationDiagnostics,
   collectProjectValidationDiagnostics,
@@ -22,6 +23,7 @@ export interface RunPackageExportWorkflowOptions {
   projectRoot: string | null;
   outputPath: string;
   profile: ExportProfileData;
+  allowLocalizationWarnings?: boolean;
 }
 
 function hasErrors(diagnostics: Array<{ severity: string }>) {
@@ -109,6 +111,33 @@ export async function runPackageExportWorkflow(
       detail: result,
     });
     workspace.setStatusMessage('Export blocked by runtime conversion diagnostics');
+    useBottomPanelStore.getState().setActivePanelId('package-export');
+    return result;
+  }
+
+  const localizationWarnings = localizationWarningDiagnostics(prepared.artifact.diagnostics);
+  if (localizationWarnings.length > 0 && options.allowLocalizationWarnings !== true) {
+    const diagnostics = [
+      ...localizationWarnings,
+      createProjectValidationDiagnostic({
+        code: 'localization.export.warning_override_required',
+        severity: 'error',
+        path: '/export/runtime/localization',
+        message:
+          'Localization quality warnings must be acknowledged before Runtime Package export.',
+        category: 'Localization export',
+        boundaries: ['runtime-package'],
+        ownerPaths: ['/export/runtime/localization'],
+      }),
+    ];
+    const result = failureResult('failed', options, diagnostics, {
+      validationDiagnostics: diagnostics,
+      fileEntries: prepared.artifact.fileEntries,
+      manifestPreview: prepared.artifact.manifestPreview,
+    });
+    exportStore.finish(result);
+    workspace.setLastExportResult(result);
+    workspace.setStatusMessage('Localization warnings require acknowledgement');
     useBottomPanelStore.getState().setActivePanelId('package-export');
     return result;
   }

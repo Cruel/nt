@@ -20,6 +20,7 @@ import { buildProjectSettingsTab, buildSettingsTab } from '@/workbench/editor-re
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
+import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsForEditing } from '../../shared/project-schema/authoring-project-settings';
 import {
@@ -404,7 +405,11 @@ export function PackageExportDialog({
   const platformRuntimeProfile = useMemo(() => {
     if (!project || !selectedPlatformProfile) return null;
     return {
-      ...runtimeExportProfileForPlatform(project, selectedPlatformProfile.target),
+      ...runtimeExportProfileForPlatform(
+        project,
+        selectedPlatformProfile.target,
+        selectedPlatformProfile.localization,
+      ),
       excludeUnusedAssets: selectedPlatformProfile.excludeUnusedAssets,
       includeShaderSources: selectedPlatformProfile.includeShaderSources,
       stripShaderSources: !selectedPlatformProfile.includeShaderSources,
@@ -659,11 +664,19 @@ export function PackageExportDialog({
     const label = newProfileName.trim();
     if (!label || currentPlatformSettings.profiles.some((item) => labelsEqual(item.label, label)))
       return;
+    const supportedLocales = Object.entries(currentProject.localization.locales)
+      .filter(([, definition]) => definition.supported)
+      .map(([locale]) => locale);
     setProfileDraft(
       parsePlatformExportProfile({
         ...defaultPlatformExportProfile(newProfileTarget),
         id: uniqueProfileId(newProfileTarget),
         label,
+        localization: {
+          locales: supportedLocales,
+          defaultLocale: currentProject.localization.defaultLocale,
+          quality: 'release',
+        },
       }),
     );
     setProfileEditMode('creating-config');
@@ -865,23 +878,33 @@ export function PackageExportDialog({
 
   async function runExport() {
     if (!canExport) return;
+    if (mode === 'platform' && readiness?.requiresIdentityConfirmation) {
+      setIdentityConfirmationOpen(true);
+      return;
+    }
+    const localizationWarnings = localizationWarningDiagnostics(preview?.diagnostics ?? []);
+    const allowLocalizationWarnings =
+      localizationWarnings.length === 0 ||
+      window.confirm(
+        t('settings:exportUi.confirmLocalizationWarnings', {
+          count: localizationWarnings.length,
+        }),
+      );
+    if (!allowLocalizationWarnings) return;
     if (mode === 'runtime') {
       await runPackageExportWorkflow({
         project: currentProject,
         projectRoot,
         outputPath,
         profile: { ...currentRuntimeProfile, outputPath },
+        allowLocalizationWarnings,
       });
       return;
     }
-    if (readiness?.requiresIdentityConfirmation) {
-      setIdentityConfirmationOpen(true);
-      return;
-    }
-    await runPlayablePlatformExport();
+    await runPlayablePlatformExport(allowLocalizationWarnings);
   }
 
-  async function runPlayablePlatformExport() {
+  async function runPlayablePlatformExport(allowLocalizationWarnings = false) {
     if (!selectedPlatformProfile || !template) return;
     const selectedTemplate =
       templates.find(
@@ -915,6 +938,7 @@ export function PackageExportDialog({
       outputDirectory: platformOutput,
       sign: signingEnabled,
       allowUntrustedTemplate,
+      allowLocalizationWarnings,
       localState: {
         ...toolchains,
         ...(Object.keys(signing).length > 0 ? { signing } : {}),
@@ -1318,6 +1342,106 @@ export function PackageExportDialog({
     </div>
   );
 
+  const supportedLocaleIds = Object.entries(currentProject.localization.locales)
+    .filter(([, definition]) => definition.supported)
+    .map(([locale]) => locale)
+    .sort();
+  const activeLocalizationPolicy =
+    mode === 'runtime'
+      ? activeRuntimeProfile.localization
+      : (selectedPlatformProfile?.localization ?? null);
+  const updateLocalizationPolicy = (localization: ExportProfileData['localization']) => {
+    if (mode === 'runtime') updateRuntimePackaging({ localization });
+    else updatePlatformPackaging({ localization });
+  };
+  const localizationOptions = activeLocalizationPolicy ? (
+    <div className="grid gap-3 rounded border p-3 text-sm">
+      <div>
+        <div className="font-medium">{t('settings:exportUi.localization')}</div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t('settings:exportUi.localizationDescription')}
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {supportedLocaleIds.map((locale) => (
+          <label key={locale} className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={activeLocalizationPolicy.locales.includes(locale)}
+              onChange={(event) => {
+                const locales = event.currentTarget.checked
+                  ? [...new Set([...activeLocalizationPolicy.locales, locale])].sort()
+                  : activeLocalizationPolicy.locales.filter((item) => item !== locale);
+                if (locales.length === 0) return;
+                updateLocalizationPolicy({
+                  ...activeLocalizationPolicy,
+                  locales,
+                  defaultLocale: locales.includes(activeLocalizationPolicy.defaultLocale)
+                    ? activeLocalizationPolicy.defaultLocale
+                    : locales[0]!,
+                });
+              }}
+            />
+            {locale}
+          </label>
+        ))}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="export-default-locale">{t('settings:exportUi.defaultLocale')}</Label>
+          <select
+            id="export-default-locale"
+            className="h-9 rounded border bg-background px-2 text-sm"
+            value={activeLocalizationPolicy.defaultLocale}
+            onChange={(event) =>
+              updateLocalizationPolicy({
+                ...activeLocalizationPolicy,
+                defaultLocale: event.currentTarget.value,
+              })
+            }
+          >
+            {activeLocalizationPolicy.locales.map((locale) => (
+              <option key={locale} value={locale}>
+                {locale}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="export-localization-quality">
+            {t('settings:exportUi.localizationQuality')}
+          </Label>
+          <select
+            id="export-localization-quality"
+            className="h-9 rounded border bg-background px-2 text-sm"
+            value={activeLocalizationPolicy.quality}
+            onChange={(event) =>
+              updateLocalizationPolicy({
+                ...activeLocalizationPolicy,
+                quality: event.currentTarget.value as ExportProfileData['localization']['quality'],
+              })
+            }
+          >
+            <option value="development">{t('settings:exportUi.localizationDevelopment')}</option>
+            <option value="release">{t('settings:exportUi.localizationRelease')}</option>
+            <option value="reviewed-release">
+              {t('settings:exportUi.localizationReviewedRelease')}
+            </option>
+          </select>
+        </div>
+      </div>
+      {preview ? (
+        <p className="text-xs text-muted-foreground">
+          {t('settings:exportUi.localizationClosureSummary', {
+            locales: preview.localization.includedLocales.join(', '),
+            messages: preview.localization.sourceFallback.messageCount,
+            assets: preview.localization.sourceFallback.assetCount,
+          })}
+        </p>
+      ) : null}
+    </div>
+  ) : null;
+
   const developerOptions = developerMode ? (
     <div className="grid gap-2 rounded border border-dashed p-3 text-xs">
       <div className="font-medium">{t('settings:exportUi.developer')}</div>
@@ -1533,6 +1657,7 @@ export function PackageExportDialog({
             </>
           ) : null}
 
+          {localizationOptions}
           {developerOptions}
 
           <div className="rounded border p-3 text-xs">
@@ -1766,7 +1891,17 @@ export function PackageExportDialog({
             <Button
               onClick={() => {
                 setIdentityConfirmationOpen(false);
-                void runPlayablePlatformExport();
+                const localizationWarnings = localizationWarningDiagnostics(
+                  preview?.diagnostics ?? [],
+                );
+                const acknowledged =
+                  localizationWarnings.length === 0 ||
+                  window.confirm(
+                    t('settings:exportUi.confirmLocalizationWarnings', {
+                      count: localizationWarnings.length,
+                    }),
+                  );
+                if (acknowledged) void runPlayablePlatformExport(true);
               }}
             >
               {t('settings:exportUi.continueExport')}

@@ -23,6 +23,7 @@ import {
   projectSettingsFromProject,
 } from '../../shared/project-schema/authoring-project-settings';
 import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
+import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
 import {
   prepareRuntimeArtifact,
   verifyPreparedRuntimeArtifact,
@@ -297,7 +298,7 @@ export async function exportProjectToPlatform(
     }
 
     const targetRuntimeProfile = {
-      ...runtimeExportProfileForPlatform(project, profile.target),
+      ...runtimeExportProfileForPlatform(project, profile.target, profile.localization),
       excludeUnusedAssets:
         request.runtimeOptions?.excludeUnusedAssets ?? profile.excludeUnusedAssets,
       includeShaderSources:
@@ -365,6 +366,24 @@ export async function exportProjectToPlatform(
       if (prepared.status === 'blocked')
         return failure(operationId, collectProjectValidationDiagnostics(prepared.diagnostics));
       artifact = prepared.artifact;
+    }
+
+    const localizationWarnings = localizationWarningDiagnostics(artifact.diagnostics);
+    if (localizationWarnings.length > 0 && request.allowLocalizationWarnings !== true) {
+      return failure(
+        operationId,
+        collectProjectValidationDiagnostics(localizationWarnings, [
+          createPlatformExportValidationDiagnostic({
+            code: 'localization.export.warning_override_required',
+            severity: 'error',
+            category: 'Localization export',
+            path: '/export/localization',
+            message:
+              'Localization quality warnings require explicit acknowledgement before unattended platform export. Pass --allow-localization-warnings or confirm the warnings in the editor.',
+            ownerPaths: ['/export/localization'],
+          }),
+        ]),
+      );
     }
 
     const localState = request.localState ?? {};

@@ -123,6 +123,51 @@ bool has_code(const Diagnostics& diagnostics, std::string_view code)
     return false;
 }
 
+CompiledProject localized_asset_project(bool use_variant)
+{
+    auto document = read_json("minimal");
+    document["localization"]["sourceLocale"] = "fr";
+    document["localization"]["defaultLocale"] = "fr";
+    document["localization"]["locales"][0]["locale"] = "fr";
+    document["localization"]["catalogs"][0]["locale"] = "fr";
+    document["resources"]["assets"] = nlohmann::json::array({
+        {{"id", "background"},
+         {"kind", "image"},
+         {"path", "assets/images/background.png"},
+         {"aliases", nlohmann::json::array()},
+         {"sampling", "linear"},
+         {"width", 1920},
+         {"height", 1080},
+         {"localized",
+          nlohmann::json::array(
+              {use_variant ? nlohmann::json{{"locale", "fr"},
+                                            {"state", "variant"},
+                                            {"asset", {{"kind", "asset"}, {"id", "background-fr"}}}}
+                           : nlohmann::json{{"locale", "fr"}, {"state", "source"}}})}},
+        {{"id", "background-fr"},
+         {"kind", "image"},
+         {"path", "assets/images/background-fr.png"},
+         {"aliases", nlohmann::json::array()},
+         {"sampling", "linear"},
+         {"width", 1920},
+         {"height", 1080}},
+    });
+    auto decoded = decode_compiled_project(document, "localized-package-test.json");
+    REQUIRE(decoded.has_value());
+    return std::move(decoded).value();
+}
+
+void erase_manifest_entry(nlohmann::json& manifest, std::string_view path)
+{
+    auto& entries = manifest["entries"];
+    for (auto iterator = entries.begin(); iterator != entries.end();) {
+        if (iterator->at("path").get<std::string>() == path)
+            iterator = entries.erase(iterator);
+        else
+            ++iterator;
+    }
+}
+
 } // namespace
 
 TEST_CASE("strict package and shader manifests decode separately")
@@ -206,6 +251,40 @@ TEST_CASE("compiled package assembles gameplay and prepared resource registries"
     CHECK(loaded.value().resources().find_material(material_id.value()) != nullptr);
     REQUIRE(loaded.value().resources().find_asset_by_alias("main-image") != nullptr);
     CHECK(loaded.value().resources().find_asset_by_alias("main-image")->id.text() == "image-main");
+}
+
+TEST_CASE("runtime package may omit localized base asset unused by supported locales")
+{
+    auto project = localized_asset_project(true);
+    auto document = package_manifest_for(project, false);
+    erase_manifest_entry(document, "assets/images/background.png");
+    auto manifest = decode_runtime_package_manifest(document);
+    REQUIRE(manifest.has_value());
+    auto files = inventory_for(manifest.value());
+
+    auto loaded = assemble_compiled_package(std::move(project), std::move(manifest).value(),
+                                            std::nullopt, std::move(files));
+    REQUIRE(loaded.has_value());
+    auto background = AssetId::create("background");
+    REQUIRE(background.has_value());
+    const auto* resolved = loaded.value().project().resolve_asset(background.value(), "fr");
+    REQUIRE(resolved != nullptr);
+    CHECK(resolved->id.text() == "background-fr");
+}
+
+TEST_CASE("runtime package still requires localized base asset used by a supported locale")
+{
+    auto project = localized_asset_project(false);
+    auto document = package_manifest_for(project, false);
+    erase_manifest_entry(document, "assets/images/background.png");
+    auto manifest = decode_runtime_package_manifest(document);
+    REQUIRE(manifest.has_value());
+    auto files = inventory_for(manifest.value());
+
+    auto loaded = assemble_compiled_package(std::move(project), std::move(manifest).value(),
+                                            std::nullopt, std::move(files));
+    REQUIRE_FALSE(loaded.has_value());
+    CHECK(has_code(loaded.error(), "runtime_package.missing_asset"));
 }
 
 TEST_CASE("compiled package rejects inventory and cross-document reference failures")
