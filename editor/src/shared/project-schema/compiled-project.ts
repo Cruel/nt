@@ -2343,11 +2343,37 @@ const localizationCatalogSchema = strict({
   ),
   locale: z.string().check(z.trim(), z.minLength(1)),
 });
+const compiledPluralRelationSchema = strict({
+  operand: z.enum(['n', 'i', 'v', 'w', 'f', 't', 'e']),
+  modulo: z.number().int().positive().nullable(),
+  negated: z.boolean(),
+  ranges: z
+    .array(strict({ minimum: finiteNumber.nonnegative(), maximum: finiteNumber.nonnegative() }))
+    .min(1),
+});
 const compiledLocaleSchema = strict({
   locale: z.string().check(z.trim(), z.minLength(1)),
   parentLocale: z.string().check(z.trim(), z.minLength(1)).nullable(),
   supported: z.boolean(),
+  nativeName: z.string().min(1),
+  displayName: z.string().min(1),
+  rightToLeft: z.boolean(),
   fontStack: z.array(assetReferenceSchema),
+  pluralCategories: z.array(z.enum(['zero', 'one', 'two', 'few', 'many', 'other'])).min(1),
+  pluralRules: z.array(
+    strict({
+      category: z.enum(['zero', 'one', 'two', 'few', 'many']),
+      alternatives: z.array(z.array(compiledPluralRelationSchema).min(1)).min(1),
+    }),
+  ),
+  numberFormat: strict({
+    decimalSeparator: z.string().min(1),
+    groupSeparator: z.string(),
+    primaryGroupSize: z.number().int().nonnegative().max(9),
+    secondaryGroupSize: z.number().int().nonnegative().max(9),
+    digits: z.array(z.string().min(1)).length(10),
+  }),
+  catalogPath: z.string().min(1).optional(),
 });
 const runtimeSettingsSchema = strict({
   display: strict({

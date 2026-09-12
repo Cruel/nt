@@ -89,7 +89,9 @@ export function classifyProjectWorkspaceWatchPath(
   );
   if (relative === 'assets' || relative.startsWith('assets/') || isKnownAssetSource) return 'asset';
   if (
-    ['project.json', 'traits.json', 'localization.json', 'editor.json'].includes(relative) ||
+    ['project.json', 'traits.json', 'editor.json'].includes(relative) ||
+    relative === 'i18n' ||
+    relative.startsWith('i18n/') ||
     relative === 'records' ||
     relative.startsWith('records/') ||
     relative === 'scripts' ||

@@ -623,6 +623,14 @@ void RuntimePresentationBridge::begin_locale_media_transition()
     if (m_locale_transition_generation == 0)
         ++m_locale_transition_generation;
     m_audio.begin_locale_audio_transition(m_locale_transition_generation);
+    if (m_locale_media_transition_backend)
+        m_locale_media_transition_backend(m_locale_transition_generation);
+}
+
+void RuntimePresentationBridge::bind_locale_media_transition_backend(
+    std::function<void(std::uint64_t)> backend)
+{
+    m_locale_media_transition_backend = std::move(backend);
 }
 
 core::Result<void, core::Diagnostics>

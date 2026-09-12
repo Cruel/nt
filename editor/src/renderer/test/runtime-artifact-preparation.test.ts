@@ -329,6 +329,77 @@ describe('Prepared Runtime Artifact module', () => {
       ).toBe('verified');
   });
 
+  it('partitions non-startup locale catalogs into package-local text entries', async () => {
+    const project = roomProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    project.localization.locales.es = { supported: true, parentLocale: null, fontStack: null };
+    const messages = localizationMessageWorkflowViews(project);
+    project.localization.translations.fr = Object.fromEntries(
+      messages.map((message) => [
+        message.id,
+        createLocalizationTranslation(message, `FR ${message.source}`, 'human', {
+          review: 'reviewed',
+        }),
+      ]),
+    );
+    project.localization.translations.es = Object.fromEntries(
+      messages.map((message) => [
+        message.id,
+        createLocalizationTranslation(message, `ES ${message.source}`, 'human', {
+          review: 'reviewed',
+        }),
+      ]),
+    );
+    const profile = {
+      ...defaultExportProfile(),
+      compileShadersBeforeExport: false,
+      localization: {
+        locales: ['fr', 'es'],
+        defaultLocale: 'fr',
+        quality: 'release' as const,
+      },
+    };
+
+    const result = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile,
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.compiledProject?.localization.sourceLocale).toBe('fr');
+    expect(result.compiledProject?.localization.defaultLocale).toBe('fr');
+    expect(result.compiledProject?.localization.catalogs.map((catalog) => catalog.locale)).toEqual([
+      'fr',
+    ]);
+    expect(
+      result.compiledProject?.localization.locales.find((locale) => locale.locale === 'es')
+        ?.catalogPath,
+    ).toBe('localization/es.json');
+    expect(result.packageOptions.textEntries).toHaveLength(1);
+    expect(result.packageOptions.textEntries[0]).toMatchObject({
+      packagePath: 'localization/es.json',
+      storage: 'compressed',
+    });
+    expect(JSON.parse(result.packageOptions.textEntries[0]!.text)).toMatchObject({ locale: 'es' });
+
+    const prepared = await prepareRuntimeArtifactForTest(project, {
+      projectRoot: '/project',
+      profile,
+    });
+    expect(prepared.status).toBe('prepared');
+    if (prepared.status === 'prepared')
+      expect(
+        (
+          await verifyPreparedRuntimeArtifact(prepared.artifact, {
+            project,
+            projectRoot: '/project',
+            profile,
+            paths: rendererRuntimeArtifactPaths,
+          })
+        ).status,
+      ).toBe('verified');
+  });
+
   it('retains a locale variant that is also referenced independently at runtime', async () => {
     const project = roomProject();
     project.assets['foyer-es'] = {

@@ -53,6 +53,7 @@ set(approved_source_paths
     "engine/src/render/material_codec.cpp"
     "engine/src/runtime_preview_controller.cpp"
     "tools/benchmark/main.cpp"
+    "tools/editor_tool/font_coverage_tool.cpp"
     "tools/editor_tool/shader_compiler.cpp"
     "tools/editor_tool/tooling_archive.cpp"
     "tools/editor_tool/tooling_image.cpp"

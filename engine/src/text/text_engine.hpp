@@ -1,6 +1,5 @@
 #pragma once
 
-#include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/text/text.hpp"
 
 #include <cstdint>
@@ -12,7 +11,18 @@
 #include <unordered_map>
 #include <vector>
 
+namespace noveltea::assets {
+class AssetManager;
+}
+
 namespace noveltea::text {
+
+struct FontAssetReadResult {
+    std::vector<std::uint8_t> bytes;
+    std::string error;
+};
+
+using FontAssetReader = FontAssetReadResult (*)(const void* context, std::string_view logical_path);
 
 struct FontMetrics {
     float ascender = 0.0f;
@@ -72,6 +82,7 @@ struct FontFamilySourceBytes {
 
 class TextEngine {
 public:
+    TextEngine(FontAssetReader reader, const void* reader_context);
     explicit TextEngine(const assets::AssetManager& assets);
     ~TextEngine();
 

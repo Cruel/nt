@@ -209,7 +209,7 @@ describe('NovelTea headless CLI', () => {
       options(value),
     );
     expect(accepted.exitCode).toBe(0);
-    expect(JSON.parse(accepted.stdout)).toMatchObject({ writes: ['localization.json'] });
+    expect(JSON.parse(accepted.stdout)).toMatchObject({ writes: ['i18n/locales/fr.json'] });
 
     const reviewed = await runNovelTeaCli(
       ['--json', 'localization', 'review', 'fr', messageId],
@@ -251,7 +251,7 @@ describe('NovelTea headless CLI', () => {
       [currentId]: createLocalizationTranslation(currentView, 'Actuel'),
     };
     const value = fixture(project);
-    const before = await value.fileSystem.readText(`${root}/localization.json`);
+    const before = await value.fileSystem.readText(`${root}/i18n/locales/fr.json`);
 
     const result = await runNovelTeaCli(
       ['--json', 'localization', 'review', 'fr', currentId, missingId],
@@ -262,7 +262,7 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(result.stdout).diagnostics).toContainEqual(
       expect.objectContaining({ code: 'localization.workflow.missing' }),
     );
-    expect(await value.fileSystem.readText(`${root}/localization.json`)).toBe(before);
+    expect(await value.fileSystem.readText(`${root}/i18n/locales/fr.json`)).toBe(before);
   });
 
   it('refuses human review for structurally invalid target content', async () => {
@@ -317,13 +317,13 @@ describe('NovelTea headless CLI', () => {
     layout.rml.sourceText = '<rml><body><nt-tr>Welcome</nt-tr></body></rml>';
     project.layouts.hud = { id: 'hud', label: 'Localized HUD', data: layout };
     const value = fixture(project);
-    const localizationBefore = await value.fileSystem.readText(`${root}/localization.json`);
+    const localizationBefore = await value.fileSystem.readText(`${root}/i18n/tracking.json`);
     const scriptBefore = await value.fileSystem.readText(`${root}/scripts/bootstrap.lua`);
     const rmlBefore = await value.fileSystem.readText(`${root}/records/layouts/hud/layout.rml`);
 
     const validation = await runNovelTeaCli(['--json', 'validate'], options(value));
     expect(validation.exitCode).toBe(0);
-    expect(await value.fileSystem.readText(`${root}/localization.json`)).toBe(localizationBefore);
+    expect(await value.fileSystem.readText(`${root}/i18n/tracking.json`)).toBe(localizationBefore);
 
     const dryRun = await runNovelTeaCli(
       ['--json', 'localization', 'sync', '--dry-run'],
@@ -331,7 +331,7 @@ describe('NovelTea headless CLI', () => {
     );
     expect(dryRun.exitCode).toBe(0);
     expect(JSON.parse(dryRun.stdout)).toMatchObject({ changed: true, writes: [] });
-    expect(await value.fileSystem.readText(`${root}/localization.json`)).toBe(localizationBefore);
+    expect(await value.fileSystem.readText(`${root}/i18n/tracking.json`)).toBe(localizationBefore);
 
     const synchronized = await runNovelTeaCli(['--json', 'localization', 'sync'], options(value));
     expect(synchronized.exitCode).toBe(0);
@@ -339,13 +339,13 @@ describe('NovelTea headless CLI', () => {
       changed: true,
       materializedMessageIds: expect.any(Array),
       unresolved: [],
-      writes: ['localization.json'],
+      writes: ['i18n/tracking.json'],
     });
-    const localization = JSON.parse(
-      await value.fileSystem.readText(`${root}/localization.json`),
-    ) as { sourceMessageTracking: Record<string, { family: string }> };
+    const tracking = JSON.parse(
+      await value.fileSystem.readText(`${root}/i18n/tracking.json`),
+    ) as Record<string, { family: string }>;
     expect(
-      Object.values(localization.sourceMessageTracking)
+      Object.values(tracking)
         .map((entry) => entry.family)
         .sort(),
     ).toEqual(['lua', 'rml']);
@@ -415,16 +415,15 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(applied.stdout)).toMatchObject({
       orphanedMessageIds: [messageId],
       materializedMessageIds: expect.any(Array),
-      writes: ['localization.json'],
+      writes: ['i18n/locales/fr.json', 'i18n/orphans.json', 'i18n/tracking.json'],
     });
-    const localization = JSON.parse(
-      await value.fileSystem.readText(`${root}/localization.json`),
-    ) as {
-      translations: Record<string, Record<string, unknown>>;
-      orphanedMessages: Record<string, { translations: Record<string, unknown> }>;
-    };
-    expect(localization.translations.fr?.[messageId]).toBeUndefined();
-    expect(localization.orphanedMessages[messageId]?.translations).toHaveProperty('fr');
+    await expect(value.fileSystem.readText(`${root}/i18n/locales/fr.json`)).rejects.toThrow(
+      'ENOENT',
+    );
+    const orphans = JSON.parse(
+      await value.fileSystem.readText(`${root}/i18n/orphans.json`),
+    ) as Record<string, { translations: Record<string, unknown> }>;
+    expect(orphans[messageId]?.translations).toHaveProperty('fr');
   });
 
   it('rejects a stale localization reconciliation plan before writing', async () => {
@@ -903,6 +902,9 @@ describe('NovelTea headless CLI', () => {
         receivedOptions = (request as { options?: unknown }).options;
         return { ok: true, success: true };
       },
+      async validateFontCoverage() {
+        return { ok: true, success: true, diagnostics: [] };
+      },
       shaderc() {
         return 0;
       },
@@ -955,6 +957,9 @@ describe('NovelTea headless CLI', () => {
       async exportPackage() {
         exports += 1;
         return { ok: true, success: true };
+      },
+      async validateFontCoverage() {
+        return { ok: true, success: true, diagnostics: [] };
       },
       shaderc() {
         return 0;
@@ -1015,6 +1020,9 @@ describe('NovelTea headless CLI', () => {
       },
       async exportPackage() {
         return { ok: true, success: true };
+      },
+      async validateFontCoverage() {
+        return { ok: true, success: true, diagnostics: [] };
       },
       shaderc() {
         return 0;
@@ -1116,6 +1124,7 @@ describe('NovelTea headless CLI', () => {
     ) as typeof project.shaders.basic;
     const value = fixture(project);
     let receivedOptions: unknown;
+    let receivedFontCoverage: unknown;
     const nativeTools: NovelTeaCliNativeToolService = {
       async compileShaders(_shaderProject, compileOptions) {
         receivedOptions = compileOptions;
@@ -1130,6 +1139,10 @@ describe('NovelTea headless CLI', () => {
       async exportPackage() {
         return {};
       },
+      async validateFontCoverage(request) {
+        receivedFontCoverage = request;
+        return { ok: true, success: true, diagnostics: [] };
+      },
       shaderc() {
         return 0;
       },
@@ -1139,6 +1152,10 @@ describe('NovelTea headless CLI', () => {
     };
     const result = await runNovelTeaCli(['--json', 'validate'], options(value, root, nativeTools));
     expect(result.exitCode).toBe(0);
+    expect(receivedFontCoverage).toMatchObject({
+      projectRoot: root,
+      locales: expect.arrayContaining([expect.objectContaining({ locale: 'en' })]),
+    });
     expect(receivedOptions).toMatchObject({
       projectRoot: root,
       outputRoot: `${root}/.noveltea/build`,
@@ -1171,6 +1188,9 @@ describe('NovelTea headless CLI', () => {
         },
         async exportPackage() {
           return {};
+        },
+        async validateFontCoverage() {
+          return { ok: true, success: true, diagnostics: [] };
         },
         shaderc() {
           return 0;
@@ -2116,7 +2136,15 @@ describe('NovelTea headless CLI', () => {
         'thumbnail_available',
         'thumbnail_url',
       ],
-      LocaleOptionProjection: ['locale', 'native_name', 'display_name', 'right_to_left', 'active'],
+      LocaleOptionProjection: [
+        'locale',
+        'native_name',
+        'display_name',
+        'right_to_left',
+        'direction',
+        'font_family',
+        'active',
+      ],
       LocaleChangeResultProjection: [
         'available',
         'succeeded',

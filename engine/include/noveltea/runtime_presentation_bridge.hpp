@@ -78,6 +78,7 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     commit_prepared_published_snapshot_resources();
     void begin_locale_media_transition();
+    void bind_locale_media_transition_backend(std::function<void(std::uint64_t)> backend);
     [[nodiscard]] core::Result<void, core::Diagnostics> reapply_published_snapshot_backend();
     void cancel_prepared_published_snapshot_resources() noexcept;
     [[nodiscard]] RuntimePresentationDispatchResult poll_audio();
@@ -141,6 +142,7 @@ private:
     std::optional<core::RuntimePresentationSnapshot> m_published_snapshot;
     bool m_hold_mandatory_commit = false;
     std::uint64_t m_locale_transition_generation = 0;
+    std::function<void(std::uint64_t)> m_locale_media_transition_backend;
 };
 
 } // namespace noveltea

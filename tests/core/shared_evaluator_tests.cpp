@@ -279,6 +279,8 @@ TEST_CASE("Message realization validates typed arguments and formats values for 
     localization.source_locale = "en";
     localization.default_locale = "en";
     localization.locales = {{"en", std::nullopt, true}, {"de", std::nullopt, true}};
+    localization.locales[1].number_format.decimal_separator = ",";
+    localization.locales[1].number_format.group_separator = ".";
     const std::vector<compiled::MessageArgumentDefinition> arguments = {
         {"name", compiled::MessageArgumentType::String},
         {"count", compiled::MessageArgumentType::Integer},
@@ -310,6 +312,25 @@ TEST_CASE("Message realization applies locale plural rules and exact selectors t
     localization.source_locale = "en";
     localization.default_locale = "ru";
     localization.locales = {{"en", std::nullopt, true}, {"ru", std::nullopt, true}};
+    auto& russian = localization.locales[1];
+    russian.plural_categories = {"one", "few", "many", "other"};
+    russian.plural_rules = {
+        {"one",
+         {{{compiled::PluralOperand::V, std::nullopt, false, {{0, 0}}},
+           {compiled::PluralOperand::I, 10, false, {{1, 1}}},
+           {compiled::PluralOperand::I, 100, true, {{11, 11}}}}}},
+        {"few",
+         {{{compiled::PluralOperand::V, std::nullopt, false, {{0, 0}}},
+           {compiled::PluralOperand::I, 10, false, {{2, 4}}},
+           {compiled::PluralOperand::I, 100, true, {{12, 14}}}}}},
+        {"many",
+         {{{compiled::PluralOperand::V, std::nullopt, false, {{0, 0}}},
+           {compiled::PluralOperand::I, 10, false, {{0, 0}}}},
+          {{compiled::PluralOperand::V, std::nullopt, false, {{0, 0}}},
+           {compiled::PluralOperand::I, 10, false, {{5, 9}}}},
+          {{compiled::PluralOperand::V, std::nullopt, false, {{0, 0}}},
+           {compiled::PluralOperand::I, 100, false, {{11, 14}}}}}},
+    };
 
     compiled::MessagePattern pattern;
     pattern.root = 0;
@@ -349,6 +370,49 @@ TEST_CASE("Message realization applies locale plural rules and exact selectors t
         {9, "ru", {{"count", std::int64_t{25}}, {"gender", std::string{"other"}}}});
     REQUIRE(many);
     CHECK(many->text == "25 предметов");
+}
+
+TEST_CASE("Message realization evaluates compiled CLDR rules for arbitrary locales")
+{
+    compiled::Localization localization;
+    localization.source_locale = "cy";
+    localization.default_locale = "cy";
+    compiled::LocaleDefinition welsh{"cy", std::nullopt, true};
+    welsh.plural_categories = {"zero", "one", "two", "few", "many", "other"};
+    const auto exact_n = [](std::string category, double value) {
+        return compiled::PluralRule{
+            std::move(category),
+            {{{compiled::PluralOperand::N, std::nullopt, false, {{value, value}}}}}};
+    };
+    welsh.plural_rules = {exact_n("zero", 0), exact_n("one", 1), exact_n("two", 2),
+                          exact_n("few", 3), exact_n("many", 6)};
+    localization.locales = {std::move(welsh)};
+
+    compiled::MessagePattern pattern;
+    pattern.root = 0;
+    pattern.nodes = {
+        {compiled::MessagePatternNodeKind::Plural,
+         {},
+         "count",
+         {{"zero", 1}, {"one", 2}, {"two", 3}, {"few", 4}, {"many", 5}, {"other", 6}}},
+        {compiled::MessagePatternNodeKind::Text, "zero", {}, {}},
+        {compiled::MessagePatternNodeKind::Text, "one", {}, {}},
+        {compiled::MessagePatternNodeKind::Text, "two", {}, {}},
+        {compiled::MessagePatternNodeKind::Text, "few", {}, {}},
+        {compiled::MessagePatternNodeKind::Text, "many", {}, {}},
+        {compiled::MessagePatternNodeKind::Text, "other", {}, {}},
+    };
+    const std::vector<compiled::MessageArgumentDefinition> arguments = {
+        {"count", compiled::MessageArgumentType::PluralNumber},
+    };
+    localization.catalogs = {{"cy", {{10, "", arguments, pattern}}}};
+
+    const MessageRealizer realizer(localization);
+    REQUIRE(realizer.realize({10, "cy", {{"count", std::int64_t{0}}}}));
+    CHECK(realizer.realize({10, "cy", {{"count", std::int64_t{0}}}})->text == "zero");
+    CHECK(realizer.realize({10, "cy", {{"count", std::int64_t{3}}}})->text == "few");
+    CHECK(realizer.realize({10, "cy", {{"count", std::int64_t{6}}}})->text == "many");
+    CHECK(realizer.realize({10, "cy", {{"count", std::int64_t{4}}}})->text == "other");
 }
 
 TEST_CASE("engine waits create typed owner-bound logical state and complete or cancel exactly")

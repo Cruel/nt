@@ -1,7 +1,126 @@
 import { z } from 'zod';
+import { cldrCardinalCategories } from '../cldr-cardinal-rules';
 import { isReservedSystemMessageKey, systemMessageDefinitionForKey } from './system-messages';
 
-export const localeIdSchema = z.string().check(z.trim(), z.minLength(1, 'Locale is required.'));
+function isAsciiAlpha(character: string): boolean {
+  if (character.length !== 1) return false;
+  const code = character.charCodeAt(0);
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isAsciiDigit(character: string): boolean {
+  if (character.length !== 1) return false;
+  const code = character.charCodeAt(0);
+  return code >= 48 && code <= 57;
+}
+
+function everyAscii(value: string, predicate: (character: string) => boolean): boolean {
+  for (let index = 0; index < value.length; index += 1) if (!predicate(value[index]!)) return false;
+  return true;
+}
+
+function isAlphaSubtag(value: string, minimum: number, maximum: number): boolean {
+  return value.length >= minimum && value.length <= maximum && everyAscii(value, isAsciiAlpha);
+}
+
+function isAlphanumericSubtag(value: string, minimum: number, maximum: number): boolean {
+  return (
+    value.length >= minimum &&
+    value.length <= maximum &&
+    everyAscii(value, (character) => isAsciiAlpha(character) || isAsciiDigit(character))
+  );
+}
+
+export function canonicalBcp47Locale(locale: string): string | null {
+  const subtags = locale.split('-');
+  if (subtags.length === 0 || subtags.some((subtag) => subtag.length === 0)) return null;
+  let index = 0;
+  const canonical: string[] = [];
+  const language = subtags[index++];
+  if (!language || !isAlphaSubtag(language, 2, 8)) return null;
+  canonical.push(language.toLowerCase());
+
+  if (language.length <= 3) {
+    for (let count = 0; count < 3 && isAlphaSubtag(subtags[index] ?? '', 3, 3); count += 1)
+      canonical.push(subtags[index++]!.toLowerCase());
+  }
+  if (isAlphaSubtag(subtags[index] ?? '', 4, 4)) {
+    const script = subtags[index++]!;
+    canonical.push(`${script[0]!.toUpperCase()}${script.slice(1).toLowerCase()}`);
+  }
+  const region = subtags[index] ?? '';
+  if (isAlphaSubtag(region, 2, 2) || (region.length === 3 && everyAscii(region, isAsciiDigit))) {
+    index += 1;
+    canonical.push(isAsciiAlpha(region[0] ?? '') ? region.toUpperCase() : region);
+  }
+
+  const variants = new Set<string>();
+  while (true) {
+    const variantCandidate = subtags[index] ?? '';
+    const variant =
+      isAlphanumericSubtag(variantCandidate, 5, 8) ||
+      (variantCandidate.length === 4 &&
+        isAsciiDigit(variantCandidate[0] ?? '') &&
+        isAlphanumericSubtag(variantCandidate, 4, 4));
+    if (!variant) break;
+    const normalized = variantCandidate.toLowerCase();
+    if (variants.has(normalized)) return null;
+    variants.add(normalized);
+    canonical.push(normalized);
+    index += 1;
+  }
+
+  const extensions = new Set<string>();
+  while (true) {
+    const singletonCandidate = subtags[index] ?? '';
+    if (
+      singletonCandidate.length !== 1 ||
+      (!isAsciiAlpha(singletonCandidate) && !isAsciiDigit(singletonCandidate)) ||
+      singletonCandidate.toLowerCase() === 'x'
+    )
+      break;
+    const singleton = singletonCandidate.toLowerCase();
+    if (extensions.has(singleton)) return null;
+    extensions.add(singleton);
+    canonical.push(singleton);
+    index += 1;
+    let extensionCount = 0;
+    while (isAlphanumericSubtag(subtags[index] ?? '', 2, 8)) {
+      canonical.push(subtags[index++]!.toLowerCase());
+      extensionCount += 1;
+    }
+    if (extensionCount === 0) return null;
+  }
+
+  if ((subtags[index] ?? '').toLowerCase() === 'x') {
+    canonical.push('x');
+    index += 1;
+    let privateCount = 0;
+    while (isAlphanumericSubtag(subtags[index] ?? '', 1, 8)) {
+      canonical.push(subtags[index++]!.toLowerCase());
+      privateCount += 1;
+    }
+    if (privateCount === 0) return null;
+  }
+  return index === subtags.length ? canonical.join('-') : null;
+}
+
+export const localeIdSchema = z
+  .string()
+  .check(z.trim(), z.minLength(1, 'Locale is required.'))
+  .superRefine((locale, context) => {
+    const canonical = canonicalBcp47Locale(locale);
+    if (canonical === null)
+      context.addIssue({
+        code: 'custom',
+        message: `Locale '${locale}' is not a valid BCP 47 locale tag.`,
+      });
+    else if (canonical !== locale)
+      context.addIssue({
+        code: 'custom',
+        message: `Locale '${locale}' must be a canonical BCP 47 locale tag ('${canonical}').`,
+      });
+  });
 export const messageIdSchema = z.string().uuid('Message ID must be a UUID.');
 export const namedMessageKeySchema = z
   .string()
@@ -17,11 +136,12 @@ const assetRefSchema = z
   .strict();
 const fontAssetRefSchema = assetRefSchema;
 
-const localeDefinitionSchema = z
+export const localeDefinitionSchema = z
   .object({
     supported: z.boolean(),
     parentLocale: localeIdSchema.nullable(),
     fontStack: z.array(fontAssetRefSchema).nullable(),
+    displayName: z.string().trim().min(1).optional(),
   })
   .strict();
 
@@ -121,17 +241,7 @@ export type MessageSelectorContract = {
 };
 
 export function requiredPluralCategories(locale: string): readonly string[] {
-  const language = locale.toLowerCase().split('-')[0] ?? locale.toLowerCase();
-  if (['zh', 'ja', 'ko', 'th', 'vi', 'id', 'ms'].includes(language))
-    return Object.freeze(['other']);
-  if (language === 'ar') return Object.freeze(['zero', 'one', 'two', 'few', 'many', 'other']);
-  if (['ru', 'uk', 'be', 'pl'].includes(language))
-    return Object.freeze(['one', 'few', 'many', 'other']);
-  if (['cs', 'sk', 'lt'].includes(language)) return Object.freeze(['one', 'few', 'many', 'other']);
-  if (language === 'sl') return Object.freeze(['one', 'two', 'few', 'other']);
-  if (language === 'ro') return Object.freeze(['one', 'few', 'other']);
-  if (language === 'he') return Object.freeze(['one', 'two', 'other']);
-  return Object.freeze(['one', 'other']);
+  return Object.freeze([...cldrCardinalCategories(locale)].sort());
 }
 
 export type MessagePluralCategoryGap = { argument: string; category: string };
@@ -316,13 +426,25 @@ export const orphanedLocalizationMessageSchema = z
   })
   .strict();
 
+export function hasSubstantiveLocalizationWork(localization: {
+  translations: Record<string, Record<string, unknown>>;
+  assets: Record<string, Record<string, unknown>>;
+}): boolean {
+  return (
+    Object.values(localization.translations).some((entries) => Object.keys(entries).length > 0) ||
+    Object.values(localization.assets).some((entries) => Object.keys(entries).length > 0)
+  );
+}
+
 export const authoringLocalizationSchema = z
   .object({
     sourceLocale: localeIdSchema,
+    sourceLocaleLock: localeIdSchema.nullable().default(null),
     defaultLocale: localeIdSchema,
     locales: z.record(localeIdSchema, localeDefinitionSchema),
     messages: z.record(messageIdSchema, authoringMessageSchema),
     structuredMessageIds: z.record(z.string().min(1), messageIdSchema),
+    usageNotes: z.record(z.string().min(1), z.string()),
     sourceMessageTracking: z.record(z.string().min(1), sourceMessageTrackingEntrySchema),
     orphanedMessages: z.record(messageIdSchema, orphanedLocalizationMessageSchema),
     translations: z.record(localeIdSchema, localizationTranslationSchema),
@@ -337,6 +459,21 @@ export const authoringLocalizationSchema = z
         message: `Source locale '${localization.sourceLocale}' must be declared.`,
       });
     }
+    if (localization.sourceLocaleLock !== null) {
+      if (!Object.hasOwn(localization.locales, localization.sourceLocaleLock))
+        context.addIssue({
+          code: 'custom',
+          path: ['sourceLocaleLock'],
+          message: `Source locale lock '${localization.sourceLocaleLock}' must be a declared locale.`,
+        });
+      if (localization.sourceLocaleLock !== localization.sourceLocale)
+        context.addIssue({
+          code: 'custom',
+          path: ['sourceLocale'],
+          message: `Source locale cannot change from locked locale '${localization.sourceLocaleLock}' after substantive localization work exists.`,
+        });
+    }
+
     if (!Object.hasOwn(localization.locales, localization.defaultLocale)) {
       context.addIssue({
         code: 'custom',
@@ -509,7 +646,12 @@ export const authoringLocalizationSchema = z
           message: 'Source locale uses semantic base Assets directly.',
         });
     }
-  });
+  })
+  .transform((localization) =>
+    localization.sourceLocaleLock === null && hasSubstantiveLocalizationWork(localization)
+      ? { ...localization, sourceLocaleLock: localization.sourceLocale }
+      : localization,
+  );
 
 export type AuthoringMessage = z.infer<typeof authoringMessageSchema>;
 export type DialogueCuePlacement = z.infer<typeof dialogueCuePlacementSchema>;
@@ -524,10 +666,12 @@ export type AuthoringLocalization = z.infer<typeof authoringLocalizationSchema>;
 export function defaultAuthoringLocalization(): AuthoringLocalization {
   return {
     sourceLocale: 'en',
+    sourceLocaleLock: null,
     defaultLocale: 'en',
     locales: { en: { supported: true, parentLocale: null, fontStack: null } },
     messages: {},
     structuredMessageIds: {},
+    usageNotes: {},
     sourceMessageTracking: {},
     orphanedMessages: {},
     translations: {},

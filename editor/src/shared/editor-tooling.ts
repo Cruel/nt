@@ -83,6 +83,11 @@ export interface PackageExportOptions {
     packagePath: string;
     storage?: 'auto' | 'stored' | 'compressed';
   }>;
+  textEntries?: Array<{
+    text: string;
+    packagePath: string;
+    storage?: 'auto' | 'stored' | 'compressed';
+  }>;
   requiredSeekablePaths?: string[];
   display?: {
     reference_resolution: { width: number; height: number };

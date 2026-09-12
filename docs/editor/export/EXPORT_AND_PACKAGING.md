@@ -55,13 +55,18 @@ only the exceptional overrides `Exclude Unused Assets` and `Include Shader Sourc
 shader compilation, shader-variant closure, and other package mechanics remain automatic.
 
 Localization closure is part of `prepareRuntimeArtifact`, so Runtime Package and every platform
-export consume the same prepared contract. Preparation emits only the selected locale definitions and
-catalogs, clears runtime parent-locale dependencies, and materializes each selected Message catalog
-with its effective inherited or source-fallback realization. The detached package rebinds its compiled
-`sourceLocale` to the export default; explicit localized Asset realization therefore also applies at
-that package source locale. Localized Asset mappings are flattened through the same selected-locale
-closure; only selected variants, required source realizations, and selected-locale font-stack assets
-are forced into normal package payload. Native package validation permits an authored base media file
+export consume the same prepared contract. Preparation emits only the selected locale definitions,
+clears runtime parent-locale dependencies, and materializes each selected Message catalog with its
+effective inherited or source-fallback realization. Runtime-package assembly then keeps only the
+Source/export-default startup catalog in `game` and serializes the other selected catalogs as compact
+`localization/<locale>.json` entries referenced by each compiled locale's `catalogPath`. The detached
+package rebinds its compiled `sourceLocale` to the export default; explicit localized Asset realization
+therefore also applies at that package source locale. Localized Asset mappings are flattened through
+the same selected-locale closure; only selected variants, required source realizations, and
+selected-locale font-stack assets are forced into normal package payload. Native package validation
+checks detached catalogs one at a time against the source contract without retaining every language;
+runtime locale switching demand-loads only the candidate catalog and returns residency to Source plus
+active locale after commit. Native package validation permits an authored base media file
 to be absent only when every selectable packaged locale resolves that logical Asset to another
 physical realization. When every selected realization is complete, authoring-source Message/media
 payload may disappear entirely. `Use source intentionally`

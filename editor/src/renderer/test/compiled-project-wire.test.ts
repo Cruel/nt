@@ -81,7 +81,46 @@ function representativeWireFixture() {
     localization: {
       sourceLocale: 'en',
       defaultLocale: 'en',
-      locales: [{ locale: 'en', parentLocale: null, supported: true, fontStack: [] }],
+      locales: [
+        {
+          locale: 'en',
+          parentLocale: null,
+          supported: true,
+          nativeName: 'English',
+          displayName: 'English',
+          rightToLeft: false,
+          fontStack: [],
+          pluralCategories: ['one', 'other'],
+          pluralRules: [
+            {
+              category: 'one',
+              alternatives: [
+                [
+                  {
+                    operand: 'i',
+                    modulo: null,
+                    negated: false,
+                    ranges: [{ minimum: 1, maximum: 1 }],
+                  },
+                  {
+                    operand: 'v',
+                    modulo: null,
+                    negated: false,
+                    ranges: [{ minimum: 0, maximum: 0 }],
+                  },
+                ],
+              ],
+            },
+          ],
+          numberFormat: {
+            decimalSeparator: '.',
+            groupSeparator: ',',
+            primaryGroupSize: 3,
+            secondaryGroupSize: 3,
+            digits: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+          },
+        },
+      ],
       catalogs: [
         {
           locale: 'en',

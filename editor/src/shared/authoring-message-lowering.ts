@@ -1,3 +1,4 @@
+import { cldrCardinalCategories, cldrCardinalRules } from './cldr-cardinal-rules';
 import type { TextContent } from './project-schema/authoring-flow';
 import type { AuthoringProject } from './project-schema/authoring-project';
 import type { CompiledProjectWire, CompiledText } from './project-schema/compiled-project';
@@ -18,6 +19,56 @@ function sortedEntries<T>(record: Readonly<Record<string, T>>): [string, T][] {
   return Object.entries(record).sort(([left], [right]) =>
     left < right ? -1 : left > right ? 1 : 0,
   );
+}
+
+function localePresentationMetadata(locale: string, displayNameOverride?: string) {
+  let nativeName = locale;
+  let rightToLeft = false;
+  const pluralCategories = cldrCardinalCategories(locale);
+  const pluralRules = cldrCardinalRules(locale);
+  let numberFormat = {
+    decimalSeparator: '.',
+    groupSeparator: ',',
+    primaryGroupSize: 3,
+    secondaryGroupSize: 3,
+    digits: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+  };
+  try {
+    nativeName = new Intl.DisplayNames([locale], { type: 'language' }).of(locale) ?? locale;
+    const script = new Intl.Locale(locale).maximize().script;
+    rightToLeft = Boolean(
+      script && ['Adlm', 'Arab', 'Hebr', 'Nkoo', 'Rohg', 'Syrc', 'Thaa'].includes(script),
+    );
+    const formatter = new Intl.NumberFormat(locale, {
+      useGrouping: true,
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    });
+    const parts = formatter.formatToParts(123456789.5);
+    const integerParts = parts.filter((part) => part.type === 'integer').map((part) => part.value);
+    const primaryGroupSize = integerParts.at(-1)?.length ?? 0;
+    const secondaryGroupSize = integerParts.at(-2)?.length ?? primaryGroupSize;
+    const digits = Array.from({ length: 10 }, (_, digit) =>
+      new Intl.NumberFormat(locale, { useGrouping: false }).format(digit),
+    );
+    numberFormat = {
+      decimalSeparator: parts.find((part) => part.type === 'decimal')?.value ?? '.',
+      groupSeparator: parts.find((part) => part.type === 'group')?.value ?? '',
+      primaryGroupSize,
+      secondaryGroupSize,
+      digits,
+    };
+  } catch {
+    // Canonical Project validation rejects invalid locale tags; retain a deterministic fallback here.
+  }
+  return {
+    nativeName,
+    displayName: displayNameOverride ?? nativeName,
+    rightToLeft,
+    pluralCategories,
+    pluralRules,
+    numberFormat,
+  };
 }
 
 type CompiledPattern = NonNullable<
@@ -161,6 +212,7 @@ export function compileLocalization(
       locale,
       parentLocale: definition.parentLocale,
       supported: definition.supported,
+      ...localePresentationMetadata(locale, definition.displayName),
       fontStack: (definition.fontStack ?? project.settings.text.fontStack).map((ref) => ({
         kind: 'asset' as const,
         id: ref.$ref.id,

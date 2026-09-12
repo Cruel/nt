@@ -502,6 +502,17 @@ RunningGame::prepare_load_candidate(core::TypedSaveSlotId slot, ScriptInvocation
             std::move(binding), std::move(*session.value_if()), std::move(initial))));
 }
 
+core::Result<void, core::Diagnostics>
+RunningGame::install_locale_catalog(core::compiled::LocalizationCatalog catalog)
+{
+    return m_package.install_runtime_localization_catalog(std::move(catalog));
+}
+
+void RunningGame::retain_locale_catalogs(std::string_view active_locale)
+{
+    m_package.retain_runtime_localization_catalogs(active_locale);
+}
+
 RuntimeDispatchResult RunningGame::commit_locale(std::string locale)
 {
     auto result = m_session->commit_locale(locale);

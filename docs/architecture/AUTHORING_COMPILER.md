@@ -16,9 +16,13 @@ locale. Project localization stores opaque stable Message identities, one Source
 Default locale, explicit locale metadata, sparse target translations, and sparse structured-owner
 identity overrides for editor-mediated semantic refactors. Lowering deterministically sorts stable
 Message IDs into dense package-local `MessageId` values and emits source/target Message
-catalogs without publishing authoring UUIDs. The shared authoring Message-resolution seam owns
-requested-locale parent traversal and Source-locale fallback for tooling that needs a concrete value,
-including focused preview and dependency invalidation, so callers do not duplicate realization policy.
+catalogs without publishing authoring UUIDs. Locale lowering also compiles NovelTea's vendored
+Unicode-CLDR cardinal rule data into a compact rule program and captures locale number symbols,
+grouping, digits, display names, direction, and font selection. Players therefore evaluate the same
+compiled locale semantics without linking ICU or another localization runtime. The shared authoring
+Message-resolution seam owns requested-locale parent traversal and Source-locale fallback for tooling
+that needs a concrete value, including focused preview and dependency invalidation, so callers do not
+duplicate realization policy.
 
 The compiler always runs named stages: normalization, semantic validation, symbol linking, lowering,
 resource collection, assembly, wire validation, and canonical serialization. During assembly it also

@@ -318,6 +318,25 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
                      [](const auto& layout) { return layout.id; });
     index_collection(registries.script_indexes, project.scripts(),
                      [](const auto& script) { return script.id; });
+    for (std::size_t locale_index = 0; locale_index < project.localization().locales.size();
+         ++locale_index) {
+        const auto& locale = project.localization().locales[locale_index];
+        if (!locale.catalog_path)
+            continue;
+        const auto path = normalized_package_path(*locale.catalog_path);
+        if (!ProjectPackageWriter::is_allowed_package_path(path) ||
+            !path.starts_with("localization/"))
+            add_assembly_error(diagnostics, "runtime_package.invalid_locale_catalog_path",
+                               "Locale catalog path is unsafe or outside localization/.",
+                               "/localization/locales/" + std::to_string(locale_index) +
+                                   "/catalogPath");
+        else if (!declared.contains(path))
+            add_assembly_error(diagnostics, "runtime_package.missing_locale_catalog",
+                               "Locale catalog package entry is missing: '" + path + "'.",
+                               "/localization/locales/" + std::to_string(locale_index) +
+                                   "/catalogPath");
+    }
+
     for (std::size_t asset_index = 0; asset_index < project.assets().size(); ++asset_index) {
         const auto& asset = project.assets()[asset_index];
         const std::string path = normalized_package_path(asset.path);

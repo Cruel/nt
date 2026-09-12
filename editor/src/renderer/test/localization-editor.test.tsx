@@ -89,9 +89,14 @@ describe('LocalizationEditor', () => {
     });
 
     const row = screen.getByTestId('locale-row-fr-CA');
+    const displayName = within(row).getByLabelText('Display name override for fr-CA');
+    await user.type(displayName, 'Français canadien');
+    await user.tab();
     await user.click(within(row).getByRole('switch', { name: 'Supported' }));
     expect(useProjectStore.getState().document).toMatchObject({
-      localization: { locales: { 'fr-CA': { supported: true } } },
+      localization: {
+        locales: { 'fr-CA': { supported: true, displayName: 'Français canadien' } },
+      },
     });
     expect(within(row).getByRole('button', { name: 'Remove fr-CA' })).toBeDisabled();
   });
@@ -696,6 +701,72 @@ describe('LocalizationEditor', () => {
     await user.type(offset, '2');
     await user.tab();
     expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeEnabled();
+  });
+
+  it('filters translation work queues and bulk-reviews only current valid filtered targets', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    const aiId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f070';
+    const missingId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f071';
+    project.localization.messages[aiId] = { kind: 'named', key: 'ui.ai', source: 'AI source' };
+    project.localization.messages[missingId] = {
+      kind: 'named',
+      key: 'ui.missing',
+      source: 'Missing source',
+    };
+    const aiView = localizationMessageWorkflowView(project, aiId)!;
+    project.localization.translations.fr = {
+      [aiId]: createLocalizationTranslation(aiView, 'Texte IA', 'ai'),
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await user.click(screen.getByRole('combobox', { name: 'Translation status filter' }));
+    await user.click(await screen.findByRole('option', { name: 'AI' }));
+
+    expect(screen.getByDisplayValue('Texte IA')).toBeInTheDocument();
+    expect(screen.queryByText('Missing source')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Mark filtered current as reviewed' }));
+
+    const current = useProjectStore.getState().document as AuthoringProject;
+    expect(current.localization.translations.fr?.[aiId]?.review).toBe('reviewed');
+    expect(current.localization.translations.fr?.[missingId]).toBeUndefined();
+  });
+
+  it('does not let editor review bypass structural translation validation', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f072';
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.parameterized',
+      source: 'Hello {name}',
+      arguments: { name: 'string' },
+    };
+    const view = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Bonjour {missing}'),
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Mark filtered current as reviewed' }));
+
+    const current = useProjectStore.getState().document as AuthoringProject;
+    expect(current.localization.translations.fr?.[messageId]?.review).toBe('needs-review');
   });
 
   it('blocks source-locale changes after target translation work exists', async () => {

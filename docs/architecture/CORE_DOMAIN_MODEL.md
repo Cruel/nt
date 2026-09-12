@@ -78,11 +78,13 @@ runtime resources, not gameplay entities. They need no common entity interface. 
 opaque stable Message identities, while the Compiled Project remaps them deterministically to dense
 package-local `MessageId` values. Compiled Messages may also carry a stable named-argument contract;
 the initial value types are printable, string, number, integer, and plural-number. `MessageRealizer`
-owns locale realization over the compiled locale inventory and sparse Message catalogs: it follows the
-requested locale's explicit parent chain, falls back to the Source locale, validates supplied argument
-values, performs locale-aware value formatting, and substitutes required placeholders. A compiled
-Message may additionally carry a recursive `text` / `plural` / `select` pattern. Plural selectors use
-the active locale's CLDR cardinal categories; generic selectors use exact string matching and require
+owns locale realization over the compiled locale inventory and sparse Message catalogs: it negotiates
+a Supported locale, falls back to the Source realization when needed, validates supplied argument
+values, formats numeric values from compiled locale symbols/grouping/digit metadata, and substitutes
+required placeholders. Runtime packages may keep non-active catalogs as detached package entries;
+`MessageRealizer` sees only the bounded Source/active typed catalog working set. A compiled Message may
+additionally carry a recursive `text` / `plural` / `select` pattern. Plural selectors execute the
+locale's compiler-emitted Unicode-CLDR cardinal rule program; generic selectors use exact string matching and require
 an `other` branch. The pattern model is recursive from its first version so one named Message may use
 multiple selectors, while local Lua plural/select helpers deliberately lower to the single-selector
 subset. Translators may reorder placeholders and selector structure, but compiled target catalogs must

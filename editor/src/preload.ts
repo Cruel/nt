@@ -51,7 +51,8 @@ const api: NovelTeaElectronApi = {
   createProject: (request) => invokeGuarded(IPC_CHANNELS.CREATE_PROJECT, request),
   openProject: (projectPath: string) => invokeGuarded(IPC_CHANNELS.OPEN_PROJECT, projectPath),
   closeActiveProject: () => invokeGuarded(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT),
-  validateProject: (project: unknown) => ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_PROJECT, project),
+  validateProject: (projectSessionId: string, project: unknown) =>
+    ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_PROJECT, projectSessionId, project),
   listPlaybackTests: (project: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.LIST_PLAYBACK_TESTS, project),
   runPlaybackTest: (project: unknown, testId: string) =>

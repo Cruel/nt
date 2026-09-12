@@ -2,6 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createNovelTeaAgentKitPayload } from '../src/cli/agent-kit';
 import { runNovelTeaCli } from '../src/cli/application';
 import type { NovelTeaCliNativeToolService } from '../src/cli/native-tool-service';
+import type {
+  LocalizationFontCoverageRequest,
+  LocalizationFontCoverageResponse,
+} from '../src/shared/localization-font-coverage';
 import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
 import { createNovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service-node';
 import { configureImageInspectionService } from '../src/main/services/image-inspection-service';
@@ -42,6 +46,9 @@ function createNativeTools(invoke: ScriptcHostInvoke): NovelTeaCliNativeToolServ
     },
     async exportPackage(request) {
       return call('export-package', request);
+    },
+    async validateFontCoverage(request) {
+      return call('font-coverage', request) as LocalizationFontCoverageResponse;
     },
     shaderc(arguments_) {
       const response = call('shaderc', arguments_) as { exitCode?: unknown };
@@ -142,7 +149,13 @@ async function runInternalCommand(
   else if (operation === 'run-test') response = await nativeTools.runHeadlessTest(input);
   else if (operation === 'run-ui-test') response = await nativeTools.runUiTest(input);
   else if (operation === 'export-package') response = await nativeTools.exportPackage(input);
-  else return result(2, '', `Unknown internal editor native operation '${operation}'.\n`);
+  else if (operation === 'font-coverage') {
+    if (nativeTools.validateFontCoverage === undefined)
+      return result(1, '', 'Font coverage native validation is unavailable.\n');
+    response = await nativeTools.validateFontCoverage(
+      input as unknown as LocalizationFontCoverageRequest,
+    );
+  } else return result(2, '', `Unknown internal editor native operation '${operation}'.\n`);
 
   const record =
     response && typeof response === 'object' ? (response as Record<string, unknown>) : {};

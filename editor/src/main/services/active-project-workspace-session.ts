@@ -568,7 +568,7 @@ export class ActiveProjectWorkspaceSession {
       else if (record) invalidOwnerPaths.add(`/${record[1]}/${record[2]}`);
       else if (scriptOwner) invalidOwnerPaths.add(`/scripts/${scriptOwner[0]}`);
       else if (file === 'traits.json') invalidOwnerPaths.add('/traits');
-      else if (file === 'localization.json') invalidOwnerPaths.add('/localization');
+      else if (file === 'i18n' || file.startsWith('i18n/')) invalidOwnerPaths.add('/localization');
       else if (file === 'editor.json') invalidOwnerPaths.add('/editor');
       else {
         const attributedPaths = Object.values(this.snapshotValue.saveUnitFileOwnership)

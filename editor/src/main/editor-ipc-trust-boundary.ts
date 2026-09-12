@@ -493,7 +493,10 @@ const playbackSpecSchema = z
   })
   .strict();
 
-export const validateProjectArgumentsSchema = z.tuple([authoringProjectSchema]);
+export const validateProjectArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  authoringProjectSchema,
+]);
 export const listPlaybackTestsArgumentsSchema = z.tuple([authoringProjectSchema]);
 export const runPlaybackTestArgumentsSchema = z.tuple([
   authoringProjectSchema,

@@ -19,4 +19,10 @@ decode_compiled_project(const nlohmann::json& document, std::string source_path 
 [[nodiscard]] Result<CompiledProject, Diagnostics>
 decode_compiled_project_json(std::string_view text, std::string source_path = {});
 
+// Decodes one package-local locale catalog using the exact compiled-project catalog grammar.
+// Semantic compatibility with the resident source catalog is validated separately by the package
+// localization boundary before the catalog is activated.
+[[nodiscard]] Result<compiled::LocalizationCatalog, Diagnostics>
+decode_localization_catalog_json(std::string_view text, std::string source_path = {});
+
 } // namespace noveltea::core

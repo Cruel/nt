@@ -176,7 +176,10 @@ async function resetCase(pristine, root) {
 }
 
 function runNode(args, options = {}) {
-  return run(process.execPath, [nodeCli, ...args], options);
+  return run(process.execPath, [nodeCli, ...args], {
+    ...options,
+    env: { ...process.env, ...options.env, NOVELTEA_CLI: nativeCli },
+  });
 }
 
 function runNative(args, options = {}) {
@@ -849,6 +852,29 @@ async function certifyNativeOperations(tempRoot, pristine) {
   );
   if (!(await stat(output)).isFile())
     fail('Package export did not produce the requested output file.');
+
+  const fontCoverageRequestPath = path.join(tempRoot, 'font-coverage-request.json');
+  await writeJson(fontCoverageRequestPath, {
+    projectRoot: root,
+    systemRoot: path.join(repositoryRoot, 'engine', 'assets', 'system'),
+    locales: [
+      {
+        locale: 'en',
+        supported: true,
+        fonts: [],
+        messages: [{ messageId: 'certification', sourcePath: '/certification', text: 'Menu' }],
+      },
+    ],
+  });
+  const fontCoverage = requireSuccess(
+    'internal font coverage',
+    runNativeWithStdinFile(['__editor-native', 'font-coverage'], fontCoverageRequestPath, {
+      cwd: root,
+    }),
+  );
+  const fontCoverageResponse = JSON.parse(fontCoverage.stdout);
+  if (fontCoverageResponse.ok !== true || fontCoverageResponse.success !== true)
+    fail(`Internal font coverage certification failed: ${fontCoverage.stdout}`);
 }
 
 async function certifyPlatformHost(tempRoot, projectRoot) {
@@ -1603,6 +1629,7 @@ async function main() {
           'raw-shaderc',
           'test',
           'ui-test',
+          'font-coverage',
           'package-export',
           'platform-template-registry',
           'platform-config',

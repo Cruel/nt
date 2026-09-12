@@ -334,7 +334,7 @@ RuntimeExecutor::runtime_ui_view(std::string_view runtime_locale)
     };
     for (const auto& locale : m_project.localization().locales) {
         if (locale.supported)
-            locale_view.available_locales.push_back(core::runtime_locale_option(locale.locale));
+            locale_view.available_locales.push_back(core::runtime_locale_option(locale));
     }
     core::TypedRuntimeUIViewState view{.mode = runtime_mode_name(m_state),
                                        .gameplay_paused = m_state.gameplay_paused(),

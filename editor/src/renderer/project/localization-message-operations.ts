@@ -13,7 +13,10 @@ import {
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import type { AuthoringMessage } from '../../shared/project-schema/authoring-localization';
-import { resolveLocalizationSourceIdentity } from '../../shared/localization-source-tracking';
+import {
+  localizationTrackingFingerprint,
+  resolveLocalizationSourceIdentity,
+} from '../../shared/localization-source-tracking';
 import { applyJsonPatch, type JsonPatchOperation } from './json-patch';
 import { toJsonValue } from './json-value';
 
@@ -30,7 +33,7 @@ export type LocalizationMessagePatch =
 export interface MessageReuseCandidate {
   id: string;
   source: string;
-  usageNote: string | null;
+  usedIn: string | null;
   rewriteable: boolean;
 }
 
@@ -134,7 +137,7 @@ export function identicalSourceReuseCandidates(
     .map((candidate) => ({
       id: candidate.id,
       source: candidate.source,
-      usageNote: candidate.usageNote,
+      usedIn: candidate.usedIn,
       rewriteable: canPromoteLocalMessage(project, candidate.id),
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -235,6 +238,53 @@ function sameTranslation(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function usagePathsMatch(left: string | null, right: string): boolean {
+  if (!left) return false;
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
+function remapLocalUsageNotesToNamed(
+  before: AuthoringProject,
+  after: AuthoringProject,
+  localMessageIds: readonly string[],
+  namedMessageId: string,
+): LocalizationMessagePatch[] {
+  const namedUsages = namedMessageUsages(after, namedMessageId);
+  const patches: LocalizationMessagePatch[] = [];
+  for (const localMessageId of localMessageIds) {
+    const note = before.localization.usageNotes[localMessageId];
+    if (note === undefined) continue;
+    const localView = localizationMessageWorkflowView(before, localMessageId);
+    const matches = namedUsages.filter((usage) =>
+      usagePathsMatch(localView?.usedIn ?? null, usage.path),
+    );
+    if (matches.length !== 1) continue;
+    const usageId = matches[0]!.id;
+    patches.push({
+      op: Object.hasOwn(before.localization.usageNotes, usageId) ? 'replace' : 'add',
+      path: `/localization/usageNotes/${escapePointer(usageId)}`,
+      value: note,
+    });
+    if (usageId !== localMessageId)
+      patches.push({
+        op: 'remove',
+        path: `/localization/usageNotes/${escapePointer(localMessageId)}`,
+      });
+  }
+  return patches;
+}
+
+function stableFreeFormUsageId(
+  family: 'lua' | 'rml',
+  sourceKey: string,
+  structuralFingerprint: string,
+  anchorFingerprint: string,
+): string {
+  return `${family}:${sourceKey}:${localizationTrackingFingerprint(
+    `${structuralFingerprint}\u0000${anchorFingerprint}`,
+  )}`;
+}
+
 type NamedMessageUsageDetail = NamedMessageUsage &
   (
     | { family: 'structured'; messagePath: string }
@@ -287,17 +337,24 @@ function namedMessageUsageDetails(
   visit(project, []);
 
   for (const source of collectManagedLuaLocalizationSources(project)) {
-    for (const occurrence of analyzeManagedLuaLocalization(source.text).occurrences) {
-      if (occurrence.kind !== 'named' || occurrence.source !== message.key) continue;
+    analyzeManagedLuaLocalization(source.text).occurrences.forEach((occurrence, ordinal) => {
+      if (occurrence.kind !== 'named' || occurrence.source !== message.key) return;
+      const candidate = source.source.occurrences[ordinal];
+      if (!candidate) return;
       usages.push({
-        id: `lua:${source.sourceKey}:${occurrence.callStartUtf16}`,
+        id: stableFreeFormUsageId(
+          'lua',
+          source.sourceKey,
+          candidate.structuralFingerprint,
+          candidate.anchorFingerprint,
+        ),
         path: source.source.sourcePath,
         rewriteable: true,
         family: 'lua',
         sourceKey: source.sourceKey,
         start: occurrence.callStartUtf16,
       });
-    }
+    });
   }
 
   const rmlPattern =
@@ -305,14 +362,32 @@ function namedMessageUsageDetails(
   for (const source of collectRmlLocalizationSources(project)) {
     for (const match of source.text.matchAll(rmlPattern)) {
       if ((match[2] ?? '').trim() !== message.key || match.index === undefined) continue;
+      const normalizedMarkup = match[0]
+        .replace(/\bkey\s*=\s*(["'])[^"']*\1/iu, 'key=<message>')
+        .replace(/\s+/gu, ' ')
+        .trim();
+      const before = source.text
+        .slice(Math.max(0, match.index - 128), match.index)
+        .replace(/\s+/gu, ' ')
+        .trim();
+      const end = match.index + match[0].length;
+      const after = source.text
+        .slice(end, Math.min(source.text.length, end + 128))
+        .replace(/\s+/gu, ' ')
+        .trim();
       usages.push({
-        id: `rml:${source.sourceKey}:${match.index}`,
+        id: stableFreeFormUsageId(
+          'rml',
+          source.sourceKey,
+          localizationTrackingFingerprint(normalizedMarkup),
+          localizationTrackingFingerprint(`${before}|<nt-tr>|${after}`),
+        ),
         path: source.source.sourcePath,
         rewriteable: true,
         family: 'rml',
         sourceKey: source.sourceKey,
         start: match.index,
-        end: match.index + match[0].length,
+        end,
       });
     }
   }
@@ -348,6 +423,7 @@ export function demoteNamedMessageUsage(
 
   const preserveIdentity = usages.length === 1;
   const localMessageId = preserveIdentity ? messageId : options.newMessageId;
+  const usageNote = project.localization.usageNotes[usageId];
   if (!localMessageId)
     return {
       ok: false,
@@ -357,6 +433,15 @@ export function demoteNamedMessageUsage(
     return { ok: false, message: 'The new local Message must have an independent Message ID.' };
 
   const patches: LocalizationMessagePatch[] = [];
+  if (usageNote !== undefined) {
+    patches.push({
+      op: Object.hasOwn(project.localization.usageNotes, localMessageId!) ? 'replace' : 'add',
+      path: `/localization/usageNotes/${escapePointer(localMessageId!)}`,
+      value: usageNote,
+    });
+    if (usageId !== localMessageId)
+      patches.push({ op: 'remove', path: `/localization/usageNotes/${escapePointer(usageId)}` });
+  }
   let changedSourceKey: string | null = null;
   if (usage.family === 'structured') {
     patches.push({
@@ -632,6 +717,14 @@ function rewriteLocalMessageIntoNamed(
         value: refreshedTracking,
       });
   }
+  const after = authoringProjectSchema.parse(
+    applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[]).document,
+  );
+  const namedMessageId = Object.entries(after.localization.messages).find(
+    ([, message]) => message.kind === 'named' && message.key === key,
+  )?.[0];
+  if (namedMessageId)
+    patches.push(...remapLocalUsageNotesToNamed(project, after, [messageId], namedMessageId));
   return { ok: true, patches };
 }
 
@@ -949,5 +1042,9 @@ export function promoteAndLinkLocalMessages(
       });
   }
 
+  const after = authoringProjectSchema.parse(
+    applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[]).document,
+  );
+  patches.push(...remapLocalUsageNotesToNamed(project, after, selected, canonicalMessageId));
   return { ok: true, patches };
 }

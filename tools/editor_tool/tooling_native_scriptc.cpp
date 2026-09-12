@@ -28,6 +28,8 @@ NativeOperation operation_for(std::string_view operation)
         return &noveltea_tooling_run_ui_test_json;
     if (operation == "export-package")
         return &noveltea_tooling_export_package_json;
+    if (operation == "font-coverage")
+        return &noveltea_tooling_validate_font_coverage_json;
     if (operation == "shaderc")
         return &noveltea_tooling_shaderc_json;
     if (operation == "texturec")

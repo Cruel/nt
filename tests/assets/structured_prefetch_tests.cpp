@@ -414,10 +414,14 @@ core::LoadedCompiledPackage package_from_document(nlohmann::json document, std::
 core::LoadedCompiledPackage collector_package()
 {
     auto document = read_comprehensive_project();
-    document["localization"]["locales"].push_back({{"locale", "fr"},
-                                                   {"parentLocale", nullptr},
-                                                   {"supported", true},
-                                                   {"fontStack", nlohmann::json::array()}});
+    auto french_locale = document["localization"]["locales"].front();
+    french_locale["locale"] = "fr";
+    french_locale["parentLocale"] = nullptr;
+    french_locale["supported"] = true;
+    french_locale["nativeName"] = "français";
+    french_locale["displayName"] = "français";
+    french_locale["fontStack"] = nlohmann::json::array();
+    document["localization"]["locales"].push_back(std::move(french_locale));
     document["localization"]["catalogs"].push_back(
         {{"locale", "fr"}, {"entries", nlohmann::json::array()}});
     document["resources"]["assets"].push_back(

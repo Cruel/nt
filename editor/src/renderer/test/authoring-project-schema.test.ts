@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
 import { isValidLayoutContractId } from '../../shared/project-schema/authoring-common';
 import {
+  authoringProjectSchema,
   createAuthoringProject,
   isAuthoringProject,
   isValidEntityId,
@@ -46,6 +47,7 @@ describe('authoring project schema', () => {
     const project = createAuthoringProject();
     project.localization = {
       sourceLocale: 'en',
+      sourceLocaleLock: 'en',
       defaultLocale: 'fr',
       locales: {
         en: { supported: true, parentLocale: null, fontStack: null },
@@ -62,6 +64,7 @@ describe('authoring project schema', () => {
         },
       },
       structuredMessageIds: {},
+      usageNotes: {},
       sourceMessageTracking: {},
       orphanedMessages: {},
       translations: {
@@ -138,6 +141,54 @@ describe('authoring project schema', () => {
       fontStack: null,
     };
     expect(isAuthoringProject(project)).toBe(true);
+  });
+
+  it('locks the Source locale once substantive target work exists', () => {
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    project.localization.translations.fr = {
+      '018f4f8c-9b5d-7ae2-9b36-4c8af613f099': testTranslation('Bonjour'),
+    };
+
+    const parsed = authoringProjectSchema.parse(project);
+    expect(parsed.localization.sourceLocaleLock).toBe('en');
+    expect(
+      isAuthoringProject({
+        ...parsed,
+        localization: { ...parsed.localization, sourceLocale: 'fr' },
+      }),
+    ).toBe(false);
+
+    const empty = createAuthoringProject();
+    empty.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    empty.localization.sourceLocale = 'fr';
+    expect(isAuthoringProject(empty)).toBe(true);
+  });
+
+  it('requires canonical BCP 47 locale identities in file-first project data', () => {
+    const project = createAuthoringProject();
+    project.localization.locales['fr-ca'] = {
+      supported: false,
+      parentLocale: null,
+      fontStack: null,
+    };
+    expect(isAuthoringProject(project)).toBe(false);
+
+    delete project.localization.locales['fr-ca'];
+    project.localization.locales['fr-CA'] = {
+      supported: false,
+      parentLocale: null,
+      fontStack: null,
+    };
+    expect(isAuthoringProject(project)).toBe(true);
+
+    const invalid = structuredClone(project);
+    invalid.localization.locales['not_a_locale'] = {
+      supported: false,
+      parentLocale: null,
+      fontStack: null,
+    };
+    expect(isAuthoringProject(invalid)).toBe(false);
   });
 
   it('rejects the retired schemaVersion field, legacy collection names, and unknown root fields', () => {

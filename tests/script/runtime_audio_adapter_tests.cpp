@@ -1256,6 +1256,33 @@ TEST_CASE("newer locale media generation rejects stale ready replacement and lea
     CHECK(*backend_ptr->last_playback->start_normalized_position == Catch::Approx(0.25));
 }
 
+TEST_CASE("locale media transition publishes one shared generation to supplemental media backends")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    RuntimeUiProjectAssetService resolver;
+    resolver.install(project);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
+    RuntimePresentationBridge bridge(adapter);
+
+    std::vector<std::uint64_t> generations;
+    bridge.bind_locale_media_transition_backend(
+        [&](std::uint64_t generation) { generations.push_back(generation); });
+
+    bridge.begin_locale_media_transition();
+    bridge.begin_locale_media_transition();
+
+    REQUIRE(generations.size() == 2);
+    CHECK(generations[0] != 0);
+    CHECK(generations[1] == generations[0] + 1);
+}
+
 TEST_CASE("runtime audio adapter completes an awaited fade-out after AudioSystem update")
 {
     const auto project = load_project();

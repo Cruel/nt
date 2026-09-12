@@ -49,6 +49,12 @@ struct PackageExportFileEntry {
     PackageExportStorage storage = PackageExportStorage::Auto;
 };
 
+struct PackageExportTextEntry {
+    std::string text;
+    std::string package_path;
+    PackageExportStorage storage = PackageExportStorage::Auto;
+};
+
 struct PackageExportOptions {
     PackageExportKind kind = PackageExportKind::Runtime;
     std::string project_name;
@@ -56,6 +62,7 @@ struct PackageExportOptions {
     std::string created_by = "noveltea";
     std::vector<PackageExportAssetRoot> asset_roots;
     std::vector<PackageExportFileEntry> file_entries;
+    std::vector<PackageExportTextEntry> text_entries;
     std::filesystem::path shader_asset_root;
     std::vector<std::string> shader_variants;
     std::optional<nlohmann::json> shader_material_metadata;

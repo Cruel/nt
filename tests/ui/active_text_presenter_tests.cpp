@@ -57,17 +57,17 @@ TEST_CASE("ActiveTextPresenter completion phase is independent of arbitrary RmlU
     noveltea::ui::rmlui::ActiveTextPresenter presenter(diagnostics);
     auto view = make_room_view("Presented text");
 
-    presenter.advance(&view, 0.0f);
+    (void)presenter.advance(&view, 0.0f);
     CHECK(presenter.presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Reveal);
 
     presenter.refresh_layout(&view, std::nullopt);
     CHECK(presenter.render_snapshot().glyphs.empty());
     CHECK(presenter.presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Reveal);
 
-    presenter.advance(&view, 2.0f);
+    (void)presenter.advance(&view, 2.0f);
     CHECK(presenter.presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Stable);
 
-    presenter.advance(nullptr, 0.01f);
+    (void)presenter.advance(nullptr, 0.01f);
     CHECK(presenter.presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Fade);
 }
 
@@ -77,7 +77,7 @@ TEST_CASE("ActiveTextPresenter returns typed activation without dispatching it")
     noveltea::ui::rmlui::ActiveTextPresenter presenter(diagnostics);
     auto view = make_room_view("Continue", true);
 
-    presenter.advance(&view, 2.0f);
+    (void)presenter.advance(&view, 2.0f);
     presenter.refresh_layout(&view, surface());
     const auto activation = presenter.activate(&view, 0.0f, 0.0f);
 
@@ -93,7 +93,7 @@ TEST_CASE("ActiveTextPresenter owns local page playback but not desired gameplay
     noveltea::ui::rmlui::ActiveTextPresenter presenter(diagnostics);
     auto view = make_room_view("First[p]Second");
 
-    presenter.advance(&view, 2.0f);
+    (void)presenter.advance(&view, 2.0f);
     presenter.refresh_layout(&view, surface());
     CHECK(presenter.render_snapshot().visible_text == "First");
 
@@ -102,12 +102,12 @@ TEST_CASE("ActiveTextPresenter owns local page playback but not desired gameplay
     CHECK(next_page.local_state_changed);
     CHECK_FALSE(next_page.input);
 
-    presenter.advance(&view, 2.0f);
+    (void)presenter.advance(&view, 2.0f);
     presenter.refresh_layout(&view, surface());
     CHECK(presenter.render_snapshot().visible_text == "Second");
 
     auto replacement = make_room_view("Replacement first[p]Replacement second");
-    presenter.advance(&replacement, 2.0f);
+    (void)presenter.advance(&replacement, 2.0f);
     presenter.refresh_layout(&replacement, surface());
     CHECK(presenter.render_snapshot().visible_text == "Replacement second");
 }
@@ -118,12 +118,12 @@ TEST_CASE("ActiveTextPresenter remaps page-local reveal from normalized progress
     noveltea::ui::rmlui::ActiveTextPresenter presenter(diagnostics);
     auto view = make_room_view("AAAA[p]BBBB");
 
-    presenter.advance(&view, 2.0f);
+    (void)presenter.advance(&view, 2.0f);
     presenter.refresh_layout(&view, surface());
     REQUIRE(presenter.activate(&view, 0.0f, 0.0f).local_state_changed);
 
     auto replacement = make_room_view("AA[p]BBBBBB");
-    presenter.advance(&replacement, 0.0f);
+    (void)presenter.advance(&replacement, 0.0f);
     presenter.refresh_layout(&replacement, surface());
     CHECK(presenter.render_snapshot().visible_text == "BB");
 }
@@ -133,7 +133,7 @@ TEST_CASE("ActiveTextPresenter scales its fixed base size inside the supplied lo
     noveltea::core::Diagnostics diagnostics;
     noveltea::ui::rmlui::ActiveTextPresenter presenter(diagnostics);
     auto view = make_room_view("Scaled ActiveText");
-    presenter.advance(&view, 2.0f);
+    (void)presenter.advance(&view, 2.0f);
 
     presenter.refresh_layout(&view, surface(1.5f, 3.0f));
     const auto& layout = presenter.render_snapshot();
@@ -156,8 +156,8 @@ TEST_CASE("ActiveTextPresenter preserves fractional effect offsets in context lo
     noveltea::core::Diagnostics diagnostics;
     noveltea::ui::rmlui::ActiveTextPresenter presenter(diagnostics);
     auto view = make_room_view("[a1 e=s t=1][[Key|key-object]][/a1]");
-    presenter.advance(&view, 2.0f);
-    presenter.advance(&view, 0.25f);
+    (void)presenter.advance(&view, 2.0f);
+    (void)presenter.advance(&view, 0.25f);
     presenter.refresh_layout(&view, surface(1.25f));
 
     const auto& layout = presenter.render_snapshot();

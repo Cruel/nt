@@ -166,7 +166,11 @@ describe('ProjectWorkspaceService', () => {
     expect(opened.snapshot.canonicalSourceFiles).toEqual(
       expect.arrayContaining([
         'project.json',
-        'localization.json',
+        'i18n/project.json',
+        'i18n/messages.json',
+        'i18n/usage-notes.json',
+        'i18n/tracking.json',
+        'i18n/orphans.json',
         'editor.json',
         'records/layouts/hud-inline/layout.json',
         'records/layouts/hud-inline/layout.rml',
@@ -202,7 +206,13 @@ describe('ProjectWorkspaceService', () => {
       'traits.json',
     ]);
     expect(opened.snapshot.saveUnitFileOwnership['project:localization']).toEqual({
-      files: ['localization.json'],
+      files: [
+        'i18n/messages.json',
+        'i18n/orphans.json',
+        'i18n/project.json',
+        'i18n/tracking.json',
+        'i18n/usage-notes.json',
+      ],
       paths: ['/localization'],
     });
     expect(opened.snapshot.saveUnitFileOwnership['workflow:play-recorder']?.paths).toEqual([
