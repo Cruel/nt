@@ -86,10 +86,11 @@ the active locale's CLDR cardinal categories; generic selectors use exact string
 an `other` branch. The pattern model is recursive from its first version so one named Message may use
 multiple selectors, while local Lua plural/select helpers deliberately lower to the single-selector
 subset. Translators may reorder placeholders and selector structure, but compiled target catalogs must
-preserve the source Message's argument/selector contract. `MessageResolver` remains only the
-transitional #176 adapter onto that realization module. Runtime text evaluation, Lua, and live RmlUi
-localization delegate to the same realization path instead of implementing formatting policy
-independently. Script modules never autorun because they are present in a collection or package.
+preserve the source Message's argument/selector contract. `MessageRealizer` is the sole native
+localization-policy boundary: runtime text evaluation, Lua, live RmlUi localization, system UI, and
+presentation consumers delegate to it rather than implementing lookup, fallback, formatting, or
+selector policy independently. Script modules never autorun because they are present in a collection
+or package.
 
 The compiled project root owns project identity, runtime settings, feature flags, Bootstrap Module reference,
 entrypoint, definition collections, resource IDs, and lookup indexes. It is not an entity and cannot
