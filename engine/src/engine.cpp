@@ -1527,6 +1527,9 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     bool debug_ui_initialized = false;
 
     auto rollback = [&]() {
+        // Match normal shutdown ordering: startup jobs may still need owner/render completion.
+        // Drain them before renderer/platform teardown so failed initialization cannot hang.
+        (void)shutdown_jobs();
         m_game_host.shutdown();
         if (debug_ui_initialized) {
             m_debug_ui.shutdown();
