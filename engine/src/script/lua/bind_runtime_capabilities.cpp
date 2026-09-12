@@ -2554,7 +2554,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             }
             return mutation(view, api->append_text_log(core::TextLogEntry{
                                       *kind_value, core::SystemTextLogOrigin{}, std::move(speaker),
-                                      std::move(text), *markup_value}));
+                                      std::move(text), *markup_value, std::nullopt}));
         });
     text_log.set_function("clear", [api](sol::this_state state) {
         return mutation(sol::state_view(state), api->clear_text_log());

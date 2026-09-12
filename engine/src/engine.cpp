@@ -2095,6 +2095,14 @@ void Engine::Impl::service_pending_runtime_locale_change()
 
     m_runtime_ui.bind_message_localization(running_game->package().project().localization(),
                                            target);
+
+    // Locale-positioned Dialogue Cues are semantic post-commit work. Reconcile them only after every
+    // commit-critical locale surface has published successfully, so a failed locale switch cannot
+    // consume a Cue or emit its effect before the old locale is restored.
+    auto cue_reconciliation = m_game_host.reconcile_committed_locale_cues();
+    if (!cue_reconciliation.accepted() || !cue_reconciliation.diagnostics.empty())
+        append_runtime_diagnostics(std::move(cue_reconciliation.diagnostics));
+
     // Streaming localized media is deliberately outside the atomic commit gate. Start physical
     // replacement only after every commit-critical locale surface has published successfully.
     m_game_host.runtime_presentation().begin_locale_media_transition();

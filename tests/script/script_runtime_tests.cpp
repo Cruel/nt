@@ -544,12 +544,20 @@ TEST_CASE("ScriptRuntime realizes compiler-lowered managed Message references")
 {
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.sources}));
-    const auto project = load_script_project();
+    const auto project = load_compiled_fixture("scene-program.json", [](nlohmann::json& document) {
+        document["localization"]["catalogs"][1]["entries"].push_back(
+            {{"messageId", 0}, {"value", "Moneda"}});
+    });
     REQUIRE(fixture.runtime.prepare_project_modules(project));
 
     auto value = fixture.runtime.evaluate_string("Text.__message(0)", "managed-message");
     REQUIRE(value);
     CHECK(value.value() == "Coin");
+
+    fixture.runtime.set_runtime_locale("es");
+    auto localized = fixture.runtime.evaluate_string("Text.__message(0)", "managed-message-es");
+    REQUIRE(localized);
+    CHECK(localized.value() == "Moneda");
 
     auto unexpected_arguments = fixture.runtime.evaluate_string(
         "Text.__message(0, { ignored = true })", "managed-message-unexpected-arguments");
@@ -565,12 +573,108 @@ TEST_CASE("ScriptRuntime realizes compiler-lowered managed Message references")
     REQUIRE_FALSE(arbitrary_key);
 }
 
+TEST_CASE("ScriptRuntime retains the returned managed Message occurrence across unrelated calls")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    const auto project = load_compiled_fixture("scene-program.json");
+    REQUIRE(fixture.runtime.prepare_project_modules(project));
+
+    const auto generation = *runtime::CapabilityGeneration::from_number(3);
+    FocusedCountQueryProvider provider(generation);
+    runtime::RuntimeCapabilityIssuer issuer(provider, generation);
+    auto capabilities = issuer.issue(runtime::RuntimeCapabilityProfile::SynchronousExpression);
+    REQUIRE(capabilities);
+
+    const auto invoke_text = [&](std::string source, std::string chunk_name) {
+        auto invoked = fixture.runtime.invoke(
+            {.source = std::move(source),
+             .chunk_name = std::move(chunk_name),
+             .owner = std::nullopt,
+             .invocation = std::nullopt,
+             .source_context = {},
+             .result_kind = runtime::ScriptInvocationResultKind::Text,
+             .asset_path = std::nullopt},
+            *capabilities);
+        REQUIRE(invoked);
+        const auto* completed =
+            std::get_if<runtime::ScriptInvocationCompleted>(invoked.value_if());
+        REQUIRE(completed != nullptr);
+        const auto* text = std::get_if<runtime::ScriptTextResult>(&completed->value);
+        REQUIRE(text != nullptr);
+        return *text;
+    };
+
+    const auto ignored_first = invoke_text(
+        "local ignored = Text.__message(0); return Text.__message(1)",
+        "managed-message-ignored-first");
+    CHECK(ignored_first.text == "Welcome.");
+    REQUIRE(ignored_first.localized_message);
+    CHECK(ignored_first.localized_message->message_id == 1);
+
+    const auto returned_first = invoke_text(
+        "local used = Text.__message(1); local ignored = Text.__message(0); return used",
+        "managed-message-returned-first");
+    CHECK(returned_first.text == "Welcome.");
+    REQUIRE(returned_first.localized_message);
+    CHECK(returned_first.localized_message->message_id == 1);
+
+    const auto repeated_same = invoke_text(
+        "local used = Text.__message(1); local again = Text.__message(1); return used",
+        "managed-message-repeated-same");
+    CHECK(repeated_same.text == "Welcome.");
+    REQUIRE(repeated_same.localized_message);
+    CHECK(repeated_same.localized_message->message_id == 1);
+
+    const auto ambiguous_equal_text = invoke_text(
+        "local first = Text.__message(0); local second = Text.__message(7); return second",
+        "managed-message-ambiguous-equal-text");
+    CHECK(ambiguous_equal_text.text == "Coin");
+    CHECK_FALSE(ambiguous_equal_text.localized_message);
+}
+
+TEST_CASE("ScriptRuntime synchronizes detached locale catalogs with runtime residency")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    auto resident = load_compiled_fixture("scene-program.json", [](nlohmann::json& document) {
+        document["localization"]["catalogs"][1]["entries"].push_back(
+            {{"messageId", 0}, {"value", "Moneda"}});
+    });
+    auto source_only = resident;
+    source_only.retain_runtime_localization_catalogs("en");
+    REQUIRE(source_only.find_localization_catalog("es") == nullptr);
+    REQUIRE(fixture.runtime.prepare_project_modules(source_only));
+    fixture.runtime.set_runtime_locale("es");
+
+    auto before_install = fixture.runtime.evaluate_string(
+        "Text.__message(0)", "managed-message-before-detached-catalog");
+    REQUIRE(before_install);
+    CHECK(before_install.value() == "Coin");
+
+    fixture.runtime.synchronize_runtime_localization(resident.localization());
+    auto installed = fixture.runtime.evaluate_string(
+        "Text.__message(0)", "managed-message-after-detached-catalog");
+    REQUIRE(installed);
+    CHECK(installed.value() == "Moneda");
+
+    fixture.runtime.synchronize_runtime_localization(source_only.localization());
+    auto retained_source_only = fixture.runtime.evaluate_string(
+        "Text.__message(0)", "managed-message-after-catalog-retention");
+    REQUIRE(retained_source_only);
+    CHECK(retained_source_only.value() == "Coin");
+}
+
 TEST_CASE("Text.msg_ref realizes only typed Message references returned by admitted runtime APIs")
 {
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.sources}));
-    auto project = load_script_project();
+    auto project = load_compiled_fixture("scene-program.json", [](nlohmann::json& document) {
+        document["localization"]["catalogs"][1]["entries"].push_back(
+            {{"messageId", 0}, {"value", "Moneda"}});
+    });
     REQUIRE(fixture.runtime.prepare_project_modules(project));
+    fixture.runtime.set_runtime_locale("es");
 
     const auto generation = *runtime::CapabilityGeneration::from_number(3);
     FocusedCountQueryProvider provider(generation);
@@ -594,7 +698,7 @@ TEST_CASE("Text.msg_ref realizes only typed Message references returned by admit
     REQUIRE(result);
     const auto* completed = std::get_if<runtime::ScriptInvocationCompleted>(result.value_if());
     REQUIRE(completed != nullptr);
-    CHECK(std::get<std::string>(completed->value) == "Coin");
+    CHECK(std::get<std::string>(completed->value) == "Moneda");
     fixture.runtime.destroy_environment(environment.value());
 }
 

@@ -87,10 +87,13 @@ std::optional<RoomTransitionPosition> decode_room_position(Decoder& d, const nlo
 nlohmann::json encode_frame(const SavedFlowFrame& frame);
 std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& value,
                                            std::string_view pointer);
+nlohmann::json encode_captured_message(const std::optional<CapturedMessageOccurrence>& value);
+std::optional<std::optional<CapturedMessageOccurrence>>
+decode_captured_message(Decoder& d, const nlohmann::json& value, std::string_view pointer);
 nlohmann::json encode_text_origin(const TextLogOrigin& origin);
 std::optional<TextLogOrigin> decode_text_origin(Decoder& d, const nlohmann::json& value,
                                                 std::string_view pointer);
-nlohmann::json encode_text_log(const TextLogEntry& entry);
+nlohmann::json encode_text_log(const CompiledProject& project, const TextLogEntry& entry);
 std::optional<TextLogEntry> decode_text_log(Decoder& d, const nlohmann::json& value,
                                             std::string_view pointer);
 nlohmann::json encode_mode(const RuntimeMode& mode);
@@ -118,7 +121,7 @@ struct SavedPresentationRecords {
     std::optional<ActiveChoiceState> active_choice;
 };
 
-nlohmann::json encode_presentation_records(const SaveState& save);
+nlohmann::json encode_presentation_records(const CompiledProject& project, const SaveState& save);
 std::optional<SavedPresentationRecords>
 decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string_view pointer);
 

@@ -2,6 +2,7 @@ import {
   localizationMessageWorkflowViews,
   localizationTargetWorkflowView,
 } from '../../shared/authoring-localization-workflow';
+import { namedMessageUsages } from '../../shared/authoring-named-message-usages';
 import {
   findAuthoringDependencyUsages,
   localizationMessageNodeKey,
@@ -94,6 +95,23 @@ export const localizationViewCommand: CliCommandDefinition = {
               ? {}
               : { translatorNote: message.translatorNote }),
             ...(message.usageNote === null ? {} : { usageNote: message.usageNote }),
+            usageNotes:
+              message.kind === 'named'
+                ? namedMessageUsages(project, message.id).flatMap((usage) => {
+                    const note = project.localization.usageNotes[usage.id];
+                    return note === undefined
+                      ? []
+                      : [{ usageId: usage.id, path: usage.path, note }];
+                  })
+                : message.usageNote === null
+                  ? []
+                  : [
+                      {
+                        usageId: message.id,
+                        path: message.usedIn ?? message.sourcePath ?? '',
+                        note: message.usageNote,
+                      },
+                    ],
             sourceFingerprint: message.sourceFingerprint,
             status: message.freshness,
             attention: message.attention,

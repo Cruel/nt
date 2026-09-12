@@ -67,6 +67,16 @@ function previousIdentity(item: PreviousOccurrence): string {
   return `${item.sourceKey}#${item.occurrence.messageId}`;
 }
 
+function previousHasValue(project: AuthoringProject, prior: PreviousOccurrence): boolean {
+  return (
+    Object.values(project.localization.translations).some(
+      (translations) => translations[prior.occurrence.messageId] !== undefined,
+    ) ||
+    Boolean(prior.occurrence.contextSnapshot) ||
+    Boolean(prior.occurrence.translatorNoteSnapshot)
+  );
+}
+
 function uniquelyMatch(
   currents: readonly CurrentOccurrence[],
   previous: readonly PreviousOccurrence[],
@@ -178,7 +188,7 @@ export function synchronizeLocalizationMessageTracking(
     previous,
     currentMatched,
     previousMatched,
-    (current, prior) => current.sourceKey === prior.sourceKey,
+    (current, prior) => current.sourceKey === prior.sourceKey && !previousHasValue(project, prior),
     matches,
   );
   uniquelyMatch(
@@ -205,9 +215,19 @@ export function synchronizeLocalizationMessageTracking(
 
   const tracking: Record<string, SourceMessageTrackingEntry> = {};
   for (const [sourceKey, entry] of Object.entries(project.localization.sourceMessageTracking)) {
-    const remaining = entry.occurrences.filter(
-      (occurrence) => !previousMatched.has(`${sourceKey}#${occurrence.messageId}`),
-    );
+    const remaining = entry.occurrences.filter((occurrence) => {
+      if (previousMatched.has(`${sourceKey}#${occurrence.messageId}`)) return false;
+      const prior = { sourceKey, entry, occurrence };
+      if (previousHasValue(project, prior)) return true;
+      return !currents.some(
+        (current) =>
+          current.source.family === entry.family &&
+          (current.sourceKey === sourceKey ||
+            current.source.ownerKey === entry.ownerKey ||
+            current.occurrence.structuralFingerprint === occurrence.structuralFingerprint ||
+            current.occurrence.anchorFingerprint === occurrence.anchorFingerprint),
+      );
+    });
     if (remaining.length === 0) continue;
     tracking[sourceKey] = { ...entry, occurrences: sortOccurrences(remaining) };
   }
@@ -223,12 +243,17 @@ export function synchronizeLocalizationMessageTracking(
       messageId = prior.occurrence.messageId;
       preserved.add(messageId);
     } else {
-      const plausiblePrior = previous.filter(
-        (candidate) =>
-          !previousMatched.has(previousIdentity(candidate)) &&
-          candidate.entry.family === current.source.family &&
-          candidate.occurrence.structuralFingerprint === current.occurrence.structuralFingerprint,
-      );
+      const plausiblePrior = previous.filter((candidate) => {
+        if (previousMatched.has(previousIdentity(candidate))) return false;
+        if (candidate.entry.family !== current.source.family) return false;
+        if (!previousHasValue(project, candidate)) return false;
+        return (
+          candidate.sourceKey === current.sourceKey ||
+          candidate.entry.ownerKey === current.source.ownerKey ||
+          candidate.occurrence.structuralFingerprint === current.occurrence.structuralFingerprint ||
+          candidate.occurrence.anchorFingerprint === current.occurrence.anchorFingerprint
+        );
+      });
       if (plausiblePrior.length > 0) {
         unresolved.push({
           family: current.source.family,

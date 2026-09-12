@@ -1,12 +1,14 @@
 import type { AuthoringProject } from './project-schema/authoring-project';
-import type {
-  AuthoringMessage,
-  DialogueCuePlacement,
-  LocalizationTranslation,
+import {
+  messagePlaceholderNames,
+  type AuthoringMessage,
+  type DialogueCuePlacement,
+  type LocalizationTranslation,
 } from './project-schema/authoring-localization';
 import { dialogueMessageCueContracts, structuredMessages } from './authoring-structured-messages';
 import { collectManagedLuaLocalizationSources } from './authoring-lua-localization-lowering';
 import { collectRmlLocalizationSources } from './authoring-rml-localization-lowering';
+import { parseDialogueCueMarkup } from './project-schema/dialogue-cue-markup';
 import {
   localizationTrackingFingerprint,
   resolveLocalizationSourceIdentity,
@@ -47,26 +49,58 @@ export interface EffectiveLocalizationTarget {
   readonly inherited: boolean;
 }
 
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/gu, ' ').trim();
+}
+
+function activeTextObjectId(token: string): string | null {
+  const match = /^\[(?:o|object)(?:\s+id)?=([^\]]+)\]$/iu.exec(token);
+  return match?.[1]?.trim() || null;
+}
+
 function normalizeLinguisticText(value: string): string {
-  return value
-    .replace(/<[^>]*>/gu, '')
-    .replace(/\s+/gu, ' ')
-    .trim();
+  const objectIds: string[] = [];
+  const expandedShorthand = value.replace(
+    /\[\[([^\]|]*)\|([^\]]+)\]\]/gu,
+    (_token, label: string, objectId: string) => {
+      objectIds.push(objectId.trim());
+      return label;
+    },
+  );
+  const parsed = parseDialogueCueMarkup(expandedShorthand);
+  for (const cue of parsed.cues) {
+    if (cue.kind !== 'active-text') continue;
+    const objectId = activeTextObjectId(cue.token);
+    if (objectId) objectIds.push(objectId);
+  }
+  const text = normalizeWhitespace(parsed.text.replace(/<[^>]*>/gu, ''));
+  return objectIds.length > 0 ? `${text}\u0000objects:${objectIds.join('|')}` : text;
+}
+
+function normalizePlainLinguisticText(value: string): string {
+  return normalizeWhitespace(value);
+}
+
+function normalizeRmlLinguisticText(value: string): string {
+  return normalizeWhitespace(value.replace(/<[^>]*>/gu, ''));
 }
 
 function fingerprint(prefix: string, value: string): string {
   return localizationTrackingFingerprint(`${prefix}\u0000${value}`);
 }
 
-function patternFingerprintValue(pattern: AuthoringMessage['pattern']): string {
+function patternFingerprintValue(
+  pattern: AuthoringMessage['pattern'],
+  normalizeText: (value: string) => string = (value) => value,
+): string {
   if (!pattern) return '';
-  if (pattern.kind === 'text') return JSON.stringify(['text', pattern.text]);
+  if (pattern.kind === 'text') return JSON.stringify(['text', normalizeText(pattern.text)]);
   return JSON.stringify([
     pattern.kind,
     pattern.argument,
     Object.entries(pattern.cases)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, branch]) => [key, patternFingerprintValue(branch)]),
+      .map(([key, branch]) => [key, patternFingerprintValue(branch, normalizeText)]),
   ]);
 }
 
@@ -88,14 +122,15 @@ function simpleView(
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, type]) => `${name}:${type}`)
     .join('|');
-  const patternContract = patternFingerprintValue(message.pattern);
+  const semanticPatternContract = patternFingerprintValue(message.pattern, normalizeLinguisticText);
+  const presentationPatternContract = patternFingerprintValue(message.pattern);
   const cueContract = (dialogueCues ?? []).map((cue) => cue.id).join('|');
   const cuePresentation = (dialogueCues ?? [])
     .map((cue) => `${cue.id}:${cue.position.offset}:${cue.position.order}`)
     .join('|');
   const sourceFingerprint = fingerprint(
     'semantic',
-    `${message.source}\u0000${argumentContract}\u0000${patternContract}\u0000${cueContract}`,
+    `${normalizeLinguisticText(message.source)}\u0000${argumentContract}\u0000${semanticPatternContract}\u0000${cueContract}`,
   );
   return {
     id,
@@ -114,7 +149,7 @@ function simpleView(
     sourceFingerprint,
     presentationFingerprint: fingerprint(
       'presentation',
-      `${message.source}\u0000${patternContract}\u0000${cuePresentation}`,
+      `${message.source}\u0000${presentationPatternContract}\u0000${cuePresentation}`,
     ),
     guidanceFingerprint: guidanceFingerprint(message),
   };
@@ -153,6 +188,14 @@ export function localizationMessageWorkflowViews(
       occurrence.text
         ? {
             ...view,
+            sourceFingerprint: fingerprint(
+              'semantic',
+              `${
+                occurrence.text.markup === 'active-text'
+                  ? normalizeLinguisticText(occurrence.source)
+                  : normalizePlainLinguisticText(occurrence.source)
+              }\u0000${(occurrence.dialogueCues ?? []).map((cue) => cue.id).join('|')}`,
+            ),
             presentationFingerprint: fingerprint(
               'presentation',
               `${occurrence.text.markup}\u0000${occurrence.source}\u0000${(
@@ -178,6 +221,9 @@ export function localizationMessageWorkflowViews(
       ).messageId;
       const selectorKind =
         occurrence.kind === 'plural' || occurrence.kind === 'select' ? occurrence.kind : null;
+      const placeholderArguments = Object.fromEntries(
+        messagePlaceholderNames(occurrence.source).map((name) => [name, 'printable' as const]),
+      );
       const message: AuthoringMessage = {
         kind: 'local',
         source: occurrence.source,
@@ -197,7 +243,9 @@ export function localizationMessageWorkflowViews(
                 ),
               },
             }
-          : {}),
+          : Object.keys(placeholderArguments).length > 0
+            ? { arguments: placeholderArguments }
+            : {}),
         ...(occurrence.context === undefined ? {} : { context: occurrence.context }),
         ...(occurrence.translatorNote === undefined
           ? {}
@@ -225,16 +273,24 @@ export function localizationMessageWorkflowViews(
         source.source,
         candidate,
       ).messageId;
-      const semantic = normalizeLinguisticText(node.content);
+      const argumentsContract = Object.fromEntries(
+        messagePlaceholderNames(node.content).map((name) => [name, 'printable' as const]),
+      );
+      const argumentFingerprint = Object.entries(argumentsContract)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([name, type]) => `${name}:${type}`)
+        .join('|');
+      const semantic = normalizeRmlLinguisticText(node.content);
       views.set(id, {
         id,
         kind: 'local',
         source: node.content,
+        ...(Object.keys(argumentsContract).length > 0 ? { arguments: argumentsContract } : {}),
         sourcePath: source.source.sourcePath,
         sourceEditPath: null,
         usedIn: source.source.sourcePath,
         usageNote: project.localization.usageNotes[id] ?? null,
-        sourceFingerprint: fingerprint('semantic', semantic),
+        sourceFingerprint: fingerprint('semantic', `${semantic}\u0000${argumentFingerprint}`),
         presentationFingerprint: fingerprint('presentation', node.content),
         guidanceFingerprint: fingerprint('guidance', ''),
       });

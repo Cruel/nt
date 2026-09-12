@@ -107,6 +107,27 @@ candidate catalog before visible semantic commit, transiently permits the old/ca
 collapses back to Source plus active after success or failure. Text, fonts, current visual resources,
 and normal runtime publication retain the existing atomic locale-change boundary.
 
+Causal localized presentation retains a semantic Message occurrence containing the compact Message
+identity and captured argument values alongside its current rendered string. Active Scene/Dialogue
+text, open Scene/Dialogue choices, and localized Text Log entries re-realize those occurrences on
+locale change and checkpoint restore without re-running Lua. A causal Lua text block may execute
+additional managed Message calls: attribution selects the semantic occurrence whose realization
+matches the returned text, accepts repeated matches only when they are the same occurrence, and
+refuses to guess when distinct Message occurrences are byte-identical. Their save wire stores semantic
+occurrence identity/arguments and canonical package-source/default rendered text rather than the
+player's active-locale realization; locale preference itself remains outside the checkpoint. Failed
+locale publication restores PresentedText, active choice, Text Log, script locale, and pending cue
+reconciliation together. The strict current decoder requires the current occurrence fields (`null`
+when absent) and keeps no compatibility path for the pre-field shape.
+
+Locale-positioned Dialogue Cues are reconciled only after every commit-critical locale surface has
+published successfully. A failed target-locale preparation therefore cannot consume a Cue or emit its
+effect before rollback. Cue-position lookup uses the retained semantic Message occurrence, so managed
+Lua Messages receive the same translated Cue placement behavior as direct compiled Message refs.
+ActiveText realization identity includes the active locale and rich source markup, allowing normalized
+reveal progress to be remapped when localization changes markup/pagination even when plain text is
+identical.
+
 Localized streaming audio replacement remains post-commit and generation-aware. The presentation
 bridge also publishes the same monotonically increasing locale-media generation through a
 supplemental streaming-media hook. A future video backend can therefore join the existing transaction
@@ -127,13 +148,13 @@ The following verification was completed against this alignment work:
 | Check | Result |
 | --- | --- |
 | `pnpm -C editor run check` | PASS: formatting, lint with denied warnings, TypeScript, and schema-version policy. |
-| `pnpm -C editor run test` | PASS: 247 files passed, 2 skipped; 1,922 tests passed, 5 skipped. |
+| `pnpm -C editor run test` | PASS: 247 files passed, 2 skipped; 1,933 tests passed, 5 skipped. |
 | CLDR cardinal conformance | PASS across 35 representative locale families against `Intl.PluralRules`, including integer, fractional, large-number, and regional samples. |
 | Linux full build | PASS: `cmake --build --preset linux-debug`, including the `noveltea` native text-tooling path and `noveltea-tooling-bridge`. |
-| Domain/content/runtime/presentation native binaries | PASS. |
+| Domain/content/runtime/presentation native binaries | PASS; runtime 98 cases / 1,862 assertions and presentation 105 cases / 2,486 assertions in the final alignment pass. |
 | Asset native binary | PASS: 220 cases, 4,671 assertions. |
-| Host native binary | PASS: 120 cases, 2,171 assertions. |
-| Script Lua, UI, and UI-backend native binaries | PASS after current locale-metadata fixture expectations were updated. |
+| Host native binary | PASS: 122 cases, 2,206 assertions. |
+| Script Lua, UI, and UI-backend native binaries | PASS; Script Lua 195 cases / 5,276 assertions in the final pass, including causal Lua Message text/choice re-realization, locale-neutral checkpoint restore, translated Dialogue Cue placement, failed-switch rollback, and normalized ActiveText remapping. |
 | Asset telemetry/render/text/tween and RmlUi patch binaries | PASS. |
 | Runtime package focused suite | PASS: 11/11 package/export/startup tests. |
 | Locale streaming-media transition tests | PASS, including shared supplemental-media generation. |
@@ -141,9 +162,9 @@ The following verification was completed against this alignment work:
 | Production CLI build | PASS: release-mode `noveltea` contains the native font-coverage operation and stages the system fallback font under `build/cli/linux/assets/system/`. |
 
 A monolithic `ctest` invocation does not finish inside the available five-minute tool execution window,
-so the compiled Catch2 binaries were run directly to avoid CTest's per-test-process overhead. The
-readback capture tests remain environment-dependent on an available X11 display, as in prior
-repository verification.
+so the suite is verified in bounded CTest ranges and by compiled Catch2 binaries. RmlUi readback tests
+1120-1127 also pass under `xvfb-run`; the remaining long-running renderer readback tail is still
+subject to the execution-window constraint rather than being treated as a localization failure.
 
 `cmake --build build/linux-debug --target cxx-policy` passes after bringing the RmlUi dynamic-fallback patch test under the same runtime compiler policy as the other first-party tests. The aggregate verifies runtime, dependency, JSON-boundary, module-boundary, schema-version, and public-header policy gates without a localization-specific suppression.
 

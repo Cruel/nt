@@ -1,4 +1,5 @@
 import { localizationMessageWorkflowViews } from './authoring-localization-workflow';
+import { namedMessageUsages } from './authoring-named-message-usages';
 import type { AuthoringProject } from './project-schema/authoring-project';
 
 /**
@@ -49,7 +50,15 @@ export function localizationExchangeDocument(
         source: message.source,
         ...(message.context === undefined ? {} : { context: message.context }),
         ...(message.translatorNote === undefined ? {} : { translatorNote: message.translatorNote }),
-        usageNotes: message.usageNote ? [message.usageNote] : [],
+        usageNotes:
+          message.kind === 'named'
+            ? namedMessageUsages(project, message.id).flatMap((usage) => {
+                const note = project.localization.usageNotes[usage.id];
+                return note === undefined ? [] : [note];
+              })
+            : message.usageNote
+              ? [message.usageNote]
+              : [],
         ...(!translation?.useSource && translation ? { target: translation.text } : {}),
       };
     });

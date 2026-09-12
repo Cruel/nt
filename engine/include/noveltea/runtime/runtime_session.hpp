@@ -40,6 +40,7 @@ public:
     [[nodiscard]] RuntimeDispatchResult dispatch(const core::RuntimeInputMessage& input);
     [[nodiscard]] RuntimeDispatchResult publish_initial_state();
     [[nodiscard]] RuntimeDispatchResult commit_locale(std::string locale);
+    [[nodiscard]] RuntimeDispatchResult reconcile_committed_locale_cues();
     [[nodiscard]] std::string_view runtime_locale() const noexcept { return m_runtime_locale; }
     [[nodiscard]] core::PresentationOperationId allocate_presentation_operation_id() noexcept
     {
@@ -243,6 +244,7 @@ private:
     bool m_draining_deferred_commands = false;
     bool m_running_detached_flows = false;
     std::string m_runtime_locale;
+    std::optional<core::AdvanceDialogueRevealInput> m_pending_locale_cue_reconciliation;
     bool m_running = false;
     bool m_playback = false;
     core::EffectiveGameplayPause m_effective_gameplay_pause;

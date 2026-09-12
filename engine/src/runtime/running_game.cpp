@@ -155,6 +155,17 @@ public:
         m_delegate->invalidate_capabilities(generation);
     }
 
+    void set_runtime_locale(std::string_view locale) noexcept override
+    {
+        m_delegate->set_runtime_locale(locale);
+    }
+
+    void synchronize_runtime_localization(
+        const core::compiled::Localization& localization) override
+    {
+        m_delegate->synchronize_runtime_localization(localization);
+    }
+
 private:
     ScriptInvocationPort* m_delegate = nullptr;
 };
@@ -505,12 +516,17 @@ RunningGame::prepare_load_candidate(core::TypedSaveSlotId slot, ScriptInvocation
 core::Result<void, core::Diagnostics>
 RunningGame::install_locale_catalog(core::compiled::LocalizationCatalog catalog)
 {
-    return m_package.install_runtime_localization_catalog(std::move(catalog));
+    auto installed = m_package.install_runtime_localization_catalog(std::move(catalog));
+    if (installed && m_script_binding)
+        m_script_binding->synchronize_runtime_localization(m_package.project().localization());
+    return installed;
 }
 
 void RunningGame::retain_locale_catalogs(std::string_view active_locale)
 {
     m_package.retain_runtime_localization_catalogs(active_locale);
+    if (m_script_binding)
+        m_script_binding->synchronize_runtime_localization(m_package.project().localization());
 }
 
 RuntimeDispatchResult RunningGame::commit_locale(std::string locale)
@@ -519,6 +535,11 @@ RuntimeDispatchResult RunningGame::commit_locale(std::string locale)
     if (result.disposition == RuntimeInputDisposition::Handled && result.diagnostics.empty())
         m_runtime_locale = std::move(locale);
     return result;
+}
+
+RuntimeDispatchResult RunningGame::reconcile_committed_locale_cues()
+{
+    return m_session->reconcile_committed_locale_cues();
 }
 
 std::unique_ptr<RuntimeSessionCandidate>

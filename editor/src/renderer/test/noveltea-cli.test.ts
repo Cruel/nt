@@ -30,6 +30,7 @@ import {
   localizationMessageWorkflowView,
 } from '../../shared/authoring-localization-workflow';
 import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
+import { namedMessageUsages } from '../../shared/authoring-named-message-usages';
 import { createDefaultAuthoringRecord } from '../project/entity-operations';
 import {
   createAuthoringProject,
@@ -229,6 +230,44 @@ describe('NovelTea headless CLI', () => {
         },
       ],
     });
+  });
+
+  it('reports occurrence-specific Usage notes for named Messages', async () => {
+    const project = validProject();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f096';
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.shared',
+      source: 'Shared',
+    };
+    project.rooms.second = createDefaultAuthoringRecord(
+      'rooms',
+      'second',
+    ) as typeof project.rooms.second;
+    project.rooms.start!.data.description = {
+      markup: 'plain',
+      source: { kind: 'localized', key: 'ui.shared' },
+    };
+    project.rooms.second!.data.description = {
+      markup: 'plain',
+      source: { kind: 'localized', key: 'ui.shared' },
+    };
+    const usages = namedMessageUsages(project, messageId);
+    expect(usages).toHaveLength(2);
+    project.localization.usageNotes[usages[0]!.id] = 'First usage note';
+    project.localization.usageNotes[usages[1]!.id] = 'Second usage note';
+    const value = fixture(project);
+
+    const result = await runNovelTeaCli(['--json', 'localization', 'view', 'fr'], options(value));
+    expect(result.exitCode).toBe(0);
+    const message = JSON.parse(result.stdout).messages.find(
+      (candidate: { id: string }) => candidate.id === messageId,
+    );
+    expect(message.usageNotes).toEqual([
+      { usageId: usages[0]!.id, path: usages[0]!.path, note: 'First usage note' },
+      { usageId: usages[1]!.id, path: usages[1]!.path, note: 'Second usage note' },
+    ]);
   });
 
   it('rejects a mixed bulk review atomically when any selected target is Missing', async () => {
