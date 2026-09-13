@@ -86,6 +86,46 @@ jobs:
             echo "NOVELTEA_RELEASE_MANIFEST_PATH=$GITHUB_WORKSPACE/build/site-release/noveltea-release-manifest.json" >> "$GITHUB_ENV"
           fi
 
+      - name: Prepare exact release examples
+        if: ${{ steps.release-docs.outputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="${{ steps.release-docs.outputs.release_tag }}"
+          readarray -t example_identity < <(node -e '
+            const value = require("./build/site-release/noveltea-release-manifest.json");
+            const sourceRevision = value?.examples?.sourceRevision;
+            const archive = value?.examples?.archive?.file;
+            const buildId = value?.examples?.playerBuildId;
+            const tag = value?.release?.tag;
+            if (!/^[0-9a-f]{40}$/.test(sourceRevision ?? "") || archive !== `noveltea-examples-${tag}.zip` || buildId !== `${tag}-web-wasm32-threads-release`) process.exit(1);
+            process.stdout.write(`${archive}\n${sourceRevision}\n`);
+          ')
+          archive="${example_identity[0]}"
+          examples_revision="${example_identity[1]}"
+          mkdir -p build/site-release-examples
+          gh release download "$release_tag" \
+            --repo Cruel/noveltea-releases \
+            --pattern "$archive" \
+            --dir build/site-release
+          ARCHIVE_PATH="build/site-release/$archive" node -e '
+            const crypto = require("crypto");
+            const fs = require("fs");
+            const manifest = require("./build/site-release/noveltea-release-manifest.json");
+            const bytes = fs.readFileSync(process.env.ARCHIVE_PATH);
+            const asset = manifest.examples.archive;
+            const digest = crypto.createHash("sha256").update(bytes).digest("hex");
+            if (bytes.length !== asset.size || digest !== asset.sha256) process.exit(1);
+          '
+          unzip -q "build/site-release/$archive" -d build/site-release-examples
+          test -f build/site-release-examples/catalog.json
+          key_prefix="releases/examples/$release_tag/$examples_revision"
+          echo "NOVELTEA_RELEASE_EXAMPLES_CATALOG_PATH=$GITHUB_WORKSPACE/build/site-release-examples/catalog.json" >> "$GITHUB_ENV"
+          echo "NOVELTEA_RELEASE_EXAMPLES_R2_KEY_PREFIX=$key_prefix" >> "$GITHUB_ENV"
+          echo "NOVELTEA_RELEASE_EXAMPLES_R2_BASE_URL=https://assets.noveltea.dev/$key_prefix" >> "$GITHUB_ENV"
+
       - name: Checkout exact release documentation source
         if: ${{ steps.release-docs.outputs.release_tag != '' }}
         uses: actions/checkout@v6

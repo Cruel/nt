@@ -22,19 +22,32 @@ interface ShowcaseModel {
   examples: ShowcaseExample[];
 }
 
-const { catalog } = loadQualifiedDevelopmentExamples();
-const showcase = loadDevelopmentExampleShowcaseModel(catalog) as ShowcaseModel;
+interface Props {
+  showcase?: ShowcaseModel;
+  releaseTag?: string;
+}
+
+const { showcase: providedShowcase, releaseTag } = Astro.props as Props;
+const isDevelopment = !releaseTag;
+const { catalog } = providedShowcase ? { catalog: undefined } : loadQualifiedDevelopmentExamples();
+const showcase = providedShowcase ?? (loadDevelopmentExampleShowcaseModel(catalog) as ShowcaseModel);
 const firstExample = showcase.examples[0];
 const serializedShowcase = JSON.stringify(showcase).replaceAll('<', '\\u003c');
+const pageTitle = isDevelopment ? 'Development examples' : `NovelTea ${releaseTag} examples`;
+const pageDescription = isDevelopment
+  ? 'Playable examples built against the pinned NovelTea development toolchain.'
+  : `Playable examples built against the exact NovelTea ${releaseTag} release toolchain.`;
+const channelLabel = isDevelopment ? 'Development channel' : `Latest release · ${releaseTag}`;
+const catalogHref = isDevelopment ? '/examples/dev/catalog.json' : '/examples/catalog.json';
 ---
 
-<SiteLayout title="Development examples" description="Playable examples built against the pinned NovelTea development toolchain.">
+<SiteLayout title={pageTitle} description={pageDescription}>
   <section class="nt-page-heading nt-example-heading">
-    <p class="nt-status" data-example-channel>Development channel</p>
+    <p class="nt-status" data-example-channel>{channelLabel}</p>
     <h1>See the project model in motion.</h1>
     <p>
       These examples come from the exact public <code>noveltea-examples</code> revision qualified against this
-      NovelTea development build. Switch projects without leaving the showcase; each selection starts in a fresh
+      {isDevelopment ? ' NovelTea development build' : ` NovelTea ${releaseTag} release`}. Switch projects without leaving the showcase; each selection starts in a fresh
       player context.
     </p>
     <p class="nt-example-revision">
@@ -44,7 +57,12 @@ const serializedShowcase = JSON.stringify(showcase).replaceAll('<', '\\u003c');
     </p>
   </section>
 
-  <section class="nt-example-showcase" data-example-showcase aria-label="Development example showcase">
+  <section
+    class="nt-example-showcase"
+    data-example-showcase
+    data-example-preview-enabled={isDevelopment ? 'true' : 'false'}
+    aria-label={isDevelopment ? 'Development example showcase' : 'Release example showcase'}
+  >
     <aside class="nt-example-selector" aria-label="Choose an example">
       <p class="nt-kicker">Playable projects</p>
       <div class="nt-example-selector__list" data-example-selector-list>
@@ -111,7 +129,7 @@ const serializedShowcase = JSON.stringify(showcase).replaceAll('<', '\\u003c');
   <noscript>
     <p class="nt-example-noscript">
       JavaScript is required to switch the embedded player. You can still inspect the source and project catalog at
-      <a href="/examples/dev/catalog.json">/examples/dev/catalog.json</a>.
+      <a href={catalogHref}>{catalogHref}</a>.
     </p>
   </noscript>
 
@@ -124,7 +142,9 @@ const serializedShowcase = JSON.stringify(showcase).replaceAll('<', '\\u003c');
 
       let showcase = JSON.parse(data.textContent || '{}');
       const playerHost = root.querySelector('[data-example-player-host]');
-      const previewToken = new URLSearchParams(window.location.search).get('preview');
+      const previewToken = root.dataset.examplePreviewEnabled === 'true'
+        ? new URLSearchParams(window.location.search).get('preview')
+        : null;
       const previewMatch = /^pr-([1-9][0-9]*)\/([0-9a-f]{40})$/.exec(previewToken || '');
       if (previewToken && !previewMatch) {
         throw new Error('Invalid NovelTea example preview token.');

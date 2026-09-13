@@ -46,6 +46,12 @@ The production site is not rebuilt for these previews. `/examples/dev?preview=pr
 
 The local threaded Web configure explicitly disables the optional local `rmlui-bgfx` override so an existing developer cache cannot silently change the qualified toolchain away from the canonical `nt` dependency graph.
 
+## Release example channel
+
+A NovelTea release captures the examples pin from that exact tagged `nt` checkout. The Release workflow checks out that public examples commit, downloads the same release run's Linux host CLI and canonical threaded Web template, then invokes `scripts/qualify-examples.mjs` with the release tag/build ID as the required player identity. The resulting `noveltea-examples-<tag>.zip` therefore contains one shared player and example payloads that were qualified against the exact public release rather than current `master`.
+
+The public `noveltea-release-manifest.json` records the release examples archive, examples source revision, and matching player build ID. `/examples` consumes that latest public-release generation while `/examples/dev` remains independently tied to the current development pin. Before the first public release, `/examples` redirects to `/examples/dev`. Pages-eligible release example files are staged under `/examples/assets`; any oversized files use the immutable `releases/examples/<tag>/<examples-revision>/` R2 namespace without changing showcase URLs or switching behavior.
+
 ## Verification
 
 The contract-level tests are part of the CI test inventory:

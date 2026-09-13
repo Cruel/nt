@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "examples:prepare": "node scripts/prepare-development-examples.mjs",
+    "examples:prepare": "node scripts/prepare-examples.mjs",
     "predev": "pnpm run examples:prepare",
     "dev": "astro dev",
     "prebuild": "pnpm run examples:prepare",

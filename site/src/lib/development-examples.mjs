@@ -78,13 +78,14 @@ export function loadQualifiedDevelopmentExamples(
 
 export function createDevelopmentExampleShowcaseModel(
   catalog,
-  { assetBase = process.env.NOVELTEA_EXAMPLES_ASSET_BASE_URL } = {},
+  { assetBase = process.env.NOVELTEA_EXAMPLES_ASSET_BASE_URL, channel = "dev" } = {},
 ) {
   const base = cleanAssetBase(assetBase);
   return {
     format: "noveltea.site-example-catalog",
     formatVersion: 1,
-    channel: "dev",
+    channel,
+    ...(channel === "release" ? { release: { tag: catalog.toolchain.player.engineVersion } } : {}),
     source: catalog.source,
     toolchain: {
       player: {

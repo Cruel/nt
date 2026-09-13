@@ -62,7 +62,15 @@ export function parseExamplesRevision(text) {
 
 export function validateQualifiedExamplesCatalog(
   catalog,
-  { revision, ntRevision, cliSha256, playerTemplateSha256, playerDescriptorSha256 },
+  {
+    revision,
+    ntRevision,
+    cliSha256,
+    playerTemplateSha256,
+    playerDescriptorSha256,
+    playerEngineVersion = `dev-${ntRevision}`,
+    playerBuildId = `dev-${ntRevision}-web-wasm32-threads-release`,
+  },
 ) {
   if (
     catalog?.format !== "noveltea.example-catalog" ||
@@ -78,8 +86,8 @@ export function validateQualifiedExamplesCatalog(
     catalog?.toolchain?.player?.templateArchive?.sha256 !== playerTemplateSha256 ||
     catalog?.toolchain?.player?.descriptor?.sha256 !== playerDescriptorSha256 ||
     catalog?.toolchain?.player?.templateId !== "web-wasm32-threads-release" ||
-    catalog?.toolchain?.player?.engineVersion !== `dev-${ntRevision}` ||
-    catalog?.toolchain?.player?.buildId !== `dev-${ntRevision}-web-wasm32-threads-release` ||
+    catalog?.toolchain?.player?.engineVersion !== playerEngineVersion ||
+    catalog?.toolchain?.player?.buildId !== playerBuildId ||
     !Array.isArray(catalog?.toolchain?.player?.files) ||
     catalog.toolchain.player.files.length === 0
   ) {
@@ -158,7 +166,9 @@ function usage() {
   --player-template <threaded Web template.zip> \\
   --player-descriptor <template.json> \\
   --output <directory> \\
-  [--pin <revision file>]\n`;
+  [--pin <revision file>] \\
+  [--player-engine-version <version>] \\
+  [--player-build-id <build-id>]\n`;
 }
 
 function parseArguments(argv) {
@@ -175,6 +185,8 @@ function parseArguments(argv) {
         "--player-descriptor",
         "--output",
         "--pin",
+        "--player-engine-version",
+        "--player-build-id",
       ].includes(name)
     ) {
       throw new Error(`Unknown argument '${name}'.\n\n${usage()}`);
@@ -206,6 +218,8 @@ function parseArguments(argv) {
     playerDescriptor: resolve(values.get("--player-descriptor")),
     output: resolve(values.get("--output")),
     pin: resolve(values.get("--pin") ?? defaultPinPath),
+    playerEngineVersion: values.get("--player-engine-version"),
+    playerBuildId: values.get("--player-build-id"),
   };
 }
 
@@ -221,6 +235,8 @@ export function qualifyExamples({
   playerDescriptor,
   output,
   pin,
+  playerEngineVersion = `dev-${ntRevision}`,
+  playerBuildId = `dev-${ntRevision}-web-wasm32-threads-release`,
 }) {
   assertRegularFile(pin, "Examples revision pin");
   if (!/^[0-9a-f]{40}$/.test(ntRevision)) {
@@ -270,6 +286,8 @@ export function qualifyExamples({
     cliSha256: sha256File(cli),
     playerTemplateSha256: sha256File(playerTemplate),
     playerDescriptorSha256: sha256File(playerDescriptor),
+    playerEngineVersion,
+    playerBuildId,
   });
   verifyQualifiedExamplesOutput(output, catalog);
   return { revision, catalogPath };

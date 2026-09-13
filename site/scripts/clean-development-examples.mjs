@@ -5,7 +5,8 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const siteRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const publicRoot = resolve(siteRoot, "public/examples/dev");
-
-rmSync(resolve(publicRoot, "assets"), { recursive: true, force: true });
-rmSync(resolve(publicRoot, "catalog.json"), { force: true });
+for (const route of ["dev", ""]) {
+  const publicRoot = resolve(siteRoot, "public/examples", route);
+  rmSync(resolve(publicRoot, "assets"), { recursive: true, force: true });
+  rmSync(resolve(publicRoot, "catalog.json"), { force: true });
+}

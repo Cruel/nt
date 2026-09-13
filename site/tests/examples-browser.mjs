@@ -40,7 +40,7 @@ async function withServer(run) {
       response.writeHead(404).end("Not found");
       return;
     }
-    if (pathname === "/examples/dev" || pathname.startsWith("/examples/dev/")) {
+    if (pathname === "/examples" || pathname.startsWith("/examples/")) {
       response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
       response.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
       response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
@@ -184,6 +184,51 @@ test(
     });
   },
 );
+
+if (process.env.NOVELTEA_DOCS_RELEASE_VERSION) {
+  test(
+    "release showcase runs the exact release examples independently from development",
+    { timeout: 90_000 },
+    async () => {
+      await withServer(async (origin) => {
+        const browser = await chromium.launch({ headless: true });
+        try {
+          const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+          await page.goto(`${origin}/examples/`, { waitUntil: "networkidle" });
+          assert.equal(await page.evaluate(() => crossOriginIsolated), true);
+          assert.equal(
+            await page.locator("[data-example-channel]").textContent(),
+            `Latest release · ${process.env.NOVELTEA_DOCS_RELEASE_VERSION}`,
+          );
+          const frameElement = await page.locator("iframe[data-example-player]").elementHandle();
+          const frame = page
+            .frames()
+            .find((candidate) =>
+              candidate.url().includes("/examples/assets/playable/materials/index.html"),
+            );
+          assert.ok(frame, "release Materials player frame should load");
+          assert.equal(await frame.evaluate(() => crossOriginIsolated), true);
+          await startPlayer(frame);
+
+          await page.locator('[data-example-select="verbs"]').click();
+          await page.waitForFunction(
+            () => document.querySelector("[data-example-title]")?.textContent === "Verbs",
+          );
+          assert.equal(await frameElement.evaluate((element) => element.isConnected), false);
+          const verbsFrame = page
+            .frames()
+            .find((candidate) =>
+              candidate.url().includes("/examples/assets/playable/verbs/index.html"),
+            );
+          assert.ok(verbsFrame, "release Verbs player frame should load");
+          await startPlayer(verbsFrame);
+        } finally {
+          await browser.close();
+        }
+      });
+    },
+  );
+}
 
 test(
   "development showcase runs both qualified players and recreates state when switching",
