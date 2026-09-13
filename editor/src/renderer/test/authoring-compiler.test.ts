@@ -91,6 +91,35 @@ describe('authoring compiler framework', () => {
     ).toBe(false);
   });
 
+  it('declares printable arguments for placeholders in structured inline Messages', () => {
+    const project = validProject();
+    const verb = defaultVerbData('Examine');
+    verb.slots = [
+      {
+        id: 'target',
+        label: { source: { kind: 'inline', text: 'Target' }, markup: 'plain' },
+        prompt: { source: { kind: 'inline', text: 'Examine whom?' }, markup: 'plain' },
+        selectors: [{ kind: 'family', family: 'interactable' }],
+      },
+    ];
+    verb.bindingOrder = ['target'];
+    verb.completedCommandText.source = { kind: 'inline', text: 'Examine {target}' };
+    project.verbs.examine = { id: 'examine', label: 'Examine', data: verb };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok, result.ok ? '' : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.project.localization.catalogs[0]?.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          value: 'Examine {target}',
+          arguments: [{ name: 'target', type: 'printable' }],
+        }),
+      ]),
+    );
+  });
+
   it('lowers Project overrides of reserved system Messages onto their engine runtime identity', () => {
     const project = validProject();
     const stableId = '11111111-1111-4111-8111-111111111119';
