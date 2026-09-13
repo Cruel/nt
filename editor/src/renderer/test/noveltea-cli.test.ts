@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
-import { createNovelTeaAgentKitPayload } from '../../cli/agent-kit';
+import {
+  createNovelTeaAgentKitPayload,
+  createNovelTeaRawSchemaFiles,
+  createNovelTeaWebsiteSchemaReference,
+} from '../../cli/agent-kit';
 import {
   loadAgentKitSourceFiles,
   loadAgentKitSystemLayoutSourceFiles,
@@ -1499,6 +1503,33 @@ describe('NovelTea headless CLI', () => {
       expect(second.stdout).toBe(first.stdout);
       expect(second.stderr).toBe(first.stderr);
     }
+  });
+
+  it('generates website reference metadata and raw schemas from the canonical agent-kit codecs', () => {
+    const reference = createNovelTeaWebsiteSchemaReference();
+    const rawSchemas = createNovelTeaRawSchemaFiles();
+
+    expect(reference).toMatchObject({
+      schema: 'noveltea.website.schema-reference',
+      channel: 'dev',
+      unreleased: true,
+      projectWorkspaceVersion: 1,
+    });
+    expect(reference.documents.map((document) => document.id)).toEqual(
+      expect.arrayContaining(['project', 'records/rooms', 'records/interactions']),
+    );
+    const project = reference.documents.find((document) => document.id === 'project');
+    expect(project?.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'schema', required: true }),
+        expect.objectContaining({ name: 'schemaVersion', required: true }),
+        expect.objectContaining({ name: 'project', required: true }),
+      ]),
+    );
+    expect(JSON.parse(rawSchemas['project.schema.json'] ?? '{}')).toHaveProperty(
+      'properties.project',
+    );
+    expect(rawSchemas['records/rooms.schema.json']).toBeTruthy();
   });
 
   it('generates the complete deterministic agent-kit payload from current codecs', () => {
