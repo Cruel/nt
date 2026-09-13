@@ -3,6 +3,7 @@
 #include <noveltea/core/package_export.hpp>
 
 #include <array>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -37,6 +38,36 @@ mz_uint16 method_for(mz_zip_archive& archive, const char* path)
 }
 
 } // namespace
+
+TEST_CASE("runtime package exporter writes canonical ZIP timestamps")
+{
+    PackageExportOptions options;
+    options.project_name = "Deterministic Package";
+    options.project_version = "1.0.0";
+    options.display = nlohmann::json::object();
+    options.accessibility = nlohmann::json::object();
+
+    std::vector<std::byte> package;
+    const auto result =
+        ProjectPackageWriter::write_to_memory(nlohmann::json::object(), options, package);
+    REQUIRE(result.success);
+
+    mz_zip_archive archive{};
+    REQUIRE(mz_zip_reader_init_mem(&archive, package.data(), package.size(), 0));
+    const int index = mz_zip_reader_locate_file(&archive, "game", nullptr, 0);
+    REQUIRE(index >= 0);
+    mz_zip_archive_file_stat stat{};
+    REQUIRE(mz_zip_reader_file_stat(&archive, static_cast<mz_uint>(index), &stat));
+    const auto* local = std::localtime(&stat.m_time);
+    REQUIRE(local != nullptr);
+    CHECK(local->tm_year == 80);
+    CHECK(local->tm_mon == 0);
+    CHECK(local->tm_mday == 1);
+    CHECK(local->tm_hour == 0);
+    CHECK(local->tm_min == 0);
+    CHECK(local->tm_sec == 0);
+    REQUIRE(mz_zip_reader_end(&archive));
+}
 
 TEST_CASE("runtime package exporter stores compressed media and long-form audio entries")
 {
