@@ -28,6 +28,28 @@ test("release examples use exact release CLI, player, and tagged examples pin", 
   assert.match(value, /noveltea-examples-\$\{RELEASE_TAG\}\.zip/);
 });
 
+test("release Linux jobs reuse the shared native dependency setup", () => {
+  for (const name of ["shader-assets", "web", "release-examples", "android"]) {
+    assert.match(job(name), /uses: \.\/\.github\/actions\/setup-linux-native/);
+  }
+
+  const desktopHosts = job("desktop-hosts");
+  assert.match(desktopHosts, /uses: \.\/\.github\/actions\/setup-linux-native/);
+  assert.match(desktopHosts, /graphics: "true"/);
+  assert.match(desktopHosts, /xvfb: "true"/);
+  assert.match(desktopHosts, /extra-packages: weston libgl1-mesa-dri/);
+
+  const desktopEditor = job("desktop-editor");
+  assert.match(desktopEditor, /uses: \.\/\.github\/actions\/setup-linux-native/);
+  assert.match(desktopEditor, /xvfb: "true"/);
+  assert.doesNotMatch(releaseWorkflow, /apt-get (?:update|install)/);
+});
+
+test("release builds leave compile concurrency automatic like regular CI", () => {
+  assert.doesNotMatch(releaseWorkflow, /CMAKE_BUILD_PARALLEL_LEVEL:/);
+  assert.doesNotMatch(releaseWorkflow, /VCPKG_MAX_CONCURRENCY:/);
+});
+
 test("release inventory cannot publish before release examples qualify", () => {
   const value = job("release-inventory");
   assert.match(value, /needs:\s*\n\s*\[[^\]]*release-examples[^\]]*\]/);
