@@ -27,12 +27,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          run_id="$(gh run list --workflow build.yml --commit "$SOURCE_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml --commit "$SOURCE_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
           if [ -z "$run_id" ]; then
             echo "No successful Build workflow exists for $SOURCE_SHA; refusing to publish the site without qualified development examples." >&2
             exit 1
           fi
-          gh run download "$run_id" --name noveltea-development-examples --dir build/site-examples
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name noveltea-development-examples --dir build/site-examples
           test -f build/site-examples/catalog.json
 
       - name: Re-publish qualified examples into this workflow run
