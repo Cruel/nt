@@ -164,8 +164,6 @@ jobs:
             -DNOVELTEA_COMPILE_SHADERS=OFF \
             -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" \
             -DBUILD_TESTING=ON \
-            -DCMAKE_JOB_POOLS=link_pool=1 \
-            -DCMAKE_JOB_POOL_LINK=link_pool \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 

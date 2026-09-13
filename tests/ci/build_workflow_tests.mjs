@@ -3,6 +3,13 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+const releaseWorkflow = readFileSync(
+  new URL('../../.github/workflows/release.yml', import.meta.url),
+  'utf8',
+);
+const cmakePresets = JSON.parse(
+  readFileSync(new URL('../../CMakePresets.json', import.meta.url), 'utf8'),
+);
 const vcpkg = readFileSync(
   new URL('../../.github/actions/setup-linux-vcpkg/action.yml', import.meta.url),
   'utf8',
@@ -105,10 +112,17 @@ test('CI keeps shared-display CTest runs serial until their isolation is establi
 test('CI leaves compile concurrency automatic while serializing heavyweight Linux links', () => {
   assert.doesNotMatch(workflow, /CMAKE_BUILD_PARALLEL_LEVEL:/);
   assert.doesNotMatch(workflow, /VCPKG_MAX_CONCURRENCY:/);
+  assert.doesNotMatch(workflow, /-DCMAKE_JOB_POOLS=|-DCMAKE_JOB_POOL_LINK=/);
 
-  const configure = step(job('linux'), 'Configure');
-  assert.match(configure, /-DCMAKE_JOB_POOLS=link_pool=1/);
-  assert.match(configure, /-DCMAKE_JOB_POOL_LINK=link_pool/);
+  const presets = new Map(cmakePresets.configurePresets.map((preset) => [preset.name, preset]));
+  for (const name of ['linux-debug', 'linux-release']) {
+    const preset = presets.get(name);
+    assert.ok(preset, `Missing CMake preset ${name}`);
+    assert.equal(preset.cacheVariables.CMAKE_JOB_POOLS, 'link_pool=1');
+    assert.equal(preset.cacheVariables.CMAKE_JOB_POOL_LINK, 'link_pool');
+  }
+  assert.equal(presets.get('linux-sanitize')?.inherits, 'linux-debug');
+  assert.match(releaseWorkflow, /preset: linux-release/);
   assert.doesNotMatch(step(job('linux'), 'Build'), /--parallel|\s-j\d*/);
 });
 
