@@ -93,6 +93,22 @@ const placement = (path, metadata) => {
   return url;
 };
 
+const sharedPlayerFiles = new Map();
+for (const metadata of catalog.toolchain.player.files) {
+  const source = verifyFile(artifactRoot, metadata);
+  if (!metadata.path.startsWith("player/")) {
+    throw new Error(`Shared player file escaped player directory: ${metadata.path}`);
+  }
+  const relativePlayerPath = metadata.path.slice("player/".length);
+  const url = placement(metadata.path, metadata);
+  sharedPlayerFiles.set(relativePlayerPath, { metadata, source, url });
+  if (localMode || metadata.size <= pagesFileLimit) {
+    writePreparedFile(source, resolve(stagedRoot, metadata.path));
+  } else {
+    writePreparedFile(source, resolve(oversizedRoot, metadata.path));
+  }
+}
+
 for (const example of catalog.examples) {
   const view = modelById.get(example.id);
   const projectSource = verifyFile(artifactRoot, example.artifacts.projectBundle);
@@ -114,7 +130,7 @@ for (const example of catalog.examples) {
       );
     }
     const playableRelative = metadata.path.slice(playablePrefix.length);
-    const publicPath = `players/${example.id}/${playableRelative}`;
+    const publicPath = metadata.path;
     playableFiles.set(playableRelative, {
       metadata,
       source,
@@ -137,6 +153,12 @@ for (const example of catalog.examples) {
               rebased = rebased
                 .replaceAll(`"./${relativePath}"`, `"${candidate.url}"`)
                 .replaceAll(`'./${relativePath}'`, `'${candidate.url}'`);
+            }
+            for (const [relativePath, candidate] of sharedPlayerFiles) {
+              if (!candidate.url.startsWith("http")) continue;
+              rebased = rebased
+                .replaceAll(`"../../player/${relativePath}"`, `"${candidate.url}"`)
+                .replaceAll(`'../../player/${relativePath}'`, `'${candidate.url}'`);
             }
             return rebased;
           }

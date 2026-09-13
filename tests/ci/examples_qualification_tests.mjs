@@ -7,7 +7,7 @@ import {
   validateQualifiedExamplesCatalog,
 } from "../../scripts/qualify-examples.mjs";
 
-const revision = "76c7eacddd2acf6704e089b99f12d00c3dd60926";
+const revision = "9a35c5cb3b4d71386a29a30662d5b370238dc0ed";
 const ntRevision = "4".repeat(40);
 const digest = (character) => character.repeat(64);
 
@@ -42,6 +42,11 @@ function catalog() {
           size: 300,
           sha256: digest("c"),
         },
+        files: [
+          { path: "player/player.aaa.wasm", size: 10, sha256: digest("4") },
+          { path: "player/player.aaa.js", size: 11, sha256: digest("5") },
+          { path: "player/player.aaa.data", size: 12, sha256: digest("6") },
+        ],
       },
     },
     examples: [
