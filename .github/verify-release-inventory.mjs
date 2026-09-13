@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -82,6 +83,30 @@ for (const descriptorName of descriptorNames) {
       );
     }
     requireFile(evidence.artifact);
+  }
+}
+
+const publicManifestName = 'noveltea-release-manifest.json';
+requireFile(publicManifestName);
+const publicManifest = JSON.parse(readFileSync(path.join(directory, publicManifestName), 'utf8'));
+if (
+  publicManifest.format !== 'noveltea.public-release' ||
+  publicManifest.version !== 1 ||
+  publicManifest.release?.tag !== tag ||
+  publicManifest.release?.repository !== 'Cruel/noveltea-releases'
+) {
+  throw new Error(`${publicManifestName} does not describe public release ${tag}.`);
+}
+for (const asset of [...(publicManifest.editor ?? []), ...(publicManifest.cli ?? [])]) {
+  requireFile(asset.file);
+  const bytes = readFileSync(path.join(directory, asset.file));
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  if (asset.size !== bytes.length || asset.sha256 !== digest) {
+    throw new Error(`${publicManifestName} metadata does not match ${asset.file}.`);
+  }
+  const expectedUrl = `https://github.com/Cruel/noveltea-releases/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(asset.file)}`;
+  if (asset.url !== expectedUrl) {
+    throw new Error(`${publicManifestName} has invalid public URL for ${asset.file}.`);
   }
 }
 

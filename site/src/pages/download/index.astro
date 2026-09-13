@@ -1,24 +1,147 @@
 ---
 import SiteLayout from '../../layouts/SiteLayout.astro';
+import { groupAssetsByPlatform, loadPublicReleaseManifest } from '../../lib/public-release.mjs';
+
+type ReleaseAsset = {
+  platform: 'windows' | 'linux';
+  arch: string;
+  label: string;
+  primary: boolean;
+  size: number;
+  url: string;
+};
+type PlatformGroup = { platform: ReleaseAsset['platform']; assets: ReleaseAsset[] };
+
+const release = loadPublicReleaseManifest();
+const platformNames: Record<ReleaseAsset['platform'], string> = { windows: 'Windows', linux: 'Linux' };
+const editorPlatforms = (release ? groupAssetsByPlatform(release.editor) : []) as PlatformGroup[];
+const cliPlatforms = (release ? groupAssetsByPlatform(release.cli) : []) as PlatformGroup[];
+const formatBytes = (bytes: number) => {
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes >= 100 * 1024 * 1024 ? 0 : 1)} MiB`;
+};
 ---
 
-<SiteLayout title="Download" description="NovelTea development download information.">
-  <section class="nt-page-heading">
-    <p class="nt-status">Pre-release</p>
-    <h1>Downloads will follow the first public builds.</h1>
-    <p>
-      NovelTea is still under active development. The desktop editor will be the primary download, with the standalone
-      CLI available for automation and headless workflows once public build publishing is enabled.
-    </p>
-  </section>
-  <section class="nt-grid" aria-label="Planned NovelTea downloads">
-    <article class="nt-card">
-      <h2>Desktop editor</h2>
-      <p>The main authoring experience for creating, previewing, and exporting NovelTea projects.</p>
-    </article>
-    <article class="nt-card">
-      <h2>Standalone CLI</h2>
-      <p>Headless validation, export, and automation tooling for advanced workflows and continuous integration.</p>
-    </article>
-  </section>
+<SiteLayout title="Download" description="Download the NovelTea editor and standalone CLI.">
+  {
+    release ? (
+      <>
+        <section class="nt-page-heading nt-download-heading">
+          <p class="nt-status">Latest release · {release.release.tag}</p>
+          <h1>Start building with NovelTea.</h1>
+          <p>
+            Download the desktop editor for the complete authoring experience. The standalone CLI is also available for
+            automation, validation, export, and headless workflows.
+          </p>
+        </section>
+
+        <section class="nt-download-section" aria-labelledby="editor-downloads">
+          <div class="nt-download-section__heading">
+            <div>
+              <p class="nt-kicker">Recommended</p>
+              <h2 id="editor-downloads">Desktop editor</h2>
+            </div>
+            <p>Create, preview, and export NovelTea projects from the primary authoring application.</p>
+          </div>
+          <div class="nt-download-grid" data-download-group="editor">
+            {editorPlatforms.map(({ platform, assets }) => {
+              const primary = assets.find((asset) => asset.primary) ?? assets[0];
+              const alternatives = assets.filter((asset) => asset !== primary);
+              return (
+                <article class="nt-download-card nt-download-card--primary" data-platform={platform}>
+                  <div class="nt-download-card__title">
+                    <div>
+                      <span class="nt-download-card__recommended" hidden data-detected-label>Recommended for this device</span>
+                      <h3>{platformNames[platform]}</h3>
+                    </div>
+                    <span>{primary.arch}</span>
+                  </div>
+                  <a class="nt-button nt-button--primary nt-download-card__action" href={primary.url} download>
+                    Download {primary.label}
+                  </a>
+                  <p class="nt-download-meta">{formatBytes(primary.size)} · SHA-256 available in release metadata</p>
+                  {alternatives.length > 0 && (
+                    <div class="nt-download-alternatives">
+                      <span>Other packages:</span>
+                      {alternatives.map((asset) => (
+                        <a href={asset.url} download>{asset.label}</a>
+                      ))}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section class="nt-download-section nt-download-section--secondary" aria-labelledby="cli-downloads">
+          <div class="nt-download-section__heading">
+            <div>
+              <p class="nt-kicker">Advanced workflows</p>
+              <h2 id="cli-downloads">Standalone CLI</h2>
+            </div>
+            <p>Use NovelTea headlessly in terminals, scripts, and continuous-integration environments.</p>
+          </div>
+          <div class="nt-download-grid nt-download-grid--compact" data-download-group="cli">
+            {cliPlatforms.map(({ platform, assets }) => {
+              const primary = assets.find((asset) => asset.primary) ?? assets[0];
+              return (
+                <article class="nt-download-card" data-platform={platform}>
+                  <div class="nt-download-card__title">
+                    <h3>{platformNames[platform]}</h3>
+                    <span>{primary.arch}</span>
+                  </div>
+                  <a class="nt-button nt-download-card__action" href={primary.url} download>
+                    Download {primary.label}
+                  </a>
+                  <p class="nt-download-meta">{formatBytes(primary.size)}</p>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section class="nt-release-note" aria-label="Release information">
+          <strong>Release {release.release.tag}</strong>
+          <span>Source revision {release.release.sourceRevision.slice(0, 12)}</span>
+          <span>Downloads are served directly from NovelTea's public release distribution repository.</span>
+        </section>
+      </>
+    ) : (
+      <>
+        <section class="nt-page-heading">
+          <p class="nt-status">Pre-release</p>
+          <h1>NovelTea is under active development.</h1>
+          <p>
+            There is not a supported public release yet. Development builds from <code>master</code> are intentionally not
+            presented here as product downloads; this page will publish the editor and standalone CLI when the first
+            qualified release is available.
+          </p>
+        </section>
+        <section class="nt-grid" aria-label="Planned NovelTea downloads">
+          <article class="nt-card">
+            <h2>Desktop editor</h2>
+            <p>The main authoring experience for creating, previewing, and exporting NovelTea projects.</p>
+          </article>
+          <article class="nt-card">
+            <h2>Standalone CLI</h2>
+            <p>Headless validation, export, and automation tooling for advanced workflows and continuous integration.</p>
+          </article>
+        </section>
+      </>
+    )
+  }
+
+  <script is:inline>
+    (() => {
+      const source = navigator.userAgent.toLowerCase();
+      const platform = source.includes('win') ? 'windows' : source.includes('linux') ? 'linux' : null;
+      if (!platform) return;
+      for (const card of document.querySelectorAll(`[data-download-group="editor"] [data-platform="${platform}"]`)) {
+        card.setAttribute('data-detected', 'true');
+        const label = card.querySelector('[data-detected-label]');
+        if (label) label.hidden = false;
+      }
+    })();
+  </script>
 </SiteLayout>
