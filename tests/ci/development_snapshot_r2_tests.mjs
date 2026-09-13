@@ -63,6 +63,13 @@ test('R2 transport preserves bytes and cache policy, lists every page, and delet
   assert.equal(await store.get(key), null);
 });
 
+test('R2 listing accepts a complete single page without pagination metadata', async (t) => {
+  const store = await server(t, (_request, response) => {
+    response.end(JSON.stringify({ success: true, result: [{ key: 'only' }] }));
+  });
+  assert.deepEqual(await store.list('development/toolchains/'), [{ key: 'only' }]);
+});
+
 test('R2 errors and incomplete pagination fail closed', async (t) => {
   let fail = true;
   const store = await server(t, (_request, response) => {

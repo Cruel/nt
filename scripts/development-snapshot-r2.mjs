@@ -51,13 +51,11 @@ export function r2Store({ accountId, token, apiOrigin = 'https://api.cloudflare.
         if (page.success !== true || !Array.isArray(page.result))
           throw new Error('Invalid R2 listing');
         objects.push(...page.result);
-        if (!page.result_info || typeof page.result_info.is_truncated !== 'boolean') {
-          throw new Error('Missing R2 pagination information');
-        }
-        cursor = page.result_info.is_truncated ? page.result_info.cursor : undefined;
-        if (page.result_info.is_truncated && (!cursor || seen.has(cursor)))
+        const truncated = page.result_info?.is_truncated === true;
+        cursor = truncated ? page.result_info.cursor : undefined;
+        if (truncated && (!cursor || seen.has(cursor)))
           throw new Error('Invalid R2 pagination cursor');
-        seen.add(cursor);
+        if (cursor) seen.add(cursor);
       } while (cursor);
       return objects;
     },
