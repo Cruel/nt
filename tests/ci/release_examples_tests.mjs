@@ -50,6 +50,23 @@ test("release builds leave compile concurrency automatic like regular CI", () =>
   assert.doesNotMatch(releaseWorkflow, /VCPKG_MAX_CONCURRENCY:/);
 });
 
+test("release Linux builds use scoped vcpkg caches and reject SDL without X11", () => {
+  const shaderAssets = job("shader-assets");
+  assert.match(shaderAssets, /name: Set up vcpkg/);
+  assert.match(shaderAssets, /uses: \.\/\.github\/actions\/setup-linux-vcpkg/);
+  assert.match(shaderAssets, /scope: linux-release/);
+  assert.match(shaderAssets, /binary-scope: linux-release/);
+  assert.doesNotMatch(shaderAssets, /vcpkg-common/);
+
+  const desktopHosts = job("desktop-hosts");
+  assert.match(desktopHosts, /name: Set up Linux vcpkg/);
+  assert.match(desktopHosts, /uses: \.\/\.github\/actions\/setup-linux-vcpkg/);
+  assert.match(desktopHosts, /scope: linux-release/);
+  assert.match(desktopHosts, /binary-scope: linux-release/);
+  assert.match(desktopHosts, /name: Verify SDL3 X11 backend is present/);
+  assert.match(desktopHosts, /SDL_x11video\\\.c\\\.o/);
+});
+
 test("release inventory cannot publish before release examples qualify", () => {
   const value = job("release-inventory");
   assert.match(value, /needs:\s*\n\s*\[[^\]]*release-examples[^\]]*\]/);
