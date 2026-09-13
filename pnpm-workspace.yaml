@@ -23,6 +23,8 @@ catalog:
 
 overrides:
   "@electron/rebuild": 4.2.0
+  js-yaml: 4.3.2
+  nanoid: 3.3.18
   tmp: 0.2.7
   vite: "catalog:"
   vitest: 4.1.10
