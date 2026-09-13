@@ -87,6 +87,21 @@ export default {
   executableName: 'noveltea-editor',
   electronVersion: stageManifest.runtime.electronVersion,
   artifactName: 'NovelTea-Editor-${version}-${os}-${arch}.${ext}',
+  fileAssociations: [
+    {
+      ext: 'ntproject',
+      name: 'NovelTea Project',
+      description: 'Portable NovelTea Project',
+      mimeType: 'application/x-noveltea-project',
+      role: 'Editor',
+    },
+  ],
+  protocols: [
+    {
+      name: 'NovelTea Project Import',
+      schemes: ['noveltea'],
+    },
+  ],
   asar: true,
   asarUnpack: ['node_modules/sharp/**/*', 'node_modules/@img/**/*'],
   npmRebuild: false,

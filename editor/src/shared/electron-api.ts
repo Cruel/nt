@@ -40,6 +40,13 @@ interface NovelTeaElectronApiContract {
   getEnginePreviewSession(projectSessionId: string): Promise<EnginePreviewSession>;
   reloadEnginePreview(projectSessionId: string): Promise<EnginePreviewSession>;
   createProject(request: CreateProjectRequest): Promise<SaveProjectResponse>;
+  takePendingProjectImport(): Promise<
+    import('./project-import-handoff').DesktopProjectImportRequest | null
+  >;
+  completeProjectImport(
+    request: import('./project-import-handoff').CompleteDesktopProjectImportRequest,
+  ): Promise<import('./project-import-handoff').DesktopProjectImportResult>;
+  onProjectImportRequested(callback: () => void): () => void;
   openProject(projectPath: string): Promise<OpenProjectResponse>;
   closeActiveProject(): Promise<void>;
   validateProject(projectSessionId: string, project: unknown): Promise<ValidationResponse>;

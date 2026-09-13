@@ -1,4 +1,22 @@
 {
+  "projectImport": {
+    "title": "Importar projeto NovelTea",
+    "remoteDescription": "Verifique e importe o projeto baixado pelo link de transferência do NovelTea.",
+    "localDescription": "Importe este projeto NovelTea portátil para uma nova pasta de projeto.",
+    "defaultName": "Projeto importado",
+    "nameLabel": "Nome do projeto",
+    "directoryLabel": "Pasta do projeto",
+    "nameRequired": "O nome do projeto é obrigatório.",
+    "nameInvalid": "O nome do projeto deve conter pelo menos uma letra ou número.",
+    "directoryRequired": "A pasta do projeto é obrigatória.",
+    "selectParentTitle": "Selecionar pasta pai do projeto importado",
+    "browse": "Procurar…",
+    "cancel": "Cancelar",
+    "submit": "Importar projeto",
+    "importing": "Importando…",
+    "failed": "Falha ao importar o projeto.",
+    "importedStatus": "Projeto {{name}} importado"
+  },
   "assetMetadata": {
     "title": "Metadados incorporados",
     "loading": "Carregando metadados incorporados…",

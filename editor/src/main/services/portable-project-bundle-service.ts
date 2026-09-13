@@ -601,6 +601,7 @@ export async function importPortableProjectBundle(
   workspace: ProjectWorkspaceService,
   bundlePathInput: string,
   destinationInput: string,
+  options: { readonly projectName?: string } = {},
 ): Promise<{
   readonly projectRoot: string;
   readonly projectFilePath: string;
@@ -669,6 +670,26 @@ export async function importPortableProjectBundle(
         'invalid-bundle',
         'Portable Project bundle contains files outside the current Project authoring contract or omits required project-owned files.',
       );
+
+    const projectName = options.projectName?.trim();
+    if (options.projectName !== undefined && !projectName)
+      throw new PortableProjectBundleError('invalid-project', 'Imported Project name is required.');
+    if (projectName && projectName !== opened.snapshot.project.project.name) {
+      await workspace.write(
+        staging,
+        opened.snapshot.workspaceRevision,
+        {
+          ...opened.snapshot.project,
+          project: { ...opened.snapshot.project.project, name: projectName },
+        },
+        opened.snapshot.project.editor,
+        opened.snapshot.scriptSourcePaths,
+        {
+          preflightSnapshot: opened.snapshot,
+          operationLabel: 'portable project import rename',
+        },
+      );
+    }
 
     await rejectExistingDestination(fileSystem, destination);
     await fileSystem.movePathAtomic(staging, destination);

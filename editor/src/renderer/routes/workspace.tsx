@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Group, Panel, usePanelRef } from 'react-resizable-panels';
 import { Button } from '@/components/ui/button';
 import {
@@ -108,6 +109,7 @@ import { validateProjectSettingsAuthoringState } from '../../shared/project-sche
 import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
+import type { DesktopProjectImportRequest } from '../../shared/project-import-handoff';
 import { shouldReconcileProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
 
 export const Route = createFileRoute('/workspace')({
@@ -222,6 +224,7 @@ interface WorkspaceAlert {
 }
 
 export function WorkspacePage() {
+  const { t } = useTranslation('workspace');
   const [, setBusy] = useState(false);
   const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -232,6 +235,14 @@ export function WorkspacePage() {
   const [newProjectDefaultDirectory, setNewProjectDefaultDirectory] = useState('');
   const [newProjectCreating, setNewProjectCreating] = useState(false);
   const [newProjectError, setNewProjectError] = useState<string | null>(null);
+  const [projectImportRequest, setProjectImportRequest] =
+    useState<DesktopProjectImportRequest | null>(null);
+  const [projectImportName, setProjectImportName] = useState('Imported Project');
+  const [projectImportDirectory, setProjectImportDirectory] = useState('');
+  const [projectImportDirectoryEdited, setProjectImportDirectoryEdited] = useState(false);
+  const [projectImportBusy, setProjectImportBusy] = useState(false);
+  const [projectImportError, setProjectImportError] = useState<string | null>(null);
+  const [checkedStartupProjectImport, setCheckedStartupProjectImport] = useState(false);
   const [untrackedAssetFiles, setUntrackedAssetFiles] = useState<ProjectAssetAuditFile[]>([]);
   const [untrackedAssetDialogOpen, setUntrackedAssetDialogOpen] = useState(false);
   const [externalConflictBusy, setExternalConflictBusy] = useState(false);
@@ -241,6 +252,8 @@ export function WorkspacePage() {
   const lastAssetAuditProjectFilePath = useRef<string | null>(null);
   const latestProjectFilePathRef = useRef<string | null>(null);
   const completingWindowClose = useRef(false);
+  const projectImportRequestRef = useRef<DesktopProjectImportRequest | null>(null);
+  const takeNextPendingProjectImportRef = useRef<() => Promise<void>>(async () => {});
   const persistentRecoveryDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
   const externalSourceDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
   const externalAssetDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
@@ -367,6 +380,22 @@ export function WorkspacePage() {
     setNewProjectDirectory(joinProjectPath(newProjectDefaultDirectory, slug));
   }, [newProjectDefaultDirectory, newProjectDirectoryEdited, newProjectName]);
 
+  useEffect(() => {
+    projectImportRequestRef.current = projectImportRequest;
+  }, [projectImportRequest]);
+
+  useEffect(() => {
+    if (projectImportDirectoryEdited || !projectImportRequest) return;
+    const slug = projectSlug(projectImportName);
+    if (!slug || !newProjectDefaultDirectory) return;
+    setProjectImportDirectory(joinProjectPath(newProjectDefaultDirectory, slug));
+  }, [
+    newProjectDefaultDirectory,
+    projectImportDirectoryEdited,
+    projectImportName,
+    projectImportRequest,
+  ]);
+
   function loadAuthoringDocument(
     document: unknown,
     savedDocument: unknown,
@@ -421,6 +450,89 @@ export function WorkspacePage() {
     const directory = await window.noveltea.getDefaultProjectDirectory();
     setNewProjectDefaultDirectory(directory);
     return directory;
+  }
+
+  async function presentProjectImport(request: DesktopProjectImportRequest) {
+    const parentDirectory = await resolveNewProjectParentDirectory();
+    projectImportRequestRef.current = request;
+    const name = request.suggestedName.trim() || t('projectImport.defaultName');
+    const slug = projectSlug(name) ?? 'imported-project';
+    setProjectImportName(name);
+    setProjectImportDirectory(joinProjectPath(parentDirectory, slug));
+    setProjectImportDirectoryEdited(false);
+    setProjectImportError(null);
+    setProjectImportRequest(request);
+  }
+
+  async function takeNextPendingProjectImport() {
+    if (projectImportRequestRef.current) return;
+    const request = await window.noveltea.takePendingProjectImport();
+    if (request) await presentProjectImport(request);
+  }
+
+  takeNextPendingProjectImportRef.current = takeNextPendingProjectImport;
+
+  async function dismissProjectImport() {
+    setProjectImportRequest(null);
+    projectImportRequestRef.current = null;
+    setProjectImportError(null);
+    await takeNextPendingProjectImport();
+  }
+
+  async function browseProjectImportDirectory() {
+    const parentDirectory = await window.noveltea.selectDirectory({
+      title: t('projectImport.selectParentTitle'),
+      defaultPath: projectImportDirectory || (await resolveNewProjectParentDirectory()),
+    });
+    if (!parentDirectory) return;
+    const slug = projectSlug(projectImportName) ?? 'imported-project';
+    setProjectImportDirectory(joinProjectPath(parentDirectory, slug));
+    setProjectImportDirectoryEdited(true);
+    setProjectImportError(null);
+  }
+
+  async function completeProjectImport() {
+    if (!projectImportRequest) return;
+    const name = projectImportName.trim();
+    const directory = projectImportDirectory.trim();
+    if (!name) {
+      setProjectImportError(t('projectImport.nameRequired'));
+      return;
+    }
+    if (!projectSlug(name)) {
+      setProjectImportError(t('projectImport.nameInvalid'));
+      return;
+    }
+    if (!directory) {
+      setProjectImportError(t('projectImport.directoryRequired'));
+      return;
+    }
+    if (!(await flushProjectEditorMetadata('switch-project'))) return;
+
+    setProjectImportBusy(true);
+    setProjectImportError(null);
+    try {
+      const result = await window.noveltea.completeProjectImport({
+        request: projectImportRequest,
+        projectName: name,
+        destination: directory,
+      });
+      if (!result.success || !result.projectPath) {
+        setProjectImportError(result.error ?? t('projectImport.failed'));
+        return;
+      }
+      setProjectImportRequest(null);
+      projectImportRequestRef.current = null;
+      await openProject(result.projectPath);
+      const importedMessage = t('projectImport.importedStatus', { name });
+      setStatusMessage(importedMessage);
+      addTimelineEntry({ source: 'command', message: importedMessage, detail: result });
+      await takeNextPendingProjectImport();
+    } catch (error) {
+      setProjectImportError(error instanceof Error ? error.message : t('projectImport.failed'));
+    } finally {
+      setProjectImportBusy(false);
+    }
   }
 
   async function openNewProjectDialog() {
@@ -1017,7 +1129,22 @@ export function WorkspacePage() {
   );
 
   useEffect(() => {
-    if (didAttemptStartupRestore.current || project) return;
+    let active = true;
+    const notify = () => {
+      void takeNextPendingProjectImportRef.current();
+    };
+    const unsubscribe = window.noveltea.onProjectImportRequested(notify);
+    void takeNextPendingProjectImportRef.current().finally(() => {
+      if (active) setCheckedStartupProjectImport(true);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!checkedStartupProjectImport || didAttemptStartupRestore.current || project) return;
     didAttemptStartupRestore.current = true;
     if (restoreLastProjectOnStart && lastProjectPath) {
       void openProject(lastProjectPath);
@@ -1745,6 +1872,17 @@ export function WorkspacePage() {
     : null;
   const canCreateNewProject =
     !newProjectNameIssue && !newProjectDirectoryIssue && !newProjectCreating;
+  const trimmedProjectImportName = projectImportName.trim();
+  const projectImportNameIssue = !trimmedProjectImportName
+    ? t('projectImport.nameRequired')
+    : !projectSlug(trimmedProjectImportName)
+      ? t('projectImport.nameInvalid')
+      : null;
+  const projectImportDirectoryIssue = !projectImportDirectory.trim()
+    ? t('projectImport.directoryRequired')
+    : null;
+  const canCompleteProjectImport =
+    !projectImportNameIssue && !projectImportDirectoryIssue && !projectImportBusy;
   const showBottomPanel = project !== null && bottomPanelVisible;
 
   useLayoutEffect(() => {
@@ -1880,6 +2018,103 @@ export function WorkspacePage() {
               </Button>
               <Button type="submit" disabled={!canCreateNewProject}>
                 {newProjectCreating ? 'Creating…' : 'Create Project'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogPopup>
+      </Dialog>
+      <Dialog
+        open={projectImportRequest !== null}
+        onOpenChange={(open) => {
+          if (!open && !projectImportBusy) void dismissProjectImport();
+        }}
+      >
+        <DialogPopup className="sm:max-w-lg">
+          <form
+            className="grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (canCompleteProjectImport) void completeProjectImport();
+            }}
+          >
+            <div className="grid gap-1">
+              <DialogTitle>{t('projectImport.title')}</DialogTitle>
+              <DialogDescription>
+                {projectImportRequest?.source.kind === 'remote'
+                  ? t('projectImport.remoteDescription')
+                  : t('projectImport.localDescription')}
+              </DialogDescription>
+            </div>
+            <div className="grid gap-3">
+              <div className="grid gap-1">
+                <Label htmlFor="project-import-name">{t('projectImport.nameLabel')}</Label>
+                <Input
+                  id="project-import-name"
+                  value={projectImportName}
+                  onChange={(event) => {
+                    setProjectImportName(event.currentTarget.value);
+                    setProjectImportError(null);
+                  }}
+                  aria-invalid={projectImportNameIssue ? true : undefined}
+                  autoFocus
+                />
+                {projectImportNameIssue ? (
+                  <p className="text-[11px] text-destructive">{projectImportNameIssue}</p>
+                ) : null}
+              </div>
+              <div className="grid gap-1">
+                <Label htmlFor="project-import-directory">
+                  {t('projectImport.directoryLabel')}
+                </Label>
+                <div className="flex min-w-0 items-center gap-2">
+                  <Input
+                    id="project-import-directory"
+                    className="font-mono text-[11px]"
+                    value={projectImportDirectory}
+                    onChange={(event) => {
+                      setProjectImportDirectory(event.currentTarget.value);
+                      setProjectImportDirectoryEdited(true);
+                      setProjectImportError(null);
+                    }}
+                    aria-invalid={projectImportDirectoryIssue ? true : undefined}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void browseProjectImportDirectory()}
+                    disabled={projectImportBusy}
+                  >
+                    {t('projectImport.browse')}
+                  </Button>
+                </div>
+                {projectImportDirectoryIssue ? (
+                  <p className="text-[11px] text-destructive">{projectImportDirectoryIssue}</p>
+                ) : null}
+              </div>
+              {projectImportRequest ? (
+                <p className="truncate font-mono text-[10px] text-muted-foreground">
+                  {projectImportRequest.source.kind === 'remote'
+                    ? projectImportRequest.source.url
+                    : projectImportRequest.source.bundlePath}
+                </p>
+              ) : null}
+              {projectImportError ? (
+                <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">
+                  {projectImportError}
+                </p>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void dismissProjectImport()}
+                disabled={projectImportBusy}
+              >
+                {t('projectImport.cancel')}
+              </Button>
+              <Button type="submit" disabled={!canCompleteProjectImport}>
+                {projectImportBusy ? t('projectImport.importing') : t('projectImport.submit')}
               </Button>
             </DialogFooter>
           </form>

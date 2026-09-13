@@ -185,6 +185,21 @@ reconstructs the exact current Project-owned inventory from the opened Project, 
 only a destination that still does not exist. A successful import is therefore an ordinary current
 Project Workspace with no special post-import representation or compatibility mode.
 
+Desktop handoff uses that same importer. Installed editors associate `.ntproject` with NovelTea and
+normalize both operating-system file-open delivery and the custom protocol into one pending import
+request. Website handoff uses the fixed form
+`noveltea://import?url=<encoded-https-ntproject-url>&sha256=<64-hex-digest>&name=<optional-name>`.
+Only credential-free HTTPS artifact URLs ending in `.ntproject` are admitted. Remote content is
+streamed into temporary storage with a 512 MiB hard limit and SHA-256 verification before the
+portable-bundle validator sees it. The temporary download is never activated directly.
+
+Every desktop handoff is confirmation-only until the renderer supplies a Project name and a new
+destination directory. The import dialog pre-fills those values using the artifact name and the same
+default Project location used by New Project, but neither a local file-open nor a remote protocol URL
+may silently create a workspace. After validation and atomic activation, the editor opens the imported
+Project through the ordinary Project-open/session path. A confirmed name change is applied while the
+validated bundle is still staged, so the activated workspace has the user-selected Project name.
+
 ## Headless CLI editing boundary
 
 The TypeScript Node reference CLI uses `noveltea [--project <project-directory>] [--json]
