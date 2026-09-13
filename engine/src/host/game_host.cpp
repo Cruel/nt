@@ -442,8 +442,6 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
         m_running_game = std::move(previous_game);
         m_project_scripts = std::move(previous_scripts);
         m_running_game_presentation_port = std::move(previous_presentation);
-        m_runtime_audio_adapter.set_mix_settings(
-            m_running_game->package().project().settings().audio);
         m_lifecycle_state = previous_lifecycle_state;
         m_compiled_project_path = std::move(previous_compiled_project_path);
         m_pending_runtime_inputs = std::move(previous_pending_runtime_inputs);
@@ -456,6 +454,8 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
         if (!m_running_game)
             return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
 
+        m_runtime_audio_adapter.set_mix_settings(
+            m_running_game->package().project().settings().audio);
         m_runtime_ui_asset_service.install(m_running_game->package().project(),
                                            m_running_game->runtime_locale());
         if (hooks.restore_previous_resources) {

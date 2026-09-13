@@ -3,12 +3,44 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "ui/rmlui/rmlui_file_interface.hpp"
 
+#include <array>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <span>
+#include <string_view>
+
+#define MINIZ_NO_ZLIB_APIS
+#if __has_include(<miniz/miniz.h>)
+#include <miniz/miniz.h>
+#else
+#include <miniz.h>
+#endif
 
 using namespace noveltea;
 using namespace noveltea::assets;
 using namespace noveltea::ui::rmlui;
+
+namespace {
+
+AssetBytes compressed_zip(std::string_view path, std::span<const std::uint8_t> bytes)
+{
+    mz_zip_archive archive{};
+    REQUIRE(mz_zip_writer_init_heap(&archive, 0, 0));
+    REQUIRE(mz_zip_writer_add_mem(&archive, std::string(path).c_str(), bytes.data(), bytes.size(),
+                                  MZ_BEST_COMPRESSION));
+    void* data = nullptr;
+    size_t size = 0;
+    REQUIRE(mz_zip_writer_finalize_heap_archive(&archive, &data, &size));
+    REQUIRE(data != nullptr);
+    const auto* first = static_cast<const std::uint8_t*>(data);
+    AssetBytes result(first, first + size);
+    mz_free(data);
+    REQUIRE(mz_zip_writer_end(&archive));
+    return result;
+}
+
+} // namespace
 
 TEST_CASE("AssetRmlFileInterface opens, reads, seeks, tells, and closes")
 {
@@ -41,6 +73,29 @@ TEST_CASE("AssetRmlFileInterface opens, reads, seeks, tells, and closes")
     files.Close(explicit_path);
 
     CHECK(files.Open("missing.rml") == 0);
+}
+
+TEST_CASE("AssetRmlFileInterface materializes non-seekable compressed package assets")
+{
+    const std::array<std::uint8_t, 8> expected = {0x00, 0x01, 0x02, 0x03, 0xf0, 0xf1, 0xf2, 0xf3};
+    auto source = std::make_shared<ZipAssetSource>(
+        compressed_zip("assets/fonts/body.ttf", std::span<const std::uint8_t>(expected)));
+
+    AssetManager manager;
+    manager.mount("project", source);
+    AssetRmlFileInterface files(manager);
+
+    auto handle = files.Open("project:/assets/fonts/body.ttf");
+    REQUIRE(handle != 0);
+    CHECK(files.Length(handle) == expected.size());
+    CHECK(files.Tell(handle) == 0);
+
+    std::array<std::uint8_t, expected.size()> actual{};
+    CHECK(files.Read(actual.data(), actual.size(), handle) == actual.size());
+    CHECK(actual == expected);
+    CHECK(files.Seek(handle, 0, SEEK_SET));
+    CHECK(files.Tell(handle) == 0);
+    files.Close(handle);
 }
 
 TEST_CASE("AssetRmlFileInterface safely rejects invalid handles and buffers")

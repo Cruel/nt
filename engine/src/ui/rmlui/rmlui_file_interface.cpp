@@ -126,6 +126,24 @@ Rml::FileHandle AssetRmlFileInterface::Open(const Rml::String& path)
         virtual_file != m_virtual_files.end()) {
         return reinterpret_cast<Rml::FileHandle>(new OpenedRmlFile(virtual_file->second));
     }
+    auto metadata = m_assets.stat(logical);
+    if (!metadata) {
+        std::fprintf(stderr, "[rmlui] failed to stat %s as %s: %s\n", path.c_str(), logical.c_str(),
+                     metadata.error.message.c_str());
+        return 0;
+    }
+    if (!metadata.value->seekable) {
+        auto contents = m_assets.read_binary(logical);
+        if (!contents) {
+            std::fprintf(stderr, "[rmlui] failed to materialize %s as %s: %s\n", path.c_str(),
+                         logical.c_str(), contents.error.message.c_str());
+            return 0;
+        }
+        return reinterpret_cast<Rml::FileHandle>(new OpenedRmlFile(
+            std::string(reinterpret_cast<const char*>(contents.value->bytes.data()),
+                        contents.value->bytes.size())));
+    }
+
     auto opened = m_assets.open(logical);
     if (!opened) {
         std::fprintf(stderr, "[rmlui] failed to open %s as %s: %s\n", path.c_str(), logical.c_str(),
