@@ -14,6 +14,10 @@ The runner prepares Astro/Starlight content state and starts the normal Astro de
 
 The `/examples/dev` surface receives COOP, COEP, and CORP headers from an Astro development middleware so the future threaded Web-player showcase can run under the same isolation contract used in production. The Cloudflare Pages build receives the matching rules from `public/_headers`.
 
+## Visual system
+
+Custom marketing pages and Starlight share the tokens in `src/styles/tokens.css` plus the reusable NovelTea wordmark treatment. The marketing surface is intentionally dark-first and more expressive than the editor UI; documentation keeps Starlight's light/dark reading modes. Landing-page motion stays CSS-only and includes a `prefers-reduced-motion` fallback.
+
 ## Documentation channels
 
 `/docs/dev` always renders from the current checkout and is visibly marked unreleased/unstable. Before a public release exists, `/docs` renders the same development channel.

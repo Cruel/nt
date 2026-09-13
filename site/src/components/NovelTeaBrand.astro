@@ -1,0 +1,79 @@
+---
+interface Props {
+  href?: string;
+  label?: string;
+  compact?: boolean;
+}
+
+const { href = '/', label = 'NovelTea', compact = false } = Astro.props;
+---
+
+<a class:list={['nt-wordmark', { 'nt-wordmark--compact': compact }]} href={href}>
+  <span class="nt-wordmark__mark" aria-hidden="true"><span>N</span></span>
+  <span class="nt-wordmark__label" translate="no">{label}</span>
+</a>
+
+<style>
+  .nt-wordmark {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.72rem;
+    color: var(--nt-color-text);
+    font-family: var(--nt-font-sans);
+    font-size: 1rem;
+    font-weight: 780;
+    letter-spacing: 0.01em;
+    text-decoration: none;
+  }
+
+  .nt-wordmark__mark {
+    position: relative;
+    display: inline-grid;
+    width: 2.15rem;
+    flex: 0 0 auto;
+    aspect-ratio: 1;
+    place-items: center;
+    background: var(--nt-gradient-brand);
+    clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0 50%);
+    color: #031410;
+    filter: drop-shadow(0 0 0.9rem rgb(52 211 153 / 0.2));
+  }
+
+  .nt-wordmark__mark::after {
+    position: absolute;
+    inset: 2px;
+    border: 1px solid rgb(255 255 255 / 0.28);
+    clip-path: inherit;
+    content: '';
+  }
+
+  .nt-wordmark__mark span {
+    position: relative;
+    z-index: 1;
+    font-family: var(--nt-font-display);
+    font-size: 1.05rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .nt-wordmark__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nt-wordmark--compact {
+    font-size: 1.05rem;
+  }
+
+  .nt-wordmark--compact .nt-wordmark__mark {
+    width: 1.9rem;
+  }
+
+  .nt-wordmark:focus-visible {
+    border-radius: var(--nt-radius-sm);
+    outline: 2px solid var(--nt-color-accent-cool);
+    outline-offset: 0.3rem;
+  }
+</style>

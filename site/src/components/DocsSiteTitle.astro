@@ -1,0 +1,7 @@
+---
+import NovelTeaBrand from './NovelTeaBrand.astro';
+
+const { siteTitle, siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<NovelTeaBrand href={siteTitleHref} label={siteTitle} compact />
