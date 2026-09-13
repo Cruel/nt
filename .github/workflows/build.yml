@@ -48,6 +48,11 @@ jobs:
           cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -P "$GITHUB_WORKSPACE/cmake/VerifyJsonBoundaryPolicyChecker.cmake"
           cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -DCLASSIFICATION="$GITHUB_WORKSPACE/cmake/NovelTeaModuleFileClassification.cmake" -DALLOWLIST="$GITHUB_WORKSPACE/cmake/module-boundary-allowlist.txt" -P "$GITHUB_WORKSPACE/cmake/CheckModuleBoundaryPolicy.cmake"
           cmake -DSOURCE_ROOT="$GITHUB_WORKSPACE" -P "$GITHUB_WORKSPACE/cmake/VerifyModuleBoundaryPolicyChecker.cmake"
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Test development snapshot publication contract
+        run: node --test tests/ci/development_snapshot_tests.mjs tests/ci/development_snapshot_r2_tests.mjs
       - name: Verify compiler feature policy header
         run: |
           if c++ -std=c++20 -Iengine/include -x c++ -c engine/include/noveltea/core/compiler_policy.hpp -o /tmp/policy.o; then
@@ -589,13 +594,28 @@ jobs:
           test -f build/web-editor-preview/apps/editor_preview/index.wasm
           ! grep -q '/assets/project/rmlui/lua_demo.rml' build/web-editor-preview/apps/editor_preview/index.js
 
-      - name: Web cooperative build coverage
+      - name: Canonical threaded Web release player coverage
         env:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-release-no-threads -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build --preset web-release-no-threads --target noveltea-player
+          emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build --preset web-release --target noveltea-player
+
+      - name: Package canonical threaded Web player
+        env:
+          EMSDK: ${{ github.workspace }}/.cache/emsdk
+        run: |
+          cmake -DNOVELTEA_TEMPLATE_PRESET=web-release -DNOVELTEA_RELEASE_TAG="dev-$GITHUB_SHA" -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
+
+      - name: Upload canonical threaded Web player
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-web-player-threads-release
+          path: |
+            dist/noveltea-player-template-dev-*-web-wasm32-threads-release.zip
+            dist/web-wasm32-threads-release.template.json
+          if-no-files-found: error
 
       - name: Upload editor preview
         uses: actions/upload-artifact@v7
