@@ -138,6 +138,13 @@ Object.defineProperty(window, 'noveltea', {
       projectPath: '/home/test/Documents/NovelTea/new-project',
       projectFilePath: '/home/test/Documents/NovelTea/new-project/project.json',
     }),
+    takePendingProjectImport: vi.fn().mockResolvedValue(null),
+    completeProjectImport: vi.fn().mockResolvedValue({
+      success: true,
+      projectPath: '/home/test/Documents/NovelTea/imported-project',
+      projectFilePath: '/home/test/Documents/NovelTea/imported-project/project.json',
+    }),
+    onProjectImportRequested: vi.fn().mockReturnValue(() => {}),
     openProject: vi.fn().mockResolvedValue({
       ok: true,
       success: true,

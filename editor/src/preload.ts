@@ -49,6 +49,13 @@ const api: NovelTeaElectronApi = {
   reloadEnginePreview: (projectSessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW, projectSessionId),
   createProject: (request) => invokeGuarded(IPC_CHANNELS.CREATE_PROJECT, request),
+  takePendingProjectImport: () => invokeGuarded(IPC_CHANNELS.TAKE_PENDING_PROJECT_IMPORT),
+  completeProjectImport: (request) => invokeGuarded(IPC_CHANNELS.COMPLETE_PROJECT_IMPORT, request),
+  onProjectImportRequested: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.PROJECT_IMPORT_REQUESTED_EVENT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_IMPORT_REQUESTED_EVENT, listener);
+  },
   openProject: (projectPath: string) => invokeGuarded(IPC_CHANNELS.OPEN_PROJECT, projectPath),
   closeActiveProject: () => invokeGuarded(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT),
   validateProject: (projectSessionId: string, project: unknown) =>

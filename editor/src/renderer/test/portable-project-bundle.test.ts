@@ -2,8 +2,9 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
+import { importDesktopProject } from '../../main/services/desktop-project-import-service';
 
 const roots: string[] = [];
 
@@ -14,6 +15,7 @@ async function tempRoot(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
@@ -163,6 +165,88 @@ async function createPortableFixture(root: string): Promise<{
 }
 
 describe('portable .ntproject Project bundle', () => {
+  it('imports a desktop handoff into the confirmed destination and applies the confirmed Project name', async () => {
+    const root = await tempRoot();
+    const { bundlePath } = await createPortableFixture(root);
+    const destination = path.join(root, 'renamed-import');
+
+    const result = await importDesktopProject({
+      request: {
+        source: { kind: 'local', bundlePath },
+        suggestedName: 'Portable Fixture',
+      },
+      projectName: 'Renamed Import',
+      destination,
+    });
+
+    expect(result).toMatchObject({ success: true, projectPath: destination });
+    const projectManifest = JSON.parse(
+      await fs.readFile(path.join(destination, 'project.json'), 'utf8'),
+    );
+    expect(projectManifest.project.name).toBe('Renamed Import');
+  });
+
+  it('downloads, verifies, validates, and imports a remote desktop handoff', async () => {
+    const root = await tempRoot();
+    const { bundlePath } = await createPortableFixture(root);
+    const bytes = await fs.readFile(bundlePath);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(bytes, {
+          status: 200,
+          headers: { 'content-length': String(bytes.byteLength) },
+        }),
+      ),
+    );
+    const destination = path.join(root, 'remote-import');
+
+    const result = await importDesktopProject({
+      request: {
+        source: {
+          kind: 'remote',
+          url: 'https://assets.noveltea.dev/examples/fixture.ntproject',
+          sha256,
+        },
+        suggestedName: 'Fixture',
+      },
+      projectName: 'Remote Fixture',
+      destination,
+    });
+
+    expect(result).toMatchObject({ success: true, projectPath: destination });
+    const projectManifest = JSON.parse(
+      await fs.readFile(path.join(destination, 'project.json'), 'utf8'),
+    );
+    expect(projectManifest.project.name).toBe('Remote Fixture');
+  });
+
+  it('rejects a remote desktop handoff when the downloaded bytes do not match the expected SHA-256', async () => {
+    const root = await tempRoot();
+    const { bundlePath } = await createPortableFixture(root);
+    const bytes = await fs.readFile(bundlePath);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(bytes, { status: 200 })));
+    const destination = path.join(root, 'remote-import');
+
+    const result = await importDesktopProject({
+      request: {
+        source: {
+          kind: 'remote',
+          url: 'https://assets.noveltea.dev/examples/fixture.ntproject',
+          sha256: '0'.repeat(64),
+        },
+        suggestedName: 'Fixture',
+      },
+      projectName: 'Fixture',
+      destination,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('SHA-256');
+    await expect(fs.stat(destination)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('round-trips a deterministic clean Project Workspace and validates the imported project', async () => {
     const root = await tempRoot();
     const { projectRoot, bundlePath } = await createPortableFixture(root);

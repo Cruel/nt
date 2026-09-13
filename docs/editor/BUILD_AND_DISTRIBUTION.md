@@ -194,6 +194,14 @@ Application identity is defined in authoritative metadata rather than main-proce
 Linux packaging enables `syncDesktopName` so the installed desktop entry, Electron application ID,
 window class, launcher highlighting, and dock/taskbar grouping share the same identity.
 
+Native desktop metadata also registers `.ntproject` as the **NovelTea Project** editable-source file
+type and registers the `noveltea` custom URL scheme. Electron startup owns one application instance:
+macOS `open-file` / `open-url`, initial command-line arguments, and subsequent-instance command lines
+are normalized through the same desktop Project-import handoff queue. The custom protocol is therefore
+`noveltea://`; the editor does not register a second website-handoff scheme. Signing and notarization
+remain separate release inputs and are not required for this registration to be present in unsigned
+local/CI packages.
+
 The application is ASAR-only. The complete `node_modules/sharp` and `node_modules/@img` trees are
 explicitly unpacked. Engine preview, editor assets, and native tools are outside ASAR under
 `process.resourcesPath`. Package verification inspects ASAR contents, native binding/libvips

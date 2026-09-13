@@ -39,6 +39,7 @@ import { shaderMaterialProjectWireSchema } from '../shared/project-schema/shader
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
 import { userExportConfigSchema } from '../shared/project-schema/platform-export-contracts';
 import { novelTeaUserPreferencesSchema } from '../shared/user-config';
+import { completeDesktopProjectImportRequestSchema } from '../shared/project-import-handoff';
 
 const PACKAGED_EDITOR_DOCUMENT = 'noveltea-editor://app/index.html';
 const MAX_DIALOG_TITLE_LENGTH = 512;
@@ -260,6 +261,10 @@ export const openExternalArgumentsSchema = z.tuple([
 export const setNativeWindowFrameArgumentsSchema = z.tuple([z.boolean()]);
 
 export const openProjectArgumentsSchema = z.tuple([z.string().min(1).max(MAX_PROJECT_PATH_LENGTH)]);
+
+export const completeProjectImportArgumentsSchema = z.tuple([
+  completeDesktopProjectImportRequestSchema,
+]);
 
 export const createProjectArgumentsSchema = z.tuple([
   z

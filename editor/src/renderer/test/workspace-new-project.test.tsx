@@ -144,6 +144,12 @@ beforeEach(() => {
     projectFilePath: '/home/test/Documents/NovelTea/my-story/project.json',
     projectSessionId: 'created-project-session',
   });
+  vi.mocked(window.noveltea.takePendingProjectImport).mockResolvedValue(null);
+  vi.mocked(window.noveltea.completeProjectImport).mockResolvedValue({
+    success: true,
+    projectPath: '/home/test/Documents/NovelTea/verbs-example',
+    projectFilePath: '/home/test/Documents/NovelTea/verbs-example/project.json',
+  });
   vi.mocked(window.noveltea.openProject).mockResolvedValue({
     ok: true,
     success: true,
@@ -173,6 +179,65 @@ beforeEach(() => {
 });
 
 describe('WorkspacePage new project modal', () => {
+  it('requires confirmation for a startup Project handoff and opens the imported Project after confirmation', async () => {
+    vi.mocked(window.noveltea.takePendingProjectImport)
+      .mockResolvedValueOnce({
+        source: {
+          kind: 'remote',
+          url: 'https://assets.noveltea.dev/examples/verbs.ntproject',
+          sha256: 'a'.repeat(64),
+        },
+        suggestedName: 'Verbs Example',
+      })
+      .mockResolvedValue(null);
+    vi.mocked(window.noveltea.openProject).mockResolvedValue({
+      ok: true,
+      success: true,
+      projectPath: '/home/test/Documents/NovelTea/verbs-example',
+      projectFilePath: '/home/test/Documents/NovelTea/verbs-example/project.json',
+      projectSessionId: 'imported-project-session',
+      contentProject: stripEditorProjectState(
+        createAuthoringProject({ id: 'verbs-example', name: 'Verbs Example' }),
+      ),
+      savedContentProject: stripEditorProjectState(
+        createAuthoringProject({ id: 'verbs-example', name: 'Verbs Example' }),
+      ),
+      editorState: emptyEditorProjectState(),
+      repairs: [],
+      diagnostics: [],
+    });
+
+    render(<WorkspacePage />);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Import NovelTea Project' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Project name')).toHaveValue('Verbs Example');
+    expect(window.noveltea.completeProjectImport).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import Project' }));
+
+    await waitFor(() =>
+      expect(window.noveltea.completeProjectImport).toHaveBeenCalledWith({
+        request: {
+          source: {
+            kind: 'remote',
+            url: 'https://assets.noveltea.dev/examples/verbs.ntproject',
+            sha256: 'a'.repeat(64),
+          },
+          suggestedName: 'Verbs Example',
+        },
+        projectName: 'Verbs Example',
+        destination: '/home/test/Documents/NovelTea/verbs-example',
+      }),
+    );
+    await waitFor(() =>
+      expect(window.noveltea.openProject).toHaveBeenCalledWith(
+        '/home/test/Documents/NovelTea/verbs-example',
+      ),
+    );
+  });
+
   it('routes asset-only watcher events to asset audit without republishing authoring state', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     const assetRevision = `sha256:${'b'.repeat(64)}` as `sha256:${string}`;

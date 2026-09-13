@@ -1,4 +1,22 @@
 {
+  "projectImport": {
+    "title": "Import NovelTea Project",
+    "remoteDescription": "Verify and import the project downloaded from the NovelTea handoff link.",
+    "localDescription": "Import this portable NovelTea project into a new project directory.",
+    "defaultName": "Imported Project",
+    "nameLabel": "Project name",
+    "directoryLabel": "Project directory",
+    "nameRequired": "Project name is required.",
+    "nameInvalid": "Project name must contain at least one letter or number.",
+    "directoryRequired": "Project directory is required.",
+    "selectParentTitle": "Select Parent Directory for Imported Project",
+    "browse": "Browse…",
+    "cancel": "Cancel",
+    "submit": "Import Project",
+    "importing": "Importing…",
+    "failed": "Project import failed.",
+    "importedStatus": "Imported project {{name}}"
+  },
   "assetMetadata": {
     "title": "Embedded metadata",
     "loading": "Loading embedded metadata…",

@@ -61,6 +61,7 @@ import {
   resolveProjectOriginalAssetUrl,
 } from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
+import { importDesktopProject } from './main/services/desktop-project-import-service';
 import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
 import { LocalizationFontCoverageService } from './main/services/localization-font-coverage-service';
 import {
@@ -102,6 +103,10 @@ import {
   saveNovelTeaUserPreferences,
 } from './main/services/user-config-service';
 import type { CreateProjectRequest } from './shared/editor-tooling';
+import {
+  normalizeDesktopProjectImportArgument,
+  type DesktopProjectImportRequest,
+} from './shared/project-import-handoff';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 import {
@@ -135,6 +140,7 @@ import {
   compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
+  completeProjectImportArgumentsSchema,
   createProjectArgumentsSchema,
   downloadPlayerTemplateArgumentsSchema,
   exportPackageArgumentsSchema,
@@ -187,6 +193,8 @@ function configureApplicationPaths() {
 
 configureApplicationPaths();
 
+if (!app.requestSingleInstanceLock()) app.quit();
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'noveltea-editor',
@@ -238,6 +246,39 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 
 let mainWindow: BrowserWindow | null = null;
+const pendingProjectImports: DesktopProjectImportRequest[] = [];
+
+function queueProjectImportArgument(argument: string, workingDirectory = process.cwd()): boolean {
+  const request = normalizeDesktopProjectImportArgument(argument, workingDirectory);
+  if (!request) return false;
+  pendingProjectImports.push(request);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send(IPC_CHANNELS.PROJECT_IMPORT_REQUESTED_EVENT);
+  }
+  return true;
+}
+
+for (const argument of process.argv.slice(1)) queueProjectImportArgument(argument);
+
+app.on('open-file', (event, filePath) => {
+  if (queueProjectImportArgument(filePath)) event.preventDefault();
+});
+app.on('open-url', (event, url) => {
+  if (queueProjectImportArgument(url)) event.preventDefault();
+});
+app.on('second-instance', (_event, commandLine, workingDirectory) => {
+  for (const argument of commandLine.slice(1))
+    queueProjectImportArgument(argument, workingDirectory);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 const enginePreviewServer = new EnginePreviewServer();
 const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
@@ -900,6 +941,18 @@ void app.whenReady().then(async () => {
       );
       return rememberPreviewProjectRoot(result);
     },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TAKE_PENDING_PROJECT_IMPORT,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => pendingProjectImports.shift() ?? null,
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.COMPLETE_PROJECT_IMPORT,
+    (arguments_) => completeProjectImportArgumentsSchema.parse(arguments_),
+    (request) => importDesktopProject(request),
   );
 
   guardedIpc.handle(
