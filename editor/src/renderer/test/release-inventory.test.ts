@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
@@ -23,6 +24,17 @@ afterEach(() => {
 
 function write(root: string, relative: string, value = relative) {
   writeFileSync(path.join(root, relative), value);
+}
+
+function publicAsset(root: string, file: string, options: Record<string, string | boolean>) {
+  const bytes = readFileSync(path.join(root, file));
+  return {
+    ...options,
+    file,
+    size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    url: `https://github.com/Cruel/noveltea-releases/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(file)}`,
+  };
 }
 
 function completeInventory() {
@@ -69,6 +81,65 @@ function completeInventory() {
     'noveltea-player-template-registry.json',
   ])
     write(root, name);
+  write(
+    root,
+    'noveltea-release-manifest.json',
+    JSON.stringify({
+      format: 'noveltea.public-release',
+      version: 1,
+      release: {
+        tag,
+        sourceRevision: 'fixture-revision',
+        repository: 'Cruel/noveltea-releases',
+      },
+      editor: [
+        publicAsset(root, `noveltea-editor-${tag}-windows-x64-release.setup.exe`, {
+          platform: 'windows',
+          arch: 'x64',
+          format: 'installer',
+          label: 'Windows installer',
+          primary: true,
+        }),
+        publicAsset(root, `noveltea-editor-${tag}-linux-x64-release.AppImage`, {
+          platform: 'linux',
+          arch: 'x64',
+          format: 'appimage',
+          label: 'Linux AppImage',
+          primary: true,
+        }),
+        publicAsset(root, `noveltea-editor-${tag}-linux-x64-release.deb`, {
+          platform: 'linux',
+          arch: 'x64',
+          format: 'deb',
+          label: 'Linux .deb',
+          primary: false,
+        }),
+        publicAsset(root, `noveltea-editor-${tag}-linux-x64-release.rpm`, {
+          platform: 'linux',
+          arch: 'x64',
+          format: 'rpm',
+          label: 'Linux .rpm',
+          primary: false,
+        }),
+      ],
+      cli: [
+        publicAsset(root, `noveltea-${tag}-windows-x64.exe`, {
+          platform: 'windows',
+          arch: 'x64',
+          format: 'executable',
+          label: 'Windows x64',
+          primary: true,
+        }),
+        publicAsset(root, `noveltea-${tag}-linux-x64`, {
+          platform: 'linux',
+          arch: 'x64',
+          format: 'executable',
+          label: 'Linux x64',
+          primary: true,
+        }),
+      ],
+    }),
+  );
   return root;
 }
 

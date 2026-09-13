@@ -130,11 +130,13 @@ export async function materializePlatformExportAcceptanceFixture(
   const gallery = project.rooms.gallery;
   if (gallery) {
     const data = parseRoomData(gallery.data);
-    if (data && data.description.source.kind === 'inline')
+    if (data && data.description.source.kind === 'inline') {
       data.description.source = {
         kind: 'inline',
         text: `Navigation reached the gallery, revision ${contentRevision}.`,
       };
+      gallery.data = data;
+    }
   }
   const profile = profileFor(options);
   project.export = {

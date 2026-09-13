@@ -32,6 +32,8 @@ test('CLI certification receives same-run shader headers without depending on ca
   const consumer = job('linux-cli-certify');
   const upload = step(producer, 'Upload CLI certification shader headers');
   const download = step(consumer, 'Download CLI certification shader headers');
+  const cliUpload = step(producer, 'Upload NovelTea host CLI');
+  const cliDownload = step(consumer, 'Download NovelTea host CLI');
   const artifact = 'noveltea-cli-certification-shader-headers';
   const includePath = 'build/linux-release/vcpkg_installed/x64-linux-noveltea/include/bgfx';
   assert.match(upload, /uses: actions\/upload-artifact@/);
@@ -41,6 +43,8 @@ test('CLI certification receives same-run shader headers without depending on ca
   assert.equal(field(upload, 'path'), includePath);
   assert.equal(field(download, 'path'), includePath);
   assert.equal(field(upload, 'if-no-files-found'), 'error');
+  assert.equal(field(cliUpload, 'path'), 'build/cli/linux');
+  assert.equal(field(cliDownload, 'path'), 'build/cli/linux');
   assert.equal(field(consumer, 'needs'), 'linux-cli');
   assert.doesNotMatch(consumer, /setup-linux-vcpkg|actions\/cache|run-id:/);
   assert.ok(consumer.indexOf(download) < consumer.indexOf('- name: Certify NovelTea host CLI'));
@@ -96,4 +100,20 @@ test('CI keeps shared-display CTest runs serial until their isolation is establi
     assert.equal(commands.length, 1);
     assert.doesNotMatch(commands[0], /--parallel|\s-j/);
   }
+});
+
+test('CI leaves native build concurrency to the underlying tools', () => {
+  assert.doesNotMatch(workflow, /CMAKE_BUILD_PARALLEL_LEVEL:/);
+  assert.doesNotMatch(workflow, /VCPKG_MAX_CONCURRENCY:/);
+});
+
+test('examples pin and standalone compiler checks tolerate canonical file formatting', () => {
+  const pin = step(job('examples'), 'Resolve pinned examples revision');
+  assert.match(pin, /\.trim\(\)/);
+  assert.match(pin, /\^\[0-9a-f\]\{40\}\$/);
+  assert.doesNotMatch(pin, /\\\\n\?\$/);
+
+  const compiler = step(job('editor'), 'Verify standalone project compiler');
+  assert.match(compiler, /assert\.deepStrictEqual/);
+  assert.doesNotMatch(compiler, /const expected=JSON\.stringify/);
 });

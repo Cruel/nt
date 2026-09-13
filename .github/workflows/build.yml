@@ -15,8 +15,6 @@ env:
   VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
   VCPKG_DEFAULT_TRIPLET: x64-linux
   VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
-  CMAKE_BUILD_PARALLEL_LEVEL: 4
-  VCPKG_MAX_CONCURRENCY: 4
   EMSDK_VERSION: 6.0.0
   CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
   CCACHE_MAXSIZE: 1G
@@ -308,7 +306,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-host-cli-linux-x64
-          path: build/cli/linux/noveltea
+          path: build/cli/linux
           if-no-files-found: error
 
       - name: Show ccache statistics
@@ -788,7 +786,7 @@ jobs:
       - name: Resolve pinned examples revision
         id: examples-pin
         run: |
-          revision="$(node -e 'const fs=require("fs"); const value=fs.readFileSync("examples/noveltea-examples.revision", "utf8"); if (!/^[0-9a-f]{40}\\n?$/.test(value)) process.exit(1); process.stdout.write(value.trimEnd())')"
+          revision="$(node -e 'const fs=require("fs"); const value=fs.readFileSync("examples/noveltea-examples.revision", "utf8").trim(); if (!/^[0-9a-f]{40}$/.test(value)) process.exit(1); process.stdout.write(value)')"
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
 
       - name: Checkout pinned public examples
@@ -1265,7 +1263,7 @@ jobs:
           pnpm -C editor run project:compile -- \
             --project editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project \
             --output "$OUTPUT"
-          node -e "const fs=require('node:fs'); const actual=fs.readFileSync(process.argv[1],'utf8'); const golden=fs.readFileSync(process.argv[2],'utf8'); const expected=JSON.stringify(JSON.parse(golden)); if(actual!==expected){console.error('Standalone project compiler output differs from the canonical golden.'); process.exit(1)}" \
+          node -e "const assert=require('node:assert/strict'); const fs=require('node:fs'); assert.deepStrictEqual(JSON.parse(fs.readFileSync(process.argv[1],'utf8')), JSON.parse(fs.readFileSync(process.argv[2],'utf8')), 'Standalone project compiler output differs from the canonical golden.')" \
             "$OUTPUT" \
             editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json
 

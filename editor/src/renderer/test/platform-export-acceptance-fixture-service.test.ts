@@ -61,6 +61,18 @@ describe('platform export acceptance fixture materializer', () => {
     expect(firstProject.settings.app.saveNamespace).toBe(secondProject.settings.app.saveNamespace);
     expect(firstProject.settings.app.android.versionCode).toBe(1);
     expect(secondProject.settings.app.android.versionCode).toBe(2);
+    const firstGallery = JSON.parse(
+      await readFile(path.join(firstRoot, 'records/rooms/gallery.json'), 'utf8'),
+    );
+    const secondGallery = JSON.parse(
+      await readFile(path.join(secondRoot, 'records/rooms/gallery.json'), 'utf8'),
+    );
+    expect(firstGallery.data.description.source.text).toBe(
+      'Navigation reached the gallery, revision 1.',
+    );
+    expect(secondGallery.data.description.source.text).toBe(
+      'Navigation reached the gallery, revision 2.',
+    );
   });
 
   it('materializes distinct threaded and single-threaded Web profiles', async () => {
