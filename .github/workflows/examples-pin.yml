@@ -1,0 +1,91 @@
+name: Update NovelTea examples pin
+
+on:
+  schedule:
+    - cron: "17 12 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: noveltea-examples-pin
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-pin:
+    name: Propose examples pin update
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout current default branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Resolve examples revisions
+        id: revisions
+        run: |
+          pinned="$(cat examples/noveltea-examples.revision)"
+          latest="$(git ls-remote https://github.com/Cruel/noveltea-examples.git refs/heads/main | awk 'NR == 1 { print $1 }')"
+          [[ "$pinned" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$latest" =~ ^[0-9a-f]{40}$ ]]
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          if [ "$pinned" = "$latest" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update automation branch
+        id: update-branch
+        if: steps.revisions.outputs.changed == 'true'
+        env:
+          BRANCH: automation/noveltea-examples-pin
+          REVISION: ${{ steps.revisions.outputs.latest }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
+          base="$(git rev-parse "origin/${{ github.event.repository.default_branch }}")"
+          if git rev-parse --verify "origin/$BRANCH" >/dev/null 2>&1; then
+            proposed="$(git show "origin/$BRANCH:examples/noveltea-examples.revision" 2>/dev/null || true)"
+            parent="$(git rev-parse "origin/$BRANCH^" 2>/dev/null || true)"
+            if [ "$proposed" = "$REVISION" ] && [ "$parent" = "$base" ]; then
+              echo "pushed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          git switch -C "$BRANCH" "$base"
+          printf '%s\n' "$REVISION" > examples/noveltea-examples.revision
+          git add examples/noveltea-examples.revision
+          git commit -m "chore(site): advance NovelTea examples pin"
+          git push --force-with-lease origin "HEAD:$BRANCH"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch compatibility build
+        if: steps.update-branch.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automation/noveltea-examples-pin
+        run: gh workflow run build.yml --ref "$BRANCH"
+
+      - name: Open or update compatibility PR
+        if: steps.revisions.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automation/noveltea-examples-pin
+          REVISION: ${{ steps.revisions.outputs.latest }}
+        run: |
+          pr="$(gh pr list --base "${{ github.event.repository.default_branch }}" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          title="chore(site): advance NovelTea examples pin"
+          body="Advance the pinned public NovelTea examples revision to \`$REVISION\`.\n\nThe normal Build workflow must qualify this exact revision against the current NovelTea CLI and canonical threaded Web player before this PR is merged. The public examples repository receives no credential for \`Cruel/nt\`."
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --title "$title" --body "$body"
+          else
+            gh pr create --base "${{ github.event.repository.default_branch }}" --head "$BRANCH" --title "$title" --body "$body"
+          fi

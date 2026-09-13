@@ -10,9 +10,9 @@ From the repository root, install workspace dependencies once with `pnpm install
 ./scripts/run-site.sh
 ```
 
-The runner prepares Astro/Starlight content state and starts the normal Astro development server with HMR. Local development requires no Cloudflare credentials, Pages project, R2 bucket, or published NovelTea artifacts.
+The runner first qualifies the exact public examples revision pinned by `nt`, then prepares Astro/Starlight content state and starts the normal Astro development server with HMR. By default the public examples checkout is expected at `~/dev/noveltea-examples`; set `NOVELTEA_EXAMPLES_ROOT` to use another checkout. Qualification builds the current checkout's CLI and canonical threaded Web player and materializes the same catalog/artifact shape used by CI under `build/site-examples`. Local development requires no Cloudflare credentials, Pages project, R2 bucket, or published NovelTea artifacts.
 
-The `/examples/dev` surface receives COOP, COEP, and CORP headers from an Astro development middleware so the future threaded Web-player showcase can run under the same isolation contract used in production. The Cloudflare Pages build receives the matching rules from `public/_headers`.
+The `/examples/dev` surface receives COOP, COEP, and CORP headers from an Astro development middleware so the threaded Web-player showcase can run under the same isolation contract used in production. The Cloudflare Pages build receives the matching rules from `public/_headers`.
 
 ## Visual system
 

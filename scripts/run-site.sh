@@ -11,6 +11,10 @@ if [ ! -d node_modules ] || [ ! -d site/node_modules ]; then
   exit 1
 fi
 
+echo "[run] preparing pinned NovelTea examples..."
+bash scripts/qualify-examples-local.sh
+export NOVELTEA_EXAMPLES_CATALOG_PATH="${NOVELTEA_EXAMPLES_OUTPUT_ROOT:-$PROJECT_ROOT/build/site-examples}/catalog.json"
+
 echo "[run] preparing Astro/Starlight content..."
 pnpm -C site exec astro sync
 
