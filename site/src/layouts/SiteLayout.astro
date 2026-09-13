@@ -1,4 +1,5 @@
 ---
+import NovelTeaBrand from '../components/NovelTeaBrand.astro';
 import '../styles/site.css';
 
 interface Props {
@@ -11,6 +12,12 @@ const {
   description = 'NovelTea is an in-development engine and editor for expressive narrative games.',
 } = Astro.props;
 const pageTitle = title === 'NovelTea' ? title : `${title} · NovelTea`;
+const pathname = Astro.url.pathname;
+const navItems = [
+  { label: 'Docs', href: '/docs/' },
+  { label: 'Examples', href: '/examples/dev/' },
+  { label: 'Download', href: '/download/' },
+];
 ---
 
 <!doctype html>
@@ -20,25 +27,29 @@ const pageTitle = title === 'NovelTea' ? title : `${title} · NovelTea`;
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#081216" />
     <title>{pageTitle}</title>
   </head>
   <body>
-    <header class="nt-shell nt-header">
-      <a class="nt-brand" href="/">
-        <span class="nt-mark" aria-hidden="true">N</span>
-        <span>NovelTea</span>
-      </a>
-      <nav class="nt-nav" aria-label="Primary navigation">
-        <a href="/docs/">Docs</a>
-        <a href="/examples/dev/">Examples</a>
-        <a href="/download/">Download</a>
-      </nav>
+    <a class="nt-skip-link" href="#main-content">Skip to content</a>
+    <header class="nt-site-header">
+      <div class="nt-shell nt-site-header__inner">
+        <NovelTeaBrand />
+        <nav class="nt-nav" aria-label="Primary navigation">
+          {navItems.map((item) => (
+            <a href={item.href} aria-current={pathname.startsWith(item.href) ? 'page' : undefined}>
+              {item.label}
+            </a>
+          ))}
+        </nav>
+      </div>
     </header>
-    <main class="nt-shell">
+    <main id="main-content" class="nt-shell">
       <slot />
     </main>
     <footer class="nt-shell nt-footer">
-      NovelTea is under active development. Public interfaces may change before the first release.
+      <span>NovelTea is under active development. Public interfaces may change before the first release.</span>
+      <a href="/docs/dev/">Development docs</a>
     </footer>
   </body>
 </html>

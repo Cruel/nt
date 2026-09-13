@@ -21,6 +21,32 @@ for (const [path, marker] of routes) {
   });
 }
 
+test('landing page is creator-first and exposes the primary product paths', async () => {
+  const html = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
+  assert.match(html, /Build worlds that respond\./);
+  assert.match(html, /Shape the story\. Script the possibilities\./);
+  assert.match(html, /Built for narrative creators/);
+  assert.match(html, /Active development/);
+  assert.match(html, /href="\/docs\//);
+  assert.match(html, /href="\/examples\/dev\//);
+  assert.match(html, /href="\/download\//);
+});
+
+test('marketing and Starlight share the NovelTea wordmark treatment', async () => {
+  const home = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
+  const docs = await readFile(new URL('../dist/docs/dev/index.html', import.meta.url), 'utf8');
+  assert.match(home, /nt-wordmark__mark/);
+  assert.match(docs, /nt-wordmark__mark/);
+});
+
+test('landing page motion has a reduced-motion fallback in the emitted stylesheet', async () => {
+  const html = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
+  const stylesheetHref = html.match(/<link rel="stylesheet" href="([^\"]+\.css)"/)?.[1];
+  assert.ok(stylesheetHref, 'expected the landing page to emit a stylesheet');
+  const css = await readFile(new URL(`../dist${stylesheetHref}`, import.meta.url), 'utf8');
+  assert.match(css, /prefers-reduced-motion:\s*reduce/);
+});
+
 test('unqualified docs resolve to the active public channel', async () => {
   const html = await readFile(new URL('../dist/docs/index.html', import.meta.url), 'utf8');
   assert.match(html, /NovelTea documentation/);

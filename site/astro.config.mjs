@@ -49,6 +49,7 @@ export default defineConfig({
       customCss: ['./src/styles/tokens.css', './src/styles/starlight.css'],
       components: {
         PageTitle: './src/components/DocsChannelPageTitle.astro',
+        SiteTitle: './src/components/DocsSiteTitle.astro',
       },
       sidebar: [
         {

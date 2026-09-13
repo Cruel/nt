@@ -2,19 +2,144 @@
 import SiteLayout from '../layouts/SiteLayout.astro';
 ---
 
-<SiteLayout title="NovelTea">
-  <section class="nt-hero">
-    <div>
-      <p class="nt-kicker">Narrative engine + editor</p>
-      <h1>Build worlds that respond.</h1>
-      <p>
-        NovelTea is an in-development toolkit for authored narrative experiences, combining a portable runtime,
-        visual editing, Lua scripting, and Web export in one project model.
+<SiteLayout
+  title="NovelTea"
+  description="NovelTea is an in-development engine and editor for narrative games: author visually, extend behavior with Lua, and target a portable runtime."
+>
+  <section class="nt-home-hero" aria-labelledby="home-title">
+    <div class="nt-home-hero__copy">
+      <p class="nt-eyebrow"><span>Active development</span> Narrative engine + editor</p>
+      <h1 id="home-title">Build worlds that respond.</h1>
+      <p class="nt-home-hero__lede">
+        <strong>Shape the story. Script the possibilities.</strong> NovelTea is an in-development toolkit for
+        authored narrative experiences, bringing visual authoring, Lua behavior, and a portable runtime into one
+        project model.
       </p>
-      <div class="nt-actions">
-        <a class="nt-button nt-button--primary" href="/docs/">Read the docs</a>
-        <a class="nt-button" href="/examples/dev/">Explore examples</a>
+      <div class="nt-actions nt-home-hero__actions">
+        <a class="nt-button nt-button--primary" href="/examples/dev/">Explore examples</a>
+        <a class="nt-button" href="/docs/">Read the docs</a>
+        <a class="nt-text-link" href="/download/">Download status <span aria-hidden="true">→</span></a>
       </div>
+      <p class="nt-home-hero__note">
+        NovelTea has not reached its first supported public release. Development docs and examples intentionally
+        track the engine while its authoring model is still evolving.
+      </p>
+    </div>
+
+    <div class="nt-home-hero__visual">
+      <div class="nt-story-frame" aria-hidden="true">
+        <div class="nt-story-frame__bar">
+          <span>ROOM / observatory</span>
+          <span class="nt-story-frame__live">preview</span>
+        </div>
+        <div class="nt-story-frame__scene">
+          <span class="nt-story-frame__moon"></span>
+          <span class="nt-story-frame__ridge nt-story-frame__ridge--far"></span>
+          <span class="nt-story-frame__ridge nt-story-frame__ridge--near"></span>
+          <div class="nt-story-frame__node nt-story-frame__node--state">
+            <span>world state</span>
+            <strong>door.open = true</strong>
+          </div>
+          <div class="nt-story-frame__dialogue">
+            <span>Ariadne</span>
+            <p>The map changed when we opened the door.</p>
+          </div>
+          <div class="nt-story-frame__choices">
+            <span>Ask about the map</span>
+            <span>Look through the telescope</span>
+          </div>
+        </div>
+      </div>
+      <p class="nt-visual-caption">Illustrative concept — not a product screenshot.</p>
+    </div>
+  </section>
+
+  <section class="nt-home-section nt-home-intro" aria-labelledby="creator-heading">
+    <div class="nt-home-section__heading">
+      <p class="nt-kicker">Built for narrative creators</p>
+      <h2 id="creator-heading">Keep the authored world understandable as it becomes interactive.</h2>
+    </div>
+    <p class="nt-home-section__intro">
+      NovelTea is being designed around the work of building a story-rich game: structuring places and interactions,
+      writing dialogue, expressing conditional behavior, previewing the result, and packaging the same project model
+      for different players.
+    </p>
+  </section>
+
+  <section class="nt-feature-grid" aria-label="NovelTea authoring approach">
+    <article class="nt-feature-card">
+      <span class="nt-feature-card__index" aria-hidden="true">01</span>
+      <p class="nt-feature-card__eyebrow">Author visually</p>
+      <h2>Make the world legible.</h2>
+      <p>
+        Rooms, interactions, content, and presentation live in structured project data with an editor built around
+        authoring them rather than hiding them behind engine internals.
+      </p>
+    </article>
+    <article class="nt-feature-card">
+      <span class="nt-feature-card__index" aria-hidden="true">02</span>
+      <p class="nt-feature-card__eyebrow">Extend with Lua</p>
+      <h2>Use code where it earns its place.</h2>
+      <p>
+        Express predicates, reactions, and authored behavior in Lua when a visual control would be more limiting than
+        helpful, while keeping one runtime scripting language.
+      </p>
+    </article>
+    <article class="nt-feature-card">
+      <span class="nt-feature-card__index" aria-hidden="true">03</span>
+      <p class="nt-feature-card__eyebrow">Target a portable runtime</p>
+      <h2>Build once, qualify each target.</h2>
+      <p>
+        The new runtime is designed for desktop, Web, and Android targets. Platform support is still being qualified,
+        so the public site distinguishes current development behavior from supported releases.
+      </p>
+    </article>
+  </section>
+
+  <section class="nt-home-workflow" aria-labelledby="workflow-heading">
+    <div class="nt-home-workflow__copy">
+      <p class="nt-kicker">One project, multiple disciplines</p>
+      <h2 id="workflow-heading">Story structure without a wall between authoring and runtime behavior.</h2>
+      <p>
+        NovelTea’s current direction keeps editor data, runtime state, scripting, UI, and exported packages connected
+        through explicit contracts. That makes the project easier to inspect today and gives the tooling a stronger
+        base to grow on tomorrow.
+      </p>
+      <a class="nt-text-link" href="/docs/dev/">See the development documentation <span aria-hidden="true">→</span></a>
+    </div>
+    <ol class="nt-flow" aria-label="NovelTea workflow">
+      <li>
+        <span>01</span>
+        <div><strong>Author</strong><small>Rooms, dialogue, interactions, UI</small></div>
+      </li>
+      <li>
+        <span>02</span>
+        <div><strong>Express</strong><small>State, conditions, Lua behavior</small></div>
+      </li>
+      <li>
+        <span>03</span>
+        <div><strong>Preview</strong><small>Validate the experience while editing</small></div>
+      </li>
+      <li>
+        <span>04</span>
+        <div><strong>Export</strong><small>Package for qualified runtime targets</small></div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="nt-development-callout" aria-labelledby="development-heading">
+    <div>
+      <p class="nt-kicker">Early, on purpose</p>
+      <h2 id="development-heading">Active development, clearly labeled.</h2>
+      <p>
+        There is no supported public release yet. The development channel is useful for following current NovelTea
+        behavior, but it is not a stability promise. The site will keep release downloads, release docs, and release
+        examples separate from work that is still moving on master.
+      </p>
+    </div>
+    <div class="nt-development-callout__actions">
+      <a class="nt-button nt-button--primary" href="/docs/dev/">Open dev docs</a>
+      <a class="nt-button" href="/download/">Check downloads</a>
     </div>
   </section>
 </SiteLayout>
