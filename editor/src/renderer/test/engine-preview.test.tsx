@@ -233,7 +233,8 @@ describe('EnginePreview', () => {
           data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
         }),
       );
-      ports[1]?.postMessage({
+      const previewPort = ports.at(-1);
+      previewPort?.postMessage({
         version: 1,
         type: 'ready',
         capabilities: [],
@@ -241,7 +242,11 @@ describe('EnginePreview', () => {
         transportGeneration: 1,
         activeShaderVariant: 'glsl-120',
       });
-      ports[1]?.postMessage({ version: 1, type: 'preview-interacted', interaction: 'pointer' });
+      previewPort?.postMessage({
+        version: 1,
+        type: 'preview-interacted',
+        interaction: 'pointer',
+      });
     });
     await waitFor(() => expect(useWorkbenchStore.getState().activeGroupId).toBe('right'));
   });
@@ -303,8 +308,9 @@ describe('EnginePreview', () => {
         }),
       );
     });
+    const previewPort = ports.at(-1);
     await act(async () => {
-      ports[1]?.postMessage({
+      previewPort?.postMessage({
         version: 1,
         type: 'ready',
         capabilities: [],
@@ -315,7 +321,11 @@ describe('EnginePreview', () => {
     });
     await waitFor(() => expect(screen.queryByText('loading')).not.toBeInTheDocument());
     await act(async () => {
-      ports[1]?.postMessage({ version: 1, type: 'preview-interacted', interaction: 'pointer' });
+      previewPort?.postMessage({
+        version: 1,
+        type: 'preview-interacted',
+        interaction: 'pointer',
+      });
     });
     await waitFor(() => expect(useWorkbenchStore.getState().activeGroupId).toBe('right'));
   });
