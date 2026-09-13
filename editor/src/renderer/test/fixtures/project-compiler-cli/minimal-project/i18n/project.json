@@ -1,0 +1,12 @@
+{
+  "sourceLocale": "en",
+  "sourceLocaleLock": null,
+  "defaultLocale": "en",
+  "locales": {
+    "en": {
+      "supported": true,
+      "parentLocale": null,
+      "fontStack": null
+    }
+  }
+}
