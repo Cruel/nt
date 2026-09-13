@@ -1,0 +1,63 @@
+---
+import DefaultPageTitle from '@astrojs/starlight/components/PageTitle.astro';
+
+const renderChannel = import.meta.env.NOVELTEA_DOCS_RENDER_CHANNEL === 'latest' ? 'latest' : 'dev';
+const releaseVersion = import.meta.env.NOVELTEA_DOCS_RELEASE_VERSION?.trim();
+const isLatest = renderChannel === 'latest';
+---
+
+<div class="docs-channel" aria-label="Docs channel">
+  <span class="docs-channel__label">Docs channel</span>
+  <a class:list={["docs-channel__option", { active: isLatest }]} href="/docs/">
+    Latest{releaseVersion ? ` ${releaseVersion}` : ''}
+  </a>
+  <a class:list={["docs-channel__option", { active: !isLatest }]} href="/docs/dev/">Dev</a>
+  <span class:list={["docs-channel__status", { unstable: !isLatest }]}>
+    {isLatest ? `Released${releaseVersion ? ` · ${releaseVersion}` : ''}` : 'Unreleased · unstable'}
+  </span>
+</div>
+
+<DefaultPageTitle />
+
+<style>
+  .docs-channel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+    margin-block: 0 0.35rem;
+    font-size: var(--sl-text-sm);
+  }
+
+  .docs-channel__label {
+    color: var(--sl-color-gray-3);
+    margin-inline-end: 0.15rem;
+  }
+
+  .docs-channel__option,
+  .docs-channel__status {
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+  }
+
+  .docs-channel__option {
+    color: var(--sl-color-text-accent);
+    text-decoration: none;
+  }
+
+  .docs-channel__option.active {
+    background: var(--sl-color-accent-low);
+    border-color: var(--sl-color-accent);
+    color: var(--sl-color-white);
+  }
+
+  .docs-channel__status {
+    color: var(--sl-color-gray-2);
+  }
+
+  .docs-channel__status.unstable {
+    border-color: var(--sl-color-accent);
+    color: var(--sl-color-accent-high);
+  }
+</style>
