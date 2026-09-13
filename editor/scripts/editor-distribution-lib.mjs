@@ -42,6 +42,8 @@ export const previewSourceRoot = path.join(
 export const editorAssetsSourceRoot = path.join(editorRoot, 'assets');
 export const EDITOR_STAGE_MANIFEST_SCHEMA = 'noveltea.editor-stage-manifest';
 export const EDITOR_STAGE_MANIFEST_SCHEMA_VERSION = 1;
+const editorRequire = createRequire(path.join(editorRoot, 'package.json'));
+export const EXPECTED_SHARP_VERSION = editorRequire('sharp').versions.sharp;
 
 export function assertCurrentEditorStageManifest(manifest) {
   if (
@@ -568,7 +570,7 @@ function assertSafePackageMetadata(metadata) {
     throw new Error('Deployed package metadata contains development-only fields.');
   }
   const dependencies = metadata.dependencies ?? {};
-  if (Object.keys(dependencies).length !== 1 || dependencies.sharp !== '0.35.3') {
+  if (Object.keys(dependencies).length !== 1 || dependencies.sharp !== EXPECTED_SHARP_VERSION) {
     throw new Error(
       `Unexpected top-level production dependency set: ${JSON.stringify(dependencies)}`,
     );
@@ -681,8 +683,14 @@ export async function verifyStage(stageRoot, options = {}) {
   await assertTextDoesNotLeakSource(stageRoot, records);
 
   const installedPackages = await collectInstalledPackages(appRoot);
-  if (!installedPackages.some((entry) => entry.name === 'sharp' && entry.version === '0.35.3')) {
-    throw new Error('The staged production closure does not contain sharp 0.35.3.');
+  if (
+    !installedPackages.some(
+      (entry) => entry.name === 'sharp' && entry.version === EXPECTED_SHARP_VERSION,
+    )
+  ) {
+    throw new Error(
+      `The staged production closure does not contain sharp ${EXPECTED_SHARP_VERSION}.`,
+    );
   }
   for (const entry of installedPackages) {
     if (forbiddenProductionPackages.has(entry.name) || entry.name.startsWith('@types/')) {
@@ -823,7 +831,7 @@ export async function createStage(options = {}) {
       private: true,
       author: editorPackage.author,
       license: editorPackage.license,
-      dependencies: { sharp: '0.35.3' },
+      dependencies: { sharp: EXPECTED_SHARP_VERSION },
     };
     await writeJson(path.join(appRoot, 'package.json'), deployedMetadata);
     await copyResources(path.join(transactionStage, 'resources'));

@@ -102,9 +102,14 @@ test('CI keeps shared-display CTest runs serial until their isolation is establi
   }
 });
 
-test('CI leaves native build concurrency to the underlying tools', () => {
+test('CI leaves compile concurrency automatic while serializing heavyweight Linux links', () => {
   assert.doesNotMatch(workflow, /CMAKE_BUILD_PARALLEL_LEVEL:/);
   assert.doesNotMatch(workflow, /VCPKG_MAX_CONCURRENCY:/);
+
+  const configure = step(job('linux'), 'Configure');
+  assert.match(configure, /-DCMAKE_JOB_POOLS=link_pool=1/);
+  assert.match(configure, /-DCMAKE_JOB_POOL_LINK=link_pool/);
+  assert.doesNotMatch(step(job('linux'), 'Build'), /--parallel|\s-j\d*/);
 });
 
 test('examples pin and standalone compiler checks tolerate canonical file formatting', () => {
