@@ -639,6 +639,23 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
         return core::Result<void, core::Diagnostics>::success();
     };
 
+    GameHostLoadHooks first_load_failure_hooks;
+    first_load_failure_hooks.commit_candidate_resources = [](const runtime::RunningGame&,
+                                                             const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "host.test_first_load_commit_failed",
+              .message = "Candidate resource commit failed for test"}});
+    };
+    auto first_load_failure = host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                                          .runtime_locale = "en",
+                                                          .load_title_screen = false,
+                                                          .stop_runtime_after_load = true},
+                                                         first_load_failure_hooks);
+    REQUIRE_FALSE(first_load_failure);
+    REQUIRE(first_load_failure.error().size() == 1);
+    CHECK(first_load_failure.error().front().code == "host.test_first_load_commit_failed");
+    CHECK(host.running_game() == nullptr);
+
     auto loaded = host.load_compiled_project({.logical_path = "project:/minimal.json",
                                               .runtime_locale = "en",
                                               .load_title_screen = false,

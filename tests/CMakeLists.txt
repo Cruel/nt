@@ -535,6 +535,7 @@ target_compile_definitions(noveltea_ui_backend_tests PRIVATE
 )
 target_link_libraries(noveltea_ui_backend_tests PRIVATE
     noveltea_engine
+    miniz::miniz
     RmlUi::RmlUi
     rmlui_bgfx::rmlui_bgfx
     Catch2::Catch2WithMain
