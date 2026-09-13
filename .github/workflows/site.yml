@@ -36,6 +36,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -65,6 +66,35 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --filter @noveltea/site... --filter noveltea-editor... --frozen-lockfile
+
+      - name: Download same-revision qualified development examples
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 7200))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            run="$(gh run list --workflow build.yml --commit "$GITHUB_SHA" --limit 20 --json databaseId,status,conclusion,headSha --jq '.[0] // {}')"
+            run_id="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(value.databaseId ? String(value.databaseId) : "")' "$run")"
+            status="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(value.status || "")' "$run")"
+            conclusion="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(value.conclusion || "")' "$run")"
+            if [ -n "$run_id" ] && [ "$status" = "completed" ]; then
+              if [ "$conclusion" != "success" ]; then
+                echo "Build workflow $run_id completed with conclusion '$conclusion'; refusing unqualified examples." >&2
+                exit 1
+              fi
+              gh run download "$run_id" --name noveltea-development-examples --dir build/site-examples
+              break
+            fi
+            sleep 20
+          done
+          test -f build/site-examples/catalog.json
+          examples_revision="$(node -e 'const value=require("./build/site-examples/catalog.json"); process.stdout.write(value.source.revision)')"
+          key_prefix="development/examples/$GITHUB_SHA/$examples_revision"
+          echo "NOVELTEA_EXAMPLES_CATALOG_PATH=$GITHUB_WORKSPACE/build/site-examples/catalog.json" >> "$GITHUB_ENV"
+          echo "NOVELTEA_EXAMPLES_R2_KEY_PREFIX=$key_prefix" >> "$GITHUB_ENV"
+          echo "NOVELTEA_EXAMPLES_R2_BASE_URL=https://assets.noveltea.dev/$key_prefix" >> "$GITHUB_ENV"
 
       - name: Resolve latest public release
         id: release-docs
@@ -98,15 +128,43 @@ jobs:
       - name: Check site
         run: pnpm -C site run check
 
-      - name: Build development documentation and site
+      - name: Build browser-qualified site with local example assets
+        env:
+          NOVELTEA_EXAMPLES_LOCAL: "1"
         run: pnpm -C site run build
+
+      - name: Test static site contract
+        run: pnpm -C site run test
+
+      - name: Test development examples in browser
+        run: pnpm -C site run test:browser
+
+      - name: Configure public example asset CORS
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        run: pnpm -C site exec wrangler r2 bucket cors set noveltea-artifacts --file r2-cors.json --force
+
+      - name: Prepare Pages and R2 example assets
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        run: pnpm -C site run examples:prepare
+
+      - name: Upload oversized example assets to R2
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        run: node site/scripts/upload-development-example-assets.mjs
+
+      - name: Build deployable development documentation and site
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        run: pnpm -C site exec astro build
+
+      - name: Test deployable development examples in browser
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        run: pnpm -C site run test:browser
 
       - name: Build exact release documentation
         if: ${{ steps.release-docs.outputs.release_tag != '' }}
         env:
           NOVELTEA_DOCS_RENDER_CHANNEL: latest
           NOVELTEA_DOCS_RELEASE_VERSION: ${{ steps.release-docs.outputs.release_tag }}
-        run: pnpm -C .site-release-source/site run build
+        run: pnpm -C .site-release-source/site exec astro build
 
       - name: Promote exact release documentation to /docs
         if: ${{ steps.release-docs.outputs.release_tag != '' }}
@@ -116,7 +174,7 @@ jobs:
           site/dist
           "${{ steps.release-docs.outputs.release_tag }}"
 
-      - name: Test static site contract
+      - name: Test deployable static site contract
         run: pnpm -C site run test
 
       - name: Upload site artifact
