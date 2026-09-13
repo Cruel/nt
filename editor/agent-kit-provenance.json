@@ -28,7 +28,7 @@
   },
   "documents": {
     "CLI.md": {
-      "reviewed": "2026-09-07",
+      "reviewed": "2026-09-12",
       "strategy": "Curate only the public standalone CLI workflow and command boundaries that game-authoring agents need; keep implementation and release plumbing out.",
       "sources": [
         {

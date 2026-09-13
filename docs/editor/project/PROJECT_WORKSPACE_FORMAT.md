@@ -166,6 +166,25 @@ fails if an exact Asset source destination is already occupied. Save As therefor
 merges stale records, Layout companions, Script Module sources, local transaction/recovery state, or
 unrelated bytes at an Asset path into the copied project.
 
+## Portable Project bundle
+
+`.ntproject` is the portable editable-Project transport and is independent from runtime-only `.ntpkg`.
+Its current compatibility boundary is `noveltea.project.bundle` version `1`. Export writes a
+deterministic ZIP containing `ntproject.json`, every canonical tracked workspace file, every referenced
+Asset source byte file, and Project-owned `workflows/` files. The manifest records the current Project
+Workspace identity/version, Project identity/name, and one sorted exact file inventory with byte size
+and SHA-256 for each Project-owned payload file. Archive entry metadata is fixed rather than copied
+from local filesystem timestamps or permissions.
+
+The bundle never carries `.noveltea/`, `dist/`, VCS metadata, `.gitignore`, agent bootstrap files,
+transaction/recovery state, caches, or unrelated workspace files. Import rejects malformed ZIP
+structure, unsafe or duplicate paths, non-regular entries, unsupported bundle/workspace identity or
+version, malformed/noncanonical manifests, undeclared or extra authoring files, size/hash mismatches,
+and an invalid contained Project Workspace. Import assembles into a sibling staging directory,
+reconstructs the exact current Project-owned inventory from the opened Project, and atomically activates
+only a destination that still does not exist. A successful import is therefore an ordinary current
+Project Workspace with no special post-import representation or compatibility mode.
+
 ## Headless CLI editing boundary
 
 The TypeScript Node reference CLI uses `noveltea [--project <project-directory>] [--json]

@@ -538,6 +538,42 @@ const differentialCases = [
     ],
   },
   {
+    name: 'project-export',
+    args: (root) => [
+      '--project',
+      root,
+      '--json',
+      'project',
+      'export',
+      '--output',
+      path.join(root, 'portable.ntproject'),
+    ],
+  },
+  {
+    name: 'project-import',
+    prepare: async (root) => {
+      requireSuccess(
+        'portable project differential fixture export',
+        runNode([
+          '--project',
+          root,
+          '--json',
+          'project',
+          'export',
+          '--output',
+          path.join(root, 'portable.ntproject'),
+        ]),
+      );
+    },
+    args: (root) => [
+      '--json',
+      'project',
+      'import',
+      path.join(root, 'portable.ntproject'),
+      path.join(root, 'imported project'),
+    ],
+  },
+  {
     name: 'validate-upward',
     args: () => ['--json', 'validate'],
     cwd: (root) => path.join(root, 'records', 'layouts', 'fixture-hud'),

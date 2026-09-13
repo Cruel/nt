@@ -27,6 +27,7 @@ are:
 | Boundary | Version | Meaning |
 | --- | ---: | --- |
 | Project Workspace Format | 1 | Authored project files on disk. |
+| Portable Project Bundle | 1 | Shareable `.ntproject` archive containing one clean editable Project Workspace. |
 | Compiled Project Format | 1 | Compiler output consumed by a compatible runtime. |
 | Save File Format | 1 | Physical `.ntsav` representation. |
 | Player Template Format | 1 | Installable/downloadable player-template package and descriptor. |

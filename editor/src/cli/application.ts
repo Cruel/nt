@@ -28,6 +28,7 @@ import { CliCommandUsageError, parseCliCommand } from './commands';
 import type { NovelTeaAgentKitPayload } from './agent-kit';
 import { runNovelTeaAgentSyncCli } from './agent-sync-cli';
 import { runNovelTeaProjectCreateCli } from './project-create-cli';
+import { runNovelTeaProjectBundleCli } from './project-bundle-cli';
 import { runComfyUiCatalogCommand } from './comfyui-catalog-commands';
 import type { WorkflowLibraryServiceOptions } from '../main/services/comfyui-workflow-library-service';
 
@@ -110,6 +111,8 @@ export async function runNovelTeaCli(
   const platformTools = options.platformTools ?? unavailablePlatformTools;
   if (globals.command[0] === 'project' && globals.command[1] === 'create')
     return runNovelTeaProjectCreateCli(globals, fileSystem, workspace);
+  const projectBundle = await runNovelTeaProjectBundleCli(globals, fileSystem, workspace, cwd);
+  if (projectBundle) return projectBundle;
   if (globals.command[0] === 'agent' && globals.command[1] === 'sync')
     return runNovelTeaAgentSyncCli(globals, fileSystem, cwd, options.agentKitPayload);
 
