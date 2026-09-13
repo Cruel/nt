@@ -14,6 +14,12 @@ The runner prepares Astro/Starlight content state and starts the normal Astro de
 
 The `/examples/dev` surface receives COOP, COEP, and CORP headers from an Astro development middleware so the future threaded Web-player showcase can run under the same isolation contract used in production. The Cloudflare Pages build receives the matching rules from `public/_headers`.
 
+## Documentation channels
+
+`/docs/dev` always renders from the current checkout and is visibly marked unreleased/unstable. Before a public release exists, `/docs` renders the same development channel.
+
+For production builds with a public release, the site workflow checks out the exact release tag separately and builds that revision with `NOVELTEA_DOCS_RENDER_CHANNEL=latest` and `NOVELTEA_DOCS_RELEASE_VERSION=<tag>`. `scripts/promote-release-docs.mjs` then promotes only that release-rendered documentation tree (plus its hashed Astro assets) to `/docs`, leaving the master-derived `/docs/dev` tree untouched. This keeps hand-authored docs and generated schema reference tied to the same released revision and leaves `/docs/<version>` available for future historical channels.
+
 ## Verification
 
 ```sh

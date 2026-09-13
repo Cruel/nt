@@ -1,0 +1,27 @@
+---
+const isLatest = import.meta.env.NOVELTEA_DOCS_RENDER_CHANNEL === 'latest';
+const releaseVersion = import.meta.env.NOVELTEA_DOCS_RELEASE_VERSION?.trim();
+---
+
+{isLatest ? (
+  <p>
+    This generated reference comes from the canonical authoring codecs at the exact NovelTea release
+    revision{releaseVersion ? ` for ${releaseVersion}` : ''}. Use the linked raw JSON Schemas when you
+    need the exact mechanical contract.
+  </p>
+) : (
+  <aside class="docs-reference-notice">
+    <strong>Unreleased generated reference.</strong> This reference describes current NovelTea
+    development behavior. It is generated from the same canonical authoring codecs that produce the
+    Agent Kit schemas and may change before a public release.
+  </aside>
+)}
+
+<style>
+  .docs-reference-notice {
+    border: 1px solid var(--sl-color-accent);
+    border-radius: 0.5rem;
+    padding: 0.8rem 1rem;
+    background: var(--sl-color-bg-inline-code);
+  }
+</style>

@@ -1,6 +1,18 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
+const docsRenderChannel = process.env.NOVELTEA_DOCS_RENDER_CHANNEL === 'latest' ? 'latest' : 'dev';
+const docsSidebarItems =
+  docsRenderChannel === 'latest'
+    ? [
+        { label: 'Overview', link: '/docs/' },
+        { label: 'Project schema reference', link: '/docs/reference/' },
+      ]
+    : [
+        { label: 'Overview', slug: 'docs/dev' },
+        { label: 'Project schema reference', slug: 'docs/dev/reference' },
+      ];
+
 const isolationHeaders = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -35,13 +47,13 @@ export default defineConfig({
       title: 'NovelTea',
       description: 'Build expressive narrative games with NovelTea.',
       customCss: ['./src/styles/tokens.css', './src/styles/starlight.css'],
+      components: {
+        PageTitle: './src/components/DocsChannelPageTitle.astro',
+      },
       sidebar: [
         {
-          label: 'Development',
-          items: [
-            { label: 'Overview', slug: 'docs/dev' },
-            { label: 'Project schema reference', slug: 'docs/dev/reference' },
-          ],
+          label: docsRenderChannel === 'latest' ? 'Latest' : 'Development',
+          items: docsSidebarItems,
         },
       ],
       social: [

@@ -1,0 +1,56 @@
+---
+const isLatest = import.meta.env.NOVELTEA_DOCS_RENDER_CHANNEL === 'latest';
+const releaseVersion = import.meta.env.NOVELTEA_DOCS_RELEASE_VERSION?.trim();
+const docsRoot = isLatest ? '/docs' : '/docs/dev';
+---
+
+{isLatest ? (
+  <p>
+    These docs describe the latest public NovelTea release{releaseVersion ? ` (${releaseVersion})` : ''}.
+    They are rendered from that release's exact source revision so hand-authored guidance and generated
+    reference stay aligned with the released tooling.
+  </p>
+) : (
+  <aside class="docs-development-notice">
+    <strong>Unreleased development channel.</strong> These docs describe current NovelTea development
+    behavior and may change before a public release.
+  </aside>
+)}
+
+<p>
+  NovelTea is a narrative-game engine and editor built around portable project data, a native runtime,
+  Lua scripting, and export targets including desktop and Web.
+</p>
+
+<h2>What belongs here</h2>
+
+<p>
+  The public documentation focuses on authors using NovelTea rather than the engine's internal
+  implementation. As the surface stabilizes, this section will grow to cover project structure, rooms
+  and interactions, UI authoring, scripting, validation, preview, and export workflows.
+</p>
+
+<h2>Channel status</h2>
+
+<p>
+  {isLatest
+    ? 'This is the Latest channel. Use Dev when you intentionally want documentation for current master development.'
+    : 'This is the Dev channel and tracks current master development rather than a compatibility promise.'}
+</p>
+
+<h2>Next places to visit</h2>
+
+<ul>
+  <li><a href={`${docsRoot}/reference/`}>Project schema reference</a> — generated human-readable Project Workspace and record reference with raw schemas available for exact constraints.</li>
+  <li><a href="/examples/dev/">Development examples</a> — the shell for current playable examples.</li>
+  <li><a href="/download/">Downloads</a> — current public-build availability and editor/CLI downloads.</li>
+</ul>
+
+<style>
+  .docs-development-notice {
+    border: 1px solid var(--sl-color-accent);
+    border-radius: 0.5rem;
+    padding: 0.8rem 1rem;
+    background: var(--sl-color-bg-inline-code);
+  }
+</style>

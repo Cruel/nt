@@ -5,9 +5,12 @@ import {
 } from '../../../editor/src/shared/project-schema/schema-reference';
 
 const reference = createNovelTeaWebsiteSchemaReference();
+const isLatest = import.meta.env.NOVELTEA_DOCS_RENDER_CHANNEL === 'latest';
+const releaseVersion = import.meta.env.NOVELTEA_DOCS_RELEASE_VERSION?.trim();
+const docsRoot = isLatest ? '/docs' : '/docs/dev';
 
 function rawHref(path: string): string {
-  return `/docs/dev/reference/raw/${path}`;
+  return `${docsRoot}/reference/raw/${path}`;
 }
 
 function flattenFields(
@@ -23,7 +26,7 @@ function flattenFields(
 
 <div class="schema-reference">
   <p class="schema-reference__meta">
-    Generated from NovelTea's canonical authoring codecs · Project Workspace v{reference.projectWorkspaceVersion} · Unreleased development channel
+    Generated from NovelTea's canonical authoring codecs · Project Workspace v{reference.projectWorkspaceVersion} · {isLatest ? `Latest release${releaseVersion ? ` ${releaseVersion}` : ''}` : 'Unreleased development channel'}
   </p>
 
   {reference.documents.map((document) => (

@@ -24,6 +24,9 @@ on:
       - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - ".github/workflows/site.yml"
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -40,6 +43,7 @@ env:
 jobs:
   verify:
     name: Verify site
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -56,11 +60,49 @@ jobs:
       - name: Install dependencies
         run: pnpm install --filter @noveltea/site... --filter noveltea-editor... --frozen-lockfile
 
+      - name: Resolve latest public release
+        id: release-docs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          release_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq '[.[] | select(.draft == false)][0].tag_name // ""')"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          if [ -n "$release_tag" ]; then
+            echo "NOVELTEA_DOCS_RELEASE_VERSION=$release_tag" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout exact release documentation source
+        if: ${{ steps.release-docs.outputs.release_tag != '' }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release-docs.outputs.release_tag }}
+          path: .site-release-source
+
+      - name: Install exact release documentation dependencies
+        if: ${{ steps.release-docs.outputs.release_tag != '' }}
+        run: pnpm -C .site-release-source install --filter @noveltea/site... --filter noveltea-editor... --frozen-lockfile
+
       - name: Check site
         run: pnpm -C site run check
 
-      - name: Build site
+      - name: Build development documentation and site
         run: pnpm -C site run build
+
+      - name: Build exact release documentation
+        if: ${{ steps.release-docs.outputs.release_tag != '' }}
+        env:
+          NOVELTEA_DOCS_RENDER_CHANNEL: latest
+          NOVELTEA_DOCS_RELEASE_VERSION: ${{ steps.release-docs.outputs.release_tag }}
+        run: pnpm -C .site-release-source/site run build
+
+      - name: Promote exact release documentation to /docs
+        if: ${{ steps.release-docs.outputs.release_tag != '' }}
+        run: >-
+          node site/scripts/promote-release-docs.mjs
+          .site-release-source/site/dist
+          site/dist
+          "${{ steps.release-docs.outputs.release_tag }}"
 
       - name: Test static site contract
         run: pnpm -C site run test
