@@ -161,6 +161,7 @@ export function compileLocalization(
   const ids = packageMessageIds(project);
   const rmlLocalIds = new Set(collectRmlLocalMessages(project).map((message) => message.id));
   const structured = structuredMessages(project);
+  const structuredIds = new Set(structured.map((message) => message.id));
   const sourceValues = new Map<string, string>([
     ...sortedEntries(localization.messages).map(
       ([stableId, message]) => [stableId, message.source] as const,
@@ -175,7 +176,7 @@ export function compileLocalization(
     const explicitArguments = authoredMessage?.arguments;
     const arguments_ = explicitArguments
       ? sortedEntries(explicitArguments).map(([name, type]) => ({ name, type }))
-      : rmlLocalIds.has(stableId)
+      : rmlLocalIds.has(stableId) || structuredIds.has(stableId)
         ? messagePlaceholderNames(value).map((name) => ({ name, type: 'printable' as const }))
         : [];
     const dialogueCues = sourceDialogueCues.get(stableId);
