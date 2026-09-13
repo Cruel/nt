@@ -8,6 +8,8 @@
             "binaryDir": "${sourceDir}/build/linux-debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_JOB_POOLS": "link_pool=1",
+                "CMAKE_JOB_POOL_LINK": "link_pool",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
                 "VCPKG_MANIFEST_DIR": "${sourceDir}",
                 "VCPKG_MANIFEST_FEATURES": "tests",
@@ -72,6 +74,8 @@
             "binaryDir": "${sourceDir}/build/linux-release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_JOB_POOLS": "link_pool=1",
+                "CMAKE_JOB_POOL_LINK": "link_pool",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
                 "VCPKG_MANIFEST_DIR": "${sourceDir}",
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-release/vcpkg_installed",
