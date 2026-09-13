@@ -107,7 +107,7 @@ jobs:
           projects="$(pnpm -C site exec wrangler pages project list --json)"
           if ! node -e '
             const projects = JSON.parse(process.argv[1]);
-            process.exit(projects.some((project) => project.name === "noveltea") ? 0 : 1);
+            process.exit(projects.some((project) => project["Project Name"] === "noveltea") ? 0 : 1);
           ' "$projects"; then
             pnpm -C site exec wrangler pages project create noveltea --production-branch master
           fi
