@@ -698,6 +698,19 @@ TEST_CASE("Text.msg_ref realizes only typed Message references returned by admit
     const auto* completed = std::get_if<runtime::ScriptInvocationCompleted>(result.value_if());
     REQUIRE(completed != nullptr);
     CHECK(std::get<std::string>(completed->value) == "Moneda");
+
+    auto unexpected_arguments = fixture.runtime.invoke_in_environment(
+        environment.value(),
+        {.source = "local ref, present, err = Game.prop('message'); "
+                   "assert(err == nil and present); return Text.msg_ref(ref, { ignored = true })",
+         .chunk_name = "typed-message-ref-unexpected-arguments",
+         .owner = std::nullopt,
+         .invocation = std::nullopt,
+         .source_context = {},
+         .result_kind = runtime::ScriptInvocationResultKind::String,
+         .asset_path = std::nullopt},
+        *capabilities);
+    REQUIRE_FALSE(unexpected_arguments);
     fixture.runtime.destroy_environment(environment.value());
 }
 

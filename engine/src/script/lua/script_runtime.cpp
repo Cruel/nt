@@ -799,21 +799,32 @@ int ScriptRuntime::managed_message_callback(lua_State* state)
     if (raw_id < 0 ||
         static_cast<std::uint64_t>(raw_id) > std::numeric_limits<core::MessageId>::max())
         return luaL_error(state, "Managed Message ID is out of range");
-    const auto arguments = message_arguments_from_lua(state, 2);
-    if (!arguments)
-        return luaL_error(state, "Managed Message arguments must be a table of printable values");
-    const core::MessageRealizer realizer(*runtime->m_impl->localization);
-    const auto locale = runtime->m_impl->runtime_locale.empty()
-                            ? std::string_view{runtime->m_impl->localization->default_locale}
-                            : std::string_view{runtime->m_impl->runtime_locale};
-    const auto realized =
-        realizer.realize({static_cast<core::MessageId>(raw_id), locale, *arguments});
-    if (!realized)
-        return luaL_error(state, "Managed Message could not be realized");
-    if (runtime->m_impl->capture_managed_messages)
-        runtime->m_impl->captured_messages.push_back(
-            {{static_cast<core::MessageId>(raw_id), *arguments}, realized->text});
-    lua_pushlstring(state, realized->text.data(), realized->text.size());
+
+    const char* error_message = nullptr;
+    {
+        const auto arguments = message_arguments_from_lua(state, 2);
+        if (!arguments) {
+            error_message = "Managed Message arguments must be a table of printable values";
+        } else {
+            const core::MessageRealizer realizer(*runtime->m_impl->localization);
+            const auto locale =
+                runtime->m_impl->runtime_locale.empty()
+                    ? std::string_view{runtime->m_impl->localization->default_locale}
+                    : std::string_view{runtime->m_impl->runtime_locale};
+            const auto realized =
+                realizer.realize({static_cast<core::MessageId>(raw_id), locale, *arguments});
+            if (!realized) {
+                error_message = "Managed Message could not be realized";
+            } else {
+                if (runtime->m_impl->capture_managed_messages)
+                    runtime->m_impl->captured_messages.push_back(
+                        {{static_cast<core::MessageId>(raw_id), *arguments}, realized->text});
+                lua_pushlstring(state, realized->text.data(), realized->text.size());
+            }
+        }
+    }
+    if (error_message)
+        return luaL_error(state, "%s", error_message);
     return 1;
 }
 
@@ -822,23 +833,36 @@ int ScriptRuntime::message_ref_callback(lua_State* state)
     auto* runtime = static_cast<ScriptRuntime*>(lua_touserdata(state, lua_upvalueindex(1)));
     if (runtime == nullptr || runtime->m_impl == nullptr || !runtime->m_impl->localization)
         return luaL_error(state, "Message localization is unavailable");
-    auto reference = sol::stack::check_get<RuntimeMessageReference>(state, 1);
-    if (!reference)
-        return luaL_error(state, "Text.msg_ref requires a typed Message reference");
-    const auto arguments = message_arguments_from_lua(state, 2);
-    if (!arguments)
-        return luaL_error(state, "Text.msg_ref arguments must be a table of printable values");
-    const core::MessageRealizer realizer(*runtime->m_impl->localization);
-    const auto locale = runtime->m_impl->runtime_locale.empty()
-                            ? std::string_view{runtime->m_impl->localization->default_locale}
-                            : std::string_view{runtime->m_impl->runtime_locale};
-    const auto realized = realizer.realize({reference->value.id, locale, *arguments});
-    if (!realized)
-        return luaL_error(state, "Message reference could not be realized");
-    if (runtime->m_impl->capture_managed_messages)
-        runtime->m_impl->captured_messages.push_back(
-            {{reference->value.id, *arguments}, realized->text});
-    lua_pushlstring(state, realized->text.data(), realized->text.size());
+
+    const char* error_message = nullptr;
+    {
+        auto reference = sol::stack::check_get<RuntimeMessageReference>(state, 1);
+        if (!reference) {
+            error_message = "Text.msg_ref requires a typed Message reference";
+        } else {
+            const auto arguments = message_arguments_from_lua(state, 2);
+            if (!arguments) {
+                error_message = "Text.msg_ref arguments must be a table of printable values";
+            } else {
+                const core::MessageRealizer realizer(*runtime->m_impl->localization);
+                const auto locale =
+                    runtime->m_impl->runtime_locale.empty()
+                        ? std::string_view{runtime->m_impl->localization->default_locale}
+                        : std::string_view{runtime->m_impl->runtime_locale};
+                const auto realized = realizer.realize({reference->value.id, locale, *arguments});
+                if (!realized) {
+                    error_message = "Message reference could not be realized";
+                } else {
+                    if (runtime->m_impl->capture_managed_messages)
+                        runtime->m_impl->captured_messages.push_back(
+                            {{reference->value.id, *arguments}, realized->text});
+                    lua_pushlstring(state, realized->text.data(), realized->text.size());
+                }
+            }
+        }
+    }
+    if (error_message)
+        return luaL_error(state, "%s", error_message);
     return 1;
 }
 
