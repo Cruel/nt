@@ -14,6 +14,10 @@ export interface PlatformArchiveEntry {
   mode: number;
 }
 
+function compareArchivePaths(left: string, right: string): number {
+  return Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
+}
+
 function normalizedArchivePath(value: string): string {
   const normalized = value.replaceAll('\\', '/').replace(/^\.\//, '');
   if (
@@ -178,7 +182,9 @@ export async function createZipArchive(
   const central: Buffer[] = [];
   let offset = 0;
   try {
-    for (const entry of [...entries].sort((a, b) => a.archivePath.localeCompare(b.archivePath))) {
+    for (const entry of [...entries].sort((a, b) =>
+      compareArchivePaths(a.archivePath, b.archivePath),
+    )) {
       if (entry.size > 0xffffffff)
         throw new Error('ZIP64 output is not supported by the platform exporter.');
       const archivePath = normalizedArchivePath(entry.archivePath);
@@ -284,7 +290,9 @@ function paddedLength(size: number): number {
 
 async function* tarChunks(entries: readonly PlatformArchiveEntry[]) {
   let paxIndex = 0;
-  for (const entry of [...entries].sort((a, b) => a.archivePath.localeCompare(b.archivePath))) {
+  for (const entry of [...entries].sort((a, b) =>
+    compareArchivePaths(a.archivePath, b.archivePath),
+  )) {
     const archivePath = normalizedArchivePath(entry.archivePath);
     let headerPath = archivePath;
     if (!splitUstarPath(archivePath)) {

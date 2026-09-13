@@ -10,6 +10,8 @@ Usage:
 
 Commands:
   project create <directory> --name <project-name>
+  project export --output <bundle.ntproject>
+  project import <bundle.ntproject> <destination-directory>
   agent sync [--fix]
   comfyui status [--server <url>]
   comfyui workflows [--all]

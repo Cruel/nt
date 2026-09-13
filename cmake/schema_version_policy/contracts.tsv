@@ -1,5 +1,6 @@
 contract_id	current_version	lifecycle	owner	producer_paths	consumer_paths
 project-workspace	1	development	editor	editor/src/shared/project-workspace/project-workspace-contracts.ts	editor/src/shared/project-workspace/project-workspace-discovery.ts,editor/src/shared/project-workspace/project-workspace-service.ts
+portable-project-bundle	1	development	editor	editor/src/main/services/portable-project-bundle-service.ts	editor/src/main/services/portable-project-bundle-service.ts,editor/src/cli/project-bundle-cli.ts
 compiled-project	1	development	editor+engine	editor/src/shared/project-schema/compiled-project.ts	editor/src/shared/project-schema/compiled-project.ts,engine/src/core/compiled_project_codec/project_decoder.cpp
 save-file	1	development	engine	engine/src/runtime/typed_save_slot_store.cpp	engine/src/runtime/typed_save_slot_store.cpp,engine/src/core/save_state_codec/state_codec.cpp
 player-template	1	development	build	cmake/PackageNovelTeaPlayerTemplate.cmake,cmake/PackageNovelTeaWebPlayerTemplate.cmake,cmake/package-android-player-template.mjs	editor/src/shared/project-schema/platform-export-contracts.ts,editor/src/shared/project-schema/template-compatibility.ts
