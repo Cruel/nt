@@ -154,12 +154,12 @@ TEST_CASE("StyledText preserves synthetic font style on positioned glyphs")
 TEST_CASE("StyledText resolves missing shaped clusters through ordered fallback families")
 {
     auto assets = make_assets();
-    assets.mount_directory("fixtures", NOVELTEA_SOURCE_DIR "/refs/RmlUi/Samples/assets");
+    assets.mount_directory("fixtures", NOVELTEA_SOURCE_DIR "/tests/assets/fonts");
     noveltea::text::TextEngine engine(assets);
 
     FontFamilyDesc body;
     body.alias = "body";
-    body.regular = FontDesc{"fixtures:/LatoLatin-Regular.ttf"};
+    body.regular = FontDesc{"fixtures:/FallbackPrimary.bdf"};
     const auto body_family = engine.register_font_family(body);
     REQUIRE(body_family);
     const auto body_face = engine.resolve_font(body_family, TextFontRegular).face;
@@ -167,7 +167,7 @@ TEST_CASE("StyledText resolves missing shaped clusters through ordered fallback 
 
     FontFamilyDesc emoji;
     emoji.alias = "emoji";
-    emoji.regular = FontDesc{"fixtures:/NotoEmoji-Regular.ttf"};
+    emoji.regular = FontDesc{"fixtures:/FallbackSymbols.bdf"};
     const auto emoji_family = engine.register_font_family(emoji);
     REQUIRE(emoji_family);
     const auto emoji_face = engine.resolve_font(emoji_family, TextFontRegular).face;
@@ -181,7 +181,7 @@ TEST_CASE("StyledText resolves missing shaped clusters through ordered fallback 
     text.spans.push_back(TextSpan{.source_byte_begin = 0,
                                   .source_byte_end = static_cast<uint32_t>(text.value.size()),
                                   .font_alias = "body",
-                                  .size = 24.0f});
+                                  .size = 8.0f});
 
     const auto glyphs = glyphs_for(engine.layout_text(text));
     REQUIRE_FALSE(glyphs.empty());

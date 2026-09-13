@@ -801,7 +801,7 @@ public:
             if (ma_sound_get_length_in_pcm_frames(&voice->sound, &length) == MA_SUCCESS &&
                 length > 0) {
                 const double normalized = std::clamp(*desc.start_normalized_position, 0.0, 1.0);
-                const ma_uint64 frame = std::min(
+                const ma_uint64 frame = (std::min)(
                     length - 1, static_cast<ma_uint64>(normalized * static_cast<double>(length)));
                 (void)ma_sound_seek_to_pcm_frame(&voice->sound, frame);
             }
