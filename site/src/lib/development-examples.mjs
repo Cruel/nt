@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const defaultCatalogPath = resolve(siteRoot, "../build/site-examples/catalog.json");
+const defaultCatalogPath = resolve(process.cwd(), "../build/site-examples/catalog.json");
 const defaultAssetBase = "/examples/dev/assets";
 const examplesRepository = "https://github.com/Cruel/noveltea-examples";
 const preparedCatalogPath = resolve(siteRoot, "public/examples/dev/catalog.json");
