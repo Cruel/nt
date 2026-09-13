@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --filter @noveltea/site... --filter noveltea-editor... --frozen-lockfile
 
+      - name: Install browser for example qualification
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Download qualified development examples
         uses: actions/download-artifact@v7
         with:

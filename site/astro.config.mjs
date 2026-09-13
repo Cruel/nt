@@ -17,6 +17,7 @@ const isolationHeaders = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
   'Cross-Origin-Resource-Policy': 'same-origin',
+  'Permissions-Policy': 'cross-origin-isolated=(self "https://noveltea.pages.dev")',
 };
 
 function exampleIsolation() {

@@ -30,7 +30,7 @@ const serializedShowcase = JSON.stringify(showcase).replaceAll('<', '\\u003c');
 
 <SiteLayout title="Development examples" description="Playable examples built against the pinned NovelTea development toolchain.">
   <section class="nt-page-heading nt-example-heading">
-    <p class="nt-status">Development channel</p>
+    <p class="nt-status" data-example-channel>Development channel</p>
     <h1>See the project model in motion.</h1>
     <p>
       These examples come from the exact public <code>noveltea-examples</code> revision qualified against this
@@ -38,16 +38,16 @@ const serializedShowcase = JSON.stringify(showcase).replaceAll('<', '\\u003c');
       player context.
     </p>
     <p class="nt-example-revision">
-      Examples <code>{showcase.source.revision.slice(0, 12)}</code>
+      Examples <code data-example-revision>{showcase.source.revision.slice(0, 12)}</code>
       <span aria-hidden="true">·</span>
-      Player <code>{showcase.toolchain.player.buildId}</code>
+      Player <code data-player-revision>{showcase.toolchain.player.buildId}</code>
     </p>
   </section>
 
   <section class="nt-example-showcase" data-example-showcase aria-label="Development example showcase">
     <aside class="nt-example-selector" aria-label="Choose an example">
       <p class="nt-kicker">Playable projects</p>
-      <div class="nt-example-selector__list">
+      <div class="nt-example-selector__list" data-example-selector-list>
         {showcase.examples.map((example, index) => (
           <button
             type="button"
@@ -101,7 +101,7 @@ const serializedShowcase = JSON.stringify(showcase).replaceAll('<', '\\u003c');
             src={firstExample.playerUrl}
             title={`${firstExample.title} NovelTea example`}
             data-example-player
-            allow="fullscreen"
+            allow="cross-origin-isolated; fullscreen"
           ></iframe>
         </div>
       </div>
@@ -117,18 +117,85 @@ const serializedShowcase = JSON.stringify(showcase).replaceAll('<', '\\u003c');
 
   <script is:inline type="application/json" id="nt-development-examples" set:html={serializedShowcase}></script>
   <script is:inline>
-    (() => {
+    (async () => {
       const root = document.querySelector('[data-example-showcase]');
       const data = document.getElementById('nt-development-examples');
       if (!(root instanceof HTMLElement) || !(data instanceof HTMLScriptElement)) return;
 
-      const showcase = JSON.parse(data.textContent || '{}');
+      let showcase = JSON.parse(data.textContent || '{}');
+      const playerHost = root.querySelector('[data-example-player-host]');
+      const previewToken = new URLSearchParams(window.location.search).get('preview');
+      const previewMatch = /^pr-([1-9][0-9]*)\/([0-9a-f]{40})$/.exec(previewToken || '');
+      if (previewToken && !previewMatch) {
+        throw new Error('Invalid NovelTea example preview token.');
+      }
+      if (previewMatch) {
+        if (playerHost instanceof HTMLElement) playerHost.replaceChildren();
+        const previewUrl = `https://noveltea.pages.dev/examples/dev/preview-assets/${previewToken}/preview.json`;
+        const response = await fetch(previewUrl, { credentials: 'omit', mode: 'cors', cache: 'no-store' });
+        if (!response.ok) throw new Error(`Unable to load NovelTea example preview (${response.status}).`);
+        const preview = await response.json();
+        const prefix = `https://noveltea.pages.dev/examples/dev/preview-assets/${previewToken}/`;
+        if (
+          preview?.format !== 'noveltea.example-preview' ||
+          preview?.formatVersion !== 1 ||
+          preview?.prNumber !== Number(previewMatch[1]) ||
+          preview?.source?.revision !== previewMatch[2] ||
+          preview?.source?.repository !== 'https://github.com/Cruel/noveltea-examples' ||
+          !/^[0-9a-f]{40}$/.test(preview?.toolchain?.ntRevision || '') ||
+          preview?.toolchain?.player?.engineVersion !== `dev-${preview?.toolchain?.ntRevision}` ||
+          preview?.toolchain?.player?.buildId !== `dev-${preview?.toolchain?.ntRevision}-web-wasm32-threads-release` ||
+          !Array.isArray(preview.examples) ||
+          preview.examples.length === 0 ||
+          preview.examples.some((example) =>
+            !example?.projectUrl?.startsWith(prefix) ||
+            !example?.playerUrl?.startsWith(prefix) ||
+            !/^[0-9a-f]{64}$/.test(example?.projectSha256 || '') ||
+            !example?.sourceUrl?.startsWith(`https://github.com/Cruel/noveltea-examples/tree/${previewMatch[2]}/`)
+          )
+        ) {
+          throw new Error('Invalid NovelTea example preview catalog.');
+        }
+        showcase = {
+          source: preview.source,
+          toolchain: { player: preview.toolchain.player },
+          examples: preview.examples,
+        };
+        const channel = document.querySelector('[data-example-channel]');
+        const exampleRevision = document.querySelector('[data-example-revision]');
+        const playerRevision = document.querySelector('[data-player-revision]');
+        if (channel) channel.textContent = `Pull request preview #${preview.prNumber}`;
+        if (exampleRevision) exampleRevision.textContent = preview.source.revision.slice(0, 12);
+        if (playerRevision) playerRevision.textContent = preview.toolchain.player.buildId;
+      }
+
+      const selectorList = root.querySelector('[data-example-selector-list]');
+      if (previewMatch && selectorList instanceof HTMLElement) {
+        selectorList.replaceChildren(...showcase.examples.map((example, index) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'nt-example-selector__item';
+          button.dataset.exampleSelect = example.id;
+          button.setAttribute('aria-pressed', index === 0 ? 'true' : 'false');
+          const number = document.createElement('span');
+          number.className = 'nt-example-selector__index';
+          number.textContent = String(index + 1).padStart(2, '0');
+          const copy = document.createElement('span');
+          const strong = document.createElement('strong');
+          strong.textContent = example.title;
+          const small = document.createElement('small');
+          small.textContent = example.description;
+          copy.append(strong, small);
+          button.append(number, copy);
+          return button;
+        }));
+      }
+
       const examples = new Map((showcase.examples || []).map((example) => [example.id, example]));
       const selectors = [...root.querySelectorAll('[data-example-select]')];
       const title = root.querySelector('[data-example-title]');
       const description = root.querySelector('[data-example-description]');
       const highlights = root.querySelector('[data-example-highlights]');
-      const playerHost = root.querySelector('[data-example-player-host]');
       const playerLabel = root.querySelector('[data-example-player-label]');
       const sourceLink = root.querySelector('[data-example-source]');
       const projectLink = root.querySelector('[data-example-project]');
@@ -147,12 +214,10 @@ const serializedShowcase = JSON.stringify(showcase).replaceAll('<', '\\u003c');
         url.searchParams.set('name', example.title);
         return url.href;
       };
-
       const clearHandoffWatch = () => {
         if (handoffTimer) window.clearTimeout(handoffTimer);
         handoffTimer = undefined;
       };
-
       const notePossibleHandoff = () => {
         handoffAppeared = true;
         clearHandoffWatch();
@@ -168,62 +233,53 @@ const serializedShowcase = JSON.stringify(showcase).replaceAll('<', '\\u003c');
         frame.src = example.playerUrl;
         frame.title = `${example.title} NovelTea example`;
         frame.dataset.examplePlayer = '';
-        frame.setAttribute('allow', 'fullscreen');
+        frame.setAttribute('allow', 'cross-origin-isolated; fullscreen');
         playerHost.replaceChildren(frame);
       };
-
       const render = (example, { recreatePlayer = true } = {}) => {
         selectedId = example.id;
-        for (const selector of selectors) {
-          selector.setAttribute('aria-pressed', selector.getAttribute('data-example-select') === example.id ? 'true' : 'false');
-        }
+        for (const selector of selectors) selector.setAttribute('aria-pressed', selector.getAttribute('data-example-select') === example.id ? 'true' : 'false');
         if (title) title.textContent = example.title;
         if (description) description.textContent = example.description;
         if (playerLabel) playerLabel.textContent = example.title;
         if (sourceLink instanceof HTMLAnchorElement) sourceLink.href = example.sourceUrl;
         if (projectLink instanceof HTMLAnchorElement) projectLink.href = example.projectUrl;
         if (handoffProject instanceof HTMLAnchorElement) handoffProject.href = example.projectUrl;
-        if (highlights) {
-          highlights.replaceChildren(...example.highlights.map((text) => {
-            const item = document.createElement('li');
-            item.textContent = text;
-            return item;
-          }));
-        }
+        if (highlights) highlights.replaceChildren(...example.highlights.map((text) => {
+          const item = document.createElement('li');
+          item.textContent = text;
+          return item;
+        }));
         if (handoff instanceof HTMLElement) handoff.hidden = true;
         clearHandoffWatch();
-        if (openLink instanceof HTMLAnchorElement) {
-          openLink.href = window.location.protocol === 'https:' ? protocolUrl(example) : '#';
-        }
+        if (openLink instanceof HTMLAnchorElement) openLink.href = window.location.protocol === 'https:' ? protocolUrl(example) : '#';
         if (recreatePlayer) mountPlayer(example);
       };
-
-      for (const selector of selectors) {
-        selector.addEventListener('click', () => {
-          const example = examples.get(selector.getAttribute('data-example-select'));
-          if (example && example.id !== selectedId) render(example);
-        });
-      }
-
-      if (openLink instanceof HTMLAnchorElement) {
-        openLink.addEventListener('click', (event) => {
-          const example = examples.get(selectedId);
-          if (!example) return;
-          if (window.location.protocol !== 'https:') {
-            event.preventDefault();
-            if (handoff instanceof HTMLElement) handoff.hidden = false;
-            return;
-          }
-          handoffAppeared = false;
-          clearHandoffWatch();
-          handoffTimer = window.setTimeout(() => {
-            if (!handoffAppeared && handoff instanceof HTMLElement) handoff.hidden = false;
-          }, 1400);
-        });
-      }
+      for (const selector of selectors) selector.addEventListener('click', () => {
+        const example = examples.get(selector.getAttribute('data-example-select'));
+        if (example && example.id !== selectedId) render(example);
+      });
+      if (openLink instanceof HTMLAnchorElement) openLink.addEventListener('click', (event) => {
+        const example = examples.get(selectedId);
+        if (!example) return;
+        if (window.location.protocol !== 'https:') {
+          event.preventDefault();
+          if (handoff instanceof HTMLElement) handoff.hidden = false;
+          return;
+        }
+        handoffAppeared = false;
+        clearHandoffWatch();
+        handoffTimer = window.setTimeout(() => {
+          if (!handoffAppeared && handoff instanceof HTMLElement) handoff.hidden = false;
+        }, 1400);
+      });
 
       const first = examples.get(selectedId);
-      if (first) render(first, { recreatePlayer: false });
-    })();
+      if (first) render(first, { recreatePlayer: previewMatch !== null });
+    })().catch((error) => {
+      console.error(error);
+      const channel = document.querySelector('[data-example-channel]');
+      if (channel) channel.textContent = 'Preview unavailable';
+    });
   </script>
 </SiteLayout>

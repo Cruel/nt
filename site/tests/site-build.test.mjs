@@ -131,6 +131,16 @@ test('development showcase exposes the pinned examples and handoff actions', asy
   assert.match(catalog.examples[0].projectSha256, /^[0-9a-f]{64}$/);
 });
 
+test('development showcase exposes only explicit immutable PR preview mode', async () => {
+  const html = await readFile(new URL('../dist/examples/dev/index.html', import.meta.url), 'utf8');
+  assert.match(html, /\.get\('preview'\)/);
+  assert.match(html, /examples\/dev\/preview-assets/);
+  assert.match(html, /\^pr-\(\[1-9\]\[0-9\]\*\)\\\/\(\[0-9a-f\]\{40\}\)\$/);
+  assert.match(html, /preview\.examples\.some/);
+  assert.match(html, /projectUrl\?\.startsWith\(prefix\)/);
+  assert.match(html, /playerUrl\?\.startsWith\(prefix\)/);
+});
+
 test('Cloudflare Pages headers isolate only the development example surface', async () => {
   const headers = await readFile(new URL('../dist/_headers', import.meta.url), 'utf8');
   assert.match(headers, /^\/examples\/dev$/m);
@@ -138,5 +148,6 @@ test('Cloudflare Pages headers isolate only the development example surface', as
   assert.match(headers, /Cross-Origin-Opener-Policy: same-origin/);
   assert.match(headers, /Cross-Origin-Embedder-Policy: require-corp/);
   assert.match(headers, /Cross-Origin-Resource-Policy: same-origin/);
+  assert.match(headers, /Permissions-Policy: cross-origin-isolated=\(self "https:\/\/noveltea\.pages\.dev"\)/);
   assert.doesNotMatch(headers, /^\/\*$/m);
 });
