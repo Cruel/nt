@@ -153,6 +153,22 @@ test("site CI consumes qualified examples through native workflow dependencies",
   assert.match(releaseSiteWorkflow, /uses: \.\/\.github\/workflows\/site\.yml/);
 });
 
+test("qualified catalog accepts an exact release player identity", () => {
+  const value = catalog();
+  value.toolchain.player.engineVersion = "v1.2.3";
+  value.toolchain.player.buildId = "v1.2.3-web-wasm32-threads-release";
+  assert.equal(
+    validateQualifiedExamplesCatalog(
+      value,
+      expectedToolchain({
+        playerEngineVersion: "v1.2.3",
+        playerBuildId: "v1.2.3-web-wasm32-threads-release",
+      }),
+    ),
+    value,
+  );
+});
+
 test("qualified catalog requires both initial examples and complete artifacts", () => {
   const missingExample = catalog();
   missingExample.examples.pop();

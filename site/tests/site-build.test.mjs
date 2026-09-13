@@ -30,7 +30,7 @@ test("landing page is creator-first and exposes the primary product paths", asyn
   assert.match(html, /Built for narrative creators/);
   assert.match(html, /Active development/);
   assert.match(html, /href="\/docs\//);
-  assert.match(html, /href="\/examples\/dev\//);
+  assert.match(html, /href="\/examples\//);
   assert.match(html, /href="\/download\//);
 });
 
@@ -123,6 +123,46 @@ test("download page reflects the supported release state without exposing source
   }
 });
 
+test("unqualified examples resolve to the active public channel", async () => {
+  const html = await readFile(new URL("../dist/examples/index.html", import.meta.url), "utf8");
+  if (process.env.NOVELTEA_DOCS_RELEASE_VERSION) {
+    assert.match(
+      html,
+      new RegExp(
+        `Latest release · ${process.env.NOVELTEA_DOCS_RELEASE_VERSION.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`,
+      ),
+    );
+    assert.match(html, /data-example-showcase/);
+    const releaseCatalog = JSON.parse(
+      await readFile(new URL("../dist/examples/catalog.json", import.meta.url), "utf8"),
+    );
+    assert.equal(releaseCatalog.channel, "release");
+    assert.equal(releaseCatalog.release.tag, process.env.NOVELTEA_DOCS_RELEASE_VERSION);
+    assert.equal(
+      releaseCatalog.toolchain.player.engineVersion,
+      process.env.NOVELTEA_DOCS_RELEASE_VERSION,
+    );
+    if (process.env.NOVELTEA_RELEASE_MANIFEST_PATH) {
+      const releaseManifest = JSON.parse(
+        await readFile(process.env.NOVELTEA_RELEASE_MANIFEST_PATH, "utf8"),
+      );
+      assert.equal(releaseManifest.release.tag, process.env.NOVELTEA_DOCS_RELEASE_VERSION);
+      assert.equal(releaseManifest.examples.sourceRevision, releaseCatalog.source.revision);
+      assert.equal(releaseManifest.examples.playerBuildId, releaseCatalog.toolchain.player.buildId);
+    }
+    const devCatalog = JSON.parse(
+      await readFile(new URL("../dist/examples/dev/catalog.json", import.meta.url), "utf8"),
+    );
+    assert.equal(devCatalog.channel, "dev");
+    assert.notEqual(
+      devCatalog.toolchain.player.engineVersion,
+      releaseCatalog.toolchain.player.engineVersion,
+    );
+  } else {
+    assert.match(html, /\/examples\/dev\//);
+  }
+});
+
 test("development showcase exposes the pinned examples and handoff actions", async () => {
   const html = await readFile(new URL("../dist/examples/dev/index.html", import.meta.url), "utf8");
   assert.match(html, /Materials/);
@@ -173,10 +213,10 @@ test("development showcase exposes only explicit immutable PR preview mode", asy
   assert.match(html, /playerUrl\?\.startsWith\(prefix\)/);
 });
 
-test("Cloudflare Pages headers isolate only the development example surface", async () => {
+test("Cloudflare Pages headers isolate the examples surfaces", async () => {
   const headers = await readFile(new URL("../dist/_headers", import.meta.url), "utf8");
-  assert.match(headers, /^\/examples\/dev$/m);
-  assert.match(headers, /^\/examples\/dev\/\*$/m);
+  assert.match(headers, /^\/examples$/m);
+  assert.match(headers, /^\/examples\/\*$/m);
   assert.match(headers, /Cross-Origin-Opener-Policy: same-origin/);
   assert.match(headers, /Cross-Origin-Embedder-Policy: require-corp/);
   assert.match(headers, /Cross-Origin-Resource-Policy: same-origin/);

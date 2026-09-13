@@ -750,6 +750,106 @@ jobs:
           path: build/web-editor-preview/apps/editor_preview
           if-no-files-found: error
 
+  release-examples:
+    name: Release examples
+    runs-on: ubuntu-24.04
+    needs: [release-metadata, shader-assets, web]
+    env:
+      RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+          persist-credentials: false
+
+      - name: Resolve pinned examples revision
+        id: examples-pin
+        shell: bash
+        run: |
+          revision="$(tr -d '\n' < examples/noveltea-examples.revision)"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact public examples revision
+        uses: actions/checkout@v6
+        with:
+          repository: Cruel/noveltea-examples
+          ref: ${{ steps.examples-pin.outputs.revision }}
+          path: build/noveltea-examples
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Set up Linux runtime dependencies
+        uses: ./.github/actions/setup-linux-native
+
+      - name: Download exact release host CLI
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-host-cli-linux-x64
+          path: build/release-examples-toolchain
+
+      - name: Download exact release Web player
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-web-release-dist
+          path: build/release-examples-toolchain/player
+
+      - name: Qualify examples against exact release
+        shell: bash
+        run: |
+          chmod +x build/release-examples-toolchain/noveltea
+          player_template="build/release-examples-toolchain/player/noveltea-player-template-${RELEASE_TAG}-web-wasm32-threads-release.zip"
+          player_descriptor="build/release-examples-toolchain/player/web-wasm32-threads-release.template.json"
+          test -f "$player_template"
+          test -f "$player_descriptor"
+          node scripts/qualify-examples.mjs \
+            --examples-root build/noveltea-examples \
+            --nt-revision "$GITHUB_SHA" \
+            --cli build/release-examples-toolchain/noveltea \
+            --player-template "$player_template" \
+            --player-descriptor "$player_descriptor" \
+            --player-engine-version "$RELEASE_TAG" \
+            --player-build-id "${RELEASE_TAG}-web-wasm32-threads-release" \
+            --output build/release-examples
+
+      - name: Package release examples
+        shell: bash
+        run: |
+          mkdir -p dist
+          archive="noveltea-examples-${RELEASE_TAG}.zip"
+          (cd build/release-examples && zip -q -r "../../dist/$archive" .)
+          node -e '
+            const fs = require("fs");
+            const catalog = require("./build/release-examples/catalog.json");
+            const value = {
+              format: "noveltea.release-examples",
+              version: 1,
+              releaseTag: process.env.RELEASE_TAG,
+              ntRevision: process.env.GITHUB_SHA,
+              examplesRevision: catalog.source.revision,
+              playerBuildId: catalog.toolchain.player.buildId,
+              archive: `noveltea-examples-${process.env.RELEASE_TAG}.zip`,
+            };
+            fs.writeFileSync(`dist/noveltea-examples-${process.env.RELEASE_TAG}.json`, `${JSON.stringify(value, null, 2)}\n`);
+          '
+
+      - name: Upload release examples
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-examples-release-dist
+          path: |
+            dist/noveltea-examples-${{ env.RELEASE_TAG }}.zip
+            dist/noveltea-examples-${{ env.RELEASE_TAG }}.json
+          if-no-files-found: error
+
   android:
     name: Android release
     runs-on: ubuntu-24.04
@@ -1080,7 +1180,8 @@ jobs:
   release-inventory:
     name: Qualify exact release inventory
     runs-on: ubuntu-24.04
-    needs: [release-metadata, desktop-hosts, web, android, desktop-editor, windows-cli]
+    needs:
+      [release-metadata, desktop-hosts, web, android, desktop-editor, windows-cli, release-examples]
     env:
       RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
     timeout-minutes: 15

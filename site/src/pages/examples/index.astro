@@ -1,0 +1,31 @@
+---
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import ExampleShowcase from './dev/index.astro';
+
+const releaseTag = process.env.NOVELTEA_DOCS_RELEASE_VERSION?.trim();
+const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const preparedCatalogPath = resolve(siteRoot, 'public/examples/catalog.json');
+
+if (!releaseTag || !existsSync(preparedCatalogPath)) {
+  return Astro.redirect('/examples/dev/');
+}
+
+const showcase = JSON.parse(readFileSync(preparedCatalogPath, 'utf8'));
+if (
+  showcase?.format !== 'noveltea.site-example-catalog' ||
+  showcase?.formatVersion !== 1 ||
+  showcase?.channel !== 'release' ||
+  showcase?.release?.tag !== releaseTag ||
+  showcase?.toolchain?.player?.engineVersion !== releaseTag ||
+  showcase?.toolchain?.player?.buildId !== `${releaseTag}-web-wasm32-threads-release` ||
+  !Array.isArray(showcase.examples) ||
+  showcase.examples.length === 0
+) {
+  throw new Error(`Prepared release examples do not match ${releaseTag}.`);
+}
+---
+
+<ExampleShowcase showcase={showcase} releaseTag={releaseTag} />

@@ -11,9 +11,24 @@ import {
 } from "../src/lib/development-examples.mjs";
 
 const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const stagedRoot = resolve(siteRoot, "../build/site-example-public");
-const oversizedRoot = resolve(siteRoot, "../build/site-example-oversized");
-const publicRoot = resolve(siteRoot, "public/examples/dev");
+const publicRoute = process.env.NOVELTEA_EXAMPLES_PUBLIC_ROUTE?.trim() || "/examples/dev";
+if (!/^\/examples(?:\/dev)?$/.test(publicRoute)) {
+  throw new Error(`Unsupported examples public route: ${publicRoute}`);
+}
+const channelId = publicRoute === "/examples/dev" ? "development" : "release";
+const stagedRoot = resolve(
+  siteRoot,
+  channelId === "development"
+    ? "../build/site-example-public"
+    : "../build/site-example-public-release",
+);
+const oversizedRoot = resolve(
+  siteRoot,
+  channelId === "development"
+    ? "../build/site-example-oversized"
+    : "../build/site-example-oversized-release",
+);
+const publicRoot = resolve(siteRoot, `public${publicRoute}`);
 const publicAssetRoot = resolve(publicRoot, "assets");
 const pagesFileLimit =
   Number.parseInt(process.env.NOVELTEA_PAGES_FILE_LIMIT_BYTES || "", 10) || 25 * 1024 * 1024;
@@ -63,8 +78,11 @@ function remoteUrl(path) {
 }
 
 const { catalog, artifactRoot } = loadQualifiedDevelopmentExamples();
-const assetBase = "/examples/dev/assets";
-const model = createDevelopmentExampleShowcaseModel(catalog, { assetBase });
+const assetBase = `${publicRoute}/assets`;
+const model = createDevelopmentExampleShowcaseModel(catalog, {
+  assetBase,
+  channel: channelId === "development" ? "dev" : "release",
+});
 const modelById = new Map(model.examples.map((example) => [example.id, example]));
 
 rmSync(stagedRoot, { recursive: true, force: true });
