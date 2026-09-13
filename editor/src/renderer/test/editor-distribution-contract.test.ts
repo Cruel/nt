@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { novelTeaDevelopmentVersion } from '../../../../scripts/noveltea-version.mjs';
 // @ts-expect-error The distribution helper is intentionally authored as a Node ESM script.
-import { assertCurrentEditorStageManifest } from '../../../scripts/editor-distribution-lib.mjs';
+import * as editorDistribution from '../../../scripts/editor-distribution-lib.mjs';
+import sharp from 'sharp';
+
+const { assertCurrentEditorStageManifest, EXPECTED_SHARP_VERSION } = editorDistribution;
 
 describe('editor distribution stage manifest', () => {
+  it('uses the installed Sharp version for the production stage contract', () => {
+    expect(EXPECTED_SHARP_VERSION).toBe(sharp.versions.sharp);
+  });
+
   it('derives local build versions from the canonical product version', () => {
     expect(novelTeaDevelopmentVersion('1.0.0', '0123456789abcdef')).toBe('1.0.0-dev.0123456789ab');
     expect(novelTeaDevelopmentVersion('1.1.0-rc.1', 'abcdef0123456789')).toBe(
