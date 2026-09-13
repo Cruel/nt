@@ -120,6 +120,34 @@ test("qualified catalog must match the pinned examples revision and exact toolch
   );
 });
 
+test("site CI consumes qualified examples through native workflow dependencies", () => {
+  const buildWorkflow = readFileSync(
+    new URL("../../.github/workflows/build.yml", import.meta.url),
+    "utf8",
+  );
+  const siteWorkflow = readFileSync(
+    new URL("../../.github/workflows/site.yml", import.meta.url),
+    "utf8",
+  );
+  const releaseSiteWorkflow = readFileSync(
+    new URL("../../.github/workflows/site-release.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    buildWorkflow,
+    /\n  site:\n[\s\S]*?needs: examples\n[\s\S]*?uses: \.\/\.github\/workflows\/site\.yml/,
+  );
+  assert.match(siteWorkflow, /workflow_call:/);
+  assert.match(siteWorkflow, /name: noveltea-development-examples/);
+  assert.doesNotMatch(siteWorkflow, /gh run list|sleep 20|deadline=/);
+
+  assert.match(releaseSiteWorkflow, /workflows: \[Release\]/);
+  assert.match(releaseSiteWorkflow, /gh run list[\s\S]*--status success/);
+  assert.doesNotMatch(releaseSiteWorkflow, /while \[|sleep 20|deadline=/);
+  assert.match(releaseSiteWorkflow, /uses: \.\/\.github\/workflows\/site\.yml/);
+});
+
 test("qualified catalog requires both initial examples and complete artifacts", () => {
   const missingExample = catalog();
   missingExample.examples.pop();

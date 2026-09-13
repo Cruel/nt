@@ -839,6 +839,18 @@ jobs:
           path: build/qualified-examples
           if-no-files-found: error
 
+  site:
+    name: Site
+    needs: examples
+    uses: ./.github/workflows/site.yml
+    with:
+      deploy: ${{ github.ref == 'refs/heads/master' || github.event_name == 'pull_request' }}
+      production: ${{ github.event_name != 'pull_request' }}
+    permissions:
+      actions: read
+      contents: read
+    secrets: inherit
+
   android:
     name: Android
     runs-on: ubuntu-24.04
