@@ -47,9 +47,11 @@ The static tests verify the built routes, catalog, handoff actions, and isolatio
 
 ## Deployment
 
-GitHub Actions builds and directly uploads `site/dist` with Wrangler to the Cloudflare Pages project `noveltea`. Pull requests touching declared site inputs deploy a `pr-<number>` preview branch; pushes to `master` deploy the production branch.
+The main `Build` workflow owns the normal site dependency graph. Its reusable `site` job declares `needs: examples`, so GitHub starts site verification only after the same workflow run has produced and qualified `noveltea-development-examples`; no runner polls another workflow. Pull requests deploy a `pr-<number>` preview when repository secrets are available, and pushes to `master` deploy production. Other Build branches verify the site without deploying it.
 
-The workflow uses these repository deployment inputs:
+After a tagged `Release` completes, `site-release.yml` performs a one-shot lookup of the already-successful Build for that exact release commit, copies its qualified examples artifact into the release-site run, and invokes the same reusable Site workflow. It fails closed if no successful Build exists rather than waiting or rebuilding the examples.
+
+GitHub Actions uploads the verified `site/dist` with Wrangler to the Cloudflare Pages project `noveltea`. The reusable workflow uses these repository deployment inputs:
 
 - secret `CLOUDFLARE_API_TOKEN`
 - variable `CLOUDFLARE_ACCOUNT_ID`

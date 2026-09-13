@@ -1,47 +1,22 @@
 name: Site
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - "site/**"
-      - "editor/src/shared/project-schema/**"
-      - "editor/src/shared/project-workspace/project-workspace-contracts.ts"
-      - "scripts/run-site.sh"
-      - "scripts/qualify-examples.mjs"
-      - "scripts/qualify-examples-local.sh"
-      - "examples/noveltea-examples.revision"
-      - ".node-version"
-      - "package.json"
-      - "pnpm-workspace.yaml"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/site.yml"
-  pull_request:
-    paths:
-      - "site/**"
-      - "editor/src/shared/project-schema/**"
-      - "editor/src/shared/project-workspace/project-workspace-contracts.ts"
-      - "scripts/run-site.sh"
-      - "scripts/qualify-examples.mjs"
-      - "scripts/qualify-examples-local.sh"
-      - "examples/noveltea-examples.revision"
-      - ".node-version"
-      - "package.json"
-      - "pnpm-workspace.yaml"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/site.yml"
-  workflow_run:
-    workflows: [Release]
-    types: [completed]
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      deploy:
+        description: Deploy the verified site to Cloudflare Pages.
+        required: false
+        default: false
+        type: boolean
+      production:
+        description: Deploy to the production branch instead of a pull-request preview.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
   contents: read
-
-concurrency:
-  group: site-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 env:
   CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -50,7 +25,6 @@ env:
 jobs:
   verify:
     name: Verify site
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -67,31 +41,26 @@ jobs:
       - name: Install dependencies
         run: pnpm install --filter @noveltea/site... --filter noveltea-editor... --frozen-lockfile
 
-      - name: Download same-revision qualified development examples
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Download qualified development examples
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-development-examples
+          path: build/site-examples
+
+      - name: Resolve development example publication identity
         shell: bash
         run: |
           set -euo pipefail
-          deadline=$((SECONDS + 7200))
-          while [ "$SECONDS" -lt "$deadline" ]; do
-            run="$(gh run list --workflow build.yml --commit "$GITHUB_SHA" --limit 20 --json databaseId,status,conclusion,headSha --jq '.[0] // {}')"
-            run_id="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(value.databaseId ? String(value.databaseId) : "")' "$run")"
-            status="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(value.status || "")' "$run")"
-            conclusion="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(value.conclusion || "")' "$run")"
-            if [ -n "$run_id" ] && [ "$status" = "completed" ]; then
-              if [ "$conclusion" != "success" ]; then
-                echo "Build workflow $run_id completed with conclusion '$conclusion'; refusing unqualified examples." >&2
-                exit 1
-              fi
-              gh run download "$run_id" --name noveltea-development-examples --dir build/site-examples
-              break
-            fi
-            sleep 20
-          done
-          test -f build/site-examples/catalog.json
-          examples_revision="$(node -e 'const value=require("./build/site-examples/catalog.json"); process.stdout.write(value.source.revision)')"
-          key_prefix="development/examples/$GITHUB_SHA/$examples_revision"
+          readarray -t identity < <(node -e '
+            const value = require("./build/site-examples/catalog.json");
+            const revision = value?.source?.revision;
+            const engineVersion = value?.toolchain?.player?.engineVersion;
+            if (!/^[0-9a-f]{40}$/.test(revision ?? "") || !/^dev-[0-9a-f]{40}$/.test(engineVersion ?? "")) process.exit(1);
+            process.stdout.write(`${engineVersion.slice(4)}\n${revision}\n`);
+          ')
+          nt_revision="${identity[0]}"
+          examples_revision="${identity[1]}"
+          key_prefix="development/examples/$nt_revision/$examples_revision"
           echo "NOVELTEA_EXAMPLES_CATALOG_PATH=$GITHUB_WORKSPACE/build/site-examples/catalog.json" >> "$GITHUB_ENV"
           echo "NOVELTEA_EXAMPLES_R2_KEY_PREFIX=$key_prefix" >> "$GITHUB_ENV"
           echo "NOVELTEA_EXAMPLES_R2_BASE_URL=https://assets.noveltea.dev/$key_prefix" >> "$GITHUB_ENV"
@@ -140,23 +109,23 @@ jobs:
         run: pnpm -C site run test:browser
 
       - name: Configure public example asset CORS
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ inputs.deploy && env.CLOUDFLARE_API_TOKEN != '' }}
         run: pnpm -C site exec wrangler r2 bucket cors set noveltea-artifacts --file r2-cors.json --force
 
       - name: Prepare Pages and R2 example assets
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ inputs.deploy && env.CLOUDFLARE_API_TOKEN != '' }}
         run: pnpm -C site run examples:prepare
 
       - name: Upload oversized example assets to R2
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ inputs.deploy && env.CLOUDFLARE_API_TOKEN != '' }}
         run: node site/scripts/upload-development-example-assets.mjs
 
       - name: Build deployable development documentation and site
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ inputs.deploy && env.CLOUDFLARE_API_TOKEN != '' }}
         run: pnpm -C site exec astro build
 
       - name: Test deployable development examples in browser
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ inputs.deploy && env.CLOUDFLARE_API_TOKEN != '' }}
         run: pnpm -C site run test:browser
 
       - name: Build exact release documentation
@@ -187,10 +156,10 @@ jobs:
   deploy:
     name: Deploy site
     needs: verify
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ inputs.deploy && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     environment:
-      name: ${{ github.event_name == 'pull_request' && 'site-preview' || 'site-production' }}
+      name: ${{ inputs.production && 'site-production' || 'site-preview' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -225,9 +194,9 @@ jobs:
           fi
 
       - name: Deploy production
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ inputs.production }}
         run: pnpm -C site exec wrangler pages deploy dist --project-name noveltea --branch master
 
       - name: Deploy pull-request preview
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ !inputs.production }}
         run: pnpm -C site exec wrangler pages deploy dist --project-name noveltea --branch "pr-${{ github.event.pull_request.number }}"
