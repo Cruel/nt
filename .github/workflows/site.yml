@@ -5,6 +5,8 @@ on:
     branches: [master]
     paths:
       - "site/**"
+      - "editor/src/shared/project-schema/**"
+      - "editor/src/shared/project-workspace/project-workspace-contracts.ts"
       - "scripts/run-site.sh"
       - ".node-version"
       - "package.json"
@@ -14,6 +16,8 @@ on:
   pull_request:
     paths:
       - "site/**"
+      - "editor/src/shared/project-schema/**"
+      - "editor/src/shared/project-workspace/project-workspace-contracts.ts"
       - "scripts/run-site.sh"
       - ".node-version"
       - "package.json"
@@ -50,7 +54,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --filter @noveltea/site... --frozen-lockfile
+        run: pnpm install --filter @noveltea/site... --filter noveltea-editor... --frozen-lockfile
 
       - name: Check site
         run: pnpm -C site run check

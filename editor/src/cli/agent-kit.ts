@@ -1,23 +1,15 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
-import { authoringLocalizationSchema } from '../shared/project-schema/authoring-localization';
-import { authoringRecordSchemas } from '../shared/project-schema/authoring-records';
 import {
-  layoutAssetRefSchema,
   systemLayoutRoleValues,
   type SystemLayoutRole,
 } from '../shared/project-schema/authoring-layouts';
-import { assetRefSchema } from '../shared/project-schema/authoring-flow';
-import {
-  editorChaptersStateSchema,
-  editorRecordMetadataStateSchema,
-  editorTagsStateSchema,
-} from '../shared/project-schema/editor-project-state';
-import {
-  PROJECT_WORKSPACE_SCHEMA,
-  PROJECT_WORKSPACE_SCHEMA_VERSION,
-} from '../shared/project-workspace/project-workspace-contracts';
+import { createNovelTeaRawSchemaFiles } from '../shared/project-schema/schema-reference';
+export {
+  createNovelTeaRawSchemaFiles,
+  createNovelTeaWebsiteSchemaReference,
+} from '../shared/project-schema/schema-reference';
+import { PROJECT_WORKSPACE_SCHEMA_VERSION } from '../shared/project-workspace/project-workspace-contracts';
 import { NOVELTEA_CLI_VERSION } from './contracts';
 import {
   loadAgentKitProvenance,
@@ -69,51 +61,6 @@ const agentKitProvenanceSchema = z
   .strict();
 
 export type NovelTeaAgentKitProvenance = z.infer<typeof agentKitProvenanceSchema>;
-
-const workspaceManifestSchema = z
-  .object({
-    schema: z.literal(PROJECT_WORKSPACE_SCHEMA),
-    schemaVersion: z.literal(PROJECT_WORKSPACE_SCHEMA_VERSION),
-    project: authoringProjectSchema.shape.project,
-    settings: authoringProjectSchema.shape.settings,
-    bootstrapModule: authoringProjectSchema.shape.bootstrapModule,
-    entrypoint: authoringProjectSchema.shape.entrypoint,
-  })
-  .strict();
-
-const trackedEditorSchema = z
-  .object({
-    chapters: editorChaptersStateSchema,
-    tags: editorTagsStateSchema,
-    recordMetadata: editorRecordMetadataStateSchema,
-  })
-  .strict();
-
-const persistedLayoutSourceSchema = z.discriminatedUnion('sourceMode', [
-  z.object({ sourceMode: z.literal('file') }).strict(),
-  z.object({ sourceMode: z.literal('asset'), sourceAsset: layoutAssetRefSchema }).strict(),
-  z.object({ sourceMode: z.literal('none') }).strict(),
-]);
-const persistedLayoutRecordSchema = authoringRecordSchemas.layouts.extend({
-  data: authoringRecordSchemas.layouts.shape.data.extend({
-    rml: persistedLayoutSourceSchema,
-    rcss: persistedLayoutSourceSchema,
-    lua: persistedLayoutSourceSchema,
-  }),
-});
-const persistedScriptRecordSchema = authoringRecordSchemas.scripts.extend({
-  data: authoringRecordSchemas.scripts.shape.data.extend({
-    source: z.discriminatedUnion('kind', [
-      z
-        .object({
-          kind: z.literal('file'),
-          path: z.string().regex(/^scripts\/(?:[^/]+\/)*[^/]+\.lua$/),
-        })
-        .strict(),
-      z.object({ kind: z.literal('asset'), asset: assetRefSchema }).strict(),
-    ]),
-  }),
-});
 
 const systemLayoutReferenceByRole: Readonly<
   Record<
@@ -171,29 +118,6 @@ const systemLayoutReferenceByRole: Readonly<
   },
 };
 
-const schemaSources = {
-  'project.schema.json': workspaceManifestSchema,
-  'traits.schema.json': authoringProjectSchema.shape.traits,
-  'localization.schema.json': authoringLocalizationSchema,
-  'editor.schema.json': trackedEditorSchema,
-  'records/assets.schema.json': authoringRecordSchemas.assets,
-  'records/variables.schema.json': authoringRecordSchemas.variables,
-  'records/shaders.schema.json': authoringRecordSchemas.shaders,
-  'records/materials.schema.json': authoringRecordSchemas.materials,
-  'records/layouts.schema.json': persistedLayoutRecordSchema,
-  'records/archetypes.schema.json': authoringRecordSchemas.archetypes,
-  'records/characters.schema.json': authoringRecordSchemas.characters,
-  'records/rooms.schema.json': authoringRecordSchemas.rooms,
-  'records/interactables.schema.json': authoringRecordSchemas.interactables,
-  'records/verbs.schema.json': authoringRecordSchemas.verbs,
-  'records/interactions.schema.json': authoringRecordSchemas.interactions,
-  'records/dialogues.schema.json': authoringRecordSchemas.dialogues,
-  'records/scenes.schema.json': authoringRecordSchemas.scenes,
-  'records/maps.schema.json': authoringRecordSchemas.maps,
-  'records/scripts.schema.json': persistedScriptRecordSchema,
-  'records/tests.schema.json': authoringRecordSchemas.tests,
-} as const;
-
 function compareCodePoints(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -210,10 +134,6 @@ function canonicalizeJson(value: unknown): unknown {
 
 function jsonText(value: unknown): string {
   return `${JSON.stringify(canonicalizeJson(value), null, 2)}\n`;
-}
-
-function schemaText(schema: z.ZodType): string {
-  return jsonText(z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' }));
 }
 
 function systemLayoutManifestText(
@@ -314,8 +234,8 @@ export function createNovelTeaAgentKitPayload(
   systemLayoutSourceFiles: Readonly<Record<string, string>> = loadAgentKitSystemLayoutSourceFiles(),
 ): NovelTeaAgentKitPayload {
   const files: Record<string, string> = { ...sourceFiles };
-  for (const [relativePath, schema] of Object.entries(schemaSources))
-    files[`schemas/${relativePath}`] = schemaText(schema);
+  for (const [relativePath, text] of Object.entries(createNovelTeaRawSchemaFiles()))
+    files[`schemas/${relativePath}`] = text;
   for (const [relativePath, text] of Object.entries(systemLayoutSourceFiles))
     files[`system-layouts/${relativePath}`] = text;
   files['system-layouts/manifest.json'] = systemLayoutManifestText(systemLayoutSourceFiles);

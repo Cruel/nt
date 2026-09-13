@@ -1,0 +1,93 @@
+---
+import {
+  createNovelTeaWebsiteSchemaReference,
+  type NovelTeaSchemaReferenceField,
+} from '../../../editor/src/shared/project-schema/schema-reference';
+
+const reference = createNovelTeaWebsiteSchemaReference();
+
+function rawHref(path: string): string {
+  return `/docs/dev/reference/raw/${path}`;
+}
+
+function flattenFields(
+  fields: readonly NovelTeaSchemaReferenceField[],
+  prefix = '',
+): ReadonlyArray<NovelTeaSchemaReferenceField & { readonly path: string }> {
+  return fields.flatMap((field) => {
+    const path = prefix ? `${prefix}.${field.name}` : field.name;
+    return [{ ...field, path }, ...flattenFields(field.children, path)];
+  });
+}
+---
+
+<div class="schema-reference">
+  <p class="schema-reference__meta">
+    Generated from NovelTea's canonical authoring codecs · Project Workspace v{reference.projectWorkspaceVersion} · Unreleased development channel
+  </p>
+
+  {reference.documents.map((document) => (
+    <section class="schema-reference__document" id={document.id.replaceAll('/', '-')}>
+      <div class="schema-reference__heading">
+        <h2>{document.title}</h2>
+        <a href={rawHref(document.rawSchemaPath)}>Raw JSON Schema</a>
+      </div>
+      {document.fields.length === 0 ? (
+        <p>No top-level fields are exposed by this schema.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Type</th>
+              <th>Requirement</th>
+              <th>Constraints</th>
+            </tr>
+          </thead>
+          <tbody>
+            {flattenFields(document.fields).map((field) => (
+              <tr>
+                <td><code>{field.path}</code></td>
+                <td>{field.type}</td>
+                <td>{field.required ? 'Required' : 'Optional'}</td>
+                <td>{field.constraints.length > 0 ? field.constraints.join('; ') : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  ))}
+</div>
+
+<style>
+  .schema-reference__meta {
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+  }
+
+  .schema-reference__document {
+    margin-block: 2.5rem;
+  }
+
+  .schema-reference__heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .schema-reference__heading h2 {
+    margin-block-end: 0.5rem;
+  }
+
+  table {
+    width: 100%;
+  }
+
+  th,
+  td {
+    vertical-align: top;
+  }
+</style>

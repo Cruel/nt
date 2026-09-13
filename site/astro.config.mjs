@@ -38,7 +38,10 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Development',
-          items: [{ label: 'Overview', slug: 'docs/dev' }],
+          items: [
+            { label: 'Overview', slug: 'docs/dev' },
+            { label: 'Project schema reference', slug: 'docs/dev/reference' },
+          ],
         },
       ],
       social: [
