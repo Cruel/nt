@@ -92,23 +92,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Share downloads and vcpkg binary artifacts with the platform jobs. The
-      # installed tree and host-tool build outputs remain release-host specific.
-      - name: Cache shared vcpkg SDK and binaries
-        uses: actions/cache@v5
+      - name: Set up vcpkg
+        uses: ./.github/actions/setup-linux-vcpkg
         with:
-          path: |
-            .cache/vcpkg
-            .cache/vcpkg-binary
-          key: ubuntu-24.04-x64-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
-          restore-keys: |
-            ubuntu-24.04-x64-vcpkg-common-
+          installed-dir: build/linux-release/vcpkg_installed
+          scope: linux-release
+          binary-scope: linux-release
 
-      - name: Cache host CLI dependencies and embedded shaderc
+      - name: Cache embedded shaderc build outputs
         uses: actions/cache@v5
         with:
           path: |
-            build/linux-release/vcpkg_installed
             build/linux-release/_deps/noveltea_bgfx_shaderc_source-src
             build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
             build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
@@ -116,13 +110,6 @@ jobs:
           key: ${{ runner.os }}-x64-release-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
           restore-keys: |
             ${{ runner.os }}-x64-release-shader-host-
-
-      - name: Bootstrap vcpkg
-        run: |
-          if [ ! -d "$VCPKG_ROOT/.git" ]; then
-            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
-          fi
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
 
       - name: Build NovelTea host CLI
         run: pnpm -C editor run noveltea:build
@@ -304,13 +291,22 @@ jobs:
           autotools: "true"
           graphics: "true"
           xvfb: "true"
-          extra-packages: weston libgl1-mesa-dri
+          extra-packages: weston libgl1-mesa-dri x11-utils strace
 
       - name: Install macOS packages
         if: runner.os == 'macOS'
         run: brew install ninja ccache
 
+      - name: Set up Linux vcpkg
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/setup-linux-vcpkg
+        with:
+          installed-dir: build/linux-release/vcpkg_installed
+          scope: linux-release
+          binary-scope: linux-release
+
       - name: Cache shared vcpkg SDK and binaries
+        if: runner.os != 'Linux'
         uses: actions/cache@v5
         with:
           path: |
@@ -321,6 +317,7 @@ jobs:
             ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-common-
 
       - name: Cache vcpkg installed
+        if: runner.os != 'Linux'
         uses: actions/cache@v5
         with:
           path: build/${{ matrix.preset }}/vcpkg_installed
@@ -329,6 +326,7 @@ jobs:
             ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-
 
       - name: Bootstrap vcpkg
+        if: runner.os != 'Linux'
         shell: pwsh
         run: |
           if (!(Test-Path "$env:VCPKG_ROOT/.git")) {
@@ -394,6 +392,19 @@ jobs:
             @ccacheArgs
           cmake --build --preset ${{ matrix.preset }} --target noveltea-player noveltea-tooling-bridge cxx-policy
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify SDL3 X11 backend is present
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdl_archive="${{ github.workspace }}/build/linux-release/vcpkg_installed/x64-linux-noveltea/lib/libSDL3.a"
+          test -f "$sdl_archive"
+          if ! ar t "$sdl_archive" | grep -q '^SDL_x11video\.c\.o$'; then
+            echo "SDL3 archive is missing its X11 backend despite the x11 vcpkg feature." >&2
+            ar t "$sdl_archive" | grep -Ei 'x11|xcb' || true
+            exit 1
+          fi
 
       - name: Audit Linux player dependency closure
         if: matrix.platform == 'linux'
