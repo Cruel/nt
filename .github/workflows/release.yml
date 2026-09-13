@@ -145,7 +145,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-release-host-cli-linux-x64
-          path: build/cli/linux/noveltea
+          path: build/cli/linux
           if-no-files-found: error
 
       - name: Stage standalone NovelTea CLI release asset
