@@ -81,6 +81,24 @@ function completeInventory() {
     'noveltea-player-template-registry.json',
   ])
     write(root, name);
+  const ntRevision = '0123456789abcdef0123456789abcdef01234567';
+  const examplesRevision = '89abcdef0123456789abcdef0123456789abcdef';
+  const examplesArchive = `noveltea-examples-${tag}.zip`;
+  const examplesMetadata = `noveltea-examples-${tag}.json`;
+  write(root, examplesArchive);
+  write(
+    root,
+    examplesMetadata,
+    JSON.stringify({
+      format: 'noveltea.release-examples',
+      version: 1,
+      releaseTag: tag,
+      ntRevision,
+      examplesRevision,
+      playerBuildId: `${tag}-web-wasm32-threads-release`,
+      archive: examplesArchive,
+    }),
+  );
   write(
     root,
     'noveltea-release-manifest.json',
@@ -89,8 +107,22 @@ function completeInventory() {
       version: 1,
       release: {
         tag,
-        sourceRevision: 'fixture-revision',
+        sourceRevision: ntRevision,
         repository: 'Cruel/noveltea-releases',
+      },
+      examples: {
+        sourceRevision: examplesRevision,
+        playerBuildId: `${tag}-web-wasm32-threads-release`,
+        archive: publicAsset(root, examplesArchive, {
+          format: 'zip',
+          label: 'Examples archive',
+          primary: true,
+        }),
+        metadata: publicAsset(root, examplesMetadata, {
+          format: 'json',
+          label: 'Examples metadata',
+          primary: false,
+        }),
       },
       editor: [
         publicAsset(root, `noveltea-editor-${tag}-windows-x64-release.setup.exe`, {
