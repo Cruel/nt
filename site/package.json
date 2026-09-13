@@ -3,11 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "examples:prepare": "node scripts/prepare-development-examples.mjs",
+    "predev": "pnpm run examples:prepare",
     "dev": "astro dev",
+    "prebuild": "pnpm run examples:prepare",
     "build": "astro build",
+    "precheck": "node scripts/clean-development-examples.mjs",
     "check": "astro check",
     "preview": "astro preview",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node --test tests/examples-browser.mjs"
   },
   "dependencies": {
     "@astrojs/starlight": "0.42.0",

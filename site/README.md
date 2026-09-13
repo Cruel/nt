@@ -12,7 +12,9 @@ From the repository root, install workspace dependencies once with `pnpm install
 
 The runner first qualifies the exact public examples revision pinned by `nt`, then prepares Astro/Starlight content state and starts the normal Astro development server with HMR. By default the public examples checkout is expected at `~/dev/noveltea-examples`; set `NOVELTEA_EXAMPLES_ROOT` to use another checkout. Qualification builds the current checkout's CLI and canonical threaded Web player and materializes the same catalog/artifact shape used by CI under `build/site-examples`. Local development requires no Cloudflare credentials, Pages project, R2 bucket, or published NovelTea artifacts.
 
-The `/examples/dev` surface receives COOP, COEP, and CORP headers from an Astro development middleware so the threaded Web-player showcase can run under the same isolation contract used in production. The Cloudflare Pages build receives the matching rules from `public/_headers`.
+The `/examples/dev` surface receives COOP, COEP, and CORP headers from an Astro development middleware so the threaded Web-player showcase can run under the same isolation contract used in production. The Cloudflare Pages build receives the matching rules from `public/_headers`. `./scripts/run-site.sh --threaded` is the explicit production-parity entry point; the shared examples contract currently requires that threaded player, so the default local mode uses it as well.
+
+The showcase consumes the qualified catalog rather than rebuilding Projects. Pages-eligible files are staged beneath `/examples/dev/assets`; oversized files are represented in `build/site-example-oversized/manifest.json` and production uploads them to the immutable `development/examples/<nt-revision>/<examples-revision>/` R2 namespace. The player HTML is rebased during staging so a Pages-hosted iframe can fetch an oversized Wasm module from `assets.noveltea.dev` without changing the user-facing example route. Public R2 CORS is GET/HEAD-only and allows cross-origin reads needed by the cross-origin-isolated player.
 
 ## Visual system
 
@@ -38,9 +40,10 @@ The release manifest is validated before rendering. Product download links must 
 pnpm -C site run check
 pnpm -C site run build
 pnpm -C site run test
+pnpm -C site run test:browser
 ```
 
-The tests operate on the static build output and verify the required shell routes plus the scoped example isolation contract.
+The static tests verify the built routes, catalog, handoff actions, and isolation contract. The browser test serves the built site with the production isolation headers, starts both real qualified Wasm players, switches Materials to Verbs without navigating the surrounding page, and verifies that the old iframe is detached before the new runtime starts.
 
 ## Deployment
 
