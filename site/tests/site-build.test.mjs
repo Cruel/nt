@@ -8,7 +8,10 @@ const routes = [
   ['docs/dev/index.html', 'NovelTea documentation'],
   ['docs/dev/reference/index.html', 'Project workspace manifest'],
   ['examples/dev/index.html', 'Examples are coming online.'],
-  ['download/index.html', 'Downloads will follow the first public builds.'],
+  [
+    'download/index.html',
+    process.env.NOVELTEA_RELEASE_MANIFEST_PATH ? 'Start building with NovelTea.' : 'NovelTea is under active development.',
+  ],
 ];
 
 for (const [path, marker] of routes) {
@@ -64,6 +67,24 @@ if (process.env.NOVELTEA_DOCS_RELEASE_VERSION) {
     assert.doesNotMatch(html, /Unreleased development channel/);
   });
 }
+
+test('download page reflects the supported release state without exposing source-repository release URLs', async () => {
+  const html = await readFile(new URL('../dist/download/index.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /github\.com\/Cruel\/nt\/releases\/download/);
+  if (process.env.NOVELTEA_RELEASE_MANIFEST_PATH) {
+    assert.match(html, /Latest release/);
+    assert.match(html, /Desktop editor/);
+    assert.match(html, /Standalone CLI/);
+    assert.match(html, /data-platform="windows"/);
+    assert.match(html, /data-platform="linux"/);
+    assert.match(html, /github\.com\/Cruel\/noveltea-releases\/releases\/download/);
+    assert.match(html, /data-detected-label/);
+  } else {
+    assert.match(html, /There is not a supported public release yet/);
+    assert.match(html, /Development builds from/);
+    assert.doesNotMatch(html, /github\.com\/Cruel\/noveltea-releases\/releases\/download/);
+  }
+});
 
 test('Cloudflare Pages headers isolate only the development example surface', async () => {
   const headers = await readFile(new URL('../dist/_headers', import.meta.url), 'utf8');

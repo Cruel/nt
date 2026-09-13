@@ -1105,6 +1105,9 @@ jobs:
       - name: Enforce platform certification reports
         run: node scripts/platform-certification.mjs verify-set --directory dist
 
+      - name: Generate public release manifest
+        run: node .github/generate-public-release-manifest.mjs dist "$RELEASE_TAG" "$GITHUB_SHA"
+
       - name: Generate checksums
         run: .github/package-release.sh checksums "$RELEASE_TAG"
 
@@ -1127,7 +1130,7 @@ jobs:
       RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
     timeout-minutes: 15
     permissions:
-      contents: write
+      contents: read
       id-token: write
       attestations: write
 
@@ -1154,9 +1157,21 @@ jobs:
         with:
           subject-path: dist/noveltea-player-template-*
 
-      - name: Create GitHub Release
+      - name: Initialize public distribution repository when empty
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.NOVELTEA_RELEASES_TOKEN }}
+        shell: bash
+        run: |
+          if ! gh api repos/Cruel/noveltea-releases/git/ref/heads/main >/dev/null 2>&1; then
+            content="$(printf '%s\n' '# NovelTea Releases' '' 'Public binary distribution for NovelTea. Product downloads are linked from https://noveltea.dev/download/.' | base64 -w0)"
+            gh api --method PUT repos/Cruel/noveltea-releases/contents/README.md \
+              -f message='Initialize NovelTea release distribution' \
+              -f content="$content" >/dev/null
+          fi
+
+      - name: Publish public distribution release
+        env:
+          GH_TOKEN: ${{ secrets.NOVELTEA_RELEASES_TOKEN }}
         run: |
           mapfile -t assets < release-assets.txt
           for index in "${!assets[@]}"; do
@@ -1165,9 +1180,9 @@ jobs:
           args=(
             "$RELEASE_TAG"
             "${assets[@]}"
-            --verify-tag
-            --generate-notes
-            --fail-on-no-commits
+            --repo Cruel/noveltea-releases
+            --title "NovelTea $RELEASE_TAG"
+            --notes "Qualified NovelTea release $RELEASE_TAG. Download metadata is available in noveltea-release-manifest.json."
           )
           if [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+- ]]; then
             args+=(--prerelease)

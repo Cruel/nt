@@ -66,10 +66,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          release_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq '[.[] | select(.draft == false)][0].tag_name // ""')"
+          release_tag="$(gh api "repos/Cruel/noveltea-releases/releases" --jq '[.[] | select(.draft == false)][0].tag_name // ""')"
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
           if [ -n "$release_tag" ]; then
+            mkdir -p build/site-release
+            gh release download "$release_tag" \
+              --repo Cruel/noveltea-releases \
+              --pattern noveltea-release-manifest.json \
+              --dir build/site-release
             echo "NOVELTEA_DOCS_RELEASE_VERSION=$release_tag" >> "$GITHUB_ENV"
+            echo "NOVELTEA_RELEASE_MANIFEST_PATH=$GITHUB_WORKSPACE/build/site-release/noveltea-release-manifest.json" >> "$GITHUB_ENV"
           fi
 
       - name: Checkout exact release documentation source
