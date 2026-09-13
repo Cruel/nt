@@ -1,0 +1,54 @@
+name: Setup Linux vcpkg
+description: Restore NovelTea's Linux vcpkg caches and bootstrap the repository-managed vcpkg checkout.
+inputs:
+  installed-dir:
+    description: vcpkg installed tree to restore.
+    required: true
+  scope:
+    description: Cache scope for the installed tree.
+    required: true
+  binary-scope:
+    description: Writer scope for the vcpkg binary-package cache.
+    required: true
+  binary-fallback-scope:
+    description: Optional compatible binary-package cache scope to seed this writer.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Cache vcpkg SDK
+      uses: actions/cache@v5
+      with:
+        path: .cache/vcpkg
+        key: ubuntu-24.04-x64-vcpkg-sdk-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+        restore-keys: |
+          ubuntu-24.04-x64-vcpkg-sdk-
+
+    # Separate writers can retain newly built packages without racing for one immutable key.
+    - name: Cache vcpkg binaries
+      uses: actions/cache@v5
+      with:
+        path: .cache/vcpkg-binary
+        key: ubuntu-24.04-x64-vcpkg-binary-${{ inputs['binary-scope'] }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}-${{ github.sha }}
+        restore-keys: |
+          ubuntu-24.04-x64-vcpkg-binary-${{ inputs['binary-scope'] }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}-
+          ubuntu-24.04-x64-vcpkg-binary-${{ inputs['binary-scope'] }}-
+          ${{ inputs['binary-fallback-scope'] != '' && format('ubuntu-24.04-x64-vcpkg-binary-{0}-', inputs['binary-fallback-scope']) || '' }}
+
+    - name: Cache vcpkg installed tree
+      uses: actions/cache@v5
+      with:
+        path: ${{ inputs['installed-dir'] }}
+        key: ubuntu-24.04-x64-vcpkg-installed-${{ inputs.scope }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}
+        restore-keys: |
+          ubuntu-24.04-x64-vcpkg-installed-${{ inputs.scope }}-
+
+    - name: Bootstrap vcpkg
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ ! -d "$VCPKG_ROOT/.git" ]]; then
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+        fi
+        "$VCPKG_ROOT/bootstrap-vcpkg.sh"

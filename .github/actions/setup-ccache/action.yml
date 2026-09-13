@@ -1,0 +1,33 @@
+name: Setup ccache
+description: Restore compiler outputs for a NovelTea CI build configuration.
+inputs:
+  scope:
+    description: Cache scope for this compiler configuration.
+    required: true
+  fallback-scope:
+    description: Optional compatible cache scope to use as a fallback.
+    required: false
+    default: ""
+  suffix:
+    description: Optional key suffix. Defaults to the current commit SHA.
+    required: false
+    default: ""
+outputs:
+  cache-hit:
+    description: Whether the exact primary cache key was restored.
+    value: ${{ steps.restore.outputs.cache-hit }}
+  primary-key:
+    description: Primary cache key to save after successful compilation.
+    value: ${{ steps.restore.outputs.cache-primary-key }}
+runs:
+  using: composite
+  steps:
+    - name: Restore compiler outputs
+      id: restore
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ${{ runner.os }}-ccache-${{ inputs.scope }}-${{ inputs.suffix != '' && inputs.suffix || github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-${{ inputs.scope }}-
+          ${{ inputs['fallback-scope'] != '' && format('{0}-ccache-{1}-', runner.os, inputs['fallback-scope']) || '' }}
