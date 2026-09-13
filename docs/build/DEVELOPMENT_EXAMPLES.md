@@ -34,7 +34,15 @@ bash scripts/qualify-examples-local.sh
 
 By default it expects the public examples checkout at `~/dev/noveltea-examples`, builds the current checkout's Linux CLI and canonical threaded release Web player, and writes the qualified catalog/artifacts to `build/site-examples`. Override the locations with `NOVELTEA_EXAMPLES_ROOT` and `NOVELTEA_EXAMPLES_OUTPUT_ROOT` when needed.
 
-`scripts/run-site.sh` calls this wrapper before starting Astro and exports `NOVELTEA_EXAMPLES_CATALOG_PATH` for the site. The current examples page does not consume the catalog until the showcase ticket lands, but local preparation already uses the production qualification contract and requires no Pages/R2 credentials.
+`scripts/run-site.sh` calls this wrapper before starting Astro and exports `NOVELTEA_EXAMPLES_CATALOG_PATH` for the site. `/examples/dev` consumes that prepared catalog and matching local threaded player directly, so normal showcase development requires no Pages/R2 credentials.
+
+## Public examples pull-request previews
+
+`noveltea-examples` PR previews are intentionally independent from the pinned production-development input above. An unprivileged PR workflow resolves `development/toolchains/current.json` exactly once, verifies the immutable snapshot manifest plus CLI/player/descriptor size and SHA-256, and builds the proposed examples revision with that one snapshot. The resulting GitHub artifact records both exact revisions.
+
+A separate trusted `workflow_run` publisher in the public examples repository receives the examples-specific R2-only Cloudflare credential only after the untrusted build finishes. It checks out trusted `main` publication code, never executes PR-controlled scripts, independently re-fetches the immutable `nt` snapshot manifest, validates the PR/source identity, exact toolchain hashes/player identity, and every catalogued output before upload. Preview objects live under `development/example-previews/pr-<number>/<examples-revision>/`, including the exported matching player and a trusted `preview.json` catalog.
+
+The production site is not rebuilt for these previews. `/examples/dev?preview=pr-<number>/<examples-revision>` explicitly fetches only that immutable catalog through the stable `noveltea.pages.dev` preview proxy, rejects catalogs or project/player URLs outside the requested namespace, then uses the normal teardown/recreate showcase behavior. The Pages `_worker.js` maps only `/examples/dev/preview-assets/pr-<number>/<revision>/...` on the alternate Pages origin to the corresponding public R2 namespace and adds the COOP/COEP/CORP headers required by the threaded player. Preview content therefore stays off the primary `noveltea.dev` origin and does not depend on arbitrary R2 object-response headers. Closing or merging the public examples PR deletes its whole PR namespace immediately; scheduled stale cleanup is only a failsafe for previews older than 14 days whose PR is no longer open.
 
 The local threaded Web configure explicitly disables the optional local `rmlui-bgfx` override so an existing developer cache cannot silently change the qualified toolchain away from the canonical `nt` dependency graph.
 

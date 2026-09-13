@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 import { test } from "node:test";
@@ -44,6 +44,10 @@ async function withServer(run) {
       response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
       response.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
       response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+      response.setHeader(
+        "Permissions-Policy",
+        'cross-origin-isolated=(self "https://noveltea.pages.dev")',
+      );
     }
     response.setHeader("Cache-Control", "no-store");
     response.setHeader(
@@ -76,6 +80,114 @@ async function startPlayer(frame) {
     "grid",
   );
 }
+
+test(
+  "development showcase loads an explicit immutable PR preview without replacing production assets",
+  { timeout: 90_000 },
+  async () => {
+    const sourceRevision = "c".repeat(40);
+    const token = `pr-42/${sourceRevision}`;
+    const prefix = `https://noveltea.pages.dev/examples/dev/preview-assets/${token}/`;
+    const productionCatalog = JSON.parse(
+      readFileSync(join(distRoot, "examples/dev/catalog.json"), "utf8"),
+    );
+    const previewCatalog = {
+      format: "noveltea.example-preview",
+      formatVersion: 1,
+      prNumber: 42,
+      source: {
+        repository: "https://github.com/Cruel/noveltea-examples",
+        revision: sourceRevision,
+      },
+      toolchain: {
+        ntRevision: productionCatalog.toolchain.player.engineVersion.replace(/^dev-/, ""),
+        player: {
+          buildId: productionCatalog.toolchain.player.buildId,
+          engineVersion: productionCatalog.toolchain.player.engineVersion,
+        },
+      },
+      examples: productionCatalog.examples.map((example) => ({
+        ...example,
+        sourceUrl: `https://github.com/Cruel/noveltea-examples/tree/${sourceRevision}/projects/${example.id}`,
+        projectUrl: `${prefix}artifacts/${example.id}.ntproject`,
+        playerUrl: `${prefix}playable/${example.id}/index.html`,
+      })),
+    };
+
+    await withServer(async (origin) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+        await page.route("https://noveltea.pages.dev/**", async (route) => {
+          const requestUrl = new URL(route.request().url());
+          const relative = requestUrl.pathname.split(`/examples/dev/preview-assets/${token}/`)[1];
+          if (relative === "preview.json") {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              headers: {
+                "Access-Control-Allow-Origin": "*",
+                "Cross-Origin-Resource-Policy": "cross-origin",
+              },
+              body: JSON.stringify(previewCatalog),
+            });
+            return;
+          }
+          const match = /^playable\/(materials|verbs)\/(.+)$/.exec(relative ?? "");
+          if (!match) {
+            await route.fulfill({ status: 404, body: "Not found" });
+            return;
+          }
+          const localPath = join(distRoot, "examples/dev/assets/players", match[1], match[2]);
+          if (!existsSync(localPath)) {
+            await route.fulfill({ status: 404, body: "Not found" });
+            return;
+          }
+          const type = contentTypes.get(extname(localPath)) ?? "application/octet-stream";
+          await route.fulfill({
+            status: 200,
+            contentType: type,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+              "Cross-Origin-Resource-Policy": "cross-origin",
+              ...(extname(localPath) === ".html"
+                ? {
+                    "Cross-Origin-Embedder-Policy": "require-corp",
+                    "Cross-Origin-Opener-Policy": "same-origin",
+                  }
+                : {}),
+            },
+            body: readFileSync(localPath),
+          });
+        });
+
+        await page.goto(`${origin}/examples/dev/?preview=${token}`, { waitUntil: "networkidle" });
+        assert.equal(
+          await page.locator("[data-example-channel]").textContent(),
+          "Pull request preview #42",
+        );
+        assert.equal(
+          await page.locator("[data-example-revision]").textContent(),
+          sourceRevision.slice(0, 12),
+        );
+        assert.equal(await page.locator("[data-example-select]").count(), 2);
+        assert.match(
+          await page.locator("[data-example-project]").getAttribute("href"),
+          new RegExp(`^${prefix}`),
+        );
+
+        const frame = page
+          .frames()
+          .find((candidate) => candidate.url() === `${prefix}playable/materials/index.html`);
+        assert.ok(frame, "preview Materials player frame should load from the isolated namespace");
+        assert.equal(await frame.evaluate(() => crossOriginIsolated), true);
+        await startPlayer(frame);
+      } finally {
+        await browser.close();
+      }
+    });
+  },
+);
 
 test(
   "development showcase runs both qualified players and recreates state when switching",
