@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
@@ -510,10 +511,22 @@ nlohmann::json build_manifest(const PackageExportOptions& options,
     return manifest;
 }
 
+MZ_TIME_T canonical_zip_timestamp()
+{
+    std::tm local_time{};
+    local_time.tm_year = 80;
+    local_time.tm_mon = 0;
+    local_time.tm_mday = 1;
+    local_time.tm_isdst = -1;
+    return std::mktime(&local_time);
+}
+
 bool add_zip_entry(mz_zip_archive& archive, const PendingEntry& entry, PackageExportResult& result)
 {
-    if (!mz_zip_writer_add_mem(&archive, entry.path.c_str(), entry.bytes.data(), entry.bytes.size(),
-                               entry.compression)) {
+    auto timestamp = canonical_zip_timestamp();
+    if (!mz_zip_writer_add_mem_ex_v2(&archive, entry.path.c_str(), entry.bytes.data(),
+                                     entry.bytes.size(), nullptr, 0, entry.compression, 0, 0,
+                                     &timestamp, nullptr, 0, nullptr, 0)) {
         add_diagnostic(result, PackageExportSeverity::Error, "package", entry.path,
                        "Failed to add package entry.");
         return false;
