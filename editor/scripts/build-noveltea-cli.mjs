@@ -324,7 +324,7 @@ const libraries = [
   staticArchive(vcpkgLibRoot, 'bz2'),
   staticArchive(vcpkgLibRoot, 'brotlidec'),
   staticArchive(vcpkgLibRoot, 'brotlicommon'),
-  isWindows ? archive(path.join(vcpkgLibRoot, 'libzlib.a')) : staticArchive(vcpkgLibRoot, 'z'),
+  isWindows ? archive(path.join(vcpkgLibRoot, 'libzs.a')) : staticArchive(vcpkgLibRoot, 'z'),
   staticArchive(vcpkgLibRoot, 'miniz'),
   archive(path.join(vcpkgLibRoot, 'libsquish.a'), path.join(vcpkgLibRoot, 'libsquish.lib')),
   archive(
