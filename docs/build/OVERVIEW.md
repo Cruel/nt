@@ -8,6 +8,7 @@ Use this entrypoint before changing CMake presets, dependencies, shader compilat
 
 - `docs/build/BUILD_AND_VERIFY.md` lists the common local verification commands for Linux, Web, Android, editor, and smoke checks.
 - `docs/build/DEVELOPMENT_SNAPSHOTS.md` describes exact-commit master toolchain publication, consumer verification, and retention.
+- `docs/build/DEVELOPMENT_EXAMPLES.md` describes the exact public-examples pin, qualification artifact, pin-update PR workflow, and local site preparation contract.
 - `docs/build/CMAKE_OPTIONS.md` lists supported CMake cache variables, dependency acquisition choices, shader tool paths, runtime asset paths, and removed options.
 - `docs/build/PLATFORM_EXPORT_SUPPORT.md` records the versioned initial player-template/export target matrix and provisional compatibility floors.
 - `docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md` defines the active compiler, dependency,

@@ -773,6 +773,72 @@ jobs:
             dist/web-wasm32-threads-release.template.json
           if-no-files-found: error
 
+  examples:
+    name: Development examples qualification
+    runs-on: ubuntu-24.04
+    needs: [linux-cli, web]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout NovelTea
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve pinned examples revision
+        id: examples-pin
+        run: |
+          revision="$(node -e 'const fs=require("fs"); const value=fs.readFileSync("examples/noveltea-examples.revision", "utf8"); if (!/^[0-9a-f]{40}\\n?$/.test(value)) process.exit(1); process.stdout.write(value.trimEnd())')"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned public examples
+        uses: actions/checkout@v6
+        with:
+          repository: Cruel/noveltea-examples
+          ref: ${{ steps.examples-pin.outputs.revision }}
+          path: build/noveltea-examples
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Set up Linux runtime dependencies
+        uses: ./.github/actions/setup-linux-native
+
+      - name: Download NovelTea host CLI
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-host-cli-linux-x64
+          path: build/examples-toolchain
+
+      - name: Download canonical threaded Web player
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-web-player-threads-release
+          path: build/examples-toolchain/player
+
+      - name: Qualify pinned examples
+        run: |
+          chmod +x build/examples-toolchain/noveltea
+          mapfile -t player_templates < <(find build/examples-toolchain/player -maxdepth 1 -type f -name 'noveltea-player-template-*-web-wasm32-threads-release.zip' -print)
+          test "${#player_templates[@]}" -eq 1
+          node scripts/qualify-examples.mjs \
+            --examples-root build/noveltea-examples \
+            --nt-revision "$GITHUB_SHA" \
+            --cli build/examples-toolchain/noveltea \
+            --player-template "${player_templates[0]}" \
+            --player-descriptor build/examples-toolchain/player/web-wasm32-threads-release.template.json \
+            --output build/qualified-examples
+
+      - name: Upload qualified development examples
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-development-examples
+          path: build/qualified-examples
+          if-no-files-found: error
+
   android:
     name: Android
     runs-on: ubuntu-24.04
