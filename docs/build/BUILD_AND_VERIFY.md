@@ -266,6 +266,10 @@ for reuse by later commits. Do not share compiler-output cache prefixes between 
 their flags, object formats, and instrumentation are intentionally incompatible. CI prints cache
 statistics for the sanitizer and Windows jobs so cache effectiveness remains visible in job logs.
 
+Normal Web CI builds the canonical threaded `web-release` player and packages its installable
+template. Successful master Build runs publish the same-run Linux CLI and Web template as
+[development toolchain snapshots](DEVELOPMENT_SNAPSHOTS.md), without a second release build.
+
 Release CI builds and certifies one `noveltea` host CLI on Linux x64 and one on Windows x64. The
 Linux CLI also produces the canonical `glsl-120`, `essl-100`, and `essl-300` shader trees consumed by
 the player jobs. Android and Web reuse the certified Linux CLI for host-side export acceptance;
