@@ -1,0 +1,97 @@
+name: Setup Linux native dependencies
+description: Install the shared Ubuntu packages used by NovelTea CI jobs.
+inputs:
+  ccache:
+    description: Install ccache.
+    required: false
+    default: "false"
+  pkg-config:
+    description: Install pkg-config.
+    required: false
+    default: "false"
+  autotools:
+    description: Install autotools, bison, and flex used by native dependency builds.
+    required: false
+    default: "false"
+  graphics:
+    description: Install the native SDL/OpenGL/X11/Wayland development dependency set.
+    required: false
+    default: "false"
+  xvfb:
+    description: Install Xvfb and xauth for headless UI tests.
+    required: false
+    default: "false"
+  clang:
+    description: Install Clang.
+    required: false
+    default: "false"
+  extra-packages:
+    description: Additional whitespace-separated apt package names.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install Linux build dependencies
+      shell: bash
+      env:
+        NOVELTEA_SETUP_CCACHE: ${{ inputs.ccache }}
+        NOVELTEA_SETUP_PKG_CONFIG: ${{ inputs['pkg-config'] }}
+        NOVELTEA_SETUP_AUTOTOOLS: ${{ inputs.autotools }}
+        NOVELTEA_SETUP_GRAPHICS: ${{ inputs.graphics }}
+        NOVELTEA_SETUP_XVFB: ${{ inputs.xvfb }}
+        NOVELTEA_SETUP_CLANG: ${{ inputs.clang }}
+        NOVELTEA_SETUP_EXTRA_PACKAGES: ${{ inputs['extra-packages'] }}
+      run: |
+        set -euo pipefail
+        packages=(
+          build-essential
+          ninja-build
+          cmake
+          curl
+          zip
+          unzip
+          tar
+          git
+        )
+
+        if [[ "$NOVELTEA_SETUP_CCACHE" == "true" ]]; then
+          packages+=(ccache)
+        fi
+        if [[ "$NOVELTEA_SETUP_PKG_CONFIG" == "true" ]]; then
+          packages+=(pkg-config)
+        fi
+        if [[ "$NOVELTEA_SETUP_AUTOTOOLS" == "true" ]]; then
+          packages+=(autoconf automake autoconf-archive libtool bison flex)
+        fi
+        if [[ "$NOVELTEA_SETUP_GRAPHICS" == "true" ]]; then
+          packages+=(
+            libgl1-mesa-dev
+            libegl1-mesa-dev
+            libx11-dev
+            libxext-dev
+            libxrandr-dev
+            libxinerama-dev
+            libxcursor-dev
+            libxi-dev
+            libxkbcommon-dev
+            libwayland-dev
+            wayland-protocols
+            libltdl-dev
+            libxtst-dev
+          )
+        fi
+        if [[ "$NOVELTEA_SETUP_XVFB" == "true" ]]; then
+          packages+=(xvfb xauth)
+        fi
+        if [[ "$NOVELTEA_SETUP_CLANG" == "true" ]]; then
+          packages+=(clang)
+        fi
+        if [[ -n "$NOVELTEA_SETUP_EXTRA_PACKAGES" ]]; then
+          # Inputs are repository-controlled package names, not user data.
+          read -r -a extra_packages <<< "${NOVELTEA_SETUP_EXTRA_PACKAGES//$'\n'/ }"
+          packages+=("${extra_packages[@]}")
+        fi
+
+        sudo apt-get update
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"

@@ -1,0 +1,19 @@
+name: Save ccache
+description: Persist compiler outputs immediately after a successful NovelTea compilation phase.
+inputs:
+  primary-key:
+    description: Primary cache key produced by setup-ccache.
+    required: true
+  cache-hit:
+    description: Whether setup-ccache restored the exact primary key.
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Save compiler outputs
+      if: inputs.cache-hit != 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ${{ inputs.primary-key }}

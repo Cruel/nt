@@ -259,12 +259,50 @@ Windows policy validation uses the `windows-release` preset and
 `x64-windows-static-noveltea`. macOS arm64 uses `arm64-osx-noveltea`. These validations require native
 runners; Linux cannot establish their ABI or linker correctness.
 
-The main CI workflow keeps separate `ccache` namespaces for Linux debug, Linux sanitizer,
-Emscripten, Android NDK, and Windows MSVC compilation. Cache keys include the toolchain identity where
-one is explicitly versioned and the current commit, with platform/configuration-scoped restore keys
-for reuse by later commits. Do not share compiler-output cache prefixes between these configurations:
-their flags, object formats, and instrumentation are intentionally incompatible. CI prints cache
-statistics for the sanitizer and Windows jobs so cache effectiveness remains visible in job logs.
+## Main CI Scheduling and Caches
+
+The Build workflow runs Linux desktop, host CLI production, host CLI certification, and native
+cooperative compilation as separate jobs. Web editor-preview production runs independently from the
+canonical Web player, and Android cooperative compilation runs independently from APK/export coverage.
+Electron waits only for the CLI and preview producers; Android APK/export waits only for shaders and
+the CLI producer. CLI certification remains a required part of a successful workflow, but does not
+block these consumers. Development snapshot publication still requires the entire Build to succeed.
+
+CLI certification downloads both the executable and its bgfx shader headers from same-run artifacts.
+The headers come from the CLI producer's installed dependency tree; certification must not depend on
+an optional cache hit or bootstrap a full vcpkg checkout merely to recover those headers.
+
+The main CI workflow keeps separate `ccache` namespaces for Linux debug, release CLI, sanitizer,
+and cooperative builds; Emscripten preview and release builds; Android threaded and cooperative
+builds; and Windows MSVC. Keys include explicitly versioned toolchain identities and the current
+commit. Compiler outputs are saved immediately after successful compilation, before later tests or
+packaging can fail. Restore prefixes stay configuration-scoped, except for deliberate cooperative
+fallbacks to the corresponding threaded build and Web fallbacks to the previous combined Emscripten
+cache. ccache still validates compiler inputs and flags; these fallbacks do not make incompatible
+objects reusable. Each cache is capped at 1 GiB. Linux, Web, Android, and Windows jobs report cache
+statistics so warm-cache effectiveness is visible in CI logs.
+
+Linux vcpkg SDK caching is separate from the binary-package cache. Each parallel Linux configuration
+has its own binary-cache writer scope; keys include dependency/build-policy inputs and the commit, so
+one job cannot win an immutable shared key and prevent another job from retaining newly built packages.
+Compatible writers may seed from another binary-cache scope because they all cache the same filesystem
+path. Installed-tree caches are different: they use their actual build-directory path and never fall
+back across directories, because GitHub includes cached paths in its internal cache version. The native
+cooperative job deliberately shares the `linux-debug` installed tree path while using its own
+`linux-no-threads` binary writer. All jobs must regenerate dependencies on cache misses; caches are
+acceleration, not required job-to-job inputs.
+
+CI build and vcpkg concurrency is four. CTest retains serial execution because some GPU captures share
+an Xvfb display and lack serialization properties; parallel test execution requires auditing shared
+resources first. Local builds continue to honor the inherited limit described above. Linux desktop,
+CLI, and cooperative builds retain 120-minute timeout headroom; sanitizer, Web, and Android builds
+retain 90 minutes, pending cold-cache measurements rather than assuming a warm cache.
+
+When evaluating scheduling/cache changes, compare successful cold-cache and warm-cache runs at the
+same revision: record end-to-end duration, critical-path jobs, aggregate runner-minutes, cache
+restore/save time, and compiler hit rates. Reduce timeouts only after cold builds establish adequate
+headroom. Static workflow contracts run with `node --test tests/ci/*.mjs`; use `actionlint
+.github/workflows/build.yml` for workflow syntax and expression validation.
 
 Normal Web CI builds the canonical threaded `web-release` player and packages its installable
 template. Successful master Build runs publish the same-run Linux CLI and Web template as
