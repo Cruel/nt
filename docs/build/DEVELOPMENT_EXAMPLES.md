@@ -12,9 +12,9 @@ The shared public examples repository owns `scripts/build-examples.mjs`. `nt` in
 - the matching player descriptor; and
 - an explicit output directory.
 
-`scripts/qualify-examples.mjs` first requires the examples checkout to be clean and exactly at the pinned revision. The public build then validates both Projects, exports and round-trips each `.ntproject`, emits `.ntpkg` files, and stages the Web exports with the supplied player. Afterward, `nt` verifies that `catalog.json` names the pinned source revision and exact CLI/player digests and that all cataloged generated files still match their recorded sizes and SHA-256 values.
+`scripts/qualify-examples.mjs` first requires the examples checkout to be clean and exactly at the pinned revision. The public build then validates both Projects, exports and round-trips each `.ntproject`, emits `.ntpkg` files, and exercises each Project through the supplied Web template. The aggregate output factors the byte-identical Web runtime into one shared `player/` directory and leaves each example with only its launcher/config/runtime-package/project-specific files. Afterward, `nt` verifies that `catalog.json` names the pinned source revision and exact CLI/player digests and that the shared player plus all cataloged generated files still match their recorded sizes and SHA-256 values.
 
-The Build workflow uploads the successful output once as `noveltea-development-examples`. Downstream site work should consume that artifact/catalog shape rather than rebuilding examples independently. A failed qualification job is the compatibility signal that a proposed pin must not merge.
+The Build workflow uploads the successful output once as `noveltea-development-examples`. Downstream site work should consume that artifact/catalog shape rather than rebuilding examples independently. The site stages that one shared player once and recreates an iframe around the selected example's `.ntpkg`; switching examples does not duplicate the Wasm runtime. A failed qualification job is the compatibility signal that a proposed pin must not merge.
 
 The qualification job checks out both repositories with persisted checkout credentials disabled before running public examples code. The public examples repository therefore does not need a token, deploy key, GitHub App, or other credential that can read or write `Cruel/nt`.
 

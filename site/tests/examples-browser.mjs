@@ -133,13 +133,9 @@ test(
             });
             return;
           }
-          const match = /^playable\/(materials|verbs)\/(.+)$/.exec(relative ?? "");
-          if (!match) {
-            await route.fulfill({ status: 404, body: "Not found" });
-            return;
-          }
-          const localPath = join(distRoot, "examples/dev/assets/players", match[1], match[2]);
-          if (!existsSync(localPath)) {
+          const localPath = resolve(distRoot, "examples/dev/assets", relative ?? "");
+          const assetRoot = resolve(distRoot, "examples/dev/assets");
+          if (!localPath.startsWith(`${assetRoot}/`) || !existsSync(localPath)) {
             await route.fulfill({ status: 404, body: "Not found" });
             return;
           }
@@ -218,7 +214,7 @@ test(
           .elementHandle();
         const materialsFrame = page
           .frames()
-          .find((frame) => frame.url().includes("/players/materials/index.html"));
+          .find((frame) => frame.url().includes("/playable/materials/index.html"));
         assert.ok(materialsFrame, "Materials player frame should load");
         assert.equal(await materialsFrame.evaluate(() => crossOriginIsolated), true);
         await startPlayer(materialsFrame);
@@ -237,7 +233,7 @@ test(
 
         const verbsFrame = page
           .frames()
-          .find((frame) => frame.url().includes("/players/verbs/index.html"));
+          .find((frame) => frame.url().includes("/playable/verbs/index.html"));
         assert.ok(verbsFrame, "Verbs player frame should load");
         assert.equal(await verbsFrame.evaluate(() => crossOriginIsolated), true);
         await startPlayer(verbsFrame);

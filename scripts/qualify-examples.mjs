@@ -79,9 +79,24 @@ export function validateQualifiedExamplesCatalog(
     catalog?.toolchain?.player?.descriptor?.sha256 !== playerDescriptorSha256 ||
     catalog?.toolchain?.player?.templateId !== "web-wasm32-threads-release" ||
     catalog?.toolchain?.player?.engineVersion !== `dev-${ntRevision}` ||
-    catalog?.toolchain?.player?.buildId !== `dev-${ntRevision}-web-wasm32-threads-release`
+    catalog?.toolchain?.player?.buildId !== `dev-${ntRevision}-web-wasm32-threads-release` ||
+    !Array.isArray(catalog?.toolchain?.player?.files) ||
+    catalog.toolchain.player.files.length === 0
   ) {
     throw new Error("Qualified catalog does not match the exact NovelTea toolchain");
+  }
+
+  const playerExtensions = new Set();
+  for (const file of catalog.toolchain.player.files) {
+    assertArtifactMetadata(file, "shared player file");
+    if (!file.path.startsWith("player/")) {
+      throw new Error("Qualified catalog shared player files must stay under player/");
+    }
+    const match = /\.(wasm|js|data)$/.exec(file.path);
+    if (match) playerExtensions.add(match[1]);
+  }
+  if (!["wasm", "js", "data"].every((extension) => playerExtensions.has(extension))) {
+    throw new Error("Qualified catalog must contain one complete shared Web player");
   }
 
   if (!Array.isArray(catalog.examples)) {
@@ -123,6 +138,9 @@ export function validateQualifiedExamplesCatalog(
 }
 
 export function verifyQualifiedExamplesOutput(outputRoot, catalog) {
+  for (const file of catalog.toolchain.player.files) {
+    verifyArtifact(outputRoot, file, "shared player file");
+  }
   for (const example of catalog.examples) {
     verifyArtifact(outputRoot, example.artifacts.runtimePackage, `${example.id} runtime package`);
     verifyArtifact(outputRoot, example.artifacts.projectBundle, `${example.id} project bundle`);

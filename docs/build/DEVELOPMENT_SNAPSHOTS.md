@@ -24,7 +24,10 @@ All keys are under `development/toolchains/`:
   build identity, compatibility values, and each artifact's key, size, and SHA-256.
 - `<commit>/noveltea-linux-x64`: the certified standalone CLI; consumers must restore executable mode.
 - `<commit>/player-web-wasm32-threads-release.zip`: the installable Web player template, including
-  its notices and SBOM. Template engine/build identity uses `dev-<commit>`.
+  its notices and SBOM. Template engine/build identity uses `dev-<commit>`. Release Web builds keep
+  full DWARF in the separate symbols artifact but strip the WebAssembly `name` custom section from
+  the distributable `player.wasm`; CI rejects a release player that regains that section or exceeds
+  the 25 MiB size guard.
 - `<commit>/template.json`: the matching player descriptor, checked against the descriptor in the ZIP.
 
 Resolve keys relative to the public asset origin. Fetch current once, verify its manifest digest and

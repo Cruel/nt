@@ -62,6 +62,31 @@ if(EMSCRIPTEN)
         target_link_options(noveltea-player PRIVATE
             "SHELL:-gseparate-dwarf=${NOVELTEA_PLAYER_DWARF_SYMBOLS}"
         )
+
+        # Emscripten's -gseparate-dwarf implies debug level 3, which leaves the
+        # WebAssembly name section in the distributable binary even after DWARF
+        # is moved aside. For NovelTea this section is tens of MiB of C++ symbol
+        # names and is not needed at runtime. Keep the separate DWARF artifact,
+        # but remove only the name section from the shipped player.
+        get_filename_component(NOVELTEA_EMSCRIPTEN_DRIVER_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        get_filename_component(NOVELTEA_EMSCRIPTEN_UPSTREAM_DIR "${NOVELTEA_EMSCRIPTEN_DRIVER_DIR}" DIRECTORY)
+        find_program(NOVELTEA_WASM_OBJCOPY
+            NAMES llvm-objcopy
+            HINTS
+                "$ENV{EMSDK}/upstream/bin"
+                "${NOVELTEA_EMSCRIPTEN_UPSTREAM_DIR}/bin"
+            REQUIRED
+        )
+        add_custom_command(TARGET noveltea-player POST_BUILD
+            COMMAND "${NOVELTEA_WASM_OBJCOPY}"
+                --remove-section=name
+                "$<TARGET_FILE_DIR:noveltea-player>/player.wasm"
+                "$<TARGET_FILE_DIR:noveltea-player>/player.wasm.stripped"
+            COMMAND "${CMAKE_COMMAND}" -E rename
+                "$<TARGET_FILE_DIR:noveltea-player>/player.wasm.stripped"
+                "$<TARGET_FILE_DIR:noveltea-player>/player.wasm"
+            VERBATIM
+        )
     endif()
 endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

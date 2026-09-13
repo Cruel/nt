@@ -36,9 +36,24 @@ export function loadQualifiedDevelopmentExamples(
     catalog?.source?.repository !== examplesRepository ||
     !/^[0-9a-f]{40}$/.test(catalog?.source?.revision ?? "") ||
     catalog?.toolchain?.player?.templateId !== "web-wasm32-threads-release" ||
+    !Array.isArray(catalog?.toolchain?.player?.files) ||
+    catalog.toolchain.player.files.length === 0 ||
     !Array.isArray(catalog.examples)
   ) {
     throw new Error("Invalid qualified development examples catalog.");
+  }
+
+  const playerExtensions = new Set();
+  for (const file of catalog.toolchain.player.files) {
+    assertArtifact(file, "shared player file");
+    if (!file.path.startsWith("player/")) {
+      throw new Error("Development example shared player files must stay under player/.");
+    }
+    const match = /\.(wasm|js|data)$/.exec(file.path);
+    if (match) playerExtensions.add(match[1]);
+  }
+  if (!["wasm", "js", "data"].every((extension) => playerExtensions.has(extension))) {
+    throw new Error("Development example catalog must contain one complete shared Web player.");
   }
 
   const ids = new Set(catalog.examples.map((example) => example?.id));
@@ -86,7 +101,7 @@ export function createDevelopmentExampleShowcaseModel(
       sourceUrl: `${examplesRepository}/tree/${catalog.source.revision}/${example.source.path}`,
       projectUrl: `${base}/${example.artifacts.projectBundle.path}`,
       projectSha256: example.artifacts.projectBundle.sha256,
-      playerUrl: `${base}/players/${encodeURIComponent(example.id)}/index.html`,
+      playerUrl: `${base}/${example.artifacts.playable.path}/index.html`,
     })),
   };
 }

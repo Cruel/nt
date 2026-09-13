@@ -747,6 +747,7 @@ jobs:
           source "$EMSDK/emsdk_env.sh"
           emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset web-release --target noveltea-player
+          node scripts/check-web-release-wasm.mjs build/web-release/apps/player/player.wasm build/web-release/apps/player/player.wasm.debug.wasm
 
       - name: Save compiler cache
         uses: ./.github/actions/save-ccache
