@@ -7,6 +7,8 @@
 #include <bimg/decode.h>
 #include <bx/allocator.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -16,8 +18,11 @@ namespace {
 
 std::string custom_cursor_key(const host::CustomCursorPresentation& cursor)
 {
-    return cursor.id + "\n" + cursor.logical_path + "\n" + std::to_string(cursor.hotspot_x) + ":" +
-           std::to_string(cursor.hotspot_y);
+    return cursor.logical_path + "\n" + std::to_string(cursor.width) + "x" +
+           std::to_string(cursor.height) + "\n" + std::to_string(cursor.hotspot_x) + ":" +
+           std::to_string(cursor.hotspot_y) + "\n" +
+           (cursor.sampling == host::CursorImageSampling::Nearest ? "nearest" : "linear") + "\n" +
+           (cursor.fit_to_portable_bound ? "fit" : "exact");
 }
 
 } // namespace
@@ -108,22 +113,45 @@ SDL_Cursor* SdlCursorRealizer::custom_cursor(const host::CustomCursorPresentatio
                          bimg::TextureFormat::RGBA8);
     if (!image || !image->m_data || image->m_format != bimg::TextureFormat::RGBA8 ||
         image->m_numLayers != 1 || image->m_depth != 1 || image->m_numMips != 1 ||
-        image->m_width != cursor.width || image->m_height != cursor.height ||
+        (!cursor.fit_to_portable_bound &&
+         (image->m_width != cursor.width || image->m_height != cursor.height)) ||
         image->m_size != image->m_width * image->m_height * 4u) {
         if (image)
             bimg::imageFree(image);
         return nullptr;
     }
 
-    SDL_Surface* surface = SDL_CreateSurfaceFrom(
+    SDL_Surface* source_surface = SDL_CreateSurfaceFrom(
         static_cast<int>(image->m_width), static_cast<int>(image->m_height), SDL_PIXELFORMAT_RGBA32,
         image->m_data, static_cast<int>(image->m_width * 4u));
+    SDL_Surface* cursor_surface = source_surface;
+    SDL_Surface* scaled_surface = nullptr;
+    std::uint32_t hotspot_x = cursor.hotspot_x;
+    std::uint32_t hotspot_y = cursor.hotspot_y;
+    if (source_surface && cursor.fit_to_portable_bound) {
+        const auto fitted = host::fit_cursor_image_size(image->m_width, image->m_height);
+        const std::uint32_t target_width = cursor.width != 0 ? cursor.width : fitted.width;
+        const std::uint32_t target_height = cursor.height != 0 ? cursor.height : fitted.height;
+        if (target_width != image->m_width || target_height != image->m_height) {
+            scaled_surface = SDL_ScaleSurface(
+                source_surface, static_cast<int>(target_width), static_cast<int>(target_height),
+                cursor.sampling == host::CursorImageSampling::Nearest ? SDL_SCALEMODE_NEAREST
+                                                                      : SDL_SCALEMODE_LINEAR);
+            cursor_surface = scaled_surface;
+            const double scale_x = static_cast<double>(target_width) / image->m_width;
+            const double scale_y = static_cast<double>(target_height) / image->m_height;
+            hotspot_x = static_cast<std::uint32_t>(std::lround(cursor.hotspot_x * scale_x));
+            hotspot_y = static_cast<std::uint32_t>(std::lround(cursor.hotspot_y * scale_y));
+        }
+    }
     SDL_Cursor* realized =
-        surface ? SDL_CreateColorCursor(surface, static_cast<int>(cursor.hotspot_x),
-                                        static_cast<int>(cursor.hotspot_y))
-                : nullptr;
-    if (surface)
-        SDL_DestroySurface(surface);
+        cursor_surface ? SDL_CreateColorCursor(cursor_surface, static_cast<int>(hotspot_x),
+                                               static_cast<int>(hotspot_y))
+                       : nullptr;
+    if (scaled_surface)
+        SDL_DestroySurface(scaled_surface);
+    if (source_surface)
+        SDL_DestroySurface(source_surface);
     bimg::imageFree(image);
     if (realized)
         m_custom.emplace(key, realized);

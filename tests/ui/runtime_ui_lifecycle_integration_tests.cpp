@@ -1,4 +1,5 @@
 #include "noveltea/core/compiled_project_codec.hpp"
+#include "noveltea/core/editor_preview_contracts.hpp"
 #include "noveltea/core/layout_policies.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
@@ -2986,6 +2987,197 @@ TEST_CASE("RuntimeUI resolves Project named cursors from RCSS without Layout dep
     CHECK(pointer_inspection.effective == noveltea::host::CursorShape::Pointer);
     CHECK(pointer_inspection.source == "rmlui");
     CHECK(pointer_inspection.owner == "named-cursor");
+}
+
+TEST_CASE("RuntimeUI resolves direct RCSS image cursors through the cursor authority")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path = std::string(NOVELTEA_SOURCE_DIR) +
+                             "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto project_document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(project_document.is_discarded());
+    project_document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 64},
+        {"id", "cursor-image"},
+        {"kind", "image"},
+        {"path", "assets/images/cursor-image.png"},
+        {"sampling", "nearest"},
+        {"width", 256},
+    });
+    project_document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 24},
+        {"id", "small-cursor-image"},
+        {"kind", "image"},
+        {"path", "assets/images/small-cursor-image.png"},
+        {"sampling", "linear"},
+        {"width", 32},
+    });
+    auto project = noveltea::core::decode_compiled_project(project_document, "cursor-project.json");
+    REQUIRE(project);
+    ui.configure_project_cursors(*project.value_if());
+
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+    constexpr const char* rml = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  button { display: block; width: 160px; height: 48px; margin: 0; padding: 0; }
+  #target { cursor: image("project:/assets/images/cursor-image.png"); }
+  #small-target { cursor: image(project:/assets/images/small-cursor-image.png); }
+</style></head><body>
+  <button id="target">Direct image cursor</button>
+  <button id="small-target">Small direct image cursor</button>
+</body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    ui.set_layout_cursor_image_dependencies(
+        "direct-image-cursor",
+        {"project:/assets/images/cursor-image.png",
+         "project:/assets/images/small-cursor-image.png"});
+    REQUIRE(ui.load_document_from_memory_for_layout("direct-image-cursor", rml,
+                                                    "project:/ui/direct-image-cursor.rml", true,
+                                                    policy));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+
+    const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective_name == "image(project:/assets/images/cursor-image.png)");
+    CHECK(inspection.source == "rmlui");
+    CHECK(inspection.owner == "direct-image-cursor");
+    REQUIRE(inspection.custom);
+    CHECK(inspection.custom->width == 128);
+    CHECK(inspection.custom->height == 32);
+    CHECK(inspection.custom->hotspot_x == 0);
+    CHECK(inspection.custom->hotspot_y == 0);
+    CHECK(inspection.custom->sampling == noveltea::host::CursorImageSampling::Nearest);
+
+    motion.motion.y = 64.0f;
+    (void)ui.process_event(motion);
+    const auto small_inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    REQUIRE(small_inspection.custom);
+    CHECK(small_inspection.custom->width == 32);
+    CHECK(small_inspection.custom->height == 24);
+    CHECK(small_inspection.custom->hotspot_x == 0);
+    CHECK(small_inspection.custom->hotspot_y == 0);
+    CHECK(small_inspection.custom->sampling == noveltea::host::CursorImageSampling::Linear);
+}
+
+TEST_CASE("RuntimeUI rejects direct RCSS image cursors outside the Layout dependency closure")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path = std::string(NOVELTEA_SOURCE_DIR) +
+                             "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto project_document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(project_document.is_discarded());
+    project_document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 32},
+        {"id", "cursor-image"},
+        {"kind", "image"},
+        {"path", "assets/images/cursor-image.png"},
+        {"sampling", "linear"},
+        {"width", 32},
+    });
+    auto project = noveltea::core::decode_compiled_project(project_document, "cursor-project.json");
+    REQUIRE(project);
+    ui.configure_project_cursors(*project.value_if());
+
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+    constexpr const char* rml = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  #target { display: block; width: 160px; height: 48px; cursor: image(project:/assets/images/cursor-image.png); }
+</style></head><body><button id="target">Undeclared direct cursor</button></body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    ui.set_layout_cursor_image_dependencies("undeclared-direct-image-cursor", {});
+    REQUIRE(ui.load_document_from_memory_for_layout("undeclared-direct-image-cursor", rml,
+                                                    "project:/ui/undeclared-cursor.rml", true,
+                                                    policy));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+
+    const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective_name == "default");
+    CHECK(inspection.source == "project-default");
+}
+
+TEST_CASE("RuntimeUI focused Layout preview keeps direct cursor image sampling metadata")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    ui.configure_focused_preview_cursor_resources({
+        {.resource_id = "cursor-image",
+         .source_kind = "authoring-asset",
+         .logical_path = "project:/assets/images/cursor-image.png",
+         .kind = "image",
+         .sampling = "nearest"},
+    });
+
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+    constexpr const char* rml = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  #target { display: block; width: 160px; height: 48px; cursor: image(project:/assets/images/cursor-image.png); }
+</style></head><body><button id="target">Preview direct cursor</button></body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.load_document_from_memory_for_layout("editor_authored_layout_preview", rml,
+                                                    "project:/ui/focused-layout.rml", true, policy));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+
+    const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective_name == "image(project:/assets/images/cursor-image.png)");
+    CHECK(inspection.source == "rmlui");
+    REQUIRE(inspection.custom);
+    CHECK(inspection.custom->sampling == noveltea::host::CursorImageSampling::Nearest);
+    CHECK(inspection.custom->fit_to_portable_bound);
 }
 
 TEST_CASE("RuntimeUI cursor semantics distinguish auto hidden and native shapes")

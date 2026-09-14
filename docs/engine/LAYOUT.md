@@ -97,6 +97,27 @@ not diverge.
 
 See `docs/ui/RMLUI_RUNTIME_UI.md` for baseline ownership, provenance, cascade order, and update policy.
 
+### RCSS cursor images
+
+Layout RCSS may select a one-off native custom cursor with `cursor: image(source)`. The form accepts
+exactly one quoted or unquoted RmlUi resource source; it does not add hotspot, scale, fallback, or
+animation syntax. Relative paths use the Layout document's normal RmlUi resource resolution, and
+`project:/` and `system:/` logical resources remain available under the same namespace rules as other
+RmlUi assets. Filesystem and network URL schemes are not admitted.
+
+A `project:/` cursor image must already be an Image Asset in that Layout's declared `dependencies.images`
+closure. Cursor parsing never discovers or adds a dependency. The compiler diagnoses statically
+resolvable missing dependencies, wrong Asset kinds, malformed `image(...)` forms, and unknown literal
+cursor names; dynamic RCSS values are validated when RmlUi resolves them at runtime. Focused Layout
+preview uses the same admitted resource manifest as runtime.
+
+Direct image cursors use hotspot `(0,0)`. Source images up to 128×128 retain their authored pixel
+size; larger images are fitted within 128×128 while preserving aspect ratio and use the Image Asset's
+nearest/linear sampling policy when available. Cursor pixels remain in the native cursor domain and
+are not affected by Project reference resolution or UI/text accessibility scale. Resolution failures
+or native cursor-realization failures diagnose and fall through the centralized cursor
+arbitration path rather than failing gameplay.
+
 ## Data Model
 
 ### Layout Kind

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
+import { systemCursorNames } from './authoring-cursor-vocabulary';
 import { layoutContractIdSchema } from './authoring-common';
 import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
 import { authoredRuntimeValueSchema } from './authoring-properties';
@@ -686,6 +687,145 @@ function validateAssetRefs(
   });
 }
 
+function validateRcssCursors(
+  project: AuthoringProject,
+  layoutId: string,
+  data: LayoutData,
+  base: string,
+  diagnostics: LayoutSchemaDiagnostic[],
+) {
+  if (data.rcss.sourceMode !== 'inline') return;
+
+  const sourcePath = `${base}/rcss/sourceText`;
+  const source = data.rcss.sourceText.replace(/\/\*[\s\S]*?\*\//g, '');
+  const namedCursorIds = new Set(project.settings.cursors?.named.map((cursor) => cursor.id) ?? []);
+  const imageDependencyIds = new Set(data.dependencies.images.map(refId));
+  const authoredCursorNames = new Set<string>([...systemCursorNames, 'auto', 'none']);
+
+  const rmlSourcePath =
+    data.rml.sourceMode === 'asset' && data.rml.sourceAsset
+      ? parseAssetData(project.assets[refId(data.rml.sourceAsset)]?.data)?.source.path
+      : `__noveltea_inline_layout_${layoutId.replace(/[^A-Za-z0-9_-]/g, '_')}.rml`;
+  const rmlSourceDirectory = rmlSourcePath?.includes('/')
+    ? rmlSourcePath.slice(0, rmlSourcePath.lastIndexOf('/') + 1)
+    : '';
+
+  const normalizeProjectPath = (path: string): string | null => {
+    const segments: string[] = [];
+    for (const segment of path.split('/')) {
+      if (!segment || segment === '.') continue;
+      if (segment === '..') {
+        if (segments.length === 0) return null;
+        segments.pop();
+      } else {
+        segments.push(segment);
+      }
+    }
+    return segments.join('/');
+  };
+
+  const projectAssetForPath = (path: string) => {
+    let logical: string;
+    if (path.startsWith('project:/')) {
+      logical = path.slice('project:/'.length);
+    } else if (path.startsWith('/')) {
+      logical = path.slice(1);
+    } else {
+      logical = `${rmlSourceDirectory}${path}`;
+    }
+    const normalized = normalizeProjectPath(logical);
+    if (!normalized) return undefined;
+    return Object.values(project.assets).find((record) => {
+      const asset = parseAssetData(record.data);
+      return asset?.source.path === normalized;
+    });
+  };
+
+  const declarations = source.matchAll(/(?:^|[;{])\s*cursor\s*:\s*([^;}]+)/gim);
+  for (const declaration of declarations) {
+    const rawValue = declaration[1]?.trim().replace(/\s*!important\s*$/i, '') ?? '';
+    if (!rawValue) continue;
+
+    if (/^image\s*\(/i.test(rawValue)) {
+      const image = rawValue.match(/^image\s*\(([\s\S]*)\)$/i);
+      if (!image) {
+        diagnostics.push(
+          diagnostic(sourcePath, 'cursor: image(...) requires exactly one image source.'),
+        );
+        continue;
+      }
+      const argument = image[1]?.trim() ?? '';
+      let resource = '';
+      if (
+        argument.length >= 2 &&
+        ((argument.startsWith('"') && argument.endsWith('"')) ||
+          (argument.startsWith("'") && argument.endsWith("'")))
+      ) {
+        resource = argument.slice(1, -1);
+      } else if (argument && !/[\s,'"()]/.test(argument)) {
+        resource = argument;
+      }
+      if (!resource) {
+        diagnostics.push(
+          diagnostic(sourcePath, 'cursor: image(...) requires exactly one image source.'),
+        );
+        continue;
+      }
+
+      const scheme = resource.match(/^([A-Za-z][A-Za-z0-9+.-]*):/);
+      if (scheme && scheme[1] !== 'project' && scheme[1] !== 'system') {
+        diagnostics.push(
+          diagnostic(
+            sourcePath,
+            `Cursor image '${resource}' uses unsupported resource scheme '${scheme[1]}:'.`,
+          ),
+        );
+        continue;
+      }
+      if (resource.startsWith('system:/')) continue;
+      if (resource.startsWith('\\') || resource.includes('\\')) {
+        diagnostics.push(
+          diagnostic(sourcePath, `Cursor image '${resource}' must use an RmlUi resource path.`),
+        );
+        continue;
+      }
+
+      const record = projectAssetForPath(resource);
+      if (!record) {
+        diagnostics.push(
+          diagnostic(sourcePath, `Cursor image '${resource}' does not resolve to a Project Asset.`),
+        );
+        continue;
+      }
+      const asset = parseAssetData(record.data);
+      if (asset?.kind !== 'image') {
+        diagnostics.push(
+          diagnostic(sourcePath, `Cursor image '${resource}' is not an Image Asset.`),
+        );
+        continue;
+      }
+      if (!imageDependencyIds.has(record.id)) {
+        diagnostics.push(
+          diagnostic(
+            sourcePath,
+            `Cursor image '${resource}' must already be declared as a Layout image dependency.`,
+          ),
+        );
+      }
+      continue;
+    }
+
+    if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(rawValue)) continue;
+    if (
+      !authoredCursorNames.has(rawValue) &&
+      !namedCursorIds.has(rawValue) &&
+      !rawValue.startsWith('rmlui-')
+    ) {
+      diagnostics.push(diagnostic(sourcePath, `Unknown cursor '${rawValue}'.`));
+    }
+  }
+}
+
 function validateMaterialRefs(
   project: AuthoringProject,
   refs: LayoutMaterialRef[],
@@ -842,6 +982,7 @@ export function validateLayoutData(
     `${base}/dependencies/materials`,
     diagnostics,
   );
+  validateRcssCursors(project, layoutId, data, base, diagnostics);
   return diagnostics;
 }
 

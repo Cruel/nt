@@ -1128,6 +1128,8 @@ void FocusedPreviewPresenter::clear() noexcept
     m_dependencies.layouts.clear_focused_preview();
     m_dependencies.world.reset();
     m_dependencies.world_resources.clear();
+    if (m_dependencies.clear_cursor_resources)
+        m_dependencies.clear_cursor_resources();
     m_publication_scope.clear_on_owner();
     release_state(m_committed);
     release_state(m_rollback);
@@ -1614,6 +1616,8 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
 
     environment_commit();
     m_dependencies.apply_materials(candidate.materials);
+    if (m_dependencies.configure_cursor_resources)
+        m_dependencies.configure_cursor_resources(candidate.request.resources);
     m_dependencies.bind_input_sink(&m_passive_input);
     if (m_dependencies.retire_legacy_preview)
         m_dependencies.retire_legacy_preview();
@@ -1721,6 +1725,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     environment_commit();
     if (candidate.state.materials)
         m_dependencies.apply_materials(*candidate.state.materials);
+    if (m_dependencies.configure_cursor_resources)
+        m_dependencies.configure_cursor_resources(candidate.request.resources);
     m_dependencies.commit_ui_values(std::move(ui_commit));
     m_dependencies.bind_input_sink(&m_passive_input);
     if (m_dependencies.retire_legacy_preview)
