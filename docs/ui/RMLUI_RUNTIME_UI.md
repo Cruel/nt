@@ -247,6 +247,28 @@ gameplay fallthrough through the mounted-policy admission result. Layout-origina
 paths do not. Escape unmounts the topmost dismissible instance through its recorded owner, while a
 higher non-dismissible modal shields lower Layouts.
 
+### Cursor arbitration
+
+RmlUi contexts do not mutate the native cursor. Their `cursor` callbacks publish transient desired
+cursor state into the engine-owned cursor authority, which keeps request state separate from current
+eligibility. RuntimeUI derives RmlUi eligibility from the same front-to-back pointer routing described
+above, so a consumed or modal context shields lower cursor requests while a click-through context with
+no cursor request leaves lower eligible requests available. The authority exposes the effective cursor
+and winning source/owner to private test/debug adapters.
+
+The current native semantic vocabulary is `default`, `pointer`, `text`, `wait`, `progress`,
+`crosshair`, `move`, `not-allowed`, `ns-resize`, `ew-resize`, `nesw-resize`, and `nwse-resize`.
+`none` means hidden cursor and `auto` contributes no RmlUi request; legacy/private RmlUi spellings are
+translated before publication. Pointer leave, focus loss, and movement into presentation bars clear
+only transient RmlUi eligibility. A retained pointer position is re-evaluated during frame settlement,
+so visibility, policy, or presentation changes can change the winning cursor without requiring fresh
+physical mouse movement.
+
+Native system-cursor creation, visibility, and `SDL_SetCursor` calls live only in the SDL cursor
+realizer under `engine/src/platform/sdl/`; RmlUi's SDL system interface is limited to translating the
+RmlUi callback into engine cursor intent alongside its clipboard/text-input responsibilities. Cursor
+handles never enter gameplay, Runtime Session, or RmlUi document state.
+
 ## Lifecycle Domains
 
 `RuntimeLayoutManager` owns typed mounted-instance policy and deterministic plane/local ordering. The
