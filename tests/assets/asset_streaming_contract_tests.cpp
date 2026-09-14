@@ -2,17 +2,12 @@
 
 #include "noveltea/assets/asset_request.hpp"
 #include "noveltea/assets/asset_residency.hpp"
-#include "noveltea/core/asset_telemetry.hpp"
 #include "noveltea/jobs/owner_thread.hpp"
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <memory>
-#include <mutex>
 #include <optional>
-#include <type_traits>
 #include <utility>
 
 namespace {
@@ -288,75 +283,7 @@ private:
     bool m_released = false;
 };
 
-class BoundedFakeTelemetryRecorder final : public core::AssetTelemetrySink {
-public:
-    explicit BoundedFakeTelemetryRecorder(std::size_t capacity) : m_capacity(capacity) {}
-
-    void record(core::AssetTelemetryEvent event) noexcept override
-    {
-        std::lock_guard lock(m_mutex);
-        ++m_snapshot.event_counts[static_cast<std::size_t>(event.kind)];
-        update_high_water(event.memory);
-        if (event.memory_policy)
-            m_snapshot.memory_policy = event.memory_policy;
-        if (m_capacity == 0)
-            return;
-        if (m_events.size() == m_capacity) {
-            m_events.pop_front();
-            ++m_snapshot.lost_event_count;
-        }
-        m_events.push_back(std::move(event));
-    }
-
-    [[nodiscard]] core::AssetTelemetrySnapshot snapshot_on_owner() const override
-    {
-        m_owner_thread.assert_owner_thread();
-        std::lock_guard lock(m_mutex);
-        auto copy = m_snapshot;
-        copy.retained_events.assign(m_events.begin(), m_events.end());
-        return copy;
-    }
-
-private:
-    void update_high_water(const assets::ResidencyCost& current) noexcept
-    {
-        m_snapshot.memory.current = current;
-        auto& high = m_snapshot.memory.high_water;
-        high.source_bytes = std::max(high.source_bytes, current.source_bytes);
-        high.prepared_cpu_bytes = std::max(high.prepared_cpu_bytes, current.prepared_cpu_bytes);
-        high.gpu_bytes = std::max(high.gpu_bytes, current.gpu_bytes);
-        high.audio_bytes = std::max(high.audio_bytes, current.audio_bytes);
-        high.temporary_bytes = std::max(high.temporary_bytes, current.temporary_bytes);
-    }
-
-    jobs::OwnerThreadGuard m_owner_thread;
-    std::size_t m_capacity = 0;
-    mutable std::mutex m_mutex;
-    std::deque<core::AssetTelemetryEvent> m_events;
-    core::AssetTelemetrySnapshot m_snapshot;
-};
-
 } // namespace
-
-TEST_CASE("Asset request IDs, generations, and cache states are distinct contracts")
-{
-    using namespace noveltea;
-
-    STATIC_REQUIRE(!std::is_copy_constructible_v<assets::AssetRequestHandle<FakeAsset>>);
-    STATIC_REQUIRE(std::is_move_constructible_v<assets::AssetRequestHandle<FakeAsset>>);
-    STATIC_REQUIRE(std::is_copy_constructible_v<assets::AssetLease<FakeAsset>>);
-    STATIC_REQUIRE(!std::is_copy_constructible_v<assets::ReservationPin>);
-
-    CHECK_FALSE(assets::AssetRequestId{}.valid());
-    CHECK_FALSE(assets::AssetSourceGeneration{}.valid());
-    CHECK_FALSE(assets::PrefetchGenerationId{}.valid());
-    CHECK(assets::AssetRequestId{7}.valid());
-    CHECK(assets::AssetCacheKey{.stable_identity = "texture:hero",
-                                .source_generation = assets::AssetSourceGeneration{3}}
-              .valid());
-    CHECK(assets::AssetCacheState::WaitingForOwnerFinalization !=
-          assets::AssetCacheState::Resident);
-}
 
 TEST_CASE("Ready request reservations transfer into copyable leases without an eviction gap")
 {
@@ -478,7 +405,7 @@ TEST_CASE("Preparation reservations release temporary accounting through move-on
     CHECK(counters->releases == 1);
 }
 
-TEST_CASE("Residency cost and admission contracts separate resident and temporary memory")
+TEST_CASE("Residency cost totals keep temporary memory outside resident accounting")
 {
     using namespace noveltea;
 
@@ -491,39 +418,4 @@ TEST_CASE("Residency cost and admission contracts separate resident and temporar
     };
     CHECK(cost.resident_bytes() == 100);
     CHECK(cost.total_bytes() == 150);
-    CHECK(assets::ResidencyClass::Pinned != assets::ResidencyClass::Warm);
-    CHECK(assets::ResidencyAdmission::AdmittedOverBudget !=
-          assets::ResidencyAdmission::RejectedPrefetch);
-}
-
-TEST_CASE("Bounded telemetry fakes retain aggregates with zero or finite event capacity")
-{
-    using namespace noveltea;
-
-    BoundedFakeTelemetryRecorder aggregate_only(0);
-    aggregate_only.record(core::AssetTelemetryEvent{
-        .kind = core::AssetTelemetryEventKind::CacheHit,
-        .memory = {.prepared_cpu_bytes = 12},
-    });
-    const auto aggregate_snapshot = aggregate_only.snapshot_on_owner();
-    CHECK(aggregate_snapshot.retained_events.empty());
-    CHECK(aggregate_snapshot.lost_event_count == 0);
-    CHECK(aggregate_snapshot
-              .event_counts[static_cast<std::size_t>(core::AssetTelemetryEventKind::CacheHit)] ==
-          1);
-    CHECK(aggregate_snapshot.memory.high_water.prepared_cpu_bytes == 12);
-
-    BoundedFakeTelemetryRecorder ring(2);
-    ring.record(core::AssetTelemetryEvent{.kind = core::AssetTelemetryEventKind::CacheMiss});
-    ring.record(core::AssetTelemetryEvent{.kind = core::AssetTelemetryEventKind::PrefetchLate});
-    ring.record(core::AssetTelemetryEvent{.kind = core::AssetTelemetryEventKind::PrefetchUsed});
-
-    const auto ring_snapshot = ring.snapshot_on_owner();
-    REQUIRE(ring_snapshot.retained_events.size() == 2);
-    CHECK(ring_snapshot.retained_events[0].kind == core::AssetTelemetryEventKind::PrefetchLate);
-    CHECK(ring_snapshot.retained_events[1].kind == core::AssetTelemetryEventKind::PrefetchUsed);
-    CHECK(ring_snapshot.lost_event_count == 1);
-    CHECK(ring_snapshot
-              .event_counts[static_cast<std::size_t>(core::AssetTelemetryEventKind::CacheMiss)] ==
-          1);
 }

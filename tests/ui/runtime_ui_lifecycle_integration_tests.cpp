@@ -1310,7 +1310,21 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
         {.reference = {.size = {1920, 1080}}});
     REQUIRE(presentation);
     ui.resize(presentation.value());
-    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "gameplay", kDocument,
+    constexpr const char* kPlaybackDocument = R"(
+<rml>
+  <head>
+    <style>
+      body { width: 640px; height: 360px; }
+      button, #passive { display: block; width: 160px; height: 48px; }
+    </style>
+  </head>
+  <body>
+    <button id="action" tabindex="0">Action</button>
+    <div id="passive">Passive</div>
+  </body>
+</rml>
+)";
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "gameplay", kPlaybackDocument,
                                                              "preview://playback.rml", true));
 
     int activations = 0;
@@ -1352,6 +1366,25 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     CHECK(input_sink.layout_events == 1);
     CHECK(input_sink.last_layout_owner == noveltea::core::MountedLayoutOwner::Gameplay);
     CHECK(std::string(noveltea::ui::rmlui::to_string(click.status)) == "dispatched");
+
+    const auto missing = driver->click({.document_id = "gameplay", .selector = "#missing"});
+    CHECK(missing.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetNotFound);
+    CHECK_FALSE(missing.dispatched);
+
+    auto* action = driver->element("gameplay", "action");
+    REQUIRE(action);
+    action->SetAttribute("disabled", "");
+    const auto disabled = driver->click({.document_id = "gameplay", .selector = "#action"});
+    CHECK(disabled.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetDisabled);
+    CHECK_FALSE(disabled.dispatched);
+    action->RemoveAttribute("disabled");
+
+    const auto passive = driver->click({.document_id = "gameplay", .selector = "#passive"});
+    CHECK(passive.status ==
+          noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetNotInteractive);
+    CHECK_FALSE(passive.dispatched);
+    CHECK(activations == 2);
+    CHECK(input_sink.layout_events == 1);
 
     REQUIRE(ui.hide_document("gameplay"));
     const auto hidden =
