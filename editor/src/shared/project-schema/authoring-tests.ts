@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
+import { authoredRuntimeValueSchema } from './authoring-properties';
 import { featureRefSchema, type FeatureRefData } from './authoring-features';
 import { parseInteractableData } from './authoring-interactables';
+import { layoutPersistableValueSchema } from './authoring-layouts';
 import { parseRoomData } from './authoring-rooms';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { parseVerbData } from './authoring-verbs';
@@ -21,6 +23,121 @@ export const testInputTypeValues = [
   'load',
 ] as const;
 export type TestInputType = (typeof testInputTypeValues)[number];
+
+export const testExpectationTypeValues = [
+  'property',
+  'current-room',
+  'location',
+  'quantity',
+  'trait',
+  'entity-state',
+  'active-flow',
+  'layout',
+  'event',
+  'diagnostic',
+] as const;
+export const testExpectationOperatorValues = [
+  'eq',
+  'ne',
+  'present',
+  'absent',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+] as const;
+export type TestExpectationType = (typeof testExpectationTypeValues)[number];
+export type TestExpectationOperator = (typeof testExpectationOperatorValues)[number];
+
+export const testExpectationDataSchema = z
+  .object({
+    id: entityIdSchema,
+    type: z.enum(testExpectationTypeValues),
+    operator: z.enum(testExpectationOperatorValues),
+    property: z
+      .object({
+        scope: z.enum(['global', 'room', 'character', 'interactable']).default('global'),
+        ownerId: z.string().default(''),
+        propertyId: entityIdSchema.default('property'),
+        value: authoredRuntimeValueSchema.default(null),
+      })
+      .strict()
+      .default({ scope: 'global', ownerId: '', propertyId: 'property', value: null }),
+    currentRoom: z
+      .object({ roomId: z.string().default('') })
+      .strict()
+      .default({ roomId: '' }),
+    location: z
+      .object({
+        entityKind: z.enum(['character', 'interactable']).default('interactable'),
+        entityId: z.string().default(''),
+        locationKind: z.enum(['unplaced', 'room', 'inventory']).default('unplaced'),
+        roomId: z.string().default(''),
+        inventoryOwnerKind: z.enum(['project', 'character', 'interactable']).default('project'),
+        inventoryOwnerId: z.string().default(''),
+        inventoryId: z.string().default(''),
+      })
+      .strict()
+      .default({
+        entityKind: 'interactable',
+        entityId: '',
+        locationKind: 'unplaced',
+        roomId: '',
+        inventoryOwnerKind: 'project',
+        inventoryOwnerId: '',
+        inventoryId: '',
+      }),
+    quantity: z
+      .object({ interactableId: z.string().default(''), value: z.number().finite().default(0) })
+      .strict()
+      .default({ interactableId: '', value: 0 }),
+    trait: z
+      .object({
+        ownerKind: z.enum(['room', 'character', 'interactable']).default('interactable'),
+        ownerId: z.string().default(''),
+        traitId: entityIdSchema.default('trait'),
+      })
+      .strict()
+      .default({ ownerKind: 'interactable', ownerId: '', traitId: 'trait' }),
+    entityState: z
+      .object({
+        entityKind: z.enum(['character', 'interactable']).default('interactable'),
+        entityId: z.string().default(''),
+        field: z.enum(['enabled', 'visible']).default('enabled'),
+        value: z.boolean().default(true),
+      })
+      .strict()
+      .default({ entityKind: 'interactable', entityId: '', field: 'enabled', value: true }),
+    activeFlow: z
+      .object({
+        kind: z.enum(['scene', 'dialogue']).default('scene'),
+        flowId: z.string().default(''),
+      })
+      .strict()
+      .default({ kind: 'scene', flowId: '' }),
+    layout: z
+      .object({
+        layoutId: z.string().default(''),
+        field: z.enum(['mounted', 'state']).default('mounted'),
+        value: layoutPersistableValueSchema.default(null),
+      })
+      .strict()
+      .default({ layoutId: '', field: 'mounted', value: null }),
+    event: z
+      .object({
+        kind: z.enum(['notification', 'save-outcome']).default('notification'),
+        value: z.string().default(''),
+      })
+      .strict()
+      .default({ kind: 'notification', value: '' }),
+    diagnostic: z
+      .object({ code: z.string().default('') })
+      .strict()
+      .default({ code: '' }),
+  })
+  .strict();
+
+export type TestExpectationData = z.infer<typeof testExpectationDataSchema>;
 
 export const testRefSchema = <Collection extends string>(collection: Collection) =>
   z
@@ -52,6 +169,7 @@ export const testStepDataSchema = z
     input: z.enum(testInputTypeValues).default('tick'),
     label: z.string().min(1, 'Step label is required.'),
     enabled: z.boolean().default(true),
+    expectations: z.array(testExpectationDataSchema).default([]),
     tick: z
       .object({ deltaSeconds: z.number().finite().nonnegative().default(0) })
       .strict()
@@ -99,6 +217,7 @@ export const testDataSchema = z
     kind: z.literal('test').default('test'),
     displayName: z.string().default(''),
     steps: z.array(testStepDataSchema).default([]),
+    finalExpectations: z.array(testExpectationDataSchema).default([]),
     preview: z
       .object({
         selectedStepId: entityIdSchema.nullable().default(null),
@@ -162,6 +281,17 @@ export function testInteractableSubject(id: string): TestInteractionSubject {
 }
 export function testFeatureSubject(feature: FeatureRefData): TestInteractionSubject {
   return { kind: 'feature', feature };
+}
+
+export function defaultTestExpectation(
+  type: TestExpectationType = 'current-room',
+  operator: TestExpectationOperator = type === 'trait' ||
+  type === 'layout' ||
+  type === 'current-room'
+    ? 'present'
+    : 'eq',
+): TestExpectationData {
+  return testExpectationDataSchema.parse({ id: type, type, operator });
 }
 
 export function defaultTestStep(input: TestInputType = 'tick', label?: string): TestStepData {
@@ -266,6 +396,232 @@ function validateInteractionSubject(
     );
 }
 
+function validateExpectation(
+  project: AuthoringProject,
+  expectation: TestExpectationData,
+  path: string,
+  diagnostics: TestSchemaDiagnostic[],
+) {
+  const numeric = new Set<TestExpectationOperator>(['gt', 'gte', 'lt', 'lte']);
+  const presence = new Set<TestExpectationOperator>(['present', 'absent']);
+  const equality = new Set<TestExpectationOperator>(['eq', 'ne']);
+  if (
+    expectation.type === 'quantity' &&
+    !numeric.has(expectation.operator) &&
+    !equality.has(expectation.operator)
+  )
+    diagnostics.push(
+      diagnostic(
+        `${path}/operator`,
+        'Quantity expectations require a numeric or equality operator.',
+      ),
+    );
+  if (
+    (expectation.type === 'trait' ||
+      expectation.type === 'event' ||
+      expectation.type === 'diagnostic') &&
+    !presence.has(expectation.operator)
+  )
+    diagnostics.push(
+      diagnostic(
+        `${path}/operator`,
+        `${titleCase(expectation.type)} expectations require present or absent.`,
+      ),
+    );
+  if (
+    expectation.type === 'layout' &&
+    expectation.layout.field === 'mounted' &&
+    !presence.has(expectation.operator)
+  )
+    diagnostics.push(
+      diagnostic(`${path}/operator`, 'Mounted Layout expectations require present or absent.'),
+    );
+  if (
+    expectation.type === 'layout' &&
+    expectation.layout.field === 'state' &&
+    presence.has(expectation.operator)
+  )
+    diagnostics.push(
+      diagnostic(
+        `${path}/operator`,
+        'Layout state expectations require equality or numeric comparison.',
+      ),
+    );
+  if (
+    expectation.type === 'layout' &&
+    expectation.layout.field === 'state' &&
+    numeric.has(expectation.operator) &&
+    typeof expectation.layout.value !== 'number'
+  )
+    diagnostics.push(
+      diagnostic(
+        `${path}/layout/value`,
+        'Numeric Layout state comparisons require a numeric expected value.',
+      ),
+    );
+  if (expectation.type === 'entity-state' && !equality.has(expectation.operator))
+    diagnostics.push(diagnostic(`${path}/operator`, 'Entity-state expectations require eq or ne.'));
+  if (
+    (expectation.type === 'current-room' || expectation.type === 'active-flow') &&
+    !equality.has(expectation.operator) &&
+    !presence.has(expectation.operator)
+  )
+    diagnostics.push(
+      diagnostic(
+        `${path}/operator`,
+        `${titleCase(expectation.type)} expectations require equality or presence operators.`,
+      ),
+    );
+  if (
+    expectation.type === 'location' &&
+    !equality.has(expectation.operator) &&
+    !presence.has(expectation.operator)
+  )
+    diagnostics.push(
+      diagnostic(
+        `${path}/operator`,
+        'Location expectations require equality or presence operators.',
+      ),
+    );
+  if (
+    expectation.type === 'property' &&
+    numeric.has(expectation.operator) &&
+    typeof expectation.property.value !== 'number'
+  )
+    diagnostics.push(
+      diagnostic(
+        `${path}/property/value`,
+        'Numeric property comparisons require a numeric expected value.',
+      ),
+    );
+
+  if (expectation.type === 'current-room' && equality.has(expectation.operator)) {
+    if (!expectation.currentRoom.roomId)
+      diagnostics.push(diagnostic(`${path}/currentRoom/roomId`, 'Room ID is required.'));
+    else if (!project.rooms[expectation.currentRoom.roomId])
+      diagnostics.push(
+        diagnostic(
+          `${path}/currentRoom/roomId`,
+          `Missing Room '${expectation.currentRoom.roomId}'.`,
+        ),
+      );
+  }
+
+  if (expectation.type === 'location') {
+    const collection =
+      expectation.location.entityKind === 'character'
+        ? project.characters
+        : project.interactableInstances;
+    if (!expectation.location.entityId)
+      diagnostics.push(diagnostic(`${path}/location/entityId`, 'Entity ID is required.'));
+    else if (!collection[expectation.location.entityId])
+      diagnostics.push(
+        diagnostic(
+          `${path}/location/entityId`,
+          `Missing ${titleCase(expectation.location.entityKind)} '${expectation.location.entityId}'.`,
+        ),
+      );
+    if (expectation.location.locationKind === 'room' && !project.rooms[expectation.location.roomId])
+      diagnostics.push(
+        diagnostic(`${path}/location/roomId`, `Missing Room '${expectation.location.roomId}'.`),
+      );
+    if (
+      expectation.location.locationKind === 'inventory' &&
+      !expectation.location.inventoryId.trim()
+    )
+      diagnostics.push(diagnostic(`${path}/location/inventoryId`, 'Inventory ID is required.'));
+  }
+
+  if (
+    expectation.type === 'quantity' &&
+    !project.interactableInstances[expectation.quantity.interactableId]
+  )
+    diagnostics.push(
+      diagnostic(
+        `${path}/quantity/interactableId`,
+        `Missing Interactable Instance '${expectation.quantity.interactableId}'.`,
+      ),
+    );
+
+  if (expectation.type === 'trait') {
+    const ownerExists =
+      expectation.trait.ownerKind === 'room'
+        ? !!project.rooms[expectation.trait.ownerId]
+        : expectation.trait.ownerKind === 'character'
+          ? !!project.characters[expectation.trait.ownerId]
+          : !!project.interactableInstances[expectation.trait.ownerId];
+    if (!ownerExists)
+      diagnostics.push(
+        diagnostic(
+          `${path}/trait/ownerId`,
+          `Missing ${titleCase(expectation.trait.ownerKind)} '${expectation.trait.ownerId}'.`,
+        ),
+      );
+    if (!project.traits[expectation.trait.traitId])
+      diagnostics.push(
+        diagnostic(`${path}/trait/traitId`, `Missing Trait '${expectation.trait.traitId}'.`),
+      );
+  }
+
+  if (expectation.type === 'entity-state') {
+    const collection =
+      expectation.entityState.entityKind === 'character'
+        ? project.characters
+        : project.interactableInstances;
+    if (!collection[expectation.entityState.entityId])
+      diagnostics.push(
+        diagnostic(
+          `${path}/entityState/entityId`,
+          `Missing ${titleCase(expectation.entityState.entityKind)} '${expectation.entityState.entityId}'.`,
+        ),
+      );
+  }
+
+  if (expectation.type === 'active-flow' && equality.has(expectation.operator)) {
+    const collection = expectation.activeFlow.kind === 'scene' ? project.scenes : project.dialogues;
+    if (!expectation.activeFlow.flowId)
+      diagnostics.push(diagnostic(`${path}/activeFlow/flowId`, 'Flow ID is required.'));
+    else if (!collection[expectation.activeFlow.flowId])
+      diagnostics.push(
+        diagnostic(
+          `${path}/activeFlow/flowId`,
+          `Missing ${titleCase(expectation.activeFlow.kind)} '${expectation.activeFlow.flowId}'.`,
+        ),
+      );
+  }
+
+  if (expectation.type === 'layout' && !project.layouts[expectation.layout.layoutId])
+    diagnostics.push(
+      diagnostic(`${path}/layout/layoutId`, `Missing Layout '${expectation.layout.layoutId}'.`),
+    );
+
+  if (expectation.type === 'property') {
+    if (expectation.property.scope === 'global') {
+      if (!project.variables[expectation.property.propertyId])
+        diagnostics.push(
+          diagnostic(
+            `${path}/property/propertyId`,
+            `Missing global Property '${expectation.property.propertyId}'.`,
+          ),
+        );
+    } else {
+      const ownerExists =
+        expectation.property.scope === 'room'
+          ? !!project.rooms[expectation.property.ownerId]
+          : expectation.property.scope === 'character'
+            ? !!project.characters[expectation.property.ownerId]
+            : !!project.interactableInstances[expectation.property.ownerId];
+      if (!ownerExists)
+        diagnostics.push(
+          diagnostic(
+            `${path}/property/ownerId`,
+            `Missing ${titleCase(expectation.property.scope)} '${expectation.property.ownerId}'.`,
+          ),
+        );
+    }
+  }
+}
+
 function validateStep(
   project: AuthoringProject,
   step: TestStepData,
@@ -273,6 +629,10 @@ function validateStep(
   diagnostics: TestSchemaDiagnostic[],
 ) {
   if (!step.label.trim()) diagnostics.push(diagnostic(`${path}/label`, 'Step label is required.'));
+  validateUniqueIds(step.expectations, `${path}/expectations`, 'expectation', diagnostics);
+  step.expectations.forEach((expectation, index) =>
+    validateExpectation(project, expectation, `${path}/expectations/${index}`, diagnostics),
+  );
   if (!step.enabled) return;
   if (step.input === 'select-subjects')
     step.selectSubjects.subjects.forEach((subject, index) =>
@@ -357,6 +717,15 @@ export function validateTestData(
     );
   data.steps.forEach((step, index) =>
     validateStep(project, step, `${base}/steps/${index}`, diagnostics),
+  );
+  validateUniqueIds(
+    data.finalExpectations,
+    `${base}/finalExpectations`,
+    'expectation',
+    diagnostics,
+  );
+  data.finalExpectations.forEach((expectation, index) =>
+    validateExpectation(project, expectation, `${base}/finalExpectations/${index}`, diagnostics),
   );
   return diagnostics;
 }

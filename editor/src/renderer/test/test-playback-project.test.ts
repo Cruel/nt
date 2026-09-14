@@ -3,6 +3,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import {
   defaultTestData,
+  defaultTestExpectation,
   defaultTestStep,
   testCharacterSubject,
   testFeatureSubject,
@@ -91,6 +92,14 @@ describe('authoring test playback project adapter', () => {
       },
       { ...defaultTestStep('continue'), id: 'disabled', label: 'Disabled', enabled: false },
     ];
+    const roomExpectation = defaultTestExpectation('current-room', 'eq');
+    roomExpectation.id = 'room-after-tick';
+    roomExpectation.currentRoom.roomId = 'foyer';
+    data.steps[0]!.expectations = [roomExpectation];
+    const finalEvent = defaultTestExpectation('event', 'absent');
+    finalEvent.id = 'no-failure-notification';
+    finalEvent.event = { kind: 'notification', value: 'failed' };
+    data.finalExpectations = [finalEvent];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
     expect((await buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke')).spec).toMatchObject({
@@ -98,7 +107,13 @@ describe('authoring test playback project adapter', () => {
       schema: 'noveltea.editor.playback',
       version: 1,
       steps: [
-        { index: 0, input: { type: 'advance-time', microseconds: 250000 } },
+        {
+          index: 0,
+          input: { type: 'advance-time', microseconds: 250000 },
+          expectations: [
+            { id: 'room-after-tick', type: 'current-room', operator: 'eq', roomId: 'foyer' },
+          ],
+        },
         { index: 1, input: { type: 'continue' } },
         { index: 2, input: { type: 'dialogue-choice', edge: 'accept' } },
         { index: 3, input: { type: 'scene-choice', option: 'investigate' } },
@@ -139,6 +154,15 @@ describe('authoring test playback project adapter', () => {
         },
         { index: 10, input: { type: 'save', slot: { kind: 'autosave' } } },
         { index: 11, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
+      ],
+      finalExpectations: [
+        {
+          id: 'no-failure-notification',
+          type: 'event',
+          operator: 'absent',
+          kind: 'notification',
+          value: 'failed',
+        },
       ],
     });
   });

@@ -65,4 +65,37 @@ describe('TestPlaybackPanel', () => {
     expect(screen.getByText('Conversion missing')).toBeInTheDocument();
     expect(screen.getByText('state @1')).toBeInTheDocument();
   });
+
+  it('renders typed step and final expectation results from native playback reports', () => {
+    useWorkspaceStore.getState().setLastPlaybackReport({
+      schema: 'noveltea.editor.playback-report',
+      version: 1,
+      id: 'typed-expectations',
+      passed: false,
+      steps: [
+        {
+          index: 0,
+          handled: true,
+          events: [{ type: 'notification', message: 'ready' }],
+          diagnostics: [],
+          expectations: [
+            { id: 'room', passed: true, message: 'Expectation passed.' },
+            { id: 'visible', passed: false, message: 'Entity state did not match.' },
+          ],
+        },
+      ],
+      finalExpectations: [{ id: 'saved', passed: true, message: 'Expectation passed.' }],
+      finalPublication: { revision: 3 },
+    });
+
+    render(<TestPlaybackPanel />);
+
+    expect(screen.getByText('typed-expectations')).toBeInTheDocument();
+    expect(screen.getByText('room')).toBeInTheDocument();
+    expect(screen.getByText('visible')).toBeInTheDocument();
+    expect(screen.getByText('Entity state did not match.')).toBeInTheDocument();
+    expect(screen.getByText('Final expectations')).toBeInTheDocument();
+    expect(screen.getByText('saved')).toBeInTheDocument();
+    expect(screen.getByText('Final publication')).toBeInTheDocument();
+  });
 });

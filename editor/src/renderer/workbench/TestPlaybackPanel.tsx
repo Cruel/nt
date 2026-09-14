@@ -54,7 +54,7 @@ function playbackDiagnosticItems(
 ): EditorDiagnosticItem[] {
   return diagnostics.map((diagnostic) => {
     const item = isRecord(diagnostic) ? diagnostic : {};
-    const path = getString(item.path) || undefined;
+    const path = getString(item.path) || getString(item.sourcePath) || undefined;
     return {
       severity: normalizedSeverity(item.severity),
       message: getString(item.message, JSON.stringify(diagnostic)),
@@ -80,16 +80,20 @@ export function TestPlaybackPanel() {
 
   const passed = getBoolean(report.passed);
   const failures = getArray(report.failures);
-  const observations = getArray(report.observations);
   const diagnostics = getArray(report.diagnostics);
-  const diagnosticItems = playbackDiagnosticItems(diagnostics, project);
-  const events = getArray(report.events);
-  const trace = getArray(report.trace);
+  const observations = getArray(report.observations);
   const finalState = isRecord(report.final_state)
     ? report.final_state
     : isRecord(report.finalState)
       ? report.finalState
       : null;
+  const steps = getArray(report.steps);
+  const finalExpectations = getArray(report.finalExpectations);
+  const finalPublication = isRecord(report.finalPublication) ? report.finalPublication : null;
+  const events =
+    steps.length > 0
+      ? steps.flatMap((step) => (isRecord(step) ? getArray(step.events) : []))
+      : getArray(report.events);
 
   return (
     <div className="space-y-3 p-3 text-xs">
@@ -99,7 +103,7 @@ export function TestPlaybackPanel() {
         </Badge>
         <span className="font-medium">{getString(report.id, 'Playback report')}</span>
         <span className="text-muted-foreground">
-          {observations.length} observation{observations.length === 1 ? '' : 's'}
+          {steps.length} step{steps.length === 1 ? '' : 's'}
         </span>
         <Button
           size="sm"
@@ -151,29 +155,83 @@ export function TestPlaybackPanel() {
       ) : null}
 
       <section className="space-y-2 rounded border p-3">
-        <h3 className="text-sm font-medium">Observations</h3>
-        {observations.length === 0 ? (
-          <div className="text-muted-foreground">No observations.</div>
+        <h3 className="text-sm font-medium">{steps.length > 0 ? 'Steps' : 'Observations'}</h3>
+        {steps.length === 0 && observations.length === 0 ? (
+          <div className="text-muted-foreground">No playback steps.</div>
         ) : null}
-        {observations.map((observation, index) => {
-          const item = isRecord(observation) ? observation : {};
-          const stepIndex = getNumber(item.step_index) ?? index;
-          const itemPassed = getBoolean(item.passed);
-          const assertionFailures = getArray(item.assertion_failures);
+        {steps.map((step, index) => {
+          const item = isRecord(step) ? step : {};
+          const stepIndex = getNumber(item.index) ?? index;
+          const handled = getBoolean(item.handled) === true;
+          const expectations = getArray(item.expectations);
+          const expectationFailed = expectations.some(
+            (value) => isRecord(value) && getBoolean(value.passed) === false,
+          );
+          const stepDiagnostics = getArray(item.diagnostics);
+          const failed =
+            !handled ||
+            expectationFailed ||
+            stepDiagnostics.some((value) => {
+              const diagnostic = isRecord(value) ? value : {};
+              return getString(diagnostic.severity) === 'error';
+            });
           return (
-            <div key={index} className="rounded border p-2">
+            <div key={index} className="space-y-2 rounded border p-2">
               <div className="flex items-center gap-2">
-                <Badge variant="outline">{stepIndex}</Badge>
-                <span className="font-medium">{getString(item.input, 'input')}</span>
-                <Badge variant={itemPassed === false ? 'destructive' : 'secondary'}>
-                  {itemPassed === false ? 'failed' : 'passed'}
+                <Badge variant="outline">{stepIndex + 1}</Badge>
+                <span className="font-medium">Semantic input</span>
+                <Badge variant={failed ? 'destructive' : 'secondary'}>
+                  {failed ? 'failed' : 'passed'}
                 </Badge>
                 <span className="text-muted-foreground">
                   handled {getText(item.handled, 'false')}
                 </span>
               </div>
-              {assertionFailures.length > 0 ? (
-                <div className="mt-2 space-y-1">
+              {expectations.length > 0 ? (
+                <div className="space-y-1">
+                  {expectations.map((value, expectationIndex) => {
+                    const expectation = isRecord(value) ? value : {};
+                    const expectationPassed = getBoolean(expectation.passed) === true;
+                    return (
+                      <div
+                        key={expectationIndex}
+                        className="flex items-start gap-2 rounded bg-muted/20 p-2"
+                      >
+                        <Badge variant={expectationPassed ? 'secondary' : 'destructive'}>
+                          {expectationPassed ? 'pass' : 'fail'}
+                        </Badge>
+                        <div>
+                          <div className="font-medium">
+                            {getString(expectation.id, 'expectation')}
+                          </div>
+                          <div className="text-muted-foreground">
+                            {getString(expectation.message, 'No expectation message.')}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+              <DiagnosticList items={playbackDiagnosticItems(stepDiagnostics, project)} />
+            </div>
+          );
+        })}
+        {steps.length === 0
+          ? observations.map((observation, index) => {
+              const item = isRecord(observation) ? observation : {};
+              const stepIndex = getNumber(item.step_index) ?? index;
+              const itemPassed = getBoolean(item.passed);
+              const assertionFailures = getArray(item.assertion_failures);
+              return (
+                <div key={index} className="space-y-2 rounded border p-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{stepIndex}</Badge>
+                    <span className="font-medium">{getString(item.input, 'input')}</span>
+                    <Badge variant={itemPassed === false ? 'destructive' : 'secondary'}>
+                      {itemPassed === false ? 'failed' : 'passed'}
+                    </Badge>
+                  </div>
                   {assertionFailures.map((failure, failureIndex) => (
                     <div
                       key={failureIndex}
@@ -182,40 +240,49 @@ export function TestPlaybackPanel() {
                       {String(failure)}
                     </div>
                   ))}
+                  <DiagnosticList
+                    items={playbackDiagnosticItems(getArray(item.diagnostics), project)}
+                  />
                 </div>
-              ) : null}
-              <DiagnosticList
-                items={playbackDiagnosticItems(getArray(item.diagnostics), project)}
-              />
-            </div>
-          );
-        })}
+              );
+            })
+          : null}
       </section>
 
       {diagnostics.length > 0 ? (
         <section className="space-y-2 rounded border p-3">
           <h3 className="text-sm font-medium">Report diagnostics</h3>
-          <DiagnosticList items={diagnosticItems} />
+          <DiagnosticList items={playbackDiagnosticItems(diagnostics, project)} />
         </section>
       ) : null}
 
-      {trace.length > 0 ? (
+      {finalExpectations.length > 0 ? (
         <section className="space-y-2 rounded border p-3">
-          <h3 className="text-sm font-medium">Trace</h3>
-          <div className="grid gap-1 @3xl:grid-cols-2 @7xl:grid-cols-3">
-            {trace.slice(0, 60).map((event, index) => {
-              const item = isRecord(event) ? event : {};
-              return (
-                <div key={index} className="rounded border p-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">{getText(item.step_index, String(index))}</Badge>
-                    <span className="font-medium">{getString(item.type, 'trace')}</span>
+          <h3 className="text-sm font-medium">Final expectations</h3>
+          {finalExpectations.map((value, index) => {
+            const expectation = isRecord(value) ? value : {};
+            const expectationPassed = getBoolean(expectation.passed) === true;
+            return (
+              <div key={index} className="flex items-start gap-2 rounded bg-muted/20 p-2">
+                <Badge variant={expectationPassed ? 'secondary' : 'destructive'}>
+                  {expectationPassed ? 'pass' : 'fail'}
+                </Badge>
+                <div>
+                  <div className="font-medium">{getString(expectation.id, 'expectation')}</div>
+                  <div className="text-muted-foreground">
+                    {getString(expectation.message, 'No expectation message.')}
                   </div>
-                  <div className="mt-1 text-muted-foreground">{getString(item.message, '')}</div>
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
+        </section>
+      ) : null}
+
+      {finalPublication ? (
+        <section className="space-y-2 rounded border p-3">
+          <h3 className="text-sm font-medium">Final publication</h3>
+          <JsonBlock value={finalPublication} />
         </section>
       ) : null}
 

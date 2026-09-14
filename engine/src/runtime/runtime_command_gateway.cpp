@@ -276,6 +276,32 @@ RuntimeCommandGateway::property(const core::PropertyOwnerRef& owner,
         owner);
 }
 
+core::Result<bool, core::Diagnostics>
+RuntimeCommandGateway::has_trait(const core::PropertyOwnerRef& owner,
+                                 const core::TraitId& trait) const
+{
+    return std::visit(
+        [this, &trait](const auto& id) -> core::Result<bool, core::Diagnostics> {
+            using T = std::decay_t<decltype(id)>;
+            if constexpr (std::is_same_v<T, core::RoomId> || std::is_same_v<T, core::CharacterId> ||
+                          std::is_same_v<T, core::InteractableInstanceId>) {
+                const auto* configuration = m_world.resolved_configuration(id);
+                if (configuration == nullptr)
+                    return core::Result<bool, core::Diagnostics>::failure(gateway_error(
+                        "runtime.unknown_property_owner", "Gameplay Instance is not live"));
+                return core::Result<bool, core::Diagnostics>::success(
+                    std::find(configuration->identity.traits.begin(),
+                              configuration->identity.traits.end(),
+                              trait) != configuration->identity.traits.end());
+            } else {
+                return core::Result<bool, core::Diagnostics>::failure(
+                    gateway_error("runtime.unsupported_trait_owner",
+                                  "Trait query supports Room, Character, and Interactable owners"));
+            }
+        },
+        owner);
+}
+
 core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::set_property(core::PropertyOwnerRef owner, core::PropertyId property_id,
                                     core::RuntimeValue value)
@@ -1135,6 +1161,16 @@ RuntimeCommandGateway::mounted_layout(const core::MountedLayoutPresentationKey& 
         found == m_state.mounted_layouts().end()
             ? std::nullopt
             : std::optional<core::DesiredMountedLayout>{*found});
+}
+
+std::vector<core::PersistableValue>
+RuntimeCommandGateway::layout_states(const core::LayoutId& layout_id) const
+{
+    std::vector<core::PersistableValue> values;
+    for (const auto& slot : m_state.layout_state_slots())
+        if (slot.layout == layout_id)
+            values.push_back(slot.value);
+    return values;
 }
 
 core::Result<std::optional<core::LayoutId>, core::Diagnostics>
