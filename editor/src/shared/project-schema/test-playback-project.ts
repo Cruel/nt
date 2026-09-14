@@ -5,7 +5,12 @@ import {
   logicalRuntimeArtifactPaths,
   prepareRuntimeArtifact,
 } from '../runtime-artifact-preparation';
-import { parseTestData, type TestData, type TestStepData } from './authoring-tests';
+import {
+  parseTestData,
+  type TestData,
+  type TestExpectationData,
+  type TestStepData,
+} from './authoring-tests';
 
 export type TestRunReadinessReason =
   | 'runnable'
@@ -59,6 +64,20 @@ function typedSubject(
         ownerId: subject.feature.interactable.$ref.id,
         featureId: subject.feature.featureId,
       };
+}
+
+function buildTypedExpectation(expectation: TestExpectationData): Record<string, unknown> {
+  const base = { id: expectation.id, type: expectation.type, operator: expectation.operator };
+  if (expectation.type === 'property') return { ...base, ...expectation.property };
+  if (expectation.type === 'current-room') return { ...base, ...expectation.currentRoom };
+  if (expectation.type === 'location') return { ...base, ...expectation.location };
+  if (expectation.type === 'quantity') return { ...base, ...expectation.quantity };
+  if (expectation.type === 'trait') return { ...base, ...expectation.trait };
+  if (expectation.type === 'entity-state') return { ...base, ...expectation.entityState };
+  if (expectation.type === 'active-flow') return { ...base, ...expectation.activeFlow };
+  if (expectation.type === 'layout') return { ...base, ...expectation.layout };
+  if (expectation.type === 'event') return { ...base, ...expectation.event };
+  return { ...base, ...expectation.diagnostic };
 }
 
 function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
@@ -122,7 +141,11 @@ export function buildRuntimePlaybackSpecFromTestData(
   data: TestData,
 ): RuntimePlaybackSpecBuildResult {
   const diagnostics: ToolDiagnostic[] = [];
-  const steps: Array<{ index: number; input: Record<string, unknown> }> = [];
+  const steps: Array<{
+    index: number;
+    input: Record<string, unknown>;
+    expectations: Record<string, unknown>[];
+  }> = [];
   data.steps
     .filter((step) => step.enabled)
     .forEach((step, index) => {
@@ -137,13 +160,18 @@ export function buildRuntimePlaybackSpecFromTestData(
         );
         return;
       }
-      steps.push({ index, input });
+      steps.push({
+        index,
+        input,
+        expectations: step.expectations.map(buildTypedExpectation),
+      });
     });
   const spec: Record<string, unknown> = {
     schema: 'noveltea.editor.playback',
     version: 1,
     id: testId,
     steps,
+    finalExpectations: data.finalExpectations.map(buildTypedExpectation),
   };
   return {
     ok: !diagnostics.some((item) => item.severity === 'error'),

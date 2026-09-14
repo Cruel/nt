@@ -121,13 +121,15 @@ testFeatureSubject(feature)
 ```
 
 Test steps reference Characters, exact Interactable Instances, owner-qualified Features, and Verbs.
-They do not carry generic entity references, map-specific actions, or Test-local assertion references.
+They do not carry generic entity references or map-specific actions. Semantic expectations use their own
+closed typed targets rather than arbitrary assertion scripts or expression payloads.
 
 ## Step Model
 
-Each test step has a stable ID, label, enabled flag, one semantic input discriminant, and typed
-payload objects for the supported input families. Only the payload selected by `step.input` is active
-during validation and playback lowering.
+Each test step has a stable ID, label, enabled flag, one semantic input discriminant, typed payload
+objects for the supported input families, and an ordered `expectations` list. Only the payload selected
+by `step.input` is active during input validation and playback lowering; expectations are evaluated
+after that step reaches a deterministic semantic boundary.
 
 `TestInteractionSubject` admits Character, exact Interactable Instance, and owner-qualified Feature
 identities. Recorder lowering and playback preserve Interactable Instance IDs rather than substituting
@@ -168,12 +170,26 @@ the native playback runner names.
 Dialogue and Scene choices never store list indexes. Navigation never stores a direction ordinal or
 target guess. Save/load steps store typed slot identities rather than arbitrary payloads.
 
-## Runtime Observation Model
+## Semantic Expectations
 
-The current Test schema has no assertion DSL. Playback reports expose ordered runtime events,
-diagnostics, and one coherent final publication containing gameplay UI, presentation, and public
-runtime observations. Tests and certification code evaluate those public semantic outputs instead of
-serializing Test-local `type`/`value`/`expected` assertion payloads.
+Authored Tests have a closed typed expectation vocabulary. Expectations may follow any enabled step,
+and `finalExpectations` may validate the completed playback state. They observe authoritative runtime
+publications and query gateways; they do not read private RuntimeSession fields and do not execute Lua
+or an expression language.
+
+The initial families cover Properties, current Room, Character/Interactable location, Interactable
+quantity, Trait presence, enabled/visible entity state, active Scene/Dialogue identity, mounted Layout
+presence/state, notification/save outcomes, and diagnostic codes. Operators are deliberately limited
+to equality/inequality, presence/absence, and numeric comparisons where the target supports them.
+
+Before evaluating step expectations, native playback performs a zero-duration engine-time advance.
+This drains deterministic runtime work without wall-clock sleeps or artificial elapsed gameplay time.
+Final expectations use the same semantic observation seam after a final zero-duration settle.
+
+Playback reports include ordered per-step expectation results plus final expectation results and the
+coherent final publication. Expectation failures make the report fail while preserving the individual
+result ID and message for editor diagnostics/reporting. Legacy generic assertion payloads and arbitrary
+assertion Lua remain unsupported.
 
 ## Defaults
 
@@ -190,8 +206,10 @@ initial data is:
       input: 'tick',
       label: 'Start',
       enabled: true,
+      expectations: [],
     },
   ],
+  finalExpectations: [],
   preview: {
     selectedStepId: 'start',
     selectedObservationIndex: null,
@@ -406,12 +424,11 @@ structured reports instead of only dumping JSON.
 
 The panel displays:
 
-- pass/fail badge;
-- report id;
-- final state summary;
-- ordered playback/runtime observations and diagnostics;
-- report-level diagnostics;
-- output summary;
+- pass/fail badge and report id;
+- ordered semantic playback steps with per-step expectation pass/fail results and diagnostics;
+- final expectation results;
+- the coherent final publication and emitted events;
+- readiness pseudo-report failures/diagnostics when native playback did not run;
 - expandable raw JSON fallback.
 
 The panel accepts unknown report objects defensively because native playback
@@ -464,9 +481,9 @@ editor ergonomics rather than an authoring-to-runtime conversion gap.
 
 Known limitations:
 
-- failure timeline deep-linking is basic and based on matching observation
-  indexes to step order;
-- step editing is immediate command commit rather than buffered draft editing.
+- failure timeline deep-linking is basic and based on matching playback step indexes to authored
+  step order;
+- step and expectation editing is immediate command commit rather than buffered draft editing.
 
 These limitations are editor UX concerns and do not change playback semantics.
 
@@ -496,12 +513,14 @@ pnpm vitest run src/renderer/test/test-playback-project.test.ts
 Expected coverage:
 
 - default test data has the right stable shape;
-- validation reports missing refs, duplicate IDs, invalid Features, incomplete subject actions, and
-  incomplete Verb bindings;
+- validation reports missing refs, duplicate IDs, invalid Features, incomplete subject actions,
+  incomplete Verb bindings, invalid expectation operators, and missing semantic expectation targets;
 - project validation includes test diagnostics;
 - `entity.createRecord` creates typed test data;
 - `test.replaceData` patches valid data and rejects invalid replacements;
 - undo restores previous test data;
 - playback spec serialization uses stable Dialogue Edge, Scene Option, Room Exit, subject, Verb, and
-  save-slot identities;
+  save-slot identities and lowers step/final expectations into the strict native playback protocol;
+- native playback evaluates expectations against public semantic state after deterministic settling and
+  reports individual expectation results;
 - readiness reflects Test lowering and runtime-artifact compilation honestly.

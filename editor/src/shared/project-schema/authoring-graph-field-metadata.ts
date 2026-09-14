@@ -426,6 +426,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^\/tests\/\*\/data\/steps\/\*\/(?:dialogueChoice\/edgeId|sceneChoice\/optionId|navigate\/exitId|saveSlot\/slotId)$/,
     NONE,
   ],
+  // #243 adds typed semantic expectations to Tests. Expectations observe the already-compiled live
+  // runtime and therefore do not contribute new Authoring dependency-graph edges or projections.
+  [/^\/tests\/\*\/data\/(?:steps\/\*\/expectations|finalExpectations)(?:\/|$)/, NONE],
   [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
   // #136 introduces ordered owner-local Property declarations on migrated Room/Character owners.
   // Every declaration field contributes directly to that exact owner's compiled/runtime state.
@@ -1016,7 +1019,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     scripts: 'f3482815',
     settings: '67b8f0c4',
     shaders: '94d3aa6e',
-    tests: '99f1bf10',
+    tests: '7348275b',
     traits: '371bbceb',
     undefinedInteractionProgram: 'da7c64b8',
     variables: 'c5d1f73c',

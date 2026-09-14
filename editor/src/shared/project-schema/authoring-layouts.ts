@@ -192,7 +192,7 @@ function stateValueMatchesShape(
   );
 }
 
-const layoutPersistableValueSchema: z.ZodType<LayoutPersistableValue> = z.lazy(() =>
+export const layoutPersistableValueSchema: z.ZodType<LayoutPersistableValue> = z.lazy(() =>
   z.union([
     z.null(),
     z.boolean(),

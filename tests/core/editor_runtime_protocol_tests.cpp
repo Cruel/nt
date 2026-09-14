@@ -692,21 +692,39 @@ TEST_CASE("editor playback protocol lowers persisted steps to typed vocabulary")
         {"version", 1},
         {"id", "smoke"},
         {"steps",
-         {{{"index", 0}, {"input", {{"type", "begin-playback"}}}},
+         {{{"index", 0},
+           {"input", {{"type", "begin-playback"}}},
+           {"expectations",
+            {{{"id", "room"},
+              {"type", "current-room"},
+              {"operator", "eq"},
+              {"roomId", "start"}}}}},
           {{"index", 1},
            {"input",
-            {{"type", "select-subjects"}, {"subjects", nlohmann::json::array({key, door})}}}},
+            {{"type", "select-subjects"}, {"subjects", nlohmann::json::array({key, door})}}},
+           {"expectations", nlohmann::json::array()}},
           {{"index", 2},
            {"input",
             {{"type", "invoke-interaction"},
              {"verb", "look"},
-             {"bindings", nlohmann::json::array({{{"slotId", "target"}, {"subject", door}}})}}}}}}};
+             {"bindings", nlohmann::json::array({{{"slotId", "target"}, {"subject", door}}})}}},
+           {"expectations", nlohmann::json::array()}}}},
+        {"finalExpectations",
+         nlohmann::json::array({{{"id", "notification"},
+                                 {"type", "event"},
+                                 {"operator", "absent"},
+                                 {"kind", "notification"},
+                                 {"value", "unexpected"}}})}};
     auto result = decode_editor_playback_text(document.dump());
     REQUIRE(result);
     REQUIRE(result.value().steps.size() == 3);
     CHECK(std::holds_alternative<BeginPlaybackInput>(result.value().steps[0].input));
     CHECK(std::holds_alternative<SelectInteractionSubjectsInput>(result.value().steps[1].input));
     CHECK(std::holds_alternative<InvokeInteractionInput>(result.value().steps[2].input));
+    REQUIRE(result.value().steps[0].expectations.size() == 1);
+    CHECK(result.value().steps[0].expectations[0].kind == TypedPlaybackExpectationKind::CurrentRoom);
+    REQUIRE(result.value().final_expectations.size() == 1);
+    CHECK(result.value().final_expectations[0].kind == TypedPlaybackExpectationKind::Event);
 }
 
 TEST_CASE("editor playback protocol rejects invalid cardinality indexes and fields")
@@ -717,22 +735,98 @@ TEST_CASE("editor playback protocol rejects invalid cardinality indexes and fiel
                                         {"version", 1},
                                         {"id", "too-many"},
                                         {"steps",
-                                         {{{"index", 0}, {"input", {{"type", "continue"}}}},
-                                          {{"index", 1}, {"input", {{"type", "continue"}}}}}}},
+                                         {{{"index", 0},
+                                           {"input", {{"type", "continue"}}},
+                                           {"expectations", nlohmann::json::array()}},
+                                          {{"index", 1},
+                                           {"input", {{"type", "continue"}}},
+                                           {"expectations", nlohmann::json::array()}}}},
+                                        {"finalExpectations", nlohmann::json::array()}},
                                        limits));
     CHECK_FALSE(decode_editor_playback({{"schema", playback_schema},
                                         {"version", 1},
                                         {"id", "duplicate"},
                                         {"steps",
-                                         {{{"index", 0}, {"input", {{"type", "continue"}}}},
-                                          {{"index", 0}, {"input", {{"type", "continue"}}}}}}}));
+                                         {{{"index", 0},
+                                           {"input", {{"type", "continue"}}},
+                                           {"expectations", nlohmann::json::array()}},
+                                          {{"index", 0},
+                                           {"input", {{"type", "continue"}}},
+                                           {"expectations", nlohmann::json::array()}}}},
+                                        {"finalExpectations", nlohmann::json::array()}}));
     CHECK_FALSE(decode_editor_playback({{"schema", playback_schema},
                                         {"version", 1},
                                         {"id", "open"},
                                         {"steps",
                                          {{{"index", 0},
                                            {"input", {{"type", "continue"}}},
-                                           {"payload", nlohmann::json::object()}}}}}));
+                                           {"expectations", nlohmann::json::array()},
+                                           {"payload", nlohmann::json::object()}}}},
+                                        {"finalExpectations", nlohmann::json::array()}}));
+}
+
+TEST_CASE("editor playback protocol strictly validates typed expectations")
+{
+    const nlohmann::json canonical = {
+        {"schema", playback_schema},
+        {"version", 1},
+        {"id", "expectations"},
+        {"steps",
+         nlohmann::json::array(
+             {{{"index", 0},
+               {"input", {{"type", "continue"}}},
+               {"expectations",
+                nlohmann::json::array({{{"id", "room"},
+                                        {"type", "current-room"},
+                                        {"operator", "eq"},
+                                        {"roomId", "start"}}})}}})},
+        {"finalExpectations", nlohmann::json::array()}};
+    CHECK(decode_editor_playback(canonical));
+
+    auto generic = canonical;
+    generic["steps"][0]["expectations"][0] = {
+        {"id", "generic"}, {"type", "lua"}, {"operator", "eq"}, {"value", true}};
+    CHECK_FALSE(decode_editor_playback(generic));
+
+    auto missing_field = canonical;
+    missing_field["steps"][0]["expectations"][0].erase("roomId");
+    CHECK_FALSE(decode_editor_playback(missing_field));
+
+    auto invalid_operator = canonical;
+    invalid_operator["steps"][0]["expectations"][0]["operator"] = "gt";
+    CHECK_FALSE(decode_editor_playback(invalid_operator));
+
+    auto wrong_entity_field = canonical;
+    wrong_entity_field["steps"][0]["expectations"][0] = {
+        {"id", "visible"},
+        {"type", "entity-state"},
+        {"operator", "eq"},
+        {"entityKind", "character"},
+        {"entityId", "guard"},
+        {"field", "private-state"},
+        {"value", true}};
+    CHECK_FALSE(decode_editor_playback(wrong_entity_field));
+
+    auto numeric_string = canonical;
+    numeric_string["steps"][0]["expectations"][0] = {
+        {"id", "score"},
+        {"type", "property"},
+        {"operator", "gt"},
+        {"scope", "global"},
+        {"ownerId", ""},
+        {"propertyId", "score"},
+        {"value", "10"}};
+    CHECK_FALSE(decode_editor_playback(numeric_string));
+
+    auto structured_layout_state = canonical;
+    structured_layout_state["steps"][0]["expectations"][0] = {
+        {"id", "layout-state"},
+        {"type", "layout"},
+        {"operator", "eq"},
+        {"layoutId", "hud"},
+        {"field", "state"},
+        {"value", {{"page", 2}, {"flags", nlohmann::json::array({true, false})}}}};
+    CHECK(decode_editor_playback(structured_layout_state));
 }
 
 TEST_CASE("editor playback protocol requires stable choice and navigation identities")
@@ -743,9 +837,16 @@ TEST_CASE("editor playback protocol requires stable choice and navigation identi
         {"id", "stable-identities"},
         {"steps",
          nlohmann::json::array(
-             {{{"index", 0}, {"input", {{"type", "dialogue-choice"}, {"edge", "accept"}}}},
-              {{"index", 1}, {"input", {{"type", "scene-choice"}, {"option", "investigate"}}}},
-              {{"index", 2}, {"input", {{"type", "navigate"}, {"exit", "north-exit"}}}}})}};
+             {{{"index", 0},
+               {"input", {{"type", "dialogue-choice"}, {"edge", "accept"}}},
+               {"expectations", nlohmann::json::array()}},
+              {{"index", 1},
+               {"input", {{"type", "scene-choice"}, {"option", "investigate"}}},
+               {"expectations", nlohmann::json::array()}},
+              {{"index", 2},
+               {"input", {{"type", "navigate"}, {"exit", "north-exit"}}},
+               {"expectations", nlohmann::json::array()}}})},
+        {"finalExpectations", nlohmann::json::array()}};
     auto decoded = decode_editor_playback(canonical);
     REQUIRE(decoded);
     REQUIRE(decoded.value().steps.size() == 3);
@@ -868,18 +969,21 @@ TEST_CASE("typed playback report encoder has stable external shape")
     step.events.push_back(noveltea::runtime::NotificationEvent{"saved"});
     step.diagnostics.push_back(
         {.code = "runtime.note", .message = "note", .severity = ErrorSeverity::Info});
+    step.expectations.push_back({"room", true, "Expectation passed."});
     steps.push_back(std::move(step));
+    const std::vector<TypedPlaybackExpectationReport> final_expectations{
+        {"finished", false, "Current Room did not match."}};
 
-    const auto report =
-        encode_editor_playback_report("smoke", steps, publication(final_view), true);
+    const auto report = encode_editor_playback_report("smoke", steps, final_expectations,
+                                                      publication(final_view), false);
     CHECK(nlohmann::json::parse(encode_editor_playback_report_text(
-              "smoke", steps, publication(final_view), true)) == report);
+              "smoke", steps, final_expectations, publication(final_view), false)) == report);
     CHECK(
         report ==
         nlohmann::json{{"schema", playback_report_schema},
                        {"version", 1},
                        {"id", "smoke"},
-                       {"passed", true},
+                       {"passed", false},
                        {"steps",
                         {{{"index", 4},
                           {"handled", true},
@@ -890,7 +994,15 @@ TEST_CASE("typed playback report encoder has stable external shape")
                            {{{"severity", "info"},
                              {"code", "runtime.note"},
                              {"message", "note"},
-                             {"sourcePath", ""}}}}}}},
+                             {"sourcePath", ""}}}},
+                          {"expectations",
+                           {{{"id", "room"},
+                             {"passed", true},
+                             {"message", "Expectation passed."}}}}}}},
+                       {"finalExpectations",
+                        {{{"id", "finished"},
+                          {"passed", false},
+                          {"message", "Current Room did not match."}}}},
                        {"finalPublication",
                         {{"revision", 1},
                          {"gameplayUi",

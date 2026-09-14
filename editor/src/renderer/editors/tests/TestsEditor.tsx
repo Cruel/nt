@@ -17,19 +17,26 @@ import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
   defaultTestData,
+  defaultTestExpectation,
   defaultTestStep,
   parseTestData,
   testCharacterSubject,
   testFeatureSubject,
+  testExpectationOperatorValues,
+  testExpectationTypeValues,
   testInputTypeValues,
   testInteractableSubject,
   testVerbRef,
   validateTestData,
   type TestData,
+  type TestExpectationData,
+  type TestExpectationOperator,
+  type TestExpectationType,
   type TestInputType,
   type TestInteractionSubject,
   type TestStepData,
 } from '../../../shared/project-schema/authoring-tests';
+import type { LayoutPersistableValue } from '../../../shared/project-schema/authoring-layouts';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
@@ -126,20 +133,514 @@ function commitTest(testId: string, next: TestData, label: string) {
 
 function reportObservationMap(
   report: unknown,
-): Map<number, { handled: boolean; diagnostics: unknown[] }> {
-  const map = new Map<number, { handled: boolean; diagnostics: unknown[] }>();
+): Map<number, { handled: boolean; diagnostics: unknown[]; expectations: unknown[] }> {
+  const map = new Map<
+    number,
+    { handled: boolean; diagnostics: unknown[]; expectations: unknown[] }
+  >();
   if (typeof report !== 'object' || report === null) return map;
   const steps = (report as { steps?: unknown }).steps;
   if (!Array.isArray(steps)) return map;
   steps.forEach((step, index) => {
     if (typeof step !== 'object' || step === null) return;
-    const value = step as { index?: unknown; handled?: unknown; diagnostics?: unknown };
+    const value = step as {
+      index?: unknown;
+      handled?: unknown;
+      diagnostics?: unknown;
+      expectations?: unknown;
+    };
     map.set(typeof value.index === 'number' ? value.index : index, {
       handled: value.handled === true,
       diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics : [],
+      expectations: Array.isArray(value.expectations) ? value.expectations : [],
     });
   });
   return map;
+}
+
+function expectationHasFailure(expectations: unknown[]) {
+  return expectations.some(
+    (expectation) =>
+      typeof expectation === 'object' &&
+      expectation !== null &&
+      (expectation as { passed?: unknown }).passed === false,
+  );
+}
+
+function expectationOperators(expectation: TestExpectationData): TestExpectationOperator[] {
+  if (
+    expectation.type === 'trait' ||
+    expectation.type === 'event' ||
+    expectation.type === 'diagnostic' ||
+    (expectation.type === 'layout' && expectation.layout.field === 'mounted')
+  )
+    return ['present', 'absent'];
+  if (expectation.type === 'entity-state') return ['eq', 'ne'];
+  if (
+    expectation.type === 'quantity' ||
+    expectation.type === 'property' ||
+    (expectation.type === 'layout' && expectation.layout.field === 'state')
+  )
+    return ['eq', 'ne', 'gt', 'gte', 'lt', 'lte'];
+  return ['eq', 'ne', 'present', 'absent'];
+}
+
+function scalarFromText(value: string): string | number | boolean | null {
+  const trimmed = value.trim();
+  if (trimmed === 'null') return null;
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  if (trimmed !== '' && Number.isFinite(Number(trimmed))) return Number(trimmed);
+  return value;
+}
+
+function scalarText(value: unknown) {
+  if (value === null) return 'null';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function persistableFromText(value: string): LayoutPersistableValue {
+  const trimmed = value.trim();
+  if (trimmed === '') return '';
+  try {
+    return JSON.parse(trimmed) as LayoutPersistableValue;
+  } catch {
+    return value;
+  }
+}
+
+function ExpectationEditor({
+  expectation,
+  onChange,
+  onDelete,
+}: {
+  expectation: TestExpectationData;
+  onChange: (expectation: TestExpectationData) => void;
+  onDelete: () => void;
+}) {
+  const operators = expectationOperators(expectation);
+  const replaceType = (type: TestExpectationType) => {
+    const next = defaultTestExpectation(type);
+    next.id = expectation.id;
+    onChange(next);
+  };
+  const patch = (patchData: Partial<TestExpectationData>) =>
+    onChange({ ...expectation, ...patchData } as TestExpectationData);
+
+  return (
+    <div
+      className="space-y-2 rounded border bg-muted/10 p-2"
+      data-test-expectation={expectation.id}
+    >
+      <div className="grid gap-2 @3xl:grid-cols-[1fr_1fr_1fr_auto]">
+        <Input
+          aria-label="Expectation ID"
+          value={expectation.id}
+          onChange={(event) => patch({ id: event.currentTarget.value })}
+        />
+        <Select
+          value={expectation.type}
+          onValueChange={(value) => replaceType(value as TestExpectationType)}
+        >
+          {testExpectationTypeValues.map((type) => (
+            <SelectItem key={type} value={type}>
+              {titleCase(type)}
+            </SelectItem>
+          ))}
+        </Select>
+        <Select
+          value={operators.includes(expectation.operator) ? expectation.operator : operators[0]}
+          onValueChange={(value) => patch({ operator: value as TestExpectationOperator })}
+        >
+          {operators.map((operator) => (
+            <SelectItem key={operator} value={operator}>
+              {operator}
+            </SelectItem>
+          ))}
+        </Select>
+        <Button size="sm" variant="outline" onClick={onDelete}>
+          Remove
+        </Button>
+      </div>
+
+      {expectation.type === 'property' ? (
+        <div className="grid gap-2 @3xl:grid-cols-2">
+          <Select
+            value={expectation.property.scope}
+            onValueChange={(value) =>
+              patch({
+                property: {
+                  ...expectation.property,
+                  scope: value as TestExpectationData['property']['scope'],
+                },
+              })
+            }
+          >
+            {['global', 'room', 'character', 'interactable'].map((scope) => (
+              <SelectItem key={scope} value={scope}>
+                {titleCase(scope)}
+              </SelectItem>
+            ))}
+          </Select>
+          {expectation.property.scope !== 'global' ? (
+            <Input
+              aria-label="Property owner ID"
+              placeholder="Owner ID"
+              value={expectation.property.ownerId}
+              onChange={(event) =>
+                patch({ property: { ...expectation.property, ownerId: event.currentTarget.value } })
+              }
+            />
+          ) : null}
+          <Input
+            aria-label="Property ID"
+            placeholder="Property ID"
+            value={expectation.property.propertyId}
+            onChange={(event) =>
+              patch({
+                property: { ...expectation.property, propertyId: event.currentTarget.value },
+              })
+            }
+          />
+          <Input
+            aria-label="Property expected value"
+            placeholder="Value (JSON scalar)"
+            value={scalarText(expectation.property.value)}
+            onChange={(event) =>
+              patch({
+                property: {
+                  ...expectation.property,
+                  value: scalarFromText(event.currentTarget.value),
+                },
+              })
+            }
+          />
+        </div>
+      ) : null}
+
+      {expectation.type === 'current-room' ? (
+        <Input
+          aria-label="Expected Room ID"
+          placeholder="Room ID"
+          value={expectation.currentRoom.roomId}
+          onChange={(event) => patch({ currentRoom: { roomId: event.currentTarget.value } })}
+        />
+      ) : null}
+
+      {expectation.type === 'location' ? (
+        <div className="grid gap-2 @3xl:grid-cols-2">
+          <Select
+            value={expectation.location.entityKind}
+            onValueChange={(value) =>
+              patch({
+                location: {
+                  ...expectation.location,
+                  entityKind: value as 'character' | 'interactable',
+                },
+              })
+            }
+          >
+            <SelectItem value="character">Character</SelectItem>
+            <SelectItem value="interactable">Interactable</SelectItem>
+          </Select>
+          <Input
+            aria-label="Location entity ID"
+            placeholder="Entity ID"
+            value={expectation.location.entityId}
+            onChange={(event) =>
+              patch({ location: { ...expectation.location, entityId: event.currentTarget.value } })
+            }
+          />
+          <Select
+            value={expectation.location.locationKind}
+            onValueChange={(value) =>
+              patch({
+                location: {
+                  ...expectation.location,
+                  locationKind: value as 'unplaced' | 'room' | 'inventory',
+                },
+              })
+            }
+          >
+            <SelectItem value="unplaced">Unplaced</SelectItem>
+            <SelectItem value="room">Room</SelectItem>
+            {expectation.location.entityKind === 'interactable' ? (
+              <SelectItem value="inventory">Inventory</SelectItem>
+            ) : null}
+          </Select>
+          {expectation.location.locationKind === 'room' ? (
+            <Input
+              aria-label="Location Room ID"
+              placeholder="Room ID"
+              value={expectation.location.roomId}
+              onChange={(event) =>
+                patch({ location: { ...expectation.location, roomId: event.currentTarget.value } })
+              }
+            />
+          ) : null}
+          {expectation.location.locationKind === 'inventory' ? (
+            <>
+              <Select
+                value={expectation.location.inventoryOwnerKind}
+                onValueChange={(value) =>
+                  patch({
+                    location: {
+                      ...expectation.location,
+                      inventoryOwnerKind:
+                        value as TestExpectationData['location']['inventoryOwnerKind'],
+                    },
+                  })
+                }
+              >
+                <SelectItem value="project">Project</SelectItem>
+                <SelectItem value="character">Character</SelectItem>
+                <SelectItem value="interactable">Interactable</SelectItem>
+              </Select>
+              {expectation.location.inventoryOwnerKind !== 'project' ? (
+                <Input
+                  aria-label="Inventory owner ID"
+                  placeholder="Inventory owner ID"
+                  value={expectation.location.inventoryOwnerId}
+                  onChange={(event) =>
+                    patch({
+                      location: {
+                        ...expectation.location,
+                        inventoryOwnerId: event.currentTarget.value,
+                      },
+                    })
+                  }
+                />
+              ) : null}
+              <Input
+                aria-label="Inventory ID"
+                placeholder="Inventory ID"
+                value={expectation.location.inventoryId}
+                onChange={(event) =>
+                  patch({
+                    location: { ...expectation.location, inventoryId: event.currentTarget.value },
+                  })
+                }
+              />
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      {expectation.type === 'quantity' ? (
+        <div className="grid gap-2 @3xl:grid-cols-2">
+          <Input
+            aria-label="Quantity Interactable ID"
+            placeholder="Interactable Instance ID"
+            value={expectation.quantity.interactableId}
+            onChange={(event) =>
+              patch({
+                quantity: { ...expectation.quantity, interactableId: event.currentTarget.value },
+              })
+            }
+          />
+          <Input
+            aria-label="Expected quantity"
+            type="number"
+            value={String(expectation.quantity.value)}
+            onChange={(event) =>
+              patch({
+                quantity: { ...expectation.quantity, value: Number(event.currentTarget.value) },
+              })
+            }
+          />
+        </div>
+      ) : null}
+
+      {expectation.type === 'trait' ? (
+        <div className="grid gap-2 @3xl:grid-cols-3">
+          <Select
+            value={expectation.trait.ownerKind}
+            onValueChange={(value) =>
+              patch({
+                trait: {
+                  ...expectation.trait,
+                  ownerKind: value as 'room' | 'character' | 'interactable',
+                },
+              })
+            }
+          >
+            <SelectItem value="room">Room</SelectItem>
+            <SelectItem value="character">Character</SelectItem>
+            <SelectItem value="interactable">Interactable</SelectItem>
+          </Select>
+          <Input
+            aria-label="Trait owner ID"
+            placeholder="Owner ID"
+            value={expectation.trait.ownerId}
+            onChange={(event) =>
+              patch({ trait: { ...expectation.trait, ownerId: event.currentTarget.value } })
+            }
+          />
+          <Input
+            aria-label="Trait ID"
+            placeholder="Trait ID"
+            value={expectation.trait.traitId}
+            onChange={(event) =>
+              patch({ trait: { ...expectation.trait, traitId: event.currentTarget.value } })
+            }
+          />
+        </div>
+      ) : null}
+
+      {expectation.type === 'entity-state' ? (
+        <div className="grid gap-2 @3xl:grid-cols-4">
+          <Select
+            value={expectation.entityState.entityKind}
+            onValueChange={(value) =>
+              patch({
+                entityState: {
+                  ...expectation.entityState,
+                  entityKind: value as 'character' | 'interactable',
+                },
+              })
+            }
+          >
+            <SelectItem value="character">Character</SelectItem>
+            <SelectItem value="interactable">Interactable</SelectItem>
+          </Select>
+          <Input
+            aria-label="Entity state ID"
+            placeholder="Entity ID"
+            value={expectation.entityState.entityId}
+            onChange={(event) =>
+              patch({
+                entityState: { ...expectation.entityState, entityId: event.currentTarget.value },
+              })
+            }
+          />
+          <Select
+            value={expectation.entityState.field}
+            onValueChange={(value) =>
+              patch({
+                entityState: { ...expectation.entityState, field: value as 'enabled' | 'visible' },
+              })
+            }
+          >
+            <SelectItem value="enabled">Enabled</SelectItem>
+            <SelectItem value="visible">Visible</SelectItem>
+          </Select>
+          <Select
+            value={String(expectation.entityState.value)}
+            onValueChange={(value) =>
+              patch({ entityState: { ...expectation.entityState, value: value === 'true' } })
+            }
+          >
+            <SelectItem value="true">true</SelectItem>
+            <SelectItem value="false">false</SelectItem>
+          </Select>
+        </div>
+      ) : null}
+
+      {expectation.type === 'active-flow' ? (
+        <div className="grid gap-2 @3xl:grid-cols-2">
+          <Select
+            value={expectation.activeFlow.kind}
+            onValueChange={(value) =>
+              patch({
+                activeFlow: { ...expectation.activeFlow, kind: value as 'scene' | 'dialogue' },
+              })
+            }
+          >
+            <SelectItem value="scene">Scene</SelectItem>
+            <SelectItem value="dialogue">Dialogue</SelectItem>
+          </Select>
+          <Input
+            aria-label="Active flow ID"
+            placeholder="Scene or Dialogue ID"
+            value={expectation.activeFlow.flowId}
+            onChange={(event) =>
+              patch({
+                activeFlow: { ...expectation.activeFlow, flowId: event.currentTarget.value },
+              })
+            }
+          />
+        </div>
+      ) : null}
+
+      {expectation.type === 'layout' ? (
+        <div className="grid gap-2 @3xl:grid-cols-3">
+          <Input
+            aria-label="Layout ID"
+            placeholder="Layout ID"
+            value={expectation.layout.layoutId}
+            onChange={(event) =>
+              patch({ layout: { ...expectation.layout, layoutId: event.currentTarget.value } })
+            }
+          />
+          <Select
+            value={expectation.layout.field}
+            onValueChange={(value) => {
+              const field = value as 'mounted' | 'state';
+              const next = { ...expectation, layout: { ...expectation.layout, field } };
+              next.operator = field === 'mounted' ? 'present' : 'eq';
+              onChange(next);
+            }}
+          >
+            <SelectItem value="mounted">Mounted</SelectItem>
+            <SelectItem value="state">State</SelectItem>
+          </Select>
+          {expectation.layout.field === 'state' ? (
+            <Input
+              aria-label="Layout state expected value"
+              placeholder="Value (JSON scalar)"
+              value={scalarText(expectation.layout.value)}
+              onChange={(event) =>
+                patch({
+                  layout: {
+                    ...expectation.layout,
+                    value: persistableFromText(event.currentTarget.value),
+                  },
+                })
+              }
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {expectation.type === 'event' ? (
+        <div className="grid gap-2 @3xl:grid-cols-2">
+          <Select
+            value={expectation.event.kind}
+            onValueChange={(value) =>
+              patch({
+                event: { ...expectation.event, kind: value as 'notification' | 'save-outcome' },
+              })
+            }
+          >
+            <SelectItem value="notification">Notification</SelectItem>
+            <SelectItem value="save-outcome">Save Outcome</SelectItem>
+          </Select>
+          <Input
+            aria-label="Event value"
+            placeholder={
+              expectation.event.kind === 'save-outcome'
+                ? 'saved / loaded / deleted / failed'
+                : 'Message'
+            }
+            value={expectation.event.value}
+            onChange={(event) =>
+              patch({ event: { ...expectation.event, value: event.currentTarget.value } })
+            }
+          />
+        </div>
+      ) : null}
+
+      {expectation.type === 'diagnostic' ? (
+        <Input
+          aria-label="Diagnostic code"
+          placeholder="Diagnostic code"
+          value={expectation.diagnostic.code}
+          onChange={(event) => patch({ diagnostic: { code: event.currentTarget.value } })}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 export function TestsEditor({ tab }: WorkbenchEditorProps) {
@@ -359,6 +860,62 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
     commit({ ...data, steps }, 'Move test step');
   }
 
+  function addStepExpectation(stepId: string) {
+    const step = data.steps.find((item) => item.id === stepId);
+    if (!step) return;
+    const expectation = defaultTestExpectation();
+    expectation.id = nextUniqueId(
+      step.expectations.map((item) => item.id),
+      expectation.type,
+    );
+    replaceStep(stepId, { expectations: [...step.expectations, expectation] });
+  }
+
+  function replaceStepExpectation(
+    stepId: string,
+    expectationIndex: number,
+    expectation: TestExpectationData,
+  ) {
+    const step = data.steps.find((item) => item.id === stepId);
+    if (!step) return;
+    const expectations = [...step.expectations];
+    expectations[expectationIndex] = expectation;
+    replaceStep(stepId, { expectations });
+  }
+
+  function deleteStepExpectation(stepId: string, expectationIndex: number) {
+    const step = data.steps.find((item) => item.id === stepId);
+    if (!step) return;
+    replaceStep(stepId, {
+      expectations: step.expectations.filter((_, index) => index !== expectationIndex),
+    });
+  }
+
+  function addFinalExpectation() {
+    const expectation = defaultTestExpectation();
+    expectation.id = nextUniqueId(
+      data.finalExpectations.map((item) => item.id),
+      expectation.type,
+    );
+    patch(
+      { finalExpectations: [...data.finalExpectations, expectation] },
+      'Add final test expectation',
+    );
+  }
+
+  function replaceFinalExpectation(index: number, expectation: TestExpectationData) {
+    const finalExpectations = [...data.finalExpectations];
+    finalExpectations[index] = expectation;
+    patch({ finalExpectations }, 'Update final test expectation');
+  }
+
+  function deleteFinalExpectation(index: number) {
+    patch(
+      { finalExpectations: data.finalExpectations.filter((_, itemIndex) => itemIndex !== index) },
+      'Delete final test expectation',
+    );
+  }
+
   async function runCurrentTest() {
     setBottomPanel('test-playback');
     const currentReadiness = await getAuthoringTestRunReadiness(activeProject, activeTestId);
@@ -484,12 +1041,16 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                       {observation ? (
                         <Badge
                           variant={
-                            !observation.handled || observation.diagnostics.length > 0
+                            !observation.handled ||
+                            observation.diagnostics.length > 0 ||
+                            expectationHasFailure(observation.expectations)
                               ? 'destructive'
                               : 'secondary'
                           }
                         >
-                          {!observation.handled || observation.diagnostics.length > 0
+                          {!observation.handled ||
+                          observation.diagnostics.length > 0 ||
+                          expectationHasFailure(observation.expectations)
                             ? 'failed'
                             : 'handled'}
                         </Badge>
@@ -501,6 +1062,36 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                   </button>
                 );
               })}
+            </div>
+          </section>
+
+          <section
+            className="space-y-3 rounded border p-3"
+            data-workbench-anchor="test.final-expectations"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-medium">Final expectations</h3>
+                <p className="text-xs text-muted-foreground">
+                  Evaluated after the last step settles on deterministic engine time.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={addFinalExpectation}>
+                Add expectation
+              </Button>
+            </div>
+            {data.finalExpectations.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No final expectations.</p>
+            ) : null}
+            <div className="space-y-2">
+              {data.finalExpectations.map((expectation, index) => (
+                <ExpectationEditor
+                  key={`${expectation.id}-${index}`}
+                  expectation={expectation}
+                  onChange={(next) => replaceFinalExpectation(index, next)}
+                  onDelete={() => deleteFinalExpectation(index)}
+                />
+              ))}
             </div>
           </section>
         </div>
@@ -844,6 +1435,38 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                   />
                 </div>
               ) : null}
+
+              <div
+                className="space-y-2 border-t pt-3"
+                data-workbench-anchor="test.step.expectations"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-sm font-medium">Expectations after step</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Evaluated after this input reaches a deterministic semantic boundary.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => addStepExpectation(activeStep.id)}
+                  >
+                    Add expectation
+                  </Button>
+                </div>
+                {activeStep.expectations.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No expectations after this step.</p>
+                ) : null}
+                {activeStep.expectations.map((expectation, index) => (
+                  <ExpectationEditor
+                    key={`${expectation.id}-${index}`}
+                    expectation={expectation}
+                    onChange={(next) => replaceStepExpectation(activeStep.id, index, next)}
+                    onDelete={() => deleteStepExpectation(activeStep.id, index)}
+                  />
+                ))}
+              </div>
             </section>
           ) : null}
 

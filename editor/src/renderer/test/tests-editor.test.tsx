@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TestsEditor } from '@/editors/tests/TestsEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
@@ -93,6 +93,55 @@ describe('TestsEditor', () => {
       };
       expect(document.tests.smoke.data.steps.some((step) => step.input === 'continue')).toBe(true);
     });
+  });
+
+  it('authors step and final semantic expectations through test.replaceData', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.entrypoint = { kind: 'room', id: 'foyer' };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<TestsEditor tab={tab} />);
+
+    const stepExpectationSection = document.querySelector(
+      '[data-workbench-anchor="test.step.expectations"]',
+    );
+    expect(stepExpectationSection).not.toBeNull();
+    fireEvent.click(within(stepExpectationSection as HTMLElement).getByText('Add expectation'));
+    await waitFor(() => {
+      const document = useProjectStore.getState().document as {
+        tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
+      };
+      expect(document.tests.smoke.data.steps[0]?.expectations).toHaveLength(1);
+      expect(document.tests.smoke.data.steps[0]?.expectations[0]).toMatchObject({
+        id: 'current-room',
+        type: 'current-room',
+        operator: 'present',
+      });
+    });
+
+    const finalExpectationSection = document.querySelector(
+      '[data-workbench-anchor="test.final-expectations"]',
+    );
+    expect(finalExpectationSection).not.toBeNull();
+    fireEvent.click(within(finalExpectationSection as HTMLElement).getByText('Add expectation'));
+    await waitFor(() => {
+      const document = useProjectStore.getState().document as {
+        tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
+      };
+      expect(document.tests.smoke.data.finalExpectations).toHaveLength(1);
+      expect(document.tests.smoke.data.finalExpectations[0]).toMatchObject({
+        id: 'current-room',
+        type: 'current-room',
+        operator: 'present',
+      });
+    });
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
   });
 
   it('commits semantic identity edits through test.replaceData', async () => {
