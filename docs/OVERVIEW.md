@@ -9,6 +9,8 @@ Do not treat `docs/archive/` as current implementation direction. Archive files 
 ## First Documents To Read
 
 - `AGENTS.md` defines root repository rules, migration constraints, and verification expectations.
+- `docs/agents/development.md` defines implementation testing, Feature Lab applicability,
+  documentation, and completion-report policy; read it before implementation work.
 - `docs/architecture/OVERVIEW.md` routes top-level architecture work.
 - `docs/architecture/SCHEMA_VERSION_POLICY.md` defines the mandatory single-current-version policy
   for schemas, protocols, persisted state, packages, manifests, and generated artifacts.
