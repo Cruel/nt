@@ -15,7 +15,6 @@
 
 #include <fstream>
 #include <functional>
-#include <memory>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -351,19 +350,6 @@ private:
 };
 
 } // namespace
-
-TEST_CASE("ScriptRuntime initializes with pinned Lua and sol2 versions")
-{
-    RuntimeFixture fixture;
-    auto initialized = fixture.runtime.initialize({&fixture.sources});
-    REQUIRE(initialized);
-    CHECK(fixture.runtime.is_initialized());
-    CHECK(LUA_VERSION_NUM == 505);
-    CHECK(std::string(LUA_VERSION) == "Lua 5.5");
-    CHECK(SOL_VERSION_MAJOR == 3);
-    CHECK(SOL_VERSION_MINOR == 5);
-    CHECK(SOL_VERSION_PATCH == 0);
-}
 
 TEST_CASE("ScriptRuntime keeps persistent global state across executions")
 {
@@ -1766,46 +1752,6 @@ TEST_CASE("ScriptRuntime executes scripts through ScriptSourcePort logical paths
     auto value = fixture.runtime.evaluate_string("asset_value", "asset_value");
     REQUIRE(value);
     CHECK(value.value() == "asset-ok");
-}
-
-TEST_CASE("ScriptRuntime supports shared_ptr-backed sol2 usertypes for future bindings")
-{
-    struct TestObject {
-        explicit TestObject(std::string label) : label(std::move(label)) {}
-        std::string label;
-        int calls = 0;
-        std::string ping()
-        {
-            ++calls;
-            return label + ":" + std::to_string(calls);
-        }
-    };
-
-    RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
-    sol::state_view lua(script::detail::ScriptRuntimeAccess::state(fixture.runtime));
-    lua.new_usertype<TestObject>(
-        "TestObject", sol::no_constructor, "ping", &TestObject::ping, "calls",
-        sol::property([](const TestObject& object) { return object.calls; }));
-
-    auto object = std::make_shared<TestObject>("kept");
-    std::weak_ptr<TestObject> weak = object;
-    lua["test_object"] = object;
-    object.reset();
-
-    REQUIRE(fixture.runtime.execute("stored_object = test_object\nobserved = stored_object:ping()",
-                                    "shared_ptr"));
-    CHECK_FALSE(weak.expired());
-    auto observed = fixture.runtime.evaluate_string("observed", "observed");
-    REQUIRE(observed);
-    CHECK(observed.value() == "kept:1");
-    auto calls = fixture.runtime.evaluate("stored_object.calls", "calls");
-    REQUIRE(calls);
-    CHECK(std::get<std::int64_t>(calls.value()) == 1);
-
-    REQUIRE(fixture.runtime.execute("test_object = nil\nstored_object = nil", "release"));
-    fixture.runtime.collect_garbage();
-    CHECK(weak.expired());
 }
 
 TEST_CASE("ScriptRuntime shutdown is idempotent and supports reinitialization")

@@ -4,6 +4,8 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 
 using namespace noveltea::core;
@@ -98,6 +100,100 @@ TEST_CASE("typed filesystem slot failures do not replace the prior save")
     CHECK(interrupted.error().front().code == "save_slot.short_write");
     CHECK(store.read_slot(slot).value() == "complete-save");
 
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("typed filesystem checkpoints reject truncated and unsupported bundles")
+{
+    const auto root = temporary_root("typed-save-corruption");
+    TypedFilesystemSaveSlotStore store(root);
+    const auto slot = TypedSaveSlotId::manual(4);
+    const TypedSaveSlotCheckpoint checkpoint{
+        .encoded_save = "save-bytes",
+        .metadata =
+            SaveCheckpointMetadata{.project = ProjectId::create("checkpoint-project").value(),
+                                   .project_version = "1",
+                                   .save_contract = "contract",
+                                   .play_time = std::chrono::milliseconds{25},
+                                   .generations = {3, 3, 2, 2}},
+        .thumbnail = SaveCheckpointThumbnail{.encoding = SaveCheckpointThumbnailEncoding::Png,
+                                             .width = 1,
+                                             .height = 1,
+                                             .bytes = "\x89PNG\r\n\x1a\nthumbnail"}};
+    REQUIRE(store.write_checkpoint(slot, checkpoint));
+    const auto path = root / "slot-4.ntsav";
+    std::ifstream input(path, std::ios::binary);
+    REQUIRE(input.good());
+    const std::string valid{std::istreambuf_iterator<char>{input}, {}};
+    input.close();
+    REQUIRE(store.read_checkpoint(slot).value() == checkpoint);
+
+    const auto replace = [&](std::string_view bytes) {
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        REQUIRE(output.good());
+        output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        output.close();
+        REQUIRE(output.good());
+    };
+
+    SECTION("every incomplete prefix is rejected")
+    {
+        for (std::size_t size = 0; size < valid.size(); ++size) {
+            CAPTURE(size);
+            replace(std::string_view(valid).substr(0, size));
+            CHECK_FALSE(store.read_checkpoint(slot));
+            CHECK_FALSE(store.read_slot(slot));
+        }
+    }
+    SECTION("trailing data is rejected")
+    {
+        replace(valid + "unexpected");
+        CHECK_FALSE(store.read_checkpoint(slot));
+    }
+    SECTION("unsupported file versions are rejected")
+    {
+        auto unsupported = valid;
+        // NTSAVE is followed by the little-endian uint32 file-format version.
+        REQUIRE(unsupported.size() > 9);
+        for (const unsigned char version : {0, 255}) {
+            unsupported[6] = static_cast<char>(version);
+            unsupported[7] = unsupported[8] = unsupported[9] = '\0';
+            replace(unsupported);
+            CHECK_FALSE(store.read_checkpoint(slot));
+        }
+    }
+
+    replace(valid);
+    CHECK(store.read_checkpoint(slot).value() == checkpoint);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("plain save writes clear metadata and thumbnails from an overwritten checkpoint")
+{
+    const auto root = temporary_root("typed-save-overwrite");
+    TypedMemorySaveSlotStore memory;
+    TypedFilesystemSaveSlotStore filesystem(root);
+    const auto slot = TypedSaveSlotId::manual(0);
+    const TypedSaveSlotCheckpoint checkpoint{
+        .encoded_save = "old-save",
+        .metadata =
+            SaveCheckpointMetadata{.project = ProjectId::create("checkpoint-project").value()},
+        .thumbnail = SaveCheckpointThumbnail{.encoding = SaveCheckpointThumbnailEncoding::Png,
+                                             .width = 1,
+                                             .height = 1,
+                                             .bytes = "\x89PNG\r\n\x1a\nthumbnail"}};
+    for (TypedSaveSlotStore* store : {static_cast<TypedSaveSlotStore*>(&memory),
+                                      static_cast<TypedSaveSlotStore*>(&filesystem)}) {
+        REQUIRE(store->write_checkpoint(slot, checkpoint));
+        REQUIRE(store->write_slot(slot, "new-save"));
+        auto result = store->read_checkpoint(slot);
+        REQUIRE(result);
+        CHECK(result.value().encoded_save == "new-save");
+        CHECK_FALSE(result.value().metadata);
+        CHECK_FALSE(result.value().thumbnail);
+    }
     std::error_code error;
     std::filesystem::remove_all(root, error);
 }

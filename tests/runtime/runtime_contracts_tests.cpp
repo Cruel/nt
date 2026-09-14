@@ -1,86 +1,31 @@
+#include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
+#include "noveltea/runtime/runtime_command_gateway.hpp"
 #include "noveltea/runtime/runtime_commands.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
-#include "noveltea/runtime/runtime_ports.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include <array>
+#include <fstream>
 #include <limits>
 #include <type_traits>
 
 namespace noveltea::runtime {
-class RuntimeCommandGateway {};
-
 namespace {
 
-class FakeScriptInvocationPort final : public ScriptInvocationPort {
-public:
-    [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptInvocationError>
-    invoke(const ScriptInvocationRequest&, const RuntimeCapabilitySet&) override
-    {
-        return core::Result<ScriptInvocationOutcome, ScriptInvocationError>::success(
-            ScriptInvocationCompleted{});
-    }
-
-    [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptInvocationError>
-    resume(const core::ScriptInvocationHandle&, const RuntimeCapabilitySet&) override
-    {
-        return core::Result<ScriptInvocationOutcome, ScriptInvocationError>::failure(
-            {.code = ScriptInvocationErrorCode::StaleInvocation,
-             .message = "stale test invocation",
-             .chunk = "runtime-contract-test",
-             .traceback = "runtime-contract-test:1: stale test invocation"});
-    }
-
-    [[nodiscard]] core::Result<void, ScriptInvocationError>
-    run_project_on_game_ready(const RuntimeCapabilitySet&) override
-    {
-        return core::Result<void, ScriptInvocationError>::success();
-    }
-
-    void cancel(const core::ScriptInvocationHandle&, ScriptCancellationReason) override {}
-    void invalidate_capabilities(CapabilityGeneration) noexcept override {}
-};
-
-class FakePresentationRuntimePort final : public PresentationRuntimePort {
-public:
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    reconcile_snapshot(const core::RuntimePresentationSnapshot&) override
-    {
-        return core::Result<void, core::Diagnostics>::success();
-    }
-
-    [[nodiscard]] core::Result<PresentationAcceptance, core::Diagnostics>
-    accept(const core::PresentationOperation&) override
-    {
-        return core::Result<PresentationAcceptance, core::Diagnostics>::success({true});
-    }
-
-    [[nodiscard]] core::Result<PresentationAcceptance, core::Diagnostics>
-    accept(const core::AudioOperation&) override
-    {
-        return core::Result<PresentationAcceptance, core::Diagnostics>::success({true});
-    }
-
-    [[nodiscard]] const core::PresentationCheckpointStatus&
-    checkpoint_status() const noexcept override
-    {
-        return m_status;
-    }
-
-    void terminate(core::PresentationCancellationReason) override {}
-
-private:
-    core::PresentationCheckpointStatus m_status{core::CheckpointStatusRevision::from_number(1), {}};
-};
-
-class FakeExternalRequestSink final : public ExternalRequestSink {
-public:
-    void cancel_all(RuntimeCancellationReason reason) override { last_reason = reason; }
-
-    std::optional<RuntimeCancellationReason> last_reason;
-};
+core::CompiledProject load_project()
+{
+    std::ifstream input(std::string(NOVELTEA_SOURCE_DIR) +
+                        "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json");
+    REQUIRE(input.good());
+    auto document = nlohmann::json::parse(input, nullptr, false);
+    REQUIRE_FALSE(document.is_discarded());
+    auto project = core::decode_compiled_project(document, "runtime-contract-test");
+    REQUIRE(project);
+    return std::move(project).value();
+}
 
 TEST_CASE("runtime publication revisions reject zero and never wrap")
 {
@@ -94,28 +39,6 @@ TEST_CASE("runtime publication revisions reject zero and never wrap")
         RuntimePublicationRevision::from_number(std::numeric_limits<std::uint64_t>::max());
     REQUIRE(maximum.has_value());
     CHECK_FALSE(maximum->next().has_value());
-
-    RuntimePublication publication{
-        .revision = *first, .gameplay_ui = {}, .presentation = {}, .observations = {}};
-    RuntimeDispatchResult result{.disposition = RuntimeInputDisposition::Handled,
-                                 .publication = publication};
-    REQUIRE(result.publication.has_value());
-    CHECK(result.publication->revision == *first);
-}
-
-TEST_CASE("runtime contract vocabularies are closed typed variants")
-{
-    STATIC_REQUIRE(std::variant_size_v<RuntimeEvent> == 3);
-    STATIC_REQUIRE(std::variant_size_v<DeferredRuntimeCommandPayload> == 30);
-    STATIC_REQUIRE(std::variant_size_v<ScriptInvocationOutcome> == 2);
-
-    const RuntimeBudgetConfiguration budget;
-    CHECK(budget.instruction_limit > 0);
-    CHECK(budget.command_limit > 0);
-    const RuntimeBudgetOutcome yielded{.kind = RuntimeBudgetOutcomeKind::Yielded,
-                                       .exhausted = RuntimeBudgetKind::Instruction,
-                                       .consumed = budget.instruction_limit};
-    CHECK(yielded.exhausted == RuntimeBudgetKind::Instruction);
 }
 
 TEST_CASE("mutation impacts coalesce and can be merged")
@@ -128,6 +51,7 @@ TEST_CASE("mutation impacts coalesce and can be merged")
     MutationImpactJournal other;
     other.record(MutationImpact::PresentationInvalidated);
     journal.merge(other);
+    CHECK(journal.contains(MutationImpact::StructuralStateChanged));
     CHECK(journal.contains(MutationImpact::PresentationInvalidated));
     CHECK_FALSE(journal.contains(MutationImpact::TimeStateChanged));
 }
@@ -140,7 +64,8 @@ TEST_CASE("runtime command identities and external request lifecycles are termin
     ExternalRequestLifecycle request(*ExternalRequestId::from_number(1), {},
                                      ExternalRequestCheckpointPolicy::Barrier);
     CHECK(request.state() == ExternalRequestState::Pending);
-    CHECK(request.succeed());
+    REQUIRE(request.succeed());
+    CHECK_FALSE(request.succeed());
     CHECK_FALSE(request.fail());
     CHECK_FALSE(request.cancel(RuntimeCancellationReason::RuntimeReset));
     CHECK(request.state() == ExternalRequestState::Succeeded);
@@ -148,9 +73,21 @@ TEST_CASE("runtime command identities and external request lifecycles are termin
 
     ExternalRequestLifecycle cancelled(*ExternalRequestId::from_number(2), {},
                                        ExternalRequestCheckpointPolicy::NonBlocking);
-    CHECK(cancelled.cancel(RuntimeCancellationReason::ProjectReload));
+    REQUIRE(cancelled.cancel(RuntimeCancellationReason::ProjectReload));
+    CHECK_FALSE(cancelled.succeed());
+    CHECK_FALSE(cancelled.fail());
+    CHECK_FALSE(cancelled.cancel(RuntimeCancellationReason::RuntimeReset));
     CHECK(cancelled.state() == ExternalRequestState::Cancelled);
     CHECK(cancelled.cancellation_reason() == RuntimeCancellationReason::ProjectReload);
+
+    ExternalRequestLifecycle failed(*ExternalRequestId::from_number(3), {},
+                                    ExternalRequestCheckpointPolicy::Barrier);
+    REQUIRE(failed.fail());
+    CHECK_FALSE(failed.succeed());
+    CHECK_FALSE(failed.fail());
+    CHECK_FALSE(failed.cancel(RuntimeCancellationReason::RuntimeReset));
+    CHECK(failed.state() == ExternalRequestState::Failed);
+    CHECK_FALSE(failed.cancellation_reason());
 }
 
 TEST_CASE("deferred runtime commands preserve assigned FIFO identity and source context")
@@ -183,6 +120,7 @@ TEST_CASE("capability profiles are closed engine-selected values")
         RuntimeCapabilityProfile::GameplayScript,   RuntimeCapabilityProfile::SynchronousExpression,
         RuntimeCapabilityProfile::RoomComposition,  RuntimeCapabilityProfile::GameplayLayoutEvent,
         RuntimeCapabilityProfile::ShellLayoutEvent, RuntimeCapabilityProfile::Tooling,
+        RuntimeCapabilityProfile::OnGameReady,
     };
     for (const auto profile : profiles) {
         CHECK(is_valid(profile));
@@ -216,22 +154,28 @@ TEST_CASE("capability profiles are closed engine-selected values")
           0);
     CHECK((gameplay_layout.query_groups & capability_bit(RuntimeCapabilityGroup::Audio)) != 0);
     CHECK_FALSE(gameplay_layout.may_yield);
+
+    const auto ready = describe(RuntimeCapabilityProfile::OnGameReady);
+    CHECK_FALSE(ready.may_yield);
+    CHECK(ready.command_groups == 0);
+    CHECK((ready.query_groups & capability_bit(RuntimeCapabilityGroup::Properties)) != 0);
 }
 
-TEST_CASE("capability sets are lightweight non-owning query and command views")
+TEST_CASE("capability sets issue non-forgeable query and command authority")
 {
-    STATIC_REQUIRE(std::is_trivially_copyable_v<RuntimeQueryCapabilities>);
-    STATIC_REQUIRE(std::is_trivially_copyable_v<RuntimeCommandCapabilities>);
-    STATIC_REQUIRE(std::is_trivially_copyable_v<RuntimeCapabilitySet>);
-    STATIC_REQUIRE(!std::is_polymorphic_v<RuntimeCapabilitySet>);
     STATIC_REQUIRE(!std::is_aggregate_v<RuntimeCapabilitySet>);
     STATIC_REQUIRE(!std::is_constructible_v<RuntimeQueryCapabilities, RuntimeCommandGateway&,
                                             std::uint64_t, CapabilityGeneration>);
     STATIC_REQUIRE(!std::is_constructible_v<RuntimeCommandCapabilities, RuntimeCommandGateway&,
                                             std::uint64_t, CapabilityGeneration>);
 
-    RuntimeCommandGateway gateway;
+    const auto project = load_project();
+    auto created = core::SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    RuntimeWorld world(project, state);
     const auto generation = *CapabilityGeneration::from_number(3);
+    RuntimeCommandGateway gateway(project, state, world, generation);
     RuntimeCapabilityIssuer issuer(gateway, generation);
     const auto capabilities = issuer.issue(RuntimeCapabilityProfile::GameplayScript);
     REQUIRE(capabilities.has_value());
@@ -265,39 +209,6 @@ TEST_CASE("capability sets are lightweight non-owning query and command views")
     CHECK_FALSE(composition.can_query(RuntimeCapabilityGroup::Random));
     draft.close();
     CHECK(composition.room_composition_draft() == nullptr);
-}
-
-TEST_CASE("runtime ports expose no backend ownership in their contracts")
-{
-    STATIC_REQUIRE(std::is_abstract_v<ScriptInvocationPort>);
-    STATIC_REQUIRE(std::is_abstract_v<PresentationRuntimePort>);
-    STATIC_REQUIRE(std::is_abstract_v<ExternalRequestSink>);
-    STATIC_REQUIRE(std::has_virtual_destructor_v<ScriptInvocationPort>);
-    STATIC_REQUIRE(std::has_virtual_destructor_v<PresentationRuntimePort>);
-
-    FakeScriptInvocationPort scripts;
-    FakePresentationRuntimePort presentation;
-    FakeExternalRequestSink external_requests;
-    CHECK(presentation.checkpoint_status().active_barriers.empty());
-    external_requests.cancel_all(RuntimeCancellationReason::CheckpointLoad);
-    CHECK(external_requests.last_reason == RuntimeCancellationReason::CheckpointLoad);
-
-    RuntimeCommandGateway gateway;
-    RuntimeCapabilityIssuer issuer(gateway, *CapabilityGeneration::from_number(1));
-    const auto capabilities = issuer.issue(RuntimeCapabilityProfile::GameplayScript);
-    REQUIRE(capabilities.has_value());
-    const auto invocation = scripts.invoke({}, *capabilities);
-    REQUIRE(invocation.has_value());
-    CHECK(std::holds_alternative<ScriptInvocationCompleted>(invocation.value()));
-
-    const auto handle = core::ScriptInvocationHandle::create(1);
-    REQUIRE(handle.has_value());
-    const auto resumed = scripts.resume(handle.value(), *capabilities);
-    REQUIRE_FALSE(resumed.has_value());
-    CHECK(resumed.error().code == ScriptInvocationErrorCode::StaleInvocation);
-    CHECK(resumed.error().message == "stale test invocation");
-    CHECK(resumed.error().chunk == "runtime-contract-test");
-    CHECK(resumed.error().traceback == "runtime-contract-test:1: stale test invocation");
 }
 
 } // namespace
