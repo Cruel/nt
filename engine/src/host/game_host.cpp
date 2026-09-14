@@ -53,6 +53,15 @@ public:
                             : m_live_assets.read_script_source(logical_path);
     }
 
+    [[nodiscard]] core::Result<core::PersistableValue, std::string>
+    read_data_asset(std::string_view logical_path) const override
+    {
+        const bool project_path = logical_path.find(":/") == std::string_view::npos ||
+                                  logical_path.starts_with("project:/");
+        return project_path ? m_candidate_assets.read_data_asset(logical_path)
+                            : m_live_assets.read_data_asset(logical_path);
+    }
+
     [[nodiscard]] const assets::AssetManager& project_assets() const noexcept
     {
         return m_candidate_assets;
@@ -458,6 +467,8 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
             m_running_game->package().project().settings().audio);
         m_runtime_ui_asset_service.install(m_running_game->package().project(),
                                            m_running_game->runtime_locale());
+        m_dependencies.script_certifier.synchronize_project_data_assets(
+            m_running_game->package().project());
         if (hooks.restore_previous_resources) {
             auto restored_resources = hooks.restore_previous_resources(*m_running_game);
             if (!restored_resources)
@@ -486,6 +497,8 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     m_runtime_observations = candidate_publication->observations;
     m_runtime_ui_asset_service.install(m_running_game->package().project(),
                                        m_running_game->runtime_locale());
+    m_dependencies.script_certifier.synchronize_project_data_assets(
+        m_running_game->package().project());
 
     if (candidate_presentation_predecessor) {
         auto primed =
@@ -1193,6 +1206,7 @@ void GameHost::detach_runtime_bindings() noexcept
     m_system_layouts.reset();
     m_runtime_layouts.reset();
     m_runtime_ui_asset_service.clear();
+    m_dependencies.script_certifier.clear_project_data_assets();
 }
 
 void GameHost::clear_loaded_game_state() noexcept

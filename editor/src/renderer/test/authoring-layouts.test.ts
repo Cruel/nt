@@ -58,6 +58,44 @@ describe('authoring layouts schema', () => {
     });
   });
 
+  it('admits registered JSON data dependencies and rejects other Asset kinds', () => {
+    const project = createAuthoringProject();
+    const data = defaultLayoutData('Catalog');
+    project.assets.catalog = {
+      id: 'catalog',
+      label: 'Catalog',
+      data: {
+        kind: 'data',
+        source: { type: 'project-file', path: 'assets/data/Catalog.JSON' },
+        aliases: [],
+        extension: '.json',
+        imageMetadata: null,
+      },
+    };
+    project.layouts.main = {
+      id: 'main',
+      label: 'Main',
+      data: {
+        ...data,
+        dependencies: {
+          ...data.dependencies,
+          data: [{ $ref: { collection: 'assets', id: 'catalog' } }],
+        },
+      },
+    };
+    expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual([]);
+    expect(buildLayoutPreviewDocumentData(project, 'main')).toMatchObject({
+      dependencies: { data: [{ id: 'catalog', path: 'assets/data/Catalog.JSON' }] },
+    });
+    (project.assets.catalog.data as { kind: string }).kind = 'text';
+    expect(validateLayoutData(project, 'main', project.layouts.main)).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        path: '/layouts/main/data/dependencies/data/0/$ref',
+      }),
+    );
+  });
+
   it('reserves the built-in Inventory fallback Layout ID', () => {
     const project = createAuthoringProject();
     project.layouts['builtin-inventory'] = {

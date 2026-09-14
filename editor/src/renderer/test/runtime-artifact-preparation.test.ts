@@ -28,6 +28,7 @@ import {
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { rendererRuntimeArtifactPaths } from '../export/runtime-artifact-adapters';
 
 function roomProject() {
@@ -529,6 +530,38 @@ describe('Prepared Runtime Artifact module', () => {
     ]);
     expect(localizedPruned.fileEntries.map((entry) => entry.assetId)).toEqual(['foyer']);
     expect(localizedPruned.diagnostics.some((item) => item.path.includes('/unused'))).toBe(false);
+  });
+
+  it('retains JSON data Assets declared as Layout dependencies in pruned runtime artifacts', async () => {
+    const project = roomProject();
+    project.assets.catalog = {
+      id: 'catalog',
+      label: 'Catalog',
+      data: assetDataFromImportMetadata({
+        kind: 'data',
+        projectRelativePath: 'assets/data/catalog.json',
+        extension: '.json',
+        imageMetadata: null,
+      }),
+    };
+    const layout = defaultLayoutData();
+    layout.dependencies.data = [{ $ref: { collection: 'assets', id: 'catalog' } }];
+    project.layouts.catalog = { id: 'catalog', label: 'Catalog', data: layout };
+
+    const result = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(), compileShadersBeforeExport: false },
+    });
+
+    expect(result.diagnostics.filter((item) => item.severity === 'error')).toEqual([]);
+    expect(result.ready).toBe(true);
+    expect(result.compiledProject?.resources.assets.map((asset) => asset.id)).toContain('catalog');
+    expect(result.fileEntries.map((entry) => entry.assetId)).toContain('catalog');
+    expect(
+      result.compiledProject?.resources.layouts.find((entry) => entry.id === 'catalog'),
+    ).toMatchObject({
+      dependencies: { data: [{ kind: 'asset', id: 'catalog' }] },
+    });
   });
 
   it('retains assets referenced only by conservative Lua/source analysis', async () => {

@@ -1,5 +1,7 @@
 #include "compiled_project_validation.hpp"
 
+#include "noveltea/core/data_asset.hpp"
+
 #include <algorithm>
 #include <functional>
 #include <string_view>
@@ -1913,6 +1915,19 @@ private:
             assets(layout.dependencies.images, "images");
             assets(layout.dependencies.scripts, "scripts");
             assets(layout.dependencies.stylesheets, "stylesheets");
+            assets(layout.dependencies.data, "data");
+            for (std::size_t dependency = 0; dependency < layout.dependencies.data.size();
+                 ++dependency) {
+                const auto asset = std::find_if(
+                    m_input.assets.begin(), m_input.assets.end(), [&](const AssetResource& value) {
+                        return value.id == layout.dependencies.data[dependency];
+                    });
+                if (asset != m_input.assets.end() &&
+                    (asset->kind != AssetKind::Data || !is_json_data_asset_path(asset->path)))
+                    error("compiled_project.invalid_data_asset",
+                          "Layout data dependencies must reference JSON data Assets.",
+                          path + "/dependencies/data/" + std::to_string(dependency));
+            }
 
             std::unordered_set<LayoutInputId> input_ids;
             for (std::size_t input_index = 0; input_index < layout.contract.inputs.size();

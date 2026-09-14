@@ -115,6 +115,77 @@ struct RuntimeFixture {
     script::ScriptRuntime runtime;
 };
 
+TEST_CASE("Data Assets load fresh Lua trees in gameplay and Layout environments", "[script][data]")
+{
+    RuntimeFixture fixture;
+    fixture.sources.add(
+        "project:/data/Catalog.JSON",
+        R"({"name":"tea","nested":{"count":3},"slots":[null,false,2],"missing":null,"":true})");
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    const auto project = load_compiled_fixture("scene-program.json", [](auto& document) {
+        document["resources"]["assets"].push_back({{"id", "catalog"},
+                                                   {"kind", "data"},
+                                                   {"path", "data/Catalog.JSON"},
+                                                   {"aliases", nlohmann::json::array()}});
+        document["resources"]["layouts"][0]["dependencies"]["data"] =
+            nlohmann::json::array({{{"kind", "asset"}, {"id", "catalog"}}});
+    });
+    REQUIRE(project.layouts()[0].dependencies.data.size() == 1);
+    REQUIRE(fixture.runtime.prepare_project_modules(project));
+    const std::string checks = R"(
+        local first, err = Data.load('catalog')
+        assert(err == nil and first.name == 'tea')
+        assert(first.missing == Data.null and first.slots[1] == Data.null)
+        assert(#first.slots == 3 and first.slots[2] == false and first[''] == true)
+        first.nested.count = 99
+        first.slots[1] = 'changed'
+        local second = assert(Data.load('catalog'))
+        assert(second ~= first and second.nested.count == 3)
+        assert(second.slots[1] == Data.null)
+        local absent, failure = Data.load('project:/data/catalog.json')
+        assert(absent == nil and type(failure) == 'string')
+        assert(io == nil and Data.decode == nil and Data.encode == nil)
+    )";
+    REQUIRE(fixture.runtime.execute(checks));
+    auto environment = fixture.runtime.create_environment();
+    REQUIRE(environment);
+    REQUIRE(fixture.runtime.execute_in_environment(environment.value(), checks));
+    fixture.runtime.destroy_environment(environment.value());
+    fixture.sources.add("project:/focused/catalog.json", R"({"name":"focused"})");
+    const std::vector<script::DataAssetBinding> focused_assets{
+        {core::AssetId::create("catalog").value(), "project:/focused/catalog.json"}};
+    auto focused = fixture.runtime.create_environment(focused_assets);
+    REQUIRE(focused);
+    REQUIRE(fixture.runtime.execute_in_environment(
+        focused.value(), "assert(Data.load('catalog').name == 'focused')"));
+    REQUIRE(fixture.runtime.execute(checks));
+    fixture.runtime.destroy_environment(focused.value());
+
+    fixture.sources.add("project:/data/Catalog.JSON", "null");
+    REQUIRE(fixture.runtime.execute("assert(Data.load('catalog') == Data.null)"));
+    fixture.sources.add("project:/data/Catalog.JSON", "false");
+    REQUIRE(
+        fixture.runtime.execute("local v,e=Data.load('catalog'); assert(v == false and e == nil)"));
+    fixture.sources.add("project:/data/Catalog.JSON", "9223372036854775807");
+    REQUIRE(fixture.runtime.execute("assert(Data.load('catalog') == math.maxinteger)"));
+    for (const auto& invalid :
+         std::vector<std::string>{"{", "null true", "{\"x\":1,\"x\":2}", "9223372036854775808",
+                                  "1e999", std::string(65, '[') + "0" + std::string(65, ']'),
+                                  std::string(4 * 1024 * 1024 + 1, ' ')}) {
+        fixture.sources.add("project:/data/Catalog.JSON", invalid);
+        REQUIRE(fixture.runtime.execute(
+            "local v,e=Data.load('catalog'); assert(v == nil and type(e) == 'string')"));
+    }
+    REQUIRE(fixture.runtime.execute(R"(
+        for _, id in ipairs({'missing', '../catalog', '', 'catalog\0other'}) do
+            local v,e = Data.load(id)
+            assert(v == nil and type(e) == 'string')
+        end
+        local v,e = Data.load({})
+        assert(v == nil and type(e) == 'string')
+    )"));
+}
+
 class FocusedCountQueryProvider final : public runtime::RuntimeQueryProvider {
 public:
     explicit FocusedCountQueryProvider(runtime::CapabilityGeneration generation) noexcept

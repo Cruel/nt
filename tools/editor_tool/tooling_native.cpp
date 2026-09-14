@@ -1,4 +1,5 @@
 #include <noveltea/core/compiled_project_codec.hpp>
+#include <noveltea/core/data_asset_codec.hpp>
 #include <noveltea/core/compiled_package_codec.hpp>
 #include <noveltea/core/package_export.hpp>
 #include <noveltea/core/player_bootstrap.hpp>
@@ -248,6 +249,15 @@ public:
                 {"Script source not found: " + std::string(logical_path)});
         }
         return Result<std::string, noveltea::runtime::ScriptSourceError>::success(found->second);
+    }
+
+    [[nodiscard]] Result<PersistableValue, std::string>
+    read_data_asset(std::string_view logical_path) const override
+    {
+        auto source = read_script_source(logical_path);
+        if (!source)
+            return Result<PersistableValue, std::string>::failure(source.error().message);
+        return decode_data_asset(source.value());
     }
 
 private:

@@ -576,6 +576,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         stylesheets: data.dependencies.stylesheets.map((ref) => assetRef(ref)!),
         materials: data.dependencies.materials.map((ref) => materialRef(ref)!),
         scripts: data.dependencies.scripts.map((ref) => assetRef(ref)!),
+        data: (data.dependencies.data ?? []).map((ref) => assetRef(ref)!),
       },
     });
   }

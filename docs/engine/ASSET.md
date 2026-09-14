@@ -223,6 +223,7 @@ The native runtime `AssetManager` supports:
 - checking existence and namespaces;
 - describing mounts;
 - typed loader bindings for fonts, textures, shader programs, materials, and audio;
+- bounded native decoding of registered JSON-backed `data` Assets for Lua by stable Asset ID;
 - asynchronous typed `request_*()` and speculative `prefetch_*()` entry points;
 - owner-thread publication and lookup of residency-managed `AssetLease<T>` values;
 - resource-alias resolution into typed requests.
@@ -291,7 +292,9 @@ cross-generation content cache.
 
 ## Scripting Status
 
-Assets are indirectly available to Lua through runtime systems that load audio, materials, textures, layouts, and other resources. The asset record itself does not yet define a standalone Lua API. Audio alias resolution is currently exposed through the runtime asset/audio systems where wired.
+Registered JSON-backed `data` Assets are available to gameplay and Layout Lua through `Data.load(assetId)`. The call accepts only the stable Asset ID; authored Lua cannot supply a filesystem or logical Asset path. JSON is decoded natively and each successful load produces a fresh ordinary Lua value tree, so caller mutation cannot change the Asset or a later load. JSON `null` is preserved as the stable `Data.null` sentinel rather than collapsing object members or array positions to Lua `nil`.
+
+Only JSON-backed `data` Assets are admitted by this API. It is not a general raw-JSON decoder/encoder and does not expose arbitrary text or filesystem reads. Layouts that depend on data should declare those Assets explicitly in their Layout dependencies so validation, focused preview, unused-Asset pruning, and runtime packaging retain the required files. Other Asset-backed runtime APIs, such as audio playback and material/image use, continue through their typed systems rather than through `Data.load`.
 
 ## Relationship To Other Entity Types
 

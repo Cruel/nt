@@ -141,7 +141,8 @@
           "fonts": [],
           "stylesheets": [],
           "scripts": [],
-          "materials": []
+          "materials": [],
+          "data": []
         }
       },
       {
@@ -162,7 +163,8 @@
           "fonts": [],
           "stylesheets": [],
           "scripts": [],
-          "materials": []
+          "materials": [],
+          "data": []
         }
       },
       {
@@ -183,7 +185,8 @@
           "fonts": [],
           "stylesheets": [],
           "scripts": [],
-          "materials": []
+          "materials": [],
+          "data": []
         }
       }
     ]

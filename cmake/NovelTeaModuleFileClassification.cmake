@@ -14,6 +14,7 @@ set(NOVELTEA_MODULE_CLASSIFICATION_TARGETS
 
 set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/include/noveltea/core/compiled_project.hpp
+    engine/include/noveltea/core/data_asset.hpp
     engine/include/noveltea/core/compiler_policy.hpp
     engine/include/noveltea/core/diagnostic.hpp
     engine/include/noveltea/core/diagnostic_context.hpp
@@ -72,6 +73,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_content
     engine/include/noveltea/core/compiled_package.hpp
     engine/include/noveltea/core/compiled_package_codec.hpp
     engine/include/noveltea/core/compiled_project_codec.hpp
+    engine/include/noveltea/core/data_asset_codec.hpp
+    engine/src/core/data_asset_codec.cpp
     engine/include/noveltea/core/editor_preview_contracts.hpp
     engine/include/noveltea/core/editor_protocol.hpp
     engine/include/noveltea/core/json_access.hpp

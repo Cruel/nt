@@ -311,6 +311,7 @@ interface LayoutDependencyData {
   stylesheets: LayoutAssetRef[];
   materials: LayoutMaterialRef[];
   scripts: LayoutAssetRef[];
+  data?: LayoutAssetRef[];
 }
 ```
 
@@ -339,6 +340,7 @@ Layouts can reference:
 - font assets;
 - stylesheet/text assets;
 - script assets;
+- JSON-backed data assets used through `Data.load(assetId)`;
 - material records;
 - other layout records through project settings such as `settings.ui.systemLayouts.title` or `settings.ui.systemLayouts.game-hud`.
 
@@ -359,7 +361,7 @@ Asset and material refs use the standard `$ref` collection/id shape.
 - script namespace `layout_preview`;
 - mount parent `nt-layout-preview-mount`;
 - target-derived UI/text scale inheritance;
-- empty dependency lists;
+- empty dependency lists, including data dependencies;
 - document `sampleState.state` seeded to `{ saved_count: 0 }` (fragment sample state is empty);
 - dark preview background.
 
@@ -384,6 +386,7 @@ Layout validation checks:
 - Lua present while script execution disabled is informational;
 - duplicate dependency refs produce warnings;
 - image/font/stylesheet/script dependency kind or extension mismatches produce warnings;
+- data dependencies must resolve to JSON-backed `data` Assets;
 - missing material dependencies are errors;
 - default layout setting points to an existing layout when configured.
 

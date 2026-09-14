@@ -63,6 +63,8 @@ public:
     [[nodiscard]] AssetResult<AssetText> read_text(std::string_view logical_path) const;
     [[nodiscard]] core::Result<std::string, runtime::ScriptSourceError>
     read_script_source(std::string_view logical_path) const override;
+    [[nodiscard]] core::Result<core::PersistableValue, std::string>
+    read_data_asset(std::string_view logical_path) const override;
 
     void set_default_font_alias(std::string alias);
     void configure_fonts(FontAssetConfig config);

@@ -1,4 +1,5 @@
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/core/data_asset_codec.hpp"
 #include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/assets/asset_progress.hpp"
 #include "noveltea/assets/mandatory_asset_gate.hpp"
@@ -1051,6 +1052,15 @@ AssetManager::read_script_source(std::string_view logical_path) const
         return core::Result<std::string, runtime::ScriptSourceError>::failure(
             runtime::ScriptSourceError{std::move(text.error.message)});
     return core::Result<std::string, runtime::ScriptSourceError>::success(std::move(*text.value));
+}
+
+core::Result<core::PersistableValue, std::string>
+AssetManager::read_data_asset(std::string_view logical_path) const
+{
+    auto text = read_text(logical_path);
+    if (!text)
+        return core::Result<core::PersistableValue, std::string>::failure(text.error.message);
+    return core::decode_data_asset(*text.value);
 }
 
 void AssetManager::set_default_font_alias(std::string alias)

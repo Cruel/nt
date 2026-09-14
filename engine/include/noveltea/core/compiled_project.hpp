@@ -248,6 +248,7 @@ struct LayoutDependencies {
     std::vector<MaterialId> materials;
     std::vector<AssetId> scripts;
     std::vector<AssetId> stylesheets;
+    std::vector<AssetId> data;
 };
 struct LayoutResource {
     LayoutId id;

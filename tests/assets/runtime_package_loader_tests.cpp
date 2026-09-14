@@ -4,6 +4,7 @@
 #include "noveltea/boundary/running_game_loader.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/player_bootstrap.hpp"
+#include "noveltea/script/script_runtime.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -255,6 +256,42 @@ TEST_CASE("runtime package retains only source plus the negotiated startup local
         default_resolved.value_if()->input.package.project().localization();
     REQUIRE(default_localization.catalogs.size() == 1);
     CHECK(default_localization.catalogs.front().locale == "en");
+}
+
+TEST_CASE("packaged JSON data Assets load through the native Lua Asset boundary", "[assets][data]")
+{
+    auto gameplay = minimal_gameplay();
+    gameplay["resources"]["assets"].push_back({{"id", "catalog"},
+                                               {"kind", "data"},
+                                               {"path", "data/catalog.json"},
+                                               {"aliases", nlohmann::json::array()}});
+    const auto gameplay_bytes = json_bytes(gameplay);
+    const auto catalog = bytes(R"({"name":"packaged","slots":[null,7]})");
+    const std::array declared = {
+        std::pair<std::string, std::uint64_t>{"game", gameplay_bytes.size()},
+        std::pair<std::string, std::uint64_t>{"data/catalog.json", catalog.size()},
+    };
+    const auto archive = make_zip(std::array{
+        ZipFixtureEntry{"manifest.json", json_bytes(runtime_manifest(gameplay, declared))},
+        ZipFixtureEntry{"game", gameplay_bytes},
+        ZipFixtureEntry{"data/catalog.json", catalog},
+    });
+    auto resolved = runtime::resolve_running_game_package_source(
+        std::make_shared<assets::ZipAssetSource>(archive), "memory.ntpkg");
+    REQUIRE(resolved);
+    assets::AssetManager manager;
+    for (const auto& source : resolved.value().project_mounts)
+        manager.mount("project", source);
+    script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&manager}));
+    REQUIRE(scripts.prepare_project_modules(resolved.value().input.package.project()));
+    REQUIRE(scripts.execute(R"(
+        local data = assert(Data.load('catalog'))
+        assert(data.name == 'packaged' and #data.slots == 2)
+        assert(data.slots[1] == Data.null and data.slots[2] == 7)
+        data.slots[2] = 100
+        assert(Data.load('catalog').slots[2] == 7)
+    )"));
 }
 
 TEST_CASE("loose compiled project propagates the negotiated startup locale")
