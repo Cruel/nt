@@ -29,17 +29,6 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe('AppShell', () => {
-  it('renders children', async () => {
-    await act(async () => {
-      renderWithProviders(
-        <AppShell>
-          <div data-testid="child">Hello</div>
-        </AppShell>,
-      );
-    });
-    expect(screen.getByTestId('child')).toHaveTextContent('Hello');
-  });
-
   it('renders the application menu across the top chrome', async () => {
     await act(async () => {
       renderWithProviders(

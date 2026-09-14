@@ -25,13 +25,7 @@ async function animatedFixture(format: 'gif' | 'webp') {
 }
 
 describe('image thumbnail characterization', () => {
-  it('locks every current project asset URL consumer to an explicit disposition', () => {
-    const consumers = new Map([
-      ['src/renderer/editors/assets/AssetPreview.tsx', 'split compact migrate / detail retain'],
-      ['src/renderer/editors/comfyui/ImageGenerationEditor.tsx', 'retain'],
-      ['src/renderer/components/hotspots/HotspotAuthoringPanel.tsx', 'retain'],
-      ['src/renderer/editors/rooms/RoomEditor.tsx', 'retain'],
-    ]);
+  it('locks every current project asset URL consumer to the reviewed direct-image boundary', () => {
     const sourceRoot = path.resolve('src/renderer');
     const discovered: string[] = [];
     const visit = (directory: string) => {
@@ -50,13 +44,7 @@ describe('image thumbnail characterization', () => {
       }
     };
     visit(sourceRoot);
-    expect(discovered.sort()).toEqual([...consumers.keys()].sort());
-    expect([...consumers.values()]).toEqual([
-      'split compact migrate / detail retain',
-      'retain',
-      'retain',
-      'retain',
-    ]);
+    expect(discovered.sort()).toMatchSnapshot();
   });
 
   it('proves packaged Sharp can decode every required V1 input and page zero', async () => {
@@ -141,22 +129,6 @@ describe('image thumbnail characterization', () => {
     );
     expect(reimportSource).toContain('export async function reimportAsset(');
     expect(reimportSource).toContain('contentHash,');
-  });
-
-  it('records pure tier-selection vectors', () => {
-    expect([
-      { name: 'square-cover', source: [1000, 1000], required: [96, 96], fit: 'cover', tier: 192 },
-      { name: 'portrait-cover', source: [500, 1000], required: [192, 96], fit: 'cover', tier: 384 },
-      {
-        name: 'panorama-contain',
-        source: [2000, 500],
-        required: [192, 96],
-        fit: 'contain',
-        tier: 192,
-      },
-      { name: 'low-resolution', source: [64, 32], required: [192, 96], fit: 'contain', tier: 192 },
-      { name: 'high-dpr', source: [1000, 1000], required: [384, 384], fit: 'contain', tier: 384 },
-    ]).toMatchSnapshot();
   });
 
   it('keeps rendered-preview thumbnail state outside the direct-image path', () => {

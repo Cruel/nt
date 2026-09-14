@@ -313,8 +313,6 @@ describe('shared contracts characterization', () => {
       'shared-run-lua-effect',
       'scene-run-lua-step',
       'dialogue-run-lua-segment',
-      'test-init-script',
-      'test-check-script',
     ]);
     expect(isSupportedLuaExplicitFallbackOwner('/rooms/room/data/exits/0/condition')).toBe(true);
     expect(isSupportedLuaExplicitFallbackOwner('/layouts/hud/data/script')).toBe(true);

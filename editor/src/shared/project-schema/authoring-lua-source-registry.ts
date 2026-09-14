@@ -9,8 +9,6 @@ export const AUTHORING_LUA_EXECUTION_SURFACES = Object.freeze([
   'shared-run-lua-effect',
   'scene-run-lua-step',
   'dialogue-run-lua-segment',
-  'test-init-script',
-  'test-check-script',
 ] as const);
 
 export type AuthoringLuaExecutionSurface = (typeof AUTHORING_LUA_EXECUTION_SURFACES)[number];

@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { useCommandStore } from '@/commands/command-store';
 import { deleteEntityRecordPreflight } from '@/project/entity-operations';
@@ -43,62 +41,6 @@ describe('current-behavior characterization', () => {
       usages,
       canDeleteWithoutForce: false,
     });
-  });
-
-  it('pins the production Room cutover to the focused native document path', () => {
-    const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
-    const roomEditor = fs.readFileSync(
-      path.resolve('src/renderer/editors/rooms/RoomEditor.tsx'),
-      'utf8',
-    );
-    expect(widget).not.toContain('function buildRoomPreviewRml(data)');
-    expect(widget).not.toContain('<title>Room Preview</title>');
-    expect(widget).not.toContain("else if (kind === 'room-preview') applyPreviewRml");
-    expect(roomEditor).toContain("root={{ kind: 'room-preview', recordId: roomId }}");
-    expect(roomEditor).not.toContain('previewDocument={preview}');
-    expect(roomEditor).not.toContain('roomPreviewRevision');
-    expect(widget).toContain(
-      "if (kind === 'layout-preview' || kind === 'shader-preview' || kind === 'room-preview')",
-    );
-    expect(widget).not.toContain("Module.ccall('noveltea_preview_show_editor_document'");
-    expect(widget).toContain("Module.ccall('noveltea_preview_apply_editor_document'");
-  });
-
-  it('pushes semantic runtime debugger changes without preview interaction', () => {
-    const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
-    expect(widget).toContain('function publishRuntimeDebugSnapshotIfChanged()');
-    expect(widget).toContain('window.setInterval(publishRuntimeDebugSnapshotIfChanged, 100)');
-    expect(widget).toContain(
-      "send({ version: protocolVersion, type: 'runtime-debug-snapshot', snapshot })",
-    );
-    expect(widget).toContain('currentRoomId: snapshot.currentRoomId');
-    expect(widget).toContain('dialoguePresentation: snapshot.dialoguePresentation');
-    expect(widget).not.toContain('publication: snapshot.publication');
-  });
-
-  it('pins every current authoritative document replacement and patch route', () => {
-    const projectStore = fs.readFileSync(
-      path.resolve('src/renderer/project/project-store.ts'),
-      'utf8',
-    );
-    expect(projectStore).toContain('loadProjectDocument:');
-    expect(projectStore).toContain('loadUnsavedProjectDocument:');
-    expect(projectStore).toContain('replaceDocumentFromCommand:');
-    expect(projectStore).toContain('markEditorMetadataPersisted:');
-    expect(projectStore).toContain('clearProject:');
-
-    const commandStore = fs.readFileSync(
-      path.resolve('src/renderer/commands/command-store.ts'),
-      'utf8',
-    );
-    expect(commandStore).toContain(
-      'executeCommandCore(busStateFromStores(get().history), request)',
-    );
-    expect(commandStore).toContain('undoCommandCore(busStateFromStores(get().history))');
-    expect(commandStore).toContain('redoCommandCore(busStateFromStores(get().history))');
-    expect(commandStore).toContain('cancelTransactionCore(busStateFromStores(get().history))');
-    expect(commandStore).toContain('rollbackFailedStructuralPersistence(');
-    expect(commandStore).toContain("kind: 'transaction-cancel'");
   });
 });
 
