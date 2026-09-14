@@ -492,6 +492,10 @@ TEST_CASE("checkpoint thumbnail is revision-bound and updates every matching ret
     const auto request = *service.pending_thumbnail_capture();
     CHECK(request.checkpoint == service.latest_checkpoint()->revision);
     CHECK(request.presentation == presentation);
+    const auto second_slot = core::TypedSaveSlotId::manual(13);
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(
+        service.request(core::ImmediateRetainedCheckpointWriteRequest{second_slot})));
+    CHECK(service.pending_thumbnail_capture() == request);
     REQUIRE(saves.read_checkpoint(slot));
     CHECK_FALSE(saves.read_checkpoint(slot).value().thumbnail);
 
@@ -511,12 +515,57 @@ TEST_CASE("checkpoint thumbnail is revision-bound and updates every matching ret
     CHECK(stored.value().encoded_save == service.latest_checkpoint()->encoded_save);
     CHECK(*stored.value().metadata == service.latest_checkpoint()->metadata);
     CHECK(*stored.value().thumbnail == thumbnail);
+    REQUIRE(saves.read_checkpoint(second_slot));
+    CHECK(saves.read_checkpoint(second_slot).value() == stored.value());
 
     REQUIRE(service.record_structural_mutation());
     REQUIRE(service.publish_candidate(state, core::PresentationSnapshotRevision::from_number(8)));
     auto stale = service.attach_thumbnail(request, thumbnail);
     REQUIRE_FALSE(stale);
     CHECK(stale.error().front().code == "checkpoint.stale_thumbnail");
+}
+
+TEST_CASE("delayed checkpoint thumbnails do not overwrite a newer save in the same slot")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
+    const auto slot = core::TypedSaveSlotId::manual(1);
+    const auto untouched = core::TypedSaveSlotId::manual(2);
+    REQUIRE(service.publish_candidate(state, core::PresentationSnapshotRevision::from_number(7)));
+    for (const auto target : {slot, untouched}) {
+        REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(
+            service.request(core::ImmediateRetainedCheckpointWriteRequest{target})));
+    }
+    REQUIRE(service.pending_thumbnail_capture());
+    const auto old_request = *service.pending_thumbnail_capture();
+    const auto old_checkpoint = saves.read_checkpoint(untouched).value();
+
+    REQUIRE(state.advance_time(std::chrono::milliseconds{250}));
+    REQUIRE(service.record_structural_mutation());
+    REQUIRE(service.publish_candidate(state, core::PresentationSnapshotRevision::from_number(8)));
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(
+        service.request(core::ImmediateRetainedCheckpointWriteRequest{slot})));
+    const auto new_checkpoint = saves.read_checkpoint(slot).value();
+    REQUIRE(new_checkpoint.encoded_save != old_checkpoint.encoded_save);
+    const auto latest = *service.latest_checkpoint();
+
+    const core::SaveCheckpointThumbnail thumbnail{.encoding =
+                                                      core::SaveCheckpointThumbnailEncoding::Png,
+                                                  .width = 1,
+                                                  .height = 1,
+                                                  .bytes = "\x89PNG\r\n\x1a\nold-thumbnail"};
+    REQUIRE(service.attach_thumbnail(old_request, thumbnail));
+    CHECK(saves.read_checkpoint(slot).value() == new_checkpoint);
+    CHECK(*service.latest_checkpoint() == latest);
+    auto expected = old_checkpoint;
+    expected.thumbnail = thumbnail;
+    CHECK(saves.read_checkpoint(untouched).value() == expected);
+    REQUIRE(service.pending_thumbnail_capture());
+    CHECK(service.pending_thumbnail_capture()->checkpoint == latest.revision);
+    CHECK(service.pending_thumbnail_capture()->presentation ==
+          core::PresentationSnapshotRevision::from_number(8));
 }
 
 TEST_CASE("discarding a missed saved thumbnail advances the pending capture queue")

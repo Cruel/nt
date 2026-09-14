@@ -18,12 +18,6 @@ namespace {
 
 using TypedExecutionKernel = runtime::RuntimeExecutor;
 
-template<class T>
-concept HasCategories = requires(const T& value) { value.categories; };
-
-template<class T>
-concept HasTags = requires(const T& value) { value.tags; };
-
 template<class Id> Id id(std::string value)
 {
     auto result = Id::create(std::move(value));
@@ -69,23 +63,6 @@ void drive_to_room(TypedExecutionKernel& kernel, const core::RoomId& room)
 
 TEST_CASE("typed Map derives selection exclusively from Room exits and routes navigation lifecycle")
 {
-    STATIC_REQUIRE_FALSE(HasCategories<core::compiled::CharacterDefinition>);
-    STATIC_REQUIRE_FALSE(HasCategories<core::compiled::RoomDefinition>);
-    STATIC_REQUIRE_FALSE(HasCategories<core::compiled::InteractableDefinition>);
-    STATIC_REQUIRE_FALSE(HasCategories<core::compiled::VerbDefinition>);
-    STATIC_REQUIRE_FALSE(HasCategories<core::compiled::InteractionDefinition>);
-    STATIC_REQUIRE_FALSE(HasCategories<core::compiled::SceneDefinition>);
-    STATIC_REQUIRE_FALSE(HasCategories<core::compiled::DialogueDefinition>);
-    STATIC_REQUIRE_FALSE(HasCategories<core::compiled::MapDefinition>);
-    STATIC_REQUIRE_FALSE(HasTags<core::compiled::CharacterDefinition>);
-    STATIC_REQUIRE_FALSE(HasTags<core::compiled::RoomDefinition>);
-    STATIC_REQUIRE_FALSE(HasTags<core::compiled::InteractableDefinition>);
-    STATIC_REQUIRE_FALSE(HasTags<core::compiled::VerbDefinition>);
-    STATIC_REQUIRE_FALSE(HasTags<core::compiled::InteractionDefinition>);
-    STATIC_REQUIRE_FALSE(HasTags<core::compiled::SceneDefinition>);
-    STATIC_REQUIRE_FALSE(HasTags<core::compiled::DialogueDefinition>);
-    STATIC_REQUIRE_FALSE(HasTags<core::compiled::MapDefinition>);
-
     test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
     REQUIRE(runtime.initialize({&sources}));

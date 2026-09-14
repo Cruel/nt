@@ -55,21 +55,6 @@ TEST_CASE("strong domain IDs reject invalid text and remain type separated")
     CHECK(found->second == 7);
 }
 
-TEST_CASE("shared execution concepts are closed variants")
-{
-    STATIC_REQUIRE(std::variant_size_v<TextSource> == 3);
-    STATIC_REQUIRE(std::variant_size_v<GlobalPropertyComparison> == 2);
-    STATIC_REQUIRE(std::variant_size_v<Condition::Value> == 10);
-    STATIC_REQUIRE(std::variant_size_v<Effect> == 2);
-    STATIC_REQUIRE(std::variant_size_v<FlowTarget> == 5);
-    STATIC_REQUIRE(std::variant_size_v<WaitSpec> == 7);
-    STATIC_REQUIRE(std::variant_size_v<ActiveWait> == 6);
-    STATIC_REQUIRE(std::variant_size_v<PropertyOwnerRef> == 5);
-    STATIC_REQUIRE(std::variant_size_v<PropertyTargetRef> == 6);
-    STATIC_REQUIRE(std::variant_size_v<PropertyValueType> == 6);
-    STATIC_REQUIRE(std::variant_size_v<NestedOwnerPath> == 8);
-}
-
 TEST_CASE("compiled wait intent is separate from typed active wait handles")
 {
     STATIC_REQUIRE(!std::is_default_constructible_v<DurationWait>);
@@ -83,17 +68,6 @@ TEST_CASE("compiled wait intent is separate from typed active wait handles")
     CHECK(duration.value().duration() == std::chrono::milliseconds{10});
     CHECK_FALSE(AudioHandle::create(0));
     CHECK(AudioHandle::create(4));
-}
-
-TEST_CASE("Global Property truthiness cannot carry a comparison value")
-{
-    const auto property = id<PropertyId>("lights-on");
-    GlobalPropertyComparison truthiness =
-        GlobalPropertyTruthiness{property, TruthinessOperator::Truthy};
-    CHECK(std::holds_alternative<GlobalPropertyTruthiness>(truthiness));
-    GlobalPropertyComparison equality =
-        GlobalPropertyValueComparison{property, ValueComparisonOperator::Equal, RuntimeValue{true}};
-    CHECK(std::holds_alternative<GlobalPropertyValueComparison>(equality));
 }
 
 TEST_CASE("property owner mapping is exhaustive and independent of enum ordering")

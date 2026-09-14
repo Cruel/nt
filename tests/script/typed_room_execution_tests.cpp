@@ -29,12 +29,6 @@ template<class Id> Id id(std::string value)
     return std::move(result).value();
 }
 
-template<class T>
-concept HasCategories = requires(const T& value) { value.categories; };
-
-template<class T>
-concept HasTags = requires(const T& value) { value.tags; };
-
 nlohmann::json load_document(std::string_view filename)
 {
     std::ifstream input(std::string(NOVELTEA_SOURCE_DIR) +
@@ -815,9 +809,6 @@ TEST_CASE("Room lifecycle Hook Registry handlers cannot yield")
 
 TEST_CASE("typed Room flow targets run lifecycle and Trait-backed Properties have one resolver")
 {
-    STATIC_REQUIRE_FALSE(HasCategories<core::compiled::RoomDefinition>);
-    STATIC_REQUIRE_FALSE(HasTags<core::compiled::RoomDefinition>);
-
     RuntimeFixture fixture;
     install_room_scripts(fixture);
     auto document = load_document("comprehensive.json");

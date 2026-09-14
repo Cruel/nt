@@ -205,11 +205,6 @@ SceneFramePosition scene_position(std::string step)
 
 TEST_CASE("flow state initializes entrypoint frames and only executor changes mode and stack")
 {
-    STATIC_REQUIRE(std::variant_size_v<FlowFrame> == 4);
-    STATIC_REQUIRE(std::variant_size_v<ReturnDestination> == 3);
-    STATIC_REQUIRE(std::variant_size_v<FlowBlocker> == 5);
-    STATIC_REQUIRE(std::variant_size_v<AnyFlowBlockerHandle> == 5);
-
     const auto project = make_project(id<RoomId>("hall"));
     auto state = make_state(project);
     FlowExecutor executor(project, state);

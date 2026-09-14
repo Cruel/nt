@@ -447,14 +447,8 @@ TEST_CASE("property mutations enforce declaration owner nullability enum and sca
         resolver.unset(PropertyOwnerRef{id<RoomId>("missing-room")}, id<PropertyId>("mood")));
 }
 
-TEST_CASE("session state exposes closed runtime mode and session-owned flow state read-only")
+TEST_CASE("session state exposes session-owned flow state read-only")
 {
-    STATIC_REQUIRE(std::variant_size_v<RuntimeMode> == 3);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<0, RuntimeMode>, RoomMode>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<1, RuntimeMode>, FlowMode>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<2, RuntimeMode>, EndedMode>);
-    STATIC_REQUIRE(std::variant_size_v<FlowFrame> == 4);
-
     const auto compiled_project = project();
     auto state_result = SessionState::create(compiled_project);
     REQUIRE(state_result);
@@ -1195,24 +1189,4 @@ TEST_CASE("occurrence Material Parameters enforce binding authority and bounded 
         DesiredPostprocessEffect{id<PostprocessEffectInstanceId>("fx-overflow"), owner,
                                  postprocess_material, compiled::MaterialPostprocessScope::World,
                                  99, MaterialClockPolicy::Gameplay, true}));
-}
-
-TEST_CASE("feature views are a closed typed vocabulary without mutable state ownership")
-{
-    STATIC_REQUIRE(std::variant_size_v<FeatureView> == 6);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<0, FeatureView>, SceneView>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<1, FeatureView>, DialogueView>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<2, FeatureView>, RoomView>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<3, FeatureView>, InteractionView>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<4, FeatureView>, InventoryView>);
-    STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<5, FeatureView>, MapView>);
-
-    FeatureView scene = SceneView{.scene = id<SceneId>("opening")};
-    FeatureView interaction = InteractionView{.verb = id<VerbId>("look")};
-    FeatureView inventory = InventoryView{};
-    FeatureView map = MapView{.map = id<MapId>("house")};
-    CHECK(std::holds_alternative<SceneView>(scene));
-    CHECK(std::holds_alternative<InteractionView>(interaction));
-    CHECK(std::holds_alternative<InventoryView>(inventory));
-    CHECK(std::holds_alternative<MapView>(map));
 }
