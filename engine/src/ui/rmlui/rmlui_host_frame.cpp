@@ -170,7 +170,10 @@ void RmlUiHost::update_contexts()
 {
     for (auto& record : m_contexts) {
         set_context_clock(record.key);
+        Rml::Context* previous_cursor_context = m_active_cursor_context;
+        m_active_cursor_context = record.context;
         record.context->Update();
+        m_active_cursor_context = previous_cursor_context;
     }
 }
 

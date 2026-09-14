@@ -1,0 +1,104 @@
+#pragma once
+
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+
+namespace noveltea::host {
+
+enum class CursorShape : std::uint8_t {
+    Default,
+    Pointer,
+    Text,
+    Wait,
+    Progress,
+    Crosshair,
+    Move,
+    NotAllowed,
+    NsResize,
+    EwResize,
+    NeswResize,
+    NwseResize,
+    Hidden,
+};
+
+[[nodiscard]] std::string_view cursor_shape_name(CursorShape shape) noexcept;
+
+enum class CursorRequestSource : std::uint8_t {
+    LayoutLua,
+    GameplayLua,
+    RmlUi,
+    WorldHotspot,
+    ProjectDefault,
+    Count,
+};
+
+[[nodiscard]] std::string_view cursor_request_source_name(CursorRequestSource source) noexcept;
+
+struct CursorInspection {
+    CursorShape effective = CursorShape::Default;
+    std::string source = "native-default";
+    std::string owner;
+};
+
+class CursorRealizer {
+public:
+    virtual ~CursorRealizer() = default;
+    virtual void realize(CursorShape shape) noexcept = 0;
+
+protected:
+    CursorRealizer() = default;
+};
+
+class CursorAuthority final {
+public:
+    using OwnerToken = std::uint64_t;
+
+    explicit CursorAuthority(CursorRealizer* realizer = nullptr) noexcept;
+
+    void bind_realizer(CursorRealizer* realizer) noexcept;
+    void publish(CursorRequestSource source, OwnerToken owner, CursorShape shape,
+                 std::string owner_label);
+    void clear(CursorRequestSource source, OwnerToken owner);
+    void clear_source(CursorRequestSource source);
+    void set_eligible_order(CursorRequestSource source, std::vector<OwnerToken> front_to_back);
+    void resolve() noexcept;
+    void reset() noexcept;
+
+    [[nodiscard]] const CursorInspection& inspection() const noexcept;
+
+private:
+    struct Request {
+        CursorShape shape = CursorShape::Default;
+        std::string owner_label;
+    };
+
+    struct RequestKey {
+        CursorRequestSource source = CursorRequestSource::RmlUi;
+        OwnerToken owner = 0;
+        bool operator==(const RequestKey&) const = default;
+    };
+
+    struct RequestKeyHash {
+        [[nodiscard]] std::size_t operator()(const RequestKey& key) const noexcept;
+    };
+
+    static constexpr std::size_t kSourceCount =
+        static_cast<std::size_t>(CursorRequestSource::Count);
+    static constexpr std::size_t source_index(CursorRequestSource source) noexcept
+    {
+        return static_cast<std::size_t>(source);
+    }
+
+    CursorRealizer* m_realizer = nullptr;
+    std::unordered_map<RequestKey, Request, RequestKeyHash> m_requests;
+    std::array<std::vector<OwnerToken>, kSourceCount> m_eligible;
+    CursorInspection m_inspection{};
+    std::optional<CursorShape> m_realized;
+};
+
+} // namespace noveltea::host

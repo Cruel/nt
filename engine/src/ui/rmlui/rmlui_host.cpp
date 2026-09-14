@@ -1,5 +1,6 @@
 #include "ui/rmlui/rmlui_host.hpp"
 
+#include "host/cursor_presentation.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "ui/rmlui/rmlui_file_interface.hpp"
 #include "ui/rmlui/rmlui_render_interface_bgfx.hpp"
@@ -20,6 +21,39 @@ namespace {
 
 constexpr const char* kRuntimeUiFontAsset = "project:/rmlui/LiberationSans.ttf";
 constexpr const char* kRuntimeUiSystemFontAsset = "system:/fonts/LiberationSans.ttf";
+
+std::optional<host::CursorShape> rmlui_cursor_shape(std::string_view name) noexcept
+{
+    if (name.empty() || name == "auto")
+        return std::nullopt;
+    if (name == "default" || name == "arrow")
+        return host::CursorShape::Default;
+    if (name == "pointer")
+        return host::CursorShape::Pointer;
+    if (name == "text")
+        return host::CursorShape::Text;
+    if (name == "wait")
+        return host::CursorShape::Wait;
+    if (name == "progress")
+        return host::CursorShape::Progress;
+    if (name == "crosshair" || name == "cross")
+        return host::CursorShape::Crosshair;
+    if (name == "move" || name.starts_with("rmlui-scroll"))
+        return host::CursorShape::Move;
+    if (name == "not-allowed" || name == "unavailable")
+        return host::CursorShape::NotAllowed;
+    if (name == "ns-resize")
+        return host::CursorShape::NsResize;
+    if (name == "ew-resize")
+        return host::CursorShape::EwResize;
+    if (name == "nesw-resize")
+        return host::CursorShape::NeswResize;
+    if (name == "nwse-resize" || name == "resize")
+        return host::CursorShape::NwseResize;
+    if (name == "none")
+        return host::CursorShape::Hidden;
+    return std::nullopt;
+}
 
 class HeadlessRenderInterface final : public Rml::RenderInterface {
 public:
@@ -63,6 +97,7 @@ bool RmlUiHost::initialize(const Config& config)
     m_assets = config.assets;
     m_window = config.window;
     m_shader_materials = config.shader_materials;
+    m_cursor_authority = config.cursor_authority;
     m_presentation = config.presentation;
     const ContextKey primary_key{core::PresentationPlane::GameUi, 0,
                                  core::LayoutClockDomain::Gameplay, core::LayoutInputMode::Normal,
@@ -78,6 +113,8 @@ bool RmlUiHost::initialize(const Config& config)
     m_headless_render = config.headless_render;
     m_file_interface = std::make_unique<AssetRmlFileInterface>(*m_assets);
     m_system_interface = std::make_unique<SdlSystemInterface>(m_window);
+    m_system_interface->set_cursor_request_sink(
+        [this](const Rml::String& cursor_name) { publish_cursor_request(cursor_name); });
     m_system_interface->set_context_projection(m_presentation, m_default_context_metrics);
     Rml::SetFileInterface(m_file_interface.get());
     Rml::SetSystemInterface(m_system_interface.get());
@@ -183,6 +220,12 @@ void RmlUiHost::shutdown()
     m_primary_context = nullptr;
     m_rendered_contexts.clear();
     m_context_render_observer = {};
+    m_cursor_owner_resolver = {};
+    m_active_cursor_context = nullptr;
+    if (m_cursor_authority) {
+        m_cursor_authority->clear_source(host::CursorRequestSource::RmlUi);
+        m_cursor_authority->resolve();
+    }
 
     if (m_rml_initialized) {
         Rml::Shutdown();
@@ -196,6 +239,7 @@ void RmlUiHost::shutdown()
     m_assets = nullptr;
     m_window = nullptr;
     m_shader_materials = nullptr;
+    m_cursor_authority = nullptr;
 }
 
 Rml::Context* RmlUiHost::primary_context() const noexcept { return m_primary_context; }
@@ -271,7 +315,8 @@ Rml::Context* RmlUiHost::context_for(ContextKey key)
         Rml::RemoveContext(name);
         return nullptr;
     }
-    m_contexts.push_back({key, name, created, std::move(*resolved_metrics), {}, 1.0});
+    m_contexts.push_back(
+        {key, name, created, std::move(*resolved_metrics), {}, 1.0, m_next_cursor_source_id++});
     sort_contexts();
     return created;
 }
@@ -375,6 +420,44 @@ void RmlUiHost::set_context_render_observer(ContextRenderObserver observer)
 void RmlUiHost::set_context_initializer(ContextInitializer initializer)
 {
     m_context_initializer = std::move(initializer);
+}
+
+void RmlUiHost::set_cursor_owner_resolver(CursorOwnerResolver resolver)
+{
+    m_cursor_owner_resolver = std::move(resolver);
+}
+
+void RmlUiHost::publish_cursor_request(std::string_view cursor_name)
+{
+    if (!m_cursor_authority || !m_active_cursor_context)
+        return;
+
+    const auto record = std::find_if(m_contexts.begin(), m_contexts.end(), [&](const auto& value) {
+        return value.context == m_active_cursor_context;
+    });
+    if (record == m_contexts.end())
+        return;
+
+    const auto shape = rmlui_cursor_shape(cursor_name);
+    if (!shape) {
+        m_cursor_authority->clear(host::CursorRequestSource::RmlUi, record->cursor_source_id);
+        return;
+    }
+
+    std::string owner =
+        m_cursor_owner_resolver ? m_cursor_owner_resolver(record->context) : std::string{};
+    if (owner.empty())
+        owner = record->name;
+    m_cursor_authority->publish(host::CursorRequestSource::RmlUi, record->cursor_source_id, *shape,
+                                std::move(owner));
+}
+
+void RmlUiHost::resolve_cursor_requests(const std::vector<std::uint64_t>& front_to_back)
+{
+    if (!m_cursor_authority)
+        return;
+    m_cursor_authority->set_eligible_order(host::CursorRequestSource::RmlUi, front_to_back);
+    m_cursor_authority->resolve();
 }
 
 void RmlUiHost::set_context_clock(ContextKey key)

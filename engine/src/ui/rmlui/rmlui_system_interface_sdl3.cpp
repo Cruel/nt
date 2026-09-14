@@ -1,9 +1,9 @@
 #include "ui/rmlui/rmlui_system_interface_sdl3.hpp"
 
 #include <SDL3/SDL.h>
-#include <RmlUi/Core/StringUtilities.h>
 
 #include <algorithm>
+#include <utility>
 
 namespace noveltea::ui::rmlui {
 
@@ -24,27 +24,7 @@ project_text_input_area_to_host_logical(const PresentationMetrics& presentation,
     };
 }
 
-SdlSystemInterface::SdlSystemInterface(SDL_Window* window)
-    : m_window(window), m_default_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT)),
-      m_move_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_MOVE)),
-      m_pointer_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER)),
-      m_resize_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NWSE_RESIZE)),
-      m_cross_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR)),
-      m_text_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT)),
-      m_unavailable_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NOT_ALLOWED))
-{
-}
-
-SdlSystemInterface::~SdlSystemInterface()
-{
-    SDL_DestroyCursor(m_default_cursor);
-    SDL_DestroyCursor(m_move_cursor);
-    SDL_DestroyCursor(m_pointer_cursor);
-    SDL_DestroyCursor(m_resize_cursor);
-    SDL_DestroyCursor(m_cross_cursor);
-    SDL_DestroyCursor(m_text_cursor);
-    SDL_DestroyCursor(m_unavailable_cursor);
-}
+SdlSystemInterface::SdlSystemInterface(SDL_Window* window) : m_window(window) {}
 
 double SdlSystemInterface::GetElapsedTime()
 {
@@ -56,27 +36,15 @@ void SdlSystemInterface::set_elapsed_time(std::chrono::microseconds elapsed) noe
     m_elapsed = std::max(elapsed, std::chrono::microseconds{0});
 }
 
+void SdlSystemInterface::set_cursor_request_sink(CursorRequestSink sink)
+{
+    m_cursor_request_sink = std::move(sink);
+}
+
 void SdlSystemInterface::SetMouseCursor(const Rml::String& cursor_name)
 {
-    SDL_Cursor* cursor = nullptr;
-    if (cursor_name.empty() || cursor_name == "arrow")
-        cursor = m_default_cursor;
-    else if (cursor_name == "pointer")
-        cursor = m_pointer_cursor;
-    else if (cursor_name == "text")
-        cursor = m_text_cursor;
-    else if (cursor_name == "move")
-        cursor = m_move_cursor;
-    else if (cursor_name == "resize")
-        cursor = m_resize_cursor;
-    else if (cursor_name == "cross")
-        cursor = m_cross_cursor;
-    else if (cursor_name == "unavailable")
-        cursor = m_unavailable_cursor;
-    else if (Rml::StringUtilities::StartsWith(cursor_name, "rmlui-scroll"))
-        cursor = m_move_cursor;
-    if (cursor)
-        SDL_SetCursor(cursor);
+    if (m_cursor_request_sink)
+        m_cursor_request_sink(cursor_name);
 }
 
 void SdlSystemInterface::SetClipboardText(const Rml::String& text)

@@ -1,7 +1,9 @@
 #include "ui/rmlui/runtime_ui.hpp"
 
+#include "host/cursor_presentation.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/presentation/runtime_layout_manager.hpp"
+#include "platform/sdl/sdl_cursor_realizer.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
@@ -450,6 +452,8 @@ struct RuntimeUI::State {
         void ProcessEvent(Rml::Event& event) override;
         State& owner;
     };
+    std::unique_ptr<sdl_platform::SdlCursorRealizer> cursor_realizer;
+    std::unique_ptr<host::CursorAuthority> cursor_authority;
     std::unique_ptr<ui::rmlui::RmlUiHost> host;
     std::unique_ptr<ui::rmlui::RmlUiDocumentRegistry> document_registry;
     std::unique_ptr<ui::rmlui::RuntimeUiActionGateway> action_gateway;
@@ -1216,6 +1220,14 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
 
     if (!m_state)
         m_state = new State;
+    if (!m_state->cursor_realizer)
+        m_state->cursor_realizer = std::make_unique<sdl_platform::SdlCursorRealizer>();
+    if (!m_state->cursor_authority) {
+        m_state->cursor_authority =
+            std::make_unique<host::CursorAuthority>(m_state->cursor_realizer.get());
+    } else {
+        m_state->cursor_authority->bind_realizer(m_state->cursor_realizer.get());
+    }
     if (!m_state->host)
         m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
     if (!m_state->active_text_presenter) {
@@ -1279,6 +1291,7 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
                                          .window = window,
                                          .lua_state = m_state->lua_state,
                                          .shader_materials = shader_materials,
+                                         .cursor_authority = m_state->cursor_authority.get(),
                                          .presentation = pending_presentation,
                                          .headless_render = headless_render})) {
         cleanup_state();
@@ -1289,6 +1302,14 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     m_state->runtime_input_listener = std::make_unique<State::RuntimeInputListener>(*m_state);
     m_state->document_registry = std::make_unique<ui::rmlui::RmlUiDocumentRegistry>(*m_state->host);
     m_state->document_registry->set_runtime_input_listener(m_state->runtime_input_listener.get());
+    m_state->host->set_cursor_owner_resolver([state = m_state](Rml::Context* context) {
+        if (!state->document_registry || !context)
+            return std::string{};
+        auto* hover = context->GetHoverElement();
+        auto* owner_document = hover ? hover->GetOwnerDocument() : nullptr;
+        const auto id = state->document_registry->document_id(owner_document);
+        return id.value_or(std::string{});
+    });
     m_state->refresh_data_model_shell();
     m_state->playback_driver = std::make_unique<ui::rmlui::RuntimeUiPlaybackDriver>(
         *m_state->host, *m_state->document_registry,
@@ -1327,6 +1348,14 @@ void ui::rmlui::RuntimeUiFacadeAccess::set_context_render_observer(
 {
     if (runtime_ui.m_state && runtime_ui.m_state->host)
         runtime_ui.m_state->host->set_context_render_observer(std::move(observer));
+}
+
+host::CursorInspection
+ui::rmlui::RuntimeUiFacadeAccess::cursor_inspection(const RuntimeUI& runtime_ui)
+{
+    return runtime_ui.m_state && runtime_ui.m_state->cursor_authority
+               ? runtime_ui.m_state->cursor_authority->inspection()
+               : host::CursorInspection{};
 }
 
 bool RuntimeUI::prepare_fonts(const assets::FontAssetConfig& config)
@@ -1407,6 +1436,21 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
             m_state->message_refresh_pending = false;
             m_state->host->update_contexts();
         }
+        m_state->host->refresh_pointer_cursor(
+            [this](Rml::Context* context) {
+                return m_state->document_registry &&
+                       m_state->document_registry->has_visible_document(context);
+            },
+            [this](const State::ContextKey& key, core::MountedLayoutOwner owner,
+                   const std::function<bool()>& dispatch) {
+                const auto previous = m_state->active_layout_mount_document;
+                m_state->active_layout_mount_document = m_state->mount_document(key);
+                const bool handled =
+                    m_state->action_gateway &&
+                    m_state->action_gateway->dispatch_layout_event(owner, dispatch);
+                m_state->active_layout_mount_document = previous;
+                return handled;
+            });
         m_state->refresh_active_text_layout();
     }
 }

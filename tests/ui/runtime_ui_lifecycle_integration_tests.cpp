@@ -2856,6 +2856,309 @@ TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing 
     CHECK(ui.active_text_presentation_phase() == stable_phase);
 }
 
+TEST_CASE("RuntimeUI cursor requests resolve through one inspectable authority")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    constexpr const char* document = R"(
+<rml>
+  <head>
+    <style>
+      body { width: 640px; height: 360px; }
+      #cursor-target { display: block; width: 160px; height: 48px; cursor: text; }
+    </style>
+  </head>
+  <body><button id="cursor-target">Cursor target</button></body>
+</rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.load_document_from_memory_for_layout("cursor-text", document,
+                                                    "preview://cursor-text.rml", true, policy));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* loaded_document = driver->document("cursor-text");
+    REQUIRE(loaded_document);
+    auto* hover = loaded_document->GetContext()->GetHoverElement();
+    REQUIRE(hover);
+    CHECK(hover->GetId() == "cursor-target");
+    CHECK(hover->GetComputedValues().cursor() == "text");
+
+    const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(noveltea::host::cursor_shape_name(inspection.effective) == "text");
+    CHECK(inspection.source == "rmlui");
+    CHECK(inspection.owner == "cursor-text");
+}
+
+TEST_CASE("RuntimeUI cursor semantics distinguish auto hidden and native shapes")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    constexpr const char* document = R"(
+<rml>
+  <head>
+    <style>
+      body { width: 640px; height: 360px; margin: 0; padding: 0; }
+      button { display: block; width: 220px; height: 16px; margin: 0; padding: 0; }
+    </style>
+  </head>
+  <body>
+    <button style="cursor: default;">default</button>
+    <button style="cursor: pointer;">pointer</button>
+    <button style="cursor: text;">text</button>
+    <button style="cursor: wait;">wait</button>
+    <button style="cursor: progress;">progress</button>
+    <button style="cursor: crosshair;">crosshair</button>
+    <button style="cursor: move;">move</button>
+    <button style="cursor: not-allowed;">not-allowed</button>
+    <button style="cursor: ns-resize;">ns-resize</button>
+    <button style="cursor: ew-resize;">ew-resize</button>
+    <button style="cursor: nesw-resize;">nesw-resize</button>
+    <button style="cursor: nwse-resize;">nwse-resize</button>
+    <button style="cursor: none;">none</button>
+    <button style="cursor: auto;">auto</button>
+    <button style="cursor: arrow;">legacy arrow</button>
+    <button style="cursor: cross;">legacy cross</button>
+    <button style="cursor: unavailable;">legacy unavailable</button>
+    <button style="cursor: resize;">legacy resize</button>
+    <button style="cursor: rmlui-scroll-up;">private autoscroll</button>
+  </body>
+</rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "cursor-semantics", document, "preview://cursor-semantics.rml", true, policy));
+    ui.begin_frame({});
+
+    struct Case {
+        std::size_t row = 0;
+        noveltea::host::CursorShape expected = noveltea::host::CursorShape::Default;
+    };
+    const std::vector<Case> cases{
+        {0, noveltea::host::CursorShape::Default},
+        {1, noveltea::host::CursorShape::Pointer},
+        {2, noveltea::host::CursorShape::Text},
+        {3, noveltea::host::CursorShape::Wait},
+        {4, noveltea::host::CursorShape::Progress},
+        {5, noveltea::host::CursorShape::Crosshair},
+        {6, noveltea::host::CursorShape::Move},
+        {7, noveltea::host::CursorShape::NotAllowed},
+        {8, noveltea::host::CursorShape::NsResize},
+        {9, noveltea::host::CursorShape::EwResize},
+        {10, noveltea::host::CursorShape::NeswResize},
+        {11, noveltea::host::CursorShape::NwseResize},
+        {12, noveltea::host::CursorShape::Hidden},
+        {14, noveltea::host::CursorShape::Default},
+        {15, noveltea::host::CursorShape::Crosshair},
+        {16, noveltea::host::CursorShape::NotAllowed},
+        {17, noveltea::host::CursorShape::NwseResize},
+        {18, noveltea::host::CursorShape::Move},
+    };
+    for (const auto& value : cases) {
+        SDL_Event motion{};
+        motion.type = SDL_EVENT_MOUSE_MOTION;
+        motion.motion.x = 8.0f;
+        motion.motion.y = 8.0f + 16.0f * static_cast<float>(value.row);
+        (void)ui.process_event(motion);
+        const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+        CAPTURE(value.row);
+        CHECK(inspection.effective == value.expected);
+        CHECK(inspection.source == "rmlui");
+        CHECK(inspection.owner == "cursor-semantics");
+    }
+
+    SDL_Event auto_motion{};
+    auto_motion.type = SDL_EVENT_MOUSE_MOTION;
+    auto_motion.motion.x = 8.0f;
+    auto_motion.motion.y = 8.0f + 16.0f * 13.0f;
+    (void)ui.process_event(auto_motion);
+    const auto auto_inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(auto_inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(auto_inspection.source == "native-default");
+    CHECK(auto_inspection.owner.empty());
+}
+
+TEST_CASE(
+    "RuntimeUI cursor arbitration follows front-to-back input ownership under a stationary pointer")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    constexpr const char* lower_document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  #lower { display: block; width: 200px; height: 80px; margin: 0; cursor: pointer; }
+</style></head><body><button id="lower">Lower</button></body></rml>
+)";
+    constexpr const char* top_document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  #top { display: block; width: 200px; height: 80px; margin: 0; cursor: text; }
+</style></head><body><button id="top">Top</button></body></rml>
+)";
+    constexpr const char* clickthrough_document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; pointer-events: none; }
+  #overlay { width: 200px; height: 80px; cursor: wait; pointer-events: none; }
+</style></head><body><div id="overlay">Overlay</div></body></rml>
+)";
+    constexpr const char* modal_document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; cursor: auto; }
+</style></head><body>Modal shield</body></rml>
+)";
+
+    noveltea::core::MountedLayoutPolicy lower_policy;
+    lower_policy.plane = noveltea::core::PresentationPlane::GameUi;
+    lower_policy.input = noveltea::core::LayoutInputMode::Normal;
+    auto top_policy = lower_policy;
+    top_policy.plane = noveltea::core::PresentationPlane::MenuOverlay;
+    auto modal_policy = top_policy;
+    modal_policy.plane = noveltea::core::PresentationPlane::Modal;
+    modal_policy.input = noveltea::core::LayoutInputMode::Modal;
+
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "cursor-lower", lower_document, "preview://cursor-lower.rml", true, lower_policy, 0,
+        noveltea::core::MountedLayoutOwner::Gameplay, {}, 0));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "cursor-top", top_document, "preview://cursor-top.rml", true, top_policy, 0,
+        noveltea::core::MountedLayoutOwner::Gameplay, {}, 0));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Text);
+    CHECK(inspection.source == "rmlui");
+    CHECK(inspection.owner == "cursor-top");
+
+    REQUIRE(ui.hide_document("cursor-top"));
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+    CHECK(inspection.owner == "cursor-lower");
+
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "cursor-clickthrough", clickthrough_document, "preview://cursor-clickthrough.rml", true,
+        top_policy, 1, noveltea::core::MountedLayoutOwner::Gameplay, {}, 1));
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+    CHECK(inspection.owner == "cursor-lower");
+
+    REQUIRE(ui.hide_document("cursor-clickthrough"));
+    REQUIRE(ui.show_document("cursor-top"));
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Text);
+    CHECK(inspection.owner == "cursor-top");
+
+    REQUIRE(ui.hide_document("cursor-top"));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "cursor-modal", modal_document, "preview://cursor-modal.rml", true, modal_policy, 0,
+        noveltea::core::MountedLayoutOwner::Shell, {}, 2));
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.source == "native-default");
+}
+
+TEST_CASE("RuntimeUI clears transient cursor eligibility across bars leave and focus loss")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 480, 640, 480),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    constexpr const char* document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  #target { display: block; width: 200px; height: 120px; margin: 0; cursor: pointer; }
+</style></head><body><button id="target">Target</button></body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.load_document_from_memory_for_layout("cursor-leave", document,
+                                                    "preview://cursor-leave.rml", true, policy));
+    ui.begin_frame({});
+
+    const auto move = [&](float x, float y) {
+        SDL_Event motion{};
+        motion.type = SDL_EVENT_MOUSE_MOTION;
+        motion.motion.x = x;
+        motion.motion.y = y;
+        (void)ui.process_event(motion);
+        return RuntimeUiFacadeAccess::cursor_inspection(ui);
+    };
+
+    auto inspection = move(20.0f, 80.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+    CHECK(inspection.owner == "cursor-leave");
+
+    inspection = move(20.0f, 10.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.source == "native-default");
+
+    inspection = move(20.0f, 80.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+
+    SDL_Event leave{};
+    leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
+    (void)ui.process_event(leave);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.source == "native-default");
+
+    inspection = move(20.0f, 80.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+
+    SDL_Event focus_lost{};
+    focus_lost.type = SDL_EVENT_WINDOW_FOCUS_LOST;
+    (void)ui.process_event(focus_lost);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.source == "native-default");
+}
+
 TEST_CASE("RuntimeUI preserves lifecycle document state across migration and reload")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture;

@@ -13,6 +13,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -27,6 +28,10 @@ class RenderInterface;
 
 namespace noveltea {
 struct ShaderMaterialProject;
+
+namespace host {
+class CursorAuthority;
+}
 
 namespace assets {
 class AssetManager;
@@ -50,6 +55,7 @@ public:
         ResolvedContextMetrics metrics{};
         std::vector<core::PresentationMaterialParameter> material_parameters;
         double material_camera_zoom = 1.0;
+        std::uint64_t cursor_source_id = 0;
     };
 
     struct Config {
@@ -57,6 +63,7 @@ public:
         SDL_Window* window = nullptr;
         lua_State* lua_state = nullptr;
         const ShaderMaterialProject* shader_materials = nullptr;
+        host::CursorAuthority* cursor_authority = nullptr;
         PresentationMetrics presentation{};
         bool headless_render = false;
     };
@@ -76,6 +83,7 @@ public:
     using ContextRenderObserver =
         std::function<void(const ContextKey&, const ResolvedContextMetrics&)>;
     using ContextInitializer = std::function<bool(Rml::Context&)>;
+    using CursorOwnerResolver = std::function<std::string(Rml::Context*)>;
 
     RmlUiHost();
     ~RmlUiHost();
@@ -131,12 +139,15 @@ public:
     void set_raster_snapping(bool geometry_enabled, bool text_enabled);
     void set_context_render_observer(ContextRenderObserver observer);
     void set_context_initializer(ContextInitializer initializer);
+    void set_cursor_owner_resolver(CursorOwnerResolver resolver);
     void set_context_clock(ContextKey key);
     void
     set_context_material_parameters(Rml::Context* context,
                                     std::vector<core::PresentationMaterialParameter> parameters,
                                     double camera_zoom);
 
+    void refresh_pointer_cursor(const VisibleDocumentPredicate& has_visible_document,
+                                const LayoutEventDispatch& dispatch_layout_event);
     [[nodiscard]] bool wants_pointer_input() const;
     [[nodiscard]] bool wants_keyboard_input() const;
     [[nodiscard]] const PresentationMetrics& presentation() const noexcept;
@@ -168,12 +179,15 @@ private:
                                const VisibleDocumentPredicate& has_visible_document,
                                const LayoutEventDispatch& dispatch_layout_event);
     void reset_pointer_state();
+    void publish_cursor_request(std::string_view cursor_name);
+    void resolve_cursor_requests(const std::vector<std::uint64_t>& front_to_back);
     void configure_plane_output_framebuffers();
     void render_contexts(bool world_source_only, bool world_target_only, bool include_debug_plane);
 
     const assets::AssetManager* m_assets = nullptr;
     SDL_Window* m_window = nullptr;
     const ShaderMaterialProject* m_shader_materials = nullptr;
+    host::CursorAuthority* m_cursor_authority = nullptr;
     PresentationMetrics m_presentation{};
     ResolvedContextMetrics m_default_context_metrics{};
     core::RuntimeUserSettings m_user_settings = core::RuntimeUserSettings::defaults();
@@ -185,8 +199,12 @@ private:
     std::unordered_set<Rml::Context*> m_rendered_contexts;
     ContextRenderObserver m_context_render_observer;
     ContextInitializer m_context_initializer;
+    CursorOwnerResolver m_cursor_owner_resolver;
     std::unordered_set<std::uint64_t> m_active_touches;
     Rml::Context* m_primary_context = nullptr;
+    Rml::Context* m_active_cursor_context = nullptr;
+    std::optional<Vec2> m_reference_pointer;
+    std::uint64_t m_next_cursor_source_id = 1;
     bool m_pointer_inside = false;
     bool m_headless_render = false;
     bool m_perf_logging = false;
