@@ -183,6 +183,10 @@ set(NOVELTEA_MODULE_FILES_noveltea_script_lua
     engine/include/noveltea/script/script_result.hpp
     engine/include/noveltea/script/script_runtime.hpp
     engine/include/noveltea/script/script_value.hpp
+    engine/include/noveltea/script/wall_clock.hpp
+    engine/src/script/lua/bind_wall_clock.cpp
+    engine/src/script/lua/bind_wall_clock.hpp
+    engine/src/script/lua/wall_clock.cpp
     engine/src/script/lua/bind_noveltea.cpp
     engine/src/script/lua/bind_runtime_capabilities.cpp
     engine/src/script/lua/bind_typed_script_host.cpp

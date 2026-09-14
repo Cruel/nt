@@ -3,6 +3,8 @@
 #include "noveltea/core/message_realization.hpp"
 #include "noveltea/script/runtime_script_api.hpp"
 
+#include "noveltea/script/wall_clock.hpp"
+#include "script/lua/bind_wall_clock.hpp"
 #include "script/lua/sol_access.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
@@ -640,7 +642,8 @@ core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig co
     m_impl->sources = config.sources;
     m_impl->lua.open_libraries(sol::lib::base, sol::lib::coroutine, sol::lib::table,
                                sol::lib::string, sol::lib::math, sol::lib::utf8);
-    m_impl->lua["os"] = sol::lua_nil;
+    bind_wall_clock(m_impl->lua.lua_state(),
+                    config.wall_clock ? *config.wall_clock : system_wall_clock());
     m_impl->lua["io"] = sol::lua_nil;
     m_impl->lua["debug"] = sol::lua_nil;
     m_impl->lua["package"] = sol::lua_nil;
