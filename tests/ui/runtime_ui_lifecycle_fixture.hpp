@@ -20,13 +20,14 @@ class RuntimeUiLifecycleFixture final {
 public:
     struct Config {
         bool mount_system_assets = true;
+        const script::WallClock* wall_clock = nullptr;
     };
 
     RuntimeUiLifecycleFixture() : RuntimeUiLifecycleFixture(Config{}) {}
 
     explicit RuntimeUiLifecycleFixture(Config config)
         : m_project_assets(std::make_shared<assets::MemoryAssetSource>()), m_text_engine(m_assets),
-          m_font_loader(m_assets, m_text_engine)
+          m_font_loader(m_assets, m_text_engine), m_wall_clock(config.wall_clock)
     {
         m_assets.mount("project", m_project_assets);
         if (config.mount_system_assets)
@@ -54,7 +55,7 @@ public:
             m_async_assets_configured = true;
         }
         if (!m_scripts.is_initialized()) {
-            if (!m_scripts.initialize({&m_assets}))
+            if (!m_scripts.initialize({&m_assets, m_wall_clock}))
                 return false;
             if (m_system_assets_mounted &&
                 !m_scripts.execute_asset("system:/scripts/bootstrap.lua"))
@@ -74,7 +75,7 @@ public:
     [[nodiscard]] bool initialize_scripts_only()
     {
         if (!m_scripts.is_initialized()) {
-            if (!m_scripts.initialize({&m_assets}))
+            if (!m_scripts.initialize({&m_assets, m_wall_clock}))
                 return false;
             if (m_system_assets_mounted &&
                 !m_scripts.execute_asset("system:/scripts/bootstrap.lua"))
@@ -120,6 +121,7 @@ private:
     text::TextEngine m_text_engine;
     text::TextFontAssetLoader m_font_loader;
     script::ScriptRuntime m_scripts;
+    const script::WallClock* m_wall_clock = nullptr;
     RuntimeUI m_runtime_ui;
     bool m_system_assets_mounted = false;
     bool m_async_assets_configured = false;

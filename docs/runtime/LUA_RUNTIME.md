@@ -2,8 +2,9 @@
 
 ## Direction
 
-Lua is the only runtime scripting language. `ScriptRuntime` owns the sandboxed Lua VM; OS, IO,
-debug, package loading, `require`, `dofile`, and `loadfile` are unavailable by default.
+Lua is the only runtime scripting language. `ScriptRuntime` owns the sandboxed Lua VM; unsafe OS
+operations, IO, debug, package loading, `require`, `dofile`, and `loadfile` are unavailable. The only
+admitted `os` operations are the wall-clock/calendar subset below.
 
 Lua source remains opaque to the TypeScript authoring compiler after structural validation except
 for the managed localization syntax described below. Native Lua certification runs for
@@ -162,6 +163,36 @@ Gameplay and frontend/Layout Lua expose the same `Data.load(assetId)` capability
 JSON parsing is native and bounded. A successful load converts the parsed value into ordinary Lua scalars/tables and creates a fresh value tree on every call, so mutation cannot leak into the Asset, another call, or another VM. JSON `null` is represented by the stable `Data.null` sentinel so object members and array positions survive conversion. Parse/load failures return `nil, error`; malformed JSON, unsupported numeric values, missing IDs, and unavailable sources fail without granting filesystem access. The API deliberately does not provide general JSON encode/decode functions.
 
 Layout authors should declare JSON data used by a Layout in its explicit data dependencies. Those references participate in validation, focused-preview staging, unused-Asset pruning, and runtime-package inclusion without requiring static analysis of `Data.load(...)` source text.
+
+## Wall-clock and Calendar Time
+
+Gameplay and frontend/Layout Lua share the same restricted `os.time`, `os.date`, and `os.difftime`
+bindings. Each `ScriptRuntimeConfig` can borrow a NovelTea
+[`WallClock`](../../engine/include/noveltea/script/wall_clock.hpp) through VM shutdown. That provider
+owns both epoch sampling and local/UTC calendar conversion, including local-time normalization and
+DST policy; injection never changes process-global timezone or locale. Without an override, the
+NovelTea system provider uses the host wall clock and timezone. Hosts/tests can supply the same frozen
+provider to both VMs; isolated focused-preview environments retain their VM's provider.
+
+`os.time()` (or `nil`) samples integer Unix epoch seconds. The table form uses local calendar time,
+requires year/month/day, defaults to noon with zero minutes/seconds, honors the optional DST hint, and
+updates the table with normalized calendar fields. `os.date` defaults to the current local time and
+`%c`; a leading `!` selects UTC and `*t` returns standard Lua calendar fields (including one-based
+weekday and year day). Formatting admits the portable C89-style conversions listed in the
+[binding allowlist](../../engine/src/script/lua/bind_wall_clock.cpp), excluding timezone text/offset
+conversions (`%Z`, `%z`) and platform-specific modifiers. Literal text, `%%`, and empty formats are
+supported. Calendar results are restricted to years 1–9999 and the provider's representable range;
+invalid fields, unsupported formats, and conversion failures raise ordinary Lua errors. Like standard
+Lua, `os.time` treats an epoch result of -1 as failure. Host textual
+formats use the host C locale; deterministic cross-host assertions should use numeric formats or
+calendar tables. `os.difftime` returns the signed difference in seconds without integer overflow.
+
+Wall-clock observations are external inputs, not checkpointed session state or elapsed time. Pausing,
+advancing, resetting, or restoring gameplay does not advance or rewind the wall clock. Gameplay and
+unscaled-presentation clocks continue to drive their existing Flow/presentation behavior independently.
+`os.clock` remains unavailable, as before; it is not redefined as wall or gameplay time. No other
+standard OS capabilities are installed, including environment access, filesystem mutation, process
+execution/exit, temporary files, or locale mutation.
 
 ## Invocation and Yielding
 

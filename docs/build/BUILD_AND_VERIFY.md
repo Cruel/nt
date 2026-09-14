@@ -26,6 +26,13 @@ so overlapping Linux, Web, Android, sanitizer, or policy builds can still create
 processes to exhaust RAM and swap. Run build presets and validation builds sequentially unless the
 user explicitly requests concurrent execution.
 
+CMake link job pools (`CMAKE_JOB_POOLS` / `CMAKE_JOB_POOL_LINK`) only constrain Ninja builds. Check
+`CMAKE_GENERATOR` in the build directory's `CMakeCache.txt` before relying on them: Unix Makefiles
+ignores those pools and can launch several memory-heavy executable links within the compile-job
+limit. On memory-constrained Makefiles builds, build one executable target at a time with
+`cmake --build --preset <preset> --target <target>`, waiting for each command to finish before the
+next. Do not retry an unrestricted aggregate build after a link-memory failure.
+
 Build and test helper scripts should preserve an inherited value and may provide only a conservative
 fallback when it is absent, for example:
 

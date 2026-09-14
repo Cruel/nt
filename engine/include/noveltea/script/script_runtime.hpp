@@ -21,6 +21,7 @@ namespace detail {
 struct ScriptRuntimeAccess;
 }
 class RuntimeScriptApi;
+class WallClock;
 
 struct ScriptEnvironmentHandle {
     std::uint64_t value = 0;
@@ -35,6 +36,8 @@ struct DataAssetBinding {
 
 struct ScriptRuntimeConfig {
     const runtime::ScriptSourcePort* sources = nullptr;
+    // Borrowed through shutdown; null selects the host's system wall clock/timezone.
+    const WallClock* wall_clock = nullptr;
 };
 
 class ScriptRuntime final : public runtime::ScriptRuntimePort {

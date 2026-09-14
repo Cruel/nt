@@ -7,6 +7,7 @@
 #include "ui/rmlui/rmlui_host.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
 #include "ui/runtime_ui_lifecycle_fixture.hpp"
+#include "frozen_wall_clock.hpp"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -2256,10 +2257,24 @@ TEST_CASE("RuntimeUI authored system Layouts opt into model state without role-s
     CHECK(driver->element("authored-modal", "nt-shell-status")->GetInnerRML().empty());
 }
 
-TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to its presenter")
+TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to its presenter",
+          "[wall-clock]")
 {
-    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    noveltea::test_support::FrozenWallClock clock;
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.wall_clock = &clock});
     REQUIRE(fixture.initialize());
+    const char* calendar_checks = R"(
+        assert(os.time() == 1709164800)
+        assert(os.date('%Y-%m-%d %H:%M:%S') == '2024-02-29 05:30:00')
+        assert(os.date('!%Y-%m-%d %H:%M:%S') == '2024-02-29 00:00:00')
+        assert(os.time(os.date('*t')) == os.time())
+        assert(os.difftime(os.time(), 1709078400) == 86400)
+        for _, name in ipairs({'execute', 'exit', 'getenv', 'remove', 'rename',
+                               'setlocale', 'tmpname', 'clock'}) do
+            assert(os[name] == nil)
+        end
+    )";
+    require_lua(fixture.lua_state(), calendar_checks);
     auto& ui = fixture.runtime_ui();
     REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
     RecordingRuntimeUiInputSink input_sink;
@@ -2296,6 +2311,10 @@ TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to it
     ui.begin_frame(
         noveltea::core::RuntimeClockUpdate{.gameplay_delta = std::chrono::milliseconds(10),
                                            .gameplay_time = std::chrono::milliseconds(2010)});
+    CHECK(ui.active_text_presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Fade);
+    require_lua(fixture.lua_state(), calendar_checks);
+    clock.epoch += 86400;
+    require_lua(fixture.lua_state(), "assert(os.date('!%Y-%m-%d') == '2024-03-01')");
     CHECK(ui.active_text_presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Fade);
 }
 
