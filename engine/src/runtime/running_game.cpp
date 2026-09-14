@@ -171,9 +171,9 @@ private:
 
 RuntimeSessionCandidate::RuntimeSessionCandidate(
     std::unique_ptr<SessionScriptInvocationPort> scripts, std::unique_ptr<RuntimeSession> session,
-    RuntimeDispatchResult initial_result) noexcept
+    RuntimeDispatchResult initial_result, core::PersistableValue startup_context) noexcept
     : m_scripts(std::move(scripts)), m_session(std::move(session)),
-      m_initial_result(std::move(initial_result))
+      m_initial_result(std::move(initial_result)), m_startup_context(std::move(startup_context))
 {
 }
 
@@ -392,13 +392,15 @@ core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
 RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort& script_certifier,
                     ScriptInvocationPort& scripts, PresentationModelPort& presentation_model,
                     PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
-                    const core::SaveStateCodecPort& save_codec, std::string runtime_locale)
+                    const core::SaveStateCodecPort& save_codec, std::string runtime_locale,
+                    core::PersistableValue startup_context)
 {
     auto lua_diagnostics = certify_compiled_project_lua(package.project(), script_certifier);
     if (!lua_diagnostics.empty())
         return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(lua_diagnostics));
 
+    script_certifier.set_startup_context(startup_context);
     auto prepared_scripts = script_certifier.prepare_project_modules(package.project());
     if (!prepared_scripts) {
         return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
@@ -430,6 +432,7 @@ RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort
     runtime->m_saves = &saves;
     runtime->m_save_codec = &save_codec;
     runtime->m_runtime_locale = runtime_locale;
+    runtime->m_startup_context = std::move(startup_context);
     auto session = RuntimeSession::create(runtime->m_package.project(), *runtime->m_script_binding,
                                           presentation_model, presentation, saves, save_codec,
                                           std::move(runtime_locale));
@@ -442,7 +445,8 @@ RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort
 }
 
 core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>
-RunningGame::prepare_reset_candidate(ScriptInvocationPort& scripts,
+RunningGame::prepare_reset_candidate(const core::ResetRuntimeInput& reset,
+                                     ScriptInvocationPort& scripts,
                                      PresentationRuntimePort& presentation)
 {
     if (m_presentation_model == nullptr || m_saves == nullptr || m_save_codec == nullptr) {
@@ -471,9 +475,32 @@ RunningGame::prepare_reset_candidate(ScriptInvocationPort& scripts,
             std::move(diagnostics));
     }
 
+    if (reset.show_title) {
+        auto stopped =
+            (*session.value_if())->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+        if (!stopped.diagnostics.empty() ||
+            stopped.disposition == RuntimeInputDisposition::Failed) {
+            auto diagnostics = std::move(stopped.diagnostics);
+            if (diagnostics.empty()) {
+                diagnostics.push_back(
+                    {.code = "runtime.reset_candidate_stop_failed",
+                     .message = "Reset candidate could not enter title-screen lifecycle"});
+            }
+            return core::Result<std::unique_ptr<RuntimeSessionCandidate>,
+                                core::Diagnostics>::failure(std::move(diagnostics));
+        }
+        initial.events.insert(initial.events.end(), std::make_move_iterator(stopped.events.begin()),
+                              std::make_move_iterator(stopped.events.end()));
+        if (stopped.presentation_predecessor)
+            initial.presentation_predecessor = std::move(stopped.presentation_predecessor);
+        if (stopped.publication)
+            initial.publication = std::move(stopped.publication);
+    }
+
     return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::success(
-        std::unique_ptr<RuntimeSessionCandidate>(new RuntimeSessionCandidate(
-            std::move(binding), std::move(*session.value_if()), std::move(initial))));
+        std::unique_ptr<RuntimeSessionCandidate>(
+            new RuntimeSessionCandidate(std::move(binding), std::move(*session.value_if()),
+                                        std::move(initial), reset.startup_context)));
 }
 
 core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>
@@ -508,8 +535,9 @@ RunningGame::prepare_load_candidate(core::TypedSaveSlotId slot, ScriptInvocation
         core::SaveOutcome{slot, core::SaveOutcomeStatus::Loaded, slot.is_autosave()}});
 
     return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::success(
-        std::unique_ptr<RuntimeSessionCandidate>(new RuntimeSessionCandidate(
-            std::move(binding), std::move(*session.value_if()), std::move(initial))));
+        std::unique_ptr<RuntimeSessionCandidate>(
+            new RuntimeSessionCandidate(std::move(binding), std::move(*session.value_if()),
+                                        std::move(initial), m_startup_context)));
 }
 
 core::Result<void, core::Diagnostics>
@@ -546,10 +574,11 @@ RunningGame::commit_candidate(std::unique_ptr<RuntimeSessionCandidate> candidate
 {
     if (!candidate)
         return nullptr;
-    auto previous = std::unique_ptr<RuntimeSessionCandidate>(
-        new RuntimeSessionCandidate(std::move(m_script_binding), std::move(m_session), {}));
+    auto previous = std::unique_ptr<RuntimeSessionCandidate>(new RuntimeSessionCandidate(
+        std::move(m_script_binding), std::move(m_session), {}, m_startup_context));
     m_script_binding = std::move(candidate->m_scripts);
     m_session = std::move(candidate->m_session);
+    m_startup_context = std::move(candidate->m_startup_context);
     return previous;
 }
 

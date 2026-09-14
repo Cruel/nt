@@ -125,6 +125,129 @@ sol::object mount_persistable_lua_value(sol::state_view lua, const core::Persist
         value.value);
 }
 
+sol::object startup_context_lua_value(sol::state_view lua, const core::PersistableValue& value)
+{
+    return std::visit(
+        [&](const auto& item) -> sol::object {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, std::monostate>) {
+                const sol::table data = lua["Data"];
+                return data["null"];
+            } else if constexpr (std::is_same_v<T, core::PersistableValue::Array>) {
+                sol::table table = lua.create_table(static_cast<int>(item.size()), 0);
+                for (std::size_t index = 0; index < item.size(); ++index)
+                    table[index + 1] = startup_context_lua_value(lua, item[index]);
+                return sol::make_object(lua, std::move(table));
+            } else if constexpr (std::is_same_v<T, core::PersistableValue::Object>) {
+                sol::table table = lua.create_table(0, static_cast<int>(item.size()));
+                for (const auto& [key, child] : item)
+                    table[key] = startup_context_lua_value(lua, child);
+                return sol::make_object(lua, std::move(table));
+            } else {
+                return sol::make_object(lua, item);
+            }
+        },
+        value.value);
+}
+
+std::optional<core::PersistableValue>
+startup_context_value(const sol::object& object, std::unordered_set<const void*>& active_tables)
+{
+    if (!object.valid() || object == sol::lua_nil)
+        return core::PersistableValue{std::monostate{}};
+    sol::state_view lua(object.lua_state());
+    const sol::object data_null = lua["Data"]["null"];
+    if ((is_mount_layout_state_null(object)) ||
+        (object.get_type() == sol::type::lightuserdata && data_null.valid() &&
+         data_null.get_type() == sol::type::lightuserdata &&
+         object.as<void*>() == data_null.as<void*>()))
+        return core::PersistableValue{std::monostate{}};
+    switch (object.get_type()) {
+    case sol::type::boolean:
+        return core::PersistableValue{object.as<bool>()};
+    case sol::type::number:
+        if (object.is<std::int64_t>())
+            return core::PersistableValue{object.as<std::int64_t>()};
+        if (const double value = object.as<double>(); std::isfinite(value))
+            return core::PersistableValue{value};
+        return std::nullopt;
+    case sol::type::string:
+        return core::PersistableValue{object.as<std::string>()};
+    case sol::type::table:
+        break;
+    default:
+        return std::nullopt;
+    }
+
+    lua_State* state = object.lua_state();
+    const int pushed = sol::stack::push(state, object);
+    const int table_index = lua_absindex(state, -1);
+    if (lua_getmetatable(state, table_index) != 0) {
+        lua_pop(state, 1 + pushed);
+        return std::nullopt;
+    }
+    const void* identity = lua_topointer(state, table_index);
+    lua_pop(state, pushed);
+    if (!identity || !active_tables.insert(identity).second)
+        return std::nullopt;
+    const auto finish = [&](std::optional<core::PersistableValue> result) {
+        active_tables.erase(identity);
+        return result;
+    };
+
+    const sol::table table = object.as<sol::table>();
+    bool integer_keys = false;
+    bool string_keys = false;
+    std::size_t highest = 0;
+    for (const auto& entry : table) {
+        const sol::object key = entry.first;
+        if (key.get_type() == sol::type::number && key.is<std::int64_t>()) {
+            const auto index = key.as<std::int64_t>();
+            if (index <= 0)
+                return finish(std::nullopt);
+            integer_keys = true;
+            highest = std::max(highest, static_cast<std::size_t>(index));
+        } else if (key.get_type() == sol::type::string) {
+            string_keys = true;
+        } else {
+            return finish(std::nullopt);
+        }
+    }
+    if (integer_keys && string_keys)
+        return finish(std::nullopt);
+    if (integer_keys) {
+        if (highest != table.size())
+            return finish(std::nullopt);
+        core::PersistableValue::Array values;
+        values.reserve(highest);
+        for (std::size_t index = 1; index <= highest; ++index) {
+            auto converted = startup_context_value(table[index], active_tables);
+            if (!converted)
+                return finish(std::nullopt);
+            values.push_back(std::move(*converted));
+        }
+        return finish(core::PersistableValue{std::move(values)});
+    }
+
+    core::PersistableValue::Object values;
+    values.reserve(table.size());
+    for (const auto& entry : table) {
+        auto converted = startup_context_value(entry.second, active_tables);
+        if (!converted)
+            return finish(std::nullopt);
+        values.emplace_back(entry.first.as<std::string>(), std::move(*converted));
+    }
+    std::sort(values.begin(), values.end(),
+              [](const auto& left, const auto& right) { return left.first < right.first; });
+    return finish(core::PersistableValue{std::move(values)});
+}
+
+std::optional<core::PersistableValue> startup_context_value(const sol::object& object)
+{
+    std::unordered_set<const void*> active_tables;
+    return startup_context_value(object, active_tables);
+}
+
 std::optional<core::PersistableValue>
 mount_persistable_value(const sol::object& object, const core::LayoutStateShape& shape,
                         std::unordered_set<const void*>& active_tables)
@@ -908,6 +1031,29 @@ void RuntimeUI::State::install_shell_lua_api()
 
     game.set_function("start", [this]() {
         return dispatch_shell_command(core::RuntimeShellCommand{core::StartGameShellCommand{}});
+    });
+    game.set_function("startup_context", [this](sol::this_state state) {
+        sol::state_view view(state);
+        return action_gateway ? startup_context_lua_value(view, action_gateway->startup_context())
+                              : sol::make_object(view, sol::lua_nil);
+    });
+    game.set_function("restart", [this](sol::optional<sol::object> context,
+                                        sol::optional<bool> show_title) {
+        if (!action_gateway)
+            return false;
+        core::PersistableValue value{core::PersistableValue::Object{}};
+        if (context) {
+            auto converted = startup_context_value(*context);
+            if (!converted) {
+                typed_diagnostics.push_back(
+                    core::Diagnostic{.code = "runtime_ui.invalid_startup_context",
+                                     .message = "Game.restart startup context must contain only "
+                                                "persistable values"});
+                return false;
+            }
+            value = std::move(*converted);
+        }
+        return action_gateway->action_restart(std::move(value), show_title.value_or(false));
     });
     shell.set_function("pause", [this]() {
         return dispatch_shell_command(core::RuntimeShellCommand{core::OpenPauseShellCommand{}});
@@ -1819,6 +1965,18 @@ void RuntimeUI::bind_input_sink(RuntimeUiInputSink* sink) noexcept
         m_state->install_shell_lua_api();
     } else
         m_state->remove_shell_lua_api();
+}
+
+void RuntimeUI::set_startup_context(core::PersistableValue context) noexcept
+{
+    if (!m_state)
+        return;
+    if (!m_state->action_gateway) {
+        m_state->action_gateway =
+            std::make_unique<ui::rmlui::RuntimeUiActionGateway>(m_state->typed_diagnostics);
+        m_state->action_gateway->set_lua_state(m_state->lua_state);
+    }
+    m_state->action_gateway->set_startup_context(std::move(context));
 }
 
 bool RuntimeUI::apply_gameplay_ui_values(const RuntimeUiGameplayValues& values)

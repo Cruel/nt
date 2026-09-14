@@ -97,6 +97,8 @@ public:
     [[nodiscard]] core::Result<void, ScriptError> initialize(ScriptRuntimeConfig config);
     void shutdown();
     [[nodiscard]] bool is_initialized() const;
+    void set_startup_context(core::PersistableValue context) override;
+    [[nodiscard]] core::PersistableValue startup_context() const;
     [[nodiscard]] ScopedSourceOverride
     override_sources(const runtime::ScriptSourcePort& sources) noexcept;
 

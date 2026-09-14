@@ -186,6 +186,8 @@ Engine::Impl::Impl()
           .system_layout_host = *this,
           .world_transitions = &m_world_transitions,
           .script_certifier = m_scripts,
+          .runtime_session_replaced =
+              [this]() { m_presentation_layouts.replace_runtime_session(); },
           .diagnostic_sink =
               [](host::HostFrameStage stage, const core::Diagnostic& diagnostic) {
                   const auto stage_name = host::to_string(stage);

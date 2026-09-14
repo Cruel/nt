@@ -737,6 +737,12 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
 
     noveltea::RuntimeUiGameplayValues values;
     values.revision = 1;
+    values.startup_context =
+        noveltea::core::PersistableValue{noveltea::core::PersistableValue::Object{
+            {"scenario", noveltea::core::PersistableValue{std::string("rooms")}},
+            {"nested", noveltea::core::PersistableValue{noveltea::core::PersistableValue::Array{
+                           noveltea::core::PersistableValue{std::int64_t{7}},
+                           noveltea::core::PersistableValue{std::monostate{}}}}}}};
     values.view.can_continue = true;
     values.view.scene =
         noveltea::core::SceneView{.scene = scene.value(),
@@ -835,6 +841,30 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
     expect_shell_parity("shell-set-text-scale", "assert(Game.shell.set_text_scale(1.5))");
     expect_shell_parity("shell-confirm", "assert(Game.shell.confirm())");
     expect_shell_parity("shell-cancel", "assert(Game.shell.cancel())");
+
+    REQUIRE(luaL_dostring(fixture.lua_state(),
+                          "local c=Game.startup_context(); assert(c.scenario == 'rooms' and "
+                          "c.nested[1] == 7 and c.nested[2] == Data.null); c.scenario='changed'; "
+                          "assert(Game.startup_context().scenario == 'rooms')") == LUA_OK);
+    const auto gameplay_before_restart = input_sink.gameplay_inputs;
+    input_sink.last_gameplay_input.reset();
+    REQUIRE(
+        luaL_dostring(fixture.lua_state(),
+                      "assert(Game.restart({scenario='dialogue', nested={1, Data.null}}, true))") ==
+        LUA_OK);
+    CHECK(input_sink.gameplay_inputs == gameplay_before_restart + 1);
+    REQUIRE(input_sink.last_gameplay_input);
+    const auto* restart =
+        std::get_if<noveltea::core::ResetRuntimeInput>(&*input_sink.last_gameplay_input);
+    REQUIRE(restart != nullptr);
+    CHECK(restart->show_title);
+    const noveltea::core::PersistableValue expected_restart_context{
+        noveltea::core::PersistableValue::Object{
+            {"nested", noveltea::core::PersistableValue{noveltea::core::PersistableValue::Array{
+                           noveltea::core::PersistableValue{std::int64_t{1}},
+                           noveltea::core::PersistableValue{std::monostate{}}}}},
+            {"scenario", noveltea::core::PersistableValue{std::string("dialogue")}}}};
+    CHECK(restart->startup_context == expected_restart_context);
 
     const auto shell_commands_before_invalid = input_sink.shell_commands;
     dispatch("shell-save-missing");

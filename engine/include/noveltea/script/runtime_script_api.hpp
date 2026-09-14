@@ -176,6 +176,8 @@ public:
     void replace_capabilities(runtime::RuntimeCapabilitySet capabilities) noexcept;
     void clear_capabilities() noexcept;
     [[nodiscard]] bool available() const noexcept;
+    void set_startup_context(core::PersistableValue context);
+    [[nodiscard]] core::PersistableValue startup_context() const;
 
     [[nodiscard]] core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
     definition(core::ProjectDefinitionKind kind, std::string id) const;
@@ -360,6 +362,8 @@ public:
     [[nodiscard]] core::Result<bool, core::Diagnostics> gameplay_paused() const;
     [[nodiscard]] core::Result<std::string, core::Diagnostics> locale() const;
     [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_paused(bool paused);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    restart(core::PersistableValue startup_context, bool show_title = false);
     [[nodiscard]] core::Result<void, core::Diagnostics> request_audio(
         core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,
         std::optional<core::AssetId> asset, std::chrono::milliseconds fade, double gain, double pan,

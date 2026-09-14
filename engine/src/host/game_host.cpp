@@ -296,6 +296,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
         return core::Result<void, core::Diagnostics>::failure(std::move(resolved).error());
 
     auto source = std::move(*resolved.value_if());
+    source.input.startup_context = request.startup_context;
     std::optional<CandidateProjectAssetContext> candidate_asset_context;
     const assets::AssetManager* candidate_project_assets = &m_dependencies.content_assets;
     if (source.replaces_project_namespace) {
@@ -312,6 +313,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
                  .message = initialized_candidate_scripts.error().message,
                  .source_path = initialized_candidate_scripts.error().chunk}));
     }
+    candidate_scripts->set_startup_context(request.startup_context);
     std::optional<script::ScriptRuntime::ScopedSourceOverride> candidate_source_override;
     if (candidate_asset_context)
         candidate_source_override.emplace(
@@ -553,6 +555,9 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
                                   .source_path = initialized.error().chunk});
         return failed;
     }
+    const auto* reset = std::get_if<core::ResetRuntimeInput>(&input);
+    candidate_scripts->set_startup_context(reset ? reset->startup_context
+                                                 : m_running_game->startup_context());
     auto prepared = candidate_scripts->prepare_project_modules(m_running_game->package().project());
     if (!prepared) {
         failed.diagnostics = one({.code = "host.runtime_candidate_script_modules_failed",
@@ -577,10 +582,10 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
 
     auto candidate_presentation = std::make_unique<RunningGamePresentationPort>();
     core::Result<std::unique_ptr<runtime::RuntimeSessionCandidate>, core::Diagnostics> candidate =
-        std::holds_alternative<core::ResetRuntimeInput>(input)
-            ? m_running_game->prepare_reset_candidate(*candidate_scripts, *candidate_presentation)
-            : m_running_game->prepare_load_candidate(std::get<core::LoadRuntimeInput>(input).slot,
-                                                     *candidate_scripts, *candidate_presentation);
+        reset ? m_running_game->prepare_reset_candidate(*reset, *candidate_scripts,
+                                                        *candidate_presentation)
+              : m_running_game->prepare_load_candidate(std::get<core::LoadRuntimeInput>(input).slot,
+                                                       *candidate_scripts, *candidate_presentation);
     if (!candidate) {
         failed.diagnostics = std::move(candidate).error();
         return failed;
@@ -588,6 +593,8 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
 
     auto prepared_candidate = std::move(*candidate.value_if());
     auto runtime_result = prepared_candidate->take_initial_result();
+    const bool previous_show_title = !m_system_layouts.game_active();
+    const auto previous_startup_context = m_running_game->startup_context();
     auto previous_presentation = std::move(m_running_game_presentation_port);
     if (previous_presentation)
         previous_presentation->detach();
@@ -599,6 +606,7 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
     auto previous_scripts = std::move(m_project_scripts);
     m_project_scripts = std::move(candidate_scripts);
     auto previous_session = m_running_game->commit_candidate(std::move(prepared_candidate));
+    m_dependencies.runtime_ui.set_startup_context(m_running_game->startup_context());
     m_running_game_presentation_port = std::move(candidate_presentation);
     m_runtime_presentation.bind_presentation_id_allocator(
         [this]() { return m_running_game->session().allocate_presentation_operation_id(); });
@@ -606,8 +614,11 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
         [this]() { return m_running_game->session().allocate_audio_operation_id(); });
 
     auto activated = m_running_game_presentation_port->activate(m_runtime_presentation);
-    if (!activated) {
-        auto diagnostics = std::move(activated).error();
+    core::Result<void, core::Diagnostics> remounted =
+        activated ? m_system_layouts.initialize(reset && reset->show_title)
+                  : core::Result<void, core::Diagnostics>::failure({});
+    if (!activated || !remounted) {
+        auto diagnostics = activated ? std::move(remounted).error() : std::move(activated).error();
         auto failed_presentation = std::move(m_running_game_presentation_port);
         if (failed_presentation)
             failed_presentation->detach();
@@ -615,6 +626,7 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
 
         auto failed_scripts = std::move(m_project_scripts);
         auto failed_session = m_running_game->commit_candidate(std::move(previous_session));
+        m_dependencies.runtime_ui.set_startup_context(previous_startup_context);
         m_project_scripts = std::move(previous_scripts);
         m_running_game_presentation_port = std::move(previous_presentation);
         m_runtime_presentation.bind_presentation_id_allocator(
@@ -625,6 +637,11 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
             auto restored = m_running_game_presentation_port->activate(m_runtime_presentation);
             if (!restored)
                 core::append_diagnostics(diagnostics, std::move(restored).error());
+        }
+        if (activated) {
+            auto restored_layouts = m_system_layouts.initialize(previous_show_title);
+            if (!restored_layouts)
+                core::append_diagnostics(diagnostics, std::move(restored_layouts).error());
         }
         failed_session.reset();
         failed_scripts.reset();
@@ -887,12 +904,15 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
     m_dispatch_active = true;
     HostRuntimeDispatchResult result;
     bool runtime_replaced = false;
+    std::optional<core::RuntimeInputMessage> replacement_input;
     if (replacing_generation) {
+        replacement_input = input;
         result = replace_runtime_session(input);
         runtime_replaced = result.accepted();
     } else {
         auto runtime_result = m_running_game->session().dispatch(input);
         if (runtime_result.session_replacement_request && runtime_result.diagnostics.empty()) {
+            replacement_input = *runtime_result.session_replacement_request;
             auto replacement = replace_runtime_session(*runtime_result.session_replacement_request);
             if (replacement.accepted()) {
                 result = std::move(replacement);
@@ -911,6 +931,8 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
     if (runtime_replaced) {
         advance_session_generation();
         advance_backend_generation();
+        if (m_dependencies.runtime_session_replaced)
+            m_dependencies.runtime_session_replaced();
     }
 
     if (!result.diagnostics.empty())
@@ -961,6 +983,10 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
             m_lifecycle_state = LoadedGameLifecycleState::Running;
         else if (stopping)
             m_lifecycle_state = LoadedGameLifecycleState::Stopped;
+    } else if (result.accepted() && runtime_replaced && replacement_input) {
+        if (const auto* reset_input = std::get_if<core::ResetRuntimeInput>(&*replacement_input))
+            m_lifecycle_state = reset_input->show_title ? LoadedGameLifecycleState::Stopped
+                                                        : LoadedGameLifecycleState::Running;
     }
     if (runtime_replaced)
         bind_runtime_ui_input_sink();
@@ -1322,8 +1348,10 @@ bool GameHost::publish_runtime_publication(const runtime::RuntimePublication& pu
         retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, prediction_diagnostics);
         core::append_diagnostics(application_diagnostics, std::move(prediction_diagnostics));
     }
-    if (!m_dependencies.runtime_ui.apply_gameplay_ui_values(
-            RuntimeUiGameplayValues{publication.revision.number(), publication.gameplay_ui})) {
+    if (!m_dependencies.runtime_ui.apply_gameplay_ui_values(RuntimeUiGameplayValues{
+            publication.revision.number(), publication.gameplay_ui,
+            m_running_game ? m_running_game->startup_context()
+                           : core::PersistableValue{core::PersistableValue::Object{}}})) {
         auto diagnostics = one({.code = "host.runtime_ui_publication_rejected",
                                 .message = "RuntimeUI rejected immutable gameplay UI values for "
                                            "publication revision " +
@@ -1372,7 +1400,8 @@ core::Result<void, core::Diagnostics> GameHost::attach_runtime_bindings(bool sho
     bind_runtime_ui_input_sink();
     if (m_runtime_publication &&
         !m_dependencies.runtime_ui.apply_gameplay_ui_values(RuntimeUiGameplayValues{
-            m_runtime_publication->revision.number(), m_runtime_publication->gameplay_ui})) {
+            m_runtime_publication->revision.number(), m_runtime_publication->gameplay_ui,
+            m_running_game->startup_context()})) {
         return core::Result<void, core::Diagnostics>::failure(
             one({.code = "host.game_binding_runtime_ui_rejected",
                  .message = "RuntimeUI rejected the current immutable gameplay UI values"}));

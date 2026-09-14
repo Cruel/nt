@@ -255,6 +255,8 @@ public:
             m_services->current_view().locale.active_locale);
     }
     [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_paused(bool paused);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    restart(core::PersistableValue startup_context, bool show_title = false);
 
     [[nodiscard]] core::Result<void, core::Diagnostics> request_audio(
         core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,
