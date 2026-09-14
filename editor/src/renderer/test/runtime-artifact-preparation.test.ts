@@ -29,6 +29,7 @@ import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { assetRef } from '../../shared/project-schema/authoring-project-settings';
 import { rendererRuntimeArtifactPaths } from '../export/runtime-artifact-adapters';
 
 function roomProject() {
@@ -530,6 +531,46 @@ describe('Prepared Runtime Artifact module', () => {
     ]);
     expect(localizedPruned.fileEntries.map((entry) => entry.assetId)).toEqual(['foyer']);
     expect(localizedPruned.diagnostics.some((item) => item.path.includes('/unused'))).toBe(false);
+  });
+
+  it('retains Project named cursor images in pruned runtime artifacts', async () => {
+    const project = roomProject();
+    project.assets['cursor-image'] = {
+      id: 'cursor-image',
+      label: 'Cursor Image',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/cursor-image.png',
+        extension: '.png',
+        imageMetadata: { width: 32, height: 24, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.settings.cursors = {
+      defaults: {
+        default: { kind: 'system', cursor: 'default' },
+        pointer: { kind: 'named', id: 'tea-pointer' },
+        hotspot: { kind: 'inherit', semantic: 'pointer' },
+      },
+      named: [
+        {
+          id: 'tea-pointer',
+          image: assetRef('cursor-image'),
+          hotspotX: 1,
+          hotspotY: 2,
+        },
+      ],
+    };
+
+    const result = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(), compileShadersBeforeExport: false },
+    });
+
+    expect(result.diagnostics.filter((item) => item.severity === 'error')).toEqual([]);
+    expect(result.compiledProject?.resources.assets.map((asset) => asset.id)).toContain(
+      'cursor-image',
+    );
+    expect(result.fileEntries.map((entry) => entry.assetId)).toContain('cursor-image');
   });
 
   it('retains JSON data Assets declared as Layout dependencies in pruned runtime artifacts', async () => {

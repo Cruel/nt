@@ -11,6 +11,7 @@ import {
 } from '../../shared/pseudo-localization';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { focusedPreviewAdapterFor } from '../preview/focused-preview-adapters';
 
@@ -100,6 +101,71 @@ describe('Preview Locale', () => {
     expect(cues.map((cue) => cue.id)).toEqual(['before-door', 'after-line']);
     expect(cues[0]!.position.offset).toBeGreaterThan(5);
     expect(cues[1]!.position.offset).toBeGreaterThan(cues[0]!.position.offset);
+  });
+
+  it('includes the Project cursor registry and source artwork in focused Layout preview', async () => {
+    const project = createAuthoringProject();
+    project.assets.pointer = {
+      id: 'pointer',
+      label: 'Pointer',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/pointer.png',
+        extension: '.png',
+        byteSize: 128,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 32, height: 24, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.settings.cursors = {
+      defaults: {
+        default: { kind: 'system', cursor: 'default' },
+        pointer: { kind: 'named', id: 'tea-pointer' },
+        hotspot: { kind: 'inherit', semantic: 'pointer' },
+      },
+      named: [
+        {
+          id: 'tea-pointer',
+          image: { $ref: { collection: 'assets', id: 'pointer' } },
+          hotspotX: 2,
+          hotspotY: 3,
+        },
+      ],
+    };
+    const layout = defaultLayoutData('Cursor Preview', 'document');
+    layout.rcss.sourceText = '#target { cursor: tea-pointer; }';
+    project.layouts.cursor = { id: 'cursor', label: 'Cursor Preview', data: layout };
+
+    const document = await focusedPreviewAdapterFor('layout-preview').build({
+      project,
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+      projectInstanceId: 'project-instance',
+      projectRevision: 1,
+      root: { kind: 'layout-preview', recordId: 'cursor' },
+      inputs: { displayPreference: DEFAULT_PREVIEW_DISPLAY_PREFERENCE },
+      inputRevision: `sha256:${'0'.repeat(64)}`,
+      graph: null,
+      sourceAnalysis: [],
+      hostCapabilities: { activeShaderVariant: 'glsl-120' },
+    });
+
+    expect(document.resources).toContainEqual(
+      expect.objectContaining({ assetId: 'pointer', usageRoles: ['project-cursor'] }),
+    );
+    expect(document.data.cursors).toEqual({
+      defaultCursor: 'default',
+      pointerCursor: 'tea-pointer',
+      named: [
+        {
+          id: 'tea-pointer',
+          logicalPath: 'project:/assets/images/pointer.png',
+          width: 32,
+          height: 24,
+          hotspotX: 2,
+          hotspotY: 3,
+        },
+      ],
+    });
   });
 
   it('materializes pseudo-localized live RML source in focused Layout preview', async () => {

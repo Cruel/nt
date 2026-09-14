@@ -326,6 +326,15 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
         resources.push(
           assetManifestEntry(context.project, context.projectSessionId, ref.$ref.id, name),
         );
+    for (const cursor of settings.cursors.named)
+      resources.push(
+        assetManifestEntry(
+          context.project,
+          context.projectSessionId,
+          cursor.image.$ref.id,
+          'project-cursor',
+        ),
+      );
     const material = await materialProjection(
       context.project,
       context.projectSessionId,
@@ -373,6 +382,35 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
             barColor: settings.display.barColor,
             accessibility: settings.accessibility,
           },
+        },
+        cursors: {
+          defaultCursor:
+            settings.cursors.defaults.default.kind === 'system'
+              ? settings.cursors.defaults.default.cursor
+              : settings.cursors.defaults.default.kind === 'named'
+                ? settings.cursors.defaults.default.id
+                : 'none',
+          pointerCursor:
+            settings.cursors.defaults.pointer.kind === 'system'
+              ? settings.cursors.defaults.pointer.cursor
+              : settings.cursors.defaults.pointer.kind === 'named'
+                ? settings.cursors.defaults.pointer.id
+                : 'none',
+          named: settings.cursors.named.map((cursor) => {
+            const asset = parseAssetData(context.project.assets[cursor.image.$ref.id]?.data);
+            if (asset?.kind !== 'image' || !asset.imageMetadata)
+              throw new Error(
+                `Cursor Image Asset '${cursor.image.$ref.id}' is missing or invalid.`,
+              );
+            return {
+              id: cursor.id,
+              logicalPath: `project:/${asset.source.path}`,
+              width: asset.imageMetadata.width,
+              height: asset.imageMetadata.height,
+              hotspotX: cursor.hotspotX,
+              hotspotY: cursor.hotspotY,
+            };
+          }),
         },
         shaderMaterials: material.shaderMaterials,
       },

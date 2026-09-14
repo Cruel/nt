@@ -898,6 +898,7 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                     m_dependencies.renderer.set_shader_material_project(
                         &m_dependencies.shader_materials);
                 }
+                m_dependencies.runtime_ui.configure_focused_preview_cursors(request.cursors);
                 (void)ui::rmlui::RuntimeUiFacadeAccess::hide_document(m_dependencies.runtime_ui,
                                                                       kEditorPreviewDocumentId);
                 auto realized = m_dependencies.layout_realizer.realize_authored_preview(
@@ -906,6 +907,7 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                      .scale_policy = request.environment.scale_policy});
                 if (!realized) {
                     report_diagnostics(std::move(realized).error());
+                    m_dependencies.runtime_ui.clear_focused_preview_cursors();
                     if (m_dependencies.clear_authored_environment) {
                         auto restored = m_dependencies.clear_authored_environment();
                         if (!restored)
@@ -916,6 +918,7 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                 return true;
             } else if constexpr (std::is_same_v<T,
                                                 core::editor::TypedEditorShaderPreviewDocument>) {
+                m_dependencies.runtime_ui.clear_focused_preview_cursors();
                 if (shader_variant_name(request.active_shader_variant) !=
                     m_dependencies.renderer.active_shader_variant()) {
                     report_diagnostic(preview_error(
@@ -989,6 +992,7 @@ void PreviewHost::update_focused_preview() { m_focused_presenter->update(); }
 void PreviewHost::clear_focused_preview() noexcept
 {
     m_focused_presenter->clear();
+    m_dependencies.runtime_ui.clear_focused_preview_cursors();
     m_dependencies.renderer.set_asset_lease_lookup_scope(assets::AssetLeaseLookupScope::Runtime);
 }
 

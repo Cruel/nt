@@ -395,6 +395,21 @@ struct TypedEditorAuthoredPreviewEnvironment {
     compiled::AccessibilitySettings accessibility{};
 };
 
+struct TypedEditorPreviewCursorDefinition {
+    std::string id;
+    std::string logical_path;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::uint32_t hotspot_x = 0;
+    std::uint32_t hotspot_y = 0;
+};
+
+struct TypedEditorPreviewCursorSettings {
+    std::string default_cursor = "default";
+    std::string pointer_cursor = "pointer";
+    std::vector<TypedEditorPreviewCursorDefinition> named;
+};
+
 struct TypedEditorLayoutPreviewDocument {
     std::string layout_id;
     EditorPreviewLayoutKind layout_kind = EditorPreviewLayoutKind::Document;
@@ -411,6 +426,7 @@ struct TypedEditorLayoutPreviewDocument {
     std::vector<LayoutResolvedInput> preview_inputs;
     std::optional<PersistableValue> preview_state;
     std::optional<ShaderMaterialProject> shader_materials;
+    TypedEditorPreviewCursorSettings cursors;
     TypedEditorAuthoredPreviewEnvironment environment;
 };
 

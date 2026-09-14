@@ -1,3 +1,4 @@
+#include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/layout_policies.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
@@ -20,6 +21,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <lua.hpp>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -2904,6 +2906,86 @@ TEST_CASE("RuntimeUI cursor requests resolve through one inspectable authority")
     CHECK(noveltea::host::cursor_shape_name(inspection.effective) == "text");
     CHECK(inspection.source == "rmlui");
     CHECK(inspection.owner == "cursor-text");
+}
+
+TEST_CASE("RuntimeUI resolves Project named cursors from RCSS without Layout dependencies")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path = std::string(NOVELTEA_SOURCE_DIR) +
+                             "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(document.is_discarded());
+    document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 24},
+        {"id", "cursor-image"},
+        {"kind", "image"},
+        {"path", "assets/images/cursor-image.png"},
+        {"sampling", "linear"},
+        {"width", 32},
+    });
+    document["settings"]["cursors"] = {
+        {"defaults",
+         {{"default", {{"cursor", "default"}, {"kind", "system"}}},
+          {"hotspot", {{"kind", "inherit"}, {"semantic", "pointer"}}},
+          {"pointer", {{"id", "tea-pointer"}, {"kind", "named"}}}}},
+        {"named",
+         nlohmann::json::array({{{"hotspotX", 1},
+                                {"hotspotY", 2},
+                                {"id", "tea-pointer"},
+                                {"image", {{"id", "cursor-image"}, {"kind", "asset"}}}}})},
+    };
+    auto project = noveltea::core::decode_compiled_project(document, "cursor-project.json");
+    REQUIRE(project);
+    ui.configure_project_cursors(*project.value_if());
+
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+    constexpr const char* rml = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  button { display: block; width: 160px; height: 48px; margin: 0; padding: 0; }
+  #target { cursor: tea-pointer; }
+  #semantic-pointer { cursor: pointer; }
+</style></head><body>
+  <button id="target">Named cursor</button>
+  <button id="semantic-pointer">Semantic pointer</button>
+</body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.load_document_from_memory_for_layout("named-cursor", rml,
+                                                    "preview://named-cursor.rml", true, policy));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+
+    const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective_name == "tea-pointer");
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.source == "rmlui");
+    CHECK(inspection.owner == "named-cursor");
+
+    motion.motion.y = 64.0f;
+    (void)ui.process_event(motion);
+    const auto pointer_inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(pointer_inspection.effective_name == "tea-pointer");
+    CHECK(pointer_inspection.effective == noveltea::host::CursorShape::Pointer);
+    CHECK(pointer_inspection.source == "rmlui");
+    CHECK(pointer_inspection.owner == "named-cursor");
 }
 
 TEST_CASE("RuntimeUI cursor semantics distinguish auto hidden and native shapes")

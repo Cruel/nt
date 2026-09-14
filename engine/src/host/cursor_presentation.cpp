@@ -69,7 +69,15 @@ void CursorAuthority::bind_realizer(CursorRealizer* realizer) noexcept
 void CursorAuthority::publish(CursorRequestSource source, OwnerToken owner, CursorShape shape,
                               std::string owner_label)
 {
-    m_requests.insert_or_assign(RequestKey{source, owner}, Request{shape, std::move(owner_label)});
+    publish(source, owner, CursorPresentation{.shape = shape, .custom = std::nullopt},
+            std::move(owner_label));
+}
+
+void CursorAuthority::publish(CursorRequestSource source, OwnerToken owner,
+                              CursorPresentation presentation, std::string owner_label)
+{
+    m_requests.insert_or_assign(RequestKey{source, owner},
+                                Request{std::move(presentation), std::move(owner_label)});
 }
 
 void CursorAuthority::clear(CursorRequestSource source, OwnerToken owner)
@@ -97,6 +105,7 @@ void CursorAuthority::set_eligible_order(CursorRequestSource source,
 void CursorAuthority::resolve() noexcept
 {
     CursorInspection next{};
+    CursorPresentation realized{};
     bool found = false;
     for (std::size_t source_index_value = 0;
          source_index_value < source_index(CursorRequestSource::Count) && !found;
@@ -106,7 +115,11 @@ void CursorAuthority::resolve() noexcept
             const auto request = m_requests.find(RequestKey{source, owner});
             if (request == m_requests.end())
                 continue;
-            next.effective = request->second.shape;
+            realized = request->second.presentation;
+            next.effective = realized.shape;
+            next.effective_name = request->second.presentation.custom
+                                      ? request->second.presentation.custom->id
+                                      : std::string(cursor_shape_name(request->second.presentation.shape));
             next.source = std::string(cursor_request_source_name(source));
             next.owner = request->second.owner_label;
             found = true;
@@ -115,9 +128,9 @@ void CursorAuthority::resolve() noexcept
     }
 
     m_inspection = std::move(next);
-    if (m_realizer && (!m_realized || *m_realized != m_inspection.effective)) {
-        m_realizer->realize(m_inspection.effective);
-        m_realized = m_inspection.effective;
+    if (m_realizer && (!m_realized || *m_realized != realized)) {
+        m_realizer->realize(realized);
+        m_realized = realized;
     }
 }
 
@@ -127,9 +140,10 @@ void CursorAuthority::reset() noexcept
     for (auto& eligible : m_eligible)
         eligible.clear();
     m_inspection = {};
-    if (m_realizer && (!m_realized || *m_realized != CursorShape::Default)) {
-        m_realizer->realize(CursorShape::Default);
-        m_realized = CursorShape::Default;
+    const CursorPresentation presentation{.shape = CursorShape::Default, .custom = std::nullopt};
+    if (m_realizer && (!m_realized || *m_realized != presentation)) {
+        m_realizer->realize(presentation);
+        m_realized = presentation;
     }
 }
 

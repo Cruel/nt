@@ -60,10 +60,13 @@ import {
 import {
   deriveProjectDisplayGeometry,
   projectSettingsForEditing,
+  systemCursorNames,
   validateProjectSettingsAuthoringState,
   type ProjectAccessibilityScalePolicy,
   type ProjectAppSettings,
   type ProjectDisplaySettings,
+  type ProjectCursorSettings,
+  type SystemCursorName,
 } from '../../../shared/project-schema/authoring-project-settings';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from '../../../shared/project-schema/project-display-contract';
 import {
@@ -71,6 +74,7 @@ import {
   type InteractionProgram,
 } from '../../../shared/project-schema/authoring-interaction-programs';
 import { InteractionProgramEditor } from '../interactions/InteractionProgramEditor';
+import { AssetPreview } from '../assets/AssetPreview';
 import {
   collectPendingInputDiagnostics,
   usePendingInputStore,
@@ -84,6 +88,9 @@ import {
   Blocks,
   Gauge,
   Image,
+  MousePointer2,
+  Plus,
+  Trash2,
   LayoutTemplate,
   MonitorCog,
   ShieldCheck,
@@ -121,6 +128,7 @@ type ProjectSettingsCategory =
   | 'asset-memory'
   | 'display'
   | 'audio'
+  | 'cursors'
   | 'title-screen'
   | 'app-identity'
   | 'integrations'
@@ -157,6 +165,12 @@ const projectSettingsCategories: readonly CategorizedEditorCategory<ProjectSetti
     label: 'Audio',
     description: 'Purpose mixing, mute defaults, and Voice ducking.',
     icon: Volume2,
+  },
+  {
+    id: 'cursors',
+    label: 'Cursors',
+    description: 'Semantic cursor defaults and Project-global named cursors.',
+    icon: MousePointer2,
   },
   {
     id: 'title-screen',
@@ -226,6 +240,11 @@ function projectSettingsCategoryForTarget(targetId: string): ProjectSettingsCate
   )
     return 'audio';
   if (
+    targetId.startsWith('projectSettings.cursors') ||
+    targetId.startsWith('projectSettings.field.cursor')
+  )
+    return 'cursors';
+  if (
     targetId.startsWith('projectSettings.titleScreen') ||
     targetId.startsWith('projectSettings.field.titleImage') ||
     targetId.startsWith('projectSettings.field.startLabel')
@@ -276,6 +295,7 @@ const PROJECT_SETTINGS_FIELD_ANCHORS: Record<string, string> = {
   '/settings/audio/voiceDucking/musicGain': 'projectSettings.field.audioVoiceDuckingMusicGain',
   '/settings/audio/voiceDucking/ambienceGain':
     'projectSettings.field.audioVoiceDuckingAmbienceGain',
+  '/settings/cursors': 'projectSettings.field.cursors',
   '/settings/titleScreen/titleImage': 'projectSettings.field.titleImage',
   '/settings/titleScreen/startLabel': 'projectSettings.field.startLabel',
   '/settings/app/displayName': 'projectSettings.field.appDisplayName',
@@ -307,6 +327,57 @@ function pathsOverlap(left: string, right: string) {
 
 function commandSucceeded(result: ReturnType<typeof runProjectCommand>) {
   return !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+}
+
+function cursorTargetSelection(target: ProjectCursorSettings['defaults']['hotspot']) {
+  if (target.kind === 'system') return `system:${target.cursor}`;
+  if (target.kind === 'named') return `named:${target.id}`;
+  if (target.kind === 'inherit') return 'inherit:pointer';
+  return 'none';
+}
+
+function cursorTargetFromSelection(value: string): ProjectCursorSettings['defaults']['hotspot'] {
+  if (value === 'none') return { kind: 'none' };
+  if (value === 'inherit:pointer') return { kind: 'inherit', semantic: 'pointer' };
+  if (value.startsWith('named:')) return { kind: 'named', id: value.slice('named:'.length) };
+  return {
+    kind: 'system',
+    cursor: value.slice('system:'.length) as SystemCursorName,
+  };
+}
+
+function CursorTestPad({
+  assetId,
+  hotspotX,
+  hotspotY,
+}: {
+  assetId: string;
+  hotspotX: number;
+  hotspotY: number;
+}) {
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let canceled = false;
+    setUrl(null);
+    if (!projectSessionId) return;
+    void window.noveltea
+      .resolveProjectOriginalAssetUrl(projectSessionId, assetId)
+      .then((result) => {
+        if (!canceled) setUrl(result.ok ? result.url : null);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [assetId, projectSessionId]);
+  return (
+    <div
+      className="flex h-16 items-center justify-center rounded border border-dashed text-xs text-muted-foreground"
+      style={url ? { cursor: `url("${url}") ${hotspotX} ${hotspotY}, default` } : undefined}
+    >
+      {url ? 'Move the pointer here to test this cursor.' : 'Cursor preview is unavailable.'}
+    </div>
+  );
 }
 
 interface PendingNumberInputProps {
@@ -1068,6 +1139,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const [resolutionDialogOpen, setResolutionDialogOpen] = useState(false);
   const [resolutionWidth, setResolutionWidth] = useState('');
   const [resolutionHeight, setResolutionHeight] = useState('');
+  const [testingCursorId, setTestingCursorId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<ProjectSettingsCategory>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState
@@ -1146,6 +1218,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       </div>
     );
 
+  const currentProject = project;
+  const currentSettings = settings;
   const roomEntries = Object.entries(project.rooms).map(([id, room]) => ({
     id,
     label: room.label || id,
@@ -1340,6 +1414,78 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     return setAudio({
       ...settings.audio,
       voiceDucking: { ...settings.audio.voiceDucking, ...patch },
+    });
+  }
+
+  function setCursors(cursors: ProjectCursorSettings) {
+    return commandSucceeded(
+      runProjectCommand(
+        'project.replaceAtPath',
+        { path: '/settings/cursors', value: cursors },
+        'Update Project cursors',
+      ),
+    );
+  }
+
+  function setCursorDefault(semantic: keyof ProjectCursorSettings['defaults'], selection: string) {
+    const target = cursorTargetFromSelection(selection);
+    if (semantic !== 'hotspot' && target.kind === 'inherit') return false;
+    return setCursors({
+      ...currentSettings.cursors,
+      defaults: {
+        ...currentSettings.cursors.defaults,
+        [semantic]: target,
+      } as ProjectCursorSettings['defaults'],
+    });
+  }
+
+  function addNamedCursor() {
+    const image = imageAssets.find(({ id }) => {
+      const data = parseAssetData(currentProject.assets[id]?.data);
+      return (
+        data?.kind === 'image' &&
+        data.imageMetadata &&
+        data.imageMetadata.width <= 128 &&
+        data.imageMetadata.height <= 128
+      );
+    });
+    if (!image) return false;
+    let suffix = 1;
+    let id = 'cursor';
+    const used = new Set(currentSettings.cursors.named.map((cursor) => cursor.id));
+    while (used.has(id)) id = `cursor-${++suffix}`;
+    return setCursors({
+      ...currentSettings.cursors,
+      named: [
+        ...currentSettings.cursors.named,
+        {
+          id,
+          image: { $ref: { collection: 'assets', id: image.id } },
+          hotspotX: 0,
+          hotspotY: 0,
+        },
+      ],
+    });
+  }
+
+  function updateNamedCursor(
+    index: number,
+    patch: Partial<ProjectCursorSettings['named'][number]>,
+  ) {
+    return setCursors({
+      ...currentSettings.cursors,
+      named: currentSettings.cursors.named.map((cursor, cursorIndex) =>
+        cursorIndex === index ? { ...cursor, ...patch } : cursor,
+      ),
+    });
+  }
+
+  function removeNamedCursor(index: number) {
+    const removed = currentSettings.cursors.named[index];
+    if (removed && testingCursorId === removed.id) setTestingCursorId(null);
+    return setCursors({
+      ...currentSettings.cursors,
+      named: currentSettings.cursors.named.filter((_, cursorIndex) => cursorIndex !== index),
     });
   }
 
@@ -2018,6 +2164,221 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </CardContent>
         </Card>
+      ) : null}
+
+      {activeCategory === 'cursors' ? (
+        <div className="space-y-4" data-workbench-anchor="projectSettings.cursors">
+          <Card>
+            <CardHeader>
+              <CardTitle>Defaults</CardTitle>
+              <CardDescription>
+                Choose the semantic Project Default, Pointer, and Hotspot cursors. Hotspot inherits
+                Pointer unless explicitly overridden.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {(['default', 'pointer', 'hotspot'] as const).map((semantic) => (
+                <div
+                  key={semantic}
+                  className="grid items-center gap-2 @3xl:grid-cols-[8rem_minmax(0,1fr)]"
+                >
+                  <Label htmlFor={`cursor-default-${semantic}`} className="capitalize">
+                    {semantic}
+                  </Label>
+                  <select
+                    id={`cursor-default-${semantic}`}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                    value={cursorTargetSelection(settings.cursors.defaults[semantic])}
+                    onChange={(event) => setCursorDefault(semantic, event.currentTarget.value)}
+                  >
+                    {semantic === 'hotspot' ? (
+                      <option value="inherit:pointer">Inherit Pointer</option>
+                    ) : null}
+                    <option value="none">None (hidden)</option>
+                    {systemCursorNames.map((cursor) => (
+                      <option key={cursor} value={`system:${cursor}`}>
+                        System: {cursor}
+                      </option>
+                    ))}
+                    {settings.cursors.named.map((cursor) => (
+                      <option key={cursor.id} value={`named:${cursor.id}`}>
+                        Named: {cursor.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/cursors']}>
+            <CardHeader className="flex-row items-start justify-between gap-4">
+              <div className="space-y-1">
+                <CardTitle>Named Cursors</CardTitle>
+                <CardDescription>
+                  Project-global custom cursors use a physical Image Asset and a source-pixel
+                  hotspot. Images must be at most 128×128 pixels.
+                </CardDescription>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={
+                  !imageAssets.some(({ id }) => {
+                    const data = parseAssetData(project.assets[id]?.data);
+                    return (
+                      data?.kind === 'image' &&
+                      data.imageMetadata &&
+                      data.imageMetadata.width <= 128 &&
+                      data.imageMetadata.height <= 128
+                    );
+                  })
+                }
+                onClick={addNamedCursor}
+              >
+                <Plus className="mr-1 size-3.5" /> Add Cursor
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {settings.cursors.named.length === 0 ? (
+                <div className="rounded border border-dashed p-4 text-center text-xs text-muted-foreground">
+                  No named cursors. System cursor defaults remain available without custom artwork.
+                </div>
+              ) : null}
+              {settings.cursors.named.map((cursor, index) => {
+                const asset = project.assets[cursor.image.$ref.id];
+                const data = parseAssetData(asset?.data);
+                const metadata = data?.kind === 'image' ? data.imageMetadata : null;
+                const width = metadata?.width ?? 1;
+                const height = metadata?.height ?? 1;
+                return (
+                  <div key={`${cursor.id}-${index}`} className="space-y-3 rounded-md border p-3">
+                    <div className="flex items-start gap-3">
+                      <div className="relative size-28 shrink-0 overflow-hidden rounded border bg-muted/20">
+                        {asset && data?.kind === 'image' ? (
+                          <AssetPreview
+                            assetId={asset.id}
+                            label={asset.label || asset.id}
+                            data={data}
+                            compact
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                            Missing image
+                          </div>
+                        )}
+                        {metadata ? (
+                          <span
+                            aria-label={`Hotspot ${cursor.hotspotX}, ${cursor.hotspotY}`}
+                            className="pointer-events-none absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-background bg-foreground shadow"
+                            style={{
+                              left: `${((cursor.hotspotX + 0.5) / width) * 100}%`,
+                              top: `${((cursor.hotspotY + 0.5) / height) * 100}%`,
+                            }}
+                          />
+                        ) : null}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="grid gap-2 @3xl:grid-cols-[minmax(8rem,1fr)_minmax(10rem,1fr)]">
+                          <div className="space-y-1">
+                            <Label htmlFor={`cursor-id-${index}`}>ID</Label>
+                            <Input
+                              id={`cursor-id-${index}`}
+                              value={cursor.id}
+                              aria-invalid={fieldInvalid(`/settings/cursors/named/${index}/id`)}
+                              onChange={(event) =>
+                                updateNamedCursor(index, { id: event.currentTarget.value })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor={`cursor-image-${index}`}>Image Asset</Label>
+                            <select
+                              id={`cursor-image-${index}`}
+                              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                              value={cursor.image.$ref.id}
+                              aria-invalid={fieldInvalid(`/settings/cursors/named/${index}/image`)}
+                              onChange={(event) =>
+                                updateNamedCursor(index, {
+                                  image: {
+                                    $ref: { collection: 'assets', id: event.currentTarget.value },
+                                  },
+                                })
+                              }
+                            >
+                              {imageAssets.map((image) => (
+                                <option key={image.id} value={image.id}>
+                                  {image.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="grid gap-2 @3xl:grid-cols-2">
+                          <div className="space-y-1">
+                            <Label htmlFor={`cursor-hotspot-x-${index}`}>Hotspot X</Label>
+                            <PendingNumberInput
+                              id={`cursor-hotspot-x-${index}`}
+                              path={`/settings/cursors/named/${index}/hotspotX`}
+                              value={cursor.hotspotX}
+                              invalid={fieldInvalid(`/settings/cursors/named/${index}/hotspotX`)}
+                              onCommit={(hotspotX) =>
+                                updateNamedCursor(index, { hotspotX: hotspotX ?? 0 })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor={`cursor-hotspot-y-${index}`}>Hotspot Y</Label>
+                            <PendingNumberInput
+                              id={`cursor-hotspot-y-${index}`}
+                              path={`/settings/cursors/named/${index}/hotspotY`}
+                              value={cursor.hotspotY}
+                              invalid={fieldInvalid(`/settings/cursors/named/${index}/hotspotY`)}
+                              onCommit={(hotspotY) =>
+                                updateNamedCursor(index, { hotspotY: hotspotY ?? 0 })
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {metadata
+                            ? `${metadata.width}×${metadata.height} source pixels`
+                            : 'Image dimensions unavailable'}
+                        </div>
+                      </div>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`Delete cursor ${cursor.id}`}
+                        onClick={() => removeNamedCursor(index)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        variant={testingCursorId === cursor.id ? 'secondary' : 'outline'}
+                        onClick={() =>
+                          setTestingCursorId(testingCursorId === cursor.id ? null : cursor.id)
+                        }
+                      >
+                        Test Cursor
+                      </Button>
+                    </div>
+                    {testingCursorId === cursor.id ? (
+                      <CursorTestPad
+                        assetId={cursor.image.$ref.id}
+                        hotspotX={cursor.hotspotX}
+                        hotspotY={cursor.hotspotY}
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </div>
       ) : null}
 
       {activeCategory === 'title-screen' ? (

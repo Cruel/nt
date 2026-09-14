@@ -31,6 +31,7 @@ struct ShaderMaterialProject;
 
 namespace host {
 class CursorAuthority;
+struct CursorPresentation;
 }
 
 namespace assets {
@@ -84,6 +85,8 @@ public:
         std::function<void(const ContextKey&, const ResolvedContextMetrics&)>;
     using ContextInitializer = std::function<bool(Rml::Context&)>;
     using CursorOwnerResolver = std::function<std::string(Rml::Context*)>;
+    using CursorPresentationResolver = std::function<std::optional<host::CursorPresentation>(
+        Rml::Context*, std::string_view)>;
 
     RmlUiHost();
     ~RmlUiHost();
@@ -140,6 +143,7 @@ public:
     void set_context_render_observer(ContextRenderObserver observer);
     void set_context_initializer(ContextInitializer initializer);
     void set_cursor_owner_resolver(CursorOwnerResolver resolver);
+    void set_cursor_presentation_resolver(CursorPresentationResolver resolver);
     void set_context_clock(ContextKey key);
     void
     set_context_material_parameters(Rml::Context* context,
@@ -200,6 +204,7 @@ private:
     ContextRenderObserver m_context_render_observer;
     ContextInitializer m_context_initializer;
     CursorOwnerResolver m_cursor_owner_resolver;
+    CursorPresentationResolver m_cursor_presentation_resolver;
     std::unordered_set<std::uint64_t> m_active_touches;
     Rml::Context* m_primary_context = nullptr;
     Rml::Context* m_active_cursor_context = nullptr;

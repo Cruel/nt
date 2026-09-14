@@ -27,6 +27,12 @@ namespace assets {
 class AssetManager;
 struct FontAssetConfig;
 } // namespace assets
+namespace core {
+class CompiledProject;
+namespace editor {
+struct TypedEditorPreviewCursorSettings;
+}
+} // namespace core
 namespace script {
 class ScriptRuntime;
 } // namespace script
@@ -55,6 +61,10 @@ public:
     [[nodiscard]] bool prepare_fonts(const assets::FontAssetConfig& config);
     [[nodiscard]] bool activate_font_fallbacks(const assets::FontAssetConfig& config);
     [[nodiscard]] bool configure_fonts(const assets::FontAssetConfig& config);
+    void configure_project_cursors(const core::CompiledProject& project);
+    void clear_project_cursors() noexcept;
+    void configure_focused_preview_cursors(const core::editor::TypedEditorPreviewCursorSettings& cursors);
+    void clear_focused_preview_cursors() noexcept;
     [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event);
     void resize(const PresentationMetrics& presentation);
     void begin_frame(const core::RuntimeClockUpdate& clocks);

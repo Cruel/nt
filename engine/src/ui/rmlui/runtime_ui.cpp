@@ -2,6 +2,8 @@
 
 #include "host/cursor_presentation.hpp"
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/core/editor_preview_contracts.hpp"
+#include "noveltea/core/compiled_project.hpp"
 #include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "platform/sdl/sdl_cursor_realizer.hpp"
 #include "noveltea/script/script_runtime.hpp"
@@ -45,6 +47,82 @@ using presentation::RuntimeLayoutBuiltinDocument;
 namespace {
 
 char g_layout_state_null_marker;
+
+host::CursorShape cursor_shape(core::compiled::CursorSystemName name) noexcept
+{
+    using Name = core::compiled::CursorSystemName;
+    switch (name) {
+    case Name::Default:
+        return host::CursorShape::Default;
+    case Name::Pointer:
+        return host::CursorShape::Pointer;
+    case Name::Text:
+        return host::CursorShape::Text;
+    case Name::Wait:
+        return host::CursorShape::Wait;
+    case Name::Progress:
+        return host::CursorShape::Progress;
+    case Name::Crosshair:
+        return host::CursorShape::Crosshair;
+    case Name::Move:
+        return host::CursorShape::Move;
+    case Name::NotAllowed:
+        return host::CursorShape::NotAllowed;
+    case Name::NsResize:
+        return host::CursorShape::NsResize;
+    case Name::EwResize:
+        return host::CursorShape::EwResize;
+    case Name::NeswResize:
+        return host::CursorShape::NeswResize;
+    case Name::NwseResize:
+        return host::CursorShape::NwseResize;
+    case Name::None:
+        return host::CursorShape::Hidden;
+    }
+    return host::CursorShape::Default;
+}
+
+std::optional<host::CursorShape> cursor_shape(std::string_view name) noexcept
+{
+    if (name == "default") return host::CursorShape::Default;
+    if (name == "pointer") return host::CursorShape::Pointer;
+    if (name == "text") return host::CursorShape::Text;
+    if (name == "wait") return host::CursorShape::Wait;
+    if (name == "progress") return host::CursorShape::Progress;
+    if (name == "crosshair") return host::CursorShape::Crosshair;
+    if (name == "move") return host::CursorShape::Move;
+    if (name == "not-allowed") return host::CursorShape::NotAllowed;
+    if (name == "ns-resize") return host::CursorShape::NsResize;
+    if (name == "ew-resize") return host::CursorShape::EwResize;
+    if (name == "nesw-resize") return host::CursorShape::NeswResize;
+    if (name == "nwse-resize") return host::CursorShape::NwseResize;
+    return std::nullopt;
+}
+
+std::optional<host::CursorPresentation> resolve_cursor_target(
+    const core::compiled::CursorSettings& settings,
+    const std::unordered_map<std::string, host::CursorPresentation>& named,
+    const core::compiled::CursorTarget& target, host::CursorShape fallback)
+{
+    using Kind = core::compiled::CursorTargetKind;
+    switch (target.kind) {
+    case Kind::System:
+        return host::CursorPresentation{.shape = cursor_shape(target.system), .custom = std::nullopt};
+    case Kind::Named:
+        if (const auto found = named.find(target.named_id); found != named.end()) {
+            auto presentation = found->second;
+            presentation.shape = fallback;
+            return presentation;
+        }
+        return host::CursorPresentation{.shape = fallback, .custom = std::nullopt};
+    case Kind::None:
+        return host::CursorPresentation{.shape = host::CursorShape::Hidden, .custom = std::nullopt};
+    case Kind::InheritPointer:
+        return resolve_cursor_target(settings, named, settings.pointer_cursor,
+                                     host::CursorShape::Pointer);
+    }
+    return host::CursorPresentation{.shape = fallback, .custom = std::nullopt};
+}
 
 [[nodiscard]] sol::object mount_layout_state_null(sol::state_view lua)
 {
@@ -454,6 +532,11 @@ struct RuntimeUI::State {
     };
     std::unique_ptr<sdl_platform::SdlCursorRealizer> cursor_realizer;
     std::unique_ptr<host::CursorAuthority> cursor_authority;
+    std::optional<core::compiled::CursorSettings> cursor_settings;
+    std::unordered_map<std::string, host::CursorPresentation> named_cursors;
+    std::optional<std::string> focused_preview_default_cursor;
+    std::optional<std::string> focused_preview_pointer_cursor;
+    std::unordered_map<std::string, host::CursorPresentation> focused_preview_named_cursors;
     std::unique_ptr<ui::rmlui::RmlUiHost> host;
     std::unique_ptr<ui::rmlui::RmlUiDocumentRegistry> document_registry;
     std::unique_ptr<ui::rmlui::RuntimeUiActionGateway> action_gateway;
@@ -1221,7 +1304,7 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     if (!m_state)
         m_state = new State;
     if (!m_state->cursor_realizer)
-        m_state->cursor_realizer = std::make_unique<sdl_platform::SdlCursorRealizer>();
+        m_state->cursor_realizer = std::make_unique<sdl_platform::SdlCursorRealizer>(assets);
     if (!m_state->cursor_authority) {
         m_state->cursor_authority =
             std::make_unique<host::CursorAuthority>(m_state->cursor_realizer.get());
@@ -1302,6 +1385,63 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     m_state->runtime_input_listener = std::make_unique<State::RuntimeInputListener>(*m_state);
     m_state->document_registry = std::make_unique<ui::rmlui::RmlUiDocumentRegistry>(*m_state->host);
     m_state->document_registry->set_runtime_input_listener(m_state->runtime_input_listener.get());
+    m_state->host->set_cursor_presentation_resolver(
+        [state = m_state](Rml::Context* context,
+                          std::string_view name) -> std::optional<host::CursorPresentation> {
+            const auto resolve_name = [](std::string_view requested,
+                                         const std::unordered_map<std::string,
+                                                                  host::CursorPresentation>& named,
+                                         host::CursorShape fallback)
+                -> std::optional<host::CursorPresentation> {
+                if (requested == "none")
+                    return host::CursorPresentation{.shape = host::CursorShape::Hidden,
+                                                    .custom = std::nullopt};
+                if (const auto found = named.find(std::string(requested)); found != named.end()) {
+                    auto presentation = found->second;
+                    presentation.shape = fallback;
+                    return presentation;
+                }
+                if (const auto shape = cursor_shape(requested))
+                    return host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
+                return std::nullopt;
+            };
+
+            bool focused_preview = false;
+            if (state->document_registry && context) {
+                auto* hover = context->GetHoverElement();
+                auto* owner_document = hover ? hover->GetOwnerDocument() : nullptr;
+                const auto id = state->document_registry->document_id(owner_document);
+                focused_preview = id && *id == "editor_authored_layout_preview";
+            }
+            if (focused_preview && state->focused_preview_default_cursor &&
+                state->focused_preview_pointer_cursor) {
+                if (name == "default")
+                    return resolve_name(*state->focused_preview_default_cursor,
+                                        state->focused_preview_named_cursors,
+                                        host::CursorShape::Default);
+                if (name == "pointer")
+                    return resolve_name(*state->focused_preview_pointer_cursor,
+                                        state->focused_preview_named_cursors,
+                                        host::CursorShape::Pointer);
+                return resolve_name(name, state->focused_preview_named_cursors,
+                                    host::CursorShape::Default);
+            }
+
+            if (!state->cursor_settings)
+                return std::nullopt;
+            if (name == "default")
+                return resolve_cursor_target(*state->cursor_settings, state->named_cursors,
+                                             state->cursor_settings->default_cursor,
+                                             host::CursorShape::Default);
+            if (name == "pointer")
+                return resolve_cursor_target(*state->cursor_settings, state->named_cursors,
+                                             state->cursor_settings->pointer_cursor,
+                                             host::CursorShape::Pointer);
+            if (const auto found = state->named_cursors.find(std::string(name));
+                found != state->named_cursors.end())
+                return found->second;
+            return std::nullopt;
+        });
     m_state->host->set_cursor_owner_resolver([state = m_state](Rml::Context* context) {
         if (!state->document_registry || !context)
             return std::string{};
@@ -1371,6 +1511,135 @@ bool RuntimeUI::activate_font_fallbacks(const assets::FontAssetConfig& config)
 bool RuntimeUI::configure_fonts(const assets::FontAssetConfig& config)
 {
     return m_state && m_state->host && m_state->host->configure_fonts(config);
+}
+
+void RuntimeUI::configure_project_cursors(const core::CompiledProject& project)
+{
+    if (!m_state || !m_state->cursor_authority)
+        return;
+
+    m_state->cursor_settings = project.settings().cursors;
+    m_state->named_cursors.clear();
+    if (m_state->cursor_realizer)
+        m_state->cursor_realizer->clear_custom();
+
+    for (const auto& cursor : project.settings().cursors.named) {
+        const auto asset = std::ranges::find_if(project.assets(), [&](const auto& candidate) {
+            return candidate.id == cursor.image;
+        });
+        if (asset == project.assets().end() || !asset->width || !asset->height)
+            continue;
+        host::CursorPresentation presentation{
+            .shape = host::CursorShape::Default,
+            .custom = host::CustomCursorPresentation{.id = cursor.id,
+                                                     .logical_path = "project:/" + asset->path,
+                                                     .width = *asset->width,
+                                                     .height = *asset->height,
+                                                     .hotspot_x = cursor.hotspot_x,
+                                                     .hotspot_y = cursor.hotspot_y}};
+        if (m_state->cursor_realizer && !m_state->cursor_realizer->prepare(*presentation.custom)) {
+            m_state->typed_diagnostics.push_back(core::Diagnostic{
+                .code = "runtime.cursor.realization_failed",
+                .message = "Failed to prepare named cursor '" + cursor.id +
+                           "'; native fallback will be used."});
+        }
+        m_state->named_cursors.insert_or_assign(cursor.id, std::move(presentation));
+    }
+
+    constexpr host::CursorAuthority::OwnerToken project_default_owner = 1;
+    auto project_default = resolve_cursor_target(project.settings().cursors, m_state->named_cursors,
+                                                 project.settings().cursors.default_cursor,
+                                                 host::CursorShape::Default)
+                               .value_or(host::CursorPresentation{});
+    m_state->cursor_authority->publish(host::CursorRequestSource::ProjectDefault,
+                                      project_default_owner, std::move(project_default),
+                                      "project-default");
+    m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::ProjectDefault,
+                                                  {project_default_owner});
+    m_state->cursor_authority->resolve();
+}
+
+void RuntimeUI::clear_project_cursors() noexcept
+{
+    if (!m_state)
+        return;
+    m_state->cursor_settings.reset();
+    m_state->named_cursors.clear();
+    if (m_state->cursor_realizer)
+        m_state->cursor_realizer->clear_custom();
+    if (m_state->cursor_authority) {
+        m_state->cursor_authority->clear_source(host::CursorRequestSource::ProjectDefault);
+        m_state->cursor_authority->resolve();
+    }
+}
+
+void RuntimeUI::configure_focused_preview_cursors(
+    const core::editor::TypedEditorPreviewCursorSettings& cursors)
+{
+    if (!m_state || !m_state->cursor_authority)
+        return;
+    m_state->focused_preview_default_cursor = cursors.default_cursor;
+    m_state->focused_preview_pointer_cursor = cursors.pointer_cursor;
+    m_state->focused_preview_named_cursors.clear();
+    for (const auto& cursor : cursors.named) {
+        host::CursorPresentation presentation{
+            .shape = host::CursorShape::Default,
+            .custom = host::CustomCursorPresentation{.id = cursor.id,
+                                                     .logical_path = cursor.logical_path,
+                                                     .width = cursor.width,
+                                                     .height = cursor.height,
+                                                     .hotspot_x = cursor.hotspot_x,
+                                                     .hotspot_y = cursor.hotspot_y}};
+        if (m_state->cursor_realizer)
+            (void)m_state->cursor_realizer->prepare(*presentation.custom);
+        m_state->focused_preview_named_cursors.insert_or_assign(cursor.id,
+                                                               std::move(presentation));
+    }
+
+    constexpr host::CursorAuthority::OwnerToken project_default_owner = 1;
+    const auto default_name = *m_state->focused_preview_default_cursor;
+    host::CursorPresentation project_default{};
+    if (default_name == "none") {
+        project_default.shape = host::CursorShape::Hidden;
+    } else if (const auto found = m_state->focused_preview_named_cursors.find(default_name);
+               found != m_state->focused_preview_named_cursors.end()) {
+        project_default = found->second;
+    } else if (const auto shape = cursor_shape(default_name)) {
+        project_default.shape = *shape;
+    }
+    m_state->cursor_authority->publish(host::CursorRequestSource::ProjectDefault,
+                                      project_default_owner, std::move(project_default),
+                                      "focused-preview-default");
+    m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::ProjectDefault,
+                                                  {project_default_owner});
+    m_state->cursor_authority->resolve();
+}
+
+void RuntimeUI::clear_focused_preview_cursors() noexcept
+{
+    if (!m_state)
+        return;
+    m_state->focused_preview_default_cursor.reset();
+    m_state->focused_preview_pointer_cursor.reset();
+    m_state->focused_preview_named_cursors.clear();
+    if (!m_state->cursor_authority)
+        return;
+    constexpr host::CursorAuthority::OwnerToken project_default_owner = 1;
+    if (m_state->cursor_settings) {
+        auto project_default =
+            resolve_cursor_target(*m_state->cursor_settings, m_state->named_cursors,
+                                  m_state->cursor_settings->default_cursor,
+                                  host::CursorShape::Default)
+                .value_or(host::CursorPresentation{});
+        m_state->cursor_authority->publish(host::CursorRequestSource::ProjectDefault,
+                                          project_default_owner, std::move(project_default),
+                                          "project-default");
+        m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::ProjectDefault,
+                                                      {project_default_owner});
+    } else {
+        m_state->cursor_authority->clear_source(host::CursorRequestSource::ProjectDefault);
+    }
+    m_state->cursor_authority->resolve();
 }
 
 RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event)
