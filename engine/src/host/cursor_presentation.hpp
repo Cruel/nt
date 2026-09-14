@@ -39,8 +39,25 @@ enum class CursorRequestSource : std::uint8_t {
 
 [[nodiscard]] std::string_view cursor_request_source_name(CursorRequestSource source) noexcept;
 
+struct CustomCursorPresentation {
+    std::string id;
+    std::string logical_path;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::uint32_t hotspot_x = 0;
+    std::uint32_t hotspot_y = 0;
+    bool operator==(const CustomCursorPresentation&) const = default;
+};
+
+struct CursorPresentation {
+    CursorShape shape = CursorShape::Default;
+    std::optional<CustomCursorPresentation> custom;
+    bool operator==(const CursorPresentation&) const = default;
+};
+
 struct CursorInspection {
     CursorShape effective = CursorShape::Default;
+    std::string effective_name = "default";
     std::string source = "native-default";
     std::string owner;
 };
@@ -48,7 +65,9 @@ struct CursorInspection {
 class CursorRealizer {
 public:
     virtual ~CursorRealizer() = default;
-    virtual void realize(CursorShape shape) noexcept = 0;
+    virtual void realize(const CursorPresentation& presentation) noexcept = 0;
+    [[nodiscard]] virtual bool prepare(const CustomCursorPresentation&) noexcept { return true; }
+    virtual void clear_custom() noexcept {}
 
 protected:
     CursorRealizer() = default;
@@ -63,6 +82,8 @@ public:
     void bind_realizer(CursorRealizer* realizer) noexcept;
     void publish(CursorRequestSource source, OwnerToken owner, CursorShape shape,
                  std::string owner_label);
+    void publish(CursorRequestSource source, OwnerToken owner, CursorPresentation presentation,
+                 std::string owner_label);
     void clear(CursorRequestSource source, OwnerToken owner);
     void clear_source(CursorRequestSource source);
     void set_eligible_order(CursorRequestSource source, std::vector<OwnerToken> front_to_back);
@@ -73,7 +94,7 @@ public:
 
 private:
     struct Request {
-        CursorShape shape = CursorShape::Default;
+        CursorPresentation presentation{};
         std::string owner_label;
     };
 
@@ -98,7 +119,7 @@ private:
     std::unordered_map<RequestKey, Request, RequestKeyHash> m_requests;
     std::array<std::vector<OwnerToken>, kSourceCount> m_eligible;
     CursorInspection m_inspection{};
-    std::optional<CursorShape> m_realized;
+    std::optional<CursorPresentation> m_realized;
 };
 
 } // namespace noveltea::host

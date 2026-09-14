@@ -5,6 +5,7 @@ exports[`image thumbnail characterization > locks every current project asset UR
   "src/renderer/components/hotspots/HotspotAuthoringPanel.tsx",
   "src/renderer/editors/assets/AssetPreview.tsx",
   "src/renderer/editors/comfyui/ImageGenerationEditor.tsx",
+  "src/renderer/editors/project/ProjectSettingsEditor.tsx",
   "src/renderer/editors/rooms/RoomEditor.tsx",
 ]
 `;

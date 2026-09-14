@@ -1090,6 +1090,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         auto bound = m_layout_realizer.bind_session(project, generation);
         if (!bound)
             return core::Result<void, core::Diagnostics>::failure(std::move(bound).error());
+        m_runtime_ui.configure_project_cursors(project);
         m_runtime_ui.bind_message_localization(project.localization(),
                                                std::string(game.runtime_locale()));
         m_presentation_layouts.bind_project(project);
@@ -1170,6 +1171,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_world_presentation_resources.clear();
         m_presentation_layouts.clear_session();
         m_layout_realizer.clear_session();
+        m_runtime_ui.clear_project_cursors();
         m_runtime_ui.clear_message_localization();
     };
     hooks.detach_current_resources = detach_resources;

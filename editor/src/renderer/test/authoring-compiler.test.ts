@@ -58,6 +58,59 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('compiles Project cursor defaults and globally reachable named cursor images', () => {
+    const project = validProject();
+    project.assets['tea-pointer'] = {
+      id: 'tea-pointer',
+      label: 'Tea Pointer',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/tea-pointer.png',
+        extension: '.png',
+        byteSize: 64,
+        contentHash: 'tea-pointer-hash',
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.settings.cursors = {
+      defaults: {
+        default: { kind: 'system', cursor: 'default' },
+        pointer: { kind: 'named', id: 'tea' },
+        hotspot: { kind: 'inherit', semantic: 'pointer' },
+      },
+      named: [
+        {
+          id: 'tea',
+          image: { $ref: { collection: 'assets', id: 'tea-pointer' } },
+          hotspotX: 2,
+          hotspotY: 3,
+        },
+      ],
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok, result.ok ? '' : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.project.settings.cursors).toEqual({
+      defaults: {
+        default: { kind: 'system', cursor: 'default' },
+        pointer: { kind: 'named', id: 'tea' },
+        hotspot: { kind: 'inherit', semantic: 'pointer' },
+      },
+      named: [
+        {
+          id: 'tea',
+          image: { kind: 'asset', id: 'tea-pointer' },
+          hotspotX: 2,
+          hotspotY: 3,
+        },
+      ],
+    });
+    expect(result.project.resources.assets).toContainEqual(
+      expect.objectContaining({ id: 'tea-pointer', kind: 'image', width: 32, height: 32 }),
+    );
+  });
   it('compiles explicit JSON data Asset dependencies without analyzing Data.load calls', () => {
     const project = validProject();
     project.assets.catalog = {

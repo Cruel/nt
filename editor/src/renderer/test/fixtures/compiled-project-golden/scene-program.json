@@ -4169,6 +4169,23 @@
         "minimum": 1
       }
     },
+    "cursors": {
+      "defaults": {
+        "default": {
+          "kind": "system",
+          "cursor": "default"
+        },
+        "pointer": {
+          "kind": "system",
+          "cursor": "pointer"
+        },
+        "hotspot": {
+          "kind": "inherit",
+          "semantic": "pointer"
+        }
+      },
+      "named": []
+    },
     "audio": {
       "purposes": {
         "ambience": {

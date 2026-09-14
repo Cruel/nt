@@ -1660,6 +1660,19 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         uiScale: { ...settings.accessibility.uiScale },
         textScale: { ...settings.accessibility.textScale },
       },
+      cursors: {
+        defaults: {
+          default: { ...settings.cursors.defaults.default },
+          pointer: { ...settings.cursors.defaults.pointer },
+          hotspot: { ...settings.cursors.defaults.hotspot },
+        },
+        named: settings.cursors.named.map((cursor) => ({
+          id: cursor.id,
+          image: assetRef(cursor.image)!,
+          hotspotX: cursor.hotspotX,
+          hotspotY: cursor.hotspotY,
+        })),
+      },
       audio: {
         purposes: {
           music: { ...settings.audio.purposes.music },

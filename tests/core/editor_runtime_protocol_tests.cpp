@@ -347,6 +347,16 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
         {"contract", layout_contract},
         {"sampleState",
          {{"inputs", {{"display_title", "Sample"}}}, {"state", {{"saved_count", 3}}}}},
+        {"cursors",
+         {{"defaultCursor", "default"},
+          {"pointerCursor", "tea-pointer"},
+          {"named",
+           nlohmann::json::array({{{"id", "tea-pointer"},
+                                  {"logicalPath", "project:/assets/images/pointer.png"},
+                                  {"width", 32},
+                                  {"height", 24},
+                                  {"hotspotX", 2},
+                                  {"hotspotY", 3}}})}}},
         {"shaderMaterials",
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
@@ -373,6 +383,15 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
     CHECK(request->environment.project_display.world_raster_policy ==
           compiled::WorldRasterPolicy::Native);
     CHECK(request->environment.project_display.bar_color == "#123456");
+    CHECK(request->cursors.default_cursor == "default");
+    CHECK(request->cursors.pointer_cursor == "tea-pointer");
+    REQUIRE(request->cursors.named.size() == 1);
+    CHECK(request->cursors.named.front().id == "tea-pointer");
+    CHECK(request->cursors.named.front().logical_path == "project:/assets/images/pointer.png");
+    CHECK(request->cursors.named.front().width == 32);
+    CHECK(request->cursors.named.front().height == 24);
+    CHECK(request->cursors.named.front().hotspot_x == 2);
+    CHECK(request->cursors.named.front().hotspot_y == 3);
     REQUIRE(request->contract.inputs.size() == 1);
     CHECK(request->contract.inputs.front().id.text() == "display_title");
     REQUIRE(request->preview_inputs.size() == 1);

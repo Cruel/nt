@@ -1200,6 +1200,8 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                                                  {"hasDefault", false},
                                                  {"defaultValue", nullptr}}}}})}}}}},
         {"sampleState", {{"inputs", {{"display_title", "Preview"}}}}},
+        {"cursors",
+         {{"defaultCursor", "default"}, {"pointerCursor", "pointer"}, {"named", nlohmann::json::array()}}},
         {"shaderMaterials",
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},

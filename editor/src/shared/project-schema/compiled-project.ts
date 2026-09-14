@@ -2376,6 +2376,30 @@ const compiledLocaleSchema = strict({
   }),
   catalogPath: z.string().min(1).optional(),
 });
+const cursorSystemNameSchema = z.enum([
+  'default',
+  'pointer',
+  'text',
+  'wait',
+  'progress',
+  'crosshair',
+  'move',
+  'not-allowed',
+  'ns-resize',
+  'ew-resize',
+  'nesw-resize',
+  'nwse-resize',
+]);
+const cursorTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('system'), cursor: cursorSystemNameSchema }),
+  strict({ kind: z.literal('named'), id }),
+  strict({ kind: z.literal('none') }),
+]);
+const cursorHotspotTargetSchema = z.union([
+  cursorTargetSchema,
+  strict({ kind: z.literal('inherit'), semantic: z.literal('pointer') }),
+]);
+
 const runtimeSettingsSchema = strict({
   display: strict({
     referenceResolution: strict({
@@ -2396,6 +2420,21 @@ const runtimeSettingsSchema = strict({
       maximum: positiveFiniteNumber,
       minimum: positiveFiniteNumber,
     }),
+  }),
+  cursors: strict({
+    defaults: strict({
+      default: cursorTargetSchema,
+      pointer: cursorTargetSchema,
+      hotspot: cursorHotspotTargetSchema,
+    }),
+    named: z.array(
+      strict({
+        id,
+        image: assetReferenceSchema,
+        hotspotX: z.number().int().nonnegative(),
+        hotspotY: z.number().int().nonnegative(),
+      }),
+    ),
   }),
   audio: strict({
     purposes: strict({

@@ -258,6 +258,14 @@ and winning source/owner to private test/debug adapters.
 
 The current native semantic vocabulary is `default`, `pointer`, `text`, `wait`, `progress`,
 `crosshair`, `move`, `not-allowed`, `ns-resize`, `ew-resize`, `nesw-resize`, and `nwse-resize`.
+Project cursor settings may override the semantic `default` and `pointer` targets and register reusable
+named color cursors. A named RCSS value resolves through that Project registry; its source physical
+Image Asset is eagerly prepared with the active Project and remains globally reachable even when no
+Layout declares the image as a dependency. Focused Layout preview stages the same named registry and
+source artwork explicitly, so `cursor: <named-id>` has the same resolution there as at runtime. If a
+custom cursor cannot be decoded or realized, RuntimeUI records a typed diagnostic and the SDL realizer
+uses the semantic native fallback instead of failing gameplay.
+
 `none` means hidden cursor and `auto` contributes no RmlUi request; legacy/private RmlUi spellings are
 translated before publication. Pointer leave, focus loss, and movement into presentation bars clear
 only transient RmlUi eligibility. A retained pointer position is re-evaluated during frame settlement,

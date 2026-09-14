@@ -450,6 +450,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/layouts\/\*\/data\/dependencies\/data(?:\/|$)/, OWNER],
   [/^\/settings\/text\/fontStack(?:\/|$)/, OWNER],
   [/^\/localization\/locales\/\*\/fontStack(?:\/|$)/, OWNER],
+  // #265 adds Project-global cursor defaults and named cursor definitions. Every cursor field
+  // changes the compiled Project cursor registry or one of its eager Asset dependencies.
+  [/^\/settings\/cursors(?:\/|$)/, OWNER],
 ]);
 
 function explicitFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
@@ -1014,7 +1017,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     scenes: '9d060243',
     schema: '63fb9bb9',
     scripts: 'f3482815',
-    settings: '67b8f0c4',
+    settings: '7ffea374',
     shaders: '94d3aa6e',
     tests: '99f1bf10',
     traits: '371bbceb',

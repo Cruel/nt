@@ -724,12 +724,13 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                                                std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"accessibility", "audio", "display", "interaction", "inventory",
+                        {"accessibility", "audio", "cursors", "display", "interaction", "inventory",
                          "roomNavigationTransition", "systemLayouts", "text", "titleScreen"}))
         return std::nullopt;
     const auto* accessibility_value = decoder.member(value, "accessibility", pointer);
     const auto* display_value = decoder.member(value, "display", pointer);
     const auto* audio_value = decoder.member(value, "audio", pointer);
+    const auto* cursors_value = decoder.member(value, "cursors", pointer);
     const auto* interaction_value = decoder.member(value, "interaction", pointer);
     const auto* inventory_value = decoder.member(value, "inventory", pointer);
     const auto* layouts_value = decoder.member(value, "systemLayouts", pointer);
@@ -833,6 +834,147 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
         if (ui_scale && text_scale)
             accessibility = AccessibilitySettings{*ui_scale, *text_scale};
     }
+    std::optional<CursorSettings> cursors;
+    if (cursors_value && decoder.object(*cursors_value, pointer_child(pointer, "cursors"),
+                                        {"defaults", "named"})) {
+        const auto cursors_pointer = pointer_child(pointer, "cursors");
+        const auto* defaults_value = decoder.member(*cursors_value, "defaults", cursors_pointer);
+        const auto* named_value = decoder.member(*cursors_value, "named", cursors_pointer);
+        const auto decode_cursor_target = [&](const nlohmann::json& target,
+                                              const std::string& target_pointer,
+                                              bool allow_inherit) -> std::optional<CursorTarget> {
+            if (!target.is_object()) {
+                decoder.error(k_code_type, "Cursor target must be an object.", target_pointer);
+                return std::nullopt;
+            }
+            const auto* kind_value = decoder.member(target, "kind", target_pointer);
+            auto kind = kind_value ? decoder.string(*kind_value, pointer_child(target_pointer, "kind"))
+                                   : std::nullopt;
+            if (!kind)
+                return std::nullopt;
+            if (*kind == "system") {
+                if (!decoder.object(target, target_pointer, {"cursor", "kind"}))
+                    return std::nullopt;
+                const auto* cursor_value = decoder.member(target, "cursor", target_pointer);
+                auto cursor = cursor_value
+                                  ? decoder.enumeration<CursorSystemName>(
+                                        *cursor_value, pointer_child(target_pointer, "cursor"),
+                                        {{"default", CursorSystemName::Default},
+                                         {"pointer", CursorSystemName::Pointer},
+                                         {"text", CursorSystemName::Text},
+                                         {"wait", CursorSystemName::Wait},
+                                         {"progress", CursorSystemName::Progress},
+                                         {"crosshair", CursorSystemName::Crosshair},
+                                         {"move", CursorSystemName::Move},
+                                         {"not-allowed", CursorSystemName::NotAllowed},
+                                         {"ns-resize", CursorSystemName::NsResize},
+                                         {"ew-resize", CursorSystemName::EwResize},
+                                         {"nesw-resize", CursorSystemName::NeswResize},
+                                         {"nwse-resize", CursorSystemName::NwseResize}})
+                                  : std::nullopt;
+                return cursor ? std::optional<CursorTarget>(
+                                    CursorTarget{CursorTargetKind::System, *cursor, {}})
+                              : std::nullopt;
+            }
+            if (*kind == "named") {
+                if (!decoder.object(target, target_pointer, {"id", "kind"}))
+                    return std::nullopt;
+                const auto* id_value = decoder.member(target, "id", target_pointer);
+                auto id_value_text =
+                    id_value ? decoder.string(*id_value, pointer_child(target_pointer, "id"))
+                             : std::nullopt;
+                return id_value_text
+                           ? std::optional<CursorTarget>(CursorTarget{CursorTargetKind::Named,
+                                                                     CursorSystemName::Default,
+                                                                     std::move(*id_value_text)})
+                           : std::nullopt;
+            }
+            if (*kind == "none") {
+                if (!decoder.object(target, target_pointer, {"kind"}))
+                    return std::nullopt;
+                return CursorTarget{CursorTargetKind::None, CursorSystemName::None, {}};
+            }
+            if (*kind == "inherit" && allow_inherit) {
+                if (!decoder.object(target, target_pointer, {"kind", "semantic"}))
+                    return std::nullopt;
+                const auto* semantic_value = decoder.member(target, "semantic", target_pointer);
+                auto semantic = semantic_value
+                                    ? decoder.string(*semantic_value,
+                                                     pointer_child(target_pointer, "semantic"))
+                                    : std::nullopt;
+                if (semantic && *semantic == "pointer")
+                    return CursorTarget{CursorTargetKind::InheritPointer,
+                                        CursorSystemName::Pointer, {}};
+            }
+            decoder.error(k_code_enum, "Unknown cursor target kind.",
+                          pointer_child(target_pointer, "kind"));
+            return std::nullopt;
+        };
+
+        std::optional<CursorTarget> default_cursor;
+        std::optional<CursorTarget> pointer_cursor;
+        std::optional<CursorTarget> hotspot_cursor;
+        if (defaults_value &&
+            decoder.object(*defaults_value, pointer_child(cursors_pointer, "defaults"),
+                           {"default", "hotspot", "pointer"})) {
+            const auto defaults_pointer = pointer_child(cursors_pointer, "defaults");
+            const auto* default_value = decoder.member(*defaults_value, "default", defaults_pointer);
+            const auto* pointer_value = decoder.member(*defaults_value, "pointer", defaults_pointer);
+            const auto* hotspot_value = decoder.member(*defaults_value, "hotspot", defaults_pointer);
+            if (default_value)
+                default_cursor = decode_cursor_target(
+                    *default_value, pointer_child(defaults_pointer, "default"), false);
+            if (pointer_value)
+                pointer_cursor = decode_cursor_target(
+                    *pointer_value, pointer_child(defaults_pointer, "pointer"), false);
+            if (hotspot_value)
+                hotspot_cursor = decode_cursor_target(
+                    *hotspot_value, pointer_child(defaults_pointer, "hotspot"), true);
+        }
+        auto named =
+            named_value
+                ? decoder.array<NamedCursorDefinition>(
+                      *named_value, pointer_child(cursors_pointer, "named"),
+                      [&](const nlohmann::json& item,
+                          const std::string& item_pointer) -> std::optional<NamedCursorDefinition> {
+                          if (!decoder.object(item, item_pointer,
+                                              {"hotspotX", "hotspotY", "id", "image"}))
+                              return std::nullopt;
+                          const auto* id_value = decoder.member(item, "id", item_pointer);
+                          const auto* image_value = decoder.member(item, "image", item_pointer);
+                          const auto* hotspot_x_value = decoder.member(item, "hotspotX", item_pointer);
+                          const auto* hotspot_y_value = decoder.member(item, "hotspotY", item_pointer);
+                          auto id_text = id_value
+                                             ? decoder.string(*id_value,
+                                                              pointer_child(item_pointer, "id"))
+                                             : std::nullopt;
+                          auto image = image_value
+                                           ? decode_reference<AssetId>(
+                                                 decoder, *image_value,
+                                                 pointer_child(item_pointer, "image"), "asset")
+                                           : std::nullopt;
+                          auto hotspot_x = hotspot_x_value
+                                               ? decoder.unsigned_integer<std::uint32_t>(
+                                                     *hotspot_x_value,
+                                                     pointer_child(item_pointer, "hotspotX"))
+                                               : std::nullopt;
+                          auto hotspot_y = hotspot_y_value
+                                               ? decoder.unsigned_integer<std::uint32_t>(
+                                                     *hotspot_y_value,
+                                                     pointer_child(item_pointer, "hotspotY"))
+                                               : std::nullopt;
+                          return id_text && image && hotspot_x && hotspot_y
+                                     ? std::optional<NamedCursorDefinition>(NamedCursorDefinition{
+                                           std::move(*id_text), std::move(*image), *hotspot_x,
+                                           *hotspot_y})
+                                     : std::nullopt;
+                      })
+                : std::nullopt;
+        if (default_cursor && pointer_cursor && hotspot_cursor && named)
+            cursors = CursorSettings{std::move(*default_cursor), std::move(*pointer_cursor),
+                                     std::move(*hotspot_cursor), std::move(*named)};
+    }
+
     std::optional<AudioMixSettings> audio;
     if (audio_value && decoder.object(*audio_value, pointer_child(pointer, "audio"),
                                       {"purposes", "voiceDucking"})) {
@@ -1105,12 +1247,13 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             (*kind == TransitionKind::Fade || !color))
             transition = RoomNavigationTransition{*kind, *duration, std::move(color), *skippable};
     }
-    if (!display || !accessibility || !audio || !inventory || !interaction || !layouts || !text ||
-        !title || !transition)
+    if (!display || !accessibility || !cursors || !audio || !inventory || !interaction || !layouts ||
+        !text || !title || !transition)
         return std::nullopt;
     return RuntimeSettings{std::move(*display), std::move(*accessibility), std::move(*layouts),
                            std::move(*text),    std::move(*title),         std::move(*transition),
-                           std::move(*audio),   std::move(*inventory),     std::move(*interaction)};
+                           std::move(*audio),   std::move(*inventory),     std::move(*interaction),
+                           std::move(*cursors)};
 }
 
 std::optional<PropertyOwnerRef>

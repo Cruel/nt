@@ -1904,6 +1904,11 @@ function projectFieldSpecs(project: AuthoringProject): readonly {
       value: project.settings.text.fontStack,
       label: 'Default font stack',
     },
+    {
+      path: '/settings/cursors',
+      value: project.settings.cursors,
+      label: 'Project cursors',
+    },
     ...Object.entries(project.localization.locales).map(([locale, definition]) => ({
       path: `/localization/locales/${escapeJsonPointerSegment(locale)}/fontStack` as JsonPointer,
       value: definition.fontStack,

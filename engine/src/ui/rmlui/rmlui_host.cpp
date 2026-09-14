@@ -427,6 +427,11 @@ void RmlUiHost::set_cursor_owner_resolver(CursorOwnerResolver resolver)
     m_cursor_owner_resolver = std::move(resolver);
 }
 
+void RmlUiHost::set_cursor_presentation_resolver(CursorPresentationResolver resolver)
+{
+    m_cursor_presentation_resolver = std::move(resolver);
+}
+
 void RmlUiHost::publish_cursor_request(std::string_view cursor_name)
 {
     if (!m_cursor_authority || !m_active_cursor_context)
@@ -438,8 +443,20 @@ void RmlUiHost::publish_cursor_request(std::string_view cursor_name)
     if (record == m_contexts.end())
         return;
 
-    const auto shape = rmlui_cursor_shape(cursor_name);
-    if (!shape) {
+    if (cursor_name.empty() || cursor_name == "auto") {
+        m_cursor_authority->clear(host::CursorRequestSource::RmlUi, record->cursor_source_id);
+        return;
+    }
+
+    std::optional<host::CursorPresentation> presentation;
+    if (m_cursor_presentation_resolver)
+        presentation = m_cursor_presentation_resolver(record->context, cursor_name);
+    if (!presentation) {
+        if (const auto shape = rmlui_cursor_shape(cursor_name))
+            presentation =
+                host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
+    }
+    if (!presentation) {
         m_cursor_authority->clear(host::CursorRequestSource::RmlUi, record->cursor_source_id);
         return;
     }
@@ -448,8 +465,8 @@ void RmlUiHost::publish_cursor_request(std::string_view cursor_name)
         m_cursor_owner_resolver ? m_cursor_owner_resolver(record->context) : std::string{};
     if (owner.empty())
         owner = record->name;
-    m_cursor_authority->publish(host::CursorRequestSource::RmlUi, record->cursor_source_id, *shape,
-                                std::move(owner));
+    m_cursor_authority->publish(host::CursorRequestSource::RmlUi, record->cursor_source_id,
+                                std::move(*presentation), std::move(owner));
 }
 
 void RmlUiHost::resolve_cursor_requests(const std::vector<std::uint64_t>& front_to_back)

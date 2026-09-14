@@ -29,6 +29,66 @@ const assetRecordRefSchema = z
 const fontAssetRefSchema = assetRecordRefSchema.nullable();
 const imageAssetRefSchema = assetRecordRefSchema.nullable();
 
+export const systemCursorNames = [
+  'default',
+  'pointer',
+  'text',
+  'wait',
+  'progress',
+  'crosshair',
+  'move',
+  'not-allowed',
+  'ns-resize',
+  'ew-resize',
+  'nesw-resize',
+  'nwse-resize',
+] as const;
+export type SystemCursorName = (typeof systemCursorNames)[number];
+
+const systemCursorNameSchema = z.enum(systemCursorNames);
+const cursorNamedIdSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/, 'Cursor ID must use lowercase kebab-case.');
+const cursorTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('system'), cursor: systemCursorNameSchema }).strict(),
+  z.object({ kind: z.literal('named'), id: cursorNamedIdSchema }).strict(),
+  z.object({ kind: z.literal('none') }).strict(),
+]);
+const cursorHotspotTargetSchema = z.union([
+  cursorTargetSchema,
+  z.object({ kind: z.literal('inherit'), semantic: z.literal('pointer') }).strict(),
+]);
+export const projectCursorSettingsSchema = z
+  .object({
+    defaults: z
+      .object({
+        default: cursorTargetSchema,
+        pointer: cursorTargetSchema,
+        hotspot: cursorHotspotTargetSchema,
+      })
+      .strict(),
+    named: z.array(
+      z
+        .object({
+          id: cursorNamedIdSchema,
+          image: assetRecordRefSchema,
+          hotspotX: z.number().int().nonnegative(),
+          hotspotY: z.number().int().nonnegative(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+export const DEFAULT_PROJECT_CURSOR_SETTINGS = {
+  defaults: {
+    default: { kind: 'system', cursor: 'default' },
+    pointer: { kind: 'system', cursor: 'pointer' },
+    hotspot: { kind: 'inherit', semantic: 'pointer' },
+  },
+  named: [],
+} satisfies z.input<typeof projectCursorSettingsSchema>;
+
 export const projectTextSettingsSchema = z
   .object({
     defaultFont: fontAssetRefSchema.default(null),
@@ -164,6 +224,9 @@ export const projectDisplaySettingsSchema = z
 export type ProjectDisplaySettings = z.infer<typeof projectDisplaySettingsSchema>;
 export type ProjectAccessibilityScalePolicy = z.infer<typeof projectAccessibilityScalePolicySchema>;
 export type ProjectAccessibilitySettings = z.infer<typeof projectAccessibilitySettingsSchema>;
+export type ProjectCursorSettings = z.infer<typeof projectCursorSettingsSchema>;
+export type ProjectCursorTarget = ProjectCursorSettings['defaults']['default'];
+export type ProjectHotspotCursorTarget = ProjectCursorSettings['defaults']['hotspot'];
 
 export interface DerivedProjectDisplayGeometry {
   aspectRatio: { width: number; height: number };
@@ -240,6 +303,7 @@ export const typedProjectSettingsSchema = z
       DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS,
     ),
     audio: projectAudioSettingsSchema.default(DEFAULT_PROJECT_AUDIO_SETTINGS),
+    cursors: projectCursorSettingsSchema.default(DEFAULT_PROJECT_CURSOR_SETTINGS),
     presentation: z
       .object({
         roomNavigationTransition: roomNavigationTransitionSchema,
@@ -354,6 +418,8 @@ export function projectSettingsForEditing(project: AuthoringProject): TypedProje
   const rawUiScale = objectValue(rawAccessibility.uiScale);
   const rawTextScale = objectValue(rawAccessibility.textScale);
   const rawPresentation = objectValue(raw.presentation);
+  const rawCursors = objectValue(raw.cursors);
+  const rawCursorDefaults = objectValue(rawCursors.defaults);
   const rawAudio = objectValue(raw.audio);
   const rawAudioPurposes = objectValue(rawAudio.purposes);
   const rawVoiceDucking = objectValue(rawAudio.voiceDucking);
@@ -418,6 +484,20 @@ export function projectSettingsForEditing(project: AuthoringProject): TypedProje
         ...DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS.textScale,
         ...rawTextScale,
       },
+    },
+    cursors: {
+      defaults: {
+        default: Object.prototype.hasOwnProperty.call(rawCursorDefaults, 'default')
+          ? rawCursorDefaults.default
+          : DEFAULT_PROJECT_CURSOR_SETTINGS.defaults.default,
+        pointer: Object.prototype.hasOwnProperty.call(rawCursorDefaults, 'pointer')
+          ? rawCursorDefaults.pointer
+          : DEFAULT_PROJECT_CURSOR_SETTINGS.defaults.pointer,
+        hotspot: Object.prototype.hasOwnProperty.call(rawCursorDefaults, 'hotspot')
+          ? rawCursorDefaults.hotspot
+          : DEFAULT_PROJECT_CURSOR_SETTINGS.defaults.hotspot,
+      },
+      named: Array.isArray(rawCursors.named) ? rawCursors.named : [],
     },
     audio: {
       purposes: {
@@ -510,6 +590,101 @@ function validateAssetRef(
         `Asset '${id}' is ${kind ?? 'unknown'}, not ${expectedKind}.`,
       ),
     );
+  }
+}
+
+function validateCursorSettings(
+  project: AuthoringProject,
+  settings: TypedProjectSettings,
+  diagnostics: ProjectSettingsDiagnostic[],
+) {
+  const namedIds = new Set<string>();
+  const reserved = new Set<string>([...systemCursorNames, 'auto', 'none']);
+  settings.cursors.named.forEach((cursor, index) => {
+    const basePath = `/settings/cursors/named/${index}`;
+    if (reserved.has(cursor.id) || cursor.id.startsWith('rmlui-')) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.cursor.id.reserved',
+          `${basePath}/id`,
+          `Cursor ID '${cursor.id}' is reserved by NovelTea.`,
+        ),
+      );
+    }
+    if (namedIds.has(cursor.id)) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.cursor.id.duplicate',
+          `${basePath}/id`,
+          `Cursor ID '${cursor.id}' is already defined.`,
+        ),
+      );
+    }
+    namedIds.add(cursor.id);
+
+    const assetId = cursor.image.$ref.id;
+    const asset = project.assets[assetId];
+    const data = parseAssetData(asset?.data);
+    if (!asset) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.cursor.image.missing',
+          `${basePath}/image/$ref`,
+          `Missing cursor image asset '${assetId}'.`,
+        ),
+      );
+      return;
+    }
+    if (!data || data.kind !== 'image' || !data.imageMetadata) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.cursor.image.kind-mismatch',
+          `${basePath}/image/$ref`,
+          `Cursor '${cursor.id}' must reference an Image Asset.`,
+        ),
+      );
+      return;
+    }
+    const { width, height } = data.imageMetadata;
+    if (width > 128 || height > 128) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.cursor.image.too-large',
+          `${basePath}/image/$ref`,
+          `Cursor image '${assetId}' is ${width}x${height}; named cursors must be at most 128x128 pixels.`,
+        ),
+      );
+    }
+    if (cursor.hotspotX >= width) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.cursor.hotspot.out-of-bounds',
+          `${basePath}/hotspotX`,
+          `Hotspot X must be inside the ${width}-pixel source image width.`,
+        ),
+      );
+    }
+    if (cursor.hotspotY >= height) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.cursor.hotspot.out-of-bounds',
+          `${basePath}/hotspotY`,
+          `Hotspot Y must be inside the ${height}-pixel source image height.`,
+        ),
+      );
+    }
+  });
+
+  for (const [semantic, target] of Object.entries(settings.cursors.defaults)) {
+    if (target.kind === 'named' && !namedIds.has(target.id)) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.cursor.default.named-missing',
+          `/settings/cursors/defaults/${semantic}`,
+          `Cursor default references missing named cursor '${target.id}'.`,
+        ),
+      );
+    }
   }
 }
 
@@ -637,6 +812,7 @@ export function validateTypedProjectSettings(
     ? projectSettingsFromProject(project)
     : projectSettingsForEditing(project);
   validateDisplayAndAccessibilitySettings(settings, diagnostics);
+  validateCursorSettings(project, settings, diagnostics);
   const transitionDiagnostics: Array<{
     severity: 'error' | 'warning' | 'info';
     path: string;

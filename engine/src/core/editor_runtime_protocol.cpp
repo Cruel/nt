@@ -1980,7 +1980,8 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
         exact_fields(document,
                      {"schema", "contentMode", "layoutId", "layoutKind", "templateId", "sourceUrl",
                       "defaultParent", "scopedStyles", "script", "rml", "rcss", "lua",
-                      "scalePolicy", "contract", "sampleState", "environment", "shaderMaterials"},
+                      "scalePolicy", "contract", "sampleState", "environment", "cursors",
+                      "shaderMaterials"},
                      diagnostics, "/");
         const auto schema = string_field(document, "schema", diagnostics, "/", limits);
         if (schema && *schema != "noveltea.layout-preview")
@@ -2024,6 +2025,77 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
         auto environment = preview_authored_environment(document, diagnostics, limits);
         if (environment)
             result.environment = std::move(*environment);
+
+        if (const auto cursors = document.find("cursors"); cursors == document.end() ||
+            !cursors->is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type", "cursors must be an object.",
+                                        "/cursors"));
+        } else {
+            exact_fields(*cursors, {"defaultCursor", "pointerCursor", "named"}, diagnostics,
+                         "/cursors");
+            if (auto value = string_field(*cursors, "defaultCursor", diagnostics, "/cursors", limits))
+                result.cursors.default_cursor = std::move(*value);
+            if (auto value = string_field(*cursors, "pointerCursor", diagnostics, "/cursors", limits))
+                result.cursors.pointer_cursor = std::move(*value);
+            const auto named = cursors->find("named");
+            if (named == cursors->end() || !named->is_array()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "cursors.named must be an array.", "/cursors/named"));
+            } else {
+                for (std::size_t index = 0; index < named->size(); ++index) {
+                    const auto& value = (*named)[index];
+                    const std::string base = "/cursors/named/" + std::to_string(index);
+                    if (!value.is_object()) {
+                        diagnostics.push_back(error("editor_preview.wrong_type",
+                                                    "Named cursor must be an object.", base));
+                        continue;
+                    }
+                    exact_fields(value,
+                                 {"id", "logicalPath", "width", "height", "hotspotX", "hotspotY"},
+                                 diagnostics, base);
+                    auto id = string_field(value, "id", diagnostics, base, limits);
+                    auto logical_path = string_field(value, "logicalPath", diagnostics, base, limits);
+                    const auto read_uint = [&](std::string_view field) -> std::optional<std::uint32_t> {
+                        const auto it = value.find(std::string(field));
+                        if (it == value.end() || !it->is_number_unsigned()) {
+                            diagnostics.push_back(error(
+                                "editor_preview.wrong_type",
+                                std::string(field) + " must be an unsigned integer.",
+                                base + "/" + std::string(field)));
+                            return std::nullopt;
+                        }
+                        const auto number = it->get<std::uint64_t>();
+                        if (number > std::numeric_limits<std::uint32_t>::max()) {
+                            diagnostics.push_back(error("editor_preview.invalid_number",
+                                                        std::string(field) + " is out of range.",
+                                                        base + "/" + std::string(field)));
+                            return std::nullopt;
+                        }
+                        return static_cast<std::uint32_t>(number);
+                    };
+                    auto width = read_uint("width");
+                    auto height = read_uint("height");
+                    auto hotspot_x = read_uint("hotspotX");
+                    auto hotspot_y = read_uint("hotspotY");
+                    if (logical_path && !safe_project_logical_path(*logical_path)) {
+                        diagnostics.push_back(error("editor_preview.invalid_resource_path",
+                                                    "Cursor logicalPath must use a safe project:/ path.",
+                                                    base + "/logicalPath"));
+                        logical_path.reset();
+                    }
+                    if (id && logical_path && width && height && hotspot_x && hotspot_y) {
+                        result.cursors.named.push_back(TypedEditorPreviewCursorDefinition{
+                            .id = std::move(*id),
+                            .logical_path = std::move(*logical_path),
+                            .width = *width,
+                            .height = *height,
+                            .hotspot_x = *hotspot_x,
+                            .hotspot_y = *hotspot_y,
+                        });
+                    }
+                }
+            }
+        }
         auto rml = preview_layout_source(document, "rml", diagnostics, limits);
         auto rcss = preview_layout_source(document, "rcss", diagnostics, limits);
         auto lua = preview_layout_source(document, "lua", diagnostics, limits);
