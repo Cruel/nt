@@ -111,6 +111,52 @@ describe('authoring compiler framework', () => {
       expect.objectContaining({ id: 'tea-pointer', kind: 'image', width: 32, height: 32 }),
     );
   });
+  it('requires direct RCSS cursor images to be explicit Layout image dependencies', () => {
+    const project = validProject();
+    project.assets['cursor-image'] = {
+      id: 'cursor-image',
+      label: 'Cursor Image',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/cursor-image.png',
+        extension: '.png',
+        byteSize: 64,
+        contentHash: 'cursor-image-hash',
+        sampling: 'nearest',
+        imageMetadata: { width: 256, height: 64, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    const layout = defaultLayoutData('Cursor UI');
+    layout.rcss.sourceText =
+      '#target { cursor: image("project:/assets/images/cursor-image.png"); }';
+    project.layouts.cursor = { id: 'cursor', label: 'Cursor UI', data: layout };
+
+    const missingDependency = compileAuthoringProject(project);
+    expect(missingDependency.ok).toBe(false);
+    if (!missingDependency.ok) {
+      expect(missingDependency.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            jsonPointer: '/layouts/cursor/data/rcss/sourceText',
+            message: expect.stringContaining('Layout image dependency'),
+          }),
+        ]),
+      );
+    }
+
+    layout.dependencies.images = [{ $ref: { collection: 'assets', id: 'cursor-image' } }];
+    const compiled = compileAuthoringProject(project);
+    expect(compiled.ok, compiled.ok ? '' : JSON.stringify(compiled.diagnostics, null, 2)).toBe(
+      true,
+    );
+    if (!compiled.ok) return;
+    expect(compiled.project.resources.layouts.find((entry) => entry.id === 'cursor')).toMatchObject(
+      {
+        dependencies: { images: [{ kind: 'asset', id: 'cursor-image' }] },
+      },
+    );
+  });
+
   it('compiles explicit JSON data Asset dependencies without analyzing Data.load calls', () => {
     const project = validProject();
     project.assets.catalog = {

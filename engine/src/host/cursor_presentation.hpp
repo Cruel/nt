@@ -39,6 +39,20 @@ enum class CursorRequestSource : std::uint8_t {
 
 [[nodiscard]] std::string_view cursor_request_source_name(CursorRequestSource source) noexcept;
 
+enum class CursorImageSampling : std::uint8_t {
+    Linear,
+    Nearest,
+};
+
+struct CursorImageSize {
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    bool operator==(const CursorImageSize&) const = default;
+};
+
+[[nodiscard]] CursorImageSize fit_cursor_image_size(std::uint32_t width,
+                                                     std::uint32_t height) noexcept;
+
 struct CustomCursorPresentation {
     std::string id;
     std::string logical_path;
@@ -46,6 +60,8 @@ struct CustomCursorPresentation {
     std::uint32_t height = 0;
     std::uint32_t hotspot_x = 0;
     std::uint32_t hotspot_y = 0;
+    CursorImageSampling sampling = CursorImageSampling::Linear;
+    bool fit_to_portable_bound = false;
     bool operator==(const CustomCursorPresentation&) const = default;
 };
 
@@ -60,6 +76,7 @@ struct CursorInspection {
     std::string effective_name = "default";
     std::string source = "native-default";
     std::string owner;
+    std::optional<CustomCursorPresentation> custom;
 };
 
 class CursorRealizer {
@@ -80,6 +97,7 @@ public:
     explicit CursorAuthority(CursorRealizer* realizer = nullptr) noexcept;
 
     void bind_realizer(CursorRealizer* realizer) noexcept;
+    void invalidate_realization() noexcept;
     void publish(CursorRequestSource source, OwnerToken owner, CursorShape shape,
                  std::string owner_label);
     void publish(CursorRequestSource source, OwnerToken owner, CursorPresentation presentation,

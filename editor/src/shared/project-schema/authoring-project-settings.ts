@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
+import { systemCursorNames } from './authoring-cursor-vocabulary';
 import { DEFAULT_PROJECT_AUDIO_SETTINGS, projectAudioSettingsSchema } from './authoring-audio';
 import type { AuthoringProject, ProjectEntrypoint } from './authoring-project';
 import {
@@ -29,21 +30,7 @@ const assetRecordRefSchema = z
 const fontAssetRefSchema = assetRecordRefSchema.nullable();
 const imageAssetRefSchema = assetRecordRefSchema.nullable();
 
-export const systemCursorNames = [
-  'default',
-  'pointer',
-  'text',
-  'wait',
-  'progress',
-  'crosshair',
-  'move',
-  'not-allowed',
-  'ns-resize',
-  'ew-resize',
-  'nesw-resize',
-  'nwse-resize',
-] as const;
-export type SystemCursorName = (typeof systemCursorNames)[number];
+export { systemCursorNames, type SystemCursorName } from './authoring-cursor-vocabulary';
 
 const systemCursorNameSchema = z.enum(systemCursorNames);
 const cursorNamedIdSchema = z

@@ -30,6 +30,7 @@ struct FontAssetConfig;
 namespace core {
 class CompiledProject;
 namespace editor {
+struct FocusedEditorManifestProjection;
 struct TypedEditorPreviewCursorSettings;
 }
 } // namespace core
@@ -64,6 +65,8 @@ public:
     void configure_project_cursors(const core::CompiledProject& project);
     void clear_project_cursors() noexcept;
     void configure_focused_preview_cursors(const core::editor::TypedEditorPreviewCursorSettings& cursors);
+    void configure_focused_preview_cursor_resources(
+        const std::vector<core::editor::FocusedEditorManifestProjection>& resources);
     void clear_focused_preview_cursors() noexcept;
     [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event);
     void resize(const PresentationMetrics& presentation);
@@ -83,6 +86,8 @@ public:
     bool set_document_opacity(const std::string& id, float opacity);
     void set_layout_mount_context(const std::string& id,
                                   std::optional<RuntimeUiLayoutMountContext> context);
+    void set_layout_cursor_image_dependencies(const std::string& id,
+                                              std::vector<std::string> logical_paths);
     [[nodiscard]] std::optional<RuntimeUiLayoutMountContext>
     layout_mount_context(const std::string& id) const;
     bool load_document_for_layout(

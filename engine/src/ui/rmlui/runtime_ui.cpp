@@ -10,6 +10,7 @@
 #include "script/lua/script_runtime_internal.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <functional>
@@ -32,6 +33,7 @@
 #include <sol/sol.hpp>
 #include "ui/rmlui/active_text_presenter.hpp"
 #include "ui/rmlui/rmlui_document_registry.hpp"
+#include "ui/rmlui/rmlui_file_interface.hpp"
 #include "ui/rmlui/rmlui_custom_components.hpp"
 #include "ui/rmlui/rmlui_host.hpp"
 #include "ui/rmlui/runtime_ui_action_gateway.hpp"
@@ -80,6 +82,59 @@ host::CursorShape cursor_shape(core::compiled::CursorSystemName name) noexcept
         return host::CursorShape::Hidden;
     }
     return host::CursorShape::Default;
+}
+
+struct CursorImageAssetMetadata {
+    bool image = false;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    host::CursorImageSampling sampling = host::CursorImageSampling::Linear;
+};
+
+std::string_view trim_cursor_value(std::string_view value) noexcept
+{
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front())))
+        value.remove_prefix(1);
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())))
+        value.remove_suffix(1);
+    return value;
+}
+
+struct DirectCursorImageValue {
+    bool matched = false;
+    std::optional<std::string> source;
+};
+
+DirectCursorImageValue parse_direct_cursor_image(std::string_view value)
+{
+    value = trim_cursor_value(value);
+    if (!value.starts_with("image"))
+        return {};
+    if (value.size() > 5 && !std::isspace(static_cast<unsigned char>(value[5])) && value[5] != '(')
+        return {};
+    auto suffix = trim_cursor_value(value.substr(5));
+    if (suffix.size() < 2 || suffix.front() != '(' || suffix.back() != ')')
+        return {.matched = true, .source = std::nullopt};
+    auto argument = trim_cursor_value(suffix.substr(1, suffix.size() - 2));
+    if (argument.empty())
+        return {.matched = true, .source = std::nullopt};
+
+    if (argument.front() == '\'' || argument.front() == '"') {
+        const char quote = argument.front();
+        if (argument.size() < 2 || argument.back() != quote)
+            return {.matched = true, .source = std::nullopt};
+        const auto inner = argument.substr(1, argument.size() - 2);
+        if (inner.empty() || inner.find(quote) != std::string_view::npos)
+            return {.matched = true, .source = std::nullopt};
+        return {.matched = true, .source = std::string(inner)};
+    }
+
+    if (std::any_of(argument.begin(), argument.end(), [](char ch) {
+            return std::isspace(static_cast<unsigned char>(ch)) || ch == ',' || ch == '\'' ||
+                   ch == '"' || ch == '(' || ch == ')';
+        }))
+        return {.matched = true, .source = std::nullopt};
+    return {.matched = true, .source = std::string(argument)};
 }
 
 std::optional<host::CursorShape> cursor_shape(std::string_view name) noexcept
@@ -530,10 +585,16 @@ struct RuntimeUI::State {
         void ProcessEvent(Rml::Event& event) override;
         State& owner;
     };
+    assets::AssetManager* assets = nullptr;
     std::unique_ptr<sdl_platform::SdlCursorRealizer> cursor_realizer;
     std::unique_ptr<host::CursorAuthority> cursor_authority;
     std::optional<core::compiled::CursorSettings> cursor_settings;
     std::unordered_map<std::string, host::CursorPresentation> named_cursors;
+    std::unordered_map<std::string, CursorImageAssetMetadata> cursor_image_assets;
+    std::unordered_map<std::string, CursorImageAssetMetadata> focused_preview_cursor_image_assets;
+    std::unordered_map<std::string, std::unordered_set<std::string>>
+        layout_cursor_image_dependencies;
+    std::unordered_set<std::string> cursor_runtime_diagnostics;
     std::optional<std::string> focused_preview_default_cursor;
     std::optional<std::string> focused_preview_pointer_cursor;
     std::unordered_map<std::string, host::CursorPresentation> focused_preview_named_cursors;
@@ -1303,6 +1364,7 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
 
     if (!m_state)
         m_state = new State;
+    m_state->assets = assets;
     if (!m_state->cursor_realizer)
         m_state->cursor_realizer = std::make_unique<sdl_platform::SdlCursorRealizer>(assets);
     if (!m_state->cursor_authority) {
@@ -1406,13 +1468,93 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
                 return std::nullopt;
             };
 
-            bool focused_preview = false;
-            if (state->document_registry && context) {
-                auto* hover = context->GetHoverElement();
-                auto* owner_document = hover ? hover->GetOwnerDocument() : nullptr;
-                const auto id = state->document_registry->document_id(owner_document);
-                focused_preview = id && *id == "editor_authored_layout_preview";
+            auto* hover = context ? context->GetHoverElement() : nullptr;
+            auto* owner_document = hover ? hover->GetOwnerDocument() : nullptr;
+            const auto document_id = state->document_registry
+                                         ? state->document_registry->document_id(owner_document)
+                                         : std::optional<std::string>{};
+            const bool focused_preview =
+                document_id && (*document_id == "editor_authored_layout_preview" ||
+                                document_id->starts_with("focused://"));
+            const auto direct_image = parse_direct_cursor_image(name);
+            if (direct_image.matched) {
+                const auto diagnose = [&](std::string code, std::string message) {
+                    const std::string key = code + "\n" + std::string(name);
+                    if (state->cursor_runtime_diagnostics.insert(key).second)
+                        state->typed_diagnostics.push_back(
+                            core::Diagnostic{.code = std::move(code), .message = std::move(message)});
+                };
+                if (!direct_image.source) {
+                    diagnose("runtime.cursor.invalid_image_value",
+                             "Direct cursor image requires exactly one image source.");
+                    return std::nullopt;
+                }
+
+                const std::string& source = *direct_image.source;
+                const auto colon = source.find(':');
+                if (colon != std::string::npos && !source.starts_with("project:/") &&
+                    !source.starts_with("system:/")) {
+                    diagnose("runtime.cursor.invalid_image_path",
+                             "Direct cursor image uses an unsupported resource scheme.");
+                    return std::nullopt;
+                }
+                if (!state->assets) return std::nullopt;
+
+                Rml::String joined = source;
+                if (colon == std::string::npos && owner_document) {
+                    Rml::GetSystemInterface()->JoinPath(joined, owner_document->GetSourceURL(), source);
+                }
+                const std::string logical = ui::rmlui::resolve_asset_path(*state->assets, joined);
+                if (!logical.starts_with("project:/") && !logical.starts_with("system:/")) {
+                    diagnose("runtime.cursor.invalid_image_path",
+                             "Direct cursor image must resolve through project:/ or system:/ resources.");
+                    return std::nullopt;
+                }
+
+                CursorImageAssetMetadata metadata;
+                const auto& image_assets = focused_preview
+                                               ? state->focused_preview_cursor_image_assets
+                                               : state->cursor_image_assets;
+                const auto resource = image_assets.find(logical);
+                if (resource != image_assets.end()) {
+                    metadata = resource->second;
+                    if (!metadata.image) {
+                        diagnose("runtime.cursor.image_kind_mismatch",
+                                 "Direct cursor resource is not an Image Asset.");
+                        return std::nullopt;
+                    }
+                } else if (logical.starts_with("project:/") &&
+                           (focused_preview || state->cursor_settings)) {
+                    diagnose("runtime.cursor.image_not_admitted",
+                             "Direct cursor image is not admitted by the active Layout resources.");
+                    return std::nullopt;
+                }
+                if (!focused_preview && logical.starts_with("project:/")) {
+                    const auto dependencies = document_id
+                                                  ? state->layout_cursor_image_dependencies.find(
+                                                        *document_id)
+                                                  : state->layout_cursor_image_dependencies.end();
+                    if (dependencies == state->layout_cursor_image_dependencies.end() ||
+                        !dependencies->second.contains(logical)) {
+                        diagnose("runtime.cursor.image_dependency_missing",
+                                 "Direct cursor image is outside the owning Layout image dependency closure.");
+                        return std::nullopt;
+                    }
+                }
+                const auto fitted = host::fit_cursor_image_size(metadata.width, metadata.height);
+                return host::CursorPresentation{
+                    .shape = host::CursorShape::Default,
+                    .custom = host::CustomCursorPresentation{
+                        .id = "image(" + logical + ")",
+                        .logical_path = logical,
+                        .width = fitted.width,
+                        .height = fitted.height,
+                        .hotspot_x = 0,
+                        .hotspot_y = 0,
+                        .sampling = metadata.sampling,
+                        .fit_to_portable_bound = true}};
             }
+
             if (focused_preview && state->focused_preview_default_cursor &&
                 state->focused_preview_pointer_cursor) {
                 if (name == "default")
@@ -1520,6 +1662,16 @@ void RuntimeUI::configure_project_cursors(const core::CompiledProject& project)
 
     m_state->cursor_settings = project.settings().cursors;
     m_state->named_cursors.clear();
+    m_state->cursor_image_assets.clear();
+    m_state->cursor_runtime_diagnostics.clear();
+    for (const auto& asset : project.assets()) {
+        CursorImageAssetMetadata metadata{.image = asset.kind == core::compiled::AssetKind::Image,
+                                          .width = asset.width.value_or(0),
+                                          .height = asset.height.value_or(0)};
+        if (asset.sampling == core::compiled::ImageSampling::Nearest)
+            metadata.sampling = host::CursorImageSampling::Nearest;
+        m_state->cursor_image_assets.insert_or_assign("project:/" + asset.path, metadata);
+    }
     if (m_state->cursor_realizer)
         m_state->cursor_realizer->clear_custom();
 
@@ -1565,6 +1717,8 @@ void RuntimeUI::clear_project_cursors() noexcept
         return;
     m_state->cursor_settings.reset();
     m_state->named_cursors.clear();
+    m_state->cursor_image_assets.clear();
+    m_state->cursor_runtime_diagnostics.clear();
     if (m_state->cursor_realizer)
         m_state->cursor_realizer->clear_custom();
     if (m_state->cursor_authority) {
@@ -1615,6 +1769,25 @@ void RuntimeUI::configure_focused_preview_cursors(
     m_state->cursor_authority->resolve();
 }
 
+void RuntimeUI::configure_focused_preview_cursor_resources(
+    const std::vector<core::editor::FocusedEditorManifestProjection>& resources)
+{
+    if (!m_state)
+        return;
+    m_state->focused_preview_cursor_image_assets.clear();
+    for (const auto& resource : resources) {
+        CursorImageAssetMetadata metadata{.image = resource.kind == "image"};
+        if (resource.sampling == std::optional<std::string>{"nearest"})
+            metadata.sampling = host::CursorImageSampling::Nearest;
+        m_state->focused_preview_cursor_image_assets.insert_or_assign(resource.logical_path,
+                                                                       metadata);
+    }
+    if (m_state->cursor_realizer)
+        m_state->cursor_realizer->clear_custom();
+    if (m_state->cursor_authority)
+        m_state->cursor_authority->invalidate_realization();
+}
+
 void RuntimeUI::clear_focused_preview_cursors() noexcept
 {
     if (!m_state)
@@ -1622,6 +1795,7 @@ void RuntimeUI::clear_focused_preview_cursors() noexcept
     m_state->focused_preview_default_cursor.reset();
     m_state->focused_preview_pointer_cursor.reset();
     m_state->focused_preview_named_cursors.clear();
+    m_state->focused_preview_cursor_image_assets.clear();
     if (!m_state->cursor_authority)
         return;
     constexpr host::CursorAuthority::OwnerToken project_default_owner = 1;
@@ -1949,8 +2123,10 @@ bool RuntimeUI::unload_document(const std::string& id)
         return false;
     const bool unloaded = m_state->with_active_layout_mount_document(
         id, [&]() { return m_state->document_registry->unload(id); });
-    if (unloaded)
+    if (unloaded) {
         m_state->layout_mount_contexts.erase(id);
+        m_state->layout_cursor_image_dependencies.erase(id);
+    }
     return unloaded;
 }
 
@@ -2004,6 +2180,18 @@ void RuntimeUI::set_layout_mount_context(const std::string& id,
         m_state->layout_mount_contexts.erase(id);
     }
     m_state->refresh_mounted_maps();
+}
+
+void RuntimeUI::set_layout_cursor_image_dependencies(const std::string& id,
+                                                     std::vector<std::string> logical_paths)
+{
+    if (!m_state)
+        return;
+    std::unordered_set<std::string> admitted;
+    admitted.reserve(logical_paths.size());
+    for (auto& logical_path : logical_paths)
+        admitted.insert(std::move(logical_path));
+    m_state->layout_cursor_image_dependencies.insert_or_assign(id, std::move(admitted));
 }
 
 std::optional<RuntimeUiLayoutMountContext>

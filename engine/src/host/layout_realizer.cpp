@@ -101,6 +101,12 @@ public:
         m_runtime_ui.set_layout_mount_context(document_id, std::nullopt);
     }
 
+    void set_cursor_image_dependencies(const std::string& document_id,
+                                       std::vector<std::string> logical_paths) override
+    {
+        m_runtime_ui.set_layout_cursor_image_dependencies(document_id, std::move(logical_paths));
+    }
+
     bool apply_order(const std::vector<std::string>& ordered_document_ids) override
     {
         return m_runtime_ui.apply_layout_order(ordered_document_ids);
@@ -1581,6 +1587,19 @@ bool LayoutRealizer::load_candidate(const CandidateLayout& candidate)
 
     if (!m_backend.set_mount_context(realized.document_id, realized.desired))
         return false;
+
+    if (std::holds_alternative<ProjectLayoutRealizationSource>(realized.desired.source) && m_project) {
+        std::vector<std::string> cursor_image_dependencies;
+        if (const auto* definition = m_project->find_layout(realized.desired.mounted.layout)) {
+            cursor_image_dependencies.reserve(definition->dependencies.images.size());
+            for (const auto& asset_id : definition->dependencies.images) {
+                if (const auto* asset = m_project->find_asset(asset_id))
+                    cursor_image_dependencies.push_back("project:/" + asset->path);
+            }
+        }
+        m_backend.set_cursor_image_dependencies(realized.document_id,
+                                                std::move(cursor_image_dependencies));
+    }
 
     const auto group = layout_composition_group(realized.desired.composition_group);
     bool loaded = false;

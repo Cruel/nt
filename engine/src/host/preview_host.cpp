@@ -344,6 +344,12 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
               },
           .bind_input_sink =
               [this](RuntimeUiInputSink* sink) { m_dependencies.runtime_ui.bind_input_sink(sink); },
+          .configure_cursor_resources =
+              [this](const std::vector<core::editor::FocusedEditorManifestProjection>& resources) {
+                  m_dependencies.runtime_ui.configure_focused_preview_cursor_resources(resources);
+              },
+          .clear_cursor_resources =
+              [this]() { m_dependencies.runtime_ui.clear_focused_preview_cursors(); },
           .retire_legacy_preview =
               [this]() {
                   m_dependencies.layout_realizer.clear_authored_preview();

@@ -1,5 +1,7 @@
 #include "host/cursor_presentation.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <utility>
 
@@ -38,6 +40,17 @@ std::string_view cursor_shape_name(CursorShape shape) noexcept
     return "default";
 }
 
+CursorImageSize fit_cursor_image_size(std::uint32_t width, std::uint32_t height) noexcept
+{
+    constexpr std::uint32_t portable_bound = 128;
+    if (width == 0 || height == 0 || (width <= portable_bound && height <= portable_bound))
+        return {width, height};
+    const double scale = static_cast<double>(portable_bound) /
+                         static_cast<double>(std::max(width, height));
+    return {.width = std::max(1U, static_cast<std::uint32_t>(std::lround(width * scale))),
+            .height = std::max(1U, static_cast<std::uint32_t>(std::lround(height * scale)))};
+}
+
 std::string_view cursor_request_source_name(CursorRequestSource source) noexcept
 {
     switch (source) {
@@ -62,6 +75,11 @@ CursorAuthority::CursorAuthority(CursorRealizer* realizer) noexcept : m_realizer
 void CursorAuthority::bind_realizer(CursorRealizer* realizer) noexcept
 {
     m_realizer = realizer;
+    invalidate_realization();
+}
+
+void CursorAuthority::invalidate_realization() noexcept
+{
     m_realized.reset();
     resolve();
 }
@@ -122,6 +140,7 @@ void CursorAuthority::resolve() noexcept
                                       : std::string(cursor_shape_name(request->second.presentation.shape));
             next.source = std::string(cursor_request_source_name(source));
             next.owner = request->second.owner_label;
+            next.custom = realized.custom;
             found = true;
             break;
         }

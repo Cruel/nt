@@ -213,6 +213,12 @@ public:
         mount_contexts.erase(document_id);
     }
 
+    void set_cursor_image_dependencies(const std::string& document_id,
+                                       std::vector<std::string> logical_paths) override
+    {
+        cursor_image_dependencies.insert_or_assign(document_id, std::move(logical_paths));
+    }
+
     bool apply_order(const std::vector<std::string>& ordered_document_ids) override
     {
         calls.push_back("order");
@@ -310,6 +316,7 @@ public:
     std::vector<ContextPolicyCall> context_policies;
     std::function<void(const std::string&)> on_show;
     std::unordered_map<std::string, presentation::RuntimeMountedLayout> mount_contexts;
+    std::unordered_map<std::string, std::vector<std::string>> cursor_image_dependencies;
     std::vector<presentation::RuntimeSystemLayoutDocumentBinding> system_layout_documents;
     std::size_t system_layout_publication_count = 0;
 };
@@ -636,6 +643,9 @@ TEST_CASE("LayoutRealizer prepares immutable project Layout resources and recrea
     CHECK(backend.loaded_rml.find("NovelTea Layout") != std::string::npos);
     const auto before = realizer.document_id(desired.mounted.instance);
     REQUIRE(before);
+    REQUIRE(backend.cursor_image_dependencies.contains(*before));
+    CHECK(backend.cursor_image_dependencies.at(*before) ==
+          std::vector<std::string>{"project:/assets/images/main.png"});
 
     RecreateLayoutRealizationsRequest recreate{
         .host_generation = generation,

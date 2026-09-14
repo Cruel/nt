@@ -72,6 +72,12 @@ public:
             return true;
         }
         virtual void clear_mount_context(const std::string& document_id) { (void)document_id; }
+        virtual void set_cursor_image_dependencies(const std::string& document_id,
+                                                   std::vector<std::string> logical_paths)
+        {
+            (void)document_id;
+            (void)logical_paths;
+        }
         [[nodiscard]] virtual bool
         apply_order(const std::vector<std::string>& ordered_document_ids) = 0;
         [[nodiscard]] virtual bool unload(const std::string& document_id) = 0;
