@@ -1901,7 +1901,8 @@
               "id": "text-rcss",
               "kind": "asset"
             }
-          ]
+          ],
+          "data": []
         },
         "id": "hud-assets",
         "kind": "fragment",
@@ -1971,7 +1972,8 @@
               "id": "text-rcss",
               "kind": "asset"
             }
-          ]
+          ],
+          "data": []
         },
         "id": "hud-inline",
         "kind": "document",

@@ -58,6 +58,36 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('compiles explicit JSON data Asset dependencies without analyzing Data.load calls', () => {
+    const project = validProject();
+    project.assets.catalog = {
+      id: 'catalog',
+      label: 'Catalog',
+      data: assetDataFromImportMetadata({
+        kind: 'data',
+        projectRelativePath: 'assets/data/catalog.json',
+        extension: '.json',
+        byteSize: 2,
+        contentHash: 'catalog-hash',
+        imageMetadata: null,
+      }),
+    };
+    const layout = defaultLayoutData('Catalog');
+    layout.lua.sourceText = "local catalog = assert(Data.load('catalog'))";
+    layout.dependencies.data = [{ $ref: { collection: 'assets', id: 'catalog' } }];
+    project.layouts.catalog = { id: 'catalog', label: 'Catalog', data: layout };
+    const result = compileAuthoringProject(project);
+    expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true);
+    if (!result.ok) return;
+    expect(result.project.resources.layouts.find((entry) => entry.id === 'catalog')).toMatchObject({
+      dependencies: { data: [{ kind: 'asset', id: 'catalog' }] },
+      lua: { kind: 'inline', text: "local catalog = assert(Data.load('catalog'))" },
+    });
+    expect(result.project.resources.assets.find((entry) => entry.id === 'catalog')).toMatchObject({
+      kind: 'data',
+      path: 'assets/data/catalog.json',
+    });
+  });
   it('resolves reserved engine system Messages without Project catalog duplication', () => {
     const project = validProject();
     const layout = defaultLayoutData('System Message', 'document');

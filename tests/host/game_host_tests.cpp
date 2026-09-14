@@ -717,6 +717,72 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     CHECK(host.running_game()->runtime_locale() == "es");
 }
 
+TEST_CASE("GameHost publishes JSON data Asset IDs to frontend Layout Lua")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    auto document = nlohmann::json::parse(minimal_compiled_project_fixture());
+    document["resources"]["assets"].push_back({{"id", "catalog"},
+                                               {"kind", "data"},
+                                               {"path", "assets/data/catalog.json"},
+                                               {"aliases", nlohmann::json::array()}});
+    const auto fixture = document.dump();
+    project_assets->add("minimal-data.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-data-test");
+    const std::string catalog = R"({"name":"frontend","nested":{"count":3}})";
+    project_assets->add("assets/data/catalog.json",
+                        assets::AssetBytes(catalog.begin(), catalog.end()), "game-host-data-test");
+    assets.mount("project", project_assets);
+
+    FakeScriptInvocationPort scripts;
+    script::ScriptRuntime frontend_scripts;
+    REQUIRE(frontend_scripts.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    FakeRuntimeUiHost runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = nullptr,
+                   .observation_sink = nullptr,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = frontend_scripts,
+                   .diagnostic_sink = {}});
+
+    auto loaded = host.load_compiled_project({.logical_path = "project:/minimal-data.json",
+                                              .runtime_locale = "en",
+                                              .load_title_screen = false,
+                                              .stop_runtime_after_load = true},
+                                             {});
+    if (!loaded)
+        for (const auto& diagnostic : loaded.error())
+            INFO(diagnostic.code << ": " << diagnostic.message);
+    REQUIRE(loaded);
+    REQUIRE(frontend_scripts.execute(R"(
+        local data, err = Data.load('catalog')
+        assert(err == nil and data.name == 'frontend' and data.nested.count == 3)
+        data.nested.count = 99
+        assert(Data.load('catalog').nested.count == 3)
+    )"));
+
+    host.release_running_game();
+    REQUIRE(frontend_scripts.execute(R"(
+        local data, err = Data.load('catalog')
+        assert(data == nil and type(err) == 'string')
+    )"));
+}
+
 TEST_CASE(
     "GameHost defers locale-positioned Dialogue Cues until explicit post-commit reconciliation")
 {

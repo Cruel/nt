@@ -447,6 +447,7 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #212 adds ordered Project and locale-specific font fallback references at the preserved
   // authoring schema version. They change the compiled text/localization projection and resource
   // dependency surface, so classify the new leaves explicitly instead of shifting legacy review slots.
+  [/^\/layouts\/\*\/data\/dependencies\/data(?:\/|$)/, OWNER],
   [/^\/settings\/text\/fontStack(?:\/|$)/, OWNER],
   [/^\/localization\/locales\/\*\/fontStack(?:\/|$)/, OWNER],
 ]);
@@ -1003,7 +1004,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     interactables: '29b3f7ad',
     interactions: '8c02d069',
     inventories: 'a8c38dae',
-    layouts: '35da7f67',
+    layouts: 'b32b3a10',
     localization: '3cedd4cb',
     maps: '9d711bea',
     materials: '546711ca',

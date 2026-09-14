@@ -155,6 +155,14 @@ There is no dispatcher-backed second `Game.*` implementation. `GameBinding`,
 tables, arbitrary save JSON access, and `RuntimeScriptExecutor` were deleted during the completed
 typed-runtime capability cutover.
 
+## Structured Data Assets
+
+Gameplay and frontend/Layout Lua expose the same `Data.load(assetId)` capability for registered JSON-backed `data` Assets. Resolution is by stable compiled Asset ID through the active Project Asset namespace; the API does not accept logical paths, filesystem paths, arbitrary JSON strings, or non-data Assets. The Project gameplay VM and the stable frontend/RmlUi VM each receive the active Project data-Asset registry, while isolated focused-preview environments receive only the data bindings staged for that preview candidate.
+
+JSON parsing is native and bounded. A successful load converts the parsed value into ordinary Lua scalars/tables and creates a fresh value tree on every call, so mutation cannot leak into the Asset, another call, or another VM. JSON `null` is represented by the stable `Data.null` sentinel so object members and array positions survive conversion. Parse/load failures return `nil, error`; malformed JSON, unsupported numeric values, missing IDs, and unavailable sources fail without granting filesystem access. The API deliberately does not provide general JSON encode/decode functions.
+
+Layout authors should declare JSON data used by a Layout in its explicit data dependencies. Those references participate in validation, focused-preview staging, unused-Asset pruning, and runtime-package inclusion without requiring static analysis of `Data.load(...)` source text.
+
 ## Invocation and Yielding
 
 Runtime execution invokes scripts only through `runtime::ScriptInvocationPort`. The Lua

@@ -1854,7 +1854,7 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
     std::optional<LayoutDependencies> dependencies;
     if (dependencies_value &&
         decoder.object(*dependencies_value, pointer_child(pointer, "dependencies"),
-                       {"fonts", "images", "materials", "scripts", "stylesheets"})) {
+                       {"fonts", "images", "materials", "scripts", "stylesheets", "data"})) {
         const auto dependency_pointer = pointer_child(pointer, "dependencies");
         auto decode_assets = [&](std::string_view key) -> std::optional<std::vector<AssetId>> {
             const auto* collection = decoder.member(*dependencies_value, key, dependency_pointer);
@@ -1871,6 +1871,7 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
         auto images = decode_assets("images");
         auto scripts = decode_assets("scripts");
         auto stylesheets = decode_assets("stylesheets");
+        auto data = decode_assets("data");
         const auto* material_collection =
             decoder.member(*dependencies_value, "materials", dependency_pointer);
         auto materials =
@@ -1882,10 +1883,10 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
                                                               "material");
                       })
                 : std::nullopt;
-        if (fonts && images && materials && scripts && stylesheets)
-            dependencies =
-                LayoutDependencies{std::move(*fonts), std::move(*images), std::move(*materials),
-                                   std::move(*scripts), std::move(*stylesheets)};
+        if (fonts && images && materials && scripts && stylesheets && data)
+            dependencies = LayoutDependencies{std::move(*fonts),       std::move(*images),
+                                              std::move(*materials),   std::move(*scripts),
+                                              std::move(*stylesheets), std::move(*data)};
     }
     std::optional<std::string> default_parent;
     std::optional<bool> scoped_styles;

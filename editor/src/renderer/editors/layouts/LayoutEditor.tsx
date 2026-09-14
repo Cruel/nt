@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
+import { useTranslation } from 'react-i18next';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
 import { resolveEditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
 import { Badge } from '@/components/ui/badge';
@@ -223,6 +224,7 @@ function DependencySelector({
 }
 
 export function LayoutEditor({ tab }: WorkbenchEditorProps) {
+  const { t } = useTranslation('workspace');
   const projectDocument = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
@@ -347,6 +349,16 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
         ? selectableAssets(
             project,
             (kind, extension) => kind === 'script' || ['.lua', 'lua'].includes(extension ?? ''),
+          )
+        : [],
+    [project],
+  );
+  const dataAssets = useMemo(
+    () =>
+      project
+        ? selectableAssets(
+            project,
+            (kind, extension) => kind === 'data' && ['.json', 'json'].includes(extension ?? ''),
           )
         : [],
     [project],
@@ -969,6 +981,17 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                 setDependency(
                   'scripts',
                   toggleRef(data.dependencies.scripts, assetRef(id)).map((ref) => ref.$ref.id),
+                )
+              }
+            />
+            <DependencySelector
+              title={t('layoutDataAssets')}
+              options={dataAssets}
+              selectedIds={refIds(data.dependencies.data ?? [])}
+              onToggle={(id) =>
+                setDependency(
+                  'data',
+                  toggleRef(data.dependencies.data ?? [], assetRef(id)).map((ref) => ref.$ref.id),
                 )
               }
             />

@@ -2263,6 +2263,7 @@ const layoutResourceSchema = strict({
     materials: z.array(materialReferenceSchema),
     scripts: z.array(assetReferenceSchema),
     stylesheets: z.array(assetReferenceSchema),
+    data: z.array(assetReferenceSchema),
   }),
   id,
   kind: z.enum(['document', 'fragment']),

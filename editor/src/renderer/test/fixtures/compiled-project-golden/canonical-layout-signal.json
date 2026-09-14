@@ -2481,7 +2481,8 @@
               "id": "text-rcss",
               "kind": "asset"
             }
-          ]
+          ],
+          "data": []
         },
         "id": "hud-assets",
         "kind": "fragment",
@@ -2551,7 +2552,8 @@
               "id": "text-rcss",
               "kind": "asset"
             }
-          ]
+          ],
+          "data": []
         },
         "id": "hud-inline",
         "kind": "document",
@@ -2623,7 +2625,8 @@
           "images": [],
           "materials": [],
           "scripts": [],
-          "stylesheets": []
+          "stylesheets": [],
+          "data": []
         },
         "id": "stateful-overlay",
         "kind": "document",

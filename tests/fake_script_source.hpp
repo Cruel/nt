@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/runtime/runtime_ports.hpp"
+#include "noveltea/core/data_asset_codec.hpp"
 
 #include <cstdint>
 #include <string>
@@ -32,6 +33,16 @@ public:
                 {"Script source not found: " + std::string(logical_path)});
         }
         return core::Result<std::string, runtime::ScriptSourceError>::success(found->second);
+    }
+
+    [[nodiscard]] core::Result<core::PersistableValue, std::string>
+    read_data_asset(std::string_view logical_path) const override
+    {
+        auto source = read_script_source(logical_path);
+        if (!source)
+            return core::Result<core::PersistableValue, std::string>::failure(
+                source.error().message);
+        return core::decode_data_asset(source.value());
     }
 
 private:

@@ -760,7 +760,14 @@ function layoutResourceIds(project: AuthoringProject, layouts: RoomPreviewDocume
     if (!layout.layoutId) continue;
     const data = parseLayoutData(project.layouts[layout.layoutId]?.data);
     if (!data) continue;
-    for (const family of ['images', 'fonts', 'stylesheets', 'scripts', 'templates'] as const)
+    for (const family of [
+      'images',
+      'fonts',
+      'stylesheets',
+      'scripts',
+      'templates',
+      'data',
+    ] as const)
       for (const ref of data.dependencies[family] ?? []) assets.add(ref.$ref.id);
     for (const ref of data.dependencies.materials) materials.add(ref.$ref.id);
     for (const source of [data.rml, data.rcss, data.lua])

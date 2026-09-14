@@ -902,6 +902,19 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         CHECK(diagnostic->json_pointer == "/definitions/characters/0/legacyParent");
     }
 
+    SECTION("missing current Layout data dependency field")
+    {
+        auto document = fixture("comprehensive");
+        auto* dependencies = path_member(document, {"resources", "layouts", "0", "dependencies"});
+        REQUIRE(dependencies != nullptr);
+        dependencies->erase("data");
+        auto result = decode_shared_project(document, "comprehensive.json");
+        REQUIRE_FALSE(result);
+        const auto* diagnostic = find_code(result.error(), "compiled_project.missing_field");
+        REQUIRE(diagnostic != nullptr);
+        CHECK(diagnostic->json_pointer == "/resources/layouts/0/dependencies/data");
+    }
+
     SECTION("wrong shared type")
     {
         auto document = fixture("minimal");

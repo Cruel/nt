@@ -1,4 +1,5 @@
 {
+  "layoutDataAssets": "Recursos de dados JSON",
   "projectImport": {
     "title": "Importar projeto NovelTea",
     "remoteDescription": "Verifique e importe o projeto baixado pelo link de transferência do NovelTea.",

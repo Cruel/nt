@@ -203,6 +203,8 @@ public:
     virtual ~ScriptSourcePort() = default;
     [[nodiscard]] virtual core::Result<std::string, ScriptSourceError>
     read_script_source(std::string_view logical_path) const = 0;
+    [[nodiscard]] virtual core::Result<core::PersistableValue, std::string>
+    read_data_asset(std::string_view logical_path) const = 0;
 };
 
 class ScriptCertificationPort {

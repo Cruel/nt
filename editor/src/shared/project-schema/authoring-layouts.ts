@@ -116,6 +116,7 @@ export const layoutDependencyDataSchema = z
     materials: z.array(layoutMaterialRefSchema).default([]),
     scripts: z.array(layoutAssetRefSchema).default([]),
     templates: z.array(layoutAssetRefSchema).optional(),
+    data: z.array(layoutAssetRefSchema).optional(),
   })
   .strict();
 
@@ -640,7 +641,7 @@ function validateAssetRefs(
   project: AuthoringProject,
   refs: LayoutAssetRef[],
   path: string,
-  expectedKind: 'image' | 'font' | 'stylesheet' | 'script',
+  expectedKind: 'image' | 'font' | 'stylesheet' | 'script' | 'data',
   diagnostics: LayoutSchemaDiagnostic[],
 ) {
   const seen = new Set<string>();
@@ -659,6 +660,11 @@ function validateAssetRefs(
     }
     const kind = assetKind(project, id);
     const extension = assetExtension(project, id);
+    if (
+      expectedKind === 'data' &&
+      (kind !== 'data' || parseAssetData(record.data)?.extension?.toLowerCase() !== '.json')
+    )
+      diagnostics.push(diagnostic(refPath, `Data dependency '${id}' must be a JSON data Asset.`));
     if (expectedKind === 'image' && kind && kind !== 'image')
       diagnostics.push(diagnostic(refPath, `Asset '${id}' is ${kind}, not image.`, 'warning'));
     if (expectedKind === 'font' && kind && kind !== 'font')
@@ -821,6 +827,13 @@ export function validateLayoutData(
     data.dependencies.scripts,
     `${base}/dependencies/scripts`,
     'script',
+    diagnostics,
+  );
+  validateAssetRefs(
+    project,
+    data.dependencies.data ?? [],
+    `${base}/dependencies/data`,
+    'data',
     diagnostics,
   );
   validateMaterialRefs(

@@ -1,6 +1,7 @@
 #include "host/focused_preview_presenter.hpp"
 
 #include "noveltea/assets/asset_cache_keys.hpp"
+#include "noveltea/core/data_asset.hpp"
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/presentation/room_presentation.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
@@ -21,6 +22,21 @@ core::Diagnostic error(std::string code, std::string message, std::string pointe
 {
     return {
         .code = std::move(code), .message = std::move(message), .json_pointer = std::move(pointer)};
+}
+
+std::vector<script::DataAssetBinding>
+data_asset_bindings(const core::editor::FocusedEditorDocumentRequest& request)
+{
+    std::vector<script::DataAssetBinding> result;
+    for (const auto& resource : request.resources) {
+        if (resource.source_kind != "authoring-asset" || resource.kind != "data" ||
+            !resource.asset_id || !core::is_json_data_asset_path(resource.logical_path))
+            continue;
+        auto id = core::AssetId::create(*resource.asset_id);
+        if (id)
+            result.push_back({std::move(id).value(), resource.logical_path});
+    }
+    return result;
 }
 
 core::Diagnostics script_error(const script::ScriptError& value)
@@ -1236,7 +1252,7 @@ FocusedPreviewPresenter::prepare_room_state(
         return core::Result<FocusedState, core::Diagnostics>::failure(
             {error("editor_preview.focused_generation_invalid",
                    "Focused preview apply sequence must be nonzero")});
-    auto environment = m_dependencies.scripts.create_environment();
+    auto environment = m_dependencies.scripts.create_environment(data_asset_bindings(request));
     if (!environment)
         return core::Result<FocusedState, core::Diagnostics>::failure(
             script_error(environment.error()));
@@ -1507,7 +1523,8 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
                               "Focused Layout apply sequence must be nonzero")};
                     return false;
                 }
-                auto script_environment = m_dependencies.scripts.create_environment();
+                auto script_environment = m_dependencies.scripts.create_environment(
+                    data_asset_bindings(candidate.request));
                 if (!script_environment) {
                     preparation_diagnostics = script_error(script_environment.error());
                     return false;

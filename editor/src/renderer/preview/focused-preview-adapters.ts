@@ -316,6 +316,7 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
         );
     for (const [name, refs] of [
       ['layout-script', layout.dependencies.scripts],
+      ['layout-data', layout.dependencies.data],
       ['layout-template', layout.dependencies.templates],
       ['layout-stylesheet', layout.dependencies.stylesheets],
       ['layout-image', layout.dependencies.images],

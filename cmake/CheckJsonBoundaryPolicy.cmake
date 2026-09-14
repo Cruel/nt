@@ -28,6 +28,7 @@ set(approved_source_paths
     "apps/editor_preview/editor_preview_app.cpp"
     "engine/src/assets/resource_aliases.cpp"
     "engine/src/core/compiled_package_codec.cpp"
+    "engine/src/core/data_asset_codec.cpp"
     "engine/src/core/compiled_project_codec/definitions_decoder.cpp"
     "engine/src/core/compiled_project_codec/dialogue_decoder.cpp"
     "engine/src/core/compiled_project_codec/interaction_decoder.cpp"
