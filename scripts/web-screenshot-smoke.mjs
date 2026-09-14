@@ -117,7 +117,7 @@ async function runCase({ name, screenshotMode, screenshotSize, expectedWidth, ex
   const screenshotPath = `/${name}.ppm`;
   const url = new URL(`http://127.0.0.1:${port}/index.html`);
   url.searchParams.set('demo', 'none');
-  url.searchParams.set('rmlui-document', 'project:/rmlui/readback_gallery.rml');
+  url.searchParams.set('rmlui-document', 'project:/rmlui/advanced_gallery.rml');
   url.searchParams.set('frames', '40');
   url.searchParams.set('screenshot', screenshotPath);
   if (noImgui) url.searchParams.set('noImgui', '1');

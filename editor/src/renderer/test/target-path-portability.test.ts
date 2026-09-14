@@ -3,7 +3,16 @@ import {
   targetPathProjectValidationDiagnostic,
   validateTargetPaths,
 } from '../../shared/project-schema/target-path-portability';
-import { portabilityFixtureEntries } from '../../shared/project-schema/platform-export-acceptance-fixture';
+const portabilityFixtureEntries = [
+  { sourceId: 'case-a', targetPath: 'Assets/Hero.png' },
+  { sourceId: 'case-b', targetPath: 'assets/hero.png' },
+  { sourceId: 'unicode-a', targetPath: 'text/café.txt' },
+  { sourceId: 'unicode-b', targetPath: 'text/cafe\u0301.txt' },
+  { sourceId: 'reserved', targetPath: 'data/CON.json' },
+  { sourceId: 'long', targetPath: `assets/${'x'.repeat(260)}.png` },
+  { sourceId: 'absolute', targetPath: '/etc/passwd' },
+  { sourceId: 'traversal', targetPath: 'assets/../secret.txt' },
+] as const;
 
 describe('target path portability', () => {
   it('reports stable diagnostics for the canonical hostile paths', () => {
