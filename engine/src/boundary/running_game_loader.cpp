@@ -423,7 +423,7 @@ load_running_game(RunningGameLoadInput input, ScriptCertificationPort& script_ce
     static const core::JsonSaveStateCodec save_codec;
     return RunningGame::create(std::move(input.package), script_certifier, scripts,
                                presentation_model, presentation, saves, save_codec,
-                               std::move(input.runtime_locale));
+                               std::move(input.runtime_locale), std::move(input.startup_context));
 }
 
 core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>

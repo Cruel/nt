@@ -702,6 +702,19 @@ void ScriptRuntime::shutdown()
 
 bool ScriptRuntime::is_initialized() const { return m_impl && m_impl->initialized; }
 
+void ScriptRuntime::set_startup_context(core::PersistableValue context)
+{
+    if (m_impl && m_impl->runtime_api)
+        m_impl->runtime_api->set_startup_context(std::move(context));
+}
+
+core::PersistableValue ScriptRuntime::startup_context() const
+{
+    if (m_impl && m_impl->runtime_api)
+        return m_impl->runtime_api->startup_context();
+    return core::PersistableValue{core::PersistableValue::Object{}};
+}
+
 ScriptRuntime::ScopedSourceOverride
 ScriptRuntime::override_sources(const runtime::ScriptSourcePort& sources) noexcept
 {

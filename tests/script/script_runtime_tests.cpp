@@ -116,6 +116,37 @@ struct RuntimeFixture {
     script::ScriptRuntime runtime;
 };
 
+TEST_CASE("startup context is available before bootstrap and returned as immutable copies",
+          "[script][startup-context]")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    fixture.runtime.set_startup_context(core::PersistableValue{core::PersistableValue::Object{
+        {"scenario", core::PersistableValue{std::string("rooms")}},
+        {"nested", core::PersistableValue{
+                       core::PersistableValue::Array{core::PersistableValue{std::int64_t{7}},
+                                                     core::PersistableValue{std::monostate{}}}}}}});
+
+    REQUIRE(fixture.runtime.execute(R"(
+        local first = Game.startup_context()
+        assert(first.scenario == 'rooms')
+        assert(first.nested[1] == 7 and first.nested[2] == Data.null)
+        first.scenario = 'mutated'
+        first.nested[1] = 99
+        local second = Game.startup_context()
+        assert(second.scenario == 'rooms' and second.nested[1] == 7)
+    )"));
+
+    auto project = load_script_project_with_modules({{"bootstrap", R"(
+            local context = Game.startup_context()
+            assert(context.scenario == 'rooms')
+            assert(context.nested[2] == Data.null)
+            return {}
+        )"}});
+    REQUIRE(fixture.runtime.prepare_project_modules(project));
+    REQUIRE(fixture.runtime.run_project_bootstrap());
+}
+
 TEST_CASE("Lua wall time is injectable and does not grant OS access", "[script][wall-clock]")
 {
     test_support::FrozenWallClock clock;
@@ -1560,6 +1591,10 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
     auto executed = invoker.execute(R"(
         assert(type(Game) == "table" and Save == nil and Script == nil)
         assert(type(Game.continue) == "function" and type(Game.save) == "function")
+        assert(type(Game.restart) == "function" and type(Game.startup_context) == "function")
+        local cyclic = {}; cyclic.self = cyclic
+        local restart_ok, restart_error = Game.restart(cyclic)
+        assert(not restart_ok and type(restart_error) == "string")
         assert(prop == nil and set_prop == nil and thisEntity == nil)
 
         local scene, scene_error = noveltea.project.scene("opening")

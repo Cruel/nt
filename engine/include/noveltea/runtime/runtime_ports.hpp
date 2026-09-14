@@ -210,6 +210,7 @@ public:
 class ScriptCertificationPort {
 public:
     virtual ~ScriptCertificationPort() = default;
+    virtual void set_startup_context(core::PersistableValue context) = 0;
     [[nodiscard]] virtual core::Result<void, ScriptInvocationError>
     certify_source(std::string_view source, std::string_view chunk_name) = 0;
     [[nodiscard]] virtual core::Result<void, ScriptInvocationError>

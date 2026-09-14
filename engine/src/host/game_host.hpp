@@ -69,6 +69,7 @@ struct GameHostAdvanceInput {
 struct GameHostLoadRequest {
     std::string logical_path;
     std::string runtime_locale{};
+    core::PersistableValue startup_context{core::PersistableValue::Object{}};
     bool load_title_screen = true;
     bool stop_runtime_after_load = true;
 };
@@ -102,6 +103,7 @@ public:
         presentation::RuntimeSystemLayoutHost& system_layout_host;
         WorldTransitionBackend* world_transitions = nullptr;
         script::ScriptRuntime& script_certifier;
+        std::function<void()> runtime_session_replaced;
         std::function<void(HostFrameStage, const core::Diagnostic&)> diagnostic_sink;
     };
 

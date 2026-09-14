@@ -1325,6 +1325,16 @@ RuntimeCommandGateway::run_interaction(core::VerbId verb,
     return core::Result<void, core::Diagnostics>::success();
 }
 
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::restart(core::PersistableValue startup_context, bool show_title)
+{
+    auto available = require_services("Game.restart");
+    if (!available)
+        return available;
+    m_services->queue_input(core::ResetRuntimeInput{std::move(startup_context), show_title});
+    return core::Result<void, core::Diagnostics>::success();
+}
+
 core::Result<void, core::Diagnostics> RuntimeCommandGateway::save(core::TypedSaveSlotId slot)
 {
     auto available = require_services("Game.save");
