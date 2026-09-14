@@ -16,7 +16,9 @@ or conflicts with a documented repository rule; do not fork upstream skills to e
   Update the natural existing test instead of duplicating it; use test-first regression reproduction
   where practical.
 - Source/configuration tests are appropriate when the artifact itself is the external contract,
-  rather than a proxy for runtime behavior.
+  rather than a proxy for runtime behavior. Assert the externally meaningful declarative property,
+  not incidental source text or command syntax; do not restate an implementation as presence/absence
+  checks when the behavior can be exercised through a semantic seam.
 - Keep ordinary implementation work focused on directly affected tests. Unrelated test cleanup
   belongs in a separately scoped audit or follow-up.
 

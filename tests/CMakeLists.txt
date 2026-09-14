@@ -452,6 +452,13 @@ add_test(
         -P "${CMAKE_SOURCE_DIR}/tests/cmake/editor_asset_profiler_build_policy.cmake")
 set_tests_properties(noveltea_editor_asset_profiler_build_policy PROPERTIES
     LABELS "assets;profiler;build-policy;compile-definitions")
+add_test(
+    NAME noveltea_web_threading_preset_policy
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/tests/cmake/web_audio_build_policy.cmake")
+set_tests_properties(noveltea_web_threading_preset_policy PROPERTIES
+    LABELS "web;source-policy;presets;build-policy")
 
 # --- Animation tests (Twink-backed service is mandatory) ---
 
@@ -664,7 +671,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_rmlui_readback_capture
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; fi"
+            "set -e; rm -f '${NOVELTEA_RMLUI_READBACK_PPM}'; if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; fi"
     )
     set_tests_properties(noveltea_rmlui_readback_capture PROPERTIES
         TIMEOUT 60
@@ -698,7 +705,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_rmlui_resize_readback_capture
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1920x1080,1423x1869,1920x1080 --resize-interval-frames 2 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1920x1080,1423x1869,1920x1080 --resize-interval-frames 2 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; fi"
+            "set -e; rm -f '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}'; if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1920x1080,1423x1869,1920x1080 --resize-interval-frames 2 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1920x1080,1423x1869,1920x1080 --resize-interval-frames 2 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; fi"
     )
     set_tests_properties(noveltea_rmlui_resize_readback_capture PROPERTIES
         TIMEOUT 60

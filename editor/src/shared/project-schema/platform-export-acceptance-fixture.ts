@@ -7,11 +7,6 @@ import { defaultShaderData } from './authoring-shaders';
 
 export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION = '2026-07-11.1' as const;
 
-export const platformExportFixtureExpectations = {
-  supported: ['room-navigation', 'lua', 'image', 'shader-material'],
-  blocked: ['runtime-rmlui-layout-mount', 'runtime-audio-playback', 'save-reload-acceptance'],
-} as const;
-
 export function createPlatformExportAcceptanceFixture() {
   const project = createAuthoringProject({
     id: 'platform-export-acceptance',
@@ -128,14 +123,3 @@ export function createPlatformExportAcceptanceFixture() {
   app.versionName = PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION;
   return project;
 }
-
-export const portabilityFixtureEntries = [
-  { sourceId: 'case-a', targetPath: 'Assets/Hero.png' },
-  { sourceId: 'case-b', targetPath: 'assets/hero.png' },
-  { sourceId: 'unicode-a', targetPath: 'text/café.txt' },
-  { sourceId: 'unicode-b', targetPath: 'text/cafe\u0301.txt' },
-  { sourceId: 'reserved', targetPath: 'data/CON.json' },
-  { sourceId: 'long', targetPath: `assets/${'x'.repeat(260)}.png` },
-  { sourceId: 'absolute', targetPath: '/etc/passwd' },
-  { sourceId: 'traversal', targetPath: 'assets/../secret.txt' },
-] as const;
