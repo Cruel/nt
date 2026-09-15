@@ -1,9 +1,7 @@
 export interface ProjectWorkspacePathMetadata {
   readonly kind: 'missing' | 'file' | 'directory' | 'symlink' | 'other';
   readonly byteSize?: number;
-  /** Millisecond timestamp available across Node and ScriptC hosts. */
-  readonly mtimeMilliseconds?: number;
-  /** Highest-resolution timestamp when the host exposes nanoseconds. */
+  /** Exact nanoseconds since Unix epoch, serialized as decimal text to avoid JS precision loss. */
   readonly mtimeNanoseconds?: string;
 }
 

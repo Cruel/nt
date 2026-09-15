@@ -47,6 +47,7 @@ add_library(noveltea_tooling_native STATIC
     tooling_native_c.h
     tooling_native_scriptc.cpp
     tooling_image.cpp
+    tooling_filesystem.cpp
     font_coverage_tool.cpp
     tooling_archive.cpp
     "${CMAKE_SOURCE_DIR}/engine/src/core/editor_playback_expectations.cpp"

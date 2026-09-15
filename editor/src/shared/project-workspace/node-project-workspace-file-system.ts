@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, promises as fs } from 'node:fs';
 import path from 'node:path';
+import type { ProjectWorkspacePathMetadata } from './project-workspace-file-system';
 import {
   ProjectWorkspaceFileSystemAdapter,
   type ProjectWorkspaceFileSystemOperations,
@@ -43,39 +44,36 @@ const nodeProjectWorkspaceFileSystemOperations: ProjectWorkspaceFileSystemOperat
   },
 };
 
+export type ProjectWorkspacePathMetadataReader = (
+  path: string,
+) => Promise<ProjectWorkspacePathMetadata>;
+
+async function readNodePathMetadata(value: string): Promise<ProjectWorkspacePathMetadata> {
+  try {
+    const info = await fs.lstat(value, { bigint: true });
+    const byteSize = Number(info.size);
+    if (!Number.isSafeInteger(byteSize) || byteSize < 0) return { kind: 'other' };
+    const metadata = { byteSize, mtimeNanoseconds: info.mtimeNs.toString() };
+    if (info.isSymbolicLink()) return { kind: 'symlink', ...metadata };
+    if (info.isFile()) return { kind: 'file', ...metadata };
+    if (info.isDirectory()) return { kind: 'directory', ...metadata };
+    return { kind: 'other', ...metadata };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return { kind: 'missing' };
+    throw error;
+  }
+}
+
 export class NodeProjectWorkspaceFileSystem extends ProjectWorkspaceFileSystemAdapter {
-  constructor() {
+  constructor(
+    private readonly pathMetadataReader: ProjectWorkspacePathMetadataReader = readNodePathMetadata,
+  ) {
     super(nodeProjectWorkspaceFileSystemOperations);
   }
 
-  async readPathMetadata(value: string) {
-    try {
-      const info = (await fs.lstat(value, { bigint: true })) as unknown as {
-        readonly size: bigint | number;
-        readonly mtimeNs?: bigint;
-        readonly mtimeMs: bigint | number;
-        isSymbolicLink(): boolean;
-        isFile(): boolean;
-        isDirectory(): boolean;
-      };
-      const byteSize = Number(info.size);
-      const mtimeNanoseconds =
-        typeof info.mtimeNs === 'bigint' ? info.mtimeNs.toString() : undefined;
-      const mtimeMilliseconds = mtimeNanoseconds
-        ? Number(info.mtimeNs) / 1_000_000
-        : Number(info.mtimeMs);
-      if (!Number.isSafeInteger(byteSize) || byteSize < 0 || !Number.isFinite(mtimeMilliseconds))
-        return { kind: 'other' as const };
-      if (info.isSymbolicLink()) return { kind: 'symlink' as const };
-      if (info.isFile())
-        return { kind: 'file' as const, byteSize, mtimeMilliseconds, mtimeNanoseconds };
-      if (info.isDirectory())
-        return { kind: 'directory' as const, byteSize, mtimeMilliseconds, mtimeNanoseconds };
-      return { kind: 'other' as const };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'missing' as const };
-      throw error;
-    }
+  readPathMetadata(value: string): Promise<ProjectWorkspacePathMetadata> {
+    return this.pathMetadataReader(value);
   }
 
   override async readFileRevision(
@@ -91,8 +89,10 @@ export class NodeProjectWorkspaceFileSystem extends ProjectWorkspaceFileSystemAd
   }
 }
 
-export function createNodeProjectWorkspaceFileSystem(): NodeProjectWorkspaceFileSystem {
-  return new NodeProjectWorkspaceFileSystem();
+export function createNodeProjectWorkspaceFileSystem(
+  pathMetadataReader?: ProjectWorkspacePathMetadataReader,
+): NodeProjectWorkspaceFileSystem {
+  return new NodeProjectWorkspaceFileSystem(pathMetadataReader);
 }
 
 export class NodeProjectWorkspaceProcessLiveness {

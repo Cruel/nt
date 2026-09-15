@@ -16,7 +16,7 @@ The static host owns:
 - the C ABI bridge to `noveltea_tooling_native`;
 - raw bgfx-compatible `shaderc` argument/exit-code forwarding without QuickJS initialization;
 - direct child-process execution for the shared TypeScript platform exporter;
-- native file-mode and available-disk-space inspection used by staging safety checks;
+- native file-mode, exact path metadata, and available-disk-space inspection used by workspace/cache and staging safety checks;
 - `bimg`-backed raster inspection, contain-resizing, and PNG encoding for standalone icon output.
 
 The native tooling archive continues to own shader compilation, raw bgfx shaderc forwarding, runtime/UI playback, and package writing. `noveltea_tooling_scriptc_invoke_to_file` is an adapter for scriptc format-1 FFI: request JSON crosses as borrowed strings, the existing `noveltea_tooling_*_json` API produces the response, and the adapter materializes that response into a private temporary file for the static host to read. Native business logic is not duplicated in the adapter.
