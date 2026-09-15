@@ -20,6 +20,7 @@ import {
   type ProjectWorkspaceProcessLiveness,
 } from './project-workspace';
 import { sha256PrefixedUtf8 } from './web-crypto';
+import { runtimeTestCatalogSchema, type RuntimeTestCatalog } from './runtime-test-catalog';
 
 export const RUNTIME_BUILD_CACHE_SCHEMA = 'noveltea.runtime-build-cache' as const;
 export const RUNTIME_BUILD_CACHE_ROOT = '.noveltea/cache/runtime' as const;
@@ -30,6 +31,8 @@ export type RuntimeBuildCacheStatus = 'hit' | 'miss' | 'stale' | 'unusable';
 export interface RuntimeBuildCacheObservation {
   readonly status: RuntimeBuildCacheStatus;
   readonly reason: string;
+  readonly testCatalogStatus?: RuntimeBuildCacheStatus;
+  readonly testCatalogReason?: string;
   readonly published?: boolean;
   readonly publicationReason?: string;
 }
@@ -121,6 +124,13 @@ const runtimeBuildCacheManifestSchema = z
     inputs: z.array(inputEntrySchema),
     artifactFile: z.literal('artifact.json'),
     artifactSha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    testCatalog: z
+      .object({
+        sourceRevisions: z.array(sourceRevisionEntrySchema),
+        catalogFile: z.literal('tests.json'),
+        catalogSha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+      })
+      .strict(),
   })
   .strict();
 
@@ -133,6 +143,8 @@ export type RuntimeBuildCacheLookup =
       readonly observation: RuntimeBuildCacheObservation;
       readonly inputSnapshot?: RuntimeBuildCacheInputSnapshot;
       readonly artifact?: PreparedRuntimeArtifact;
+      readonly artifactText?: string;
+      readonly testCatalog?: RuntimeTestCatalog;
     };
 
 class RuntimeBuildCacheInputError extends Error {
@@ -159,6 +171,20 @@ function runtimeSourceRevisions(
     if (!revision) throw new RuntimeBuildCacheInputError('workspace-source-revision-missing');
     return { path: file, contentHash: revision.contentHash, byteSize: revision.byteSize };
   });
+}
+
+function testCatalogSourceRevisions(
+  snapshot: LoadedProjectWorkspaceSnapshot,
+): RuntimeBuildCacheSourceRevisionEntry[] {
+  return snapshot.canonicalSourceFiles
+    .filter((file) => file.startsWith('records/tests/'))
+    .sort(compareProjectWorkspaceUnicodeCodePoints)
+    .map((file) => {
+      const revision = snapshot.fileRevisions[file];
+      if (!revision)
+        throw new RuntimeBuildCacheInputError('workspace-test-source-revision-missing');
+      return { path: file, contentHash: revision.contentHash, byteSize: revision.byteSize };
+    });
 }
 
 function runtimeAuthoritativePaths(snapshot: LoadedProjectWorkspaceSnapshot): string[] {
@@ -345,6 +371,7 @@ function manifestFor(
   snapshot: LoadedProjectWorkspaceSnapshot,
   inputSnapshot: RuntimeBuildCacheInputSnapshot,
   artifactSha256: `sha256:${string}`,
+  catalogSha256: `sha256:${string}`,
 ): RuntimeBuildCacheManifest {
   return {
     schema: RUNTIME_BUILD_CACHE_SCHEMA,
@@ -368,6 +395,11 @@ function manifestFor(
     inputs: [...inputSnapshot.entries],
     artifactFile: 'artifact.json',
     artifactSha256,
+    testCatalog: {
+      sourceRevisions: testCatalogSourceRevisions(snapshot),
+      catalogFile: 'tests.json',
+      catalogSha256,
+    },
   };
 }
 
@@ -511,8 +543,10 @@ export async function lookupCanonicalRuntimeBuildCache(
       inputSnapshot: inputs,
     };
 
+  let artifact: PreparedRuntimeArtifact;
+  let artifactText: string;
   try {
-    const artifactText = await readContainedCacheText(
+    artifactText = await readContainedCacheText(
       fileSystem,
       snapshot.projectRoot,
       fileSystem.joinPath(directory, manifest.artifactFile),
@@ -523,18 +557,91 @@ export async function lookupCanonicalRuntimeBuildCache(
         observation: { status: 'unusable', reason: 'artifact-digest-mismatch' },
         inputSnapshot: inputs,
       };
-    const artifact = preparedRuntimeArtifactSchema.parse(JSON.parse(artifactText));
-    return {
-      enabled: true,
-      observation: { status: 'hit', reason: 'current-generation-valid' },
-      inputSnapshot: inputs,
-      artifact,
-    };
+    artifact = preparedRuntimeArtifactSchema.parse(JSON.parse(artifactText));
   } catch {
     return {
       enabled: true,
       observation: { status: 'unusable', reason: 'artifact-invalid' },
       inputSnapshot: inputs,
+    };
+  }
+
+  let currentTestSourceRevisions: RuntimeBuildCacheSourceRevisionEntry[];
+  try {
+    currentTestSourceRevisions = testCatalogSourceRevisions(snapshot);
+  } catch {
+    return {
+      enabled: true,
+      observation: {
+        status: 'hit',
+        reason: 'current-runtime-generation-valid',
+        testCatalogStatus: 'unusable',
+        testCatalogReason: 'workspace-test-source-revision-missing',
+      },
+      inputSnapshot: inputs,
+      artifact,
+      artifactText,
+    };
+  }
+  if (!sameSourceRevisions(manifest.testCatalog.sourceRevisions, currentTestSourceRevisions))
+    return {
+      enabled: true,
+      observation: {
+        status: 'hit',
+        reason: 'current-runtime-generation-valid',
+        testCatalogStatus: 'stale',
+        testCatalogReason: 'test-source-revision-changed',
+      },
+      inputSnapshot: inputs,
+      artifact,
+      artifactText,
+    };
+
+  try {
+    const catalogText = await readContainedCacheText(
+      fileSystem,
+      snapshot.projectRoot,
+      fileSystem.joinPath(directory, manifest.testCatalog.catalogFile),
+    );
+    if ((await sha256PrefixedUtf8(catalogText)) !== manifest.testCatalog.catalogSha256)
+      return {
+        enabled: true,
+        observation: {
+          status: 'hit',
+          reason: 'current-runtime-generation-valid',
+          testCatalogStatus: 'unusable',
+          testCatalogReason: 'test-catalog-digest-mismatch',
+        },
+        inputSnapshot: inputs,
+        artifact,
+        artifactText,
+      };
+    const testCatalog = runtimeTestCatalogSchema.parse(JSON.parse(catalogText));
+    return {
+      enabled: true,
+      observation: {
+        status: 'hit',
+        reason: 'current-generation-valid',
+        testCatalogStatus: 'hit',
+        testCatalogReason: 'current-test-catalog-valid',
+      },
+      inputSnapshot: inputs,
+      artifact,
+      artifactText,
+      testCatalog,
+    };
+  } catch {
+    return {
+      enabled: true,
+      observation: {
+        status: 'hit',
+        reason: 'current-runtime-generation-valid',
+        testCatalogStatus: 'unusable',
+        testCatalogReason: 'test-catalog-invalid',
+      },
+      inputSnapshot: inputs,
+      artifact,
+      artifactText,
     };
   }
 }
@@ -707,7 +814,9 @@ export async function publishCanonicalRuntimeBuildCache(
   snapshot: LoadedProjectWorkspaceSnapshot,
   currentSnapshot: LoadedProjectWorkspaceSnapshot,
   artifact: PreparedRuntimeArtifact,
+  testCatalog: RuntimeTestCatalog,
   expectedInputs: RuntimeBuildCacheInputSnapshot,
+  reusedArtifactText: string | undefined,
   host: RuntimeBuildCachePublicationHost,
   compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
@@ -723,6 +832,17 @@ export async function publishCanonicalRuntimeBuildCache(
   }
   if (!sameSourceRevisions(originalSourceRevisions, currentSourceRevisions))
     return { published: false, reason: 'workspace-source-changed-during-preparation' };
+
+  let originalTestSourceRevisions: RuntimeBuildCacheSourceRevisionEntry[];
+  let currentTestSourceRevisions: RuntimeBuildCacheSourceRevisionEntry[];
+  try {
+    originalTestSourceRevisions = testCatalogSourceRevisions(snapshot);
+    currentTestSourceRevisions = testCatalogSourceRevisions(currentSnapshot);
+  } catch {
+    return { published: false, reason: 'workspace-test-source-revision-missing' };
+  }
+  if (!sameSourceRevisions(originalTestSourceRevisions, currentTestSourceRevisions))
+    return { published: false, reason: 'workspace-test-source-changed-during-preparation' };
 
   let currentInputs: RuntimeBuildCacheInputSnapshot;
   try {
@@ -754,13 +874,22 @@ export async function publishCanonicalRuntimeBuildCache(
     await assertProjectWorkspacePathContained(fileSystem, snapshot.projectRoot, pointer);
     await fileSystem.createDirectory(directory);
     await writeGenerationWriterLease(fileSystem, snapshot, id, host);
-    const artifactText = `${JSON.stringify(artifact)}\n`;
+    const artifactText = reusedArtifactText ?? `${JSON.stringify(artifact)}\n`;
     const artifactSha256 = await sha256PrefixedUtf8(artifactText);
+    const catalogText = `${JSON.stringify(testCatalog)}\n`;
+    const catalogSha256 = await sha256PrefixedUtf8(catalogText);
     await fileSystem.writeTextAtomic(fileSystem.joinPath(directory, 'artifact.json'), artifactText);
+    await fileSystem.writeTextAtomic(fileSystem.joinPath(directory, 'tests.json'), catalogText);
     await fileSystem.writeTextAtomic(
       fileSystem.joinPath(directory, 'manifest.json'),
       `${JSON.stringify(
-        manifestFor(compilerIdentity, currentSnapshot, currentInputs, artifactSha256),
+        manifestFor(
+          compilerIdentity,
+          currentSnapshot,
+          currentInputs,
+          artifactSha256,
+          catalogSha256,
+        ),
       )}\n`,
     );
   } catch {

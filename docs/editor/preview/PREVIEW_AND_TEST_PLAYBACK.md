@@ -8,15 +8,25 @@ are effect-free; shader compiler effects are reserved for explicit export intent
 value is canonical `noveltea.compiled.project` Format V1 plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
 a second runtime-project shape.
 
-The Node/shared TypeScript authored single-test path persists the canonical test-playback preparation
-under `.noveltea/cache/runtime/`. The cache is disposable Project-local state: a valid generation may
-supply the Compiled Project for a later unchanged test invocation, while a miss, stale generation,
-malformed generation, or failed publication falls back to ordinary canonical preparation. Cache
-freshness uses exact relevant Project Workspace files, declared Asset source paths, conservative
-NovelTea-source discovery, and exact file modification-time-plus-size metadata. Test records and
-editor-only metadata do not invalidate this runtime-artifact domain. Static-host cache admission and
-QuickJS bypass are separate work; the current standalone test command may still enter the shared
-TypeScript application before this cache is consulted.
+The Node/shared TypeScript authored single-test path persists canonical test-playback preparation
+under `.noveltea/cache/runtime/`. Each disposable Project-local generation contains the canonical
+prepared runtime artifact plus a lowered authored-test catalog. Runtime freshness and Test-catalog
+freshness are independent: runtime freshness uses exact relevant Project Workspace files, declared
+Asset source paths, conservative NovelTea-source discovery, and exact file modification-time-plus-size
+metadata, while Test freshness uses the canonical `records/tests/` source revisions. A Test-only edit
+therefore republishes the catalog while carrying forward the still-fresh runtime artifact bytes; a
+runtime-affecting change causes normal runtime preparation and regenerates the catalog against the
+new Project state.
+
+The catalog is the native-facing Test boundary. Every authored Test ID is emitted deterministically as
+either `runnable`, with its runner kind and already-lowered `noveltea.editor.playback` specification,
+or `blocked`, with deterministic readiness diagnostics. Cached consumers never need authored Test
+schema/Zod parsing. A blocked Test does not invalidate the runtime artifact or prevent cache
+publication, but explicitly running that Test returns its readiness diagnostics without invoking the
+native runner. A malformed cache generation or failed publication remains disposable and falls back
+to ordinary preparation. Static-host cache admission and QuickJS bypass are separate work; the
+current standalone test command may still enter the shared TypeScript application before this cache
+is consulted.
 
 Only diagnostics classified for the `runtime-package` boundary block Play or `.ntpkg`. Platform-only
 application identity, locale, signing, and deployment diagnostics remain visible at their owning
