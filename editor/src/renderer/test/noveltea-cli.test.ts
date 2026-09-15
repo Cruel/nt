@@ -29,6 +29,7 @@ import type { NovelTeaCliPlatformToolService } from '../../cli/platform-tool-ser
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
+import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 import {
   createLocalizationTranslation,
   localizationMessageWorkflowView,
@@ -1035,9 +1036,10 @@ describe('NovelTea headless CLI', () => {
     expect(exports).toBe(1);
   });
 
-  it('reads stdin only for the exact test run-spec command path', async () => {
+  it('reads stdin only for exact test spec command paths and forwards UI project authority', async () => {
     const value = fixture();
     let reads = 0;
+    let uiRequest: unknown;
     const unrelated = await runNovelTeaCli(
       ['--json', 'entity', 'create', 'rooms', 'run-spec', '--dry-run'],
       {
@@ -1058,7 +1060,8 @@ describe('NovelTea headless CLI', () => {
       async runHeadlessTest() {
         return { ok: true, success: true };
       },
-      async runUiTest() {
+      async runUiTest(request) {
+        uiRequest = request;
         return { ok: true, success: true };
       },
       async exportPackage() {
@@ -1083,11 +1086,93 @@ describe('NovelTea headless CLI', () => {
           version: 1,
           id: 'stdin-test',
           steps: [],
+          finalExpectations: [],
         });
       },
     });
     expect(runSpec.exitCode).toBe(0);
     expect(reads).toBe(1);
+
+    const runUiSpec = await runNovelTeaCli(['--json', 'test', 'run-ui-spec'], {
+      ...options(value, root, nativeTools),
+      readStdinText() {
+        reads += 1;
+        return JSON.stringify({
+          schema: 'noveltea.editor.playback',
+          version: 1,
+          id: 'stdin-ui-test',
+          steps: [],
+          finalExpectations: [],
+        });
+      },
+    });
+    expect(runUiSpec.exitCode).toBe(0);
+    expect(reads).toBe(2);
+    expect(uiRequest).toMatchObject({
+      projectRoot: root,
+      spec: { id: 'stdin-ui-test' },
+    });
+  });
+
+  it('routes authored selector-click tests through the UI runner with project authority', async () => {
+    const project = validProject();
+    const data = defaultTestData('UI smoke');
+    data.steps = [
+      {
+        ...defaultTestStep('ui-click'),
+        id: 'click-confirm',
+        label: 'Click confirm',
+        uiClick: { documentId: 'runtime_game', selector: '#confirm' },
+      },
+    ];
+    project.tests.ui = { id: 'ui', label: 'UI smoke', data };
+    const value = fixture(project);
+    let semanticRuns = 0;
+    let uiRequest: unknown;
+    const nativeTools: NovelTeaCliNativeToolService = {
+      async compileShaders() {
+        return { ok: true, success: true, diagnostics: [], outputs: [] };
+      },
+      async runHeadlessTest() {
+        semanticRuns += 1;
+        return { ok: true, success: true };
+      },
+      async runUiTest(request) {
+        uiRequest = request;
+        return { ok: true, success: true };
+      },
+      async exportPackage() {
+        return { ok: true, success: true };
+      },
+      async validateFontCoverage() {
+        return { ok: true, success: true, diagnostics: [] };
+      },
+      shaderc() {
+        return 0;
+      },
+      texturec() {
+        return 0;
+      },
+    };
+
+    const result = await runNovelTeaCli(
+      ['--json', 'test', 'run', 'ui'],
+      options(value, root, nativeTools),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(semanticRuns).toBe(0);
+    expect(uiRequest).toMatchObject({
+      projectRoot: root,
+      spec: {
+        id: 'ui',
+        steps: [
+          {
+            input: { type: 'ui-click', documentId: 'runtime_game', selector: '#confirm' },
+          },
+        ],
+      },
+    });
   });
 
   it('discovers project.json upward, accepts explicit roots, and ignores retired filenames', async () => {

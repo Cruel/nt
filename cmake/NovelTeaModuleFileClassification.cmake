@@ -219,6 +219,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/audio/audio_types.hpp
     engine/include/noveltea/boundary/running_game_loader.hpp
     engine/include/noveltea/core/asset_telemetry.hpp
+    engine/include/noveltea/core/editor_playback_expectations.hpp
     engine/include/noveltea/core/editor_runtime_protocol.hpp
     engine/include/noveltea/engine.hpp
     engine/include/noveltea/engine_tooling.hpp
@@ -276,6 +277,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/core/editor_asset_profiler_service.hpp
     engine/src/core/editor_asset_profiler_json.cpp
     engine/src/core/editor_asset_profiler_json.hpp
+    engine/src/core/editor_playback_expectations.cpp
     engine/src/core/editor_runtime_protocol.cpp
     engine/src/devtools/imgui_bgfx.cpp
     engine/src/devtools/imgui_bgfx.hpp

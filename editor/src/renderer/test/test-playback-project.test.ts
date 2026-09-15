@@ -186,30 +186,36 @@ describe('authoring test playback project adapter', () => {
     });
   });
 
-  it('rejects ui-click rather than falling back to legacy UI playback', async () => {
+  it('routes selector clicks through UI playback while retaining semantic inputs', async () => {
     const project = createAuthoringProject();
-    const data = defaultTestData('Title Start');
-    project.tests.smoke = {
-      id: 'smoke',
-      label: 'Smoke',
-      data: {
-        ...data,
-        steps: [
-          {
-            ...defaultTestStep('tick'),
-            input: 'ui-click',
-            uiClick: { documentId: 'runtime_title', selector: '#nt-title-start' },
-          },
-        ],
-      } as never,
-    };
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
+    project.entrypoint = { kind: 'scene', id: 'opening' };
+    const data = defaultTestData('UI Start');
+    data.steps = [
+      {
+        ...defaultTestStep('ui-click'),
+        id: 'click',
+        label: 'Click',
+        uiClick: { documentId: 'runtime_game', selector: '#confirm' },
+      },
+      { ...defaultTestStep('continue'), id: 'continue', label: 'Continue' },
+    ];
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
     const result = await buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
 
-    expect(result.ok).toBe(false);
-    expect(result.runner).toBeUndefined();
-    expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true);
-    expect(result.project).toBeUndefined();
-    expect(await getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({ runnable: false });
+    expect(result.ok).toBe(true);
+    expect(result.runner).toBe('runtime-ui');
+    expect(result.spec).toMatchObject({
+      steps: [
+        {
+          index: 0,
+          input: { type: 'ui-click', documentId: 'runtime_game', selector: '#confirm' },
+        },
+        { index: 1, input: { type: 'continue' } },
+      ],
+    });
+    expect(result.project).toMatchObject({ schema: 'noveltea.compiled.project' });
+    expect(await getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({ runnable: true });
   });
 });

@@ -126,10 +126,10 @@ closed typed targets rather than arbitrary assertion scripts or expression paylo
 
 ## Step Model
 
-Each test step has a stable ID, label, enabled flag, one semantic input discriminant, typed payload
-objects for the supported input families, and an ordered `expectations` list. Only the payload selected
-by `step.input` is active during input validation and playback lowering; expectations are evaluated
-after that step reaches a deterministic semantic boundary.
+Each test step has a stable ID, label, enabled flag, one typed input discriminant, payload objects for
+the supported semantic or UI input families, and an ordered `expectations` list. Only the payload
+selected by `step.input` is active during input validation and playback lowering; expectations are
+evaluated after that step reaches a deterministic semantic boundary.
 
 `TestInteractionSubject` admits Character, exact Interactable Instance, and owner-qualified Feature
 identities. Recorder lowering and playback preserve Interactable Instance IDs rather than substituting
@@ -166,9 +166,15 @@ the native playback runner names.
 | `run-interaction` | `invoke-interaction` | `runInteraction.verb`, `runInteraction.bindings` |
 | `save` | `save` | `saveSlot.slotId` |
 | `load` | `load` | `saveSlot.slotId` |
+| `ui-click` | `ui-click` | `uiClick.documentId`, `uiClick.selector` |
 
 Dialogue and Scene choices never store list indexes. Navigation never stores a direction ordinal or
-target guess. Save/load steps store typed slot identities rather than arbitrary payloads.
+target guess. Save/load steps store typed slot identities rather than arbitrary payloads. `ui-click`
+selects the RuntimeUI runner, resolves the authored selector against the named visible document, and
+dispatches real RmlUi pointer input through the normal Layout-event capability path. Stable element IDs
+or explicit test-oriented attributes are preferred selector contracts. Coordinate clicks are not the
+default Test seam and are reserved for future geometry/hit-target cases where coordinates themselves
+are the behavior under test. A Test may freely mix `ui-click` with the semantic inputs above.
 
 ## Semantic Expectations
 
@@ -240,7 +246,8 @@ Validation currently checks:
 - owner-qualified Feature subjects resolve;
 - subject actions provide a subject;
 - Run Interaction binds every named Verb slot exactly once;
-- save/load slots are non-empty.
+- save/load slots are non-empty;
+- active UI-click document IDs and selectors are non-empty.
 
 Disabled steps skip input-specific validation after their common fields. Disabled
 steps remain editable and are omitted from playback lowering.
@@ -330,7 +337,7 @@ The selected-step inspector supports:
 - input type;
 - enabled flag;
 - input-specific fields;
-- typed subject, Verb, choice, navigation, and save/load selectors as applicable;
+- typed subject, Verb, choice, navigation, save/load, and UI document/element selectors as applicable;
 - adding, deleting, duplicating, and reordering steps.
 
 The V1 UI deliberately favors explicit fields over compact specialized widgets.
@@ -354,6 +361,7 @@ getAuthoringTestRunReadiness(project, testId)
 It serializes:
 
 - enabled steps only;
+- RuntimeUI document IDs and stable element selectors for `ui-click` steps (built-in documents use their stable runtime IDs);
 - typed Character, exact Interactable Instance, and owner-qualified Feature subjects;
 - exact Dialogue Edge IDs, Scene Choice Option IDs, Room Exit IDs, and Verb IDs;
 - named Interaction bindings;
@@ -361,7 +369,9 @@ It serializes:
 
 The same adapter compiles the current authoring project through `prepareRuntimeArtifact` with the
 `test-playback` intent. Tests therefore execute against the same canonical compiled project used by
-Play preview rather than a second runtime-project shape.
+Play preview rather than a second runtime-project shape. Semantic-only Tests select the `runtime`
+runner. Any enabled `ui-click` step selects `runtime-ui`, which initializes RuntimeUI/RmlUi and still
+uses the same typed semantic expectation/reporting protocol as the semantic runner.
 
 ## Run Readiness
 
@@ -391,7 +401,7 @@ test.
 
 ## Electron and Native Tool Bridge
 
-The native helper already supports `run-test` with either:
+The native helper supports semantic `run-test` with either:
 
 - `testId`, for tests stored in a native/runtime-compatible project; or
 - direct `spec`, for an explicit playback spec supplied by the caller.
@@ -414,8 +424,20 @@ Main-service function:
 runPlaybackSpec(project, spec) => invokeEditorTool('run-test', { project, spec })
 ```
 
-This bridge is intentionally narrow. It does not expose a general-purpose native
-helper invocation channel to the renderer.
+UI Tests use the parallel `run-ui-test` operation exposed as
+`window.noveltea.runUiPlaybackSpec(projectSessionId, project, spec)`. The main process resolves the
+trusted active Project root from that session and supplies it only to the native UI runner, so
+file-backed Layout RML/RCSS/Lua and gameplay Script Assets resolve through the same `project:/`
+namespace as normal execution. Unlike `run-test`, this operation instantiates the real RuntimeUI/RmlUi
+presentation path and drives selector clicks through `RuntimeUiPlaybackDriver`.
+The driver requires the requested document to be visible, the selected element to be enabled and have
+usable geometry, verifies the center hit target/occlusion, and sends normal RmlUi pointer move/down/up
+input rather than directly invoking a callback. Runtime Layout Lua consequently executes with the same
+mount context and gameplay Layout-event capabilities as interactive input. Both operations return the
+same typed playback report and expectation result shapes.
+
+This bridge is intentionally narrow. It does not expose a general-purpose native helper invocation
+channel to the renderer.
 
 ## Playback Report Panel
 
@@ -469,6 +491,7 @@ clear-subject-selection
 run-interaction
 save
 load
+ui-click
 ```
 
 The playback protocol uses the stable typed operation names documented above. It does not translate
@@ -519,8 +542,12 @@ Expected coverage:
 - `entity.createRecord` creates typed test data;
 - `test.replaceData` patches valid data and rejects invalid replacements;
 - undo restores previous test data;
-- playback spec serialization uses stable Dialogue Edge, Scene Option, Room Exit, subject, Verb, and
-  save-slot identities and lowers step/final expectations into the strict native playback protocol;
-- native playback evaluates expectations against public semantic state after deterministic settling and
-  reports individual expectation results;
+- playback spec serialization uses stable Dialogue Edge, Scene Option, Room Exit, subject, Verb,
+  save-slot, RuntimeUI document, and element-selector identities and lowers step/final expectations
+  into the strict native playback protocol;
+- native semantic playback evaluates expectations against public semantic state after deterministic
+  settling and reports individual expectation results;
+- native UI playback resolves a real visible RmlUi target, dispatches pointer input through the normal
+  Layout path, can cause an authoritative gameplay state change, and evaluates it with the same typed
+  expectation/reporting contract;
 - readiness reflects Test lowering and runtime-artifact compilation honestly.

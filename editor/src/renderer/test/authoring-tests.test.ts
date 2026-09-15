@@ -36,6 +36,10 @@ describe('authoring tests schema', () => {
       saveSlot: { slotId: 'autosave' },
       expectations: [],
     });
+    expect(defaultTestStep('ui-click')).toMatchObject({
+      input: 'ui-click',
+      uiClick: { documentId: 'runtime_game', selector: '#target' },
+    });
     expect(defaultTestData('Smoke').finalExpectations).toEqual([]);
     expect(defaultTestExpectation('trait')).toMatchObject({
       type: 'trait',
@@ -53,7 +57,7 @@ describe('authoring tests schema', () => {
     ).not.toBeNull();
   });
 
-  it('strictly rejects obsolete positional and UI-driven test forms', () => {
+  it('strictly rejects obsolete positional test forms while admitting selector clicks', () => {
     const data = defaultTestData('Smoke');
     expect(
       parseTestData({
@@ -94,13 +98,12 @@ describe('authoring tests schema', () => {
         ...data,
         steps: [
           {
-            ...defaultTestStep('tick'),
-            input: 'ui-click',
+            ...defaultTestStep('ui-click'),
             uiClick: { documentId: 'runtime_title', selector: '#start' },
           },
         ],
       }),
-    ).toBeNull();
+    ).not.toBeNull();
   });
 
   it('validates referenced semantic subjects and duplicate step IDs', () => {

@@ -1438,9 +1438,12 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     m_state->refresh_data_model_shell();
     m_state->playback_driver = std::make_unique<ui::rmlui::RuntimeUiPlaybackDriver>(
         *m_state->host, *m_state->document_registry,
-        [state = m_state](core::MountedLayoutOwner owner, const std::function<bool()>& dispatch) {
-            return state->action_gateway &&
-                   state->action_gateway->dispatch_layout_event(owner, dispatch);
+        [state = m_state](const std::string& document_id, core::MountedLayoutOwner owner,
+                          const std::function<bool()>& dispatch) {
+            return state->with_active_layout_mount_document(document_id, [&]() {
+                return state->action_gateway &&
+                       state->action_gateway->dispatch_layout_event(owner, dispatch);
+            });
         });
 
     m_initialized = true;

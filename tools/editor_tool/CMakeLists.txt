@@ -49,22 +49,27 @@ add_library(noveltea_tooling_native STATIC
     tooling_image.cpp
     font_coverage_tool.cpp
     tooling_archive.cpp
+    "${CMAKE_SOURCE_DIR}/engine/src/core/editor_playback_expectations.cpp"
     "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp"
 )
-# This engine-owned source is reused by host tooling but remains part of the shipped runtime policy
-# domain. Apply the runtime compiler policy to this source only; the surrounding tooling target keeps
-# the normal host exception/RTTI model required by embedded shaderc.
-if(MSVC)
-    set_property(SOURCE "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp" APPEND PROPERTY
-        COMPILE_OPTIONS /GR- /EHs-c- /Zc:__cplusplus /Zc:preprocessor
-            "/FI${CMAKE_SOURCE_DIR}/engine/include/noveltea/core/compiler_policy.hpp")
-    set_property(SOURCE "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp" APPEND PROPERTY
-        COMPILE_DEFINITIONS _HAS_EXCEPTIONS=0)
-else()
-    set_property(SOURCE "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp" APPEND PROPERTY
-        COMPILE_OPTIONS -fno-exceptions -fno-rtti
-            "-include${CMAKE_SOURCE_DIR}/engine/include/noveltea/core/compiler_policy.hpp")
-endif()
+# These engine-owned sources are reused by host tooling but remain part of the shipped runtime policy
+# domain. Apply the runtime compiler policy to them only; the surrounding tooling target keeps the
+# normal host exception/RTTI model required by embedded shaderc.
+set(_NOVELTEA_TOOLING_RUNTIME_SOURCES
+    "${CMAKE_SOURCE_DIR}/engine/src/core/editor_playback_expectations.cpp"
+    "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp")
+foreach(_source IN LISTS _NOVELTEA_TOOLING_RUNTIME_SOURCES)
+    if(MSVC)
+        set_property(SOURCE "${_source}" APPEND PROPERTY
+            COMPILE_OPTIONS /GR- /EHs-c- /Zc:__cplusplus /Zc:preprocessor
+                "/FI${CMAKE_SOURCE_DIR}/engine/include/noveltea/core/compiler_policy.hpp")
+        set_property(SOURCE "${_source}" APPEND PROPERTY COMPILE_DEFINITIONS _HAS_EXCEPTIONS=0)
+    else()
+        set_property(SOURCE "${_source}" APPEND PROPERTY
+            COMPILE_OPTIONS -fno-exceptions -fno-rtti
+                "-include${CMAKE_SOURCE_DIR}/engine/include/noveltea/core/compiler_policy.hpp")
+    endif()
+endforeach()
 set_target_properties(noveltea_tooling_native PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(noveltea_tooling_native PUBLIC
     noveltea_content
@@ -102,6 +107,20 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     )
 endif()
 noveltea_apply_policy_warnings(noveltea_tooling_native)
+
+add_executable(noveltea-ui-test-runner tooling_ui_test_runner.cpp)
+target_include_directories(noveltea-ui-test-runner PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/src")
+target_link_libraries(noveltea-ui-test-runner PRIVATE
+    noveltea_engine
+    nlohmann_json::nlohmann_json)
+target_compile_definitions(noveltea-ui-test-runner PRIVATE
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+    NOVELTEA_UI_TEST_SYSTEM_ASSET_ROOT="${NOVELTEA_RUNTIME_ASSET_ROOT}/system")
+noveltea_apply_policy_warnings(noveltea-ui-test-runner)
+add_dependencies(noveltea_tooling_native noveltea-ui-test-runner)
+target_compile_definitions(noveltea_tooling_native PRIVATE
+    NOVELTEA_UI_TEST_RUNNER_PATH="$<TARGET_FILE:noveltea-ui-test-runner>")
 
 add_executable(noveltea-tooling-bridge tooling_bridge.cpp)
 target_link_libraries(noveltea-tooling-bridge PRIVATE noveltea_tooling_native)

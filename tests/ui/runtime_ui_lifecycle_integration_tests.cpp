@@ -1346,12 +1346,20 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
   <head>
     <style>
       body { width: 640px; height: 360px; }
-      button, #passive { display: block; width: 160px; height: 48px; }
+      button, #attribute-action, #passive { display: block; width: 160px; height: 48px; }
+      #hidden-action { display: none; }
+      #empty-action { width: 0; height: 0; }
+      #blocked-action, #blocker { position: absolute; left: 240px; top: 0; width: 160px; height: 48px; }
     </style>
   </head>
   <body>
     <button id="action" tabindex="0">Action</button>
+    <div id="attribute-action" data-test="confirm" tabindex="0">Attribute Action</div>
     <div id="passive">Passive</div>
+    <button id="hidden-action" tabindex="0">Hidden Action</button>
+    <button id="empty-action" tabindex="0">Empty Action</button>
+    <button id="blocked-action" nt-action="blocked" tabindex="0">Blocked Action</button>
+    <div id="blocker">Blocker</div>
   </body>
 </rml>
 )";
@@ -1362,6 +1370,9 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     const auto listener = RuntimeUiFacadeAccess::add_event_listener(
         ui, "gameplay", "action", "click", [&activations]() { ++activations; });
     REQUIRE(listener != 0);
+    const auto attribute_listener = RuntimeUiFacadeAccess::add_event_listener(
+        ui, "gameplay", "attribute-action", "click", [&activations]() { ++activations; });
+    REQUIRE(attribute_listener != 0);
     ui.begin_frame({});
 
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
@@ -1398,9 +1409,31 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     CHECK(input_sink.last_layout_owner == noveltea::core::MountedLayoutOwner::Gameplay);
     CHECK(std::string(noveltea::ui::rmlui::to_string(click.status)) == "dispatched");
 
+    const auto attribute_click =
+        driver->click({.document_id = "gameplay", .selector = "[data-test='confirm']"});
+    CHECK(attribute_click.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::Dispatched);
+    CHECK(attribute_click.target_id == "attribute-action");
+    CHECK(activations == 3);
+    CHECK(input_sink.layout_events == 2);
+
     const auto missing = driver->click({.document_id = "gameplay", .selector = "#missing"});
     CHECK(missing.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetNotFound);
     CHECK_FALSE(missing.dispatched);
+
+    const auto hidden_target =
+        driver->click({.document_id = "gameplay", .selector = "#hidden-action"});
+    CHECK(hidden_target.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetHidden);
+    CHECK_FALSE(hidden_target.dispatched);
+
+    const auto empty_target =
+        driver->click({.document_id = "gameplay", .selector = "#empty-action"});
+    CHECK(empty_target.status ==
+          noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetEmptyBounds);
+    CHECK_FALSE(empty_target.dispatched);
+
+    const auto blocked = driver->click({.document_id = "gameplay", .selector = "#blocked-action"});
+    CHECK(blocked.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetBlocked);
+    CHECK_FALSE(blocked.dispatched);
 
     auto* action = driver->element("gameplay", "action");
     REQUIRE(action);
@@ -1414,8 +1447,8 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     CHECK(passive.status ==
           noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetNotInteractive);
     CHECK_FALSE(passive.dispatched);
-    CHECK(activations == 2);
-    CHECK(input_sink.layout_events == 1);
+    CHECK(activations == 3);
+    CHECK(input_sink.layout_events == 2);
 
     REQUIRE(ui.hide_document("gameplay"));
     const auto hidden =

@@ -22,7 +22,6 @@ import {
   parseTestData,
   testCharacterSubject,
   testFeatureSubject,
-  testExpectationOperatorValues,
   testExpectationTypeValues,
   testInputTypeValues,
   testInteractableSubject,
@@ -196,8 +195,9 @@ function scalarFromText(value: string): string | number | boolean | null {
 
 function scalarText(value: unknown) {
   if (value === null) return 'null';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return `${value}`;
+  return JSON.stringify(value) ?? '';
 }
 
 function persistableFromText(value: string): LayoutPersistableValue {
@@ -646,6 +646,7 @@ function ExpectationEditor({
 export function TestsEditor({ tab }: WorkbenchEditorProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const projectDocument = useProjectStore((state) => state.document);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const testId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const record = testId && project ? project.tests[testId] : null;
@@ -947,7 +948,12 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
     const runnerProject = spec.project ?? activeProject;
     const result =
       spec.runner === 'runtime-ui'
-        ? await window.noveltea.runUiPlaybackSpec(runnerProject, spec.spec)
+        ? await window.noveltea.runUiPlaybackSpec(
+            projectSessionId,
+            runnerProject,
+            spec.spec,
+            spec.shaderMaterialMetadata ?? null,
+          )
         : await window.noveltea.runPlaybackSpec(runnerProject, spec.spec);
     setLastPlaybackReport(result.report ?? result);
     setStatusMessage(result.ok ? `Ran test ${activeTestId}` : (result.error ?? 'Test run failed'));
@@ -1157,6 +1163,40 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                 </label>
               </div>
 
+              {activeStep.input === 'ui-click' ? (
+                <div className="grid gap-2 @3xl:grid-cols-2 @7xl:grid-cols-1">
+                  <div className="space-y-1">
+                    <Label htmlFor={`test-ui-click-document-${activeStep.id}`}>Document ID</Label>
+                    <Input
+                      id={`test-ui-click-document-${activeStep.id}`}
+                      value={activeStep.uiClick.documentId}
+                      onChange={(event) =>
+                        replaceStep(activeStep.id, {
+                          uiClick: {
+                            ...activeStep.uiClick,
+                            documentId: event.currentTarget.value,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`test-ui-click-selector-${activeStep.id}`}>Selector</Label>
+                    <Input
+                      id={`test-ui-click-selector-${activeStep.id}`}
+                      value={activeStep.uiClick.selector}
+                      onChange={(event) =>
+                        replaceStep(activeStep.id, {
+                          uiClick: {
+                            ...activeStep.uiClick,
+                            selector: event.currentTarget.value,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              ) : null}
               {activeStep.input === 'tick' ? (
                 <Input
                   aria-label="Tick delta seconds"

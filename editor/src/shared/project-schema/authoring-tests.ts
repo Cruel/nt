@@ -21,6 +21,7 @@ export const testInputTypeValues = [
   'run-interaction',
   'save',
   'load',
+  'ui-click',
 ] as const;
 export type TestInputType = (typeof testInputTypeValues)[number];
 
@@ -209,6 +210,13 @@ export const testStepDataSchema = z
       .object({ slotId: z.string().default('autosave') })
       .strict()
       .default({ slotId: 'autosave' }),
+    uiClick: z
+      .object({
+        documentId: z.string().default('runtime_game'),
+        selector: z.string().default('#target'),
+      })
+      .strict()
+      .default({ documentId: 'runtime_game', selector: '#target' }),
   })
   .strict();
 
@@ -685,6 +693,14 @@ function validateStep(
   }
   if ((step.input === 'save' || step.input === 'load') && !step.saveSlot.slotId.trim())
     diagnostics.push(diagnostic(`${path}/saveSlot/slotId`, 'Save slot is required.'));
+  if (step.input === 'ui-click') {
+    if (!step.uiClick.documentId.trim())
+      diagnostics.push(
+        diagnostic(`${path}/uiClick/documentId`, 'UI click document id is required.'),
+      );
+    if (!step.uiClick.selector.trim())
+      diagnostics.push(diagnostic(`${path}/uiClick/selector`, 'UI click selector is required.'));
+  }
 }
 
 export function validateTestData(

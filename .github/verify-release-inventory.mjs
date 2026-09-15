@@ -142,8 +142,8 @@ if (
 }
 
 for (const name of [
-  `noveltea-${tag}-linux-x64`,
-  `noveltea-${tag}-windows-x64.exe`,
+  `noveltea-${tag}-linux-x64.tar.gz`,
+  `noveltea-${tag}-windows-x64.zip`,
   `noveltea-editor-${tag}-linux-x64-release.AppImage`,
   `noveltea-editor-${tag}-linux-x64-release.deb`,
   `noveltea-editor-${tag}-linux-x64-release.rpm`,

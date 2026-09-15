@@ -72,8 +72,8 @@ function completeInventory() {
     );
   }
   for (const name of [
-    `noveltea-${tag}-linux-x64`,
-    `noveltea-${tag}-windows-x64.exe`,
+    `noveltea-${tag}-linux-x64.tar.gz`,
+    `noveltea-${tag}-windows-x64.zip`,
     `noveltea-editor-${tag}-linux-x64-release.AppImage`,
     `noveltea-editor-${tag}-linux-x64-release.deb`,
     `noveltea-editor-${tag}-linux-x64-release.rpm`,
@@ -155,18 +155,18 @@ function completeInventory() {
         }),
       ],
       cli: [
-        publicAsset(root, `noveltea-${tag}-windows-x64.exe`, {
+        publicAsset(root, `noveltea-${tag}-windows-x64.zip`, {
           platform: 'windows',
           arch: 'x64',
-          format: 'executable',
-          label: 'Windows x64',
+          format: 'zip',
+          label: 'Windows x64 ZIP',
           primary: true,
         }),
-        publicAsset(root, `noveltea-${tag}-linux-x64`, {
+        publicAsset(root, `noveltea-${tag}-linux-x64.tar.gz`, {
           platform: 'linux',
           arch: 'x64',
-          format: 'executable',
-          label: 'Linux x64',
+          format: 'tar.gz',
+          label: 'Linux x64 tar.gz',
           primary: true,
         }),
       ],

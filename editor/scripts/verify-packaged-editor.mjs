@@ -145,14 +145,40 @@ export async function verifyPackagedEditor(outputOrApplication) {
     }
   }
   const cliName = process.platform === 'win32' ? 'noveltea.exe' : 'noveltea';
+  const uiTestRunnerName =
+    process.platform === 'win32' ? 'noveltea-ui-test-runner.exe' : 'noveltea-ui-test-runner';
   const cliPath = path.join(application.resources, 'bin', cliName);
   const cliInfo = await stat(cliPath);
   if (!cliInfo.isFile() || (process.platform !== 'win32' && (cliInfo.mode & 0o111) === 0)) {
     throw new Error(`Packaged NovelTea CLI is missing or not executable: ${cliPath}`);
   }
   const binEntries = (await readdir(path.join(application.resources, 'bin'))).sort();
-  if (binEntries.length !== 1 || binEntries[0] !== cliName) {
+  const expectedBinEntries = ['assets', cliName, uiTestRunnerName].sort();
+  if (JSON.stringify(binEntries) !== JSON.stringify(expectedBinEntries)) {
     throw new Error(`Unexpected packaged native-tool closure: ${binEntries.join(', ')}`);
+  }
+  const uiTestRunnerPath = path.join(application.resources, 'bin', uiTestRunnerName);
+  const uiTestRunnerInfo = await stat(uiTestRunnerPath);
+  if (
+    !uiTestRunnerInfo.isFile() ||
+    (process.platform !== 'win32' && (uiTestRunnerInfo.mode & 0o111) === 0)
+  ) {
+    throw new Error(
+      `Packaged NovelTea UI Test runner is missing or not executable: ${uiTestRunnerPath}`,
+    );
+  }
+  for (const required of [
+    'fonts/LiberationSans.ttf',
+    'ui/baseline/rmlui-html4.rcss',
+    'ui/baseline/noveltea.rcss',
+  ]) {
+    if (
+      !(await pathExists(
+        path.join(application.resources, 'bin', 'assets', 'system', ...required.split('/')),
+      ))
+    ) {
+      throw new Error(`Packaged NovelTea UI Test system asset is missing: ${required}`);
+    }
   }
   await verifyStandaloneNovelTeaCli(cliPath);
 

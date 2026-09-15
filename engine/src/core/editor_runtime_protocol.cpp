@@ -4232,10 +4232,43 @@ decode_editor_playback(const nlohmann::json& document, const EditorRuntimeProtoc
                 step_diagnostics.push_back(
                     error("editor_protocol.missing_field", "Missing input.", path + "/input"));
             else {
-                auto decoded = decode_input_object(*input, limits, path + "/input", false);
-                if (decoded && decoded_index) {
-                    TypedPlaybackStep typed_step{
-                        *decoded_index, std::move(*decoded.value_if()), {}};
+                std::optional<TypedPlaybackInput> decoded_input;
+                bool recognized_ui_click = false;
+                if (input->is_object()) {
+                    const auto type = input->find("type");
+                    if (type != input->end() && type->is_string() &&
+                        type->get<std::string>() == "ui-click") {
+                        recognized_ui_click = true;
+                        exact_fields(*input, {"type", "documentId", "selector"}, step_diagnostics,
+                                     path + "/input");
+                        auto document_id = string_field(*input, "documentId", step_diagnostics,
+                                                        path + "/input", limits);
+                        auto selector = string_field(*input, "selector", step_diagnostics,
+                                                     path + "/input", limits);
+                        if (document_id && document_id->empty())
+                            step_diagnostics.push_back(
+                                error("editor_protocol.invalid_value",
+                                      "UI click documentId must not be empty.",
+                                      path + "/input/documentId"));
+                        if (selector && selector->empty())
+                            step_diagnostics.push_back(error("editor_protocol.invalid_value",
+                                                             "UI click selector must not be empty.",
+                                                             path + "/input/selector"));
+                        if (document_id && selector && !document_id->empty() && !selector->empty())
+                            decoded_input = TypedPlaybackUiClickInput{std::move(*document_id),
+                                                                      std::move(*selector)};
+                    }
+                }
+                if (!decoded_input && !recognized_ui_click) {
+                    auto decoded = decode_input_object(*input, limits, path + "/input", false);
+                    if (decoded)
+                        decoded_input = std::move(*decoded.value_if());
+                    else
+                        step_diagnostics.insert(step_diagnostics.end(), decoded.error().begin(),
+                                                decoded.error().end());
+                }
+                if (decoded_input && decoded_index) {
+                    TypedPlaybackStep typed_step{*decoded_index, std::move(*decoded_input), {}};
                     const auto expectations = step.find("expectations");
                     if (expectations == step.end())
                         step_diagnostics.push_back(error("editor_protocol.missing_field",
@@ -4245,9 +4278,7 @@ decode_editor_playback(const nlohmann::json& document, const EditorRuntimeProtoc
                         decode_playback_expectations(*expectations, path + "/expectations", limits,
                                                      typed_step.expectations, step_diagnostics);
                     spec.steps.push_back(std::move(typed_step));
-                } else if (!decoded)
-                    step_diagnostics.insert(step_diagnostics.end(), decoded.error().begin(),
-                                            decoded.error().end());
+                }
             }
             diagnostics.insert(diagnostics.end(), step_diagnostics.begin(), step_diagnostics.end());
         }
