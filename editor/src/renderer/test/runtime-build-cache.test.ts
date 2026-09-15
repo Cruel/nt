@@ -32,6 +32,11 @@ async function createProjectWorkspace(options: Readonly<{ assetPath?: string }> 
   ) as (typeof project.rooms)['start'];
   project.entrypoint = { kind: 'room', id: 'start' };
   project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
+  project.tests.secondary = {
+    id: 'secondary',
+    label: 'Secondary',
+    data: defaultTestData('Secondary'),
+  };
   if (options.assetPath)
     project.assets.unused = {
       id: 'unused',
@@ -96,6 +101,8 @@ function cacheStatus(result: Awaited<ReturnType<typeof runNovelTeaCli>>) {
     | {
         status: 'hit' | 'miss' | 'stale' | 'unusable';
         reason: string;
+        testCatalogStatus?: 'hit' | 'miss' | 'stale' | 'unusable';
+        testCatalogReason?: string;
         published?: boolean;
         publicationReason?: string;
       }
@@ -104,6 +111,10 @@ function cacheStatus(result: Awaited<ReturnType<typeof runNovelTeaCli>>) {
 
 async function currentGeneration(root: string) {
   return (await readFile(path.join(root, '.noveltea/cache/runtime/current'), 'utf8')).trim();
+}
+
+function generationPath(root: string, generation: string, file: string) {
+  return path.join(root, '.noveltea/cache/runtime/generations', generation, file);
 }
 
 describe('persistent runtime build cache', () => {
@@ -118,7 +129,7 @@ describe('persistent runtime build cache', () => {
     expect(first.exitCode).toBe(0);
     expect(second.exitCode).toBe(0);
     expect(cacheStatus(first)).toMatchObject({ status: 'miss', published: true });
-    expect(cacheStatus(second)).toMatchObject({ status: 'hit' });
+    expect(cacheStatus(second)).toMatchObject({ status: 'hit', testCatalogStatus: 'hit' });
     expect(projects).toHaveLength(2);
     expect(projects[1]).toEqual(projects[0]);
   });
@@ -148,11 +159,15 @@ describe('persistent runtime build cache', () => {
     });
   });
 
-  it('keeps authoring-only Test edits out of runtime freshness', async () => {
+  it('refreshes the authored-test catalog while reusing the runtime artifact across a Test-only edit', async () => {
     const root = await createProjectWorkspace();
     const tools = nativeTools([]);
     expect((await runCachedTest(root, tools)).exitCode).toBe(0);
-    const generation = await currentGeneration(root);
+    const firstGeneration = await currentGeneration(root);
+    const firstArtifact = await readFile(
+      generationPath(root, firstGeneration, 'artifact.json'),
+      'utf8',
+    );
 
     const testFile = path.join(root, 'records/tests/smoke.json');
     const testRecord = JSON.parse(await readFile(testFile, 'utf8')) as Record<string, unknown>;
@@ -161,8 +176,73 @@ describe('persistent runtime build cache', () => {
 
     const result = await runCachedTest(root, tools);
     expect(result.exitCode).toBe(0);
-    expect(cacheStatus(result)).toMatchObject({ status: 'hit' });
-    expect(await currentGeneration(root)).toBe(generation);
+    expect(cacheStatus(result)).toMatchObject({
+      status: 'hit',
+      testCatalogStatus: 'stale',
+      testCatalogReason: 'test-source-revision-changed',
+      published: true,
+    });
+    const secondGeneration = await currentGeneration(root);
+    expect(secondGeneration).not.toBe(firstGeneration);
+    expect(await readFile(generationPath(root, secondGeneration, 'artifact.json'), 'utf8')).toBe(
+      firstArtifact,
+    );
+    expect(cacheStatus(await runCachedTest(root, tools))).toMatchObject({
+      status: 'hit',
+      testCatalogStatus: 'hit',
+    });
+  });
+
+  it('publishes deterministic runnable and blocked catalog entries without executing a blocked test', async () => {
+    const root = await createProjectWorkspace();
+    const projects: unknown[] = [];
+    const tools = nativeTools(projects);
+    expect((await runCachedTest(root, tools)).exitCode).toBe(0);
+    expect(projects).toHaveLength(1);
+
+    const testFile = path.join(root, 'records/tests/smoke.json');
+    const testRecord = JSON.parse(await readFile(testFile, 'utf8')) as {
+      data: { steps: unknown[] };
+    };
+    testRecord.data.steps = [];
+    await writeFile(testFile, `${JSON.stringify(testRecord, null, 2)}\n`, 'utf8');
+
+    const blocked = await runCachedTest(root, tools);
+    expect(blocked.exitCode).not.toBe(0);
+    expect(cacheStatus(blocked)).toMatchObject({
+      status: 'hit',
+      testCatalogStatus: 'stale',
+      published: true,
+    });
+    expect(projects).toHaveLength(1);
+
+    const generation = await currentGeneration(root);
+    const catalog = JSON.parse(
+      await readFile(generationPath(root, generation, 'tests.json'), 'utf8'),
+    ) as {
+      schema: string;
+      version: number;
+      entries: Array<{
+        id: string;
+        status: string;
+        runner?: string;
+        spec?: unknown;
+        diagnostics?: Array<{ path: string; message: string }>;
+      }>;
+    };
+    expect(catalog).toMatchObject({ schema: 'noveltea.runtime-test-catalog', version: 1 });
+    expect(catalog.entries.map((entry) => entry.id)).toEqual(['secondary', 'smoke']);
+    expect(catalog.entries[0]).toMatchObject({
+      id: 'secondary',
+      status: 'runnable',
+      runner: 'runtime',
+      spec: { schema: 'noveltea.editor.playback', version: 1, id: 'secondary' },
+    });
+    expect(catalog.entries[1]).toMatchObject({
+      id: 'smoke',
+      status: 'blocked',
+      diagnostics: [{ path: '/tests/smoke/data/steps' }],
+    });
   });
 
   it('conservatively tracks plausible source additions and deletions but ignores README files', async () => {
