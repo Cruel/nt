@@ -48,6 +48,31 @@ export class NodeProjectWorkspaceFileSystem extends ProjectWorkspaceFileSystemAd
     super(nodeProjectWorkspaceFileSystemOperations);
   }
 
+  async readPathMetadata(value: string) {
+    try {
+      const info = await fs.lstat(value, { bigint: true });
+      const byteSize = Number(info.size);
+      if (!Number.isSafeInteger(byteSize) || byteSize < 0) return { kind: 'other' as const };
+      if (info.isSymbolicLink()) return { kind: 'symlink' as const };
+      if (info.isFile())
+        return {
+          kind: 'file' as const,
+          byteSize,
+          mtimeNanoseconds: info.mtimeNs.toString(),
+        };
+      if (info.isDirectory())
+        return {
+          kind: 'directory' as const,
+          byteSize,
+          mtimeNanoseconds: info.mtimeNs.toString(),
+        };
+      return { kind: 'other' as const };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'missing' as const };
+      throw error;
+    }
+  }
+
   override async readFileRevision(
     value: string,
   ): Promise<Readonly<{ contentHash: `sha256:${string}`; byteSize: number }>> {

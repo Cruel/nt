@@ -37,6 +37,7 @@ export {
 export { searchProjectWorkspaceSnapshot } from './project-workspace-search';
 export {
   analyzeProjectWorkspaceSources,
+  assetSourcePaths,
   buildProjectWorkspaceSearchIndex,
   collectProjectWorkspaceLuaSources,
   compareProjectWorkspaceUnicodeCodePoints,

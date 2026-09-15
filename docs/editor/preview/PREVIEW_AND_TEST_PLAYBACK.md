@@ -8,6 +8,16 @@ are effect-free; shader compiler effects are reserved for explicit export intent
 value is canonical `noveltea.compiled.project` Format V1 plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
 a second runtime-project shape.
 
+The Node/shared TypeScript authored single-test path persists the canonical test-playback preparation
+under `.noveltea/cache/runtime/`. The cache is disposable Project-local state: a valid generation may
+supply the Compiled Project for a later unchanged test invocation, while a miss, stale generation,
+malformed generation, or failed publication falls back to ordinary canonical preparation. Cache
+freshness uses exact relevant Project Workspace files, declared Asset source paths, conservative
+NovelTea-source discovery, and exact file modification-time-plus-size metadata. Test records and
+editor-only metadata do not invalidate this runtime-artifact domain. Static-host cache admission and
+QuickJS bypass are separate work; the current standalone test command may still enter the shared
+TypeScript application before this cache is consulted.
+
 Only diagnostics classified for the `runtime-package` boundary block Play or `.ntpkg`. Platform-only
 application identity, locale, signing, and deployment diagnostics remain visible at their owning
 boundary without suppressing the playable artifact. Compiler or native Lua-certification errors

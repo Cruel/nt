@@ -246,9 +246,11 @@ function preparedRuntimeArtifactSourceFingerprint(
   profile: ExportProfileData,
   recoveryFingerprint: unknown = null,
 ): string {
+  const runtimeContentProject = structuredClone(project);
+  runtimeContentProject.tests = {};
   return hashString(
     stableStringify({
-      content: canonicalProjectContentJson(project),
+      content: canonicalProjectContentJson(runtimeContentProject),
       profile,
       recovery: recoveryFingerprint,
     }),

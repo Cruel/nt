@@ -14,11 +14,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
+import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
+const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
 const scriptcVersion = '0.0.34';
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
@@ -449,10 +450,9 @@ try {
     '../shared/product-version',
     './product-version',
   );
-  const stagedProductVersionSource = (await readFile(productVersionSource, 'utf8')).replace(
-    '__NOVELTEA_VERSION__',
-    JSON.stringify(productVersion),
-  );
+  const stagedProductVersionSource = (await readFile(productVersionSource, 'utf8'))
+    .replace('__NOVELTEA_VERSION__', JSON.stringify(productVersion))
+    .replace('__NOVELTEA_BUILD_IDENTITY__', JSON.stringify(buildIdentity));
   await writeFile(stagedStaticContracts, stagedStaticContractsSource);
   await writeFile(stagedProductVersion, stagedProductVersionSource);
   await cp(hostProcessSource, stagedHostProcess);
