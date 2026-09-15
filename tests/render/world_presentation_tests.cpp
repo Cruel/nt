@@ -808,6 +808,63 @@ TEST_CASE("world hotspot controller honors draw order input order and background
     CHECK(cropped.consumed);
 }
 
+TEST_CASE("world hotspot hover carries cursor intent and recomputes it for a stationary pointer")
+{
+    FakeWorldResources resources;
+    resources.add_texture("room-image", 17, 100, 100);
+    WorldPresentationBackend backend(resources);
+    WorldHotspotController controller(backend);
+    auto snapshot = base_snapshot();
+    snapshot.background = PresentationBackground{.asset = id<AssetId>("room-image"),
+                                                 .fit = compiled::BackgroundFit::Stretch};
+    const compiled::HotspotRef hotspot =
+        compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("desk")};
+    snapshot.hotspots.push_back(
+        {.ref = hotspot,
+         .label = "Desk",
+         .condition_eligible = true,
+         .target_available = true,
+         .target = semantic_target("desk"),
+         .shape = compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0},
+         .input_order = 0,
+         .highlight = compiled::NoHotspotHighlight{},
+         .source_image = id<AssetId>("room-image"),
+         .source_width = 100,
+         .source_height = 100,
+         .cursor = compiled::CursorTarget{compiled::CursorTargetKind::Named,
+                                          compiled::CursorSystemName::Default, "inspect"}});
+
+    REQUIRE(backend.reconcile(snapshot, {100.0f, 100.0f}));
+    controller.presentation_changed();
+    (void)controller.handle(
+        {WorldPointerEventKind::MouseMove, {50.0f, 50.0f}, {50.0f, 50.0f}, 0, false, true});
+    REQUIRE(controller.hovered_target());
+    REQUIRE(controller.hovered_target()->cursor);
+    CHECK(controller.hovered_target()->cursor->kind == compiled::CursorTargetKind::Named);
+    CHECK(controller.hovered_target()->cursor->named_id == "inspect");
+
+    auto replacement = snapshot;
+    replacement.revision = PresentationSnapshotRevision::from_number(2);
+    replacement.hotspots.front().cursor = compiled::CursorTarget{
+        compiled::CursorTargetKind::System, compiled::CursorSystemName::Text, {}};
+    REQUIRE(backend.reconcile(replacement, {100.0f, 100.0f}));
+    controller.presentation_changed();
+    REQUIRE(controller.hovered_target());
+    REQUIRE(controller.hovered_target()->cursor);
+    CHECK(controller.hovered_target()->cursor->kind == compiled::CursorTargetKind::System);
+    CHECK(controller.hovered_target()->cursor->system == compiled::CursorSystemName::Text);
+
+    replacement.revision = PresentationSnapshotRevision::from_number(3);
+    replacement.hotspots.clear();
+    REQUIRE(backend.reconcile(replacement, {100.0f, 100.0f}));
+    controller.presentation_changed();
+    CHECK(controller.hovered_target() == nullptr);
+
+    (void)controller.handle(
+        {WorldPointerEventKind::Cancel, {50.0f, 50.0f}, {50.0f, 50.0f}, 0, false, false});
+    CHECK(controller.hovered_target() == nullptr);
+}
+
 TEST_CASE("multiple hotspot geometries publish the same owner-qualified Feature subject")
 {
     FakeWorldResources resources;

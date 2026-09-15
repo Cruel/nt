@@ -10,6 +10,7 @@
 #include "ui/rmlui/runtime_ui.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <set>
 #include <unordered_set>
@@ -990,6 +991,113 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
                                       std::vector<core::editor::TypedFocusedRoomLayoutDefinition>>,
                             core::Diagnostics>::failure(std::move(resolved).error());
 
+    const auto cursor_target = [](std::string_view name) {
+        using Kind = core::compiled::CursorTargetKind;
+        using System = core::compiled::CursorSystemName;
+        if (name == "none")
+            return core::compiled::CursorTarget{Kind::None, System::None, {}};
+        static constexpr std::array<std::pair<std::string_view, System>, 12> system_names = {
+            {{"default", System::Default},
+             {"pointer", System::Pointer},
+             {"text", System::Text},
+             {"wait", System::Wait},
+             {"progress", System::Progress},
+             {"crosshair", System::Crosshair},
+             {"move", System::Move},
+             {"not-allowed", System::NotAllowed},
+             {"ns-resize", System::NsResize},
+             {"ew-resize", System::EwResize},
+             {"nesw-resize", System::NeswResize},
+             {"nwse-resize", System::NwseResize}}};
+        const auto found = std::ranges::find_if(
+            system_names, [&](const auto& item) { return item.first == name; });
+        if (found != system_names.end())
+            return core::compiled::CursorTarget{Kind::System, found->second, {}};
+        return core::compiled::CursorTarget{Kind::Named, System::Default, std::string(name)};
+    };
+    const auto semantic_target =
+        [](const core::editor::TypedFocusedRoomWorldDefinition::HotspotTarget& target)
+        -> core::compiled::ResolvedHotspotTarget {
+        if (target.kind == "character")
+            return core::compiled::InteractionSubject{core::compiled::CharacterInteractionSubject{
+                decoded_id<core::CharacterId>(target.primary_id)}};
+        if (target.kind == "interactable")
+            return core::compiled::InteractionSubject{
+                core::compiled::InteractableInteractionSubject{
+                    decoded_id<core::InteractableInstanceId>(target.primary_id)}};
+        if (target.kind == "room-feature")
+            return core::compiled::InteractionSubject{core::compiled::FeatureInteractionSubject{
+                core::RoomFeatureRef{decoded_id<core::RoomId>(target.primary_id),
+                                     decoded_id<core::FeatureId>(*target.secondary_id)}}};
+        if (target.kind == "interactable-feature")
+            return core::compiled::InteractionSubject{
+                core::compiled::FeatureInteractionSubject{core::InteractableFeatureRef{
+                    decoded_id<core::InteractableInstanceId>(target.primary_id),
+                    decoded_id<core::FeatureId>(*target.secondary_id)}}};
+        return core::compiled::RoomExitRef{decoded_id<core::RoomId>(target.primary_id),
+                                           decoded_id<core::RoomExitId>(*target.secondary_id)};
+    };
+    for (const auto& hotspot : document.world.hotspots) {
+        if (hotspot.owner_kind == "interactable") {
+            const auto interactable = decoded_id<core::InteractableInstanceId>(hotspot.owner_id);
+            if (std::none_of(resolved.value_if()->presentation.interactables.begin(),
+                             resolved.value_if()->presentation.interactables.end(),
+                             [&](const auto& value) { return value.interactable == interactable; }))
+                continue;
+        }
+        auto eligible = compare_scalar(document.query_state, hotspot.condition, scripts,
+                                       environment, provider, generation);
+        if (!eligible)
+            return core::Result<
+                std::pair<core::RoomPresentationResolution,
+                          std::vector<core::editor::TypedFocusedRoomLayoutDefinition>>,
+                core::Diagnostics>::failure(std::move(eligible).error());
+        std::optional<core::compiled::RoomPlacementRef> placement;
+        std::optional<core::compiled::NormalizedRect> placement_bounds;
+        std::int32_t owner_order = 0;
+        if (hotspot.placement_id) {
+            const auto found =
+                std::ranges::find_if(document.world.placements, [&](const auto& value) {
+                    return value.id == *hotspot.placement_id;
+                });
+            if (found != document.world.placements.end()) {
+                placement = core::compiled::RoomPlacementRef{
+                    decoded_id<core::RoomId>(document.room_id),
+                    decoded_id<core::RoomPlacementId>(*hotspot.placement_id)};
+                placement_bounds = core::compiled::NormalizedRect{
+                    found->bounds.x, found->bounds.y, found->bounds.width, found->bounds.height};
+                owner_order = found->order;
+            }
+        }
+        std::variant<std::monostate, core::compiled::RectHotspotShape> shape = std::monostate{};
+        if (!hotspot.alpha_shape && hotspot.bounds) {
+            shape = core::compiled::RectHotspotShape{
+                core::compiled::NormalizedRect{hotspot.bounds->x, hotspot.bounds->y,
+                                               hotspot.bounds->width, hotspot.bounds->height}};
+        }
+        resolved.value_if()->presentation.hotspots.push_back(
+            {.ref = hotspot.owner_kind == "room"
+                        ? core::compiled::HotspotRef{core::compiled::RoomHotspotRef{
+                              decoded_id<core::RoomId>(hotspot.owner_id),
+                              decoded_id<core::HotspotId>(hotspot.hotspot_id)}}
+                        : core::compiled::HotspotRef{core::compiled::InteractableHotspotRef{
+                              decoded_id<core::InteractableInstanceId>(hotspot.owner_id),
+                              decoded_id<core::HotspotId>(hotspot.hotspot_id)}},
+             .label = hotspot.label,
+             .condition_eligible = *eligible.value_if(),
+             .target_available = true,
+             .target = semantic_target(hotspot.target),
+             .shape = std::move(shape),
+             .input_order = hotspot.input_order,
+             .highlight = core::compiled::NoHotspotHighlight{},
+             .interactable_placement = placement,
+             .interactable_bounds = placement_bounds,
+             .owner_plane = hotspot.owner_kind == "room" ? core::PresentationPlane::WorldBackground
+                                                         : core::PresentationPlane::WorldContent,
+             .owner_order = owner_order,
+             .cursor = cursor_target(hotspot.cursor)});
+    }
+
     std::set<std::string> mounted_layout_ids;
     for (const auto& overlay : resolved.value_if()->presentation.overlays)
         mounted_layout_ids.insert(overlay.layout.text());
@@ -1072,6 +1180,20 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
              interactable.material_id
                  ? std::optional{decoded_id<core::MaterialId>(*interactable.material_id)}
                  : std::nullopt});
+    for (const auto& hotspot : document.world.hotspots) {
+        if (!hotspot.source_asset)
+            continue;
+        const core::compiled::HotspotRef ref =
+            hotspot.owner_kind == "room"
+                ? core::compiled::HotspotRef{core::compiled::RoomHotspotRef{
+                      decoded_id<core::RoomId>(hotspot.owner_id),
+                      decoded_id<core::HotspotId>(hotspot.hotspot_id)}}
+                : core::compiled::HotspotRef{core::compiled::InteractableHotspotRef{
+                      decoded_id<core::InteractableInstanceId>(hotspot.owner_id),
+                      decoded_id<core::HotspotId>(hotspot.hotspot_id)}};
+        result.hotspots.push_back(
+            {ref, *hotspot.source_asset, hotspot.source_width, hotspot.source_height});
+    }
     return result;
 }
 
@@ -1127,6 +1249,8 @@ void FocusedPreviewPresenter::clear() noexcept
     supersede_candidate();
     m_dependencies.layouts.clear_focused_preview();
     m_dependencies.world.reset();
+    if (m_dependencies.world_presentation_changed)
+        m_dependencies.world_presentation_changed();
     m_dependencies.world_resources.clear();
     if (m_dependencies.clear_cursor_resources)
         m_dependencies.clear_cursor_resources();
@@ -1315,6 +1439,8 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         supersede_candidate();
         m_dependencies.layouts.clear_focused_preview();
         m_dependencies.world.reset();
+        if (m_dependencies.world_presentation_changed)
+            m_dependencies.world_presentation_changed();
         m_dependencies.world_resources.clear();
         m_publication_scope.clear_on_owner();
         release_state(m_committed);
@@ -1626,6 +1752,8 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
     m_committed = std::move(prepared_state);
     m_dependencies.layouts.commit_focused_preview();
     m_dependencies.world.reset();
+    if (m_dependencies.world_presentation_changed)
+        m_dependencies.world_presentation_changed();
     m_dependencies.world_resources.clear();
     m_dependencies.complete(candidate.request, "applied", {});
 }
@@ -1725,6 +1853,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     environment_commit();
     if (candidate.state.materials)
         m_dependencies.apply_materials(*candidate.state.materials);
+    if (m_dependencies.configure_cursors)
+        m_dependencies.configure_cursors(candidate.document.cursors);
     if (m_dependencies.configure_cursor_resources)
         m_dependencies.configure_cursor_resources(candidate.request.resources);
     m_dependencies.commit_ui_values(std::move(ui_commit));
@@ -1734,6 +1864,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     m_dependencies.layouts.commit_focused_preview();
     m_dependencies.world_resources.bind_catalog(candidate.state.world_catalog);
     m_dependencies.world.swap_prepared(*candidate.prepared_world);
+    if (m_dependencies.world_presentation_changed)
+        m_dependencies.world_presentation_changed();
     candidate.state.passive_input_baseline = m_passive_input.baseline;
     release_state(m_rollback);
     m_rollback = std::move(m_committed);

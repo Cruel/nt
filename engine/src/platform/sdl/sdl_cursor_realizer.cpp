@@ -80,7 +80,8 @@ void SdlCursorRealizer::realize(const host::CursorPresentation& presentation) no
             SDL_SetCursor(value);
             return;
         }
-        std::fprintf(stderr, "[cursor] failed to realize named cursor '%s'; using native fallback\n",
+        std::fprintf(stderr,
+                     "[cursor] failed to realize named cursor '%s'; using native fallback\n",
                      presentation.custom->id.c_str());
     }
 
@@ -107,10 +108,9 @@ SDL_Cursor* SdlCursorRealizer::custom_cursor(const host::CustomCursorPresentatio
         return nullptr;
 
     bx::DefaultAllocator allocator;
-    bimg::ImageContainer* image =
-        bimg::imageParse(&allocator, bytes.value->bytes.data(),
-                         static_cast<std::uint32_t>(bytes.value->bytes.size()),
-                         bimg::TextureFormat::RGBA8);
+    bimg::ImageContainer* image = bimg::imageParse(
+        &allocator, bytes.value->bytes.data(),
+        static_cast<std::uint32_t>(bytes.value->bytes.size()), bimg::TextureFormat::RGBA8);
     if (!image || !image->m_data || image->m_format != bimg::TextureFormat::RGBA8 ||
         image->m_numLayers != 1 || image->m_depth != 1 || image->m_numMips != 1 ||
         (!cursor.fit_to_portable_bound &&
@@ -144,10 +144,10 @@ SDL_Cursor* SdlCursorRealizer::custom_cursor(const host::CustomCursorPresentatio
             hotspot_y = static_cast<std::uint32_t>(std::lround(cursor.hotspot_y * scale_y));
         }
     }
-    SDL_Cursor* realized =
-        cursor_surface ? SDL_CreateColorCursor(cursor_surface, static_cast<int>(hotspot_x),
-                                               static_cast<int>(hotspot_y))
-                       : nullptr;
+    SDL_Cursor* realized = cursor_surface
+                               ? SDL_CreateColorCursor(cursor_surface, static_cast<int>(hotspot_x),
+                                                       static_cast<int>(hotspot_y))
+                               : nullptr;
     if (scaled_surface)
         SDL_DestroySurface(scaled_surface);
     if (source_surface)

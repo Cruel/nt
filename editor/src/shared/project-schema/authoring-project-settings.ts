@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
-import { systemCursorNames } from './authoring-cursor-vocabulary';
+import {
+  cursorNamedIdSchema,
+  cursorTargetSchema,
+  systemCursorNames,
+} from './authoring-cursor-vocabulary';
 import { DEFAULT_PROJECT_AUDIO_SETTINGS, projectAudioSettingsSchema } from './authoring-audio';
 import type { AuthoringProject, ProjectEntrypoint } from './authoring-project';
 import {
@@ -32,15 +36,6 @@ const imageAssetRefSchema = assetRecordRefSchema.nullable();
 
 export { systemCursorNames, type SystemCursorName } from './authoring-cursor-vocabulary';
 
-const systemCursorNameSchema = z.enum(systemCursorNames);
-const cursorNamedIdSchema = z
-  .string()
-  .regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/, 'Cursor ID must use lowercase kebab-case.');
-const cursorTargetSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('system'), cursor: systemCursorNameSchema }).strict(),
-  z.object({ kind: z.literal('named'), id: cursorNamedIdSchema }).strict(),
-  z.object({ kind: z.literal('none') }).strict(),
-]);
 const cursorHotspotTargetSchema = z.union([
   cursorTargetSchema,
   z.object({ kind: z.literal('inherit'), semantic: z.literal('pointer') }).strict(),

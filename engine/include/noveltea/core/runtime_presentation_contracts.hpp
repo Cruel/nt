@@ -195,6 +195,7 @@ struct PresentationHotspot {
     std::optional<compiled::NormalizedRect> interactable_bounds;
     PresentationPlane owner_plane = PresentationPlane::WorldBackground;
     std::int32_t owner_order = 0;
+    std::optional<compiled::CursorTarget> cursor;
     bool operator==(const PresentationHotspot&) const = default;
 };
 

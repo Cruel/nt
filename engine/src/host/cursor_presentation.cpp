@@ -45,8 +45,8 @@ CursorImageSize fit_cursor_image_size(std::uint32_t width, std::uint32_t height)
     constexpr std::uint32_t portable_bound = 128;
     if (width == 0 || height == 0 || (width <= portable_bound && height <= portable_bound))
         return {width, height};
-    const double scale = static_cast<double>(portable_bound) /
-                         static_cast<double>(std::max(width, height));
+    const double scale =
+        static_cast<double>(portable_bound) / static_cast<double>(std::max(width, height));
     return {.width = std::max(1U, static_cast<std::uint32_t>(std::lround(width * scale))),
             .height = std::max(1U, static_cast<std::uint32_t>(std::lround(height * scale)))};
 }
@@ -135,9 +135,10 @@ void CursorAuthority::resolve() noexcept
                 continue;
             realized = request->second.presentation;
             next.effective = realized.shape;
-            next.effective_name = request->second.presentation.custom
-                                      ? request->second.presentation.custom->id
-                                      : std::string(cursor_shape_name(request->second.presentation.shape));
+            next.effective_name =
+                request->second.presentation.custom
+                    ? request->second.presentation.custom->id
+                    : std::string(cursor_shape_name(request->second.presentation.shape));
             next.source = std::string(cursor_request_source_name(source));
             next.owner = request->second.owner_label;
             next.custom = realized.custom;

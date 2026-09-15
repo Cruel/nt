@@ -852,19 +852,19 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         const WorldPresentationDraw* owner_draw = owner_draw_for(hotspot.ref);
         if (owner_draw == nullptr || !owner_draw->command.texture.valid())
             continue;
-        candidate.hotspot_hit_targets.push_back(
-            {.ref = hotspot.ref,
-             .target = hotspot.target,
-             .plane = owner_draw->plane,
-             .family = owner_draw->family,
-             .owner_order = owner_draw->order,
-             .stable_identity = owner_draw->stable_identity,
-             .base_sublayer = owner_draw->sublayer,
-             .input_order = hotspot.input_order,
-             .owner_rect = owner_draw->command.rect,
-             .owner_uv = owner_draw->command.uv,
-             .shape = hotspot.shape,
-             .source_texture_lease = owner_draw->texture_lease});
+        candidate.hotspot_hit_targets.push_back({.ref = hotspot.ref,
+                                                 .target = hotspot.target,
+                                                 .plane = owner_draw->plane,
+                                                 .family = owner_draw->family,
+                                                 .owner_order = owner_draw->order,
+                                                 .stable_identity = owner_draw->stable_identity,
+                                                 .base_sublayer = owner_draw->sublayer,
+                                                 .input_order = hotspot.input_order,
+                                                 .owner_rect = owner_draw->command.rect,
+                                                 .owner_uv = owner_draw->command.uv,
+                                                 .shape = hotspot.shape,
+                                                 .source_texture_lease = owner_draw->texture_lease,
+                                                 .cursor = hotspot.cursor});
     }
     std::sort(candidate.hotspot_hit_targets.begin(), candidate.hotspot_hit_targets.end(),
               [](const auto& lhs, const auto& rhs) {
@@ -1057,6 +1057,11 @@ void WorldHotspotController::synchronize_generation()
 }
 
 void WorldHotspotController::presentation_changed() { synchronize_generation(); }
+
+const WorldHotspotHitTarget* WorldHotspotController::hovered_target() const
+{
+    return m_hovered ? hit_target(*m_hovered) : nullptr;
+}
 
 void WorldHotspotController::target_completed()
 {

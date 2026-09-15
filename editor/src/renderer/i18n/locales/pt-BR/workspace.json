@@ -940,7 +940,14 @@
       "operator": "Operador",
       "value": "Valor",
       "luaPredicate": "Predicado Lua",
+      "cursor": "Cursor",
       "target": "Alvo"
+    },
+    "cursor": {
+      "projectDefault": "Padrão de hotspot do projeto",
+      "interactableDefault": "Fallback da apresentação do interagível",
+      "none": "Nenhum",
+      "missingNamed": "Cursor nomeado ausente: {{id}}"
     },
     "highlight": {
       "default": "Padrão",

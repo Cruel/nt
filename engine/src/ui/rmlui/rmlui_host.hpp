@@ -32,7 +32,7 @@ struct ShaderMaterialProject;
 namespace host {
 class CursorAuthority;
 struct CursorPresentation;
-}
+} // namespace host
 
 namespace assets {
 class AssetManager;
@@ -85,8 +85,8 @@ public:
         std::function<void(const ContextKey&, const ResolvedContextMetrics&)>;
     using ContextInitializer = std::function<bool(Rml::Context&)>;
     using CursorOwnerResolver = std::function<std::string(Rml::Context*)>;
-    using CursorPresentationResolver = std::function<std::optional<host::CursorPresentation>(
-        Rml::Context*, std::string_view)>;
+    using CursorPresentationResolver =
+        std::function<std::optional<host::CursorPresentation>(Rml::Context*, std::string_view)>;
 
     RmlUiHost();
     ~RmlUiHost();

@@ -453,8 +453,7 @@ void RmlUiHost::publish_cursor_request(std::string_view cursor_name)
         presentation = m_cursor_presentation_resolver(record->context, cursor_name);
     if (!presentation) {
         if (const auto shape = rmlui_cursor_shape(cursor_name))
-            presentation =
-                host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
+            presentation = host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
     }
     if (!presentation) {
         m_cursor_authority->clear(host::CursorRequestSource::RmlUi, record->cursor_source_id);

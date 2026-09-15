@@ -33,10 +33,17 @@ struct RoomPresentationVisualCatalog {
         std::optional<AssetId> sprite;
         std::optional<MaterialId> material;
     };
+    struct HotspotVisual {
+        compiled::HotspotRef ref;
+        AssetId source_image;
+        std::uint16_t source_width = 0;
+        std::uint16_t source_height = 0;
+    };
 
     std::vector<Placement> placements;
     std::vector<CharacterVisual> characters;
     std::vector<InteractableVisual> interactables;
+    std::vector<HotspotVisual> hotspots;
 };
 
 [[nodiscard]] RoomPresentationVisualCatalog
@@ -45,7 +52,8 @@ build_room_presentation_visual_catalog(const runtime::RuntimeWorld& world,
 
 class RoomPresentationSnapshotProjector final {
 public:
-    // Focused preview intentionally projects no hotspot definitions or runtime hotspot resources.
+    // Focused preview projects hotspot geometry from its bounded visual catalog without requiring a
+    // complete compiled Project.
     [[nodiscard]] static Result<RuntimePresentationSnapshot, Diagnostics>
     project(const RoomPresentationResolution& resolution,
             const RoomPresentationVisualCatalog& visuals);

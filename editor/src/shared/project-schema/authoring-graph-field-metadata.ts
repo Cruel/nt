@@ -453,6 +453,11 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #265 adds Project-global cursor defaults and named cursor definitions. Every cursor field
   // changes the compiled Project cursor registry or one of its eager Asset dependencies.
   [/^\/settings\/cursors(?:\/|$)/, OWNER],
+  // #267 adds cursor presentation to Room Hotspots, Interactable presentation fallback, and custom
+  // Interactable Hotspot overrides. These fields change only the owning compiled presentation.
+  [/^\/rooms\/\*\/data\/hotspots\/\*\/cursor(?:\/|$)/, OWNER],
+  [/^\/interactables\/\*\/data\/presentation\/cursor(?:\/|$)/, OWNER],
+  [/^\/interactables\/\*\/data\/presentation\/hotspots\/hotspots\/\*\/cursor(?:\/|$)/, OWNER],
 ]);
 
 function explicitFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
@@ -1004,7 +1009,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     entrypoint: 'a61673d4',
     export: '0ba5bfbc',
     interactableInstances: '33e3748f',
-    interactables: '29b3f7ad',
+    interactables: 'f78e903e',
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: 'b32b3a10',
@@ -1013,7 +1018,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '546711ca',
     prefetchHints: 'b985056c',
     project: 'da3be83d',
-    rooms: '32830ef1',
+    rooms: 'de4ff2d7',
     scenes: '9d060243',
     schema: '63fb9bb9',
     scripts: 'f3482815',

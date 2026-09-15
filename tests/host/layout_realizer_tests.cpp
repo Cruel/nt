@@ -1083,6 +1083,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     std::size_t environment_commits = 0;
     std::size_t material_applies = 0;
     std::size_t input_bindings = 0;
+    std::size_t world_presentation_changes = 0;
     RuntimeUiInputSink* bound_input_sink = nullptr;
     std::size_t legacy_preview_retirements = 0;
     bool ui_values_succeed = false;
@@ -1125,6 +1126,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                 ++input_bindings;
                 backend.calls.push_back("bind-input");
             },
+        .world_presentation_changed = [&]() { ++world_presentation_changes; },
         .retire_legacy_preview = [&]() { ++legacy_preview_retirements; },
         .active_shader_variant = []() -> std::string_view { return "glsl-120"; },
         .standalone_layout_style_prefix =
@@ -1211,7 +1213,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                                                  {"defaultValue", nullptr}}}}})}}}}},
         {"sampleState", {{"inputs", {{"display_title", "Preview"}}}}},
         {"cursors",
-         {{"defaultCursor", "default"}, {"pointerCursor", "pointer"}, {"named", nlohmann::json::array()}}},
+         {{"defaultCursor", "default"},
+          {"pointerCursor", "pointer"},
+          {"hotspotCursor", "pointer"},
+          {"named", nlohmann::json::array()}}},
         {"shaderMaterials",
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
@@ -1370,6 +1375,11 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
+        {"cursors",
+         {{"defaultCursor", "default"},
+          {"pointerCursor", "pointer"},
+          {"hotspotCursor", "pointer"},
+          {"named", nlohmann::json::array()}}},
         {"world",
          {{"presentationSpace",
            {{"size", {{"width", 1920.0}, {"height", 1080.0}}},
@@ -1386,7 +1396,8 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
           {"interactables", nlohmann::json::array()},
           {"props", nlohmann::json::array()},
           {"environments", nlohmann::json::array()},
-          {"overlays", nlohmann::json::array()}}},
+          {"overlays", nlohmann::json::array()},
+          {"hotspots", nlohmann::json::array()}}},
         {"layouts", nlohmann::json::array()},
         {"ui",
          {{"description", {{"markup", "plain"}, {"source", {{"kind", "resolved"}, {"text", ""}}}}},
@@ -1427,6 +1438,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     presenter.update();
     CHECK(presenter.committed_owner().kind == FocusedContentKind::Room);
     CHECK(presenter.committed_owner().apply_sequence == 5);
+    CHECK(world_presentation_changes > 0);
     CHECK(completions.back() == std::pair<std::string, std::string>{"room-two", "applied"});
 
     auto lua_text_room = room;
@@ -1676,6 +1688,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(focused_textures.requests[focused_textures.requests.size() - 2].retain_alpha_coverage);
     CHECK(focused_textures.requests.back().path == "project:/images/alpha-sprite-two.png");
     CHECK(focused_textures.requests.back().retain_alpha_coverage);
+
+    const auto changes_before_clear = world_presentation_changes;
+    presenter.clear();
+    CHECK(world_presentation_changes == changes_before_clear + 1);
 }
 
 } // namespace noveltea::host

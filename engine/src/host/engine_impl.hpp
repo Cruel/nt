@@ -66,6 +66,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void render();
     [[nodiscard]] bool dispatch_runtime_input(const core::RuntimeInputMessage& input);
     void append_runtime_diagnostics(core::Diagnostics diagnostics);
+    void sync_world_hotspot_cursor();
     void configure_assets(const EngineConfig& engine_config);
     bool load_project_shader_materials();
     bool load_compiled_project(const std::string& logical_path, bool load_title_screen = true,

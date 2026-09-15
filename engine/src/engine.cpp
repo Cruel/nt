@@ -252,6 +252,11 @@ Engine::Impl::Impl()
                   adapted.accessibility = environment.accessibility;
                   return prepare_authored_preview_environment_commit(adapted);
               },
+          .world_presentation_changed =
+              [this]() {
+                  m_world_hotspots.presentation_changed();
+                  sync_world_hotspot_cursor();
+              },
           .preview_running = m_preview_running,
       }),
       m_runtime_preview(m_preview_host)
@@ -1102,8 +1107,10 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                                static_cast<float>(m_renderer.reference_height())});
                 if (!world)
                     return core::Result<void, core::Diagnostics>::failure(std::move(world).error());
-                if (*world.value_if())
+                if (*world.value_if()) {
                     m_world_hotspots.presentation_changed();
+                    sync_world_hotspot_cursor();
+                }
 
                 auto layouts = m_presentation_layouts.reconcile(snapshot);
                 if (layouts) {
@@ -1118,6 +1125,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                     m_world_presentation.reset();
                 }
                 m_world_hotspots.presentation_changed();
+                sync_world_hotspot_cursor();
                 return layouts;
             });
         if (!snapshot_backend)
@@ -1168,6 +1176,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_mandatory_assets.clear_package_on_owner();
         m_world_presentation.reset();
         m_world_hotspots.cancel();
+        sync_world_hotspot_cursor();
         m_world_presentation_resources.clear();
         m_presentation_layouts.clear_session();
         m_layout_realizer.clear_session();
@@ -2415,14 +2424,17 @@ void Engine::Impl::handle_events()
             }
         }
 
-        const bool focused_preview_active =
-            m_preview_widget &&
-            m_preview_host.focused_content_owner().kind != host::FocusedContentKind::None;
-        if (focused_preview_active || presentation_pointer_consumed) {
+        const auto focused_content_kind = m_preview_widget
+                                              ? m_preview_host.focused_content_owner().kind
+                                              : host::FocusedContentKind::None;
+        const bool focused_preview_active = focused_content_kind != host::FocusedContentKind::None;
+        const bool focused_room_preview = focused_content_kind == host::FocusedContentKind::Room;
+        if ((focused_preview_active && !focused_room_preview) || presentation_pointer_consumed) {
             // Focused editor previews are passive even when the same preview host also has a
             // loaded play-runtime project. A presentation-skip click is also terminally consumed so
             // it cannot activate a hotspot revealed by the same skip.
             m_world_hotspots.cancel();
+            sync_world_hotspot_cursor();
         } else {
             std::optional<WorldPointerEventKind> world_kind;
             switch (normalized.kind) {
@@ -2456,6 +2468,10 @@ void Engine::Impl::handle_events()
             default:
                 break;
             }
+            if (focused_room_preview && world_kind &&
+                *world_kind != WorldPointerEventKind::MouseMove &&
+                *world_kind != WorldPointerEventKind::Cancel)
+                world_kind.reset();
             if (world_kind) {
                 const bool touch = normalized.kind == host::NormalizedHostEventKind::TouchDown ||
                                    normalized.kind == host::NormalizedHostEventKind::TouchUp ||
@@ -2469,9 +2485,9 @@ void Engine::Impl::handle_events()
                      .reference_position = reference,
                      .pointer_id = touch ? normalized.touch_id : 0,
                      .primary = touch || normalized.mouse_button == SDL_BUTTON_LEFT,
-                     .admitted = routed.route_diagnostics.gameplay_admitted,
+                     .admitted = focused_room_preview || routed.route_diagnostics.gameplay_admitted,
                      .secondary = !touch && normalized.mouse_button == SDL_BUTTON_RIGHT});
-                if (world.target) {
+                if (world.target && !focused_room_preview) {
                     const bool accepted = std::visit(
                         [this, &world](const auto& target) {
                             using T = std::decay_t<decltype(target)>;
@@ -2499,6 +2515,7 @@ void Engine::Impl::handle_events()
                     }
                     m_world_hotspots.target_completed();
                 }
+                sync_world_hotspot_cursor();
                 if (world.consumed)
                     routed.disposition = host::HostInputDisposition::Consumed;
             }
@@ -2725,6 +2742,26 @@ void Engine::Impl::append_runtime_diagnostics(core::Diagnostics diagnostics)
         return;
     m_game_host.report_runtime_diagnostics(host::HostFrameStage::UpdatePresentation,
                                            std::move(diagnostics));
+}
+
+void Engine::Impl::sync_world_hotspot_cursor()
+{
+    const auto* hovered = m_world_hotspots.hovered_target();
+    if (hovered == nullptr) {
+        m_runtime_ui.clear_world_hotspot_cursor();
+        return;
+    }
+    const auto owner = std::visit(
+        [](const auto& ref) {
+            using T = std::decay_t<decltype(ref)>;
+            if constexpr (std::is_same_v<T, core::compiled::RoomHotspotRef>)
+                return std::string("room-hotspot:") + ref.room.text() + ":" + ref.hotspot_id.text();
+            else
+                return std::string("interactable-hotspot:") + ref.interactable.text() + ":" +
+                       ref.hotspot_id.text();
+        },
+        hovered->ref);
+    m_runtime_ui.set_world_hotspot_cursor(hovered->cursor, owner);
 }
 
 void Engine::Impl::render()
@@ -3046,6 +3083,7 @@ void Engine::Impl::set_preview_running(bool running)
     if (!m_preview_running) {
         m_input_router.reset();
         m_world_hotspots.cancel();
+        sync_world_hotspot_cursor();
         m_pointer_valid = false;
     }
 }
