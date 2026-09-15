@@ -19,6 +19,14 @@
       "uiScale": { "enabled": true, "minimum": 1, "maximum": 2 },
       "textScale": { "enabled": true, "minimum": 1, "maximum": 2 }
     },
+    "cursors": {
+      "defaults": {
+        "default": { "kind": "system", "cursor": "default" },
+        "pointer": { "kind": "system", "cursor": "pointer" },
+        "hotspot": { "kind": "inherit", "semantic": "pointer" }
+      },
+      "named": []
+    },
     "titleScreen": {
       "showProjectTitle": false,
       "showAuthor": false,
@@ -144,7 +152,8 @@
           "fonts": [],
           "stylesheets": [],
           "scripts": [],
-          "materials": []
+          "materials": [],
+          "data": []
         }
       },
       {
@@ -168,7 +177,8 @@
           "fonts": [],
           "stylesheets": [],
           "scripts": [],
-          "materials": []
+          "materials": [],
+          "data": []
         }
       },
       {
@@ -192,7 +202,8 @@
           "fonts": [],
           "stylesheets": [],
           "scripts": [],
-          "materials": []
+          "materials": [],
+          "data": []
         }
       }
     ]

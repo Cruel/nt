@@ -60,10 +60,13 @@ import {
 import {
   deriveProjectDisplayGeometry,
   projectSettingsForEditing,
+  systemCursorNames,
   validateProjectSettingsAuthoringState,
   type ProjectAccessibilityScalePolicy,
   type ProjectAppSettings,
   type ProjectDisplaySettings,
+  type ProjectCursorSettings,
+  type SystemCursorName,
 } from '../../../shared/project-schema/authoring-project-settings';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from '../../../shared/project-schema/project-display-contract';
 import {
@@ -71,6 +74,7 @@ import {
   type InteractionProgram,
 } from '../../../shared/project-schema/authoring-interaction-programs';
 import { InteractionProgramEditor } from '../interactions/InteractionProgramEditor';
+import { AssetPreview } from '../assets/AssetPreview';
 import {
   collectPendingInputDiagnostics,
   usePendingInputStore,
@@ -84,6 +88,9 @@ import {
   Blocks,
   Gauge,
   Image,
+  MousePointer2,
+  Plus,
+  Trash2,
   LayoutTemplate,
   MonitorCog,
   ShieldCheck,
@@ -121,6 +128,7 @@ type ProjectSettingsCategory =
   | 'asset-memory'
   | 'display'
   | 'audio'
+  | 'cursors'
   | 'title-screen'
   | 'app-identity'
   | 'integrations'
@@ -157,6 +165,12 @@ const projectSettingsCategories: readonly CategorizedEditorCategory<ProjectSetti
     label: 'Audio',
     description: 'Purpose mixing, mute defaults, and Voice ducking.',
     icon: Volume2,
+  },
+  {
+    id: 'cursors',
+    label: 'projectSettings.cursors.categoryLabel',
+    description: 'projectSettings.cursors.categoryDescription',
+    icon: MousePointer2,
   },
   {
     id: 'title-screen',
@@ -226,6 +240,11 @@ function projectSettingsCategoryForTarget(targetId: string): ProjectSettingsCate
   )
     return 'audio';
   if (
+    targetId.startsWith('projectSettings.cursors') ||
+    targetId.startsWith('projectSettings.field.cursor')
+  )
+    return 'cursors';
+  if (
     targetId.startsWith('projectSettings.titleScreen') ||
     targetId.startsWith('projectSettings.field.titleImage') ||
     targetId.startsWith('projectSettings.field.startLabel')
@@ -276,6 +295,7 @@ const PROJECT_SETTINGS_FIELD_ANCHORS: Record<string, string> = {
   '/settings/audio/voiceDucking/musicGain': 'projectSettings.field.audioVoiceDuckingMusicGain',
   '/settings/audio/voiceDucking/ambienceGain':
     'projectSettings.field.audioVoiceDuckingAmbienceGain',
+  '/settings/cursors': 'projectSettings.field.cursors',
   '/settings/titleScreen/titleImage': 'projectSettings.field.titleImage',
   '/settings/titleScreen/startLabel': 'projectSettings.field.startLabel',
   '/settings/app/displayName': 'projectSettings.field.appDisplayName',
@@ -307,6 +327,60 @@ function pathsOverlap(left: string, right: string) {
 
 function commandSucceeded(result: ReturnType<typeof runProjectCommand>) {
   return !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+}
+
+function cursorTargetSelection(target: ProjectCursorSettings['defaults']['hotspot']) {
+  if (target.kind === 'system') return `system:${target.cursor}`;
+  if (target.kind === 'named') return `named:${target.id}`;
+  if (target.kind === 'inherit') return 'inherit:pointer';
+  return 'none';
+}
+
+function cursorTargetFromSelection(value: string): ProjectCursorSettings['defaults']['hotspot'] {
+  if (value === 'none') return { kind: 'none' };
+  if (value === 'inherit:pointer') return { kind: 'inherit', semantic: 'pointer' };
+  if (value.startsWith('named:')) return { kind: 'named', id: value.slice('named:'.length) };
+  return {
+    kind: 'system',
+    cursor: value.slice('system:'.length) as SystemCursorName,
+  };
+}
+
+function CursorTestPad({
+  assetId,
+  hotspotX,
+  hotspotY,
+}: {
+  assetId: string;
+  hotspotX: number;
+  hotspotY: number;
+}) {
+  const { t } = useTranslation('workspace');
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let canceled = false;
+    setUrl(null);
+    if (!projectSessionId) return;
+    void window.noveltea
+      .resolveProjectOriginalAssetUrl(projectSessionId, assetId)
+      .then((result) => {
+        if (!canceled) setUrl(result.ok ? result.url : null);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [assetId, projectSessionId]);
+  return (
+    <div
+      className="flex h-16 items-center justify-center rounded border border-dashed text-xs text-muted-foreground"
+      style={url ? { cursor: `url("${url}") ${hotspotX} ${hotspotY}, default` } : undefined}
+    >
+      {url
+        ? t('projectSettings.cursors.testPadReady')
+        : t('projectSettings.cursors.testPadUnavailable')}
+    </div>
+  );
 }
 
 interface PendingNumberInputProps {
@@ -1068,6 +1142,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const [resolutionDialogOpen, setResolutionDialogOpen] = useState(false);
   const [resolutionWidth, setResolutionWidth] = useState('');
   const [resolutionHeight, setResolutionHeight] = useState('');
+  const [testingCursorId, setTestingCursorId] = useState<string | null>(null);
+  const [cursorIdDrafts, setCursorIdDrafts] = useState<Record<string, string>>({});
+  const [pendingCursorForceDeleteId, setPendingCursorForceDeleteId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<ProjectSettingsCategory>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState
@@ -1146,6 +1223,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       </div>
     );
 
+  const currentProject = project;
+  const currentSettings = settings;
   const roomEntries = Object.entries(project.rooms).map(([id, room]) => ({
     id,
     label: room.label || id,
@@ -1343,6 +1422,119 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     });
   }
 
+  function setCursors(cursors: ProjectCursorSettings) {
+    return commandSucceeded(
+      runProjectCommand(
+        'project.replaceAtPath',
+        { path: '/settings/cursors', value: cursors },
+        'Update Project cursors',
+      ),
+    );
+  }
+
+  function setCursorDefault(semantic: keyof ProjectCursorSettings['defaults'], selection: string) {
+    const target = cursorTargetFromSelection(selection);
+    if (semantic !== 'hotspot' && target.kind === 'inherit') return false;
+    return setCursors({
+      ...currentSettings.cursors,
+      defaults: {
+        ...currentSettings.cursors.defaults,
+        [semantic]: target,
+      } as ProjectCursorSettings['defaults'],
+    });
+  }
+
+  function addNamedCursor() {
+    const image = imageAssets.find(({ id }) => {
+      const data = parseAssetData(currentProject.assets[id]?.data);
+      return (
+        data?.kind === 'image' &&
+        data.imageMetadata &&
+        data.imageMetadata.width <= 128 &&
+        data.imageMetadata.height <= 128
+      );
+    });
+    if (!image) return false;
+    let suffix = 1;
+    let id = 'cursor';
+    const used = new Set(currentSettings.cursors.named.map((cursor) => cursor.id));
+    while (used.has(id)) id = `cursor-${++suffix}`;
+    return setCursors({
+      ...currentSettings.cursors,
+      named: [
+        ...currentSettings.cursors.named,
+        {
+          id,
+          image: { $ref: { collection: 'assets', id: image.id } },
+          hotspotX: 0,
+          hotspotY: 0,
+        },
+      ],
+    });
+  }
+
+  function updateNamedCursor(
+    index: number,
+    patch: Partial<ProjectCursorSettings['named'][number]>,
+  ) {
+    return setCursors({
+      ...currentSettings.cursors,
+      named: currentSettings.cursors.named.map((cursor, cursorIndex) =>
+        cursorIndex === index ? { ...cursor, ...patch } : cursor,
+      ),
+    });
+  }
+
+  function renameNamedCursor(fromId: string, toId: string) {
+    const normalized = toId.trim();
+    if (normalized === fromId) return true;
+    const result = runProjectCommand(
+      'project.renameNamedCursor',
+      { fromId, toId: normalized },
+      t('projectSettings.cursors.renameCommand', { id: fromId }),
+    );
+    if (commandSucceeded(result)) {
+      if (testingCursorId === fromId) setTestingCursorId(normalized);
+      setCursorIdDrafts((drafts) => {
+        const next = { ...drafts };
+        delete next[fromId];
+        return next;
+      });
+      return true;
+    }
+    setCursorIdDrafts((drafts) => ({ ...drafts, [fromId]: fromId }));
+    return false;
+  }
+
+  function removeNamedCursor(index: number, force = false) {
+    const removed = currentSettings.cursors.named[index];
+    if (!removed) return false;
+    const result = runProjectCommand(
+      'project.deleteNamedCursor',
+      { cursorId: removed.id, force },
+      t(
+        force
+          ? 'projectSettings.cursors.forceDeleteCommand'
+          : 'projectSettings.cursors.deleteCommand',
+        { id: removed.id },
+      ),
+    );
+    const succeeded = commandSucceeded(result);
+    if (succeeded) {
+      if (testingCursorId === removed.id) setTestingCursorId(null);
+      if (pendingCursorForceDeleteId === removed.id) setPendingCursorForceDeleteId(null);
+    } else if (
+      !force &&
+      result.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.severity === 'error' && diagnostic.message.includes('Force Delete'),
+      )
+    ) {
+      setPendingCursorForceDeleteId(removed.id);
+    }
+    return succeeded;
+  }
+
   function openResolutionDialog() {
     if (!settings) return;
     setResolutionWidth(String(settings.display.referenceResolution.width));
@@ -1386,9 +1578,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     navigateToWorkbenchTarget({ tab: buildComfyUiWorkflowsTab() });
   }
 
+  const localizedProjectSettingsCategories = projectSettingsCategories.map((category) =>
+    category.id === 'cursors'
+      ? {
+          ...category,
+          label: t('projectSettings.cursors.categoryLabel'),
+          description: t('projectSettings.cursors.categoryDescription'),
+        }
+      : category,
+  );
+
   return (
     <CategorizedEditorLayout
-      categories={projectSettingsCategories}
+      categories={localizedProjectSettingsCategories}
       activeCategory={activeCategory}
       onCategoryChange={setActiveCategory}
       navigationLabel="Project settings categories"
@@ -1396,8 +1598,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       showActiveDescription={false}
       header={
         <h2 className="truncate text-lg font-semibold">
-          {projectSettingsCategories.find((category) => category.id === activeCategory)?.label ??
-            'General'}
+          {localizedProjectSettingsCategories.find((category) => category.id === activeCategory)
+            ?.label ?? 'General'}
         </h2>
       }
     >
@@ -2020,6 +2222,247 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         </Card>
       ) : null}
 
+      {activeCategory === 'cursors' ? (
+        <div className="space-y-4" data-workbench-anchor="projectSettings.cursors">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('projectSettings.cursors.defaultsTitle')}</CardTitle>
+              <CardDescription>{t('projectSettings.cursors.defaultsDescription')}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {(['default', 'pointer', 'hotspot'] as const).map((semantic) => (
+                <div
+                  key={semantic}
+                  className="grid items-center gap-2 @3xl:grid-cols-[8rem_minmax(0,1fr)]"
+                >
+                  <Label htmlFor={`cursor-default-${semantic}`}>
+                    {t(`projectSettings.cursors.semantic.${semantic}`)}
+                  </Label>
+                  <select
+                    id={`cursor-default-${semantic}`}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                    value={cursorTargetSelection(settings.cursors.defaults[semantic])}
+                    onChange={(event) => setCursorDefault(semantic, event.currentTarget.value)}
+                  >
+                    {semantic === 'hotspot' ? (
+                      <option value="inherit:pointer">
+                        {t('projectSettings.cursors.inheritPointer')}
+                      </option>
+                    ) : null}
+                    <option value="none">{t('projectSettings.cursors.noneHidden')}</option>
+                    {systemCursorNames.map((cursor) => (
+                      <option key={cursor} value={`system:${cursor}`}>
+                        {t('projectSettings.cursors.systemOption', { cursor })}
+                      </option>
+                    ))}
+                    {settings.cursors.named.map((cursor) => (
+                      <option key={cursor.id} value={`named:${cursor.id}`}>
+                        {t('projectSettings.cursors.namedOption', { id: cursor.id })}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/cursors']}>
+            <CardHeader className="flex-row items-start justify-between gap-4">
+              <div className="space-y-1">
+                <CardTitle>{t('projectSettings.cursors.namedTitle')}</CardTitle>
+                <CardDescription>{t('projectSettings.cursors.namedDescription')}</CardDescription>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={
+                  !imageAssets.some(({ id }) => {
+                    const data = parseAssetData(project.assets[id]?.data);
+                    return (
+                      data?.kind === 'image' &&
+                      data.imageMetadata &&
+                      data.imageMetadata.width <= 128 &&
+                      data.imageMetadata.height <= 128
+                    );
+                  })
+                }
+                onClick={addNamedCursor}
+              >
+                <Plus className="mr-1 size-3.5" /> {t('projectSettings.cursors.add')}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {settings.cursors.named.length === 0 ? (
+                <div className="rounded border border-dashed p-4 text-center text-xs text-muted-foreground">
+                  {t('projectSettings.cursors.empty')}
+                </div>
+              ) : null}
+              {settings.cursors.named.map((cursor, index) => {
+                const asset = project.assets[cursor.image.$ref.id];
+                const data = parseAssetData(asset?.data);
+                const metadata = data?.kind === 'image' ? data.imageMetadata : null;
+                const width = metadata?.width ?? 1;
+                const height = metadata?.height ?? 1;
+                return (
+                  <div key={`${cursor.id}-${index}`} className="space-y-3 rounded-md border p-3">
+                    <div className="flex items-start gap-3">
+                      <div className="relative size-28 shrink-0 overflow-hidden rounded border bg-muted/20">
+                        {asset && data?.kind === 'image' ? (
+                          <AssetPreview
+                            assetId={asset.id}
+                            label={asset.label || asset.id}
+                            data={data}
+                            compact
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                            {t('projectSettings.cursors.missingImage')}
+                          </div>
+                        )}
+                        {metadata ? (
+                          <span
+                            aria-label={t('projectSettings.cursors.hotspotAria', {
+                              x: cursor.hotspotX,
+                              y: cursor.hotspotY,
+                            })}
+                            className="pointer-events-none absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-background bg-foreground shadow"
+                            style={{
+                              left: `${((cursor.hotspotX + 0.5) / width) * 100}%`,
+                              top: `${((cursor.hotspotY + 0.5) / height) * 100}%`,
+                            }}
+                          />
+                        ) : null}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="grid gap-2 @3xl:grid-cols-[minmax(8rem,1fr)_minmax(10rem,1fr)]">
+                          <div className="space-y-1">
+                            <Label htmlFor={`cursor-id-${index}`}>
+                              {t('projectSettings.cursors.id')}
+                            </Label>
+                            <Input
+                              id={`cursor-id-${index}`}
+                              value={cursorIdDrafts[cursor.id] ?? cursor.id}
+                              aria-invalid={fieldInvalid(`/settings/cursors/named/${index}/id`)}
+                              onChange={(event) =>
+                                setCursorIdDrafts((drafts) => ({
+                                  ...drafts,
+                                  [cursor.id]: event.currentTarget.value,
+                                }))
+                              }
+                              onBlur={(event) =>
+                                renameNamedCursor(cursor.id, event.currentTarget.value)
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') event.currentTarget.blur();
+                                if (event.key === 'Escape') {
+                                  setCursorIdDrafts((drafts) => ({
+                                    ...drafts,
+                                    [cursor.id]: cursor.id,
+                                  }));
+                                  event.currentTarget.blur();
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor={`cursor-image-${index}`}>
+                              {t('projectSettings.cursors.imageAsset')}
+                            </Label>
+                            <select
+                              id={`cursor-image-${index}`}
+                              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                              value={cursor.image.$ref.id}
+                              aria-invalid={fieldInvalid(`/settings/cursors/named/${index}/image`)}
+                              onChange={(event) =>
+                                updateNamedCursor(index, {
+                                  image: {
+                                    $ref: { collection: 'assets', id: event.currentTarget.value },
+                                  },
+                                })
+                              }
+                            >
+                              {imageAssets.map((image) => (
+                                <option key={image.id} value={image.id}>
+                                  {image.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="grid gap-2 @3xl:grid-cols-2">
+                          <div className="space-y-1">
+                            <Label htmlFor={`cursor-hotspot-x-${index}`}>
+                              {t('projectSettings.cursors.hotspotX')}
+                            </Label>
+                            <PendingNumberInput
+                              id={`cursor-hotspot-x-${index}`}
+                              path={`/settings/cursors/named/${index}/hotspotX`}
+                              value={cursor.hotspotX}
+                              invalid={fieldInvalid(`/settings/cursors/named/${index}/hotspotX`)}
+                              onCommit={(hotspotX) =>
+                                updateNamedCursor(index, { hotspotX: hotspotX ?? 0 })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor={`cursor-hotspot-y-${index}`}>
+                              {t('projectSettings.cursors.hotspotY')}
+                            </Label>
+                            <PendingNumberInput
+                              id={`cursor-hotspot-y-${index}`}
+                              path={`/settings/cursors/named/${index}/hotspotY`}
+                              value={cursor.hotspotY}
+                              invalid={fieldInvalid(`/settings/cursors/named/${index}/hotspotY`)}
+                              onCommit={(hotspotY) =>
+                                updateNamedCursor(index, { hotspotY: hotspotY ?? 0 })
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {metadata
+                            ? t('projectSettings.cursors.sourcePixels', {
+                                width: metadata.width,
+                                height: metadata.height,
+                              })
+                            : t('projectSettings.cursors.dimensionsUnavailable')}
+                        </div>
+                      </div>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={t('projectSettings.cursors.deleteAria', { id: cursor.id })}
+                        onClick={() => removeNamedCursor(index)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        variant={testingCursorId === cursor.id ? 'secondary' : 'outline'}
+                        onClick={() =>
+                          setTestingCursorId(testingCursorId === cursor.id ? null : cursor.id)
+                        }
+                      >
+                        {t('projectSettings.cursors.test')}
+                      </Button>
+                    </div>
+                    {testingCursorId === cursor.id ? (
+                      <CursorTestPad
+                        assetId={cursor.image.$ref.id}
+                        hotspotX={cursor.hotspotX}
+                        hotspotY={cursor.hotspotY}
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
       {activeCategory === 'title-screen' ? (
         <Card data-workbench-anchor="projectSettings.titleScreen">
           <CardHeader>
@@ -2568,6 +3011,41 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         }}
         onOpenChange={(open) => setSystemLayoutSelectorRole(open ? systemLayoutSelectorRole : null)}
       />
+      <Dialog
+        open={pendingCursorForceDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingCursorForceDeleteId(null);
+        }}
+      >
+        <DialogPopup>
+          <DialogTitle>{t('projectSettings.cursors.forceDeleteTitle')}</DialogTitle>
+          <DialogDescription>
+            {t('projectSettings.cursors.forceDeleteDescription')}
+          </DialogDescription>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingCursorForceDeleteId(null)}
+            >
+              {t('projectSettings.cursors.cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (!pendingCursorForceDeleteId) return;
+                const index = currentSettings.cursors.named.findIndex(
+                  (cursor) => cursor.id === pendingCursorForceDeleteId,
+                );
+                if (index >= 0) removeNamedCursor(index, true);
+              }}
+            >
+              {t('projectSettings.cursors.forceDelete')}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
       <Dialog open={resolutionDialogOpen} onOpenChange={setResolutionDialogOpen}>
         <DialogPopup>
           <DialogTitle>Change Reference Resolution</DialogTitle>

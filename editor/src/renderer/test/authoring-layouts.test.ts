@@ -58,6 +58,108 @@ describe('authoring layouts schema', () => {
     });
   });
 
+  it('admits registered JSON data dependencies and rejects other Asset kinds', () => {
+    const project = createAuthoringProject();
+    const data = defaultLayoutData('Catalog');
+    project.assets.catalog = {
+      id: 'catalog',
+      label: 'Catalog',
+      data: {
+        kind: 'data',
+        source: { type: 'project-file', path: 'assets/data/Catalog.JSON' },
+        aliases: [],
+        extension: '.json',
+        imageMetadata: null,
+      },
+    };
+    project.layouts.main = {
+      id: 'main',
+      label: 'Main',
+      data: {
+        ...data,
+        dependencies: {
+          ...data.dependencies,
+          data: [{ $ref: { collection: 'assets', id: 'catalog' } }],
+        },
+      },
+    };
+    expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual([]);
+    expect(buildLayoutPreviewDocumentData(project, 'main')).toMatchObject({
+      dependencies: { data: [{ id: 'catalog', path: 'assets/data/Catalog.JSON' }] },
+    });
+    (project.assets.catalog.data as { kind: string }).kind = 'text';
+    expect(validateLayoutData(project, 'main', project.layouts.main)).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        path: '/layouts/main/data/dependencies/data/0/$ref',
+      }),
+    );
+  });
+
+  it('validates direct RCSS image cursors against the Layout image dependency closure', () => {
+    const project = createAuthoringProject();
+    project.assets.pointer = {
+      id: 'pointer',
+      label: 'Pointer',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/pointer.png' },
+        aliases: [],
+        sampling: 'nearest',
+        extension: '.png',
+        imageMetadata: { width: 256, height: 64, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.assets.notes = {
+      id: 'notes',
+      label: 'Notes',
+      data: {
+        kind: 'text',
+        source: { type: 'project-file', path: 'assets/text/notes.txt' },
+        aliases: [],
+        extension: '.txt',
+        imageMetadata: null,
+      },
+    };
+    const data = defaultLayoutData('Cursor UI');
+    data.dependencies.images = [{ $ref: { collection: 'assets', id: 'pointer' } }];
+    data.rcss.sourceText = `
+      #quoted { cursor: image("assets/images/pointer.png"); }
+      #unquoted { cursor: image(project:/assets/images/pointer.png); }
+      #native { cursor: pointer; }
+      #automatic { cursor: auto; }
+      #dynamic { cursor: var(--cursor); }
+    `;
+    project.layouts.main = { id: 'main', label: 'Cursor UI', data };
+
+    expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual([]);
+
+    data.dependencies.images = [];
+    expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/layouts/main/data/rcss/sourceText',
+          message: expect.stringContaining('image dependency'),
+        }),
+      ]),
+    );
+
+    data.dependencies.images = [{ $ref: { collection: 'assets', id: 'pointer' } }];
+    data.rcss.sourceText = `
+      #wrong-kind { cursor: image(project:/assets/text/notes.txt); }
+      #malformed { cursor: image("assets/images/pointer.png", pointer); }
+      #unknown { cursor: poitner; }
+    `;
+    const diagnostics = validateLayoutData(project, 'main', project.layouts.main);
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining('not an Image Asset') }),
+        expect.objectContaining({ message: expect.stringContaining('exactly one image source') }),
+        expect.objectContaining({ message: expect.stringContaining("Unknown cursor 'poitner'") }),
+      ]),
+    );
+  });
+
   it('reserves the built-in Inventory fallback Layout ID', () => {
     const project = createAuthoringProject();
     project.layouts['builtin-inventory'] = {

@@ -271,7 +271,7 @@ describe('shared contracts characterization', () => {
   });
 
   it('pins the complete source-analysis contract and accepts explicit fallback metadata', () => {
-    expect(AUTHORING_SOURCE_ANALYZER_VERSION).toBe('lua-rml-v3');
+    expect(AUTHORING_SOURCE_ANALYZER_VERSION).toBe('lua-rml-v4');
     expect(LUA_REFERENCE_ANALYSIS_LIMITS.maxSnapshotBytes).toBe(64 * 1024 * 1024);
     const dependency = luaExplicitDependenciesSchema.parse({
       targets: [{ kind: 'record', collection: 'rooms', id: 'hall' }],
@@ -313,8 +313,6 @@ describe('shared contracts characterization', () => {
       'shared-run-lua-effect',
       'scene-run-lua-step',
       'dialogue-run-lua-segment',
-      'test-init-script',
-      'test-check-script',
     ]);
     expect(isSupportedLuaExplicitFallbackOwner('/rooms/room/data/exits/0/condition')).toBe(true);
     expect(isSupportedLuaExplicitFallbackOwner('/layouts/hud/data/script')).toBe(true);
@@ -421,6 +419,12 @@ describe('shared contracts characterization', () => {
       },
       queryState: { variables: [], properties: [], definitions: [], interactableLocations: [] },
       shaderMaterials: { schema: 'noveltea.shader-materials', shaders: {}, materials: {} },
+      cursors: {
+        defaultCursor: 'default',
+        pointerCursor: 'pointer',
+        hotspotCursor: 'pointer',
+        named: [],
+      },
       world: {
         presentationSpace: {
           size: { width: 1920, height: 1080 },
@@ -437,6 +441,7 @@ describe('shared contracts characterization', () => {
         props: [],
         environments: [],
         overlays: [],
+        hotspots: [],
       },
       layouts: [
         {

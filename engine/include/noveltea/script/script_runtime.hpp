@@ -7,6 +7,7 @@
 #include "noveltea/script/script_value.hpp"
 
 #include <memory>
+#include <span>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -25,6 +26,11 @@ struct ScriptEnvironmentHandle {
     std::uint64_t value = 0;
     [[nodiscard]] explicit operator bool() const noexcept { return value != 0; }
     auto operator<=>(const ScriptEnvironmentHandle&) const = default;
+};
+
+struct DataAssetBinding {
+    core::AssetId id;
+    std::string logical_path;
 };
 
 struct ScriptRuntimeConfig {
@@ -120,6 +126,10 @@ public:
     evaluate_string(std::string_view expression, std::string_view chunk_name = "expression");
 
     [[nodiscard]] core::Result<ScriptEnvironmentHandle, ScriptError> create_environment();
+    [[nodiscard]] core::Result<ScriptEnvironmentHandle, ScriptError>
+    create_environment(std::span<const DataAssetBinding> data_assets);
+    void synchronize_project_data_assets(const core::CompiledProject& project);
+    void clear_project_data_assets() noexcept;
     void destroy_environment(ScriptEnvironmentHandle environment) noexcept;
     [[nodiscard]] ScopedEnvironmentActivation
     activate_environment(ScriptEnvironmentHandle environment) noexcept;
@@ -179,6 +189,7 @@ private:
     push_project_import(lua_State* state, std::string_view module_id,
                         std::optional<std::string_view> export_name,
                         std::optional<std::string_view> requester = std::nullopt);
+    static int data_load_callback(lua_State* state);
     static int project_import_callback(lua_State* state);
     static int project_hook_register_callback(lua_State* state);
     static int managed_message_callback(lua_State* state);

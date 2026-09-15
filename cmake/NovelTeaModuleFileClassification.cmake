@@ -14,6 +14,7 @@ set(NOVELTEA_MODULE_CLASSIFICATION_TARGETS
 
 set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/include/noveltea/core/compiled_project.hpp
+    engine/include/noveltea/core/data_asset.hpp
     engine/include/noveltea/core/compiler_policy.hpp
     engine/include/noveltea/core/diagnostic.hpp
     engine/include/noveltea/core/diagnostic_context.hpp
@@ -72,6 +73,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_content
     engine/include/noveltea/core/compiled_package.hpp
     engine/include/noveltea/core/compiled_package_codec.hpp
     engine/include/noveltea/core/compiled_project_codec.hpp
+    engine/include/noveltea/core/data_asset_codec.hpp
+    engine/src/core/data_asset_codec.cpp
     engine/include/noveltea/core/editor_preview_contracts.hpp
     engine/include/noveltea/core/editor_protocol.hpp
     engine/include/noveltea/core/json_access.hpp
@@ -275,6 +278,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/engine.cpp
     engine/src/host/audio_preview_adapter.cpp
     engine/src/host/audio_preview_adapter.hpp
+    engine/src/host/cursor_presentation.cpp
+    engine/src/host/cursor_presentation.hpp
     engine/src/host/debug_ui_command_executor.cpp
     engine/src/host/debug_ui_command_executor.hpp
     engine/src/host/debug_ui_contracts.hpp
@@ -307,6 +312,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/jobs/sdl_thread_pool_job_executor.cpp
     engine/src/jobs/scheduler_core.cpp
     engine/src/jobs/scheduler_core.hpp
+    engine/src/platform/sdl/sdl_cursor_realizer.cpp
+    engine/src/platform/sdl/sdl_cursor_realizer.hpp
     engine/src/platform/sdl/sdl_platform.cpp
     engine/src/platform/sdl/sdl_platform.hpp
     engine/src/preview/preview_bridge.cpp

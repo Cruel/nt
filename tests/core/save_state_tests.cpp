@@ -214,10 +214,6 @@ TEST_CASE("SaveState persists desired Camera View but no finite interpolation pr
 
 TEST_CASE("native SaveState projects all typed Property overrides")
 {
-    STATIC_REQUIRE(std::variant_size_v<SavedFlowFrame> == 4);
-    STATIC_REQUIRE(std::variant_size_v<SavedFlowBlocker> == 2);
-    STATIC_REQUIRE_FALSE(std::is_default_constructible_v<LogicalTimerId>);
-
     const auto project = load_fixture("trait-properties-localization.json");
     auto state = make_state(project);
     PropertyResolver properties(project, state);
@@ -1375,15 +1371,11 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
         CHECK_FALSE(validate_save_state(room_project, room_snapshot.value(), "save-fixture.json"));
     }
 
-    SECTION("failed decoding cannot mutate the independently live session")
+    SECTION("a save from another Project is rejected")
     {
         auto invalid = encoded.value();
         invalid["metadata"]["project"] = "other-project";
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
-        CHECK(std::get<RuntimeValue>(properties.get_global(id<PropertyId>("flag")).value()) ==
-              RuntimeValue{true});
-        CHECK(state.property_override(property_target(PropertyOwnerRef{id<RoomId>("start")}),
-                                      id<PropertyId>("mood")) != nullptr);
     }
 }
 

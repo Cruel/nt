@@ -630,9 +630,11 @@ function externalDescriptors(
       };
     const channel = descriptor.sourcePath.includes('/rml/')
       ? 'rml'
-      : descriptor.sourcePath.includes('/lua/')
-        ? 'lua'
-        : null;
+      : descriptor.sourcePath.includes('/rcss/')
+        ? 'rcss'
+        : descriptor.sourcePath.includes('/lua/')
+          ? 'lua'
+          : null;
     const layoutData = project.layouts[id]?.data as unknown as Record<
       string,
       { sourceText?: string }

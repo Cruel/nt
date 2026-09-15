@@ -50,6 +50,7 @@ private:
         RmlUiRasterSnapMode rmlui_raster_snap = RmlUiRasterSnapMode::All;
         bool no_audio = false;
         bool show_fps_counter = false;
+        bool cursor_platform_smoke = false;
         std::vector<std::string> audio_sfx_paths;
         std::vector<std::string> audio_track_specs;
     };

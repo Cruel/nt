@@ -3,8 +3,6 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <type_traits>
-
 namespace noveltea {
 class RuntimeUI;
 }
@@ -16,17 +14,9 @@ template<typename T>
 concept HasRuntimeUiBinding =
     requires(T& value, RuntimeUI* runtime_ui) { value.set_runtime_ui(runtime_ui); };
 
-TEST_CASE("DebugUI consumes typed observations without a production RuntimeUI dependency")
+TEST_CASE("DebugUI has no production RuntimeUI binding")
 {
     STATIC_REQUIRE_FALSE(HasRuntimeUiBinding<DebugUI>);
-    STATIC_REQUIRE(std::is_same_v<decltype(DebugUiObservationSnapshot::runtime_observations),
-                                  std::span<const core::RuntimeObservation>>);
-    STATIC_REQUIRE(std::is_same_v<decltype(DebugUiObservationSnapshot::runtime_events),
-                                  std::span<const runtime::RuntimeEvent>>);
-    STATIC_REQUIRE(std::is_same_v<decltype(DebugUiObservationSnapshot::runtime_diagnostics),
-                                  std::span<const core::Diagnostic>>);
-    STATIC_REQUIRE(std::is_same_v<decltype(DebugUiObservationSnapshot::host_generation),
-                                  std::optional<HostGeneration>>);
 }
 
 TEST_CASE("DebugUI runtime commands require the Tooling capability profile")

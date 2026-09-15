@@ -27,6 +27,12 @@ import {
   pseudoLocalizeText,
 } from '../../shared/pseudo-localization';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
+import type { CursorTarget } from '../../shared/project-schema/authoring-cursor-vocabulary';
+import type {
+  InteractableHotspotTarget,
+  InteractionSubjectData,
+  RoomHotspotTarget,
+} from '../../shared/project-schema/authoring-features';
 import {
   gameplayInstanceKindForCollection,
   resolveGameplayInstanceRecord,
@@ -77,6 +83,7 @@ type Diagnostic = AuthoringDependencyGraphDiagnostic;
 type FocusedCondition = RoomPreviewDocument['world']['cast'][number]['condition'];
 type FocusedText = RoomPreviewDocument['ui']['description'];
 type FocusedVisual = RoomPreviewDocument['world']['cast'][number]['visual'];
+type FocusedHotspotTarget = RoomPreviewDocument['world']['hotspots'][number]['target'];
 
 export interface BuildFocusedRoomPreviewOptions {
   project: AuthoringProject;
@@ -213,6 +220,54 @@ function focusedCondition(value: RoomData['overlays'][number]['condition']): Foc
     case 'inventory-quantity-comparison':
       return { kind: 'runtime-only', conditionKind: value.kind };
   }
+}
+
+function cursorName(target: CursorTarget): string {
+  if (target.kind === 'system') return target.cursor;
+  if (target.kind === 'named') return target.id;
+  return 'none';
+}
+
+function projectHotspotCursorName(project: AuthoringProject): string {
+  const target = project.settings.cursors.defaults.hotspot;
+  return target.kind === 'inherit'
+    ? cursorName(project.settings.cursors.defaults.pointer)
+    : cursorName(target);
+}
+
+function focusedSubjectTarget(subject: InteractionSubjectData): FocusedHotspotTarget {
+  if (subject.kind === 'character')
+    return { kind: 'character', characterId: subject.character.$ref.id };
+  if (subject.kind === 'interactable')
+    return { kind: 'interactable', interactableId: subject.interactable.$ref.id };
+  if (subject.feature.ownerKind === 'room')
+    return {
+      kind: 'room-feature',
+      roomId: subject.feature.room.$ref.id,
+      featureId: subject.feature.featureId,
+    };
+  return {
+    kind: 'interactable-feature',
+    interactableId: subject.feature.interactable.$ref.id,
+    featureId: subject.feature.featureId,
+  };
+}
+
+function focusedRoomHotspotTarget(roomId: string, target: RoomHotspotTarget): FocusedHotspotTarget {
+  if (target.kind === 'owner-feature')
+    return { kind: 'room-feature', roomId, featureId: target.featureId };
+  if (target.kind === 'exit') return { kind: 'exit', roomId, exitId: target.exitId };
+  return focusedSubjectTarget(target.subject);
+}
+
+function focusedInteractableHotspotTarget(
+  interactableId: string,
+  target: InteractableHotspotTarget,
+): FocusedHotspotTarget {
+  if (target.kind === 'owner') return { kind: 'interactable', interactableId };
+  if (target.kind === 'owner-feature')
+    return { kind: 'interactable-feature', interactableId, featureId: target.featureId };
+  return focusedSubjectTarget(target.subject);
 }
 
 function localizedText(project: AuthoringProject, key: string): string {
@@ -760,7 +815,14 @@ function layoutResourceIds(project: AuthoringProject, layouts: RoomPreviewDocume
     if (!layout.layoutId) continue;
     const data = parseLayoutData(project.layouts[layout.layoutId]?.data);
     if (!data) continue;
-    for (const family of ['images', 'fonts', 'stylesheets', 'scripts', 'templates'] as const)
+    for (const family of [
+      'images',
+      'fonts',
+      'stylesheets',
+      'scripts',
+      'templates',
+      'data',
+    ] as const)
       for (const ref of data.dependencies[family] ?? []) assets.add(ref.$ref.id);
     for (const ref of data.dependencies.materials) materials.add(ref.$ref.id);
     for (const source of [data.rml, data.rcss, data.lua])
@@ -947,6 +1009,99 @@ export async function buildFocusedRoomPreview(
         },
       ];
     });
+  const hotspotSource = (assetId: string | null, path: string) => {
+    const asset = assetId ? parseAssetData(project.assets[assetId]?.data) : null;
+    if (
+      asset?.kind === 'image' &&
+      asset.imageMetadata &&
+      asset.imageMetadata.width <= 65535 &&
+      asset.imageMetadata.height <= 65535
+    )
+      return {
+        sourceAssetId: assetId!,
+        sourceWidth: asset.imageMetadata.width,
+        sourceHeight: asset.imageMetadata.height,
+      };
+    diagnostics.push(
+      diagnostic(
+        path,
+        'Focused Hotspot preview requires a dimensioned Image Asset no larger than 65535 pixels per axis.',
+        'focused-room.hotspot-source-invalid',
+      ),
+    );
+    return null;
+  };
+  const roomHotspotSource =
+    room.hotspots.length > 0
+      ? hotspotSource(
+          room.background.asset?.$ref.id ?? null,
+          `/rooms/${roomId}/data/background/asset`,
+        )
+      : null;
+  const hotspots: RoomPreviewDocument['world']['hotspots'] = roomHotspotSource
+    ? room.hotspots.map((hotspot) => ({
+        ownerKind: 'room' as const,
+        ownerId: roomId,
+        hotspotId: hotspot.id,
+        label: hotspot.label,
+        condition: focusedCondition(hotspot.condition),
+        inputOrder: hotspot.inputOrder,
+        shape: { kind: 'rect' as const, bounds: { ...hotspot.shape.bounds } },
+        target: focusedRoomHotspotTarget(roomId, hotspot.target),
+        cursor: hotspot.cursor ? cursorName(hotspot.cursor) : projectHotspotCursorName(project),
+        ...roomHotspotSource,
+        placementId: null,
+      }))
+    : [];
+  for (const occurrence of interactables) {
+    const instance = project.interactableInstances[occurrence.interactableId];
+    const definition = instance
+      ? parseInteractableData(
+          recordForOwner(project, 'interactable', instance.definition.$ref.id)?.data,
+        )
+      : null;
+    if (!definition || definition.presentation.hotspots.kind === 'none') continue;
+    const source = hotspotSource(
+      definition.presentation.sprite?.$ref.id ?? null,
+      `/interactables/${instance?.definition.$ref.id ?? occurrence.interactableId}/data/presentation/sprite`,
+    );
+    if (!source) continue;
+    const fallbackCursor = definition.presentation.cursor
+      ? cursorName(definition.presentation.cursor)
+      : projectHotspotCursorName(project);
+    if (definition.presentation.hotspots.kind === 'sprite-alpha') {
+      const hotspot = definition.presentation.hotspots.hotspot;
+      hotspots.push({
+        ownerKind: 'interactable',
+        ownerId: occurrence.interactableId,
+        hotspotId: hotspot.id,
+        label: hotspot.label,
+        condition: focusedCondition(hotspot.condition),
+        inputOrder: hotspot.inputOrder,
+        shape: { kind: 'alpha' },
+        target: focusedInteractableHotspotTarget(occurrence.interactableId, hotspot.target),
+        cursor: fallbackCursor,
+        ...source,
+        placementId: occurrence.placementId,
+      });
+      continue;
+    }
+    for (const hotspot of definition.presentation.hotspots.hotspots) {
+      hotspots.push({
+        ownerKind: 'interactable',
+        ownerId: occurrence.interactableId,
+        hotspotId: hotspot.id,
+        label: hotspot.label,
+        condition: focusedCondition(hotspot.condition),
+        inputOrder: hotspot.inputOrder,
+        shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
+        target: focusedInteractableHotspotTarget(occurrence.interactableId, hotspot.target),
+        cursor: hotspot.cursor ? cursorName(hotspot.cursor) : fallbackCursor,
+        ...source,
+        placementId: occurrence.placementId,
+      });
+    }
+  }
   const layouts = buildLayouts(project, room, relevantSourceAnalysis, diagnostics);
   const targets = admissionTargets(graph, closure);
   const { admission, state } = buildAdmissionAndState(
@@ -985,6 +1140,46 @@ export async function buildFocusedRoomPreview(
     luaAdmission: admission as RoomPreviewDocument['luaAdmission'],
     queryState: state as RoomPreviewDocument['queryState'],
     shaderMaterials: { schema: 'noveltea.shader-materials', shaders: {}, materials: {} },
+    cursors: {
+      defaultCursor:
+        project.settings.cursors.defaults.default.kind === 'system'
+          ? project.settings.cursors.defaults.default.cursor
+          : project.settings.cursors.defaults.default.kind === 'named'
+            ? project.settings.cursors.defaults.default.id
+            : 'none',
+      pointerCursor:
+        project.settings.cursors.defaults.pointer.kind === 'system'
+          ? project.settings.cursors.defaults.pointer.cursor
+          : project.settings.cursors.defaults.pointer.kind === 'named'
+            ? project.settings.cursors.defaults.pointer.id
+            : 'none',
+      hotspotCursor:
+        project.settings.cursors.defaults.hotspot.kind === 'inherit'
+          ? project.settings.cursors.defaults.pointer.kind === 'system'
+            ? project.settings.cursors.defaults.pointer.cursor
+            : project.settings.cursors.defaults.pointer.kind === 'named'
+              ? project.settings.cursors.defaults.pointer.id
+              : 'none'
+          : project.settings.cursors.defaults.hotspot.kind === 'system'
+            ? project.settings.cursors.defaults.hotspot.cursor
+            : project.settings.cursors.defaults.hotspot.kind === 'named'
+              ? project.settings.cursors.defaults.hotspot.id
+              : 'none',
+      named: project.settings.cursors.named.flatMap((cursor) => {
+        const asset = parseAssetData(project.assets[cursor.image.$ref.id]?.data);
+        if (asset?.kind !== 'image' || !asset.imageMetadata) return [];
+        return [
+          {
+            id: cursor.id,
+            logicalPath: `project:/${asset.source.path}`,
+            width: asset.imageMetadata.width,
+            height: asset.imageMetadata.height,
+            hotspotX: cursor.hotspotX,
+            hotspotY: cursor.hotspotY,
+          },
+        ];
+      }),
+    },
     world: {
       presentationSpace: {
         size: { ...room.presentationSpace.size },
@@ -1088,6 +1283,7 @@ export async function buildFocusedRoomPreview(
         visible: item.visible,
         order: item.order,
       })),
+      hotspots,
     },
     layouts,
     ui: {
@@ -1151,6 +1347,7 @@ export async function buildFocusedRoomPreview(
   }
   const materialClosure = completeMaterialClosure(project, visual.materials);
   for (const id of materialClosure.assetIds) visual.assets.add(id);
+  for (const cursor of project.settings.cursors.named) visual.assets.add(cursor.image.$ref.id);
   for (const materialId of [...visual.materials].sort()) {
     const built = buildMaterialDefinition(project, materialId);
     diagnostics.push(

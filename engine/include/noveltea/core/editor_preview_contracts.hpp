@@ -334,6 +334,27 @@ struct TypedFocusedRoomWorldDefinition {
         bool visible = false;
         std::int32_t order = 0;
     };
+    struct HotspotTarget {
+        std::string kind;
+        std::string primary_id;
+        std::optional<std::string> secondary_id;
+    };
+    struct Hotspot {
+        std::string owner_kind;
+        std::string owner_id;
+        std::string hotspot_id;
+        std::string label;
+        TypedFocusedCondition condition;
+        std::int32_t input_order = 0;
+        bool alpha_shape = false;
+        std::optional<TypedFocusedNormalizedRect> bounds;
+        HotspotTarget target;
+        std::string cursor;
+        std::optional<AssetId> source_asset;
+        std::uint16_t source_width = 0;
+        std::uint16_t source_height = 0;
+        std::optional<std::string> placement_id;
+    };
     PresentationSpace presentation_space;
     std::vector<Anchor> anchors;
     Background background;
@@ -344,6 +365,7 @@ struct TypedFocusedRoomWorldDefinition {
     std::vector<Prop> props;
     std::vector<Environment> environments;
     std::vector<Overlay> overlays;
+    std::vector<Hotspot> hotspots;
 };
 
 struct TypedFocusedRoomUiDefinition {
@@ -356,6 +378,22 @@ struct TypedFocusedRoomUiDefinition {
     };
     TypedFocusedText description;
     std::vector<Exit> exits;
+};
+
+struct TypedEditorPreviewCursorDefinition {
+    std::string id;
+    std::string logical_path;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::uint32_t hotspot_x = 0;
+    std::uint32_t hotspot_y = 0;
+};
+
+struct TypedEditorPreviewCursorSettings {
+    std::string default_cursor = "default";
+    std::string pointer_cursor = "pointer";
+    std::string hotspot_cursor = "pointer";
+    std::vector<TypedEditorPreviewCursorDefinition> named;
 };
 
 struct TypedFocusedRoomCompositionDefinition {
@@ -377,6 +415,7 @@ struct TypedEditorRoomPreviewDocument {
     TypedFocusedRoomLuaAdmission lua_admission;
     TypedFocusedRoomQueryState query_state;
     ShaderMaterialProject shader_materials;
+    TypedEditorPreviewCursorSettings cursors;
     TypedFocusedRoomWorldDefinition world;
     TypedFocusedRoomUiDefinition ui;
     std::optional<TypedFocusedRoomCompositionDefinition> composition;
@@ -411,6 +450,7 @@ struct TypedEditorLayoutPreviewDocument {
     std::vector<LayoutResolvedInput> preview_inputs;
     std::optional<PersistableValue> preview_state;
     std::optional<ShaderMaterialProject> shader_materials;
+    TypedEditorPreviewCursorSettings cursors;
     TypedEditorAuthoredPreviewEnvironment environment;
 };
 

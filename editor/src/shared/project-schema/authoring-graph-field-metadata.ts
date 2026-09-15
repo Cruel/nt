@@ -447,8 +447,17 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #212 adds ordered Project and locale-specific font fallback references at the preserved
   // authoring schema version. They change the compiled text/localization projection and resource
   // dependency surface, so classify the new leaves explicitly instead of shifting legacy review slots.
+  [/^\/layouts\/\*\/data\/dependencies\/data(?:\/|$)/, OWNER],
   [/^\/settings\/text\/fontStack(?:\/|$)/, OWNER],
   [/^\/localization\/locales\/\*\/fontStack(?:\/|$)/, OWNER],
+  // #265 adds Project-global cursor defaults and named cursor definitions. Every cursor field
+  // changes the compiled Project cursor registry or one of its eager Asset dependencies.
+  [/^\/settings\/cursors(?:\/|$)/, OWNER],
+  // #267 adds cursor presentation to Room Hotspots, Interactable presentation fallback, and custom
+  // Interactable Hotspot overrides. These fields change only the owning compiled presentation.
+  [/^\/rooms\/\*\/data\/hotspots\/\*\/cursor(?:\/|$)/, OWNER],
+  [/^\/interactables\/\*\/data\/presentation\/cursor(?:\/|$)/, OWNER],
+  [/^\/interactables\/\*\/data\/presentation\/hotspots\/hotspots\/\*\/cursor(?:\/|$)/, OWNER],
 ]);
 
 function explicitFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
@@ -1000,20 +1009,20 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     entrypoint: 'a61673d4',
     export: '0ba5bfbc',
     interactableInstances: '33e3748f',
-    interactables: '29b3f7ad',
+    interactables: 'f78e903e',
     interactions: '8c02d069',
     inventories: 'a8c38dae',
-    layouts: '35da7f67',
+    layouts: 'b32b3a10',
     localization: '3cedd4cb',
     maps: '9d711bea',
     materials: '546711ca',
     prefetchHints: 'b985056c',
     project: 'da3be83d',
-    rooms: '32830ef1',
+    rooms: 'de4ff2d7',
     scenes: '9d060243',
     schema: '63fb9bb9',
     scripts: 'f3482815',
-    settings: '67b8f0c4',
+    settings: '7ffea374',
     shaders: '94d3aa6e',
     tests: '99f1bf10',
     traits: '371bbceb',

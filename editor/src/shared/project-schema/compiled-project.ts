@@ -999,6 +999,26 @@ const layoutScaleOverridesSchema = strict({
   ui: layoutScaleInheritanceSchema.optional(),
   text: layoutScaleInheritanceSchema.optional(),
 });
+const cursorSystemNameSchema = z.enum([
+  'default',
+  'pointer',
+  'text',
+  'wait',
+  'progress',
+  'crosshair',
+  'move',
+  'not-allowed',
+  'ns-resize',
+  'ew-resize',
+  'nesw-resize',
+  'nwse-resize',
+]);
+const cursorTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('system'), cursor: cursorSystemNameSchema }),
+  strict({ kind: z.literal('named'), id }),
+  strict({ kind: z.literal('none') }),
+]);
+
 const hotspotHighlightSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('default') }),
   strict({ kind: z.literal('material'), material: materialReferenceSchema }),
@@ -1020,6 +1040,7 @@ const hotspotCommonShape = {
   condition: compiledConditionSchema,
   inputOrder: z.number().int(),
   highlight: hotspotHighlightSchema,
+  cursor: cursorTargetSchema.nullable().default(null),
 };
 const roomHotspotRefSchema = strict({
   kind: z.literal('room-hotspot'),
@@ -1362,6 +1383,7 @@ const interactableDefinitionSchema = strict({
   presentation: strict({
     material: materialReferenceSchema.nullable(),
     sprite: assetReferenceSchema.nullable(),
+    cursor: cursorTargetSchema.nullable().default(null),
     hotspots: z.discriminatedUnion('kind', [
       strict({ kind: z.literal('none') }),
       strict({
@@ -2263,6 +2285,7 @@ const layoutResourceSchema = strict({
     materials: z.array(materialReferenceSchema),
     scripts: z.array(assetReferenceSchema),
     stylesheets: z.array(assetReferenceSchema),
+    data: z.array(assetReferenceSchema),
   }),
   id,
   kind: z.enum(['document', 'fragment']),
@@ -2375,6 +2398,11 @@ const compiledLocaleSchema = strict({
   }),
   catalogPath: z.string().min(1).optional(),
 });
+const cursorHotspotTargetSchema = z.union([
+  cursorTargetSchema,
+  strict({ kind: z.literal('inherit'), semantic: z.literal('pointer') }),
+]);
+
 const runtimeSettingsSchema = strict({
   display: strict({
     referenceResolution: strict({
@@ -2395,6 +2423,21 @@ const runtimeSettingsSchema = strict({
       maximum: positiveFiniteNumber,
       minimum: positiveFiniteNumber,
     }),
+  }),
+  cursors: strict({
+    defaults: strict({
+      default: cursorTargetSchema,
+      pointer: cursorTargetSchema,
+      hotspot: cursorHotspotTargetSchema,
+    }),
+    named: z.array(
+      strict({
+        id,
+        image: assetReferenceSchema,
+        hotspotX: z.number().int().nonnegative(),
+        hotspotY: z.number().int().nonnegative(),
+      }),
+    ),
   }),
   audio: strict({
     purposes: strict({

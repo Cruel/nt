@@ -3,6 +3,7 @@
 #include "noveltea/runtime_ui_contracts.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace noveltea::core {
@@ -29,6 +30,12 @@ public:
     virtual void set_runtime_notification(std::string notification) = 0;
     virtual void append_typed_runtime_diagnostics(core::Diagnostics diagnostics) = 0;
     virtual void clear_typed_runtime_diagnostics() = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    set_gameplay_cursor(std::string name) = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                              std::optional<std::uint32_t> hotspot_y) = 0;
+    virtual void clear_gameplay_cursor() noexcept = 0;
     [[nodiscard]] virtual core::ActiveTextPresentationPhase
     active_text_presentation_phase() const noexcept = 0;
     virtual void bind_title_document(const std::string& project_title, const std::string& subtitle,

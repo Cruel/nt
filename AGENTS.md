@@ -6,6 +6,10 @@
 
 Issues and specs live in GitHub Issues for `Cruel/nt`, managed with `gh`. See `docs/agents/issue-tracker.md`.
 
+### Development policy
+
+Before implementation work, read `docs/agents/development.md` for testing, Feature Lab applicability, documentation, and completion-report rules alongside upstream skills.
+
 ### Domain docs
 
 Planning, specs, tickets, and domain-language work use root `CONTEXT.md` as a glossary plus rare `docs/adr/` decision rationale. Read `docs/agents/domain.md` before that work.

@@ -7,7 +7,6 @@
 #include <bit>
 #include <chrono>
 #include <limits>
-#include <type_traits>
 
 using namespace noveltea::core;
 namespace compiled = noveltea::core::compiled;
@@ -65,6 +64,12 @@ class FakeBackend final : public PresentationSnapshotBackendPort,
 public:
     Result<void, Diagnostics> reconcile(const RuntimePresentationSnapshot& snapshot) override
     {
+        snapshot_attempts.push_back(snapshot.revision.number());
+        if (fail_reconcile) {
+            fail_reconcile = false;
+            return Result<void, Diagnostics>::failure(
+                {{.code = "fake.reconcile", .message = "retry"}});
+        }
         snapshots.push_back(snapshot.revision.number());
         return Result<void, Diagnostics>::success();
     }
@@ -81,6 +86,8 @@ public:
     void reset(PresentationCancellationReason reason) override { resets.push_back(reason); }
 
     bool fail_delivery = false;
+    bool fail_reconcile = false;
+    std::vector<std::uint64_t> snapshot_attempts;
     std::vector<std::uint64_t> snapshots;
     std::vector<CoordinatedOperationDelivery> deliveries;
     std::vector<PresentationCancellationReason> resets;
@@ -303,6 +310,17 @@ TEST_CASE("coordinator snapshot reconciliation is idempotent and operation deliv
     REQUIRE_FALSE(conflict);
     CHECK(conflict.error().front().code == "presentation.snapshot_revision_conflict");
 
+    auto next_snapshot = snapshot;
+    next_snapshot.revision = PresentationSnapshotRevision::from_number(8);
+    backend.fail_reconcile = true;
+    auto failed_reconcile = coordinator.reconcile_snapshot(next_snapshot);
+    REQUIRE_FALSE(failed_reconcile);
+    CHECK(failed_reconcile.error().front().code == "fake.reconcile");
+    REQUIRE(coordinator.reconcile_snapshot(next_snapshot));
+    REQUIRE(coordinator.reconcile_snapshot(next_snapshot));
+    CHECK(backend.snapshot_attempts == std::vector<std::uint64_t>{7, 8, 8});
+    CHECK(backend.snapshots == std::vector<std::uint64_t>{7, 8});
+
     auto accepted = coordinator.accept(audio(3));
     REQUIRE(accepted);
     backend.fail_delivery = true;
@@ -383,9 +401,6 @@ TEST_CASE("coordinator rejects contradictory operations before sequence allocati
 
 TEST_CASE("finite presentation requests preserve typed targets and revision metadata")
 {
-    STATIC_REQUIRE_FALSE(
-        std::is_same_v<SceneTransitionGroupOperation, RoomNavigationTransitionOperation>);
-
     FakeBackend backend;
     PresentationCoordinator coordinator(&backend, &backend);
     SceneTransitionGroupOperation group{

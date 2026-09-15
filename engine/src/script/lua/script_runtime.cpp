@@ -1,4 +1,5 @@
 #include "noveltea/script/script_runtime.hpp"
+#include "noveltea/core/data_asset.hpp"
 #include "noveltea/core/message_realization.hpp"
 #include "noveltea/script/runtime_script_api.hpp"
 
@@ -28,6 +29,47 @@ ScriptError make_error(ScriptErrorCode code, std::string message, std::string ch
     if (traceback.empty())
         traceback = message;
     return ScriptError{code, std::move(message), std::move(chunk), std::move(traceback)};
+}
+
+char data_null_sentinel;
+
+bool push_data_value(lua_State* state, const core::PersistableValue& value)
+{
+    if (!lua_checkstack(state, 4))
+        return false;
+    return std::visit(
+        [&](const auto& item) -> bool {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, std::monostate>)
+                lua_pushlightuserdata(state, &data_null_sentinel);
+            else if constexpr (std::is_same_v<T, bool>)
+                lua_pushboolean(state, item);
+            else if constexpr (std::is_same_v<T, std::int64_t>)
+                lua_pushinteger(state, item);
+            else if constexpr (std::is_same_v<T, double>)
+                lua_pushnumber(state, item);
+            else if constexpr (std::is_same_v<T, std::string>)
+                lua_pushlstring(state, item.data(), item.size());
+            else if constexpr (std::is_same_v<T, core::PersistableValue::Array>) {
+                lua_createtable(state, static_cast<int>(item.size()), 0);
+                lua_Integer index = 1;
+                for (const auto& child : item) {
+                    if (!push_data_value(state, child))
+                        return false;
+                    lua_rawseti(state, -2, index++);
+                }
+            } else {
+                lua_createtable(state, 0, static_cast<int>(item.size()));
+                for (const auto& [key, child] : item) {
+                    lua_pushlstring(state, key.data(), key.size());
+                    if (!push_data_value(state, child))
+                        return false;
+                    lua_rawset(state, -3);
+                }
+            }
+            return true;
+        },
+        value.value);
 }
 
 int traceback_handler(lua_State* state)
@@ -476,6 +518,7 @@ struct ScriptRuntime::Impl {
     std::unordered_map<std::uint64_t, int> environments;
     std::uint64_t next_environment = 1;
     std::unordered_map<std::string, ProjectModule> project_modules;
+    std::unordered_map<std::string, std::string> data_assets;
     std::optional<std::string> bootstrap_module;
     std::vector<runtime::ProjectHookRegistration> project_hooks;
     bool bootstrap_running = false;
@@ -626,6 +669,13 @@ core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig co
     lua_pushcclosure(state, &ScriptRuntime::message_ref_callback, 1);
     lua_setfield(state, -2, "msg_ref");
     lua_setglobal(state, "Text");
+    lua_newtable(state);
+    lua_pushlightuserdata(state, this);
+    lua_pushcclosure(state, &ScriptRuntime::data_load_callback, 1);
+    lua_setfield(state, -2, "load");
+    lua_pushlightuserdata(state, &data_null_sentinel);
+    lua_setfield(state, -2, "null");
+    lua_setglobal(state, "Data");
     m_impl->runtime_api = std::make_unique<RuntimeScriptApi>();
     bind_typed_script_host(m_impl->lua.lua_state(), m_impl->runtime_api.get());
     m_impl->initialized = true;
@@ -715,6 +765,49 @@ ScriptRuntime::certify_asset_source(std::string_view logical_path)
     return certify_asset(logical_path);
 }
 
+int ScriptRuntime::data_load_callback(lua_State* state)
+{
+    auto fail = [&](std::string_view message) {
+        lua_pushnil(state);
+        lua_pushlstring(state, message.data(), message.size());
+        return 2;
+    };
+    auto* runtime = static_cast<ScriptRuntime*>(lua_touserdata(state, lua_upvalueindex(1)));
+    if (!runtime || !runtime->is_initialized())
+        return fail("Data Asset provider is unavailable");
+    if (lua_gettop(state) != 1 || lua_type(state, 1) != LUA_TSTRING)
+        return fail("Data.load expects one registered JSON data Asset ID");
+    std::size_t size = 0;
+    const char* id = lua_tolstring(state, 1, &size);
+    const std::string asset_id(id, size);
+    std::string path;
+    if (lua_istable(state, lua_upvalueindex(2))) {
+        lua_pushvalue(state, 1);
+        lua_rawget(state, lua_upvalueindex(2));
+        if (lua_type(state, -1) == LUA_TSTRING) {
+            std::size_t path_size = 0;
+            const char* text = lua_tolstring(state, -1, &path_size);
+            path.assign(text, path_size);
+        }
+        lua_pop(state, 1);
+    } else if (const auto asset = runtime->m_impl->data_assets.find(asset_id);
+               asset != runtime->m_impl->data_assets.end()) {
+        path = asset->second;
+    }
+    if (path.empty())
+        return fail("Data.load requires a registered JSON data Asset ID");
+    auto value = runtime->m_impl->sources->read_data_asset(path);
+    if (!value)
+        return fail("Data Asset '" + asset_id + "': " + value.error());
+    const int top = lua_gettop(state);
+    if (!push_data_value(state, value.value())) {
+        lua_settop(state, top);
+        return fail("Data Asset exceeds the Lua stack capacity");
+    }
+    lua_pushnil(state);
+    return 2;
+}
+
 void ScriptRuntime::clear_project_modules() noexcept
 {
     if (!m_impl)
@@ -726,6 +819,7 @@ void ScriptRuntime::clear_project_modules() noexcept
             destroy_environment(module.environment);
     }
     m_impl->project_modules.clear();
+    clear_project_data_assets();
     m_impl->bootstrap_module.reset();
     m_impl->localization.reset();
     m_impl->runtime_locale.clear();
@@ -750,6 +844,7 @@ ScriptRuntime::prepare_project_modules(const core::CompiledProject& project)
     m_impl->runtime_api->clear_capabilities();
     m_impl->localization = project.localization();
     m_impl->runtime_locale = project.localization().default_locale;
+    synchronize_project_data_assets(project);
     for (const auto& resource : project.scripts()) {
         Impl::ProjectModule module;
         if (const auto* inline_source =
@@ -1500,6 +1595,49 @@ core::Result<std::string, ScriptError> ScriptRuntime::evaluate_string(std::strin
     return Result::failure(make_error(ScriptErrorCode::InvalidResult,
                                       "expression did not evaluate to string",
                                       std::string(chunk_name)));
+}
+
+void ScriptRuntime::synchronize_project_data_assets(const core::CompiledProject& project)
+{
+    if (!m_impl)
+        return;
+    m_impl->data_assets.clear();
+    for (const auto& asset : project.assets()) {
+        if (asset.kind == core::compiled::AssetKind::Data &&
+            core::is_json_data_asset_path(asset.path))
+            m_impl->data_assets.emplace(asset.id.text(), "project:/" + asset.path);
+    }
+}
+
+void ScriptRuntime::clear_project_data_assets() noexcept
+{
+    if (m_impl)
+        m_impl->data_assets.clear();
+}
+
+core::Result<ScriptEnvironmentHandle, ScriptError>
+ScriptRuntime::create_environment(std::span<const DataAssetBinding> data_assets)
+{
+    auto result = create_environment();
+    if (!result)
+        return result;
+    lua_State* state = m_impl->lua.lua_state();
+    lua_rawgeti(state, LUA_REGISTRYINDEX, m_impl->environment_reference(result.value()));
+    lua_newtable(state);
+    lua_pushlightuserdata(state, &data_null_sentinel);
+    lua_setfield(state, -2, "null");
+    lua_pushlightuserdata(state, this);
+    lua_newtable(state);
+    for (const auto& asset : data_assets) {
+        lua_pushlstring(state, asset.id.text().data(), asset.id.text().size());
+        lua_pushlstring(state, asset.logical_path.data(), asset.logical_path.size());
+        lua_rawset(state, -3);
+    }
+    lua_pushcclosure(state, &ScriptRuntime::data_load_callback, 2);
+    lua_setfield(state, -2, "load");
+    lua_setfield(state, -2, "Data");
+    lua_pop(state, 1);
+    return result;
 }
 
 core::Result<ScriptEnvironmentHandle, ScriptError> ScriptRuntime::create_environment()

@@ -6,6 +6,7 @@
 #include "noveltea/core/runtime_diagnostic_context.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <limits>
@@ -619,6 +620,56 @@ core::Diagnostics RuntimeSession::settle_transaction()
         .elapsed = m_transaction_elapsed};
     auto settled = m_checkpoint_service.settle(m_kernel->state(), facts, mutations);
     return settled ? core::Diagnostics{} : std::move(settled).error();
+}
+
+core::Result<void, core::Diagnostics> RuntimeSession::set_gameplay_cursor(std::string name)
+{
+    static constexpr std::array<std::string_view, 13> system_names{
+        "default",     "pointer",   "text",      "wait",        "progress",    "crosshair", "move",
+        "not-allowed", "ns-resize", "ew-resize", "nesw-resize", "nwse-resize", "none"};
+    const bool system = std::ranges::find(system_names, name) != system_names.end();
+    const bool named = std::ranges::any_of(m_project.settings().cursors.named,
+                                           [&](const auto& cursor) { return cursor.id == name; });
+    if (!system && !named) {
+        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{diagnostic(
+            "runtime.cursor.invalid_name", "Unknown gameplay cursor name '" + name + "'")});
+    }
+    return m_presentation.set_gameplay_cursor(std::move(name));
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeSession::set_gameplay_cursor_image(core::AssetId asset,
+                                          std::optional<std::uint32_t> hotspot_x,
+                                          std::optional<std::uint32_t> hotspot_y)
+{
+    if (hotspot_x.has_value() != hotspot_y.has_value()) {
+        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
+            diagnostic("runtime.cursor.invalid_hotspot",
+                       "Cursor hotspot_x and hotspot_y must be provided together")});
+    }
+    const auto* definition = m_project.find_asset(asset);
+    if (definition == nullptr || definition->kind != core::compiled::AssetKind::Image ||
+        !definition->width || !definition->height || *definition->width == 0 ||
+        *definition->height == 0) {
+        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{diagnostic(
+            "runtime.cursor.invalid_image_asset",
+            "Gameplay cursor images require an existing Image Asset ID with dimensions")});
+    }
+    if (hotspot_x && (*hotspot_x >= *definition->width || *hotspot_y >= *definition->height)) {
+        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
+            diagnostic("runtime.cursor.invalid_hotspot",
+                       "Gameplay cursor hotspot must be inside the source image")});
+    }
+    if (!hotspot_x) {
+        hotspot_x = *definition->width / 2;
+        hotspot_y = *definition->height / 2;
+    }
+    return m_presentation.set_gameplay_cursor_image(std::move(asset), hotspot_x, hotspot_y);
+}
+
+core::Result<void, core::Diagnostics> RuntimeSession::clear_gameplay_cursor()
+{
+    return m_presentation.clear_gameplay_cursor();
 }
 
 void RuntimeSession::queue_input(core::RuntimeInputMessage input)

@@ -97,6 +97,43 @@ not diverge.
 
 See `docs/ui/RMLUI_RUNTIME_UI.md` for baseline ownership, provenance, cascade order, and update policy.
 
+### Cursor semantics and Layout ownership
+
+Layout RCSS uses the ordinary inherited `cursor` property. `auto` contributes no RmlUi cursor request;
+`default` explicitly selects the Project Default cursor; `none` hides the native cursor; the canonical
+system semantic names select their corresponding native shapes; and a Project named cursor ID selects
+that reusable Project definition. Statically knowable unknown names are authoring errors. Named cursors
+own their Project-global image dependency, so a Layout does not repeat that image in
+`dependencies.images` merely to use `cursor: <named-id>`.
+
+Layout Lua uses the same `noveltea.presentation.cursor.set`, `set_image`, `hide`, and `clear` surface
+as gameplay Lua, but calls made from a Layout are owned by that exact live Mount occurrence. The
+request remains stored while the Mount is hidden, is eligible whenever that occurrence is visible even
+with `input: None`, follows front-to-back presentation order against other Layout Mounts, and is
+removed automatically on unmount or occurrence replacement. `clear()` removes only that Mount's
+request; it cannot clear a Runtime Session-owned gameplay cursor underneath it.
+
+### RCSS cursor images
+
+Layout RCSS may select a one-off native custom cursor with `cursor: image(source)`. The form accepts
+exactly one quoted or unquoted RmlUi resource source; it does not add hotspot, scale, fallback, or
+animation syntax. Relative paths use the Layout document's normal RmlUi resource resolution, and
+`project:/` and `system:/` logical resources remain available under the same namespace rules as other
+RmlUi assets. Filesystem and network URL schemes are not admitted.
+
+A `project:/` cursor image must already be an Image Asset in that Layout's declared `dependencies.images`
+closure. Cursor parsing never discovers or adds a dependency. The compiler diagnoses statically
+resolvable missing dependencies, wrong Asset kinds, malformed `image(...)` forms, and unknown literal
+cursor names; dynamic RCSS values are validated when RmlUi resolves them at runtime. Focused Layout
+preview uses the same admitted resource manifest as runtime.
+
+Direct image cursors use hotspot `(0,0)`. Source images up to 128×128 retain their authored pixel
+size; larger images are fitted within 128×128 while preserving aspect ratio and use the Image Asset's
+nearest/linear sampling policy when available. Cursor pixels remain in the native cursor domain and
+are not affected by Project reference resolution or UI/text accessibility scale. Resolution failures
+or native cursor-realization failures diagnose and fall through the centralized cursor
+arbitration path rather than failing gameplay.
+
 ## Data Model
 
 ### Layout Kind
@@ -311,6 +348,7 @@ interface LayoutDependencyData {
   stylesheets: LayoutAssetRef[];
   materials: LayoutMaterialRef[];
   scripts: LayoutAssetRef[];
+  data?: LayoutAssetRef[];
 }
 ```
 
@@ -339,6 +377,7 @@ Layouts can reference:
 - font assets;
 - stylesheet/text assets;
 - script assets;
+- JSON-backed data assets used through `Data.load(assetId)`;
 - material records;
 - other layout records through project settings such as `settings.ui.systemLayouts.title` or `settings.ui.systemLayouts.game-hud`.
 
@@ -359,7 +398,7 @@ Asset and material refs use the standard `$ref` collection/id shape.
 - script namespace `layout_preview`;
 - mount parent `nt-layout-preview-mount`;
 - target-derived UI/text scale inheritance;
-- empty dependency lists;
+- empty dependency lists, including data dependencies;
 - document `sampleState.state` seeded to `{ saved_count: 0 }` (fragment sample state is empty);
 - dark preview background.
 
@@ -384,6 +423,7 @@ Layout validation checks:
 - Lua present while script execution disabled is informational;
 - duplicate dependency refs produce warnings;
 - image/font/stylesheet/script dependency kind or extension mismatches produce warnings;
+- data dependencies must resolve to JSON-backed `data` Assets;
 - missing material dependencies are errors;
 - default layout setting points to an existing layout when configured.
 

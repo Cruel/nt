@@ -3112,7 +3112,8 @@
               "id": "text-rcss",
               "kind": "asset"
             }
-          ]
+          ],
+          "data": []
         },
         "id": "hud-assets",
         "kind": "fragment",
@@ -3182,7 +3183,8 @@
               "id": "text-rcss",
               "kind": "asset"
             }
-          ]
+          ],
+          "data": []
         },
         "id": "hud-inline",
         "kind": "document",
@@ -3254,7 +3256,7 @@
       }
     ]
   },
-  "saveContract": "sc1:c22f8c4ba7e0bd01dca83fbba7a7a77d",
+  "saveContract": "sc1:b2400315276b9aabd5a18005aa5f2d37",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {
@@ -3269,6 +3271,23 @@
         "maximum": 2,
         "minimum": 1
       }
+    },
+    "cursors": {
+      "defaults": {
+        "default": {
+          "kind": "system",
+          "cursor": "default"
+        },
+        "pointer": {
+          "kind": "system",
+          "cursor": "pointer"
+        },
+        "hotspot": {
+          "kind": "inherit",
+          "semantic": "pointer"
+        }
+      },
+      "named": []
     },
     "audio": {
       "purposes": {

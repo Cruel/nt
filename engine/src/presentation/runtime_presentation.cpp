@@ -615,8 +615,7 @@ Result<RuntimePresentationSnapshot, Diagnostics>
 RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& resolution,
                                            const RoomPresentationVisualCatalog& visuals)
 {
-    RoomPresentationResolution passive = resolution;
-    passive.presentation.hotspots.clear();
+    const auto& passive = resolution;
     RuntimePresentationSnapshot result;
     Diagnostics diagnostics;
     result.mode = PresentationRuntimeMode::Room;
@@ -728,6 +727,32 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
             std::move(*stop_key.value_if()), environment.asset, environment.material,
             environment.bounds, environment.plane, environment.order, environment.clock,
             environment.scroll_per_second, environment.opacity, environment.visible});
+    }
+    for (const auto& hotspot : passive.presentation.hotspots) {
+        const auto visual =
+            std::find_if(visuals.hotspots.begin(), visuals.hotspots.end(),
+                         [&](const auto& value) { return value.ref == hotspot.ref; });
+        if (visual == visuals.hotspots.end() || visual->source_width == 0 ||
+            visual->source_height == 0) {
+            diagnostics.push_back(invalid("presentation.hotspot_source_image_invalid",
+                                          "Presented hotspot requires a dimensioned source image"));
+            continue;
+        }
+        const auto shape = std::visit(
+            [](const auto& value) -> std::variant<AlphaHotspotShape, compiled::NormalizedRect> {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, std::monostate>)
+                    return AlphaHotspotShape{};
+                else
+                    return value.bounds;
+            },
+            hotspot.shape);
+        result.hotspots.push_back({hotspot.ref, hotspot.label, hotspot.condition_eligible,
+                                   hotspot.target_available, hotspot.target, shape,
+                                   hotspot.input_order, hotspot.highlight, visual->source_image,
+                                   visual->source_width, visual->source_height,
+                                   hotspot.interactable_placement, hotspot.interactable_bounds,
+                                   hotspot.owner_plane, hotspot.owner_order, hotspot.cursor});
     }
     canonicalize(result);
     if (!diagnostics.empty())
@@ -898,7 +923,7 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
              hotspot.target, shape, hotspot.input_order, hotspot.highlight, *source,
              static_cast<std::uint16_t>(*image->width), static_cast<std::uint16_t>(*image->height),
              hotspot.interactable_placement, hotspot.interactable_bounds, hotspot.owner_plane,
-             hotspot.owner_order});
+             hotspot.owner_order, hotspot.cursor});
     }
     canonicalize(result);
     if (!diagnostics.empty())

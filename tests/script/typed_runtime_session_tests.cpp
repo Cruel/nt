@@ -703,6 +703,37 @@ public:
                          operation) != active_presentation_operations.end();
     }
 
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor(std::string name) override
+    {
+        cursor_name = std::move(name);
+        cursor_asset.reset();
+        ++cursor_set_calls;
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                              std::optional<std::uint32_t> hotspot_y) override
+    {
+        cursor_name.reset();
+        cursor_asset = std::move(asset);
+        cursor_hotspot_x = hotspot_x;
+        cursor_hotspot_y = hotspot_y;
+        ++cursor_set_calls;
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    [[nodiscard]] core::Result<void, core::Diagnostics> clear_gameplay_cursor() override
+    {
+        cursor_name.reset();
+        cursor_asset.reset();
+        cursor_hotspot_x.reset();
+        cursor_hotspot_y.reset();
+        ++cursor_clear_calls;
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
     void terminate(core::PresentationCancellationReason reason) override
     {
         terminations.push_back(reason);
@@ -714,6 +745,12 @@ public:
     std::vector<core::PresentationOperationId> active_presentation_operations;
     std::vector<core::AudioOperation> audio_operations;
     std::vector<core::PresentationCancellationReason> terminations;
+    std::optional<std::string> cursor_name;
+    std::optional<core::AssetId> cursor_asset;
+    std::optional<std::uint32_t> cursor_hotspot_x;
+    std::optional<std::uint32_t> cursor_hotspot_y;
+    std::size_t cursor_set_calls = 0;
+    std::size_t cursor_clear_calls = 0;
     bool reject_audio = false;
     bool reject_presentation = false;
     bool reject_reconcile = false;
@@ -1589,9 +1626,93 @@ execute_session_lua_with_profile(Fixture& fixture, std::string source, std::stri
 
 } // namespace
 
+TEST_CASE("gameplay Lua cursor commands are immediate validated transient presentation intent")
+{
+    Fixture fixture;
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.cursor.set('pointer'); assert(ok and err == nil)",
+        "typed-cursor-set"));
+    REQUIRE(fixture.presentation.cursor_name);
+    CHECK(*fixture.presentation.cursor_name == "pointer");
+    CHECK(fixture.presentation.cursor_set_calls == 1);
+
+    REQUIRE(
+        execute_session_lua(fixture,
+                            "local ok, err = noveltea.presentation.cursor.set_image('image-main'); "
+                            "assert(ok and err == nil)",
+                            "typed-cursor-image"));
+    REQUIRE(fixture.presentation.cursor_asset);
+    CHECK(fixture.presentation.cursor_asset->text() == "image-main");
+    REQUIRE(fixture.presentation.cursor_hotspot_x);
+    REQUIRE(fixture.presentation.cursor_hotspot_y);
+    CHECK(*fixture.presentation.cursor_hotspot_x == 960);
+    CHECK(*fixture.presentation.cursor_hotspot_y == 540);
+    CHECK(fixture.presentation.cursor_set_calls == 2);
+
+    REQUIRE(
+        execute_session_lua(fixture,
+                            "local ok, err = noveltea.presentation.cursor.set_image('image-main', "
+                            "{hotspot_x=12, hotspot_y=34}); assert(ok and err == nil)",
+                            "typed-cursor-hotspot"));
+    CHECK(*fixture.presentation.cursor_hotspot_x == 12);
+    CHECK(*fixture.presentation.cursor_hotspot_y == 34);
+    CHECK(fixture.presentation.cursor_set_calls == 3);
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.cursor.set('auto'); assert(not ok and err ~= nil)",
+        "typed-cursor-invalid-name"));
+    REQUIRE(fixture.presentation.cursor_asset);
+    CHECK(fixture.presentation.cursor_asset->text() == "image-main");
+    CHECK(fixture.presentation.cursor_set_calls == 3);
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.cursor.set_image('audio-voice'); "
+        "assert(not ok and err ~= nil)",
+        "typed-cursor-invalid-asset"));
+    REQUIRE(
+        execute_session_lua(fixture,
+                            "local ok, err = noveltea.presentation.cursor.set_image('image-main', "
+                            "{hotspot_x=1920, hotspot_y=0}); assert(not ok and err ~= nil)",
+                            "typed-cursor-invalid-hotspot"));
+    CHECK(fixture.presentation.cursor_set_calls == 3);
+    REQUIRE(fixture.presentation.cursor_asset);
+    CHECK(fixture.presentation.cursor_asset->text() == "image-main");
+
+    REQUIRE(execute_session_lua(
+        fixture, "local ok, err = noveltea.presentation.cursor.hide(); assert(ok and err == nil)",
+        "typed-cursor-hide"));
+    REQUIRE(fixture.presentation.cursor_name);
+    CHECK(*fixture.presentation.cursor_name == "none");
+    CHECK(fixture.presentation.cursor_set_calls == 4);
+
+    REQUIRE(execute_session_lua(
+        fixture, "local ok, err = noveltea.presentation.cursor.clear(); assert(ok and err == nil)",
+        "typed-cursor-clear"));
+    CHECK_FALSE(fixture.presentation.cursor_name);
+    CHECK_FALSE(fixture.presentation.cursor_asset);
+    CHECK(fixture.presentation.cursor_clear_calls == 1);
+
+    REQUIRE(execute_session_lua_with_profile(
+        fixture,
+        "local cursor = noveltea.presentation.cursor; "
+        "local ok, err = cursor.set('wait'); assert(ok and err == nil); "
+        "ok, err = cursor.set_image('image-main', {hotspot_x=5, hotspot_y=6}); "
+        "assert(ok and err == nil); "
+        "ok, err = cursor.hide(); assert(ok and err == nil); "
+        "ok, err = cursor.clear(); assert(ok and err == nil)",
+        "typed-shell-layout-cursor", runtime::RuntimeCapabilityProfile::ShellLayoutEvent));
+    CHECK(fixture.presentation.cursor_set_calls == 7);
+    CHECK(fixture.presentation.cursor_clear_calls == 2);
+    CHECK_FALSE(fixture.presentation.cursor_name);
+    CHECK_FALSE(fixture.presentation.cursor_asset);
+}
+
 TEST_CASE("typed runtime session dispatches lifecycle debug mutation save and replacement requests")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 40);
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);

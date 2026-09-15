@@ -5,7 +5,7 @@ import { isRegisteredLuaExplicitFallbackOwner } from './authoring-lua-source-reg
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
-export const AUTHORING_SOURCE_ANALYZER_VERSION = 'lua-rml-v3' as const;
+export const AUTHORING_SOURCE_ANALYZER_VERSION = 'lua-rml-v4' as const;
 export const LUA_REFERENCE_ANALYSIS_LIMITS = {
   maxSourceBytes: 4 * 1024 * 1024,
   maxSnapshotBytes: 64 * 1024 * 1024,
@@ -153,6 +153,21 @@ export type OwnerNeutralLiteralOccurrence = Omit<
   AuthoringLiteralOccurrence,
   'sourcePath' | 'sourceAssetId'
 >;
+export type AuthoringCursorSourceKind = 'rcss' | 'rml-style' | 'rml-style-attribute';
+export interface OwnerNeutralCursorNameOccurrence {
+  sourceUrl: string;
+  sourceContentHash: `sha256:${string}`;
+  startUtf16: number;
+  endUtf16: number;
+  line: number;
+  column: number;
+  name: string;
+  sourceKind: AuthoringCursorSourceKind;
+}
+export interface AuthoringCursorNameOccurrence extends OwnerNeutralCursorNameOccurrence {
+  sourcePath: string;
+  sourceAssetId?: string;
+}
 export interface OwnerNeutralSourceDiagnostic {
   code: string;
   severity: 'warning' | 'error';
@@ -167,6 +182,7 @@ export interface AuthoringSourceContentArtifact {
   sourceContentFingerprint: `sha256:${string}`;
   regions: readonly OwnerNeutralEmbeddedLuaSourceRegion[];
   literalOccurrences: readonly OwnerNeutralLiteralOccurrence[];
+  cursorNameOccurrences: readonly OwnerNeutralCursorNameOccurrence[];
   managedMessageOccurrences: readonly OwnerNeutralManagedLuaMessageOccurrence[];
   diagnostics: readonly OwnerNeutralSourceDiagnostic[];
   complete: boolean;
@@ -179,6 +195,7 @@ export interface AuthoringSourceAnalysisArtifact<TDiagnostic = unknown> {
   sourceAssetIds: readonly string[];
   regions: readonly EmbeddedLuaSourceRegion[];
   literalOccurrences: readonly AuthoringLiteralOccurrence[];
+  cursorNameOccurrences: readonly AuthoringCursorNameOccurrence[];
   managedMessageOccurrences: readonly AuthoringManagedLuaMessageOccurrence[];
   diagnostics: readonly TDiagnostic[];
   complete: boolean;

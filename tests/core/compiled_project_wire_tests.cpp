@@ -108,7 +108,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:d9f3bc46876a991cbc2af9b63d9033d8");
+    CHECK(project.save_contract == "sc1:d0fd97b4ad602d323abf16e4b45d8d5e");
     CHECK(project.properties.size() == 14);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -900,6 +900,19 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         const auto* diagnostic = find_code(result.error(), "compiled_project.unknown_field");
         REQUIRE(diagnostic != nullptr);
         CHECK(diagnostic->json_pointer == "/definitions/characters/0/legacyParent");
+    }
+
+    SECTION("missing current Layout data dependency field")
+    {
+        auto document = fixture("comprehensive");
+        auto* dependencies = path_member(document, {"resources", "layouts", "0", "dependencies"});
+        REQUIRE(dependencies != nullptr);
+        dependencies->erase("data");
+        auto result = decode_shared_project(document, "comprehensive.json");
+        REQUIRE_FALSE(result);
+        const auto* diagnostic = find_code(result.error(), "compiled_project.missing_field");
+        REQUIRE(diagnostic != nullptr);
+        CHECK(diagnostic->json_pointer == "/resources/layouts/0/dependencies/data");
     }
 
     SECTION("wrong shared type")

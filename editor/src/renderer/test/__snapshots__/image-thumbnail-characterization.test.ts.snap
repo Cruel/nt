@@ -1,71 +1,11 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`image thumbnail characterization > records pure tier-selection vectors 1`] = `
+exports[`image thumbnail characterization > locks every current project asset URL consumer to the reviewed direct-image boundary 1`] = `
 [
-  {
-    "fit": "cover",
-    "name": "square-cover",
-    "required": [
-      96,
-      96,
-    ],
-    "source": [
-      1000,
-      1000,
-    ],
-    "tier": 192,
-  },
-  {
-    "fit": "cover",
-    "name": "portrait-cover",
-    "required": [
-      192,
-      96,
-    ],
-    "source": [
-      500,
-      1000,
-    ],
-    "tier": 384,
-  },
-  {
-    "fit": "contain",
-    "name": "panorama-contain",
-    "required": [
-      192,
-      96,
-    ],
-    "source": [
-      2000,
-      500,
-    ],
-    "tier": 192,
-  },
-  {
-    "fit": "contain",
-    "name": "low-resolution",
-    "required": [
-      192,
-      96,
-    ],
-    "source": [
-      64,
-      32,
-    ],
-    "tier": 192,
-  },
-  {
-    "fit": "contain",
-    "name": "high-dpr",
-    "required": [
-      384,
-      384,
-    ],
-    "source": [
-      1000,
-      1000,
-    ],
-    "tier": 384,
-  },
+  "src/renderer/components/hotspots/HotspotAuthoringPanel.tsx",
+  "src/renderer/editors/assets/AssetPreview.tsx",
+  "src/renderer/editors/comfyui/ImageGenerationEditor.tsx",
+  "src/renderer/editors/project/ProjectSettingsEditor.tsx",
+  "src/renderer/editors/rooms/RoomEditor.tsx",
 ]
 `;

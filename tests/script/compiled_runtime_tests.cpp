@@ -777,12 +777,17 @@ TEST_CASE("running-game creation failure leaves presentation integration untouch
     CHECK(runtime.scripts.is_initialized());
 }
 
-TEST_CASE("compiled runtime certifies modules then executes Bootstrap in module-local state")
+TEST_CASE("compiled runtime certifies unused modules before executing Bootstrap")
 {
     RuntimeFixture runtime;
 
     auto invalid = fixture("minimal");
-    invalid["resources"]["scripts"][0]["source"]["source"] = "local =";
+    auto unused = invalid["resources"]["scripts"][0];
+    unused["id"] = "unused-module";
+    unused["source"]["source"] = "local =";
+    invalid["resources"]["scripts"].push_back(std::move(unused));
+    invalid["resources"]["scripts"][0]["source"]["source"] =
+        "error('Bootstrap must not run before certification')\nreturn {}";
     auto rejected = runtime::load_running_game(load_input(std::move(invalid)), runtime.scripts,
                                                runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected.has_value());

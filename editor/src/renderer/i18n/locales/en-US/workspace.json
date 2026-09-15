@@ -1,4 +1,5 @@
 {
+  "layoutDataAssets": "JSON Data Assets",
   "projectImport": {
     "title": "Import NovelTea Project",
     "remoteDescription": "Verify and import the project downloaded from the NovelTea handoff link.",
@@ -654,6 +655,46 @@
   "preview": {
     "show": "Show Preview"
   },
+  "projectSettings": {
+    "cursors": {
+      "categoryLabel": "Cursors",
+      "categoryDescription": "Semantic cursor defaults and Project-global named cursors.",
+      "testPadReady": "Move the pointer here to test this cursor.",
+      "testPadUnavailable": "Cursor preview is unavailable.",
+      "defaultsTitle": "Defaults",
+      "defaultsDescription": "Choose the semantic Project Default, Pointer, and Hotspot cursors. Hotspot inherits Pointer unless explicitly overridden.",
+      "semantic": {
+        "default": "Default",
+        "pointer": "Pointer",
+        "hotspot": "Hotspot"
+      },
+      "inheritPointer": "Inherit Pointer",
+      "noneHidden": "None (hidden)",
+      "systemOption": "System: {{cursor}}",
+      "namedOption": "Named: {{id}}",
+      "namedTitle": "Named Cursors",
+      "namedDescription": "Project-global custom cursors use a physical Image Asset and a source-pixel hotspot. Images must be at most 128×128 pixels.",
+      "add": "Add Cursor",
+      "empty": "No named cursors. System cursor defaults remain available without custom artwork.",
+      "missingImage": "Missing image",
+      "hotspotAria": "Hotspot {{x}}, {{y}}",
+      "id": "ID",
+      "imageAsset": "Image Asset",
+      "hotspotX": "Hotspot X",
+      "hotspotY": "Hotspot Y",
+      "sourcePixels": "{{width}}×{{height}} source pixels",
+      "dimensionsUnavailable": "Image dimensions unavailable",
+      "deleteAria": "Delete cursor {{id}}",
+      "test": "Test Cursor",
+      "renameCommand": "Rename cursor {{id}}",
+      "deleteCommand": "Delete cursor {{id}}",
+      "forceDeleteCommand": "Force delete cursor {{id}}",
+      "forceDeleteTitle": "Force Delete Named Cursor?",
+      "forceDeleteDescription": "This cursor still has known references. Force Delete removes only the cursor definition; Project defaults, Hotspots, RCSS, and Lua source are not silently retargeted. Validation will continue to report the dangling references until you repair them.",
+      "cancel": "Cancel",
+      "forceDelete": "Force Delete"
+    }
+  },
   "hookRegistryResolution": {
     "summary": {
       "resolved": "Resolved statically: {{handler}}",
@@ -899,7 +940,14 @@
       "operator": "Operator",
       "value": "Value",
       "luaPredicate": "Lua predicate",
+      "cursor": "Cursor",
       "target": "Target"
+    },
+    "cursor": {
+      "projectDefault": "Project Hotspot default",
+      "interactableDefault": "Interactable presentation fallback",
+      "none": "None",
+      "missingNamed": "Missing named cursor: {{id}}"
     },
     "highlight": {
       "default": "Default",

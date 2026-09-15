@@ -220,6 +220,25 @@ const focusedWorldRectSchema = strict({
   width: z.number().finite().positive(),
   height: z.number().finite().positive(),
 });
+const focusedHotspotTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('character'), characterId: z.string().min(1) }),
+  strict({ kind: z.literal('interactable'), interactableId: z.string().min(1) }),
+  strict({
+    kind: z.literal('room-feature'),
+    roomId: z.string().min(1),
+    featureId: z.string().min(1),
+  }),
+  strict({
+    kind: z.literal('interactable-feature'),
+    interactableId: z.string().min(1),
+    featureId: z.string().min(1),
+  }),
+  strict({ kind: z.literal('exit'), roomId: z.string().min(1), exitId: z.string().min(1) }),
+]);
+const focusedHotspotShapeSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('alpha') }),
+  strict({ kind: z.literal('rect'), bounds: normalizedRect }),
+]);
 
 export const focusedRoomWorldDefinitionSchema = strict({
   presentationSpace: strict({
@@ -314,6 +333,23 @@ export const focusedRoomWorldDefinitionSchema = strict({
       layoutId: z.string().min(1),
       visible: z.boolean(),
       order: z.number().int(),
+    }),
+  ),
+  hotspots: z.array(
+    strict({
+      ownerKind: z.enum(['room', 'interactable']),
+      ownerId: z.string().min(1),
+      hotspotId: z.string().min(1),
+      label: z.string().min(1),
+      condition: focusedConditionSchema,
+      inputOrder: z.number().int(),
+      shape: focusedHotspotShapeSchema,
+      target: focusedHotspotTargetSchema,
+      cursor: z.string().min(1),
+      sourceAssetId: z.string().min(1),
+      sourceWidth: z.number().int().positive().max(65535),
+      sourceHeight: z.number().int().positive().max(65535),
+      placementId: z.string().min(1).nullable(),
     }),
   ),
 });
@@ -455,6 +491,22 @@ export const focusedRoomCompositionDefinitionSchema = strict({
 
 export const focusedShaderMaterialProjectSchema = shaderMaterialProjectWireSchema;
 
+export const focusedPreviewCursorSettingsSchema = strict({
+  defaultCursor: z.string().min(1),
+  pointerCursor: z.string().min(1),
+  hotspotCursor: z.string().min(1),
+  named: z.array(
+    strict({
+      id: z.string().min(1),
+      logicalPath: safeProjectLogicalPath,
+      width: z.number().int().positive(),
+      height: z.number().int().positive(),
+      hotspotX: z.number().int().nonnegative(),
+      hotspotY: z.number().int().nonnegative(),
+    }),
+  ),
+});
+
 export const roomPreviewDocumentSchema = strict({
   schema: z.literal('noveltea.room-preview'),
   environment: focusedRoomPreviewEnvironmentSchema,
@@ -462,6 +514,7 @@ export const roomPreviewDocumentSchema = strict({
   luaAdmission: focusedLuaAdmissionSchema,
   queryState: focusedRoomQueryStateSchema,
   shaderMaterials: focusedShaderMaterialProjectSchema,
+  cursors: focusedPreviewCursorSettingsSchema,
   world: focusedRoomWorldDefinitionSchema,
   layouts: z.array(focusedRoomLayoutDefinitionSchema),
   ui: focusedRoomUiDefinitionSchema,

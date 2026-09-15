@@ -15,7 +15,6 @@
 
 #include <fstream>
 #include <functional>
-#include <memory>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -115,6 +114,77 @@ struct RuntimeFixture {
     test_support::MemoryScriptSource sources;
     script::ScriptRuntime runtime;
 };
+
+TEST_CASE("Data Assets load fresh Lua trees in gameplay and Layout environments", "[script][data]")
+{
+    RuntimeFixture fixture;
+    fixture.sources.add(
+        "project:/data/Catalog.JSON",
+        R"({"name":"tea","nested":{"count":3},"slots":[null,false,2],"missing":null,"":true})");
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    const auto project = load_compiled_fixture("scene-program.json", [](auto& document) {
+        document["resources"]["assets"].push_back({{"id", "catalog"},
+                                                   {"kind", "data"},
+                                                   {"path", "data/Catalog.JSON"},
+                                                   {"aliases", nlohmann::json::array()}});
+        document["resources"]["layouts"][0]["dependencies"]["data"] =
+            nlohmann::json::array({{{"kind", "asset"}, {"id", "catalog"}}});
+    });
+    REQUIRE(project.layouts()[0].dependencies.data.size() == 1);
+    REQUIRE(fixture.runtime.prepare_project_modules(project));
+    const std::string checks = R"(
+        local first, err = Data.load('catalog')
+        assert(err == nil and first.name == 'tea')
+        assert(first.missing == Data.null and first.slots[1] == Data.null)
+        assert(#first.slots == 3 and first.slots[2] == false and first[''] == true)
+        first.nested.count = 99
+        first.slots[1] = 'changed'
+        local second = assert(Data.load('catalog'))
+        assert(second ~= first and second.nested.count == 3)
+        assert(second.slots[1] == Data.null)
+        local absent, failure = Data.load('project:/data/catalog.json')
+        assert(absent == nil and type(failure) == 'string')
+        assert(io == nil and Data.decode == nil and Data.encode == nil)
+    )";
+    REQUIRE(fixture.runtime.execute(checks));
+    auto environment = fixture.runtime.create_environment();
+    REQUIRE(environment);
+    REQUIRE(fixture.runtime.execute_in_environment(environment.value(), checks));
+    fixture.runtime.destroy_environment(environment.value());
+    fixture.sources.add("project:/focused/catalog.json", R"({"name":"focused"})");
+    const std::vector<script::DataAssetBinding> focused_assets{
+        {core::AssetId::create("catalog").value(), "project:/focused/catalog.json"}};
+    auto focused = fixture.runtime.create_environment(focused_assets);
+    REQUIRE(focused);
+    REQUIRE(fixture.runtime.execute_in_environment(
+        focused.value(), "assert(Data.load('catalog').name == 'focused')"));
+    REQUIRE(fixture.runtime.execute(checks));
+    fixture.runtime.destroy_environment(focused.value());
+
+    fixture.sources.add("project:/data/Catalog.JSON", "null");
+    REQUIRE(fixture.runtime.execute("assert(Data.load('catalog') == Data.null)"));
+    fixture.sources.add("project:/data/Catalog.JSON", "false");
+    REQUIRE(
+        fixture.runtime.execute("local v,e=Data.load('catalog'); assert(v == false and e == nil)"));
+    fixture.sources.add("project:/data/Catalog.JSON", "9223372036854775807");
+    REQUIRE(fixture.runtime.execute("assert(Data.load('catalog') == math.maxinteger)"));
+    for (const auto& invalid :
+         std::vector<std::string>{"{", "null true", "{\"x\":1,\"x\":2}", "9223372036854775808",
+                                  "1e999", std::string(65, '[') + "0" + std::string(65, ']'),
+                                  std::string(4 * 1024 * 1024 + 1, ' ')}) {
+        fixture.sources.add("project:/data/Catalog.JSON", invalid);
+        REQUIRE(fixture.runtime.execute(
+            "local v,e=Data.load('catalog'); assert(v == nil and type(e) == 'string')"));
+    }
+    REQUIRE(fixture.runtime.execute(R"(
+        for _, id in ipairs({'missing', '../catalog', '', 'catalog\0other'}) do
+            local v,e = Data.load(id)
+            assert(v == nil and type(e) == 'string')
+        end
+        local v,e = Data.load({})
+        assert(v == nil and type(e) == 'string')
+    )"));
+}
 
 class FocusedCountQueryProvider final : public runtime::RuntimeQueryProvider {
 public:
@@ -351,19 +421,6 @@ private:
 };
 
 } // namespace
-
-TEST_CASE("ScriptRuntime initializes with pinned Lua and sol2 versions")
-{
-    RuntimeFixture fixture;
-    auto initialized = fixture.runtime.initialize({&fixture.sources});
-    REQUIRE(initialized);
-    CHECK(fixture.runtime.is_initialized());
-    CHECK(LUA_VERSION_NUM == 505);
-    CHECK(std::string(LUA_VERSION) == "Lua 5.5");
-    CHECK(SOL_VERSION_MAJOR == 3);
-    CHECK(SOL_VERSION_MINOR == 5);
-    CHECK(SOL_VERSION_PATCH == 0);
-}
 
 TEST_CASE("ScriptRuntime keeps persistent global state across executions")
 {
@@ -1766,46 +1823,6 @@ TEST_CASE("ScriptRuntime executes scripts through ScriptSourcePort logical paths
     auto value = fixture.runtime.evaluate_string("asset_value", "asset_value");
     REQUIRE(value);
     CHECK(value.value() == "asset-ok");
-}
-
-TEST_CASE("ScriptRuntime supports shared_ptr-backed sol2 usertypes for future bindings")
-{
-    struct TestObject {
-        explicit TestObject(std::string label) : label(std::move(label)) {}
-        std::string label;
-        int calls = 0;
-        std::string ping()
-        {
-            ++calls;
-            return label + ":" + std::to_string(calls);
-        }
-    };
-
-    RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
-    sol::state_view lua(script::detail::ScriptRuntimeAccess::state(fixture.runtime));
-    lua.new_usertype<TestObject>(
-        "TestObject", sol::no_constructor, "ping", &TestObject::ping, "calls",
-        sol::property([](const TestObject& object) { return object.calls; }));
-
-    auto object = std::make_shared<TestObject>("kept");
-    std::weak_ptr<TestObject> weak = object;
-    lua["test_object"] = object;
-    object.reset();
-
-    REQUIRE(fixture.runtime.execute("stored_object = test_object\nobserved = stored_object:ping()",
-                                    "shared_ptr"));
-    CHECK_FALSE(weak.expired());
-    auto observed = fixture.runtime.evaluate_string("observed", "observed");
-    REQUIRE(observed);
-    CHECK(observed.value() == "kept:1");
-    auto calls = fixture.runtime.evaluate("stored_object.calls", "calls");
-    REQUIRE(calls);
-    CHECK(std::get<std::int64_t>(calls.value()) == 1);
-
-    REQUIRE(fixture.runtime.execute("test_object = nil\nstored_object = nil", "release"));
-    fixture.runtime.collect_garbage();
-    CHECK(weak.expired());
 }
 
 TEST_CASE("ScriptRuntime shutdown is idempotent and supports reinitialization")

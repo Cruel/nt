@@ -54,11 +54,13 @@ Interactable, Script, settings, properties, localization, Scene, Dialogue, Map, 
 and Test relationships. Room contributions also consume the exact display, accessibility, default
 font, and Game HUD project-field nodes required by Room preview closure.
 
-Lua source discovery is registry-driven and covers startup, Script records, Layout Lua/RML,
+Source discovery is registry-driven and covers startup, Script records, Layout Lua/RML/RCSS,
 condition/text/effect variants, Scene and Dialogue `run-lua`, Verbs, Interactions, Tests, and the
 other schemas that embed those shared variants. Shader and ordinary Asset source text are not Lua
-owners. Content analysis is owner-neutral and cached by exact content plus URI base; semantic-owner
-binding supplies authoring paths and ownership without relexing.
+owners. Layout RCSS participates in the same bounded source snapshot specifically for exact cursor
+reference analysis; it is not treated as executable Lua. Content analysis is owner-neutral and cached
+by exact content plus URI base; semantic-owner binding supplies authoring paths and ownership without
+relexing.
 
 File-backed Layout and Script Module occurrences retain a canonical
 `project:/<project-relative-path>` source URL through content analysis, owner binding, graph evidence,
@@ -81,11 +83,15 @@ not maintain separate path lists. Duplicate explicit targets are invalid. Unsupp
 preserved with a warning but does not create tooling-confirmed dependency edges.
 
 RML analysis uses `saxes` plus a same-length RmlUi raw-text masker. It indexes event attributes,
-inline scripts, declared external scripts, and cycle-safe transitive template closures. Relative and
-`project:/` URIs are normalized deterministically against the containing source Asset and must match
-exactly one declared dependency. Template names are resolved from linked template definitions.
-Fixed source, snapshot, owner-occurrence, template-depth, and template-count limits produce warning
-diagnostics while preserving unrelated graph content.
+inline scripts, declared external scripts, cycle-safe transitive template closures, and literal
+`cursor:` declarations in embedded `<style>` blocks and `style` attributes. Dedicated inline and
+Asset-backed Layout RCSS use the same literal cursor scanner. Unknown static cursor names become exact
+source diagnostics; Project named cursor references become exact graph edges with source locations and
+rewrite ranges where the source is project-document-owned. Relative and `project:/` URIs are
+normalized deterministically against the containing source Asset and must match exactly one declared
+dependency. Template names are resolved from linked template definitions. Fixed source, snapshot,
+owner-occurrence, template-depth, and template-count limits produce warning diagnostics while
+preserving unrelated graph content.
 
 `layout.script.enabled` gates only the dedicated `layout.lua` source. Disabled dedicated Layout Lua
 remains indexed for Find Usages but contributes no focused-preview facet. Event attributes, inline
@@ -191,9 +197,13 @@ grep/index path.
 
 Rename, ordinary delete, Force Delete, Room-placement deletion, and delete-and-repair are
 revision-gated at command dispatch. A missing, updating, stale, or wrong-project snapshot fails
-closed. Possible Lua references produce warnings without blocking. Explicit Lua fallback references
-require explicit confirmation for rename-without-Lua-rewrite and block ordinary deletion; Force
-Delete remains a separate explicit path. Ordinary deletion presents its planned repairs and warnings
+closed. Possible Lua references produce warnings without blocking. Exact inline RML/RCSS cursor-name
+occurrences are rewriteable through their verified UTF-16 ranges; Asset-backed RCSS/RML cursor-name
+occurrences are exact-manual because the referenced Asset source is not owned by the project-document
+patch transaction, so rename requires explicit confirmation and ordinary deletion blocks rather than
+silently missing the reference. Explicit Lua fallback references likewise require explicit
+confirmation for rename-without-source-rewrite and block ordinary deletion; Force Delete remains a
+separate explicit path. Ordinary deletion presents its planned repairs and warnings
 in the Project Explorer. That dialog is driven by the complete semantic repair-edge closure, including
 Lua-only evidence and Room-placement descendants; the compatibility reference-index projection is
 not an admission or visibility gate. Required references must have a valid user-selected replacement

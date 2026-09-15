@@ -8,12 +8,14 @@ import { buildJsonPointer, escapeJsonPointerSegment, parseJsonPointer } from './
 import {
   AUTHORING_SOURCE_ANALYZER_VERSION,
   LUA_REFERENCE_ANALYSIS_LIMITS,
+  type AuthoringCursorNameOccurrence,
   type AuthoringLiteralOccurrence,
   type AuthoringSourceAnalysisArtifact,
   type AuthoringSourceContentArtifact,
   type EmbeddedLuaSourceKind,
   type EmbeddedLuaSourceRegion,
   type LuaSourceSnapshot,
+  type OwnerNeutralCursorNameOccurrence,
   type OwnerNeutralEmbeddedLuaSourceRegion,
   type OwnerNeutralLiteralOccurrence,
   type OwnerNeutralManagedLuaMessageOccurrence,
@@ -55,7 +57,7 @@ export type AuthoringLuaSourceDescriptor = {
   contributionKey: AuthoringDependencyContributionKey;
   semanticOwner: AuthoringDependencyNodeKey;
   sourcePath: string;
-  sourceKind: 'lua' | 'rml';
+  sourceKind: 'lua' | 'rml' | 'rcss';
   sourceUrl: string;
   inlineText?: string;
   sourceAssetId?: string;
@@ -182,13 +184,14 @@ export function collectAuthoringLuaSources(
     for (const [name, sourceKind] of [
       ['lua', 'lua'],
       ['rml', 'rml'],
+      ['rcss', 'rcss'],
     ] as const) {
       const source = parsed[name];
       const base = `/layouts/${escapeJsonPointerSegment(id)}/data/${name}`;
       const sourceAssetId = source.sourceMode === 'asset' ? source.sourceAsset?.$ref.id : undefined;
       const sourceAssetPath = sourceAssetId ? assetPath(project, sourceAssetId) : null;
       output.push({
-        executionSurface: name === 'rml' ? 'layout-rml' : 'layout-dedicated-lua',
+        executionSurface: name === 'lua' ? 'layout-dedicated-lua' : 'layout-rml',
         contributionKey,
         semanticOwner: owner,
         sourcePath:
@@ -198,15 +201,19 @@ export function collectAuthoringLuaSources(
           source.sourceMode === 'inline'
             ? sourceKind === 'rml'
               ? inlineLayoutSourceUrl(id)
-              : 'authoring:inline-lua'
+              : sourceKind === 'rcss'
+                ? 'authoring:inline-rcss'
+                : 'authoring:inline-lua'
             : sourceAssetPath
               ? `project:/${sourceAssetPath}`
               : sourceKind === 'rml'
                 ? 'project:/__missing_layout.rml'
-                : 'project:/__missing_layout.lua',
+                : sourceKind === 'rcss'
+                  ? 'project:/__missing_layout.rcss'
+                  : 'project:/__missing_layout.lua',
         inlineText: source.sourceMode === 'inline' ? source.sourceText : undefined,
         sourceAssetId,
-        focusedAdmission: name === 'rml' || parsed.script.enabled,
+        focusedAdmission: name === 'rml' || (name === 'lua' && parsed.script.enabled),
         focusedFacet: 'preview-ui',
         supportsExplicitFallback:
           name === 'rml' && isRegisteredLuaExplicitFallbackOwner(['layouts', id, 'data', 'script']),
@@ -1225,10 +1232,105 @@ function nestedStringRegions(region: RawRegion, parentOrdinal: number): RawRegio
   return result;
 }
 
+function sourceLineColumn(text: string, offset: number): { line: number; column: number } {
+  const before = text.slice(0, offset);
+  const line = before.split('\n').length;
+  return { line, column: offset - before.lastIndexOf('\n') };
+}
+
+function scanRcssCursorNames(
+  source: string,
+  sourceUrl: string,
+  sourceContentHash: `sha256:${string}`,
+  sourceOffset = 0,
+  sourceKind: 'rcss' | 'rml-style' | 'rml-style-attribute' = 'rcss',
+): OwnerNeutralCursorNameOccurrence[] {
+  const masked = source.replace(/\/\*[\s\S]*?\*\//gu, (comment) => ' '.repeat(comment.length));
+  const declaration =
+    /(?:^|[;{])\s*cursor\s*:\s*([a-z][a-z0-9-]*)(?=\s*(?:!important\s*)?(?:[;}]|$))/giu;
+  const occurrences: OwnerNeutralCursorNameOccurrence[] = [];
+  for (const match of masked.matchAll(declaration)) {
+    const name = match[1];
+    if (!name || match.index === undefined) continue;
+    const relative = match[0].lastIndexOf(name);
+    if (relative < 0) continue;
+    const startUtf16 = sourceOffset + match.index + relative;
+    const endUtf16 = startUtf16 + name.length;
+    const position = sourceLineColumn(
+      sourceOffset === 0 ? source : `${' '.repeat(sourceOffset)}${source}`,
+      startUtf16,
+    );
+    occurrences.push({
+      sourceUrl,
+      sourceContentHash,
+      startUtf16,
+      endUtf16,
+      line: position.line,
+      column: position.column,
+      name,
+      sourceKind,
+    });
+  }
+  return occurrences;
+}
+
+function scanRmlCursorNames(
+  source: string,
+  sourceUrl: string,
+  sourceContentHash: `sha256:${string}`,
+): OwnerNeutralCursorNameOccurrence[] {
+  const occurrences: OwnerNeutralCursorNameOccurrence[] = [];
+  const scanRegion = (
+    region: string,
+    offset: number,
+    sourceKind: 'rml-style' | 'rml-style-attribute',
+  ) => {
+    const masked = region.replace(/\/\*[\s\S]*?\*\//gu, (comment) => ' '.repeat(comment.length));
+    const declaration =
+      /(?:^|[;{])\s*cursor\s*:\s*([a-z][a-z0-9-]*)(?=\s*(?:!important\s*)?(?:[;}]|$))/giu;
+    for (const match of masked.matchAll(declaration)) {
+      const name = match[1];
+      if (!name || match.index === undefined) continue;
+      const relative = match[0].lastIndexOf(name);
+      if (relative < 0) continue;
+      const startUtf16 = offset + match.index + relative;
+      const endUtf16 = startUtf16 + name.length;
+      const position = sourceLineColumn(source, startUtf16);
+      occurrences.push({
+        sourceUrl,
+        sourceContentHash,
+        startUtf16,
+        endUtf16,
+        line: position.line,
+        column: position.column,
+        name,
+        sourceKind,
+      });
+    }
+  };
+
+  const styleElement = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gimu;
+  for (const match of source.matchAll(styleElement)) {
+    const contents = match[1] ?? '';
+    if (!contents || match.index === undefined) continue;
+    const relative = match[0].indexOf(contents);
+    if (relative >= 0) scanRegion(contents, match.index + relative, 'rml-style');
+  }
+
+  const styleAttribute = /\bstyle\s*=\s*(["'])([\s\S]*?)\1/gimu;
+  for (const match of source.matchAll(styleAttribute)) {
+    const contents = match[2] ?? '';
+    if (!contents || match.index === undefined) continue;
+    const relative = match[0].indexOf(contents);
+    if (relative >= 0) scanRegion(contents, match.index + relative, 'rml-style-attribute');
+  }
+  return occurrences;
+}
+
 export async function analyzeAuthoringSourceContent(input: {
   sourceUrl: string;
   text: string;
-  kind: 'lua' | 'rml';
+  kind: 'lua' | 'rml' | 'rcss';
   contentHash?: `sha256:${string}`;
   limits?: {
     maxSourceBytes: number;
@@ -1246,6 +1348,7 @@ export async function analyzeAuthoringSourceContent(input: {
       sourceContentFingerprint: fingerprint,
       regions: [],
       literalOccurrences: [],
+      cursorNameOccurrences: [],
       managedMessageOccurrences: [],
       diagnostics: [
         {
@@ -1260,20 +1363,22 @@ export async function analyzeAuthoringSourceContent(input: {
   const extracted =
     input.kind === 'rml'
       ? extractRmlRegions(input.text, input.sourceUrl)
-      : {
-          regions: [
-            {
-              kind: 'lua-field' as const,
-              text: input.text,
-              line: 1,
-              column: 1,
-              sourceUrl: input.sourceUrl,
-              embeddedDepth: 0,
-            },
-          ],
-          diagnostics: [],
-          complete: true,
-        };
+      : input.kind === 'lua'
+        ? {
+            regions: [
+              {
+                kind: 'lua-field' as const,
+                text: input.text,
+                line: 1,
+                column: 1,
+                sourceUrl: input.sourceUrl,
+                embeddedDepth: 0,
+              },
+            ],
+            diagnostics: [],
+            complete: true,
+          }
+        : { regions: [], diagnostics: [], complete: true };
   const rawRegions = [...extracted.regions];
   for (let index = 0; index < rawRegions.length; index += 1) {
     const region = rawRegions[index];
@@ -1283,6 +1388,12 @@ export async function analyzeAuthoringSourceContent(input: {
   const regions: OwnerNeutralEmbeddedLuaSourceRegion[] = [];
   const literals: OwnerNeutralLiteralOccurrence[] = [];
   const managedMessages: OwnerNeutralManagedLuaMessageOccurrence[] = [];
+  const cursorNameOccurrences =
+    input.kind === 'rml'
+      ? scanRmlCursorNames(input.text, input.sourceUrl, contentHash)
+      : input.kind === 'rcss'
+        ? scanRcssCursorNames(input.text, input.sourceUrl, contentHash)
+        : [];
   let complete = extracted.complete;
   const diagnostics: OwnerNeutralSourceDiagnostic[] = extracted.diagnostics.map((diagnostic) => ({
     ...diagnostic,
@@ -1358,6 +1469,7 @@ export async function analyzeAuthoringSourceContent(input: {
     sourceContentFingerprint: fingerprint,
     regions: Object.freeze(regions),
     literalOccurrences: Object.freeze(literals),
+    cursorNameOccurrences: Object.freeze(cursorNameOccurrences),
     managedMessageOccurrences: Object.freeze(managedMessages),
     diagnostics: Object.freeze(diagnostics),
     complete,
@@ -1372,6 +1484,7 @@ export async function bindAuthoringSourceOwner(
   const literals: AuthoringLiteralOccurrence[] = [];
   const managedMessages: import('./project-schema/authoring-lua-analysis').AuthoringManagedLuaMessageOccurrence[] =
     [];
+  const cursorNameOccurrences: AuthoringCursorNameOccurrence[] = [];
   const diagnostics: AuthoringDependencyGraphDiagnostic[] = [];
   for (const artifact of artifacts) {
     regions.push(
@@ -1385,6 +1498,13 @@ export async function bindAuthoringSourceOwner(
     literals.push(
       ...artifact.literalOccurrences.map((literal) => ({
         ...literal,
+        sourcePath: descriptor.sourcePath,
+        sourceAssetId: descriptor.sourceAssetId,
+      })),
+    );
+    cursorNameOccurrences.push(
+      ...artifact.cursorNameOccurrences.map((occurrence) => ({
+        ...occurrence,
         sourcePath: descriptor.sourcePath,
         sourceAssetId: descriptor.sourceAssetId,
       })),
@@ -1430,6 +1550,7 @@ export async function bindAuthoringSourceOwner(
     sourceAssetIds: descriptor.sourceAssetId ? [descriptor.sourceAssetId] : [],
     regions: Object.freeze(regions),
     literalOccurrences: Object.freeze(literals),
+    cursorNameOccurrences: Object.freeze(cursorNameOccurrences),
     managedMessageOccurrences: Object.freeze(managedMessages),
     diagnostics: Object.freeze(diagnostics),
     complete: artifacts.every((artifact) => artifact.complete),
@@ -1500,6 +1621,7 @@ export async function analyzeAuthoringSources(
     ),
     regions: [],
     literalOccurrences: [],
+    cursorNameOccurrences: [],
     managedMessageOccurrences: [],
     diagnostics: [{ code, severity: 'warning', message, sourceUrl }],
     complete: false,
@@ -1529,7 +1651,8 @@ export async function analyzeAuthoringSources(
     if (blockedOwners.has(descriptor.contributionKey)) return;
     const prior = output.get(descriptor.contributionKey) ?? [];
     const priorOccurrences = prior.reduce(
-      (sum, analysis) => sum + analysis.literalOccurrences.length,
+      (sum, analysis) =>
+        sum + analysis.literalOccurrences.length + analysis.cursorNameOccurrences.length,
       0,
     );
     occurrences -= priorOccurrences;
@@ -1553,10 +1676,8 @@ export async function analyzeAuthoringSources(
     persistentCache?.ownerProjections.set(candidate.ownerProjectionFingerprint, bound);
     const list = output.get(descriptor.contributionKey) ?? [];
     const currentOccurrences = ownerOccurrenceCounts.get(descriptor.contributionKey) ?? 0;
-    if (
-      currentOccurrences + bound.literalOccurrences.length >
-      limits.maxLiteralOccurrencesPerSemanticOwner
-    ) {
+    const boundOccurrences = bound.literalOccurrences.length + bound.cursorNameOccurrences.length;
+    if (currentOccurrences + boundOccurrences > limits.maxLiteralOccurrencesPerSemanticOwner) {
       await blockOwner(
         descriptor,
         'authoring.lua.owner_occurrence_limit',
@@ -1566,7 +1687,7 @@ export async function analyzeAuthoringSources(
     }
     if (
       occurrenceBudgetExhausted ||
-      occurrences + bound.literalOccurrences.length > limits.maxSnapshotLiteralOccurrences
+      occurrences + boundOccurrences > limits.maxSnapshotLiteralOccurrences
     ) {
       occurrenceBudgetExhausted = true;
       await blockOwner(
@@ -1577,11 +1698,8 @@ export async function analyzeAuthoringSources(
       return false;
     }
     list.push(bound);
-    occurrences += bound.literalOccurrences.length;
-    ownerOccurrenceCounts.set(
-      descriptor.contributionKey,
-      currentOccurrences + bound.literalOccurrences.length,
-    );
+    occurrences += boundOccurrences;
+    ownerOccurrenceCounts.set(descriptor.contributionKey, currentOccurrences + boundOccurrences);
     output.set(descriptor.contributionKey, list);
     return true;
   };
@@ -1610,7 +1728,7 @@ export async function analyzeAuthoringSources(
   const artifactFor = async (
     sourceUrl: string,
     text: string,
-    kind: 'lua' | 'rml',
+    kind: 'lua' | 'rml' | 'rcss',
     hash?: `sha256:${string}`,
   ) => {
     const key = JSON.stringify([

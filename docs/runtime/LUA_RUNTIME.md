@@ -88,6 +88,11 @@ The current capability surface includes:
 - `noveltea.presentation.set_prop`, `clear_prop`, and `prop`;
 - `noveltea.presentation.set_environment`, `clear_environment`, `stop_environments`, and
   `environment` for scoped, reconstructible long-lived visual modes;
+- `noveltea.presentation.cursor.set`, `set_image`, `hide`, and `clear` for transient cursor intent;
+  ordinary gameplay Lua owns the Runtime Session request, while Layout Lua owns a request scoped to
+  the exact live Layout Mount occurrence. Visible Mount requests compose by presentation stacking,
+  automatically disappear on occurrence replacement/unmount, and temporarily outrank the gameplay
+  request without clearing it;
 - `Game.pause`, `Game.resume`, and `Game.paused` for semantic gameplay pause;
 - `Game.locale()` for the current runtime locale; locale selection is shell/player preference state rather than a gameplay mutation and is not restored from save data;
 - `audio.play`, `audio.play_and_wait`, `audio.stop`, and `audio.stop_and_wait` for transient
@@ -150,10 +155,44 @@ every matching stop key within the selected owner. Layout-event Lua uses the sam
 These APIs select engine-owned desired behavior; they do not run an endless Lua coroutine or expose
 backend handles.
 
+Gameplay cursor calls are deliberately different from reconstructible desired-presentation records.
+`cursor.set(name)` accepts system/semantic cursor names, `none`, or a Project named cursor ID; `auto`
+is not a gameplay target. `cursor.set_image(assetId, options)` resolves a stable Image Asset ID and
+accepts optional `hotspot_x`/`hotspot_y` source-image pixel coordinates, defaulting to the image
+center. Hotspots must remain inside the source image. Dynamic cursor images larger than 128x128 are
+fit proportionally to that portable bound without upscaling smaller images, preserve Asset sampling,
+and scale their hotspot with the realized image while clamping the mapped hotspot inside the realized
+image. Cursor calls are synchronous, non-awaiting presentation intent and never introduce Flow or
+checkpoint barriers. Invalid requests leave the caller's prior intent intact. `set_image` issues the
+normal asynchronous Asset request and leaves the current effective cursor in place while that request
+is pending; readiness replaces it atomically. Terminal Asset preparation or backend realization
+failure records a diagnostic, uses the semantic native fallback, and does not fail gameplay or retry a
+permanent failure indefinitely.
+
+Outside a Layout callback, the cursor override is owned by the current Runtime Session rather than a
+Scene, Room, Dialogue, or other gameplay scope. It therefore survives ordinary gameplay presentation
+changes but is cleared when that session ends or is replaced. During Layout invocation, the same API
+infers the exact live Layout Mount occurrence instead: its request follows that Mount's visibility and
+presentation order and is discarded on unmount or occurrence replacement. Focused Layout previews
+issue a cursor-only command capability and execute dedicated Layout Lua under the exact synthetic Mount
+occurrence, preserving the same ownership rule without granting unrelated gameplay mutations. In
+either scope, `cursor.clear()` removes only the caller's inferred owner and reveals the next eligible
+centralized cursor request. Runtime Session and Mount cursor intent plus native cursor realization are transient
+host presentation state: they are not serialized into SaveState/checkpoints or gameplay recordings and
+are reconstructed only by gameplay/Layout behavior that requests them again.
+
 There is no dispatcher-backed second `Game.*` implementation. `GameBinding`,
 `bind_game_session`, `bind_runtime_host`, `bind_runtime_command_dispatcher`, generic entity
 tables, arbitrary save JSON access, and `RuntimeScriptExecutor` were deleted during the completed
 typed-runtime capability cutover.
+
+## Structured Data Assets
+
+Gameplay and frontend/Layout Lua expose the same `Data.load(assetId)` capability for registered JSON-backed `data` Assets. Resolution is by stable compiled Asset ID through the active Project Asset namespace; the API does not accept logical paths, filesystem paths, arbitrary JSON strings, or non-data Assets. The Project gameplay VM and the stable frontend/RmlUi VM each receive the active Project data-Asset registry, while isolated focused-preview environments receive only the data bindings staged for that preview candidate.
+
+JSON parsing is native and bounded. A successful load converts the parsed value into ordinary Lua scalars/tables and creates a fresh value tree on every call, so mutation cannot leak into the Asset, another call, or another VM. JSON `null` is represented by the stable `Data.null` sentinel so object members and array positions survive conversion. Parse/load failures return `nil, error`; malformed JSON, unsupported numeric values, missing IDs, and unavailable sources fail without granting filesystem access. The API deliberately does not provide general JSON encode/decode functions.
+
+Layout authors should declare JSON data used by a Layout in its explicit data dependencies. Those references participate in validation, focused-preview staging, unused-Asset pruning, and runtime-package inclusion without requiring static analysis of `Data.load(...)` source text.
 
 ## Invocation and Yielding
 

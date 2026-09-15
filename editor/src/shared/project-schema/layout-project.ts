@@ -87,6 +87,7 @@ export function layoutPreviewRevision(project: AuthoringProject, layoutId: strin
     ...data.dependencies.fonts,
     ...data.dependencies.stylesheets,
     ...data.dependencies.scripts,
+    ...(data.dependencies.data ?? []),
   ]
     .filter(Boolean)
     .map((ref) => {
@@ -145,6 +146,7 @@ export function buildLayoutPreviewDocumentData(
       fonts: data.dependencies.fonts.map((ref) => assetMetadata(project, ref)),
       stylesheets: data.dependencies.stylesheets.map((ref) => assetMetadata(project, ref)),
       scripts: data.dependencies.scripts.map((ref) => assetMetadata(project, ref)),
+      data: (data.dependencies.data ?? []).map((ref) => assetMetadata(project, ref)),
       materials: data.dependencies.materials.map((ref) => materialMetadata(project, ref)),
     },
     sampleState: data.sampleState,

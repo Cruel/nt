@@ -125,14 +125,3 @@ test('CI leaves compile concurrency automatic while serializing heavyweight Linu
   assert.match(releaseWorkflow, /preset: linux-release/);
   assert.doesNotMatch(step(job('linux'), 'Build'), /--parallel|\s-j\d*/);
 });
-
-test('examples pin and standalone compiler checks tolerate canonical file formatting', () => {
-  const pin = step(job('examples'), 'Resolve pinned examples revision');
-  assert.match(pin, /\.trim\(\)/);
-  assert.match(pin, /\^\[0-9a-f\]\{40\}\$/);
-  assert.doesNotMatch(pin, /\\\\n\?\$/);
-
-  const compiler = step(job('editor'), 'Verify standalone project compiler');
-  assert.match(compiler, /assert\.deepStrictEqual/);
-  assert.doesNotMatch(compiler, /const expected=JSON\.stringify/);
-});

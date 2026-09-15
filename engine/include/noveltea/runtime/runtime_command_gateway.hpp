@@ -39,10 +39,17 @@ public:
                   core::compiled::AudioPausePolicy pause_policy,
                   core::compiled::AudioSkipBehavior skip_behavior) = 0;
     [[nodiscard]] virtual const core::TypedRuntimeUIViewState& current_view() const noexcept = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    set_gameplay_cursor(std::string name) = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                              std::optional<std::uint32_t> hotspot_y) = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics> clear_gameplay_cursor() = 0;
     virtual void queue_input(core::RuntimeInputMessage input) = 0;
 };
 
-class RuntimeCommandGateway final : public RuntimeQueryProvider {
+class RuntimeCommandGateway final : public RuntimeQueryProvider,
+                                    public RuntimeCursorCommandProvider {
 public:
     RuntimeCommandGateway(const core::CompiledProject& project, core::SessionState& state,
                           RuntimeWorld& world, CapabilityGeneration generation) noexcept;
@@ -255,6 +262,12 @@ public:
             m_services->current_view().locale.active_locale);
     }
     [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_paused(bool paused);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor(std::string name) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                              std::optional<std::uint32_t> hotspot_y) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics> clear_gameplay_cursor() override;
 
     [[nodiscard]] core::Result<void, core::Diagnostics> request_audio(
         core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,

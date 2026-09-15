@@ -213,6 +213,22 @@ public:
         mount_contexts.erase(document_id);
     }
 
+    bool with_layout_invocation(const std::string& document_id,
+                                const std::function<bool()>& dispatch) override
+    {
+        layout_invocation_document = document_id;
+        layout_invocation_active = true;
+        const bool result = dispatch();
+        layout_invocation_active = false;
+        return result;
+    }
+
+    void set_cursor_image_dependencies(const std::string& document_id,
+                                       std::vector<std::string> logical_paths) override
+    {
+        cursor_image_dependencies.insert_or_assign(document_id, std::move(logical_paths));
+    }
+
     bool apply_order(const std::vector<std::string>& ordered_document_ids) override
     {
         calls.push_back("order");
@@ -310,6 +326,9 @@ public:
     std::vector<ContextPolicyCall> context_policies;
     std::function<void(const std::string&)> on_show;
     std::unordered_map<std::string, presentation::RuntimeMountedLayout> mount_contexts;
+    bool layout_invocation_active = false;
+    std::string layout_invocation_document;
+    std::unordered_map<std::string, std::vector<std::string>> cursor_image_dependencies;
     std::vector<presentation::RuntimeSystemLayoutDocumentBinding> system_layout_documents;
     std::size_t system_layout_publication_count = 0;
 };
@@ -636,6 +655,9 @@ TEST_CASE("LayoutRealizer prepares immutable project Layout resources and recrea
     CHECK(backend.loaded_rml.find("NovelTea Layout") != std::string::npos);
     const auto before = realizer.document_id(desired.mounted.instance);
     REQUIRE(before);
+    REQUIRE(backend.cursor_image_dependencies.contains(*before));
+    CHECK(backend.cursor_image_dependencies.at(*before) ==
+          std::vector<std::string>{"project:/assets/images/main.png"});
 
     RecreateLayoutRealizationsRequest recreate{
         .host_generation = generation,
@@ -1073,8 +1095,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     std::size_t environment_commits = 0;
     std::size_t material_applies = 0;
     std::size_t input_bindings = 0;
+    std::size_t world_presentation_changes = 0;
     RuntimeUiInputSink* bound_input_sink = nullptr;
     std::size_t legacy_preview_retirements = 0;
+    std::vector<std::string> focused_cursor_commands;
     bool ui_values_succeed = false;
     FocusedPreviewPresenter presenter({
         .assets = assets,
@@ -1115,6 +1139,23 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                 ++input_bindings;
                 backend.calls.push_back("bind-input");
             },
+        .set_cursor =
+            [&](std::string name) {
+                REQUIRE(backend.layout_invocation_active);
+                REQUIRE(backend.mount_contexts.contains(backend.layout_invocation_document));
+                const auto& mount = backend.mount_contexts.at(backend.layout_invocation_document);
+                REQUIRE(mount.occurrence);
+                focused_cursor_commands.push_back(backend.layout_invocation_document + "#" +
+                                                  std::to_string(mount.occurrence->number()) + ":" +
+                                                  name);
+                return core::Result<void, core::Diagnostics>::success();
+            },
+        .set_cursor_image =
+            [](core::AssetId, std::optional<std::uint32_t>, std::optional<std::uint32_t>) {
+                return core::Result<void, core::Diagnostics>::success();
+            },
+        .clear_cursor = []() { return core::Result<void, core::Diagnostics>::success(); },
+        .world_presentation_changed = [&]() { ++world_presentation_changes; },
         .retire_legacy_preview = [&]() { ++legacy_preview_retirements; },
         .active_shader_variant = []() -> std::string_view { return "glsl-120"; },
         .standalone_layout_style_prefix =
@@ -1200,6 +1241,11 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                                                  {"hasDefault", false},
                                                  {"defaultValue", nullptr}}}}})}}}}},
         {"sampleState", {{"inputs", {{"display_title", "Preview"}}}}},
+        {"cursors",
+         {{"defaultCursor", "default"},
+          {"pointerCursor", "pointer"},
+          {"hotspotCursor", "pointer"},
+          {"named", nlohmann::json::array()}}},
         {"shaderMaterials",
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
@@ -1322,6 +1368,19 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                   {"saved_count", core::PersistableValue{std::int64_t{2}}}}});
         return;
     }
+    SECTION("focused Layout Lua cursor commands execute under exact Mount ownership")
+    {
+        auto scripted_layout = layout;
+        scripted_layout["lua"]["text"] = "noveltea.presentation.cursor.set(\"wait\")";
+        scripted_layout["script"]["enabled"] = true;
+        REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Layout,
+                                             "layout-cursor", scripted_layout, 2)));
+        presenter.update();
+        REQUIRE(focused_cursor_commands.size() == 1);
+        CHECK(focused_cursor_commands.front().starts_with("focused://candidate/"));
+        CHECK(focused_cursor_commands.front().ends_with(":wait"));
+        return;
+    }
     SECTION("other focused owners remain passive") {}
     backend.on_show = {};
 
@@ -1358,6 +1417,11 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
+        {"cursors",
+         {{"defaultCursor", "default"},
+          {"pointerCursor", "pointer"},
+          {"hotspotCursor", "pointer"},
+          {"named", nlohmann::json::array()}}},
         {"world",
          {{"presentationSpace",
            {{"size", {{"width", 1920.0}, {"height", 1080.0}}},
@@ -1374,7 +1438,8 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
           {"interactables", nlohmann::json::array()},
           {"props", nlohmann::json::array()},
           {"environments", nlohmann::json::array()},
-          {"overlays", nlohmann::json::array()}}},
+          {"overlays", nlohmann::json::array()},
+          {"hotspots", nlohmann::json::array()}}},
         {"layouts", nlohmann::json::array()},
         {"ui",
          {{"description", {{"markup", "plain"}, {"source", {{"kind", "resolved"}, {"text", ""}}}}},
@@ -1415,6 +1480,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     presenter.update();
     CHECK(presenter.committed_owner().kind == FocusedContentKind::Room);
     CHECK(presenter.committed_owner().apply_sequence == 5);
+    CHECK(world_presentation_changes > 0);
     CHECK(completions.back() == std::pair<std::string, std::string>{"room-two", "applied"});
 
     auto lua_text_room = room;
@@ -1664,6 +1730,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(focused_textures.requests[focused_textures.requests.size() - 2].retain_alpha_coverage);
     CHECK(focused_textures.requests.back().path == "project:/images/alpha-sprite-two.png");
     CHECK(focused_textures.requests.back().retain_alpha_coverage);
+
+    const auto changes_before_clear = world_presentation_changes;
+    presenter.clear();
+    CHECK(world_presentation_changes == changes_before_clear + 1);
 }
 
 } // namespace noveltea::host

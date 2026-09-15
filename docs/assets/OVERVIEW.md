@@ -98,6 +98,26 @@ policy. The runtime enforces both total evictable residency and the configured a
 Warm-prefetch ceilings while preserving mandatory correctness; the player startup log and telemetry
 snapshots retain the fully resolved policy.
 
+### Cursor image readiness
+
+Cursor artwork remains an Image Asset concern even though native cursor handles are not GPU texture
+resources. Project named cursors terminate in source physical Image Assets and are prepared eagerly
+when the active Project cursor registry is configured; they do not require per-Layout dependency
+entries and do not use locale-specific image substitution. Direct Layout `cursor: image(...)` sources
+remain inside the Layout's explicit image dependency closure and therefore follow normal Layout
+readiness and focused-preview staging.
+
+Lua `noveltea.presentation.cursor.set_image(...)` is deliberately non-awaiting. RuntimeUI resolves the
+stable Image Asset ID and source metadata immediately and issues a normal asynchronous typed texture
+Demand request through `AssetManager`. While that request is `Pending`, the caller's prior effective
+cursor remains active. A `Ready` request is handed to native cursor realization and replaces the old
+cursor atomically; `Failed` or canceled Asset preparation terminates the pending request, records a
+typed diagnostic, and uses the semantic native fallback instead of retrying every frame. Native
+color-cursor rejection is likewise a diagnostic presentation failure rather than an Asset gate or
+gameplay failure. All request sources converge on the same SDL realization/cache path, whose cache key
+uses normalized realized dimensions and hotspot geometry so equivalent physical realizations are shared
+independently of whether the request came from a named cursor, RCSS, a Hotspot fallback, or Lua.
+
 `AssetProgressOrchestrator` is the owner-frame progress boundary above `AssetManager`. It derives a
 small `Idle`/`Background`/`Blocking` urgency from live typed request state so the engine can choose its
 own normal-versus-loading job-service budget without knowing which presentation consumer created the
