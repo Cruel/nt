@@ -108,13 +108,15 @@ remain inside the Layout's explicit image dependency closure and therefore follo
 readiness and focused-preview staging.
 
 Lua `noveltea.presentation.cursor.set_image(...)` is deliberately non-awaiting. RuntimeUI resolves the
-stable Image Asset ID and source metadata immediately, while native color-cursor realization reads the
-physical bytes through `AssetManager`. If those bytes are not currently realizable, the prior effective
-cursor remains active and the request is retried during frame settlement; once ready it replaces the
-old realization atomically. Decode/platform failures are diagnostic presentation failures rather than
-asset gates or gameplay failures. All request sources converge on the same SDL realization/cache path,
-which keys equivalent physical realizations independently of whether the request came from a named
-cursor, RCSS, a Hotspot fallback, or Lua.
+stable Image Asset ID and source metadata immediately and issues a normal asynchronous typed texture
+Demand request through `AssetManager`. While that request is `Pending`, the caller's prior effective
+cursor remains active. A `Ready` request is handed to native cursor realization and replaces the old
+cursor atomically; `Failed` or canceled Asset preparation terminates the pending request, records a
+typed diagnostic, and uses the semantic native fallback instead of retrying every frame. Native
+color-cursor rejection is likewise a diagnostic presentation failure rather than an Asset gate or
+gameplay failure. All request sources converge on the same SDL realization/cache path, whose cache key
+uses normalized realized dimensions and hotspot geometry so equivalent physical realizations are shared
+independently of whether the request came from a named cursor, RCSS, a Hotspot fallback, or Lua.
 
 `AssetProgressOrchestrator` is the owner-frame progress boundary above `AssetManager`. It derives a
 small `Idle`/`Background`/`Blocking` urgency from live typed request state so the engine can choose its

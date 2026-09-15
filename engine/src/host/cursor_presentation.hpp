@@ -82,7 +82,8 @@ struct CursorInspection {
 class CursorRealizer {
 public:
     virtual ~CursorRealizer() = default;
-    virtual void realize(const CursorPresentation& presentation) noexcept = 0;
+    [[nodiscard]] virtual CursorPresentation
+    realize(const CursorPresentation& presentation) noexcept = 0;
     [[nodiscard]] virtual bool prepare(const CustomCursorPresentation&) noexcept { return true; }
     virtual void clear_custom() noexcept {}
 
@@ -137,6 +138,7 @@ private:
     std::unordered_map<RequestKey, Request, RequestKeyHash> m_requests;
     std::array<std::vector<OwnerToken>, kSourceCount> m_eligible;
     CursorInspection m_inspection{};
+    std::optional<CursorPresentation> m_realization_request;
     std::optional<CursorPresentation> m_realized;
 };
 

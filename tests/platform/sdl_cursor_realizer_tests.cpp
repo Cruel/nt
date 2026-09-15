@@ -20,6 +20,25 @@ noveltea::assets::AssetBytes one_pixel_png()
             0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
 }
 
+noveltea::assets::AssetBytes solid_tga(std::uint16_t width, std::uint16_t height)
+{
+    noveltea::assets::AssetBytes bytes(18u + static_cast<std::size_t>(width) * height * 4u, 0);
+    bytes[2] = 2;
+    bytes[12] = static_cast<std::uint8_t>(width & 0xffu);
+    bytes[13] = static_cast<std::uint8_t>(width >> 8u);
+    bytes[14] = static_cast<std::uint8_t>(height & 0xffu);
+    bytes[15] = static_cast<std::uint8_t>(height >> 8u);
+    bytes[16] = 32;
+    bytes[17] = 0x28;
+    for (std::size_t index = 18; index < bytes.size(); index += 4) {
+        bytes[index + 0] = 0x20;
+        bytes[index + 1] = 0x40;
+        bytes[index + 2] = 0x80;
+        bytes[index + 3] = 0xff;
+    }
+    return bytes;
+}
+
 struct SdlVideoScope {
     SdlVideoScope()
     {
@@ -58,7 +77,7 @@ TEST_CASE("SDL cursor realizer handles native custom hidden restoration and grac
         noveltea::host::CursorShape::NeswResize, noveltea::host::CursorShape::NwseResize,
     };
     for (const auto shape : system_shapes)
-        realizer.realize({.shape = shape});
+        (void)realizer.realize({.shape = shape});
 
     const noveltea::host::CustomCursorPresentation custom{
         .id = "smoke",
@@ -71,15 +90,77 @@ TEST_CASE("SDL cursor realizer handles native custom hidden restoration and grac
     };
     REQUIRE(realizer.prepare(custom));
     REQUIRE(realizer.prepare(custom));
-    realizer.realize({.shape = noveltea::host::CursorShape::Pointer, .custom = custom});
+    (void)realizer.realize({.shape = noveltea::host::CursorShape::Pointer, .custom = custom});
 
-    realizer.realize({.shape = noveltea::host::CursorShape::Hidden});
-    realizer.realize({.shape = noveltea::host::CursorShape::Default});
+    (void)realizer.realize({.shape = noveltea::host::CursorShape::Hidden});
+    (void)realizer.realize({.shape = noveltea::host::CursorShape::Default});
 
     auto missing = custom;
     missing.id = "missing";
     missing.logical_path = "project:/missing.png";
     CHECK_FALSE(realizer.prepare(missing));
-    realizer.realize({.shape = noveltea::host::CursorShape::Pointer, .custom = missing});
-    realizer.realize({.shape = noveltea::host::CursorShape::Default});
+    const auto fallback =
+        realizer.realize({.shape = noveltea::host::CursorShape::Pointer, .custom = missing});
+    CHECK(fallback.shape == noveltea::host::CursorShape::Pointer);
+    CHECK_FALSE(fallback.custom);
+    (void)realizer.realize({.shape = noveltea::host::CursorShape::Default});
+}
+
+TEST_CASE("SDL cursor realizer preserves edge hotspots and reuses equivalent realizations")
+{
+    SdlVideoScope sdl;
+    REQUIRE(sdl.initialized);
+
+    auto source = std::make_shared<noveltea::assets::MemoryAssetSource>();
+    source->add("wide.tga", solid_tga(256, 1));
+    noveltea::assets::AssetManager assets;
+    assets.mount("project", source);
+    noveltea::sdl_platform::SdlCursorRealizer realizer(&assets);
+
+    const noveltea::host::CustomCursorPresentation fitted{
+        .id = "lua-wide",
+        .logical_path = "project:/wide.tga",
+        .width = 0,
+        .height = 0,
+        .hotspot_x = 255,
+        .hotspot_y = 0,
+        .sampling = noveltea::host::CursorImageSampling::Nearest,
+        .fit_to_portable_bound = true,
+    };
+    REQUIRE(realizer.prepare(fitted));
+
+    source->add("wide.tga", {0x00, 0x01, 0x02});
+    auto equivalent = fitted;
+    equivalent.id = "rcss-wide";
+    equivalent.width = 128;
+    equivalent.height = 1;
+    REQUIRE(realizer.prepare(equivalent));
+}
+
+TEST_CASE("Cursor authority inspection reports the realized native fallback")
+{
+    SdlVideoScope sdl;
+    REQUIRE(sdl.initialized);
+
+    noveltea::assets::AssetManager assets;
+    noveltea::sdl_platform::SdlCursorRealizer realizer(&assets);
+    noveltea::host::CursorAuthority authority(&realizer);
+    const noveltea::host::CustomCursorPresentation missing{
+        .id = "missing",
+        .logical_path = "project:/missing.png",
+        .width = 16,
+        .height = 16,
+    };
+    authority.publish(noveltea::host::CursorRequestSource::GameplayLua, 1,
+                      {.shape = noveltea::host::CursorShape::Pointer, .custom = missing},
+                      "runtime-session");
+    authority.set_eligible_order(noveltea::host::CursorRequestSource::GameplayLua, {1});
+    authority.resolve();
+
+    const auto& inspection = authority.inspection();
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+    CHECK(inspection.effective_name == "pointer");
+    CHECK(inspection.source == "gameplay-lua");
+    CHECK(inspection.owner == "runtime-session");
+    CHECK_FALSE(inspection.custom);
 }

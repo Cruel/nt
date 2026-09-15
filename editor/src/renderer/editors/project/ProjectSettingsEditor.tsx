@@ -168,8 +168,8 @@ const projectSettingsCategories: readonly CategorizedEditorCategory<ProjectSetti
   },
   {
     id: 'cursors',
-    label: 'Cursors',
-    description: 'Semantic cursor defaults and Project-global named cursors.',
+    label: 'projectSettings.cursors.categoryLabel',
+    description: 'projectSettings.cursors.categoryDescription',
     icon: MousePointer2,
   },
   {
@@ -355,6 +355,7 @@ function CursorTestPad({
   hotspotX: number;
   hotspotY: number;
 }) {
+  const { t } = useTranslation('workspace');
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -375,7 +376,9 @@ function CursorTestPad({
       className="flex h-16 items-center justify-center rounded border border-dashed text-xs text-muted-foreground"
       style={url ? { cursor: `url("${url}") ${hotspotX} ${hotspotY}, default` } : undefined}
     >
-      {url ? 'Move the pointer here to test this cursor.' : 'Cursor preview is unavailable.'}
+      {url
+        ? t('projectSettings.cursors.testPadReady')
+        : t('projectSettings.cursors.testPadUnavailable')}
     </div>
   );
 }
@@ -1488,7 +1491,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     const result = runProjectCommand(
       'project.renameNamedCursor',
       { fromId, toId: normalized },
-      `Rename cursor ${fromId}`,
+      t('projectSettings.cursors.renameCommand', { id: fromId }),
     );
     if (commandSucceeded(result)) {
       if (testingCursorId === fromId) setTestingCursorId(normalized);
@@ -1509,7 +1512,12 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     const result = runProjectCommand(
       'project.deleteNamedCursor',
       { cursorId: removed.id, force },
-      `${force ? 'Force delete' : 'Delete'} cursor ${removed.id}`,
+      t(
+        force
+          ? 'projectSettings.cursors.forceDeleteCommand'
+          : 'projectSettings.cursors.deleteCommand',
+        { id: removed.id },
+      ),
     );
     const succeeded = commandSucceeded(result);
     if (succeeded) {
@@ -1570,9 +1578,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     navigateToWorkbenchTarget({ tab: buildComfyUiWorkflowsTab() });
   }
 
+  const localizedProjectSettingsCategories = projectSettingsCategories.map((category) =>
+    category.id === 'cursors'
+      ? {
+          ...category,
+          label: t('projectSettings.cursors.categoryLabel'),
+          description: t('projectSettings.cursors.categoryDescription'),
+        }
+      : category,
+  );
+
   return (
     <CategorizedEditorLayout
-      categories={projectSettingsCategories}
+      categories={localizedProjectSettingsCategories}
       activeCategory={activeCategory}
       onCategoryChange={setActiveCategory}
       navigationLabel="Project settings categories"
@@ -1580,8 +1598,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       showActiveDescription={false}
       header={
         <h2 className="truncate text-lg font-semibold">
-          {projectSettingsCategories.find((category) => category.id === activeCategory)?.label ??
-            'General'}
+          {localizedProjectSettingsCategories.find((category) => category.id === activeCategory)
+            ?.label ?? 'General'}
         </h2>
       }
     >
@@ -2208,11 +2226,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         <div className="space-y-4" data-workbench-anchor="projectSettings.cursors">
           <Card>
             <CardHeader>
-              <CardTitle>Defaults</CardTitle>
-              <CardDescription>
-                Choose the semantic Project Default, Pointer, and Hotspot cursors. Hotspot inherits
-                Pointer unless explicitly overridden.
-              </CardDescription>
+              <CardTitle>{t('projectSettings.cursors.defaultsTitle')}</CardTitle>
+              <CardDescription>{t('projectSettings.cursors.defaultsDescription')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {(['default', 'pointer', 'hotspot'] as const).map((semantic) => (
@@ -2220,8 +2235,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   key={semantic}
                   className="grid items-center gap-2 @3xl:grid-cols-[8rem_minmax(0,1fr)]"
                 >
-                  <Label htmlFor={`cursor-default-${semantic}`} className="capitalize">
-                    {semantic}
+                  <Label htmlFor={`cursor-default-${semantic}`}>
+                    {t(`projectSettings.cursors.semantic.${semantic}`)}
                   </Label>
                   <select
                     id={`cursor-default-${semantic}`}
@@ -2230,17 +2245,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     onChange={(event) => setCursorDefault(semantic, event.currentTarget.value)}
                   >
                     {semantic === 'hotspot' ? (
-                      <option value="inherit:pointer">Inherit Pointer</option>
+                      <option value="inherit:pointer">
+                        {t('projectSettings.cursors.inheritPointer')}
+                      </option>
                     ) : null}
-                    <option value="none">None (hidden)</option>
+                    <option value="none">{t('projectSettings.cursors.noneHidden')}</option>
                     {systemCursorNames.map((cursor) => (
                       <option key={cursor} value={`system:${cursor}`}>
-                        System: {cursor}
+                        {t('projectSettings.cursors.systemOption', { cursor })}
                       </option>
                     ))}
                     {settings.cursors.named.map((cursor) => (
                       <option key={cursor.id} value={`named:${cursor.id}`}>
-                        Named: {cursor.id}
+                        {t('projectSettings.cursors.namedOption', { id: cursor.id })}
                       </option>
                     ))}
                   </select>
@@ -2252,11 +2269,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           <Card data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/cursors']}>
             <CardHeader className="flex-row items-start justify-between gap-4">
               <div className="space-y-1">
-                <CardTitle>Named Cursors</CardTitle>
-                <CardDescription>
-                  Project-global custom cursors use a physical Image Asset and a source-pixel
-                  hotspot. Images must be at most 128×128 pixels.
-                </CardDescription>
+                <CardTitle>{t('projectSettings.cursors.namedTitle')}</CardTitle>
+                <CardDescription>{t('projectSettings.cursors.namedDescription')}</CardDescription>
               </div>
               <Button
                 size="sm"
@@ -2274,13 +2288,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 }
                 onClick={addNamedCursor}
               >
-                <Plus className="mr-1 size-3.5" /> Add Cursor
+                <Plus className="mr-1 size-3.5" /> {t('projectSettings.cursors.add')}
               </Button>
             </CardHeader>
             <CardContent className="space-y-3">
               {settings.cursors.named.length === 0 ? (
                 <div className="rounded border border-dashed p-4 text-center text-xs text-muted-foreground">
-                  No named cursors. System cursor defaults remain available without custom artwork.
+                  {t('projectSettings.cursors.empty')}
                 </div>
               ) : null}
               {settings.cursors.named.map((cursor, index) => {
@@ -2302,12 +2316,15 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                           />
                         ) : (
                           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                            Missing image
+                            {t('projectSettings.cursors.missingImage')}
                           </div>
                         )}
                         {metadata ? (
                           <span
-                            aria-label={`Hotspot ${cursor.hotspotX}, ${cursor.hotspotY}`}
+                            aria-label={t('projectSettings.cursors.hotspotAria', {
+                              x: cursor.hotspotX,
+                              y: cursor.hotspotY,
+                            })}
                             className="pointer-events-none absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-background bg-foreground shadow"
                             style={{
                               left: `${((cursor.hotspotX + 0.5) / width) * 100}%`,
@@ -2319,7 +2336,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                       <div className="min-w-0 flex-1 space-y-2">
                         <div className="grid gap-2 @3xl:grid-cols-[minmax(8rem,1fr)_minmax(10rem,1fr)]">
                           <div className="space-y-1">
-                            <Label htmlFor={`cursor-id-${index}`}>ID</Label>
+                            <Label htmlFor={`cursor-id-${index}`}>
+                              {t('projectSettings.cursors.id')}
+                            </Label>
                             <Input
                               id={`cursor-id-${index}`}
                               value={cursorIdDrafts[cursor.id] ?? cursor.id}
@@ -2346,7 +2365,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                             />
                           </div>
                           <div className="space-y-1">
-                            <Label htmlFor={`cursor-image-${index}`}>Image Asset</Label>
+                            <Label htmlFor={`cursor-image-${index}`}>
+                              {t('projectSettings.cursors.imageAsset')}
+                            </Label>
                             <select
                               id={`cursor-image-${index}`}
                               className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
@@ -2370,7 +2391,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                         </div>
                         <div className="grid gap-2 @3xl:grid-cols-2">
                           <div className="space-y-1">
-                            <Label htmlFor={`cursor-hotspot-x-${index}`}>Hotspot X</Label>
+                            <Label htmlFor={`cursor-hotspot-x-${index}`}>
+                              {t('projectSettings.cursors.hotspotX')}
+                            </Label>
                             <PendingNumberInput
                               id={`cursor-hotspot-x-${index}`}
                               path={`/settings/cursors/named/${index}/hotspotX`}
@@ -2382,7 +2405,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                             />
                           </div>
                           <div className="space-y-1">
-                            <Label htmlFor={`cursor-hotspot-y-${index}`}>Hotspot Y</Label>
+                            <Label htmlFor={`cursor-hotspot-y-${index}`}>
+                              {t('projectSettings.cursors.hotspotY')}
+                            </Label>
                             <PendingNumberInput
                               id={`cursor-hotspot-y-${index}`}
                               path={`/settings/cursors/named/${index}/hotspotY`}
@@ -2396,14 +2421,17 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {metadata
-                            ? `${metadata.width}×${metadata.height} source pixels`
-                            : 'Image dimensions unavailable'}
+                            ? t('projectSettings.cursors.sourcePixels', {
+                                width: metadata.width,
+                                height: metadata.height,
+                              })
+                            : t('projectSettings.cursors.dimensionsUnavailable')}
                         </div>
                       </div>
                       <Button
                         size="icon-sm"
                         variant="ghost"
-                        aria-label={`Delete cursor ${cursor.id}`}
+                        aria-label={t('projectSettings.cursors.deleteAria', { id: cursor.id })}
                         onClick={() => removeNamedCursor(index)}
                       >
                         <Trash2 className="size-3.5" />
@@ -2417,7 +2445,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                           setTestingCursorId(testingCursorId === cursor.id ? null : cursor.id)
                         }
                       >
-                        Test Cursor
+                        {t('projectSettings.cursors.test')}
                       </Button>
                     </div>
                     {testingCursorId === cursor.id ? (
@@ -2990,11 +3018,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         }}
       >
         <DialogPopup>
-          <DialogTitle>Force Delete Named Cursor?</DialogTitle>
+          <DialogTitle>{t('projectSettings.cursors.forceDeleteTitle')}</DialogTitle>
           <DialogDescription>
-            This cursor still has known references. Force Delete removes only the cursor definition;
-            Project defaults, Hotspots, RCSS, and Lua source are not silently retargeted. Validation
-            will continue to report the dangling references until you repair them.
+            {t('projectSettings.cursors.forceDeleteDescription')}
           </DialogDescription>
           <DialogFooter>
             <Button
@@ -3002,7 +3028,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               variant="outline"
               onClick={() => setPendingCursorForceDeleteId(null)}
             >
-              Cancel
+              {t('projectSettings.cursors.cancel')}
             </Button>
             <Button
               type="button"
@@ -3015,7 +3041,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 if (index >= 0) removeNamedCursor(index, true);
               }}
             >
-              Force Delete
+              {t('projectSettings.cursors.forceDelete')}
             </Button>
           </DialogFooter>
         </DialogPopup>

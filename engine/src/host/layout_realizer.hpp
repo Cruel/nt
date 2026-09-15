@@ -10,6 +10,7 @@
 #include "noveltea/script/script_runtime.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -72,6 +73,12 @@ public:
             return true;
         }
         virtual void clear_mount_context(const std::string& document_id) { (void)document_id; }
+        [[nodiscard]] virtual bool with_layout_invocation(const std::string& document_id,
+                                                          const std::function<bool()>& dispatch)
+        {
+            (void)document_id;
+            return dispatch();
+        }
         virtual void set_cursor_image_dependencies(const std::string& document_id,
                                                    std::vector<std::string> logical_paths)
         {

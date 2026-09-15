@@ -354,6 +354,21 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
               },
           .clear_cursor_resources =
               [this]() { m_dependencies.runtime_ui.clear_focused_preview_cursors(); },
+          .set_cursor =
+              [this](std::string name) {
+                  return m_dependencies.runtime_ui.set_gameplay_cursor(std::move(name));
+              },
+          .set_cursor_image =
+              [this](core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                     std::optional<std::uint32_t> hotspot_y) {
+                  return m_dependencies.runtime_ui.set_gameplay_cursor_image(std::move(asset),
+                                                                             hotspot_x, hotspot_y);
+              },
+          .clear_cursor =
+              [this]() {
+                  m_dependencies.runtime_ui.clear_gameplay_cursor();
+                  return core::Result<void, core::Diagnostics>::success();
+              },
           .world_presentation_changed = m_dependencies.world_presentation_changed,
           .retire_legacy_preview =
               [this]() {

@@ -583,8 +583,16 @@ RuntimeScriptApi::custom_layout(core::ScopedLayoutInstanceId instance,
 
 core::Result<void, core::Diagnostics> RuntimeScriptApi::set_gameplay_cursor(std::string name)
 {
-    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Cursor, "cursor command",
-                          gateway->set_gameplay_cursor(std::move(name)));
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* provider =
+        m_state->capabilities->cursor_command_provider(runtime::RuntimeCapabilityGroup::Cursor);
+    if (provider == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("cursor command"));
+    if (!provider->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    return provider->set_gameplay_cursor(std::move(name));
 }
 
 core::Result<void, core::Diagnostics>
@@ -592,15 +600,30 @@ RuntimeScriptApi::set_gameplay_cursor_image(core::AssetId asset,
                                             std::optional<std::uint32_t> hotspot_x,
                                             std::optional<std::uint32_t> hotspot_y)
 {
-    NOVELTEA_WITH_COMMAND(
-        runtime::RuntimeCapabilityGroup::Cursor, "cursor image command",
-        gateway->set_gameplay_cursor_image(std::move(asset), hotspot_x, hotspot_y));
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* provider =
+        m_state->capabilities->cursor_command_provider(runtime::RuntimeCapabilityGroup::Cursor);
+    if (provider == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("cursor image command"));
+    if (!provider->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    return provider->set_gameplay_cursor_image(std::move(asset), hotspot_x, hotspot_y);
 }
 
 core::Result<void, core::Diagnostics> RuntimeScriptApi::clear_gameplay_cursor()
 {
-    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Cursor, "cursor clear command",
-                          gateway->clear_gameplay_cursor());
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* provider =
+        m_state->capabilities->cursor_command_provider(runtime::RuntimeCapabilityGroup::Cursor);
+    if (provider == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("cursor clear command"));
+    if (!provider->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    return provider->clear_gameplay_cursor();
 }
 
 core::Result<void, core::Diagnostics>

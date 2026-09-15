@@ -692,6 +692,78 @@ describe('Prepared Runtime Artifact module', () => {
     expect(result.fileEntries.map((entry) => entry.assetId)).toContain('lua-only-file');
   });
 
+  it('blocks runtime preparation on cursor errors found in file-backed RCSS', async () => {
+    const project = roomProject();
+    const sourceHash = `sha256:${'b'.repeat(64)}` as const;
+    project.assets['cursor-image'] = {
+      id: 'cursor-image',
+      label: 'Cursor',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/cursor.png',
+        extension: '.png',
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.assets['cursor-style'] = {
+      id: 'cursor-style',
+      label: 'Cursor styles',
+      data: assetDataFromImportMetadata({
+        kind: 'data',
+        projectRelativePath: 'ui/cursors.rcss',
+        extension: '.rcss',
+        contentHash: sourceHash,
+        imageMetadata: null,
+      }),
+    };
+    project.settings.cursors.named = [
+      {
+        id: 'inspect',
+        image: { $ref: { collection: 'assets', id: 'cursor-image' } },
+        hotspotX: 0,
+        hotspotY: 0,
+      },
+    ];
+    const layout = defaultLayoutData('HUD');
+    layout.rcss = {
+      sourceMode: 'asset',
+      sourceText: '',
+      sourceAsset: { $ref: { collection: 'assets', id: 'cursor-style' } },
+    };
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+
+    const result = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(), compileShadersBeforeExport: false },
+      paths: {
+        resolveProjectSource(root, source) {
+          return `${root}/${source}`;
+        },
+        shaderAssetRoot() {
+          return undefined;
+        },
+        async readProjectTextSources(_root, entries) {
+          return entries.map((entry) => ({
+            status: 'ready' as const,
+            assetId: entry.assetId,
+            projectRelativePath: entry.projectRelativePath,
+            contentHash: entry.expectedContentHash,
+            text: '#target { cursor: poitner; }',
+          }));
+        },
+      },
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.runtimeBlockers).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.cursor.source_named_missing',
+        path: '/layouts/hud/data/rcss/sourceAsset/$ref',
+        message: expect.stringContaining("unknown cursor 'poitner'"),
+      }),
+    );
+  });
+
   it('marks authored audio stored and seekable regardless of its package filename', async () => {
     const project = roomProject();
     project.assets.theme = {

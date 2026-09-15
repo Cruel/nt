@@ -271,7 +271,7 @@ describe('shared contracts characterization', () => {
   });
 
   it('pins the complete source-analysis contract and accepts explicit fallback metadata', () => {
-    expect(AUTHORING_SOURCE_ANALYZER_VERSION).toBe('lua-rml-v3');
+    expect(AUTHORING_SOURCE_ANALYZER_VERSION).toBe('lua-rml-v4');
     expect(LUA_REFERENCE_ANALYSIS_LIMITS.maxSnapshotBytes).toBe(64 * 1024 * 1024);
     const dependency = luaExplicitDependenciesSchema.parse({
       targets: [{ kind: 'record', collection: 'rooms', id: 'hall' }],
