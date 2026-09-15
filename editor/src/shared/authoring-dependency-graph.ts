@@ -36,6 +36,7 @@ import type {
 import { resolveMessage } from './message-resolution';
 import { localizationMessageWorkflowView } from './authoring-localization-workflow';
 import { systemLayoutRoleValues } from './project-schema/authoring-layouts';
+import { systemCursorNames } from './project-schema/authoring-cursor-vocabulary';
 import { isVariableRef } from './project-schema/authoring-variables';
 import type {
   LuaAnalysisInput,
@@ -174,6 +175,17 @@ function freezeDiagnostic(
 function serializeAuthoringDependencyEvidence(evidence: AuthoringDependencyEvidence): string {
   if (evidence.kind === 'explicit-lua-fallback')
     return JSON.stringify(['explicit-lua-fallback', evidence.declarationPath]);
+  if (evidence.kind === 'source-occurrence')
+    return JSON.stringify([
+      'source-occurrence',
+      evidence.sourceUrl,
+      evidence.classification,
+      evidence.line ?? null,
+      evidence.column ?? null,
+      evidence.endLine ?? null,
+      evidence.endColumn ?? null,
+      evidence.rewriteRange ?? null,
+    ]);
   const occurrence = evidence.occurrence;
   return JSON.stringify([
     'lua-occurrence',
@@ -204,7 +216,8 @@ function canonicalEvidence(
     [...byKey]
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([, item]) => {
-        if (item.kind === 'explicit-lua-fallback') return Object.freeze({ ...item });
+        if (item.kind === 'explicit-lua-fallback' || item.kind === 'source-occurrence')
+          return Object.freeze({ ...item });
         return Object.freeze({
           ...item,
           occurrence: Object.freeze({
@@ -1014,6 +1027,36 @@ function scanStructuralReferences(
   if (!isRecord(value)) return;
   const structuralValue: Record<string, unknown> = value;
 
+  const cursorReferencePath =
+    /^\/settings\/cursors\/defaults\/(?:default|pointer|hotspot)$/u.test(path) ||
+    /^\/rooms\/[^/]+\/data\/hotspots\/\d+\/cursor$/u.test(path) ||
+    /^\/interactables\/[^/]+\/data\/presentation\/cursor$/u.test(path) ||
+    /^\/interactables\/[^/]+\/data\/presentation\/hotspots\/hotspots\/\d+\/cursor$/u.test(path);
+  if (cursorReferencePath && value.kind === 'named' && typeof value.id === 'string') {
+    const cursorIndex = project.settings.cursors.named.findIndex(
+      (cursor) => cursor.id === value.id,
+    );
+    if (cursorIndex >= 0) {
+      const targetPath = `/settings/cursors/named/${cursorIndex}/id` as JsonPointer;
+      edges.push(
+        structuralEdge(
+          source,
+          projectFieldNodeKey(targetPath),
+          `${path}/id` as JsonPointer,
+          targetPath,
+          {
+            role: 'cursor-reference',
+            facets: ['reference-integrity', 'tooling-reference', 'validation'],
+            repair: {
+              kind: 'blocked',
+              reason: 'Named cursor references must be updated by the cursor refactor.',
+            },
+          },
+        ),
+      );
+    }
+  }
+
   if (typeof value.room === 'string' && typeof value.placement === 'string') {
     edges.push(
       structuralEdge(
@@ -1725,6 +1768,60 @@ function roomProjectFieldEdges(
   );
 }
 
+function addInlineRcssCursorReferenceEdges(
+  project: AuthoringProject,
+  layoutId: string,
+  record: AuthoringRecordBase,
+  source: AuthoringDependencyNodeKey,
+  edges: AuthoringDependencyEdge[],
+): void {
+  if (!isRecord(record.data) || !isRecord(record.data.rcss)) return;
+  const rcss = record.data.rcss;
+  if (rcss.sourceMode !== 'inline' || typeof rcss.sourceText !== 'string') return;
+  const text = rcss.sourceText;
+  const masked = text.replace(/\/\*[\s\S]*?\*\//gu, (comment) => ' '.repeat(comment.length));
+  const declaration =
+    /(?:^|[;{])\s*cursor\s*:\s*([a-z][a-z0-9-]*)(?=\s*(?:!important\s*)?[;}])/gimu;
+  for (const match of masked.matchAll(declaration)) {
+    const id = match[1];
+    if (!id) continue;
+    const cursorIndex = project.settings.cursors.named.findIndex((cursor) => cursor.id === id);
+    if (cursorIndex < 0) continue;
+    const relative = match[0].lastIndexOf(id);
+    if (relative < 0 || match.index === undefined) continue;
+    const startUtf16 = match.index + relative;
+    const endUtf16 = startUtf16 + id.length;
+    const before = text.slice(0, startUtf16);
+    const line = before.split('\n').length;
+    const column = startUtf16 - before.lastIndexOf('\n');
+    const sourcePath =
+      `/layouts/${escapeJsonPointerSegment(layoutId)}/data/rcss/sourceText` as JsonPointer;
+    const targetPath = `/settings/cursors/named/${cursorIndex}/id` as JsonPointer;
+    edges.push(
+      structuralEdge(source, projectFieldNodeKey(targetPath), sourcePath, targetPath, {
+        role: 'source-recognized-reference',
+        facets: ['tooling-reference', 'validation'],
+        repair: {
+          kind: 'warning-only',
+          reason: 'Recognized RCSS cursor reference is safely rewriteable.',
+        },
+        evidence: [
+          {
+            kind: 'source-occurrence',
+            sourceUrl: 'authoring:inline-rcss',
+            classification: 'exact-rewriteable',
+            line,
+            column,
+            endLine: line,
+            endColumn: column + id.length,
+            rewriteRange: { startUtf16, endUtf16, expectedText: id },
+          },
+        ],
+      }),
+    );
+  }
+}
+
 function recordContribution(
   project: AuthoringProject,
   collection: AuthoringCollectionKey,
@@ -1808,6 +1905,8 @@ function recordContribution(
     );
   }
   scanStructuralReferences(record.data, `${owningPath}/data`, source, edges, project);
+  if (collection === 'layouts')
+    addInlineRcssCursorReferenceEdges(project, id, record, source, edges);
   if (collection === 'archetypes') {
     for (let index = edges.length - 1; index >= 0; index -= 1) {
       const edge = edges[index]!;
@@ -1909,6 +2008,11 @@ function projectFieldSpecs(project: AuthoringProject): readonly {
       value: project.settings.cursors,
       label: 'Project cursors',
     },
+    ...project.settings.cursors.named.map((cursor, index) => ({
+      path: `/settings/cursors/named/${index}/id` as JsonPointer,
+      value: cursor.id,
+      label: `Named cursor: ${cursor.id}`,
+    })),
     ...Object.entries(project.localization.locales).map(([locale, definition]) => ({
       path: `/localization/locales/${escapeJsonPointerSegment(locale)}/fontStack` as JsonPointer,
       value: definition.fontStack,
@@ -2318,6 +2422,77 @@ export function classifyAuthoringLiteralEvidence(
     : { classification: 'unrelated' as const, occurrence };
 }
 
+function maskLuaStringsAndComments(source: string): string {
+  const chars = source.split('');
+  const mask = (start: number, end: number) => {
+    for (let index = start; index < end; index += 1) if (chars[index] !== '\n') chars[index] = ' ';
+  };
+  let index = 0;
+  while (index < source.length) {
+    if (source.startsWith('--', index)) {
+      const long = source.slice(index + 2).match(/^\[(=*)\[/u);
+      if (long) {
+        const closing = `]${long[1]}]`;
+        const bodyStart = index + 2 + long[0].length;
+        const closingIndex = source.indexOf(closing, bodyStart);
+        const end = closingIndex < 0 ? source.length : closingIndex + closing.length;
+        mask(index, end);
+        index = end;
+        continue;
+      }
+      const end = source.indexOf('\n', index + 2);
+      const next = end < 0 ? source.length : end;
+      mask(index, next);
+      index = next;
+      continue;
+    }
+    const quote = source[index];
+    if (quote === '"' || quote === "'") {
+      let end = index + 1;
+      while (end < source.length) {
+        if (source[end] === '\\') {
+          end += 2;
+          continue;
+        }
+        end += 1;
+        if (source[end - 1] === quote) break;
+      }
+      mask(index, end);
+      index = end;
+      continue;
+    }
+    if (quote === '[') {
+      const long = source.slice(index).match(/^\[(=*)\[/u);
+      if (long) {
+        const closing = `]${long[1]}]`;
+        const bodyStart = index + long[0].length;
+        const closingIndex = source.indexOf(closing, bodyStart);
+        const end = closingIndex < 0 ? source.length : closingIndex + closing.length;
+        mask(index, end);
+        index = end;
+        continue;
+      }
+    }
+    index += 1;
+  }
+  return chars.join('');
+}
+
+function dynamicCursorSetCallOffsets(source: string): readonly number[] {
+  const masked = maskLuaStringsAndComments(source);
+  const offsets: number[] = [];
+  const call = /noveltea\s*\.\s*presentation\s*\.\s*cursor\s*\.\s*set\s*\(\s*/gu;
+  for (const match of masked.matchAll(call)) {
+    if (match.index === undefined) continue;
+    let argumentStart = match.index + match[0].length;
+    while (/\s/u.test(source[argumentStart] ?? '')) argumentStart += 1;
+    const first = source[argumentStart];
+    if (first === '"' || first === "'" || first === '[') continue;
+    offsets.push(match.index);
+  }
+  return offsets;
+}
+
 function addLuaEvidenceToContribution(
   project: AuthoringProject,
   base: AuthoringDependencyGraphContribution,
@@ -2514,6 +2689,53 @@ function addLuaEvidenceToContribution(
           );
         }
       }
+      for (const region of analysis.regions) {
+        const descriptor =
+          descriptors.find((item) => item.sourcePath === region.sourcePath) ??
+          descriptors.find((item) => item.sourceKind === 'rml' && item.layoutId !== undefined);
+        if (!descriptor) continue;
+        for (const offset of dynamicCursorSetCallOffsets(region.decodedSource)) {
+          const prefix = region.decodedSource.slice(0, offset);
+          const relativeLine = prefix.split('\n').length - 1;
+          const lastNewline = prefix.lastIndexOf('\n');
+          const relativeColumn = offset - (lastNewline + 1);
+          const targetPath = '/settings/cursors' as JsonPointer;
+          edges.push(
+            structuralEdge(
+              descriptor.semanticOwner,
+              projectFieldNodeKey(targetPath),
+              region.sourcePath as JsonPointer,
+              targetPath,
+              {
+                role: 'lua-possible-reference',
+                facets: ['validation'],
+                repair: {
+                  kind: 'warning-only',
+                  reason: 'Computed cursor name may refer to a Project named cursor.',
+                },
+                evidence: [
+                  {
+                    kind: 'source-occurrence',
+                    sourceUrl: region.sourceUrl,
+                    classification: 'possible-lexical',
+                    line: region.containerLine + relativeLine,
+                    column:
+                      relativeLine === 0
+                        ? region.containerColumn + relativeColumn
+                        : relativeColumn + 1,
+                    endLine: region.containerLine + relativeLine,
+                    endColumn:
+                      (relativeLine === 0
+                        ? region.containerColumn + relativeColumn
+                        : relativeColumn + 1) + 'noveltea.presentation.cursor.set'.length,
+                  },
+                ],
+                detail: { computedCursorName: 'true' },
+              },
+            ),
+          );
+        }
+      }
       for (const occurrence of analysis.literalOccurrences) {
         if (
           managedLiteralKeys.has(
@@ -2528,6 +2750,24 @@ function addLuaEvidenceToContribution(
             candidate.sourceUrl === occurrence.sourceUrl,
         );
         if (!region) continue;
+        const cursorSetPrefix = region.decodedSource.slice(0, occurrence.regionStartUtf16);
+        if (
+          /noveltea\s*\.\s*presentation\s*\.\s*cursor\s*\.\s*set\s*\(\s*$/u.test(cursorSetPrefix)
+        ) {
+          const cursorName = occurrence.decodedValue;
+          const validCursorName =
+            cursorName === 'none' ||
+            systemCursorNames.includes(cursorName as (typeof systemCursorNames)[number]) ||
+            project.settings.cursors.named.some((cursor) => cursor.id === cursorName);
+          if (!validCursorName) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'authoring.cursor.lua_named_missing',
+              path: occurrence.sourcePath,
+              message: `Cursor.set references unknown cursor '${cursorName}'.`,
+            });
+          }
+        }
         const classified = classifyAuthoringLiteralEvidence(
           project,
           occurrence,

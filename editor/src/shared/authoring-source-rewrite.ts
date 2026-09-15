@@ -29,7 +29,7 @@ export function exactSourceRewritePatches(
     const ranges = byPath.get(usage.edge.sourcePath) ?? [];
     for (const evidence of usage.edge.evidence ?? []) {
       if (
-        evidence.kind !== 'lua-occurrence' ||
+        (evidence.kind !== 'lua-occurrence' && evidence.kind !== 'source-occurrence') ||
         evidence.classification !== 'exact-rewriteable' ||
         !evidence.rewriteRange
       )
