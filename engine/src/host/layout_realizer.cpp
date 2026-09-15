@@ -101,6 +101,12 @@ public:
         m_runtime_ui.set_layout_mount_context(document_id, std::nullopt);
     }
 
+    bool with_layout_invocation(const std::string& document_id,
+                                const std::function<bool()>& dispatch) override
+    {
+        return m_runtime_ui.with_layout_invocation(document_id, dispatch);
+    }
+
     void set_cursor_image_dependencies(const std::string& document_id,
                                        std::vector<std::string> logical_paths) override
     {
@@ -514,34 +520,6 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
             }
             authored_document = std::move(*prepared.value_if());
         }
-        if (layout.script_enabled && layout.contains_dedicated_lua_source) {
-            if (scripts == nullptr || capabilities == nullptr) {
-                rollback_focused_preview();
-                return core::Result<void, core::Diagnostics>::failure(
-                    {{.code = "layout_realizer.focused_lua_runtime_missing",
-                      .message = "Focused Layout Lua requires a candidate ScriptRuntime",
-                      .source_path = layout.source_url}});
-            }
-            const bool inline_source =
-                layout.lua.kind == core::editor::TypedEditorLayoutSourceComponent::Kind::Inline;
-            runtime::ScriptInvocationRequest request{
-                .source = inline_source ? layout.lua.value : std::string{},
-                .chunk_name = "focused-layout:" + layout.instance_id,
-                .owner = std::nullopt,
-                .invocation = std::nullopt,
-                .source_context = {},
-                .result_kind = runtime::ScriptInvocationResultKind::None,
-                .asset_path =
-                    inline_source ? std::nullopt : std::optional<std::string>{layout.lua.value}};
-            auto executed = scripts->invoke_in_environment(environment, request, *capabilities);
-            if (!executed) {
-                rollback_focused_preview();
-                return core::Result<void, core::Diagnostics>::failure(
-                    {{.code = "layout_realizer.focused_dedicated_lua_failed",
-                      .message = executed.error().message,
-                      .source_path = layout.source_url}});
-            }
-        }
         const std::string document_id = "focused://candidate/" +
                                         std::to_string(m_focused_candidate_generation) + "/" +
                                         layout.instance_id + "/" + std::to_string(index);
@@ -711,6 +689,49 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
             }
             m_focused_candidate_mounts.insert_or_assign(document_id, std::move(semantic_mount));
             m_focused_candidate_contracts.insert_or_assign(document_id, layout.contract);
+        }
+
+        if (layout.script_enabled && layout.contains_dedicated_lua_source) {
+            if (scripts == nullptr || capabilities == nullptr) {
+                rollback_focused_preview();
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = "layout_realizer.focused_lua_runtime_missing",
+                      .message = "Focused Layout Lua requires a candidate ScriptRuntime",
+                      .source_path = layout.source_url}});
+            }
+            const bool inline_source =
+                layout.lua.kind == core::editor::TypedEditorLayoutSourceComponent::Kind::Inline;
+            runtime::ScriptInvocationRequest request{
+                .source = inline_source ? layout.lua.value : std::string{},
+                .chunk_name = "focused-layout:" + layout.instance_id,
+                .owner = std::nullopt,
+                .invocation = std::nullopt,
+                .source_context = {},
+                .result_kind = runtime::ScriptInvocationResultKind::None,
+                .asset_path =
+                    inline_source ? std::nullopt : std::optional<std::string>{layout.lua.value}};
+            core::Diagnostics invocation_diagnostics;
+            const bool executed = m_backend.with_layout_invocation(document_id, [&]() {
+                auto result = scripts->invoke_in_environment(environment, request, *capabilities);
+                if (result)
+                    return true;
+                invocation_diagnostics.push_back(
+                    {.code = "layout_realizer.focused_dedicated_lua_failed",
+                     .message = result.error().message,
+                     .source_path = layout.source_url});
+                return false;
+            });
+            if (!executed) {
+                rollback_focused_preview();
+                if (invocation_diagnostics.empty()) {
+                    invocation_diagnostics.push_back(
+                        {.code = "layout_realizer.focused_layout_invocation_failed",
+                         .message = "Focused Layout invocation scope could not be established",
+                         .source_path = layout.source_url});
+                }
+                return core::Result<void, core::Diagnostics>::failure(
+                    std::move(invocation_diagnostics));
+            }
         }
 
         bool loaded = false;

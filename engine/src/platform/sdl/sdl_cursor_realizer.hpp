@@ -2,8 +2,10 @@
 
 #include "host/cursor_presentation.hpp"
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 struct SDL_Cursor;
 
@@ -21,13 +23,21 @@ public:
     SdlCursorRealizer(const SdlCursorRealizer&) = delete;
     SdlCursorRealizer& operator=(const SdlCursorRealizer&) = delete;
 
-    void realize(const host::CursorPresentation& presentation) noexcept override;
+    [[nodiscard]] host::CursorPresentation
+    realize(const host::CursorPresentation& presentation) noexcept override;
     [[nodiscard]] bool prepare(const host::CustomCursorPresentation& cursor) noexcept override;
     void clear_custom() noexcept override;
 
 private:
+    struct DecodedCursorImage {
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+        std::vector<std::uint8_t> rgba;
+    };
+
     [[nodiscard]] SDL_Cursor* cursor(host::CursorShape shape) const noexcept;
     [[nodiscard]] SDL_Cursor* custom_cursor(const host::CustomCursorPresentation& cursor) noexcept;
+    [[nodiscard]] DecodedCursorImage* decoded_image(std::string_view logical_path) noexcept;
 
     const assets::AssetManager* m_assets = nullptr;
     SDL_Cursor* m_default = nullptr;
@@ -42,6 +52,7 @@ private:
     SDL_Cursor* m_ew_resize = nullptr;
     SDL_Cursor* m_nesw_resize = nullptr;
     SDL_Cursor* m_nwse_resize = nullptr;
+    std::unordered_map<std::string, DecodedCursorImage> m_decoded_images;
     std::unordered_map<std::string, SDL_Cursor*> m_custom;
 };
 

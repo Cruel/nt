@@ -1,3 +1,4 @@
+#include "noveltea/assets/asset_request_orchestrator.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/editor_preview_contracts.hpp"
 #include "noveltea/core/layout_policies.hpp"
@@ -50,6 +51,98 @@ noveltea::assets::AssetBytes one_pixel_cursor_png()
             0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99,
             0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
 }
+
+noveltea::assets::AssetBytes solid_cursor_tga(std::uint16_t width, std::uint16_t height)
+{
+    noveltea::assets::AssetBytes bytes(18u + static_cast<std::size_t>(width) * height * 4u, 0);
+    bytes[2] = 2;
+    bytes[12] = static_cast<std::uint8_t>(width & 0xffu);
+    bytes[13] = static_cast<std::uint8_t>(width >> 8u);
+    bytes[14] = static_cast<std::uint8_t>(height & 0xffu);
+    bytes[15] = static_cast<std::uint8_t>(height >> 8u);
+    bytes[16] = 32;
+    bytes[17] = 0x28;
+    for (std::size_t index = 18; index < bytes.size(); index += 4) {
+        bytes[index + 0] = 0x20;
+        bytes[index + 1] = 0x40;
+        bytes[index + 2] = 0x80;
+        bytes[index + 3] = 0xff;
+    }
+    return bytes;
+}
+
+class CursorTexturePreparationTask final
+    : public noveltea::assets::AssetPreparationTask<noveltea::assets::TextureAsset> {
+public:
+    CursorTexturePreparationTask(noveltea::assets::TextureAssetRequest request, bool fail)
+        : m_request(std::move(request)), m_fail(fail)
+    {
+    }
+
+    [[nodiscard]] noveltea::assets::ResidencyCost estimated_cost_on_owner() const noexcept override
+    {
+        return {};
+    }
+
+    [[nodiscard]] noveltea::jobs::JobStepOutcome
+    step(noveltea::jobs::JobContext& context) noexcept override
+    {
+        if (context.cancellation_requested())
+            return {.status = noveltea::jobs::JobStepStatus::Completed, .diagnostics = {}};
+        m_ready = true;
+        return {.status = noveltea::jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+
+    [[nodiscard]] noveltea::core::Result<
+        noveltea::assets::PreparedAsset<noveltea::assets::TextureAsset>,
+        noveltea::core::Diagnostics>
+    finalize_on_owner() noexcept override
+    {
+        if (!m_ready || m_fail) {
+            return noveltea::core::Result<
+                noveltea::assets::PreparedAsset<noveltea::assets::TextureAsset>,
+                noveltea::core::Diagnostics>::failure({{.code = "test.cursor_texture_failed",
+                                                        .message = "cursor texture failed"}});
+        }
+        return noveltea::core::Result<
+            noveltea::assets::PreparedAsset<noveltea::assets::TextureAsset>,
+            noveltea::core::Diagnostics>::success({.asset = {.handle = 1,
+                                                             .path = m_request.path,
+                                                             .width = 1,
+                                                             .height = 1},
+                                                   .cost = {},
+                                                   .destroy_on_owner = {}});
+    }
+
+private:
+    noveltea::assets::TextureAssetRequest m_request;
+    bool m_fail = false;
+    bool m_ready = false;
+};
+
+class CursorTextureLoader final : public noveltea::assets::TextureAssetLoader {
+public:
+    [[nodiscard]] noveltea::assets::AssetLoadResult<noveltea::assets::TextureAsset>
+    load_texture(const noveltea::assets::TextureAssetRequest& request) override
+    {
+        if (fail)
+            return {std::nullopt, "cursor texture failed"};
+        return {noveltea::assets::TextureAsset{
+                    .handle = 1, .path = request.path, .width = 1, .height = 1},
+                {}};
+    }
+
+    [[nodiscard]] std::unique_ptr<
+        noveltea::assets::AssetPreparationTask<noveltea::assets::TextureAsset>>
+    create_texture_preparation_task(const noveltea::assets::TextureAssetRequest& request) override
+    {
+        ++requests;
+        return std::make_unique<CursorTexturePreparationTask>(request, fail);
+    }
+
+    std::size_t requests = 0;
+    bool fail = false;
+};
 
 void require_lua(lua_State* state, const char* script)
 {
@@ -3215,6 +3308,7 @@ TEST_CASE("RuntimeUI resolves Project named cursors from RCSS without Layout dep
     };
     auto project = noveltea::core::decode_compiled_project(document, "cursor-project.json");
     REQUIRE(project);
+    fixture.project_assets().add("assets/images/cursor-image.png", solid_cursor_tga(32, 24));
     ui.configure_project_cursors(*project.value_if());
 
     const auto presentation =
@@ -3261,6 +3355,41 @@ TEST_CASE("RuntimeUI resolves Project named cursors from RCSS without Layout dep
     CHECK(pointer_inspection.owner == "named-cursor");
 }
 
+TEST_CASE("RuntimeUI Lua semantic cursors resolve through Project cursor defaults")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path =
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(document.is_discarded());
+    document["settings"]["cursors"] = {
+        {"defaults",
+         {{"default", {{"cursor", "crosshair"}, {"kind", "system"}}},
+          {"hotspot", {{"cursor", "wait"}, {"kind", "system"}}},
+          {"pointer", {{"cursor", "text"}, {"kind", "system"}}}}},
+        {"named", nlohmann::json::array()},
+    };
+    auto project = noveltea::core::decode_compiled_project(document, "cursor-project.json");
+    REQUIRE(project);
+    ui.configure_project_cursors(*project.value_if());
+
+    REQUIRE(ui.set_gameplay_cursor("default"));
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.source == "gameplay-lua");
+
+    REQUIRE(ui.set_gameplay_cursor("pointer"));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Text);
+    CHECK(inspection.source == "gameplay-lua");
+}
+
 TEST_CASE("RuntimeUI resolves direct RCSS image cursors through the cursor authority")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture;
@@ -3294,6 +3423,8 @@ TEST_CASE("RuntimeUI resolves direct RCSS image cursors through the cursor autho
     });
     auto project = noveltea::core::decode_compiled_project(project_document, "cursor-project.json");
     REQUIRE(project);
+    fixture.project_assets().add("assets/images/cursor-image.png", solid_cursor_tga(256, 64));
+    fixture.project_assets().add("assets/images/small-cursor-image.png", solid_cursor_tga(32, 24));
     ui.configure_project_cursors(*project.value_if());
 
     const auto presentation =
@@ -3437,6 +3568,9 @@ TEST_CASE("RuntimeUI retains the effective cursor until a Lua image cursor becom
     auto project = noveltea::core::decode_compiled_project(project_document, "cursor-project.json");
     REQUIRE(project);
     ui.configure_project_cursors(*project.value_if());
+    fixture.project_assets().add("assets/images/dynamic-cursor.png", one_pixel_cursor_png());
+    CursorTextureLoader texture_loader;
+    fixture.assets().bind_texture_loader(&texture_loader);
 
     REQUIRE(ui.set_gameplay_cursor("wait"));
     REQUIRE(ui.set_gameplay_cursor_image(noveltea::core::AssetId::create("dynamic-cursor").value(),
@@ -3445,8 +3579,9 @@ TEST_CASE("RuntimeUI retains the effective cursor until a Lua image cursor becom
     CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
     CHECK(inspection.effective_name == "wait");
     CHECK(inspection.source == "gameplay-lua");
+    CHECK(texture_loader.requests == 1);
 
-    fixture.project_assets().add("assets/images/dynamic-cursor.png", one_pixel_cursor_png());
+    REQUIRE(fixture.run_asset_jobs_until_idle());
     ui.begin_frame({});
     inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
     CHECK(inspection.effective_name == "asset:dynamic-cursor");
@@ -3459,10 +3594,63 @@ TEST_CASE("RuntimeUI retains the effective cursor until a Lua image cursor becom
     CHECK(inspection.custom->hotspot_y == 0);
     CHECK(inspection.custom->sampling == noveltea::host::CursorImageSampling::Nearest);
     CHECK(inspection.custom->fit_to_portable_bound);
+    CHECK(texture_loader.requests == 1);
 
+    fixture.assets().bind_texture_loader(nullptr);
     fixture.shutdown();
     if (!video_already_initialized)
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
+}
+
+TEST_CASE("RuntimeUI terminal Lua cursor image failures fall back without retrying")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path =
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto project_document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(project_document.is_discarded());
+    project_document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 1},
+        {"id", "broken-cursor"},
+        {"kind", "image"},
+        {"path", "assets/images/broken-cursor.png"},
+        {"sampling", "nearest"},
+        {"width", 1},
+    });
+    auto project = noveltea::core::decode_compiled_project(project_document, "cursor-project.json");
+    REQUIRE(project);
+    ui.configure_project_cursors(*project.value_if());
+    fixture.project_assets().add("assets/images/broken-cursor.png", one_pixel_cursor_png());
+    CursorTextureLoader texture_loader;
+    texture_loader.fail = true;
+    fixture.assets().bind_texture_loader(&texture_loader);
+
+    REQUIRE(ui.set_gameplay_cursor("wait"));
+    REQUIRE(ui.set_gameplay_cursor_image(noveltea::core::AssetId::create("broken-cursor").value(),
+                                         std::nullopt, std::nullopt));
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(texture_loader.requests == 1);
+
+    REQUIRE(fixture.run_asset_jobs_until_idle());
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.effective_name == "default");
+    CHECK(inspection.source == "gameplay-lua");
+    CHECK(inspection.owner == "runtime-session");
+    CHECK_FALSE(inspection.custom);
+
+    ui.begin_frame({});
+    CHECK(texture_loader.requests == 1);
+    fixture.assets().bind_texture_loader(nullptr);
 }
 
 TEST_CASE("RuntimeUI focused Layout preview keeps direct cursor image sampling metadata")
@@ -3470,6 +3658,7 @@ TEST_CASE("RuntimeUI focused Layout preview keeps direct cursor image sampling m
     noveltea::test::RuntimeUiLifecycleFixture fixture;
     REQUIRE(fixture.initialize());
     auto& ui = fixture.runtime_ui();
+    fixture.project_assets().add("assets/images/cursor-image.png", solid_cursor_tga(32, 24));
     ui.configure_focused_preview_cursor_resources({
         {.resource_id = "cursor-image",
          .source_kind = "authoring-asset",

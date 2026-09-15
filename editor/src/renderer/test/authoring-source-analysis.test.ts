@@ -384,6 +384,101 @@ describe('typed source registry and graph evidence', () => {
     expect(collectAuthoringSourceRequirements(project)).toEqual(['script-file']);
   });
 
+  it('indexes asset-backed RCSS and RML cursor declarations for validation and refactor safety', async () => {
+    const project = createAuthoringProject();
+    project.settings.cursors.named = [
+      {
+        id: 'inspect',
+        image: { $ref: { collection: 'assets', id: 'cursor-image' } },
+        hotspotX: 0,
+        hotspotY: 0,
+      },
+    ];
+    project.assets['style-file'] = {
+      id: 'style-file',
+      label: 'HUD styles',
+      data: {
+        kind: 'data',
+        source: { type: 'project-file', path: 'ui/hud.rcss' },
+        aliases: [],
+        extension: '.rcss',
+        contentHash: hash('2'),
+        imageMetadata: null,
+      },
+      properties: {},
+      traits: [],
+    } as never;
+    const layout = defaultLayoutData('HUD');
+    layout.rcss = {
+      sourceMode: 'asset',
+      sourceText: '',
+      sourceAsset: { $ref: { collection: 'assets', id: 'style-file' } },
+    };
+    layout.rml.sourceText =
+      '<rml><head><style>#inline { cursor: inspect; }</style></head><body style="cursor: inspect"></body></rml>';
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+
+    expect(collectAuthoringSourceRequirements(project)).toContain('style-file');
+    const graph = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: {
+        entriesByAssetId: new Map([
+          [
+            'style-file',
+            {
+              status: 'ready',
+              assetId: 'style-file',
+              projectRelativePath: 'ui/hud.rcss',
+              contentHash: hash('2'),
+              text: '#target { cursor: inspect; } #bad { cursor: poitner; }',
+              hadUtf8Bom: false,
+            },
+          ],
+        ]),
+      },
+    });
+
+    const cursorEdges = [...graph.edgesById.values()].filter(
+      (edge) =>
+        edge.role === 'source-recognized-reference' &&
+        edge.target.kind === 'project-field' &&
+        edge.target.path === '/settings/cursors/named/0/id',
+    );
+    expect(cursorEdges).toHaveLength(2);
+    expect(
+      cursorEdges.some((edge) =>
+        edge.evidence?.some(
+          (evidence) =>
+            evidence.kind === 'source-occurrence' &&
+            evidence.sourceUrl === 'project:/ui/hud.rcss' &&
+            evidence.classification === 'exact-manual',
+        ),
+      ),
+    ).toBe(true);
+    const inlineRmlEdge = cursorEdges.find((edge) =>
+      edge.evidence?.some(
+        (evidence) =>
+          evidence.kind === 'source-occurrence' && evidence.classification === 'exact-rewriteable',
+      ),
+    );
+    expect(inlineRmlEdge).toBeDefined();
+    expect(
+      inlineRmlEdge?.evidence?.filter(
+        (evidence) =>
+          evidence.kind === 'source-occurrence' && evidence.classification === 'exact-rewriteable',
+      ),
+    ).toHaveLength(2);
+    expect(graph.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        code: 'authoring.cursor.source_named_missing',
+        path: '/layouts/hud/data/rcss/sourceAsset/$ref',
+        sourceUrl: 'project:/ui/hud.rcss',
+        message: expect.stringContaining("unknown cursor 'poitner'"),
+      }),
+    );
+  });
+
   it('discovers every registered shared execution surface without broad non-Lua owners', () => {
     const project = fixture();
     const room = defaultRoomData('Room');
@@ -1155,6 +1250,7 @@ describe('typed source registry and graph evidence', () => {
           ),
         ],
         ['layout-lua', ready('layout-lua', 'ui/hud.lua', `'shared'`, '3')],
+        ['layout-rcss', ready('layout-rcss', 'ui/hud.rcss', '#hud { cursor: pointer; }', '8')],
         ['external-script', ready('external-script', 'ui/external.lua', `'shared'`, '4')],
         [
           'template-file',
@@ -1193,8 +1289,8 @@ describe('typed source registry and graph evidence', () => {
     expect(contributionSet.contributionKeysByDerivationKey.get(sourceKey('script-file'))).toContain(
       scriptKey,
     );
-    expect(contributionSet.contributionKeysByDerivationKey.has(sourceKey('layout-rcss'))).toBe(
-      false,
+    expect(contributionSet.contributionKeysByDerivationKey.get(sourceKey('layout-rcss'))).toContain(
+      layoutKey,
     );
     expect(contributionSet.contributionKeysByDerivationKey.has(sourceKey('shader-file'))).toBe(
       false,

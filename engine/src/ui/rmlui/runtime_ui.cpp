@@ -565,6 +565,15 @@ struct RuntimeUI::State {
     void refresh_mounted_maps();
     void refresh_active_text_layout();
     void refresh_cursor_eligibility();
+    void publish_cursor_image(host::CursorRequestSource source,
+                              host::CursorAuthority::OwnerToken owner,
+                              host::CursorPresentation presentation, std::string owner_label,
+                              std::string_view asset_id);
+    void publish_cursor_image_fallback(host::CursorRequestSource source,
+                                       host::CursorAuthority::OwnerToken owner,
+                                       host::CursorPresentation presentation,
+                                       std::string owner_label, std::string_view asset_id,
+                                       std::string_view reason);
     void load_runtime_document();
     void show_game_document();
     bool dispatch_shell_command(const core::RuntimeShellCommand& command);
@@ -610,12 +619,14 @@ struct RuntimeUI::State {
     std::unordered_map<std::string, host::CursorPresentation> named_cursors;
     std::unordered_map<std::string, CursorImageAssetMetadata> cursor_image_assets;
     std::unordered_map<std::string, CursorImageAssetMetadata> gameplay_cursor_image_assets;
-    std::optional<host::CursorPresentation> pending_gameplay_cursor;
-    struct PendingLayoutCursor {
+    struct PendingCursorImage {
         host::CursorPresentation presentation;
+        assets::AssetRequestHandle<assets::TextureAsset> request;
         std::string owner_label;
+        std::string asset_id;
     };
-    std::unordered_map<host::CursorAuthority::OwnerToken, PendingLayoutCursor>
+    std::optional<PendingCursorImage> pending_gameplay_cursor;
+    std::unordered_map<host::CursorAuthority::OwnerToken, PendingCursorImage>
         pending_layout_cursors;
     std::unordered_map<std::string, CursorImageAssetMetadata> focused_preview_cursor_image_assets;
     std::unordered_map<std::string, std::unordered_set<std::string>>
@@ -656,6 +667,35 @@ struct RuntimeUI::State {
     bool message_refresh_pending = false;
     std::string typed_notification;
 };
+
+void RuntimeUI::State::publish_cursor_image(host::CursorRequestSource source,
+                                            host::CursorAuthority::OwnerToken owner,
+                                            host::CursorPresentation presentation,
+                                            std::string owner_label, std::string_view asset_id)
+{
+    if (presentation.custom && cursor_realizer && !cursor_realizer->prepare(*presentation.custom)) {
+        publish_cursor_image_fallback(source, owner, std::move(presentation),
+                                      std::move(owner_label), asset_id,
+                                      "native cursor realization failed");
+        return;
+    }
+    cursor_authority->publish(source, owner, std::move(presentation), std::move(owner_label));
+}
+
+void RuntimeUI::State::publish_cursor_image_fallback(host::CursorRequestSource source,
+                                                     host::CursorAuthority::OwnerToken owner,
+                                                     host::CursorPresentation presentation,
+                                                     std::string owner_label,
+                                                     std::string_view asset_id,
+                                                     std::string_view reason)
+{
+    presentation.custom.reset();
+    typed_diagnostics.push_back({.code = "runtime.cursor.realization_failed",
+                                 .message = "Cursor image '" + std::string(asset_id) +
+                                            "' could not be realized (" + std::string(reason) +
+                                            "); using the native fallback."});
+    cursor_authority->publish(source, owner, std::move(presentation), std::move(owner_label));
+}
 
 void RuntimeUI::State::refresh_message_elements(Rml::ElementDocument& document)
 {
@@ -1851,12 +1891,46 @@ core::Result<void, core::Diagnostics> RuntimeUI::set_gameplay_cursor(std::string
             {{.code = "runtime.cursor.invalid_name",
               .message = "'auto' is not a valid Lua cursor target"}});
 
+    const auto resolve_focused_target =
+        [state = m_state](std::string_view target,
+                          host::CursorShape fallback) -> std::optional<host::CursorPresentation> {
+        if (target == "none")
+            return host::CursorPresentation{.shape = host::CursorShape::Hidden,
+                                            .custom = std::nullopt};
+        if (const auto found = state->focused_preview_named_cursors.find(std::string(target));
+            found != state->focused_preview_named_cursors.end()) {
+            auto value = found->second;
+            value.shape = fallback;
+            return value;
+        }
+        if (const auto shape = cursor_shape(target))
+            return host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
+        return std::nullopt;
+    };
+
     std::optional<host::CursorPresentation> presentation;
     if (name == "none") {
         presentation =
             host::CursorPresentation{.shape = host::CursorShape::Hidden, .custom = std::nullopt};
+    } else if (name == "default" && m_state->focused_preview_default_cursor) {
+        presentation = resolve_focused_target(*m_state->focused_preview_default_cursor,
+                                              host::CursorShape::Default);
+    } else if (name == "pointer" && m_state->focused_preview_pointer_cursor) {
+        presentation = resolve_focused_target(*m_state->focused_preview_pointer_cursor,
+                                              host::CursorShape::Pointer);
+    } else if (name == "default" && m_state->cursor_settings) {
+        presentation = resolve_cursor_target(*m_state->cursor_settings, m_state->named_cursors,
+                                             m_state->cursor_settings->default_cursor,
+                                             host::CursorShape::Default);
+    } else if (name == "pointer" && m_state->cursor_settings) {
+        presentation = resolve_cursor_target(*m_state->cursor_settings, m_state->named_cursors,
+                                             m_state->cursor_settings->pointer_cursor,
+                                             host::CursorShape::Pointer);
     } else if (const auto shape = cursor_shape(name)) {
         presentation = host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
+    } else if (const auto focused = m_state->focused_preview_named_cursors.find(name);
+               focused != m_state->focused_preview_named_cursors.end()) {
+        presentation = focused->second;
     } else if (const auto found = m_state->named_cursors.find(name);
                found != m_state->named_cursors.end()) {
         presentation = found->second;
@@ -1931,7 +2005,12 @@ RuntimeUI::set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uin
                                                  .hotspot_y = y,
                                                  .sampling = metadata.sampling,
                                                  .fit_to_portable_bound = true}};
-    if (m_state->layout_invocation_active) {
+    host::CursorRequestSource source = host::CursorRequestSource::GameplayLua;
+    constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
+    host::CursorAuthority::OwnerToken owner = gameplay_cursor_owner;
+    std::string owner_label = "runtime-session";
+    const bool layout_owned = m_state->layout_invocation_active;
+    if (layout_owned) {
         if (!m_state->active_layout_mount_document) {
             return core::Result<void, core::Diagnostics>::failure(
                 {{.code = "runtime.cursor.layout_context_unavailable",
@@ -1944,41 +2023,71 @@ RuntimeUI::set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uin
                 {{.code = "runtime.cursor.layout_context_unavailable",
                   .message = "Layout cursor command has no live Mount occurrence"}});
         }
-        const auto owner = context->second.occurrence.number();
-        const std::string owner_label =
-            *m_state->active_layout_mount_document + "#" + std::to_string(owner);
-        if (m_state->cursor_realizer && !m_state->cursor_realizer->prepare(*presentation.custom)) {
-            m_state->pending_layout_cursors.insert_or_assign(
-                owner, State::PendingLayoutCursor{presentation, owner_label});
-            m_state->typed_diagnostics.push_back(
-                {.code = "runtime.cursor.realization_failed",
-                 .message =
-                     "Layout cursor image '" + asset.text() +
-                     "' is not currently realizable; keeping the previous effective cursor."});
-            return core::Result<void, core::Diagnostics>::success();
-        }
-        m_state->pending_layout_cursors.erase(owner);
-        m_state->cursor_authority->publish(host::CursorRequestSource::LayoutLua, owner,
-                                           std::move(presentation), owner_label);
+        source = host::CursorRequestSource::LayoutLua;
+        owner = context->second.occurrence.number();
+        owner_label = *m_state->active_layout_mount_document + "#" + std::to_string(owner);
+    }
+
+    const auto clear_pending = [&]() {
+        if (layout_owned)
+            m_state->pending_layout_cursors.erase(owner);
+        else
+            m_state->pending_gameplay_cursor.reset();
+    };
+    const auto publish_ready = [&](host::CursorPresentation value) {
+        clear_pending();
+        m_state->publish_cursor_image(source, owner, std::move(value), owner_label, asset.text());
         m_state->refresh_cursor_eligibility();
+    };
+    const auto publish_fallback = [&](host::CursorPresentation value, std::string_view reason) {
+        clear_pending();
+        m_state->publish_cursor_image_fallback(source, owner, std::move(value), owner_label,
+                                               asset.text(), reason);
+        m_state->refresh_cursor_eligibility();
+    };
+
+    if (!m_state->assets || !m_state->cursor_realizer) {
+        publish_ready(std::move(presentation));
         return core::Result<void, core::Diagnostics>::success();
     }
 
-    if (m_state->cursor_realizer && !m_state->cursor_realizer->prepare(*presentation.custom)) {
-        m_state->pending_gameplay_cursor = presentation;
-        m_state->typed_diagnostics.push_back(
-            {.code = "runtime.cursor.realization_failed",
-             .message = "Gameplay cursor image '" + asset.text() +
-                        "' is not currently realizable; keeping the previous effective cursor."});
+    const assets::TextureAssetRequest texture_request{
+        .path = metadata.logical_path,
+        .sampler = metadata.sampling == host::CursorImageSampling::Nearest
+                       ? MaterialTextureSampler::ClampNearest
+                       : MaterialTextureSampler::ClampLinear,
+    };
+    auto requested =
+        m_state->assets->request_texture(texture_request, assets::AssetRequestReason::Demand,
+                                         assets::AssetRequestUrgency::Background);
+    if (!requested) {
+        // A headless or otherwise pointerless host may intentionally have no typed texture loader.
+        // In that case try the native cursor backend once without introducing a retry loop.
+        publish_ready(std::move(presentation));
         return core::Result<void, core::Diagnostics>::success();
     }
 
-    m_state->pending_gameplay_cursor.reset();
-    constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
-    m_state->cursor_authority->publish(host::CursorRequestSource::GameplayLua,
-                                       gameplay_cursor_owner, std::move(presentation),
-                                       "runtime-session");
-    m_state->refresh_cursor_eligibility();
+    auto request = std::move(*requested.value_if());
+    switch (request.state()) {
+    case assets::AssetRequestState::Pending: {
+        State::PendingCursorImage pending{std::move(presentation), std::move(request), owner_label,
+                                          asset.text()};
+        if (layout_owned)
+            m_state->pending_layout_cursors.insert_or_assign(owner, std::move(pending));
+        else
+            m_state->pending_gameplay_cursor = std::move(pending);
+        return core::Result<void, core::Diagnostics>::success();
+    }
+    case assets::AssetRequestState::Ready:
+        publish_ready(std::move(presentation));
+        return core::Result<void, core::Diagnostics>::success();
+    case assets::AssetRequestState::Failed:
+        publish_fallback(std::move(presentation), "Asset preparation failed");
+        return core::Result<void, core::Diagnostics>::success();
+    case assets::AssetRequestState::Canceled:
+        publish_fallback(std::move(presentation), "Asset preparation was canceled");
+        return core::Result<void, core::Diagnostics>::success();
+    }
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -2167,26 +2276,47 @@ void RuntimeUI::resize(const PresentationMetrics& presentation)
 void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
 {
     if (m_state && m_state->cursor_authority) {
-        if (m_state->pending_gameplay_cursor &&
-            (!m_state->cursor_realizer ||
-             m_state->cursor_realizer->prepare(*m_state->pending_gameplay_cursor->custom))) {
+        if (m_state->pending_gameplay_cursor && m_state->pending_gameplay_cursor->request.state() !=
+                                                    assets::AssetRequestState::Pending) {
             constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
-            m_state->cursor_authority->publish(
-                host::CursorRequestSource::GameplayLua, gameplay_cursor_owner,
-                std::move(*m_state->pending_gameplay_cursor), "runtime-session");
+            auto pending = std::move(*m_state->pending_gameplay_cursor);
             m_state->pending_gameplay_cursor.reset();
+            if (pending.request.state() == assets::AssetRequestState::Ready) {
+                m_state->publish_cursor_image(host::CursorRequestSource::GameplayLua,
+                                              gameplay_cursor_owner,
+                                              std::move(pending.presentation),
+                                              std::move(pending.owner_label), pending.asset_id);
+            } else {
+                m_state->publish_cursor_image_fallback(
+                    host::CursorRequestSource::GameplayLua, gameplay_cursor_owner,
+                    std::move(pending.presentation), std::move(pending.owner_label),
+                    pending.asset_id,
+                    pending.request.state() == assets::AssetRequestState::Failed
+                        ? "Asset preparation failed"
+                        : "Asset preparation was canceled");
+            }
         }
         for (auto it = m_state->pending_layout_cursors.begin();
              it != m_state->pending_layout_cursors.end();) {
-            if (m_state->cursor_realizer &&
-                !m_state->cursor_realizer->prepare(*it->second.presentation.custom)) {
+            if (it->second.request.state() == assets::AssetRequestState::Pending) {
                 ++it;
                 continue;
             }
-            m_state->cursor_authority->publish(host::CursorRequestSource::LayoutLua, it->first,
-                                               std::move(it->second.presentation),
-                                               std::move(it->second.owner_label));
+            const auto owner = it->first;
+            auto pending = std::move(it->second);
             it = m_state->pending_layout_cursors.erase(it);
+            if (pending.request.state() == assets::AssetRequestState::Ready) {
+                m_state->publish_cursor_image(host::CursorRequestSource::LayoutLua, owner,
+                                              std::move(pending.presentation),
+                                              std::move(pending.owner_label), pending.asset_id);
+            } else {
+                m_state->publish_cursor_image_fallback(
+                    host::CursorRequestSource::LayoutLua, owner, std::move(pending.presentation),
+                    std::move(pending.owner_label), pending.asset_id,
+                    pending.request.state() == assets::AssetRequestState::Failed
+                        ? "Asset preparation failed"
+                        : "Asset preparation was canceled");
+            }
         }
         m_state->refresh_cursor_eligibility();
     }
@@ -2546,6 +2676,11 @@ bool RuntimeUI::set_document_opacity(const std::string& id, float opacity)
 {
     return m_state && m_state->document_registry &&
            m_state->document_registry->set_opacity(id, opacity);
+}
+
+bool RuntimeUI::with_layout_invocation(const std::string& id, const std::function<bool()>& dispatch)
+{
+    return m_state && m_state->with_active_layout_mount_document(id, dispatch);
 }
 
 void RuntimeUI::set_layout_mount_context(const std::string& id,

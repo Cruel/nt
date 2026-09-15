@@ -467,6 +467,58 @@ private:
     std::unordered_set<std::string> m_locations;
 };
 
+class FocusedCursorCommandProvider final : public runtime::RuntimeCursorCommandProvider {
+public:
+    FocusedCursorCommandProvider(
+        std::shared_ptr<runtime::RuntimeQueryProvider> owner,
+        std::function<core::Result<void, core::Diagnostics>(std::string)> set_cursor,
+        std::function<core::Result<void, core::Diagnostics>(
+            core::AssetId, std::optional<std::uint32_t>, std::optional<std::uint32_t>)>
+            set_cursor_image,
+        std::function<core::Result<void, core::Diagnostics>()> clear_cursor)
+        : m_owner(std::move(owner)), m_set_cursor(std::move(set_cursor)),
+          m_set_cursor_image(std::move(set_cursor_image)), m_clear_cursor(std::move(clear_cursor))
+    {
+    }
+
+    [[nodiscard]] bool active(runtime::CapabilityGeneration generation) const noexcept override
+    {
+        return m_owner && m_owner->active(generation);
+    }
+
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor(std::string name) override
+    {
+        return m_set_cursor
+                   ? m_set_cursor(std::move(name))
+                   : core::Result<void, core::Diagnostics>::failure(unadmitted("cursor command"));
+    }
+
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                              std::optional<std::uint32_t> hotspot_y) override
+    {
+        return m_set_cursor_image ? m_set_cursor_image(std::move(asset), hotspot_x, hotspot_y)
+                                  : core::Result<void, core::Diagnostics>::failure(
+                                        unadmitted("cursor image command"));
+    }
+
+    [[nodiscard]] core::Result<void, core::Diagnostics> clear_gameplay_cursor() override
+    {
+        return m_clear_cursor ? m_clear_cursor()
+                              : core::Result<void, core::Diagnostics>::failure(
+                                    unadmitted("cursor clear command"));
+    }
+
+private:
+    std::shared_ptr<runtime::RuntimeQueryProvider> m_owner;
+    std::function<core::Result<void, core::Diagnostics>(std::string)> m_set_cursor;
+    std::function<core::Result<void, core::Diagnostics>(core::AssetId, std::optional<std::uint32_t>,
+                                                        std::optional<std::uint32_t>)>
+        m_set_cursor_image;
+    std::function<core::Result<void, core::Diagnostics>()> m_clear_cursor;
+};
+
 FocusedContentKind owner_kind(core::editor::FocusedEditorDocumentKind kind)
 {
     switch (kind) {
@@ -1385,6 +1437,9 @@ FocusedPreviewPresenter::prepare_room_state(
     state.script_environment = *environment.value_if();
     state.query_provider = std::make_shared<FocusedRoomQueryProvider>(
         document.lua_admission, document.query_state, *generation);
+    state.cursor_commands = std::make_shared<FocusedCursorCommandProvider>(
+        state.query_provider, m_dependencies.set_cursor, m_dependencies.set_cursor_image,
+        m_dependencies.clear_cursor);
     for (const auto& resource : request.resources) {
         if (resource.source_kind != "authoring-asset" || resource.kind != "image" ||
             !resource.asset_id)
@@ -1661,8 +1716,11 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
                 prepared_state.query_provider = std::make_shared<FocusedRoomQueryProvider>(
                     core::editor::TypedFocusedRoomLuaAdmission{},
                     core::editor::TypedFocusedRoomQueryState{}, *generation);
-                runtime::RuntimeCapabilityIssuer issuer(*prepared_state.query_provider,
-                                                        *generation);
+                prepared_state.cursor_commands = std::make_shared<FocusedCursorCommandProvider>(
+                    prepared_state.query_provider, m_dependencies.set_cursor,
+                    m_dependencies.set_cursor_image, m_dependencies.clear_cursor);
+                runtime::RuntimeCapabilityIssuer issuer(
+                    *prepared_state.query_provider, *prepared_state.cursor_commands, *generation);
                 const auto capabilities =
                     issuer.issue(runtime::RuntimeCapabilityProfile::GameplayLayoutEvent);
                 if (!capabilities) {
@@ -1782,7 +1840,15 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         release_state(candidate.state);
         return;
     }
-    runtime::RuntimeCapabilityIssuer layout_issuer(*candidate.state.query_provider, *generation);
+    if (!candidate.state.cursor_commands) {
+        m_dependencies.complete(candidate.request, "failed",
+                                {error("editor_preview.focused_layout_cursor_commands_missing",
+                                       "Focused Layout cursor commands are unavailable")});
+        release_state(candidate.state);
+        return;
+    }
+    runtime::RuntimeCapabilityIssuer layout_issuer(*candidate.state.query_provider,
+                                                   *candidate.state.cursor_commands, *generation);
     const auto layout_capabilities =
         layout_issuer.issue(runtime::RuntimeCapabilityProfile::GameplayLayoutEvent);
     if (!layout_capabilities) {

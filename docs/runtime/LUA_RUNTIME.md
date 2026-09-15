@@ -161,19 +161,23 @@ is not a gameplay target. `cursor.set_image(assetId, options)` resolves a stable
 accepts optional `hotspot_x`/`hotspot_y` source-image pixel coordinates, defaulting to the image
 center. Hotspots must remain inside the source image. Dynamic cursor images larger than 128x128 are
 fit proportionally to that portable bound without upscaling smaller images, preserve Asset sampling,
-and scale their hotspot with the realized image. Cursor calls are synchronous, non-awaiting
-presentation intent and never introduce Flow or checkpoint barriers. Invalid requests leave the
-caller's prior intent intact; an image that is not yet realizable leaves the current effective cursor
-in place until realization can replace it atomically. Backend realization failure is diagnostic-only
-and does not fail gameplay.
+and scale their hotspot with the realized image while clamping the mapped hotspot inside the realized
+image. Cursor calls are synchronous, non-awaiting presentation intent and never introduce Flow or
+checkpoint barriers. Invalid requests leave the caller's prior intent intact. `set_image` issues the
+normal asynchronous Asset request and leaves the current effective cursor in place while that request
+is pending; readiness replaces it atomically. Terminal Asset preparation or backend realization
+failure records a diagnostic, uses the semantic native fallback, and does not fail gameplay or retry a
+permanent failure indefinitely.
 
 Outside a Layout callback, the cursor override is owned by the current Runtime Session rather than a
 Scene, Room, Dialogue, or other gameplay scope. It therefore survives ordinary gameplay presentation
 changes but is cleared when that session ends or is replaced. During Layout invocation, the same API
 infers the exact live Layout Mount occurrence instead: its request follows that Mount's visibility and
-presentation order and is discarded on unmount or occurrence replacement. In either scope,
-`cursor.clear()` removes only the caller's inferred owner and reveals the next eligible centralized
-cursor request. Runtime Session and Mount cursor intent plus native cursor realization are transient
+presentation order and is discarded on unmount or occurrence replacement. Focused Layout previews
+issue a cursor-only command capability and execute dedicated Layout Lua under the exact synthetic Mount
+occurrence, preserving the same ownership rule without granting unrelated gameplay mutations. In
+either scope, `cursor.clear()` removes only the caller's inferred owner and reveals the next eligible
+centralized cursor request. Runtime Session and Mount cursor intent plus native cursor realization are transient
 host presentation state: they are not serialized into SaveState/checkpoints or gameplay recordings and
 are reconstructed only by gameplay/Layout behavior that requests them again.
 

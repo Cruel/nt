@@ -18,7 +18,8 @@ RuntimeQueryCapabilities::RuntimeQueryCapabilities(const RuntimeCommandGateway& 
 
 RuntimeCapabilityIssuer::RuntimeCapabilityIssuer(RuntimeCommandGateway& gateway,
                                                  CapabilityGeneration generation) noexcept
-    : m_queries(gateway), m_commands(&gateway), m_generation(generation)
+    : m_queries(gateway), m_commands(&gateway), m_cursor_commands(&gateway),
+      m_generation(generation)
 {
 }
 namespace {

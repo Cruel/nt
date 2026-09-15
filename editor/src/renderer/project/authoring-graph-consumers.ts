@@ -213,7 +213,7 @@ export function preflightGraphCommand(input: {
   ) {
     return {
       kind: 'blocked',
-      reason: 'Confirm rename without rewriting Lua before continuing.',
+      reason: 'Confirm rename without rewriting exact source references before continuing.',
       usages,
     };
   }

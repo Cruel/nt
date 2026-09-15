@@ -80,6 +80,7 @@ void CursorAuthority::bind_realizer(CursorRealizer* realizer) noexcept
 
 void CursorAuthority::invalidate_realization() noexcept
 {
+    m_realization_request.reset();
     m_realized.reset();
     resolve();
 }
@@ -123,7 +124,7 @@ void CursorAuthority::set_eligible_order(CursorRequestSource source,
 void CursorAuthority::resolve() noexcept
 {
     CursorInspection next{};
-    CursorPresentation realized{};
+    CursorPresentation requested{};
     bool found = false;
     for (std::size_t source_index_value = 0;
          source_index_value < source_index(CursorRequestSource::Count) && !found;
@@ -133,25 +134,24 @@ void CursorAuthority::resolve() noexcept
             const auto request = m_requests.find(RequestKey{source, owner});
             if (request == m_requests.end())
                 continue;
-            realized = request->second.presentation;
-            next.effective = realized.shape;
-            next.effective_name =
-                request->second.presentation.custom
-                    ? request->second.presentation.custom->id
-                    : std::string(cursor_shape_name(request->second.presentation.shape));
+            requested = request->second.presentation;
             next.source = std::string(cursor_request_source_name(source));
             next.owner = request->second.owner_label;
-            next.custom = realized.custom;
             found = true;
             break;
         }
     }
 
-    m_inspection = std::move(next);
-    if (m_realizer && (!m_realized || *m_realized != realized)) {
-        m_realizer->realize(realized);
-        m_realized = realized;
+    if (!m_realization_request || *m_realization_request != requested) {
+        m_realized = m_realizer ? m_realizer->realize(requested) : requested;
+        m_realization_request = requested;
     }
+    const CursorPresentation& realized = m_realized ? *m_realized : requested;
+    next.effective = realized.shape;
+    next.effective_name =
+        realized.custom ? realized.custom->id : std::string(cursor_shape_name(realized.shape));
+    next.custom = realized.custom;
+    m_inspection = std::move(next);
 }
 
 void CursorAuthority::reset() noexcept
@@ -161,9 +161,9 @@ void CursorAuthority::reset() noexcept
         eligible.clear();
     m_inspection = {};
     const CursorPresentation presentation{.shape = CursorShape::Default, .custom = std::nullopt};
-    if (m_realizer && (!m_realized || *m_realized != presentation)) {
-        m_realizer->realize(presentation);
-        m_realized = presentation;
+    if (!m_realization_request || *m_realization_request != presentation) {
+        m_realized = m_realizer ? m_realizer->realize(presentation) : presentation;
+        m_realization_request = presentation;
     }
 }
 

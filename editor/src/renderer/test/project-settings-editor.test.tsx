@@ -234,9 +234,9 @@ describe('ProjectSettingsEditor', () => {
     selectProjectSettingsCategory('Cursors');
 
     expect(screen.getByText('Named Cursors')).toBeInTheDocument();
-    expect(screen.getByLabelText('default')).toHaveValue('system:default');
-    expect(screen.getByLabelText('pointer')).toHaveValue('system:pointer');
-    expect(screen.getByLabelText('hotspot')).toHaveValue('inherit:pointer');
+    expect(screen.getByLabelText('Default')).toHaveValue('system:default');
+    expect(screen.getByLabelText('Pointer')).toHaveValue('system:pointer');
+    expect(screen.getByLabelText('Hotspot')).toHaveValue('inherit:pointer');
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Cursor' }));
     await waitFor(() => {
@@ -255,7 +255,7 @@ describe('ProjectSettingsEditor', () => {
     expect(screen.getByLabelText('Hotspot 0, 0')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Test Cursor' })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('pointer'), { target: { value: 'named:cursor' } });
+    fireEvent.change(screen.getByLabelText('Pointer'), { target: { value: 'named:cursor' } });
     await waitFor(() => {
       const current = useProjectStore.getState().document as ReturnType<typeof project>;
       expect(current.settings.cursors.defaults.pointer).toEqual({ kind: 'named', id: 'cursor' });

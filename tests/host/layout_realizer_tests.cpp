@@ -213,6 +213,16 @@ public:
         mount_contexts.erase(document_id);
     }
 
+    bool with_layout_invocation(const std::string& document_id,
+                                const std::function<bool()>& dispatch) override
+    {
+        layout_invocation_document = document_id;
+        layout_invocation_active = true;
+        const bool result = dispatch();
+        layout_invocation_active = false;
+        return result;
+    }
+
     void set_cursor_image_dependencies(const std::string& document_id,
                                        std::vector<std::string> logical_paths) override
     {
@@ -316,6 +326,8 @@ public:
     std::vector<ContextPolicyCall> context_policies;
     std::function<void(const std::string&)> on_show;
     std::unordered_map<std::string, presentation::RuntimeMountedLayout> mount_contexts;
+    bool layout_invocation_active = false;
+    std::string layout_invocation_document;
     std::unordered_map<std::string, std::vector<std::string>> cursor_image_dependencies;
     std::vector<presentation::RuntimeSystemLayoutDocumentBinding> system_layout_documents;
     std::size_t system_layout_publication_count = 0;
@@ -1086,6 +1098,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     std::size_t world_presentation_changes = 0;
     RuntimeUiInputSink* bound_input_sink = nullptr;
     std::size_t legacy_preview_retirements = 0;
+    std::vector<std::string> focused_cursor_commands;
     bool ui_values_succeed = false;
     FocusedPreviewPresenter presenter({
         .assets = assets,
@@ -1126,6 +1139,22 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                 ++input_bindings;
                 backend.calls.push_back("bind-input");
             },
+        .set_cursor =
+            [&](std::string name) {
+                REQUIRE(backend.layout_invocation_active);
+                REQUIRE(backend.mount_contexts.contains(backend.layout_invocation_document));
+                const auto& mount = backend.mount_contexts.at(backend.layout_invocation_document);
+                REQUIRE(mount.occurrence);
+                focused_cursor_commands.push_back(backend.layout_invocation_document + "#" +
+                                                  std::to_string(mount.occurrence->number()) + ":" +
+                                                  name);
+                return core::Result<void, core::Diagnostics>::success();
+            },
+        .set_cursor_image =
+            [](core::AssetId, std::optional<std::uint32_t>, std::optional<std::uint32_t>) {
+                return core::Result<void, core::Diagnostics>::success();
+            },
+        .clear_cursor = []() { return core::Result<void, core::Diagnostics>::success(); },
         .world_presentation_changed = [&]() { ++world_presentation_changes; },
         .retire_legacy_preview = [&]() { ++legacy_preview_retirements; },
         .active_shader_variant = []() -> std::string_view { return "glsl-120"; },
@@ -1337,6 +1366,19 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         CHECK(backend.mount_contexts.begin()->second.state_values.front().value ==
               core::PersistableValue{core::PersistableValue::Object{
                   {"saved_count", core::PersistableValue{std::int64_t{2}}}}});
+        return;
+    }
+    SECTION("focused Layout Lua cursor commands execute under exact Mount ownership")
+    {
+        auto scripted_layout = layout;
+        scripted_layout["lua"]["text"] = "noveltea.presentation.cursor.set(\"wait\")";
+        scripted_layout["script"]["enabled"] = true;
+        REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Layout,
+                                             "layout-cursor", scripted_layout, 2)));
+        presenter.update();
+        REQUIRE(focused_cursor_commands.size() == 1);
+        CHECK(focused_cursor_commands.front().starts_with("focused://candidate/"));
+        CHECK(focused_cursor_commands.front().ends_with(":wait"));
         return;
     }
     SECTION("other focused owners remain passive") {}

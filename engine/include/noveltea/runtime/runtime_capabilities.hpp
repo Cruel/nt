@@ -24,6 +24,19 @@ namespace noveltea::runtime {
 class RuntimeCommandGateway;
 class RuntimeQueryProvider;
 
+class RuntimeCursorCommandProvider {
+public:
+    virtual ~RuntimeCursorCommandProvider() = default;
+
+    [[nodiscard]] virtual bool active(CapabilityGeneration generation) const noexcept = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    set_gameplay_cursor(std::string name) = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                              std::optional<std::uint32_t> hotspot_y) = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics> clear_gameplay_cursor() = 0;
+};
+
 class RoomCompositionDraftAccess {
 public:
     RoomCompositionDraftAccess() = default;
@@ -127,13 +140,16 @@ public:
 private:
     friend class RuntimeCapabilitySet;
     friend class RuntimeCapabilityIssuer;
-    RuntimeCommandCapabilities(RuntimeCommandGateway* gateway, std::uint64_t groups,
+    RuntimeCommandCapabilities(RuntimeCommandGateway* gateway,
+                               RuntimeCursorCommandProvider* cursor_commands, std::uint64_t groups,
                                CapabilityGeneration generation) noexcept
-        : m_gateway(gateway), m_groups(groups), m_generation(generation)
+        : m_gateway(gateway), m_cursor_commands(cursor_commands), m_groups(groups),
+          m_generation(generation)
     {
     }
 
     RuntimeCommandGateway* m_gateway = nullptr;
+    RuntimeCursorCommandProvider* m_cursor_commands = nullptr;
     std::uint64_t m_groups = 0;
     CapabilityGeneration m_generation;
 };
@@ -172,6 +188,13 @@ private:
     command_gateway(RuntimeCapabilityGroup group) const noexcept
     {
         return m_commands.has(group) ? m_commands.m_gateway : nullptr;
+    }
+    [[nodiscard]] RuntimeCursorCommandProvider*
+    cursor_command_provider(RuntimeCapabilityGroup group) const noexcept
+    {
+        return group == RuntimeCapabilityGroup::Cursor && m_commands.has(group)
+                   ? m_commands.m_cursor_commands
+                   : nullptr;
     }
     [[nodiscard]] const RuntimeCommandGateway* gateway() const noexcept
     {
@@ -275,6 +298,12 @@ public:
     {
     }
 
+    RuntimeCapabilityIssuer(RuntimeQueryProvider& queries, RuntimeCursorCommandProvider& cursors,
+                            CapabilityGeneration generation) noexcept
+        : m_queries(queries), m_cursor_commands(&cursors), m_generation(generation)
+    {
+    }
+
     [[nodiscard]] std::optional<RuntimeCapabilitySet>
     issue(RuntimeCapabilityProfile profile) const noexcept
     {
@@ -305,13 +334,19 @@ private:
             m_commands
                 ? RuntimeQueryCapabilities(*m_commands, descriptor.query_groups, m_generation)
                 : RuntimeQueryCapabilities(m_queries, descriptor.query_groups, m_generation),
-            RuntimeCommandCapabilities(m_commands, m_commands ? descriptor.command_groups : 0,
-                                       m_generation),
+            RuntimeCommandCapabilities(
+                m_commands, m_cursor_commands,
+                m_commands ? descriptor.command_groups
+                           : (m_cursor_commands ? descriptor.command_groups &
+                                                      capability_bit(RuntimeCapabilityGroup::Cursor)
+                                                : 0),
+                m_generation),
             draft);
     }
 
     RuntimeQueryProvider& m_queries;
     RuntimeCommandGateway* m_commands = nullptr;
+    RuntimeCursorCommandProvider* m_cursor_commands = nullptr;
     CapabilityGeneration m_generation;
 };
 

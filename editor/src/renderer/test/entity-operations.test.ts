@@ -137,6 +137,118 @@ describe('authoring entity operations', () => {
     expect(undoCommand(result.state).state.document).toEqual(state.document);
   });
 
+  it('rewrites named cursor references embedded in RML styles', async () => {
+    const project = projectWithCursorReferences();
+    project.layouts.hud!.data.rml.sourceText = [
+      '<rml>',
+      '<head><style>#target { cursor: inspect; }</style></head>',
+      '<body style="cursor: inspect;"></body>',
+      '</rml>',
+    ].join('\n');
+    const initial = createInitialCommandBusState(toJsonValue(project));
+    const graph = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: { entriesByAssetId: new Map() },
+    });
+    const projectRevision = initial.projectRevision ?? 1;
+    const state = {
+      ...initial,
+      projectRevision,
+      graphSnapshot: {
+        projectInstanceId: initial.projectInstanceId!,
+        projectRevision,
+        graphRevision: projectRevision,
+        graph,
+      },
+    };
+
+    const result = executeCommandCore(state, {
+      type: 'project.renameNamedCursor',
+      payload: { fromId: 'inspect', toId: 'examine' },
+      originSaveUnitId: 'test:save-unit',
+      persistencePolicy: 'manual-save',
+    });
+
+    expect(result.ok).toBe(true);
+    const renamed = authoringProjectSchema.parse(result.state.document);
+    expect(renamed.layouts.hud?.data.rml.sourceText).toContain('cursor: examine;');
+    expect(renamed.layouts.hud?.data.rml.sourceText.match(/cursor: examine;/g)).toHaveLength(2);
+    expect(renamed.layouts.hud?.data.rml.sourceText).not.toContain('cursor: inspect;');
+    expect(undoCommand(result.state).state.document).toEqual(state.document);
+  });
+
+  it('blocks named cursor refactors when an Asset-backed RCSS source must be edited manually', async () => {
+    const project = projectWithCursorReferences();
+    project.assets['cursor-style'] = {
+      id: 'cursor-style',
+      label: 'Cursor styles',
+      data: {
+        kind: 'data',
+        source: { type: 'project-file', path: 'ui/cursors.rcss' },
+        aliases: [],
+        extension: '.rcss',
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: null,
+      },
+    } as never;
+    project.layouts.hud!.data.rcss = {
+      sourceMode: 'asset',
+      sourceText: '',
+      sourceAsset: { $ref: { collection: 'assets', id: 'cursor-style' } },
+    };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+    const graph = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: {
+        entriesByAssetId: new Map([
+          [
+            'cursor-style',
+            {
+              status: 'ready',
+              assetId: 'cursor-style',
+              projectRelativePath: 'ui/cursors.rcss',
+              contentHash: `sha256:${'a'.repeat(64)}`,
+              text: '#target { cursor: inspect; }',
+              hadUtf8Bom: false,
+            },
+          ],
+        ]),
+      },
+    });
+    const projectRevision = initial.projectRevision ?? 1;
+    const state = {
+      ...initial,
+      projectRevision,
+      graphSnapshot: {
+        projectInstanceId: initial.projectInstanceId!,
+        projectRevision,
+        graphRevision: projectRevision,
+        graph,
+      },
+    };
+
+    const renamed = executeCommandCore(state, {
+      type: 'project.renameNamedCursor',
+      payload: { fromId: 'inspect', toId: 'examine' },
+      originSaveUnitId: 'test:save-unit',
+      persistencePolicy: 'manual-save',
+    });
+    expect(renamed.ok).toBe(false);
+    expect(renamed.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ severity: 'error', message: expect.stringContaining('source') }),
+      ]),
+    );
+
+    const deleted = executeCommandCore(state, {
+      type: 'project.deleteNamedCursor',
+      payload: { cursorId: 'inspect' },
+      originSaveUnitId: 'test:save-unit',
+      persistencePolicy: 'manual-save',
+    });
+    expect(deleted.ok).toBe(false);
+  });
+
   it('rewrites literal Lua cursor names and reports computed cursor-name risk', async () => {
     const project = projectWithCursorReferences();
     project.layouts.hud!.data.lua.sourceText = [

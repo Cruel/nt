@@ -255,8 +255,9 @@ eligibility. RuntimeUI derives RmlUi eligibility from the same front-to-back poi
 above, so a consumed or modal context shields lower cursor requests while a click-through context with
 no cursor request leaves lower eligible requests available. Across request classes, the winning order
 is frontmost eligible Layout-Mount Lua, admitted Runtime Session gameplay Lua, frontmost pointer-owning
-RmlUi/RCSS, world Hotspot, Project Default, then native default. The authority exposes the effective
-cursor and winning source/owner to private test/debug adapters.
+RmlUi/RCSS, world Hotspot, Project Default, then native default. Native realization reports the
+presentation it actually accepted back to the authority, so private test/debug inspection exposes the
+true effective cursor and winning source/owner rather than a failed desired custom cursor.
 
 Layout Lua uses the same `noveltea.presentation.cursor` API as gameplay Lua, but RuntimeUI attributes a
 call made during Layout invocation to the exact live Mount occurrence rather than the Runtime Session.
@@ -275,7 +276,8 @@ Image Asset is eagerly prepared with the active Project and remains globally rea
 Layout declares the image as a dependency. Focused Layout preview stages the same named registry and
 source artwork explicitly, so `cursor: <named-id>` has the same resolution there as at runtime. If a
 custom cursor cannot be decoded or realized, RuntimeUI records a typed diagnostic and the SDL realizer
-uses the semantic native fallback instead of failing gameplay.
+uses the semantic native fallback instead of failing gameplay. Lua `default` and `pointer` use the same
+Project semantic overrides as RCSS rather than bypassing customization.
 
 `none` means hidden cursor and `auto` contributes no RmlUi request; legacy/private RmlUi spellings are
 translated before publication. Pointer leave, focus loss, and movement into presentation bars clear
@@ -287,9 +289,12 @@ Native system-cursor creation, visibility, color-cursor creation, and `SDL_SetCu
 in the SDL cursor realizer under `engine/src/platform/sdl/`; RmlUi's SDL system interface is limited
 to translating the RmlUi callback into engine cursor intent alongside its clipboard/text-input
 responsibilities. Equivalent custom requests from named cursors, RCSS images, Hotspots, and Lua all
-reach this shared realization/cache path rather than source-specific native backends. Cursor pixels and
+reach this shared realization/cache path rather than source-specific native backends. Cache identity is
+normalized to the resolved logical image plus realized dimensions, sampling, and realized hotspot, so
+source-specific request metadata does not duplicate an equivalent native cursor. Cursor pixels and
 hotspots remain in native image-pixel space; Project reference resolution and UI/text scale do not
-rescale them, while SDL/platform DPI behavior remains authoritative.
+rescale them, while downscaling maps and clamps a valid source hotspot inside the realized image and
+SDL/platform DPI behavior remains authoritative.
 
 Desktop and Web keep the same authored cursor contract and SDL-backed realization boundary. A platform
 that refuses a custom cursor falls back diagnostically instead of invalidating gameplay, and a

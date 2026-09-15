@@ -96,6 +96,8 @@ public:
     bool set_document_opacity(const std::string& id, float opacity);
     void set_layout_mount_context(const std::string& id,
                                   std::optional<RuntimeUiLayoutMountContext> context);
+    [[nodiscard]] bool with_layout_invocation(const std::string& id,
+                                              const std::function<bool()>& dispatch);
     void set_layout_cursor_image_dependencies(const std::string& id,
                                               std::vector<std::string> logical_paths);
     [[nodiscard]] std::optional<RuntimeUiLayoutMountContext>

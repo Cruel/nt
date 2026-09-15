@@ -609,7 +609,8 @@ export class AuthoringDependencyGraphService {
           contentHash,
         }));
       this.analysisCache.contentArtifacts.set(cacheKey, artifact);
-      admittedOccurrences += artifact.literalOccurrences.length;
+      admittedOccurrences +=
+        artifact.literalOccurrences.length + artifact.cursorNameOccurrences.length;
     }
     for (const assetId of [...requiredIds].sort()) {
       const asset = project.assets[assetId];

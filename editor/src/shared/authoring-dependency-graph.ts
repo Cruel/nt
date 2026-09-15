@@ -2624,6 +2624,90 @@ function addLuaEvidenceToContribution(
         derivationDependencies.push({ kind: 'source-asset', assetId: sourceAssetId });
       diagnostics.push(...analysis.diagnostics);
       literals.push(...analysis.literalOccurrences);
+      for (const occurrence of analysis.cursorNameOccurrences) {
+        const dedicatedInlineRcss =
+          occurrence.sourceKind === 'rcss' &&
+          occurrence.sourceAssetId === undefined &&
+          occurrence.sourcePath.endsWith('/rcss/sourceText');
+        if (dedicatedInlineRcss) continue;
+
+        const cursorIndex = project.settings.cursors.named.findIndex(
+          (cursor) => cursor.id === occurrence.name,
+        );
+        const builtIn =
+          occurrence.name === 'auto' ||
+          occurrence.name === 'none' ||
+          occurrence.name.startsWith('rmlui-') ||
+          systemCursorNames.includes(occurrence.name as (typeof systemCursorNames)[number]);
+        if (cursorIndex < 0) {
+          if (!builtIn) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'authoring.cursor.source_named_missing',
+              path: occurrence.sourcePath as JsonPointer,
+              message: `Cursor declaration references unknown cursor '${occurrence.name}'.`,
+              sourceUrl: occurrence.sourceUrl,
+              line: occurrence.line,
+              column: occurrence.column,
+            });
+          }
+          continue;
+        }
+
+        const descriptor =
+          descriptors.find((item) => item.sourcePath === occurrence.sourcePath) ??
+          descriptors.find(
+            (item) =>
+              item.layoutId !== undefined &&
+              (occurrence.sourceKind === 'rcss'
+                ? item.sourceKind === 'rcss'
+                : item.sourceKind === 'rml'),
+          );
+        if (!descriptor) continue;
+        const targetPath = `/settings/cursors/named/${cursorIndex}/id` as JsonPointer;
+        const rewriteable = occurrence.sourceAssetId === undefined;
+        edges.push(
+          structuralEdge(
+            descriptor.semanticOwner,
+            projectFieldNodeKey(targetPath),
+            occurrence.sourcePath as JsonPointer,
+            targetPath,
+            {
+              role: 'source-recognized-reference',
+              facets: ['reference-integrity', 'tooling-reference', 'validation'],
+              repair: rewriteable
+                ? {
+                    kind: 'warning-only',
+                    reason: 'Recognized cursor source reference is safely rewriteable.',
+                  }
+                : {
+                    kind: 'blocked',
+                    reason: 'Referenced Asset source must be updated manually.',
+                  },
+              evidence: [
+                {
+                  kind: 'source-occurrence',
+                  sourceUrl: occurrence.sourceUrl,
+                  classification: rewriteable ? 'exact-rewriteable' : 'exact-manual',
+                  line: occurrence.line,
+                  column: occurrence.column,
+                  endLine: occurrence.line,
+                  endColumn: occurrence.column + occurrence.name.length,
+                  ...(rewriteable
+                    ? {
+                        rewriteRange: {
+                          startUtf16: occurrence.startUtf16,
+                          endUtf16: occurrence.endUtf16,
+                          expectedText: occurrence.name,
+                        },
+                      }
+                    : {}),
+                },
+              ],
+            },
+          ),
+        );
+      }
       const managedLiteralKeys = new Set(
         analysis.managedMessageOccurrences.map(
           (occurrence) =>

@@ -37,11 +37,10 @@ void run_cursor_platform_smoke()
         .hotspot_x = 0,
         .hotspot_y = 0,
     };
-    const bool realized = realizer.prepare(custom);
-    realizer.realize({.shape = host::CursorShape::Pointer, .custom = custom});
-    std::printf("[cursor-platform-smoke] custom=%s\n", realized ? "realized" : "fallback");
-    realizer.realize({.shape = host::CursorShape::Hidden, .custom = std::nullopt});
-    realizer.realize({.shape = host::CursorShape::Default, .custom = std::nullopt});
+    const auto realized = realizer.realize({.shape = host::CursorShape::Pointer, .custom = custom});
+    std::printf("[cursor-platform-smoke] custom=%s\n", realized.custom ? "realized" : "fallback");
+    (void)realizer.realize({.shape = host::CursorShape::Hidden, .custom = std::nullopt});
+    (void)realizer.realize({.shape = host::CursorShape::Default, .custom = std::nullopt});
 }
 
 } // namespace noveltea::sandbox

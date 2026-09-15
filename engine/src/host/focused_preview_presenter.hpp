@@ -63,6 +63,11 @@ public:
         std::function<void(const std::vector<core::editor::FocusedEditorManifestProjection>&)>
             configure_cursor_resources;
         std::function<void()> clear_cursor_resources;
+        std::function<core::Result<void, core::Diagnostics>(std::string)> set_cursor;
+        std::function<core::Result<void, core::Diagnostics>(
+            core::AssetId, std::optional<std::uint32_t>, std::optional<std::uint32_t>)>
+            set_cursor_image;
+        std::function<core::Result<void, core::Diagnostics>()> clear_cursor;
         std::function<void()> world_presentation_changed;
         std::function<void()> retire_legacy_preview;
         std::function<std::string_view()> active_shader_variant;
@@ -112,6 +117,7 @@ private:
         bool composition_execution_prepared = false;
         script::ScriptEnvironmentHandle script_environment;
         std::shared_ptr<runtime::RuntimeQueryProvider> query_provider;
+        std::shared_ptr<runtime::RuntimeCursorCommandProvider> cursor_commands;
     };
 
     struct Candidate {

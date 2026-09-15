@@ -398,11 +398,16 @@ function localizationOwnsAssetReference(sourcePath: string): boolean {
   );
 }
 
-async function referencedRuntimeAssetIds(
+interface RuntimeSourceGraphAssessment {
+  referencedAssetIds: ReadonlySet<string>;
+  diagnostics: ProjectValidationDiagnostic[];
+}
+
+async function runtimeSourceGraphAssessment(
   project: AuthoringProject,
   projectRoot: string | null,
   paths: RuntimeArtifactPathAdapter,
-): Promise<ReadonlySet<string> | null> {
+): Promise<RuntimeSourceGraphAssessment | null> {
   const requiredSourceAssetIds = collectAuthoringSourceRequirements(project);
   const readEntries = requiredSourceAssetIds.flatMap((assetId) => {
     const data = parseAssetData(project.assets[assetId]?.data);
@@ -451,7 +456,23 @@ async function referencedRuntimeAssetIds(
     )
       referenced.add(edge.target.id);
   }
-  return referenced;
+  return {
+    referencedAssetIds: referenced,
+    diagnostics: classifyProjectValidationDiagnostics(
+      graph.diagnostics.map((diagnostic) => ({ ...diagnostic, category: 'Layouts' })),
+      { producer: 'authoring' },
+    ),
+  };
+}
+
+async function referencedRuntimeAssetIds(
+  project: AuthoringProject,
+  projectRoot: string | null,
+  paths: RuntimeArtifactPathAdapter,
+): Promise<ReadonlySet<string> | null> {
+  return (
+    (await runtimeSourceGraphAssessment(project, projectRoot, paths))?.referencedAssetIds ?? null
+  );
 }
 
 async function assembleRuntimeArtifact(
@@ -496,11 +517,12 @@ async function assembleRuntimeArtifact(
     },
   };
 
-  const runtimeReferencedAssetIds = await referencedRuntimeAssetIds(
+  const sourceGraph = await runtimeSourceGraphAssessment(
     project,
     options.projectRoot ?? null,
     options.paths,
   );
+  const runtimeReferencedAssetIds = sourceGraph?.referencedAssetIds ?? null;
   const referencedAssetIds = options.profile.excludeUnusedAssets ? runtimeReferencedAssetIds : null;
   const localizationClosure = published.ok
     ? applyExportLocalizationClosure(
@@ -587,6 +609,7 @@ async function assembleRuntimeArtifact(
       ];
   const diagnostics = collectProjectValidationDiagnostics(
     authoringDiagnostics,
+    sourceGraph?.diagnostics ?? [],
     compilerDiagnostics,
     shaderDiagnostics,
     preparedShaderMetadata.diagnostics,
