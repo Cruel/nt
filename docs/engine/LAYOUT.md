@@ -97,6 +97,22 @@ not diverge.
 
 See `docs/ui/RMLUI_RUNTIME_UI.md` for baseline ownership, provenance, cascade order, and update policy.
 
+### Cursor semantics and Layout ownership
+
+Layout RCSS uses the ordinary inherited `cursor` property. `auto` contributes no RmlUi cursor request;
+`default` explicitly selects the Project Default cursor; `none` hides the native cursor; the canonical
+system semantic names select their corresponding native shapes; and a Project named cursor ID selects
+that reusable Project definition. Statically knowable unknown names are authoring errors. Named cursors
+own their Project-global image dependency, so a Layout does not repeat that image in
+`dependencies.images` merely to use `cursor: <named-id>`.
+
+Layout Lua uses the same `noveltea.presentation.cursor.set`, `set_image`, `hide`, and `clear` surface
+as gameplay Lua, but calls made from a Layout are owned by that exact live Mount occurrence. The
+request remains stored while the Mount is hidden, is eligible whenever that occurrence is visible even
+with `input: None`, follows front-to-back presentation order against other Layout Mounts, and is
+removed automatically on unmount or occurrence replacement. `clear()` removes only that Mount's
+request; it cannot clear a Runtime Session-owned gameplay cursor underneath it.
+
 ### RCSS cursor images
 
 Layout RCSS may select a one-off native custom cursor with `cursor: image(source)`. The form accepts

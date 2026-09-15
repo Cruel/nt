@@ -98,6 +98,24 @@ policy. The runtime enforces both total evictable residency and the configured a
 Warm-prefetch ceilings while preserving mandatory correctness; the player startup log and telemetry
 snapshots retain the fully resolved policy.
 
+### Cursor image readiness
+
+Cursor artwork remains an Image Asset concern even though native cursor handles are not GPU texture
+resources. Project named cursors terminate in source physical Image Assets and are prepared eagerly
+when the active Project cursor registry is configured; they do not require per-Layout dependency
+entries and do not use locale-specific image substitution. Direct Layout `cursor: image(...)` sources
+remain inside the Layout's explicit image dependency closure and therefore follow normal Layout
+readiness and focused-preview staging.
+
+Lua `noveltea.presentation.cursor.set_image(...)` is deliberately non-awaiting. RuntimeUI resolves the
+stable Image Asset ID and source metadata immediately, while native color-cursor realization reads the
+physical bytes through `AssetManager`. If those bytes are not currently realizable, the prior effective
+cursor remains active and the request is retried during frame settlement; once ready it replaces the
+old realization atomically. Decode/platform failures are diagnostic presentation failures rather than
+asset gates or gameplay failures. All request sources converge on the same SDL realization/cache path,
+which keys equivalent physical realizations independently of whether the request came from a named
+cursor, RCSS, a Hotspot fallback, or Lua.
+
 `AssetProgressOrchestrator` is the owner-frame progress boundary above `AssetManager`. It derives a
 small `Idle`/`Background`/`Blocking` urgency from live typed request state so the engine can choose its
 own normal-versus-loading job-service budget without knowing which presentation consumer created the

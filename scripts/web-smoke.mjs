@@ -249,6 +249,7 @@ try {
   url.searchParams.set('frames', String(options.frames));
   url.searchParams.set('renderPerf', '1');
   url.searchParams.set('noImgui', '1');
+  url.searchParams.set('cursorPlatformSmoke', '1');
 
   console.log(`[web-smoke] running ${options.label}: ${url.toString()}`);
   console.log(`[web-smoke] build dir: ${options.appDir}`);
@@ -333,6 +334,11 @@ try {
   if (pageErrors.length > 0) {
     fail(`page errors captured: ${pageErrors.join(' | ')}`);
   }
+  const cursorPlatformLine = consoleLines.find((line) => line.includes('[cursor-platform-smoke]'));
+  if (!cursorPlatformLine || !/custom=(realized|fallback)/.test(cursorPlatformLine)) {
+    fail(`cursor platform smoke did not report realization or graceful fallback: ${cursorPlatformLine ?? 'missing'}`);
+  }
+  console.log(`[web-smoke] ${cursorPlatformLine}`);
 
   const fps = values.fps === undefined ? 'unknown' : String(values.fps);
   console.log(`[web-smoke] fps informational only: ${fps}`);

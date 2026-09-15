@@ -549,6 +549,21 @@ target_link_libraries(noveltea_ui_backend_tests PRIVATE
 )
 catch_discover_tests(noveltea_ui_backend_tests)
 
+# --- Narrow SDL platform smoke (cursor realization only; arbitration stays in RuntimeUI tests) ---
+
+add_executable(noveltea_sdl_cursor_smoke_tests
+    platform/sdl_cursor_realizer_tests.cpp
+)
+target_include_directories(noveltea_sdl_cursor_smoke_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_link_libraries(noveltea_sdl_cursor_smoke_tests PRIVATE
+    noveltea_engine
+    Catch2::Catch2WithMain
+)
+catch_discover_tests(noveltea_sdl_cursor_smoke_tests)
+
 # --- RmlUi readback capture/verify (requires sandbox target) ---
 
 if(TARGET noveltea-sandbox)
@@ -880,6 +895,7 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_render_backend_tests
         noveltea_ui_tests
         noveltea_ui_backend_tests
+        noveltea_sdl_cursor_smoke_tests
         noveltea_rmlui_patch_framework_test
         noveltea_rmlui_media_query_patch_tests
         noveltea_rmlui_text_scale_patch_tests
