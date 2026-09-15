@@ -74,4 +74,4 @@ A release is not admitted merely because scriptc can build it. The differential 
 
 ## Performance policy
 
-The current design deliberately favors compatibility over forcing shared TypeScript through scriptc's static compiler. If profiling later identifies sustained hot paths, they may be migrated selectively to scriptc-native code or C++ behind explicit data boundaries. Project/workspace caching may also be introduced later. Neither optimization should change the public CLI contract.
+The current design deliberately favors compatibility over forcing shared TypeScript through scriptc's static compiler. If profiling later identifies sustained hot paths, they may be migrated selectively to scriptc-native code or C++ behind explicit data boundaries. The shared Node/TypeScript authored single-test path now persists and reuses the canonical runtime artifact under the Project-local runtime cache; the ScriptC static host does not yet admit that cache before importing the QuickJS island. A later static-host optimization may consume the same cache contract without changing the public CLI command semantics.

@@ -1,8 +1,17 @@
 import path from 'node:path';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
-import { buildRuntimePlaybackSpecFromAuthoringTest } from '../../shared/project-schema/test-playback-project';
+import { buildRuntimePlaybackSpecFromTestData } from '../../shared/project-schema/test-playback-project';
+import { parseTestData } from '../../shared/project-schema/authoring-tests';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
-import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
+import {
+  logicalRuntimeArtifactPaths,
+  prepareRuntimeArtifact,
+} from '../../shared/runtime-artifact-preparation';
+import {
+  lookupCanonicalRuntimeBuildCache,
+  publishCanonicalRuntimeBuildCache,
+  type RuntimeBuildCacheObservation,
+} from '../../shared/runtime-build-cache';
 import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
 import {
   nodeRuntimeArtifactPaths,
@@ -120,6 +129,17 @@ export const shadersCompileCommand: CliCommandDefinition = {
   },
 };
 
+function withRuntimeCacheObservation(
+  result: CliSemanticResult,
+  observation: RuntimeBuildCacheObservation | null,
+): CliSemanticResult {
+  if (!observation) return result;
+  return {
+    ...result,
+    fields: { ...result.fields, runtimeCache: observation },
+  };
+}
+
 export const testRunCommand: CliCommandDefinition = {
   path: ['test', 'run'],
   parse(arguments_): CliCommandInvocation {
@@ -130,25 +150,92 @@ export const testRunCommand: CliCommandDefinition = {
       dryRun: false,
       mutation: false,
       async run(context) {
-        const built = await buildRuntimePlaybackSpecFromAuthoringTest(
-          context.snapshot.project,
-          testId,
-        );
-        if (!built.ok || !built.project || !built.spec)
+        const record = context.snapshot.project.tests[testId];
+        if (!record)
           return {
             ok: false,
-            diagnostics: built.diagnostics.map((item) =>
+            diagnostics: [
+              cliDiagnostic('native.test.spec', `/tests/${testId}`, 'Test record does not exist.'),
+            ],
+          };
+        const data = parseTestData(record.data);
+        if (!data)
+          return {
+            ok: false,
+            diagnostics: [
+              cliDiagnostic('native.test.spec', `/tests/${testId}/data`, 'Test data is invalid.'),
+            ],
+          };
+        const playback = buildRuntimePlaybackSpecFromTestData(testId, data);
+        if (!playback.ok || !playback.spec)
+          return {
+            ok: false,
+            diagnostics: playback.diagnostics.map((item) =>
               cliDiagnostic('native.test.spec', item.path, item.message, item.severity),
             ),
           };
-        const request = { project: built.project, spec: built.spec };
-        return nativeSuccess(
-          await (built.runner === 'runtime-ui'
-            ? context.nativeTools.runUiTest({
-                ...request,
-                projectRoot: context.snapshot.projectRoot,
-              })
-            : context.nativeTools.runHeadlessTest(request)),
+
+        const lookup = await lookupCanonicalRuntimeBuildCache(context.fileSystem, context.snapshot);
+        let artifact = lookup.enabled ? lookup.artifact : undefined;
+        let cacheObservation: RuntimeBuildCacheObservation | null = lookup.enabled
+          ? lookup.observation
+          : null;
+        if (!artifact) {
+          const prepared = await prepareRuntimeArtifact({
+            project: context.snapshot.project,
+            projectRoot: null,
+            profile: selectedExportProfile(context.snapshot.project),
+            intent: 'test-playback',
+            paths: logicalRuntimeArtifactPaths,
+          });
+          if (prepared.status !== 'prepared') {
+            const diagnostics =
+              prepared.status === 'cancelled'
+                ? prepared.diagnostics
+                : prepared.assessment.diagnostics;
+            return withRuntimeCacheObservation(
+              {
+                ok: false,
+                diagnostics: diagnostics.map((item) =>
+                  cliDiagnostic('native.test.spec', item.path, item.message, item.severity),
+                ),
+              },
+              cacheObservation,
+            );
+          }
+          artifact = prepared.artifact;
+          if (lookup.enabled && lookup.inputSnapshot) {
+            const reopened = await context.workspace.open(context.snapshot.projectRoot, {
+              recoverTransactions: false,
+            });
+            const publication = reopened.ok
+              ? await publishCanonicalRuntimeBuildCache(
+                  context.fileSystem,
+                  context.snapshot,
+                  reopened.snapshot,
+                  artifact,
+                  lookup.inputSnapshot,
+                )
+              : { published: false, reason: 'workspace-revalidation-failed' };
+            cacheObservation = {
+              ...lookup.observation,
+              published: publication.published,
+              ...(publication.reason ? { publicationReason: publication.reason } : {}),
+            };
+          }
+        }
+
+        const request = { project: artifact.compiledProject, spec: playback.spec };
+        return withRuntimeCacheObservation(
+          nativeSuccess(
+            await (playback.runner === 'runtime-ui'
+              ? context.nativeTools.runUiTest({
+                  ...request,
+                  projectRoot: context.snapshot.projectRoot,
+                })
+              : context.nativeTools.runHeadlessTest(request)),
+          ),
+          cacheObservation,
         );
       },
     };
