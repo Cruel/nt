@@ -86,6 +86,7 @@ host::CursorShape cursor_shape(core::compiled::CursorSystemName name) noexcept
 
 struct CursorImageAssetMetadata {
     bool image = false;
+    std::string logical_path;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     host::CursorImageSampling sampling = host::CursorImageSampling::Linear;
@@ -604,6 +605,8 @@ struct RuntimeUI::State {
     std::optional<core::compiled::CursorSettings> cursor_settings;
     std::unordered_map<std::string, host::CursorPresentation> named_cursors;
     std::unordered_map<std::string, CursorImageAssetMetadata> cursor_image_assets;
+    std::unordered_map<std::string, CursorImageAssetMetadata> gameplay_cursor_image_assets;
+    std::optional<host::CursorPresentation> pending_gameplay_cursor;
     std::unordered_map<std::string, CursorImageAssetMetadata> focused_preview_cursor_image_assets;
     std::unordered_map<std::string, std::unordered_set<std::string>>
         layout_cursor_image_dependencies;
@@ -1676,14 +1679,19 @@ void RuntimeUI::configure_project_cursors(const core::CompiledProject& project)
     m_state->cursor_settings = project.settings().cursors;
     m_state->named_cursors.clear();
     m_state->cursor_image_assets.clear();
+    m_state->gameplay_cursor_image_assets.clear();
     m_state->cursor_runtime_diagnostics.clear();
     for (const auto& asset : project.assets()) {
+        const std::string logical_path = "project:/" + asset.path;
         CursorImageAssetMetadata metadata{.image = asset.kind == core::compiled::AssetKind::Image,
+                                          .logical_path = logical_path,
                                           .width = asset.width.value_or(0),
                                           .height = asset.height.value_or(0)};
         if (asset.sampling == core::compiled::ImageSampling::Nearest)
             metadata.sampling = host::CursorImageSampling::Nearest;
-        m_state->cursor_image_assets.insert_or_assign("project:/" + asset.path, metadata);
+        m_state->cursor_image_assets.insert_or_assign(logical_path, metadata);
+        m_state->gameplay_cursor_image_assets.insert_or_assign(asset.id.text(),
+                                                               std::move(metadata));
     }
     if (m_state->cursor_realizer)
         m_state->cursor_realizer->clear_custom();
@@ -1792,13 +1800,114 @@ void RuntimeUI::clear_world_hotspot_cursor() noexcept
     m_state->cursor_authority->resolve();
 }
 
+core::Result<void, core::Diagnostics> RuntimeUI::set_gameplay_cursor(std::string name)
+{
+    if (!m_state || !m_state->cursor_authority)
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.unavailable", .message = "Cursor system is unavailable"}});
+    if (name == "auto")
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.invalid_name",
+              .message = "'auto' is not a valid gameplay Lua cursor target"}});
+
+    std::optional<host::CursorPresentation> presentation;
+    if (name == "none") {
+        presentation =
+            host::CursorPresentation{.shape = host::CursorShape::Hidden, .custom = std::nullopt};
+    } else if (const auto shape = cursor_shape(name)) {
+        presentation = host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
+    } else if (const auto found = m_state->named_cursors.find(name);
+               found != m_state->named_cursors.end()) {
+        presentation = found->second;
+    } else {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.invalid_name",
+              .message = "Unknown gameplay cursor name '" + name + "'"}});
+    }
+
+    m_state->pending_gameplay_cursor.reset();
+    constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
+    m_state->cursor_authority->publish(host::CursorRequestSource::GameplayLua,
+                                       gameplay_cursor_owner, std::move(*presentation),
+                                       "runtime-session");
+    m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::GameplayLua,
+                                                  {gameplay_cursor_owner});
+    m_state->cursor_authority->resolve();
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeUI::set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                                     std::optional<std::uint32_t> hotspot_y)
+{
+    if (!m_state || !m_state->cursor_authority)
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.unavailable", .message = "Cursor system is unavailable"}});
+    const auto found = m_state->gameplay_cursor_image_assets.find(asset.text());
+    if (found == m_state->gameplay_cursor_image_assets.end() || !found->second.image ||
+        found->second.width == 0 || found->second.height == 0) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.invalid_image_asset",
+              .message =
+                  "Gameplay cursor images require an existing Image Asset ID with dimensions"}});
+    }
+    const auto& metadata = found->second;
+    const std::uint32_t x = hotspot_x.value_or(metadata.width / 2);
+    const std::uint32_t y = hotspot_y.value_or(metadata.height / 2);
+    if (x >= metadata.width || y >= metadata.height) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.invalid_hotspot",
+              .message = "Gameplay cursor hotspot must be inside the source image"}});
+    }
+
+    host::CursorPresentation presentation{
+        .shape = host::CursorShape::Default,
+        .custom = host::CustomCursorPresentation{.id = "asset:" + asset.text(),
+                                                 .logical_path = metadata.logical_path,
+                                                 .width = 0,
+                                                 .height = 0,
+                                                 .hotspot_x = x,
+                                                 .hotspot_y = y,
+                                                 .sampling = metadata.sampling,
+                                                 .fit_to_portable_bound = true}};
+    if (m_state->cursor_realizer && !m_state->cursor_realizer->prepare(*presentation.custom)) {
+        m_state->pending_gameplay_cursor = presentation;
+        m_state->typed_diagnostics.push_back(
+            {.code = "runtime.cursor.realization_failed",
+             .message = "Gameplay cursor image '" + asset.text() +
+                        "' is not currently realizable; keeping the previous effective cursor."});
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    m_state->pending_gameplay_cursor.reset();
+    constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
+    m_state->cursor_authority->publish(host::CursorRequestSource::GameplayLua,
+                                       gameplay_cursor_owner, std::move(presentation),
+                                       "runtime-session");
+    m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::GameplayLua,
+                                                  {gameplay_cursor_owner});
+    m_state->cursor_authority->resolve();
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+void RuntimeUI::clear_gameplay_cursor() noexcept
+{
+    if (!m_state || !m_state->cursor_authority)
+        return;
+    m_state->pending_gameplay_cursor.reset();
+    m_state->cursor_authority->clear_source(host::CursorRequestSource::GameplayLua);
+    m_state->cursor_authority->resolve();
+}
+
 void RuntimeUI::clear_project_cursors() noexcept
 {
     if (!m_state)
         return;
+    clear_gameplay_cursor();
     m_state->cursor_settings.reset();
     m_state->named_cursors.clear();
     m_state->cursor_image_assets.clear();
+    m_state->gameplay_cursor_image_assets.clear();
     m_state->cursor_runtime_diagnostics.clear();
     if (m_state->cursor_realizer)
         m_state->cursor_realizer->clear_custom();
@@ -1857,7 +1966,8 @@ void RuntimeUI::configure_focused_preview_cursor_resources(
         return;
     m_state->focused_preview_cursor_image_assets.clear();
     for (const auto& resource : resources) {
-        CursorImageAssetMetadata metadata{.image = resource.kind == "image"};
+        CursorImageAssetMetadata metadata{.image = resource.kind == "image",
+                                          .logical_path = resource.logical_path};
         if (resource.sampling == std::optional<std::string>{"nearest"})
             metadata.sampling = host::CursorImageSampling::Nearest;
         m_state->focused_preview_cursor_image_assets.insert_or_assign(resource.logical_path,
@@ -1942,6 +2052,18 @@ void RuntimeUI::resize(const PresentationMetrics& presentation)
 
 void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
 {
+    if (m_state && m_state->pending_gameplay_cursor && m_state->cursor_authority &&
+        (!m_state->cursor_realizer ||
+         m_state->cursor_realizer->prepare(*m_state->pending_gameplay_cursor->custom))) {
+        constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
+        m_state->cursor_authority->publish(
+            host::CursorRequestSource::GameplayLua, gameplay_cursor_owner,
+            std::move(*m_state->pending_gameplay_cursor), "runtime-session");
+        m_state->pending_gameplay_cursor.reset();
+        m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::GameplayLua,
+                                                      {gameplay_cursor_owner});
+        m_state->cursor_authority->resolve();
+    }
     if (m_state && m_state->host && !m_state->host->contexts().empty()) {
         m_state->host->begin_frame(clocks);
         const float delta_time = std::chrono::duration<float>(clocks.gameplay_delta).count();

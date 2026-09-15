@@ -1177,6 +1177,33 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::set_gameplay_paused
     return core::Result<void, core::Diagnostics>::success();
 }
 
+core::Result<void, core::Diagnostics> RuntimeCommandGateway::set_gameplay_cursor(std::string name)
+{
+    auto available = require_services("Gameplay cursor command");
+    if (!available)
+        return available;
+    return m_services->set_gameplay_cursor(std::move(name));
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::set_gameplay_cursor_image(core::AssetId asset,
+                                                 std::optional<std::uint32_t> hotspot_x,
+                                                 std::optional<std::uint32_t> hotspot_y)
+{
+    auto available = require_services("Gameplay cursor image command");
+    if (!available)
+        return available;
+    return m_services->set_gameplay_cursor_image(std::move(asset), hotspot_x, hotspot_y);
+}
+
+core::Result<void, core::Diagnostics> RuntimeCommandGateway::clear_gameplay_cursor()
+{
+    auto available = require_services("Gameplay cursor clear command");
+    if (!available)
+        return available;
+    return m_services->clear_gameplay_cursor();
+}
+
 core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_audio(
     core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,
     std::optional<core::AssetId> asset, std::chrono::milliseconds fade, double gain, double pan,

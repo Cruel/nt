@@ -2907,6 +2907,18 @@ TEST_CASE("RuntimeUI cursor requests resolve through one inspectable authority")
     CHECK(noveltea::host::cursor_shape_name(inspection.effective) == "text");
     CHECK(inspection.source == "rmlui");
     CHECK(inspection.owner == "cursor-text");
+
+    REQUIRE(ui.set_gameplay_cursor("wait"));
+    const auto gameplay = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(noveltea::host::cursor_shape_name(gameplay.effective) == "wait");
+    CHECK(gameplay.source == "gameplay-lua");
+    CHECK(gameplay.owner == "runtime-session");
+
+    ui.clear_gameplay_cursor();
+    const auto restored = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(noveltea::host::cursor_shape_name(restored.effective) == "text");
+    CHECK(restored.source == "rmlui");
+    CHECK(restored.owner == "cursor-text");
 }
 
 TEST_CASE("RuntimeUI resolves Project named cursors from RCSS without Layout dependencies")

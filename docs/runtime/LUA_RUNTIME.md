@@ -88,6 +88,8 @@ The current capability surface includes:
 - `noveltea.presentation.set_prop`, `clear_prop`, and `prop`;
 - `noveltea.presentation.set_environment`, `clear_environment`, `stop_environments`, and
   `environment` for scoped, reconstructible long-lived visual modes;
+- `noveltea.presentation.cursor.set`, `set_image`, `hide`, and `clear` for Runtime Session-owned
+  transient cursor intent;
 - `Game.pause`, `Game.resume`, and `Game.paused` for semantic gameplay pause;
 - `Game.locale()` for the current runtime locale; locale selection is shell/player preference state rather than a gameplay mutation and is not restored from save data;
 - `audio.play`, `audio.play_and_wait`, `audio.stop`, and `audio.stop_and_wait` for transient
@@ -149,6 +151,25 @@ unscaled-presentation clock, UV scroll rate, opacity, and visibility. `stop_envi
 every matching stop key within the selected owner. Layout-event Lua uses the same semantic surface.
 These APIs select engine-owned desired behavior; they do not run an endless Lua coroutine or expose
 backend handles.
+
+Gameplay cursor calls are deliberately different from reconstructible desired-presentation records.
+`cursor.set(name)` accepts system/semantic cursor names, `none`, or a Project named cursor ID; `auto`
+is not a gameplay target. `cursor.set_image(assetId, options)` resolves a stable Image Asset ID and
+accepts optional `hotspot_x`/`hotspot_y` source-image pixel coordinates, defaulting to the image
+center. Hotspots must remain inside the source image. Dynamic cursor images larger than 128x128 are
+fit proportionally to that portable bound without upscaling smaller images, preserve Asset sampling,
+and scale their hotspot with the realized image. Cursor calls are synchronous, non-awaiting
+presentation intent and never introduce Flow or checkpoint barriers. Invalid requests leave the
+caller's prior intent intact; an image that is not yet realizable leaves the current effective cursor
+in place until realization can replace it atomically. Backend realization failure is diagnostic-only
+and does not fail gameplay.
+
+The cursor override is owned by the current Runtime Session rather than Scene, Room, Dialogue, or
+Layout scope. It therefore survives ordinary gameplay presentation changes but is cleared when that
+session ends or is replaced. `cursor.clear()` removes only this gameplay override, revealing the next
+eligible centralized cursor request. Runtime Session cursor intent and native cursor realization are
+transient host presentation state: they are not serialized into SaveState/checkpoints or gameplay
+recordings and are reconstructed only by gameplay behavior that requests them again.
 
 There is no dispatcher-backed second `Game.*` implementation. `GameBinding`,
 `bind_game_session`, `bind_runtime_host`, `bind_runtime_command_dispatcher`, generic entity
