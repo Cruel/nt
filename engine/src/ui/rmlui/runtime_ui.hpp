@@ -72,6 +72,12 @@ public:
     void configure_focused_preview_cursor_resources(
         const std::vector<core::editor::FocusedEditorManifestProjection>& resources);
     void clear_focused_preview_cursors() noexcept;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor(std::string name) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                              std::optional<std::uint32_t> hotspot_y) override;
+    void clear_gameplay_cursor() noexcept override;
     [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event);
     void resize(const PresentationMetrics& presentation);
     void begin_frame(const core::RuntimeClockUpdate& clocks);

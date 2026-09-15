@@ -220,6 +220,12 @@ private:
     {
         return m_script_view;
     }
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor(std::string name) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                              std::optional<std::uint32_t> hotspot_y) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics> clear_gameplay_cursor() override;
     void queue_input(core::RuntimeInputMessage input) override;
 
     const core::CompiledProject& m_project;

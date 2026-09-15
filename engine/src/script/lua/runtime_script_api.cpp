@@ -581,6 +581,28 @@ RuntimeScriptApi::custom_layout(core::ScopedLayoutInstanceId instance,
                                    *owner.value_if());
 }
 
+core::Result<void, core::Diagnostics> RuntimeScriptApi::set_gameplay_cursor(std::string name)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Presentation, "gameplay cursor command",
+                          gateway->set_gameplay_cursor(std::move(name)));
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::set_gameplay_cursor_image(core::AssetId asset,
+                                            std::optional<std::uint32_t> hotspot_x,
+                                            std::optional<std::uint32_t> hotspot_y)
+{
+    NOVELTEA_WITH_COMMAND(
+        runtime::RuntimeCapabilityGroup::Presentation, "gameplay cursor image command",
+        gateway->set_gameplay_cursor_image(std::move(asset), hotspot_x, hotspot_y));
+}
+
+core::Result<void, core::Diagnostics> RuntimeScriptApi::clear_gameplay_cursor()
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Presentation,
+                          "gameplay cursor clear command", gateway->clear_gameplay_cursor());
+}
+
 core::Result<void, core::Diagnostics>
 RuntimeScriptApi::set_background(BackgroundCommandOptions options)
 {

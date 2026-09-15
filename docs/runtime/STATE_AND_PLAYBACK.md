@@ -130,8 +130,10 @@ not retained; only an explicitly committed validated Layout State Slot can carry
 state across save/restore. Runtime-selected desired Music and Ambience records retain
 stable instance/owner identity, Asset, volume, semantic fade policy, and optional replacement key.
 Transient voice, sound-effect, and non-looping playback operations are not state and are omitted.
-Semantic gameplay pause is deliberately excluded: a successful restore resumes the saved gameplay
-mode rather than inheriting a pre-load pause flag.
+Runtime Session-owned gameplay cursor intent and its native realization are likewise transient host
+presentation state and are omitted; restored gameplay must request any cursor override again through
+Lua behavior. Semantic gameplay pause is deliberately excluded: a successful restore resumes the saved
+gameplay mode rather than inheriting a pre-load pause flag.
 
 Environment, idle, and audio loop phase, decoder/sample position, backend epochs and handles,
 material/GPU resources, effective snapshots, and finite-operation progress are never encoded. Restore

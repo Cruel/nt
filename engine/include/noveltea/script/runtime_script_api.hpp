@@ -283,6 +283,12 @@ public:
     custom_layout(core::ScopedLayoutInstanceId instance,
                   runtime::RuntimePresentationOwnerScope owner_scope,
                   std::optional<core::RoomId> room = std::nullopt) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_cursor(std::string name);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset,
+                              std::optional<std::uint32_t> hotspot_x = std::nullopt,
+                              std::optional<std::uint32_t> hotspot_y = std::nullopt);
+    [[nodiscard]] core::Result<void, core::Diagnostics> clear_gameplay_cursor();
     [[nodiscard]] core::Result<void, core::Diagnostics>
     set_background(BackgroundCommandOptions options);
     [[nodiscard]] core::Result<void, core::Diagnostics>
