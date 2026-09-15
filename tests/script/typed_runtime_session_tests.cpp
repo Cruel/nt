@@ -1695,6 +1695,20 @@ TEST_CASE("gameplay Lua cursor commands are immediate validated transient presen
     CHECK_FALSE(fixture.presentation.cursor_name);
     CHECK_FALSE(fixture.presentation.cursor_asset);
     CHECK(fixture.presentation.cursor_clear_calls == 1);
+
+    REQUIRE(execute_session_lua_with_profile(
+        fixture,
+        "local cursor = noveltea.presentation.cursor; "
+        "local ok, err = cursor.set('wait'); assert(ok and err == nil); "
+        "ok, err = cursor.set_image('image-main', {hotspot_x=5, hotspot_y=6}); "
+        "assert(ok and err == nil); "
+        "ok, err = cursor.hide(); assert(ok and err == nil); "
+        "ok, err = cursor.clear(); assert(ok and err == nil)",
+        "typed-shell-layout-cursor", runtime::RuntimeCapabilityProfile::ShellLayoutEvent));
+    CHECK(fixture.presentation.cursor_set_calls == 7);
+    CHECK(fixture.presentation.cursor_clear_calls == 2);
+    CHECK_FALSE(fixture.presentation.cursor_name);
+    CHECK_FALSE(fixture.presentation.cursor_asset);
 }
 
 TEST_CASE("typed runtime session dispatches lifecycle debug mutation save and replacement requests")

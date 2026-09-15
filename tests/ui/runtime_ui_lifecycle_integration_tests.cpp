@@ -2921,6 +2921,237 @@ TEST_CASE("RuntimeUI cursor requests resolve through one inspectable authority")
     CHECK(restored.owner == "cursor-text");
 }
 
+TEST_CASE("RuntimeUI composes Mount-owned Lua cursor intent by occurrence and presentation order")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    constexpr const char* document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  button { display: block; width: 200px; height: 80px; margin: 0; }
+</style></head><body><button id="action">Cursor action</button></body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy lower_policy;
+    lower_policy.plane = noveltea::core::PresentationPlane::GameUi;
+    lower_policy.input = noveltea::core::LayoutInputMode::Normal;
+    auto upper_policy = lower_policy;
+    upper_policy.plane = noveltea::core::PresentationPlane::MenuOverlay;
+
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "layout-cursor-lower", document, "preview://layout-cursor-lower.rml", true, lower_policy, 0,
+        noveltea::core::MountedLayoutOwner::Gameplay, {}, 0));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "layout-cursor-upper", document, "preview://layout-cursor-upper.rml", false, upper_policy,
+        0, noveltea::core::MountedLayoutOwner::Shell, {}, 1));
+
+    const auto lower_instance = noveltea::core::ScopedLayoutInstanceId::create("cursor-lower");
+    const auto upper_instance = noveltea::core::ScopedLayoutInstanceId::create("cursor-upper");
+    REQUIRE(lower_instance);
+    REQUIRE(upper_instance);
+    const auto lower_key = noveltea::core::MountedLayoutPresentationKey{
+        noveltea::core::ScopedLayoutMountKey{lower_instance.value()}};
+    const auto upper_key = noveltea::core::MountedLayoutPresentationKey{
+        noveltea::core::ScopedLayoutMountKey{upper_instance.value()}};
+    const auto session_owner =
+        noveltea::core::PresentationOwner{noveltea::core::SessionPresentationOwner{
+            noveltea::core::PresentationSessionId::from_number(1)}};
+    const auto shell_owner =
+        noveltea::core::PresentationOwner{noveltea::core::ShellPresentationOwner{
+            noveltea::core::ShellPresentationScopeId::from_number(1)}};
+    const auto lower_occurrence = noveltea::core::LayoutMountOccurrenceId::from_number(101);
+    const auto upper_occurrence = noveltea::core::LayoutMountOccurrenceId::from_number(202);
+    ui.set_layout_mount_context(
+        "layout-cursor-lower",
+        noveltea::RuntimeUiLayoutMountContext{session_owner, lower_key, lower_occurrence});
+    ui.set_layout_mount_context(
+        "layout-cursor-upper",
+        noveltea::RuntimeUiLayoutMountContext{shell_owner, upper_key, upper_occurrence});
+    REQUIRE(ui.apply_layout_order({"layout-cursor-lower", "layout-cursor-upper"}));
+
+    enum class UpperAction {
+        Set,
+        Clear
+    };
+    UpperAction upper_action = UpperAction::Set;
+    bool lower_command_ok = false;
+    bool upper_command_ok = false;
+    const auto lower_listener = RuntimeUiFacadeAccess::add_event_listener(
+        ui, "layout-cursor-lower", "action", "click",
+        [&]() { lower_command_ok = static_cast<bool>(ui.set_gameplay_cursor("wait")); });
+    const auto upper_listener = RuntimeUiFacadeAccess::add_event_listener(
+        ui, "layout-cursor-upper", "action", "click", [&]() {
+            if (upper_action == UpperAction::Set)
+                upper_command_ok = static_cast<bool>(ui.set_gameplay_cursor("crosshair"));
+            else {
+                ui.clear_gameplay_cursor();
+                upper_command_ok = true;
+            }
+        });
+    REQUIRE(lower_listener != 0);
+    REQUIRE(upper_listener != 0);
+    ui.begin_frame({});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    const auto click = [&](const char* document_id) {
+        auto* action = driver->element(document_id, "action");
+        REQUIRE(action);
+        const auto offset = action->GetAbsoluteOffset(Rml::BoxArea::Content);
+        const auto size = action->GetBox().GetSize(Rml::BoxArea::Content);
+        REQUIRE(size.x > 0.0f);
+        REQUIRE(size.y > 0.0f);
+        const float x = offset.x + size.x * 0.5f;
+        const float y = offset.y + size.y * 0.5f;
+        SDL_Event motion{};
+        motion.type = SDL_EVENT_MOUSE_MOTION;
+        motion.motion.x = x;
+        motion.motion.y = y;
+        (void)ui.process_event(motion);
+        SDL_Event down{};
+        down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+        down.button.button = SDL_BUTTON_LEFT;
+        down.button.x = x;
+        down.button.y = y;
+        (void)ui.process_event(down);
+        SDL_Event up{};
+        up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+        up.button.button = SDL_BUTTON_LEFT;
+        up.button.x = x;
+        up.button.y = y;
+        (void)ui.process_event(up);
+    };
+
+    click("layout-cursor-lower");
+    REQUIRE(lower_command_ok);
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.source == "layout-lua");
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+
+    REQUIRE(ui.hide_document("layout-cursor-lower"));
+    REQUIRE(ui.show_document("layout-cursor-upper"));
+    ui.begin_frame({});
+    click("layout-cursor-upper");
+    REQUIRE(upper_command_ok);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.owner == "layout-cursor-upper#202");
+
+    REQUIRE(ui.show_document("layout-cursor-lower"));
+    auto input_none = upper_policy;
+    input_none.input = noveltea::core::LayoutInputMode::None;
+    REQUIRE(ui.apply_layout_policy("layout-cursor-upper", input_none, 0,
+                                   noveltea::core::MountedLayoutOwner::Shell, {}, 1));
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.owner == "layout-cursor-upper#202");
+
+    REQUIRE(ui.hide_document("layout-cursor-upper"));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+    lower_command_ok = false;
+    click("layout-cursor-lower");
+    REQUIRE(lower_command_ok);
+    REQUIRE(ui.show_document("layout-cursor-upper"));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.owner == "layout-cursor-upper#202");
+
+    ui.set_layout_mount_context(
+        "layout-cursor-upper",
+        noveltea::RuntimeUiLayoutMountContext{shell_owner, upper_key, upper_occurrence});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+
+    REQUIRE(ui.apply_layout_policy("layout-cursor-upper", upper_policy, 0,
+                                   noveltea::core::MountedLayoutOwner::Shell, {}, 1));
+    upper_action = UpperAction::Clear;
+    upper_command_ok = false;
+    ui.begin_frame({});
+    click("layout-cursor-upper");
+    REQUIRE(upper_command_ok);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+
+    upper_action = UpperAction::Set;
+    upper_command_ok = false;
+    click("layout-cursor-upper");
+    REQUIRE(upper_command_ok);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    const auto replacement_occurrence = noveltea::core::LayoutMountOccurrenceId::from_number(203);
+    ui.set_layout_mount_context(
+        "layout-cursor-upper",
+        noveltea::RuntimeUiLayoutMountContext{shell_owner, upper_key, replacement_occurrence});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+
+    // A failed staged replacement restores the prior occurrence before the layout-order commit.
+    ui.set_layout_mount_context(
+        "layout-cursor-upper",
+        noveltea::RuntimeUiLayoutMountContext{shell_owner, upper_key, upper_occurrence});
+    REQUIRE(ui.apply_layout_order({"layout-cursor-lower", "layout-cursor-upper"}));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.owner == "layout-cursor-upper#202");
+
+    // A committed replacement retires the old occurrence's request.
+    ui.set_layout_mount_context(
+        "layout-cursor-upper",
+        noveltea::RuntimeUiLayoutMountContext{shell_owner, upper_key, replacement_occurrence});
+    REQUIRE(ui.apply_layout_order({"layout-cursor-lower", "layout-cursor-upper"}));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+
+    upper_command_ok = false;
+    click("layout-cursor-upper");
+    REQUIRE(upper_command_ok);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.owner == "layout-cursor-upper#203");
+    ui.set_layout_mount_context("layout-cursor-upper", std::nullopt);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+
+    REQUIRE(ui.hide_document("layout-cursor-lower"));
+    REQUIRE(ui.set_gameplay_cursor("progress"));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Progress);
+    CHECK(inspection.source == "gameplay-lua");
+    bool gameplay_admitted = false;
+    ui.bind_layout_gameplay_admission([&]() { return gameplay_admitted; });
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.source == "native-default");
+    gameplay_admitted = true;
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Progress);
+    CHECK(inspection.source == "gameplay-lua");
+
+    upper_command_ok = true;
+    click("layout-cursor-upper");
+    CHECK_FALSE(upper_command_ok);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Progress);
+    CHECK(inspection.source == "gameplay-lua");
+}
+
 TEST_CASE("RuntimeUI resolves Project named cursors from RCSS without Layout dependencies")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture;

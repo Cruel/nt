@@ -88,8 +88,11 @@ The current capability surface includes:
 - `noveltea.presentation.set_prop`, `clear_prop`, and `prop`;
 - `noveltea.presentation.set_environment`, `clear_environment`, `stop_environments`, and
   `environment` for scoped, reconstructible long-lived visual modes;
-- `noveltea.presentation.cursor.set`, `set_image`, `hide`, and `clear` for Runtime Session-owned
-  transient cursor intent;
+- `noveltea.presentation.cursor.set`, `set_image`, `hide`, and `clear` for transient cursor intent;
+  ordinary gameplay Lua owns the Runtime Session request, while Layout Lua owns a request scoped to
+  the exact live Layout Mount occurrence. Visible Mount requests compose by presentation stacking,
+  automatically disappear on occurrence replacement/unmount, and temporarily outrank the gameplay
+  request without clearing it;
 - `Game.pause`, `Game.resume`, and `Game.paused` for semantic gameplay pause;
 - `Game.locale()` for the current runtime locale; locale selection is shell/player preference state rather than a gameplay mutation and is not restored from save data;
 - `audio.play`, `audio.play_and_wait`, `audio.stop`, and `audio.stop_and_wait` for transient
