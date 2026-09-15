@@ -1,0 +1,30 @@
+{
+  "id": "gate-lever",
+  "label": "Gate Button",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "defaultProperties": [],
+  "data": {
+    "kind": "interactable",
+    "displayName": "Gate Button",
+    "stackable": false,
+    "stackLimit": null,
+    "presentation": {
+      "sprite": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
+      "material": null,
+      "hotspots": { "kind": "none" }
+    },
+    "features": [
+      {
+        "id": "handle",
+        "label": "Button Face",
+        "traits": [],
+        "localProperties": [],
+        "defaultProperties": [],
+        "inventories": []
+      }
+    ],
+    "inventories": []
+  }
+}

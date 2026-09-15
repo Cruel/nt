@@ -1,0 +1,136 @@
+{
+  "id": "dialogue-presentation-pilot",
+  "label": "Dialogue & Presentation Pilot",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "Dialogue & Presentation Pilot",
+    "defaultSpeaker": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
+    "stageSlots": [
+      {
+        "id": "guide",
+        "label": "Guide",
+        "speakerSync": true,
+        "initial": {
+          "character": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
+          "profileId": "stage",
+          "poseId": "standing",
+          "expressionId": "neutral",
+          "appearanceId": null,
+          "position": "center",
+          "offset": { "x": 0, "y": 0 },
+          "scale": 1,
+          "visible": true
+        }
+      }
+    ],
+    "mediaSlots": [],
+    "settings": { "showDisabledChoices": true, "logMode": "everything" },
+    "entryBlockId": "intro",
+    "blocks": [
+      {
+        "id": "intro",
+        "type": "sequence",
+        "label": "Introduction",
+        "defaultSpeaker": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
+        "segments": [
+          {
+            "id": "intro-line",
+            "type": "line",
+            "speaker": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
+            "text": { "source": { "kind": "inline", "text": "You did it. Now choose." }, "markup": "plain" },
+            "cues": [
+              {
+                "id": "dialogue-voice",
+                "kind": "voice",
+                "position": { "offset": 0, "order": 0 },
+                "asset": { "$ref": { "collection": "assets", "id": "pilot-voice-audio" } },
+                "pausePolicy": "owner",
+                "gain": 0.5,
+                "pan": 0,
+                "waitForCompletion": false,
+                "skipBehavior": "stop"
+              },
+              {
+                "id": "smile-expression",
+                "kind": "speaker-expression",
+                "position": { "offset": 7, "order": 0 },
+                "expressionId": "smile"
+              },
+              {
+                "id": "attention-sfx",
+                "kind": "sound-effect",
+                "position": { "offset": 14, "order": 0 },
+                "asset": { "$ref": { "collection": "assets", "id": "pilot-cue-audio" } },
+                "pausePolicy": "owner",
+                "gain": 0.7,
+                "pan": 0,
+                "waitForCompletion": false,
+                "causality": "causal",
+                "synchronized": false,
+                "skipBehavior": "play"
+              },
+              {
+                "id": "attention-flash",
+                "kind": "camera",
+                "position": { "offset": 14, "order": 1 },
+                "emphasis": {
+                  "kind": "flash",
+                  "color": "#fff2c2",
+                  "opacity": 0.35,
+                  "durationMs": 120,
+                  "skippable": true,
+                  "waitForCompletion": false
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      },
+      { "id": "decision", "type": "choice", "label": "Decision" },
+      {
+        "id": "accepted",
+        "type": "sequence",
+        "label": "Accepted",
+        "defaultSpeaker": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
+        "segments": [
+          {
+            "id": "accepted-line",
+            "type": "line",
+            "speaker": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
+            "text": { "source": { "kind": "inline", "text": "Signal accepted." }, "markup": "plain" },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [
+      { "id": "intro-to-decision", "kind": "next", "fromBlockId": "intro", "toBlockId": "decision" },
+      {
+        "id": "accept-signal",
+        "kind": "choice",
+        "fromBlockId": "decision",
+        "toBlockId": "accepted",
+        "label": { "source": { "kind": "inline", "text": "Accept the signal" }, "markup": "plain" },
+        "effects": [
+          {
+            "id": "record-acceptance",
+            "kind": "set-global-property",
+            "variable": { "$ref": { "collection": "variables", "id": "presentation-accepted" } },
+            "value": true
+          }
+        ],
+        "logged": true,
+        "autosaveSafePoint": false
+      }
+    ],
+    "completion": { "kind": "end" }
+  }
+}

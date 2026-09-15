@@ -1,0 +1,57 @@
+{
+  "id": "dialogue-presentation-stage",
+  "label": "Dialogue & Presentation Stage",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Dialogue & Presentation Stage",
+    "background": {
+      "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },
+      "material": null,
+      "fit": "cover",
+      "color": "#151827"
+    },
+    "description": {
+      "source": { "kind": "inline", "text": "Advance the line normally, observe its presentation cues, then choose a response." },
+      "markup": "active-text"
+    },
+    "presentationSpace": {
+      "size": { "width": 1920, "height": 1080 },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": { "kind": "always" },
+      "canLeave": { "kind": "always" },
+      "beforeEnter": [],
+      "afterEnter": [
+        {
+          "id": "start-dialogue-pilot",
+          "kind": "call-dialogue",
+          "dialogue": { "$ref": { "collection": "dialogues", "id": "dialogue-presentation-pilot" } }
+        }
+      ],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [],
+    "placements": [],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "id": "rooms-interactions-ui",
+  "label": "Rooms & Interactions UI flow",
+  "data": {
+    "kind": "test",
+    "displayName": "Rooms & Interactions UI flow",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh Lab home",
+        "expectations": [
+          {
+            "id": "home-room",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "feature-lab-home" }
+          }
+        ]
+      },
+      {
+        "id": "enter-pilot",
+        "input": "ui-click",
+        "label": "Launch Rooms pilot through the navigator",
+        "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-rooms-interactions" },
+        "expectations": [
+          {
+            "id": "workshop-room",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "rooms-interactions-workshop" }
+          }
+        ]
+      },
+      {
+        "id": "click-locked-gate",
+        "input": "ui-click",
+        "label": "Try the locked bedroom door through the HUD",
+        "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-east-gate" },
+        "expectations": [
+          {
+            "id": "still-in-workshop",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "rooms-interactions-workshop" }
+          },
+          {
+            "id": "locked-notification",
+            "type": "event",
+            "operator": "present",
+            "event": { "kind": "notification", "value": "The bedroom door is locked." }
+          }
+        ]
+      },
+      {
+        "id": "click-use-lever",
+        "input": "ui-click",
+        "label": "Click the authored HUD wall-button control",
+        "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-use-lever" },
+        "expectations": [
+          {
+            "id": "gate-unlocked-via-ui",
+            "type": "property",
+            "operator": "eq",
+            "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": true }
+          },
+          {
+            "id": "ui-button-notification",
+            "type": "event",
+            "operator": "present",
+            "event": { "kind": "notification", "value": "The button clicks. The bedroom door unlocks." }
+          }
+        ]
+      },
+      {
+        "id": "click-unlocked-gate",
+        "input": "ui-click",
+        "label": "Navigate through the unlocked bedroom door",
+        "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-east-gate" },
+        "expectations": [
+          {
+            "id": "destination-room",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "rooms-interactions-destination" }
+          },
+          {
+            "id": "arrival-notification",
+            "type": "event",
+            "operator": "present",
+            "event": { "kind": "notification", "value": "Destination Room after-enter lifecycle ran." }
+          }
+        ]
+      },
+      {
+        "id": "reopen-lab",
+        "input": "ui-click",
+        "label": "Reopen the Lab without resetting gameplay",
+        "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-open" },
+        "expectations": [
+          {
+            "id": "destination-preserved",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "rooms-interactions-destination" }
+          },
+          {
+            "id": "unlocked-preserved",
+            "type": "property",
+            "operator": "eq",
+            "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": true }
+          }
+        ]
+      },
+      {
+        "id": "reenter-pilot",
+        "input": "ui-click",
+        "label": "Launch the scenario again with fresh defaults",
+        "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-rooms-interactions" },
+        "expectations": [
+          {
+            "id": "fresh-workshop",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "rooms-interactions-workshop" }
+          },
+          {
+            "id": "gate-reset",
+            "type": "property",
+            "operator": "eq",
+            "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": false }
+          }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

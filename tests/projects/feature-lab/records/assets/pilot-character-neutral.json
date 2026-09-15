@@ -1,0 +1,13 @@
+{
+  "id": "pilot-character-neutral",
+  "label": "Reference Character Normal",
+  "data": {
+    "kind": "image",
+    "source": { "type": "project-file", "path": "assets/images/girl_normal.webp" },
+    "aliases": [],
+    "sampling": "linear",
+    "mimeType": "image/webp",
+    "extension": ".webp",
+    "imageMetadata": { "width": 384, "height": 768, "hasAlpha": true, "orientation": 1 }
+  }
+}

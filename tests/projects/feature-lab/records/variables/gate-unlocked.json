@@ -1,0 +1,11 @@
+{
+  "id": "gate-unlocked",
+  "label": "Gate Unlocked",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false,
+    "scope": "global"
+  }
+}
