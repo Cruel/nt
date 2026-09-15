@@ -2062,7 +2062,7 @@ RuntimeUI::set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uin
                                          assets::AssetRequestUrgency::Background);
     if (!requested) {
         // A headless or otherwise pointerless host may intentionally have no typed texture loader.
-        // In that case try the native cursor backend once without introducing a retry loop.
+        // In that case use the native cursor backend once without introducing a retry loop.
         publish_ready(std::move(presentation));
         return core::Result<void, core::Diagnostics>::success();
     }
