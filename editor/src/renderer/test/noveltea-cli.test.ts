@@ -2372,15 +2372,7 @@ describe('NovelTea headless CLI', () => {
     const excludedGlobals = [
       ...scriptRuntime.matchAll(/m_impl->lua\["([^"]+)"\] = sol::lua_nil;/g),
     ].map((match) => match[1]);
-    expect(excludedGlobals).toEqual([
-      'os',
-      'io',
-      'debug',
-      'package',
-      'require',
-      'dofile',
-      'loadfile',
-    ]);
+    expect(excludedGlobals).toEqual(['io', 'debug', 'package', 'require', 'dofile', 'loadfile']);
 
     const bindNovelTea = readFileSync('../engine/src/script/lua/bind_noveltea.cpp', 'utf8');
     const typedBindings = readFileSync(
@@ -2422,7 +2414,7 @@ describe('NovelTea headless CLI', () => {
       [typedBindings, 'characters', 'noveltea.characters', 2],
       [typedBindings, 'navigation', 'noveltea.navigation', 1],
       [typedBindings, 'flow', 'noveltea.flow', 9],
-      [typedBindings, 'game', 'Game', 9],
+      [typedBindings, 'game', 'Game', 11],
       [capabilityBindings, 'room_presentation', 'noveltea.room_presentation', 2],
       [capabilityBindings, 'random', 'noveltea.random', 3],
       [capabilityBindings, 'map', 'noveltea.map', 1],
@@ -2432,7 +2424,7 @@ describe('NovelTea headless CLI', () => {
       [capabilityBindings, 'game', 'Game', 4],
       [gameplayUiBindings, 'ui', 'Game.ui', 18],
       [shellUiBindings, 'shell', 'Game.shell', 24],
-      [shellUiBindings, 'game', 'Game', 2],
+      [shellUiBindings, 'game', 'Game', 4],
     ] as const;
     for (const [source, object, prefix, expectedCount] of groups) {
       const functions = setFunctions(source, object);
