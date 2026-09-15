@@ -90,18 +90,18 @@ export function createPublicReleaseManifest(directory, tag, sourceRevision) {
       }),
     },
     cli: [
-      asset(`noveltea-${tag}-windows-x64.exe`, {
+      asset(`noveltea-${tag}-windows-x64.zip`, {
         platform: "windows",
         arch: "x64",
-        format: "executable",
-        label: "Windows x64",
+        format: "zip",
+        label: "Windows x64 ZIP",
         primary: true,
       }),
-      asset(`noveltea-${tag}-linux-x64`, {
+      asset(`noveltea-${tag}-linux-x64.tar.gz`, {
         platform: "linux",
         arch: "x64",
-        format: "executable",
-        label: "Linux x64",
+        format: "tar.gz",
+        label: "Linux x64 tar.gz",
         primary: true,
       }),
     ],

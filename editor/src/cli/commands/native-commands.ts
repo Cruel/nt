@@ -141,8 +141,14 @@ export const testRunCommand: CliCommandDefinition = {
               cliDiagnostic('native.test.spec', item.path, item.message, item.severity),
             ),
           };
+        const request = { project: built.project, spec: built.spec };
         return nativeSuccess(
-          await context.nativeTools.runHeadlessTest({ project: built.project, spec: built.spec }),
+          await (built.runner === 'runtime-ui'
+            ? context.nativeTools.runUiTest({
+                ...request,
+                projectRoot: context.snapshot.projectRoot,
+              })
+            : context.nativeTools.runHeadlessTest(request)),
         );
       },
     };
@@ -176,7 +182,11 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
             return project as CliSemanticResult;
           return nativeSuccess(
             await (ui
-              ? context.nativeTools.runUiTest({ project, spec })
+              ? context.nativeTools.runUiTest({
+                  project,
+                  spec,
+                  projectRoot: context.snapshot.projectRoot,
+                })
               : context.nativeTools.runHeadlessTest({ project, spec })),
           );
         },

@@ -3,6 +3,7 @@
 #include <noveltea/core/compiled_package_codec.hpp>
 #include <noveltea/core/package_export.hpp>
 #include <noveltea/core/player_bootstrap.hpp>
+#include <noveltea/core/editor_playback_expectations.hpp>
 #include <noveltea/core/editor_runtime_protocol.hpp>
 #include <noveltea/core/save_state_codec.hpp>
 #include <noveltea/core/typed_save_slot_store.hpp>
@@ -18,9 +19,15 @@
 #include "tooling_native_c.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <chrono>
+#include <cstdlib>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <system_error>
 #include <cstdio>
 #include <optional>
 #include <unordered_map>
@@ -36,6 +43,13 @@ extern int noveltea_bimg_texturec_main(int argc, const char** argv);
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#else
+#include <spawn.h>
+#include <sys/wait.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+extern char** environ;
 #endif
 
 namespace bgfx {
@@ -486,492 +500,6 @@ bool diagnostics_have_errors(const Diagnostics& diagnostics)
     });
 }
 
-std::optional<double> numeric_runtime_value(const RuntimeValue& value)
-{
-    if (const auto* integer = std::get_if<std::int64_t>(&value))
-        return static_cast<double>(*integer);
-    if (const auto* number = std::get_if<double>(&value))
-        return *number;
-    return std::nullopt;
-}
-
-bool compare_runtime_values(const RuntimeValue& actual, const RuntimeValue& expected,
-                            TypedPlaybackExpectationOperator op)
-{
-    const auto actual_number = numeric_runtime_value(actual);
-    const auto expected_number = numeric_runtime_value(expected);
-    if (actual_number && expected_number) {
-        switch (op) {
-        case TypedPlaybackExpectationOperator::Equal:
-            return *actual_number == *expected_number;
-        case TypedPlaybackExpectationOperator::NotEqual:
-            return *actual_number != *expected_number;
-        case TypedPlaybackExpectationOperator::Greater:
-            return *actual_number > *expected_number;
-        case TypedPlaybackExpectationOperator::GreaterEqual:
-            return *actual_number >= *expected_number;
-        case TypedPlaybackExpectationOperator::Less:
-            return *actual_number < *expected_number;
-        case TypedPlaybackExpectationOperator::LessEqual:
-            return *actual_number <= *expected_number;
-        default:
-            return false;
-        }
-    }
-    if (op == TypedPlaybackExpectationOperator::Equal)
-        return actual == expected;
-    if (op == TypedPlaybackExpectationOperator::NotEqual)
-        return actual != expected;
-    return false;
-}
-
-bool compare_number(double actual, double expected, TypedPlaybackExpectationOperator op)
-{
-    switch (op) {
-    case TypedPlaybackExpectationOperator::Equal:
-        return actual == expected;
-    case TypedPlaybackExpectationOperator::NotEqual:
-        return actual != expected;
-    case TypedPlaybackExpectationOperator::Greater:
-        return actual > expected;
-    case TypedPlaybackExpectationOperator::GreaterEqual:
-        return actual >= expected;
-    case TypedPlaybackExpectationOperator::Less:
-        return actual < expected;
-    case TypedPlaybackExpectationOperator::LessEqual:
-        return actual <= expected;
-    default:
-        return false;
-    }
-}
-
-bool compare_presence(bool present, TypedPlaybackExpectationOperator op)
-{
-    return op == TypedPlaybackExpectationOperator::Present  ? present
-           : op == TypedPlaybackExpectationOperator::Absent ? !present
-                                                            : false;
-}
-
-std::optional<PropertyOwnerRef> playback_property_owner(std::string_view kind, std::string_view id)
-{
-    if (kind == "room") {
-        auto value = RoomId::create(std::string(id));
-        if (value)
-            return PropertyOwnerRef{*value.value_if()};
-    } else if (kind == "character") {
-        auto value = CharacterId::create(std::string(id));
-        if (value)
-            return PropertyOwnerRef{*value.value_if()};
-    } else if (kind == "interactable") {
-        auto value = InteractableInstanceId::create(std::string(id));
-        if (value)
-            return PropertyOwnerRef{*value.value_if()};
-    }
-    return std::nullopt;
-}
-
-std::optional<RuntimeValue> expectation_runtime_value(const nlohmann::json& fields)
-{
-    const auto value = fields.find("value");
-    if (value == fields.end())
-        return std::nullopt;
-    auto decoded = decode_editor_runtime_value_text(value->dump());
-    if (!decoded)
-        return std::nullopt;
-    return *decoded.value_if();
-}
-
-std::optional<PersistableValue> expectation_persistable_value(const nlohmann::json& value)
-{
-    if (value.is_null())
-        return PersistableValue{std::monostate{}};
-    if (value.is_boolean())
-        return PersistableValue{*json_access::get<bool>(value)};
-    if (value.is_number_integer())
-        return PersistableValue{*json_access::get<std::int64_t>(value)};
-    if (value.is_number_float()) {
-        const auto number = *json_access::get<double>(value);
-        return std::isfinite(number) ? std::optional<PersistableValue>{PersistableValue{number}}
-                                     : std::nullopt;
-    }
-    if (value.is_string())
-        return PersistableValue{*json_access::get<std::string>(value)};
-    if (value.is_array()) {
-        PersistableValue::Array array;
-        array.reserve(value.size());
-        for (const auto& item : value) {
-            auto decoded = expectation_persistable_value(item);
-            if (!decoded)
-                return std::nullopt;
-            array.push_back(std::move(*decoded));
-        }
-        return PersistableValue{std::move(array)};
-    }
-    if (value.is_object()) {
-        PersistableValue::Object object;
-        object.reserve(value.size());
-        for (auto item = value.begin(); item != value.end(); ++item) {
-            auto decoded = expectation_persistable_value(item.value());
-            if (!decoded)
-                return std::nullopt;
-            object.emplace_back(item.key(), std::move(*decoded));
-        }
-        return PersistableValue{std::move(object)};
-    }
-    return std::nullopt;
-}
-
-std::optional<double> numeric_persistable_value(const PersistableValue& value)
-{
-    if (const auto* integer = std::get_if<std::int64_t>(&value.value))
-        return static_cast<double>(*integer);
-    if (const auto* number = std::get_if<double>(&value.value))
-        return *number;
-    return std::nullopt;
-}
-
-bool persistable_values_equal(const PersistableValue& left, const PersistableValue& right)
-{
-    if (left.value.index() != right.value.index()) {
-        const auto left_number = numeric_persistable_value(left);
-        const auto right_number = numeric_persistable_value(right);
-        return left_number && right_number && *left_number == *right_number;
-    }
-    if (const auto* left_array = std::get_if<PersistableValue::Array>(&left.value)) {
-        const auto* right_array = std::get_if<PersistableValue::Array>(&right.value);
-        return right_array != nullptr && left_array->size() == right_array->size() &&
-               std::equal(left_array->begin(), left_array->end(), right_array->begin(),
-                          persistable_values_equal);
-    }
-    if (const auto* left_object = std::get_if<PersistableValue::Object>(&left.value)) {
-        const auto* right_object = std::get_if<PersistableValue::Object>(&right.value);
-        if (right_object == nullptr || left_object->size() != right_object->size())
-            return false;
-        return std::ranges::all_of(*left_object, [&](const auto& field) {
-            const auto found = std::ranges::find_if(*right_object, [&](const auto& candidate) {
-                return candidate.first == field.first;
-            });
-            return found != right_object->end() &&
-                   persistable_values_equal(field.second, found->second);
-        });
-    }
-    return left == right;
-}
-
-std::string save_outcome_name(SaveOutcomeStatus status)
-{
-    switch (status) {
-    case SaveOutcomeStatus::Saved:
-        return "saved";
-    case SaveOutcomeStatus::Loaded:
-        return "loaded";
-    case SaveOutcomeStatus::Deleted:
-        return "deleted";
-    case SaveOutcomeStatus::Failed:
-        return "failed";
-    }
-    return "unknown";
-}
-
-bool location_matches(const compiled::InteractableLocation& actual, const nlohmann::json& fields)
-{
-    const auto kind = json_access::value_or(fields, "locationKind", std::string{});
-    if (kind == "unplaced")
-        return std::holds_alternative<compiled::UnplacedLocation>(actual);
-    if (kind == "room") {
-        const auto* room = std::get_if<compiled::RoomLocation>(&actual);
-        return room != nullptr &&
-               room->room.text() == json_access::value_or(fields, "roomId", std::string{});
-    }
-    const auto* inventory = std::get_if<compiled::InventoryLocation>(&actual);
-    if (inventory == nullptr || kind != "inventory")
-        return false;
-    const auto owner_kind = json_access::value_or(fields, "inventoryOwnerKind", std::string{});
-    const auto owner_id = json_access::value_or(fields, "inventoryOwnerId", std::string{});
-    const bool owner_matches = std::visit(
-        [&](const auto& owner) {
-            using T = std::decay_t<decltype(owner)>;
-            if constexpr (std::is_same_v<T, compiled::ProjectInventoryOwner>)
-                return owner_kind == "project";
-            else if constexpr (std::is_same_v<T, compiled::CharacterInventoryOwner>)
-                return owner_kind == "character" && owner.character.text() == owner_id;
-            else if constexpr (std::is_same_v<T, compiled::InteractableInventoryOwner>)
-                return owner_kind == "interactable" && owner.interactable.text() == owner_id;
-            else
-                return false;
-        },
-        inventory->inventory.owner);
-    return owner_matches && inventory->inventory.inventory_id.text() ==
-                                json_access::value_or(fields, "inventoryId", std::string{});
-}
-
-bool location_matches(const CharacterWorldLocation& actual, const nlohmann::json& fields)
-{
-    const auto kind = json_access::value_or(fields, "locationKind", std::string{});
-    if (kind == "unplaced")
-        return std::holds_alternative<compiled::UnplacedLocation>(actual);
-    const auto* room = std::get_if<compiled::RoomLocation>(&actual);
-    return kind == "room" && room != nullptr &&
-           room->room.text() == json_access::value_or(fields, "roomId", std::string{});
-}
-
-bool location_is_present(const compiled::InteractableLocation& actual)
-{
-    return !std::holds_alternative<compiled::UnplacedLocation>(actual);
-}
-
-bool location_is_present(const CharacterWorldLocation& actual)
-{
-    return !std::holds_alternative<compiled::UnplacedLocation>(actual);
-}
-
-TypedPlaybackExpectationReport evaluate_playback_expectation(
-    const TypedPlaybackExpectation& expectation, const noveltea::runtime::RuntimeSession& session,
-    const noveltea::runtime::RuntimePublication& publication,
-    const std::vector<noveltea::runtime::RuntimeEvent>& events, const Diagnostics& diagnostics)
-{
-    TypedPlaybackExpectationReport report{expectation.id, false, {}};
-    const auto& fields = expectation.fields;
-    auto fail = [&](std::string message) {
-        report.message = std::move(message);
-        return report;
-    };
-    auto pass = [&]() {
-        report.passed = true;
-        report.message = "Expectation passed.";
-        return report;
-    };
-    const auto& gateway = session.gateway();
-
-    switch (expectation.kind) {
-    case TypedPlaybackExpectationKind::Property: {
-        auto property =
-            PropertyId::create(json_access::value_or(fields, "propertyId", std::string{}));
-        if (!property)
-            return fail("Property expectation references an invalid Property id.");
-        Result<PropertyLookupResult, Diagnostics> actual =
-            json_access::value_or(fields, "scope", std::string{}) == "global"
-                ? gateway.global_property_lookup(*property.value_if())
-                : [&]() -> Result<PropertyLookupResult, Diagnostics> {
-            auto owner =
-                playback_property_owner(json_access::value_or(fields, "scope", std::string{}),
-                                        json_access::value_or(fields, "ownerId", std::string{}));
-            if (!owner)
-                return Result<PropertyLookupResult, Diagnostics>::failure({});
-            return gateway.property(*owner, *property.value_if());
-        }();
-        if (!actual)
-            return fail("Property expectation could not resolve its semantic target.");
-        const auto* lookup = actual.value_if();
-        const bool present = lookup != nullptr && std::holds_alternative<RuntimeValue>(*lookup);
-        if (expectation.op == TypedPlaybackExpectationOperator::Present ||
-            expectation.op == TypedPlaybackExpectationOperator::Absent)
-            return compare_presence(present, expectation.op)
-                       ? pass()
-                       : fail("Property presence did not match.");
-        if (!present)
-            return fail("Property expectation required a value, but the Property is absent.");
-        const auto expected = expectation_runtime_value(fields);
-        return expected && compare_runtime_values(std::get<RuntimeValue>(*lookup), *expected,
-                                                  expectation.op)
-                   ? pass()
-                   : fail("Property value did not match.");
-    }
-    case TypedPlaybackExpectationKind::CurrentRoom: {
-        const auto expected = json_access::value_or(fields, "roomId", std::string{});
-        const bool present = publication.prediction_context.current_room.has_value();
-        if (expectation.op == TypedPlaybackExpectationOperator::Present ||
-            expectation.op == TypedPlaybackExpectationOperator::Absent)
-            return compare_presence(present, expectation.op)
-                       ? pass()
-                       : fail("Current Room presence did not match.");
-        const bool equal =
-            present && publication.prediction_context.current_room->text() == expected;
-        return (expectation.op == TypedPlaybackExpectationOperator::Equal ? equal : !equal)
-                   ? pass()
-                   : fail("Current Room did not match.");
-    }
-    case TypedPlaybackExpectationKind::Location: {
-        const auto entity_kind = json_access::value_or(fields, "entityKind", std::string{});
-        const auto entity_id = json_access::value_or(fields, "entityId", std::string{});
-        bool matched = false;
-        bool present = false;
-        bool resolved = false;
-        if (entity_kind == "character") {
-            auto id = CharacterId::create(entity_id);
-            if (id) {
-                auto actual = gateway.character_location(*id.value_if());
-                if (actual) {
-                    resolved = true;
-                    matched = location_matches(*actual.value_if(), fields);
-                    present = location_is_present(*actual.value_if());
-                }
-            }
-        } else {
-            auto id = InteractableInstanceId::create(entity_id);
-            if (id) {
-                auto actual = gateway.interactable_location(*id.value_if());
-                if (actual) {
-                    resolved = true;
-                    matched = location_matches(*actual.value_if(), fields);
-                    present = location_is_present(*actual.value_if());
-                }
-            }
-        }
-        if (!resolved)
-            return fail("Location expectation could not resolve its semantic target.");
-        if (expectation.op == TypedPlaybackExpectationOperator::Present ||
-            expectation.op == TypedPlaybackExpectationOperator::Absent)
-            return compare_presence(present, expectation.op)
-                       ? pass()
-                       : fail("Location presence did not match.");
-        return (expectation.op == TypedPlaybackExpectationOperator::Equal ? matched : !matched)
-                   ? pass()
-                   : fail("Entity location did not match.");
-    }
-    case TypedPlaybackExpectationKind::Quantity: {
-        auto id = InteractableInstanceId::create(
-            json_access::value_or(fields, "interactableId", std::string{}));
-        if (!id)
-            return fail("Quantity expectation references an invalid Interactable Instance id.");
-        auto actual = gateway.interactable_quantity(*id.value_if());
-        if (!actual)
-            return fail("Quantity expectation could not resolve its Interactable Instance.");
-        const auto expected = json_access::value_or(fields, "value", 0.0);
-        return compare_number(static_cast<double>(*actual.value_if()), expected, expectation.op)
-                   ? pass()
-                   : fail("Interactable quantity did not match.");
-    }
-    case TypedPlaybackExpectationKind::Trait: {
-        auto owner =
-            playback_property_owner(json_access::value_or(fields, "ownerKind", std::string{}),
-                                    json_access::value_or(fields, "ownerId", std::string{}));
-        auto trait = TraitId::create(json_access::value_or(fields, "traitId", std::string{}));
-        if (!owner || !trait)
-            return fail("Trait expectation references an invalid semantic target.");
-        auto actual = gateway.has_trait(*owner, *trait.value_if());
-        if (!actual)
-            return fail("Trait expectation could not resolve its semantic target.");
-        return compare_presence(*actual.value_if(), expectation.op)
-                   ? pass()
-                   : fail("Trait presence did not match.");
-    }
-    case TypedPlaybackExpectationKind::EntityState: {
-        const auto entity_kind = json_access::value_or(fields, "entityKind", std::string{});
-        const auto entity_id = json_access::value_or(fields, "entityId", std::string{});
-        const auto field = json_access::value_or(fields, "field", std::string{});
-        const bool expected = json_access::value_or(fields, "value", false);
-        std::optional<bool> actual;
-        if (entity_kind == "character") {
-            auto id = CharacterId::create(entity_id);
-            if (id) {
-                auto state = gateway.character_world_state(*id.value_if());
-                if (state)
-                    actual =
-                        field == "visible" ? state.value_if()->visible : state.value_if()->enabled;
-            }
-        } else {
-            auto id = InteractableInstanceId::create(entity_id);
-            if (id) {
-                auto state = gateway.interactable_state(*id.value_if());
-                if (state)
-                    actual =
-                        field == "visible" ? state.value_if()->visible : state.value_if()->enabled;
-            }
-        }
-        if (!actual)
-            return fail("Entity-state expectation could not resolve its semantic target.");
-        const bool equal = *actual == expected;
-        return (expectation.op == TypedPlaybackExpectationOperator::Equal ? equal : !equal)
-                   ? pass()
-                   : fail("Entity state did not match.");
-    }
-    case TypedPlaybackExpectationKind::ActiveFlow: {
-        const auto kind = json_access::value_or(fields, "kind", std::string{});
-        const auto id = json_access::value_or(fields, "flowId", std::string{});
-        const bool present = kind == "dialogue" ? publication.active_dialogue.has_value()
-                                                : publication.active_scene.has_value();
-        if (expectation.op == TypedPlaybackExpectationOperator::Present ||
-            expectation.op == TypedPlaybackExpectationOperator::Absent)
-            return compare_presence(present, expectation.op)
-                       ? pass()
-                       : fail("Active flow presence did not match.");
-        const bool equal = kind == "dialogue"
-                               ? present && publication.active_dialogue->dialogue.text() == id
-                               : present && publication.active_scene->scene.text() == id;
-        return (expectation.op == TypedPlaybackExpectationOperator::Equal ? equal : !equal)
-                   ? pass()
-                   : fail("Active flow did not match.");
-    }
-    case TypedPlaybackExpectationKind::Layout: {
-        auto layout = LayoutId::create(json_access::value_or(fields, "layoutId", std::string{}));
-        if (!layout)
-            return fail("Layout expectation references an invalid Layout id.");
-        const auto field = json_access::value_or(fields, "field", std::string{});
-        if (field == "mounted") {
-            const bool present =
-                std::ranges::any_of(publication.presentation.layouts, [&](const auto& value) {
-                    return value.layout == *layout.value_if();
-                });
-            return compare_presence(present, expectation.op)
-                       ? pass()
-                       : fail("Mounted Layout presence did not match.");
-        }
-        const auto states = gateway.layout_states(*layout.value_if());
-        if (states.size() != 1)
-            return fail(
-                "Layout state expectation requires exactly one live state slot for the Layout.");
-        const auto value = fields.find("value");
-        const auto expected =
-            value == fields.end() ? std::nullopt : expectation_persistable_value(*value);
-        if (!expected)
-            return fail("Layout state expectation contains an invalid persistable value.");
-        if (expectation.op == TypedPlaybackExpectationOperator::Equal ||
-            expectation.op == TypedPlaybackExpectationOperator::NotEqual) {
-            const bool equal = persistable_values_equal(states.front(), *expected);
-            return (expectation.op == TypedPlaybackExpectationOperator::Equal ? equal : !equal)
-                       ? pass()
-                       : fail("Layout state did not match.");
-        }
-        const auto actual_number = numeric_persistable_value(states.front());
-        const auto expected_number = numeric_persistable_value(*expected);
-        return actual_number && expected_number &&
-                       compare_number(*actual_number, *expected_number, expectation.op)
-                   ? pass()
-                   : fail("Layout state did not match.");
-    }
-    case TypedPlaybackExpectationKind::Event: {
-        const auto kind = json_access::value_or(fields, "kind", std::string{});
-        const auto expected = json_access::value_or(fields, "value", std::string{});
-        const bool present = std::ranges::any_of(events, [&](const auto& event) {
-            return std::visit(
-                [&](const auto& value) {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, noveltea::runtime::NotificationEvent>)
-                        return kind == "notification" && value.message == expected;
-                    else if constexpr (std::is_same_v<T, noveltea::runtime::SaveOutcomeEvent>)
-                        return kind == "save-outcome" &&
-                               save_outcome_name(value.outcome.status) == expected;
-                    return false;
-                },
-                event);
-        });
-        return compare_presence(present, expectation.op)
-                   ? pass()
-                   : fail("Expected runtime event presence did not match.");
-    }
-    case TypedPlaybackExpectationKind::Diagnostic: {
-        const auto code = json_access::value_or(fields, "code", std::string{});
-        const bool present =
-            std::ranges::any_of(diagnostics, [&](const auto& value) { return value.code == code; });
-        return compare_presence(present, expectation.op)
-                   ? pass()
-                   : fail("Expected diagnostic presence did not match.");
-    }
-    }
-    return fail("Unsupported expectation.");
-}
-
 nlohmann::json run_compiled_playback(const nlohmann::json& request)
 {
     nlohmann::json error_response;
@@ -1023,7 +551,9 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         passed = false;
 
     for (const auto& step : typed_spec->steps) {
-        auto result = session.dispatch(step.input);
+        if (!std::holds_alternative<RuntimeInputMessage>(step.input))
+            return fail("UI click playback input requires run-ui-test.");
+        auto result = session.dispatch(std::get<RuntimeInputMessage>(step.input));
         editor::TypedPlaybackStepReport report;
         report.index = step.index;
         report.handled = result.disposition == noveltea::runtime::RuntimeInputDisposition::Handled;
@@ -1054,7 +584,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
             diagnostics_have_errors(report.diagnostics))
             passed = false;
         for (const auto& expectation : step.expectations) {
-            auto expectation_report = evaluate_playback_expectation(
+            auto expectation_report = noveltea::core::editor::evaluate_playback_expectation(
                 expectation, session, *final_publication, report.events, report.diagnostics);
             if (!expectation_report.passed)
                 passed = false;
@@ -1078,7 +608,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     if (!final_publication)
         return fail("Playback completed without a final runtime publication.");
     for (const auto& expectation : typed_spec->final_expectations) {
-        auto expectation_report = evaluate_playback_expectation(
+        auto expectation_report = noveltea::core::editor::evaluate_playback_expectation(
             expectation, session, *final_publication, all_events, all_diagnostics);
         if (!expectation_report.passed)
             passed = false;
@@ -1243,6 +773,151 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
     return options;
 }
 
+std::optional<std::filesystem::path> current_executable_directory()
+{
+#if defined(_WIN32)
+    std::wstring buffer(32768, L'\0');
+    const auto size = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (size == 0 || size >= buffer.size())
+        return std::nullopt;
+    buffer.resize(size);
+    return std::filesystem::path(std::move(buffer)).parent_path();
+#elif defined(__APPLE__)
+    std::uint32_t size = 0;
+    (void)_NSGetExecutablePath(nullptr, &size);
+    if (size == 0)
+        return std::nullopt;
+    std::string buffer(size, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+        return std::nullopt;
+    buffer.resize(std::strlen(buffer.c_str()));
+    std::error_code error;
+    const auto executable = std::filesystem::weakly_canonical(std::filesystem::path(buffer), error);
+    if (error)
+        return std::nullopt;
+    return executable.parent_path();
+#else
+    std::error_code error;
+    const auto executable = std::filesystem::read_symlink("/proc/self/exe", error);
+    if (error)
+        return std::nullopt;
+    return executable.parent_path();
+#endif
+}
+
+std::optional<std::filesystem::path> ui_test_runner_path()
+{
+    if (const char* override_path = std::getenv("NOVELTEA_UI_TEST_RUNNER");
+        override_path != nullptr && *override_path != '\0') {
+        const std::filesystem::path candidate(override_path);
+        if (std::filesystem::exists(candidate))
+            return candidate;
+    }
+    if (const auto directory = current_executable_directory()) {
+#if defined(_WIN32)
+        const auto candidate = *directory / "noveltea-ui-test-runner.exe";
+#else
+        const auto candidate = *directory / "noveltea-ui-test-runner";
+#endif
+        if (std::filesystem::exists(candidate))
+            return candidate;
+    }
+#ifdef NOVELTEA_UI_TEST_RUNNER_PATH
+    const std::filesystem::path configured(NOVELTEA_UI_TEST_RUNNER_PATH);
+    if (std::filesystem::exists(configured))
+        return configured;
+#endif
+    return std::nullopt;
+}
+
+int run_ui_test_runner_process(const std::filesystem::path& runner,
+                               const std::filesystem::path& input_path,
+                               const std::filesystem::path& response_path)
+{
+#if defined(_WIN32)
+    const auto quote = [](const std::wstring& value) { return L"\"" + value + L"\""; };
+    std::wstring command = quote(runner.native()) + L" " + quote(input_path.native()) + L" " +
+                           quote(response_path.native());
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(runner.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                        nullptr, nullptr, &startup, &process))
+        return -1;
+    const auto wait = WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exit_code = 0;
+    const bool exited = wait == WAIT_OBJECT_0 && GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return exited ? static_cast<int>(exit_code) : -1;
+#else
+    auto runner_text = filesystem_path_to_utf8(runner);
+    auto input_text = filesystem_path_to_utf8(input_path);
+    auto response_text = filesystem_path_to_utf8(response_path);
+    char* arguments[] = {runner_text.data(), input_text.data(), response_text.data(), nullptr};
+    pid_t process = 0;
+    const int spawned = posix_spawn(&process, runner_text.c_str(), nullptr, nullptr, arguments, environ);
+    if (spawned != 0)
+        return -1;
+    int status = 0;
+    while (waitpid(process, &status, 0) < 0) {
+        if (errno != EINTR)
+            return -1;
+    }
+    if (WIFEXITED(status))
+        return WEXITSTATUS(status);
+    if (WIFSIGNALED(status))
+        return 128 + WTERMSIG(status);
+    return -1;
+#endif
+}
+
+nlohmann::json run_external_ui_playback(const nlohmann::json& request)
+{
+    const auto runner = ui_test_runner_path();
+    if (!runner)
+        return fail("Runtime UI Test runner is unavailable.");
+
+    static std::atomic_uint64_t sequence{0};
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("noveltea-ui-test-" + std::to_string(nonce) + "-" +
+                       std::to_string(sequence.fetch_add(1, std::memory_order_relaxed)));
+    std::error_code error;
+    if (!std::filesystem::create_directories(root, error) || error)
+        return fail("Could not create Runtime UI Test request directory.");
+    const auto input_path = root / "request.json";
+    const auto response_path = root / "response.json";
+    {
+        std::ofstream input(input_path, std::ios::binary | std::ios::trunc);
+        if (!input) {
+            std::filesystem::remove_all(root, error);
+            return fail("Could not write Runtime UI Test request.");
+        }
+        input << request.dump();
+    }
+#if !defined(_WIN32)
+    std::filesystem::permissions(
+        root, std::filesystem::perms::owner_all, std::filesystem::perm_options::replace, error);
+    error.clear();
+    std::filesystem::permissions(input_path,
+                                 std::filesystem::perms::owner_read |
+                                     std::filesystem::perms::owner_write,
+                                 std::filesystem::perm_options::replace, error);
+    error.clear();
+#endif
+    const int status = run_ui_test_runner_process(*runner, input_path, response_path);
+    const auto response_text = read_file(response_path);
+    std::filesystem::remove_all(root, error);
+    if (!response_text)
+        return fail("Runtime UI Test runner did not produce a response (status " +
+                    std::to_string(status) + ").");
+    auto response = nlohmann::json::parse(*response_text, nullptr, false);
+    if (response.is_discarded())
+        return fail("Runtime UI Test runner returned malformed JSON.");
+    return response;
+}
+
 nlohmann::json run_command(std::string_view command, const nlohmann::json& request)
 {
     if (command == "run-test") {
@@ -1250,7 +925,7 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
     }
 
     if (command == "run-ui-test") {
-        return run_compiled_playback(request);
+        return run_external_ui_playback(request);
     }
 
     if (command == "compile-shaders") {

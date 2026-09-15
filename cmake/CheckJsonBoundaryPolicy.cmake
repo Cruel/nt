@@ -58,7 +58,8 @@ set(approved_source_paths
     "tools/editor_tool/shader_compiler.cpp"
     "tools/editor_tool/tooling_archive.cpp"
     "tools/editor_tool/tooling_image.cpp"
-    "tools/editor_tool/tooling_native.cpp")
+    "tools/editor_tool/tooling_native.cpp"
+    "tools/editor_tool/tooling_ui_test_runner.cpp")
 set(json_markers
     "#include <nlohmann/"
     "#include \"nlohmann/"

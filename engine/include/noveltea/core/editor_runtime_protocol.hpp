@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -45,9 +46,16 @@ struct TypedPlaybackExpectation {
     nlohmann::json fields = nlohmann::json::object();
 };
 
+struct TypedPlaybackUiClickInput {
+    std::string document_id;
+    std::string selector;
+};
+
+using TypedPlaybackInput = std::variant<RuntimeInputMessage, TypedPlaybackUiClickInput>;
+
 struct TypedPlaybackStep {
     std::uint64_t index = 0;
-    RuntimeInputMessage input;
+    TypedPlaybackInput input;
     std::vector<TypedPlaybackExpectation> expectations;
 };
 

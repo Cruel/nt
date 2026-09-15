@@ -120,7 +120,17 @@ export async function runPlaybackTest(project: unknown, testId: string) {
     const built = await buildRuntimePlaybackSpecFromAuthoringTest(project, testId);
     if (!built.ok || !built.project || !built.spec)
       return { ok: false, success: false, diagnostics: built.diagnostics };
-    return invokeNovelTeaNativeOperation('run-test', { project: built.project, spec: built.spec });
+    return built.runner === 'runtime-ui'
+      ? invokeNovelTeaNativeOperation('run-ui-test', {
+          project: built.project,
+          spec: built.spec,
+          projectRoot: null,
+          shaderMaterialMetadata: built.shaderMaterialMetadata ?? null,
+        })
+      : invokeNovelTeaNativeOperation('run-test', {
+          project: built.project,
+          spec: built.spec,
+        });
   }
   return {
     ok: false,
@@ -133,8 +143,18 @@ export function runPlaybackSpec(project: unknown, spec: unknown) {
   return invokeNovelTeaNativeOperation('run-test', { project, spec });
 }
 
-export function runUiPlaybackSpec(project: unknown, spec: unknown) {
-  return invokeNovelTeaNativeOperation('run-ui-test', { project, spec });
+export function runUiPlaybackSpec(
+  project: unknown,
+  spec: unknown,
+  projectRoot: string | null = null,
+  shaderMaterialMetadata: unknown = null,
+) {
+  return invokeNovelTeaNativeOperation('run-ui-test', {
+    project,
+    spec,
+    projectRoot,
+    shaderMaterialMetadata,
+  });
 }
 
 export function exportPackage(

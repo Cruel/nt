@@ -864,6 +864,7 @@ async function certifyNativeOperations(tempRoot, pristine) {
     version: 1,
     id: 'certification-empty',
     steps: [],
+    finalExpectations: [],
   })}\n`;
   const playbackPath = path.join(tempRoot, 'empty-playback.json');
   await writeFile(playbackPath, playback);

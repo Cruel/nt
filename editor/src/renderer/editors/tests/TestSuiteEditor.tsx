@@ -16,6 +16,7 @@ import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
 export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const setLastPlaybackReport = useWorkspaceStore((state) => state.setLastPlaybackReport);
   const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
@@ -86,7 +87,12 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
     const runnerProject = spec.project ?? activeProject;
     const result =
       spec.runner === 'runtime-ui'
-        ? await window.noveltea.runUiPlaybackSpec(runnerProject, spec.spec)
+        ? await window.noveltea.runUiPlaybackSpec(
+            projectSessionId,
+            runnerProject,
+            spec.spec,
+            spec.shaderMaterialMetadata ?? null,
+          )
         : await window.noveltea.runPlaybackSpec(runnerProject, spec.spec);
     setLastPlaybackReport(result.report ?? result);
     setStatusMessage(result.ok ? `Ran test ${testId}` : (result.error ?? 'Test run failed'));

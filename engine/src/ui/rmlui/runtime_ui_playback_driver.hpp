@@ -55,8 +55,8 @@ struct RuntimeUiPlaybackClickResult {
 
 class RuntimeUiPlaybackDriver final {
 public:
-    using LayoutEventDispatch =
-        std::function<bool(core::MountedLayoutOwner, const std::function<bool()>&)>;
+    using LayoutEventDispatch = std::function<bool(const std::string&, core::MountedLayoutOwner,
+                                                   const std::function<bool()>&)>;
 
     RuntimeUiPlaybackDriver(RmlUiHost& host, RmlUiDocumentRegistry& documents,
                             LayoutEventDispatch dispatch_layout_event) noexcept;

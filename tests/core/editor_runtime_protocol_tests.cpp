@@ -695,10 +695,7 @@ TEST_CASE("editor playback protocol lowers persisted steps to typed vocabulary")
          {{{"index", 0},
            {"input", {{"type", "begin-playback"}}},
            {"expectations",
-            {{{"id", "room"},
-              {"type", "current-room"},
-              {"operator", "eq"},
-              {"roomId", "start"}}}}},
+            {{{"id", "room"}, {"type", "current-room"}, {"operator", "eq"}, {"roomId", "start"}}}}},
           {{"index", 1},
            {"input",
             {{"type", "select-subjects"}, {"subjects", nlohmann::json::array({key, door})}}},
@@ -709,22 +706,57 @@ TEST_CASE("editor playback protocol lowers persisted steps to typed vocabulary")
              {"verb", "look"},
              {"bindings", nlohmann::json::array({{{"slotId", "target"}, {"subject", door}}})}}},
            {"expectations", nlohmann::json::array()}}}},
-        {"finalExpectations",
-         nlohmann::json::array({{{"id", "notification"},
-                                 {"type", "event"},
-                                 {"operator", "absent"},
-                                 {"kind", "notification"},
-                                 {"value", "unexpected"}}})}};
+        {"finalExpectations", nlohmann::json::array({{{"id", "notification"},
+                                                      {"type", "event"},
+                                                      {"operator", "absent"},
+                                                      {"kind", "notification"},
+                                                      {"value", "unexpected"}}})}};
     auto result = decode_editor_playback_text(document.dump());
     REQUIRE(result);
     REQUIRE(result.value().steps.size() == 3);
-    CHECK(std::holds_alternative<BeginPlaybackInput>(result.value().steps[0].input));
-    CHECK(std::holds_alternative<SelectInteractionSubjectsInput>(result.value().steps[1].input));
-    CHECK(std::holds_alternative<InvokeInteractionInput>(result.value().steps[2].input));
+    REQUIRE(std::holds_alternative<RuntimeInputMessage>(result.value().steps[0].input));
+    REQUIRE(std::holds_alternative<RuntimeInputMessage>(result.value().steps[1].input));
+    REQUIRE(std::holds_alternative<RuntimeInputMessage>(result.value().steps[2].input));
+    CHECK(std::holds_alternative<BeginPlaybackInput>(
+        std::get<RuntimeInputMessage>(result.value().steps[0].input)));
+    CHECK(std::holds_alternative<SelectInteractionSubjectsInput>(
+        std::get<RuntimeInputMessage>(result.value().steps[1].input)));
+    CHECK(std::holds_alternative<InvokeInteractionInput>(
+        std::get<RuntimeInputMessage>(result.value().steps[2].input)));
     REQUIRE(result.value().steps[0].expectations.size() == 1);
-    CHECK(result.value().steps[0].expectations[0].kind == TypedPlaybackExpectationKind::CurrentRoom);
+    CHECK(result.value().steps[0].expectations[0].kind ==
+          TypedPlaybackExpectationKind::CurrentRoom);
     REQUIRE(result.value().final_expectations.size() == 1);
     CHECK(result.value().final_expectations[0].kind == TypedPlaybackExpectationKind::Event);
+}
+
+TEST_CASE("editor playback protocol admits selector clicks beside semantic inputs")
+{
+    const nlohmann::json document = {
+        {"schema", playback_schema},
+        {"version", 1},
+        {"id", "ui-mixed"},
+        {"steps", nlohmann::json::array({{{"index", 0},
+                                          {"input",
+                                           {{"type", "ui-click"},
+                                            {"documentId", "layout-stateful-overlay-1"},
+                                            {"selector", "#confirm"}}},
+                                          {"expectations", nlohmann::json::array()}},
+                                         {{"index", 1},
+                                          {"input", {{"type", "continue"}}},
+                                          {"expectations", nlohmann::json::array()}}})},
+        {"finalExpectations", nlohmann::json::array()}};
+
+    auto decoded = decode_editor_playback(document);
+    REQUIRE(decoded);
+    REQUIRE(decoded.value().steps.size() == 2);
+    REQUIRE(std::holds_alternative<TypedPlaybackUiClickInput>(decoded.value().steps[0].input));
+    const auto& click = std::get<TypedPlaybackUiClickInput>(decoded.value().steps[0].input);
+    CHECK(click.document_id == "layout-stateful-overlay-1");
+    CHECK(click.selector == "#confirm");
+    REQUIRE(std::holds_alternative<RuntimeInputMessage>(decoded.value().steps[1].input));
+    CHECK(std::holds_alternative<ContinueInput>(
+        std::get<RuntimeInputMessage>(decoded.value().steps[1].input)));
 }
 
 TEST_CASE("editor playback protocol rejects invalid cardinality indexes and fields")
@@ -763,6 +795,15 @@ TEST_CASE("editor playback protocol rejects invalid cardinality indexes and fiel
                                            {"expectations", nlohmann::json::array()},
                                            {"payload", nlohmann::json::object()}}}},
                                         {"finalExpectations", nlohmann::json::array()}}));
+    CHECK_FALSE(decode_editor_playback(
+        {{"schema", playback_schema},
+         {"version", 1},
+         {"id", "empty-ui-selector"},
+         {"steps",
+          {{{"index", 0},
+            {"input", {{"type", "ui-click"}, {"documentId", "runtime_game"}, {"selector", ""}}},
+            {"expectations", nlohmann::json::array()}}}},
+         {"finalExpectations", nlohmann::json::array()}}));
 }
 
 TEST_CASE("editor playback protocol strictly validates typed expectations")
@@ -771,15 +812,13 @@ TEST_CASE("editor playback protocol strictly validates typed expectations")
         {"schema", playback_schema},
         {"version", 1},
         {"id", "expectations"},
-        {"steps",
-         nlohmann::json::array(
-             {{{"index", 0},
-               {"input", {{"type", "continue"}}},
-               {"expectations",
-                nlohmann::json::array({{{"id", "room"},
-                                        {"type", "current-room"},
-                                        {"operator", "eq"},
-                                        {"roomId", "start"}}})}}})},
+        {"steps", nlohmann::json::array(
+                      {{{"index", 0},
+                        {"input", {{"type", "continue"}}},
+                        {"expectations", nlohmann::json::array({{{"id", "room"},
+                                                                 {"type", "current-room"},
+                                                                 {"operator", "eq"},
+                                                                 {"roomId", "start"}}})}}})},
         {"finalExpectations", nlohmann::json::array()}};
     CHECK(decode_editor_playback(canonical));
 
@@ -798,24 +837,16 @@ TEST_CASE("editor playback protocol strictly validates typed expectations")
 
     auto wrong_entity_field = canonical;
     wrong_entity_field["steps"][0]["expectations"][0] = {
-        {"id", "visible"},
-        {"type", "entity-state"},
-        {"operator", "eq"},
-        {"entityKind", "character"},
-        {"entityId", "guard"},
-        {"field", "private-state"},
+        {"id", "visible"},     {"type", "entity-state"},
+        {"operator", "eq"},    {"entityKind", "character"},
+        {"entityId", "guard"}, {"field", "private-state"},
         {"value", true}};
     CHECK_FALSE(decode_editor_playback(wrong_entity_field));
 
     auto numeric_string = canonical;
     numeric_string["steps"][0]["expectations"][0] = {
-        {"id", "score"},
-        {"type", "property"},
-        {"operator", "gt"},
-        {"scope", "global"},
-        {"ownerId", ""},
-        {"propertyId", "score"},
-        {"value", "10"}};
+        {"id", "score"}, {"type", "property"},    {"operator", "gt"}, {"scope", "global"},
+        {"ownerId", ""}, {"propertyId", "score"}, {"value", "10"}};
     CHECK_FALSE(decode_editor_playback(numeric_string));
 
     auto structured_layout_state = canonical;
@@ -836,25 +867,30 @@ TEST_CASE("editor playback protocol requires stable choice and navigation identi
         {"version", 1},
         {"id", "stable-identities"},
         {"steps",
-         nlohmann::json::array(
-             {{{"index", 0},
-               {"input", {{"type", "dialogue-choice"}, {"edge", "accept"}}},
-               {"expectations", nlohmann::json::array()}},
-              {{"index", 1},
-               {"input", {{"type", "scene-choice"}, {"option", "investigate"}}},
-               {"expectations", nlohmann::json::array()}},
-              {{"index", 2},
-               {"input", {{"type", "navigate"}, {"exit", "north-exit"}}},
-               {"expectations", nlohmann::json::array()}}})},
+         nlohmann::json::array({{{"index", 0},
+                                 {"input", {{"type", "dialogue-choice"}, {"edge", "accept"}}},
+                                 {"expectations", nlohmann::json::array()}},
+                                {{"index", 1},
+                                 {"input", {{"type", "scene-choice"}, {"option", "investigate"}}},
+                                 {"expectations", nlohmann::json::array()}},
+                                {{"index", 2},
+                                 {"input", {{"type", "navigate"}, {"exit", "north-exit"}}},
+                                 {"expectations", nlohmann::json::array()}}})},
         {"finalExpectations", nlohmann::json::array()}};
     auto decoded = decode_editor_playback(canonical);
     REQUIRE(decoded);
     REQUIRE(decoded.value().steps.size() == 3);
-    CHECK(std::get<SelectDialogueChoiceInput>(decoded.value().steps[0].input).edge.text() ==
-          "accept");
-    CHECK(std::get<SelectSceneChoiceInput>(decoded.value().steps[1].input).option.text() ==
-          "investigate");
-    CHECK(std::get<NavigateRoomInput>(decoded.value().steps[2].input).exit.text() == "north-exit");
+    REQUIRE(std::holds_alternative<RuntimeInputMessage>(decoded.value().steps[0].input));
+    REQUIRE(std::holds_alternative<RuntimeInputMessage>(decoded.value().steps[1].input));
+    REQUIRE(std::holds_alternative<RuntimeInputMessage>(decoded.value().steps[2].input));
+    CHECK(std::get<SelectDialogueChoiceInput>(
+              std::get<RuntimeInputMessage>(decoded.value().steps[0].input))
+              .edge.text() == "accept");
+    CHECK(std::get<SelectSceneChoiceInput>(
+              std::get<RuntimeInputMessage>(decoded.value().steps[1].input))
+              .option.text() == "investigate");
+    CHECK(std::get<NavigateRoomInput>(std::get<RuntimeInputMessage>(decoded.value().steps[2].input))
+              .exit.text() == "north-exit");
 
     auto retired_dialogue = canonical;
     retired_dialogue["steps"][0]["input"] = {{"type", "dialogue-choice"}, {"optionIndex", 0}};
@@ -980,51 +1016,48 @@ TEST_CASE("typed playback report encoder has stable external shape")
               "smoke", steps, final_expectations, publication(final_view), false)) == report);
     CHECK(
         report ==
-        nlohmann::json{{"schema", playback_report_schema},
-                       {"version", 1},
-                       {"id", "smoke"},
-                       {"passed", false},
-                       {"steps",
-                        {{{"index", 4},
-                          {"handled", true},
-                          {"events",
-                           {{{"type", "playback-observation"}, {"stepIndex", 4}, {"handled", true}},
-                            {{"type", "notification"}, {"message", "saved"}}}},
-                          {"diagnostics",
-                           {{{"severity", "info"},
-                             {"code", "runtime.note"},
-                             {"message", "note"},
-                             {"sourcePath", ""}}}},
-                          {"expectations",
-                           {{{"id", "room"},
-                             {"passed", true},
-                             {"message", "Expectation passed."}}}}}}},
-                       {"finalExpectations",
-                        {{{"id", "finished"},
-                          {"passed", false},
-                          {"message", "Current Room did not match."}}}},
-                       {"finalPublication",
-                        {{"revision", 1},
-                         {"gameplayUi",
-                          {{"mode", "room"},
-                           {"gameplayPaused", false},
-                           {"canContinue", false},
-                           {"selectedSubjects", nlohmann::json::array()},
-                           {"inventories", nlohmann::json::array()},
-                           {"inventory", nlohmann::json::array()},
-                           {"textLog", nlohmann::json::array()},
-                           {"verbOffers", nlohmann::json::array()},
-                           {"verbMenuOpen", false}}},
-                         {"presentation",
-                          {{"revision", 1},
-                           {"actorCount", 0},
-                           {"interactableCount", 0},
-                           {"propCount", 0},
-                           {"environmentCount", 0},
-                           {"layoutCount", 0},
-                           {"desiredAudioCount", 0}}},
-                         {"observations", nlohmann::json::array()},
-                         {"gameplayInstances", nlohmann::json::array()}}}});
+        nlohmann::json{
+            {"schema", playback_report_schema},
+            {"version", 1},
+            {"id", "smoke"},
+            {"passed", false},
+            {"steps",
+             {{{"index", 4},
+               {"handled", true},
+               {"events",
+                {{{"type", "playback-observation"}, {"stepIndex", 4}, {"handled", true}},
+                 {{"type", "notification"}, {"message", "saved"}}}},
+               {"diagnostics",
+                {{{"severity", "info"},
+                  {"code", "runtime.note"},
+                  {"message", "note"},
+                  {"sourcePath", ""}}}},
+               {"expectations",
+                {{{"id", "room"}, {"passed", true}, {"message", "Expectation passed."}}}}}}},
+            {"finalExpectations",
+             {{{"id", "finished"}, {"passed", false}, {"message", "Current Room did not match."}}}},
+            {"finalPublication",
+             {{"revision", 1},
+              {"gameplayUi",
+               {{"mode", "room"},
+                {"gameplayPaused", false},
+                {"canContinue", false},
+                {"selectedSubjects", nlohmann::json::array()},
+                {"inventories", nlohmann::json::array()},
+                {"inventory", nlohmann::json::array()},
+                {"textLog", nlohmann::json::array()},
+                {"verbOffers", nlohmann::json::array()},
+                {"verbMenuOpen", false}}},
+              {"presentation",
+               {{"revision", 1},
+                {"actorCount", 0},
+                {"interactableCount", 0},
+                {"propCount", 0},
+                {"environmentCount", 0},
+                {"layoutCount", 0},
+                {"desiredAudioCount", 0}}},
+              {"observations", nlohmann::json::array()},
+              {"gameplayInstances", nlohmann::json::array()}}}});
 }
 
 TEST_CASE("typed debug snapshot exposes checkpoint readiness without a safety override")

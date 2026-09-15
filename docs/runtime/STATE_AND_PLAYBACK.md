@@ -219,9 +219,15 @@ observations alongside ordered events and diagnostics. Interactive preview retai
 publication directly; it does not read state back through RuntimeUI or recompute checkpoint facts.
 
 Supported commands include lifecycle/time, continue, stable dialogue/scene choices, room exits,
-interactable selection, typed interaction invocation, and declared debug state changes. Unsupported
-selector clicks, index-only ambiguous targets, arbitrary playback Lua, and old assertion forms fail
-validation rather than taking a compatibility path.
+interactable selection, typed interaction invocation, declared debug state changes, and authored UI
+selector clicks. A Test containing a selector click uses the RuntimeUI playback runner: it realizes the
+same compiled presentation through RmlUi, resolves a visible enabled target, verifies the target by
+normal hit testing, and dispatches pointer move/down/up input through the RuntimeUI Layout-event seam.
+Selector-driven steps may be mixed with ordinary semantic RuntimeSession inputs, and both runners use
+the same typed semantic expectations and playback-report format. Stable authored element IDs or
+explicit test-oriented attributes are the selector contract; coordinate clicks are reserved for cases
+where geometry itself is under test. Index-only ambiguous targets, arbitrary playback Lua, and old
+assertion forms remain invalid rather than taking a compatibility path.
 
 `FastForwardInput` is also a semantic Runtime Session input. It advances Scene/Dialogue semantic work
 in order, crosses cues once, suppresses skipped disposable one-shots, and settles authored skippable

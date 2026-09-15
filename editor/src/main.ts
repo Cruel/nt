@@ -167,6 +167,7 @@ import {
   resolvePlayerTemplateArgumentsSchema,
   runPlaybackSpecArgumentsSchema,
   runPlaybackTestArgumentsSchema,
+  runUiPlaybackSpecArgumentsSchema,
   saveProjectContentArgumentsSchema,
   saveProjectCopyAsArgumentsSchema,
   saveProjectEditorMetadataArgumentsSchema,
@@ -1031,8 +1032,13 @@ void app.whenReady().then(async () => {
 
   guardedIpc.handle(
     IPC_CHANNELS.RUN_UI_PLAYBACK_SPEC,
-    (arguments_) => runPlaybackSpecArgumentsSchema.parse(arguments_),
-    (project, spec) => runUiPlaybackSpec(project, spec),
+    (arguments_) => runUiPlaybackSpecArgumentsSchema.parse(arguments_),
+    (projectSessionId, project, spec, shaderMaterialMetadata) => {
+      const projectRoot = projectSessionId
+        ? activeProjectSessions.requireActiveProjectRoot(projectSessionId)
+        : null;
+      return runUiPlaybackSpec(project, spec, projectRoot, shaderMaterialMetadata);
+    },
   );
 
   guardedIpc.handle(

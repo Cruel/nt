@@ -1,5 +1,15 @@
 import { existsSync } from 'node:fs';
-import { cp, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  cp,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +25,7 @@ const releasePlatform = isWindows ? 'windows' : 'linux';
 const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-release';
 const releaseTriplet = isWindows ? 'x64-mingw-static-noveltea' : 'x64-linux-noveltea';
 const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
+const uiTestRunnerName = isWindows ? 'noveltea-ui-test-runner.exe' : 'noveltea-ui-test-runner';
 const scriptcEntrypoint = path.join(editorRoot, 'node_modules', 'scriptc', 'dist', 'main.js');
 const vitePlusEntrypoint = path.join(editorRoot, 'node_modules', 'vite-plus', 'bin', 'vp');
 const scriptcRoot = path.join(
@@ -486,17 +497,19 @@ try {
     { cwd: stageRoot, env: scriptcBuildEnv },
   );
   run(isWindows ? 'llvm-strip' : 'strip', ['--strip-all', outputPath], { env: buildEnv });
-  const systemFontOutput = path.join(
-    outputDirectory,
-    'assets',
-    'system',
-    'fonts',
-    'LiberationSans.ttf',
-  );
-  await mkdir(path.dirname(systemFontOutput), { recursive: true });
+
+  const uiTestRunnerSource = path.join(buildRoot, 'tools', 'editor_tool', uiTestRunnerName);
+  if (!existsSync(uiTestRunnerSource))
+    throw new Error(`NovelTea UI Test runner is missing: ${uiTestRunnerSource}`);
+  const uiTestRunnerOutput = path.join(outputDirectory, uiTestRunnerName);
+  await cp(uiTestRunnerSource, uiTestRunnerOutput);
+  run(isWindows ? 'llvm-strip' : 'strip', ['--strip-all', uiTestRunnerOutput], { env: buildEnv });
+  if (!isWindows) await chmod(uiTestRunnerOutput, 0o755);
+
   await cp(
-    path.join(repositoryRoot, 'engine', 'assets', 'system', 'fonts', 'LiberationSans.ttf'),
-    systemFontOutput,
+    path.join(repositoryRoot, 'engine', 'assets', 'system'),
+    path.join(outputDirectory, 'assets', 'system'),
+    { recursive: true, dereference: true },
   );
 } finally {
   await rm(stageRoot, { recursive: true, force: true });

@@ -138,21 +138,22 @@ jobs:
 
       - name: Stage standalone NovelTea CLI release asset
         run: |
-          mkdir -p build/release-cli
-          install -m 0755 \
-            build/cli/linux/noveltea \
-            "build/release-cli/noveltea-${RELEASE_TAG}-linux-x64"
+          bundle="noveltea-${RELEASE_TAG}-linux-x64"
+          mkdir -p "build/release-cli/${bundle}"
+          cp -a build/cli/linux/. "build/release-cli/${bundle}/"
+          tar -C build/release-cli -czf "build/release-cli/${bundle}.tar.gz" "${bundle}"
+          rm -rf "build/release-cli/${bundle}"
 
       - name: Attest standalone NovelTea CLI
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-linux-x64
+          subject-path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-linux-x64.tar.gz
 
       - name: Upload standalone NovelTea CLI release asset
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-cli-linux-release-dist
-          path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-linux-x64
+          path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-linux-x64.tar.gz
           if-no-files-found: error
 
   windows-cli:
@@ -223,23 +224,27 @@ jobs:
       - name: Stage standalone Windows CLI
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force build/release-cli | Out-Null
-          Copy-Item build/cli/windows/noveltea.exe "build/release-cli/noveltea-$env:RELEASE_TAG-windows-x64.exe"
+          $bundle = "noveltea-$env:RELEASE_TAG-windows-x64"
+          $bundleRoot = Join-Path "build/release-cli" $bundle
+          New-Item -ItemType Directory -Force $bundleRoot | Out-Null
+          Copy-Item build/cli/windows/* $bundleRoot -Recurse
+          Compress-Archive -Path $bundleRoot -DestinationPath "build/release-cli/$bundle.zip"
+          Remove-Item $bundleRoot -Recurse -Force
       - name: Upload Windows host CLI
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-release-host-cli-windows-x64
-          path: build/cli/windows/noveltea.exe
+          path: build/cli/windows
           if-no-files-found: error
       - name: Attest standalone Windows CLI
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-windows-x64.exe
+          subject-path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-windows-x64.zip
       - name: Upload standalone Windows CLI release asset
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-cli-windows-release-dist
-          path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-windows-x64.exe
+          path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-windows-x64.zip
           if-no-files-found: error
 
   desktop-hosts:
@@ -1166,9 +1171,9 @@ jobs:
           name: ${{ matrix.cli_artifact }}
           path: ${{ matrix.cli_path }}
 
-      - name: Make NovelTea host CLI executable
+      - name: Make NovelTea host tools executable
         if: runner.os == 'Linux'
-        run: chmod +x build/cli/linux/noveltea
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
       - name: Build and verify native editor artifacts
         shell: pwsh

@@ -29,6 +29,7 @@ export interface RuntimePlaybackSpecBuildResult {
   runner?: 'runtime' | 'runtime-ui';
   spec?: unknown;
   project?: unknown;
+  shaderMaterialMetadata?: unknown;
   diagnostics: ToolDiagnostic[];
 }
 
@@ -113,11 +114,22 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
     if (Number.isInteger(number) && number >= 0)
       return { type: step.input, slot: { kind: 'manual', number } };
   }
+  if (step.input === 'ui-click')
+    return {
+      type: 'ui-click',
+      documentId: step.uiClick.documentId,
+      selector: step.uiClick.selector,
+    };
   return null;
+}
+
+function usesRuntimeUi(data: TestData) {
+  return data.steps.some((step) => step.enabled && step.input === 'ui-click');
 }
 
 async function compiledProjectForAuthoring(project: AuthoringProject): Promise<{
   project?: unknown;
+  shaderMaterialMetadata?: unknown;
   diagnostics: ToolDiagnostic[];
   ok: boolean;
 }> {
@@ -131,6 +143,7 @@ async function compiledProjectForAuthoring(project: AuthoringProject): Promise<{
   if (prepared.status === 'cancelled') return { diagnostics: prepared.diagnostics, ok: false };
   return {
     project: prepared.assessment.compiledProject,
+    shaderMaterialMetadata: prepared.assessment.shaderMaterialMetadata,
     diagnostics: prepared.assessment.diagnostics,
     ok: prepared.status === 'prepared',
   };
@@ -175,7 +188,7 @@ export function buildRuntimePlaybackSpecFromTestData(
   };
   return {
     ok: !diagnostics.some((item) => item.severity === 'error'),
-    runner: 'runtime',
+    runner: usesRuntimeUi(data) ? 'runtime-ui' : 'runtime',
     spec,
     diagnostics,
   };
@@ -205,6 +218,7 @@ export async function buildRuntimePlaybackSpecFromAuthoringTest(
     ...built,
     ok: built.ok && compiledProject.ok,
     project: compiledProject.project,
+    shaderMaterialMetadata: compiledProject.shaderMaterialMetadata,
     diagnostics: [...built.diagnostics, ...compiledProject.diagnostics],
   };
 }

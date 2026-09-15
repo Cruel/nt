@@ -357,6 +357,10 @@ function expectedNovelTeaCliName(platform = process.platform) {
   return platform === 'win32' ? 'noveltea.exe' : 'noveltea';
 }
 
+function expectedUiTestRunnerName(platform = process.platform) {
+  return platform === 'win32' ? 'noveltea-ui-test-runner.exe' : 'noveltea-ui-test-runner';
+}
+
 export function resolveNovelTeaCliSource() {
   const configured = process.env.NOVELTEA_CLI_PATH?.trim();
   if (configured) return path.resolve(configured);
@@ -423,13 +427,36 @@ async function copyResources(resourcesRoot) {
   );
   await mkdir(path.dirname(systemFontDestination), { recursive: true });
   await cp(systemFontSource, systemFontDestination);
-  const destinationCli = path.join(resourcesRoot, 'bin', expectedNovelTeaCliName());
-  await mkdir(path.dirname(destinationCli), { recursive: true });
+  const nativeSourceRoot = path.dirname(cliSource);
+  const uiTestRunnerSource = path.join(nativeSourceRoot, expectedUiTestRunnerName());
+  const nativeSystemAssetsSource = path.join(nativeSourceRoot, 'assets', 'system');
+  if (!(await pathExists(uiTestRunnerSource))) {
+    throw new Error(`The NovelTea UI Test runner is missing: ${uiTestRunnerSource}`);
+  }
+  if (!(await pathExists(nativeSystemAssetsSource))) {
+    throw new Error(`The NovelTea UI Test system assets are missing: ${nativeSystemAssetsSource}`);
+  }
+
+  const destinationBin = path.join(resourcesRoot, 'bin');
+  const destinationCli = path.join(destinationBin, expectedNovelTeaCliName());
+  const destinationUiTestRunner = path.join(destinationBin, expectedUiTestRunnerName());
+  await mkdir(destinationBin, { recursive: true });
   await cp(cliSource, destinationCli);
+  await cp(uiTestRunnerSource, destinationUiTestRunner);
+  await cp(nativeSystemAssetsSource, path.join(destinationBin, 'assets', 'system'), {
+    recursive: true,
+    dereference: true,
+  });
   if ((await sha256File(cliSource)) !== (await sha256File(destinationCli))) {
     throw new Error('Staged NovelTea CLI bytes differ from the certified source binary.');
   }
-  if (process.platform !== 'win32') await chmod(destinationCli, 0o755);
+  if ((await sha256File(uiTestRunnerSource)) !== (await sha256File(destinationUiTestRunner))) {
+    throw new Error('Staged NovelTea UI Test runner bytes differ from the source binary.');
+  }
+  if (process.platform !== 'win32') {
+    await chmod(destinationCli, 0o755);
+    await chmod(destinationUiTestRunner, 0o755);
+  }
 }
 
 async function collectInstalledPackages(appRoot) {
@@ -670,8 +697,36 @@ export async function verifyStage(stageRoot, options = {}) {
     throw new Error(`Staged NovelTea CLI is missing or not executable: ${cliPath}`);
   }
   const binEntries = (await readdir(path.join(resourcesRoot, 'bin'))).sort();
-  if (binEntries.length !== 1 || binEntries[0] !== expectedNovelTeaCliName()) {
+  const expectedBinEntries = [
+    'assets',
+    expectedNovelTeaCliName(),
+    expectedUiTestRunnerName(),
+  ].sort();
+  if (JSON.stringify(binEntries) !== JSON.stringify(expectedBinEntries)) {
     throw new Error(`Unexpected staged native-tool closure: ${binEntries.join(', ')}`);
+  }
+  const uiTestRunnerPath = path.join(resourcesRoot, 'bin', expectedUiTestRunnerName());
+  const uiTestRunnerInfo = await stat(uiTestRunnerPath);
+  if (
+    !uiTestRunnerInfo.isFile() ||
+    (process.platform !== 'win32' && (uiTestRunnerInfo.mode & 0o111) === 0)
+  ) {
+    throw new Error(
+      `Staged NovelTea UI Test runner is missing or not executable: ${uiTestRunnerPath}`,
+    );
+  }
+  for (const required of [
+    'fonts/LiberationSans.ttf',
+    'ui/baseline/rmlui-html4.rcss',
+    'ui/baseline/noveltea.rcss',
+  ]) {
+    if (
+      !(await pathExists(
+        path.join(resourcesRoot, 'bin', 'assets', 'system', ...required.split('/')),
+      ))
+    ) {
+      throw new Error(`Staged NovelTea UI Test system asset is missing: ${required}`);
+    }
   }
   await verifyStandaloneNovelTeaCli(cliPath);
 
