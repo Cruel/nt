@@ -43,6 +43,9 @@ function createNativeTools(invoke: ScriptcHostInvoke): NovelTeaCliNativeToolServ
     async runHeadlessTest(request) {
       return call('run-test', request);
     },
+    async runTestSuite(request) {
+      return call('run-test-suite', request);
+    },
     async runUiTest(request) {
       return call('run-ui-test', request);
     },

@@ -24,6 +24,8 @@ NativeOperation operation_for(std::string_view operation)
         return &noveltea_tooling_compile_shaders_json;
     if (operation == "run-test")
         return &noveltea_tooling_run_headless_test_json;
+    if (operation == "run-test-suite")
+        return &noveltea_tooling_run_test_suite_json;
     if (operation == "run-ui-test")
         return &noveltea_tooling_run_ui_test_json;
     if (operation == "export-package")
