@@ -41,8 +41,7 @@ export interface RuntimeBuildCacheInputSnapshot {
 interface RuntimeBuildCacheInputEntry {
   readonly path: string;
   readonly byteSize: number;
-  readonly mtimeMilliseconds: number;
-  readonly mtimeNanoseconds?: string;
+  readonly mtimeNanoseconds: string;
 }
 
 export interface RuntimeBuildCachePublicationHost {
@@ -79,8 +78,7 @@ const inputEntrySchema = z
   .object({
     path: z.string().min(1),
     byteSize: z.number().int().nonnegative(),
-    mtimeMilliseconds: z.number().finite(),
-    mtimeNanoseconds: z.string().regex(/^\d+$/u).optional(),
+    mtimeNanoseconds: z.string().regex(/^\d+$/u),
   })
   .strict();
 
@@ -192,11 +190,7 @@ async function assertContainedRegularFile(
   const absolute = fileSystem.joinPath(projectRoot, relative);
   const metadata = await fileSystem.readPathMetadata!(absolute);
   if (metadata.kind === 'missing') throw new RuntimeBuildCacheInputError('input-missing');
-  if (
-    metadata.kind !== 'file' ||
-    metadata.byteSize === undefined ||
-    metadata.mtimeMilliseconds === undefined
-  )
+  if (metadata.kind !== 'file' || metadata.byteSize === undefined || !metadata.mtimeNanoseconds)
     throw new RuntimeBuildCacheInputError(
       metadata.kind === 'symlink' ? 'input-symlink' : 'input-not-regular-file',
     );
@@ -212,8 +206,7 @@ async function assertContainedRegularFile(
   return {
     path: normalizeRelativePath(relative),
     byteSize: metadata.byteSize,
-    mtimeMilliseconds: metadata.mtimeMilliseconds,
-    ...(metadata.mtimeNanoseconds ? { mtimeNanoseconds: metadata.mtimeNanoseconds } : {}),
+    mtimeNanoseconds: metadata.mtimeNanoseconds,
   };
 }
 
@@ -298,22 +291,7 @@ function sameInputSnapshot(
   left: RuntimeBuildCacheInputSnapshot,
   right: RuntimeBuildCacheInputSnapshot,
 ): boolean {
-  if (left.entries.length !== right.entries.length) return false;
-  return left.entries.every((entry, index) => {
-    const other = right.entries[index];
-    if (
-      !other ||
-      entry.path !== other.path ||
-      entry.byteSize !== other.byteSize ||
-      entry.mtimeMilliseconds !== other.mtimeMilliseconds
-    )
-      return false;
-    return (
-      !entry.mtimeNanoseconds ||
-      !other.mtimeNanoseconds ||
-      entry.mtimeNanoseconds === other.mtimeNanoseconds
-    );
-  });
+  return JSON.stringify(left.entries) === JSON.stringify(right.entries);
 }
 
 function sameDiscoveryScopes(value: readonly RuntimeBuildCacheDiscoveryScope[]): boolean {
@@ -561,7 +539,7 @@ export async function lookupCanonicalRuntimeBuildCache(
   }
 }
 
-const CACHE_GENERATION_CLEANUP_GRACE_MILLISECONDS = 24 * 60 * 60 * 1000;
+const CACHE_GENERATION_CLEANUP_GRACE_NANOSECONDS = 24n * 60n * 60n * 1_000_000_000n;
 const CACHE_GENERATION_RETIRED_FILE = 'retired';
 const CACHE_GENERATION_PUBLISHED_FILE = 'published';
 const CACHE_GENERATION_WRITER_FILE = 'writer.json';
@@ -640,13 +618,13 @@ async function markGenerationRetired(
 async function metadataIsOlderThan(
   fileSystem: ProjectWorkspaceFileSystem,
   path: string,
-  cutoffMs: number,
+  cutoffNanoseconds: bigint,
 ): Promise<boolean> {
   const metadata = await fileSystem.readPathMetadata!(path);
   return (
     metadata.kind === 'file' &&
-    metadata.mtimeMilliseconds !== undefined &&
-    metadata.mtimeMilliseconds < cutoffMs
+    metadata.mtimeNanoseconds !== undefined &&
+    BigInt(metadata.mtimeNanoseconds) < cutoffNanoseconds
   );
 }
 
@@ -664,7 +642,8 @@ async function cleanupOldGenerations(
   } catch {
     return;
   }
-  const cutoffMs = Date.now() - CACHE_GENERATION_CLEANUP_GRACE_MILLISECONDS;
+  const cutoffNanoseconds =
+    BigInt(Date.now()) * 1_000_000n - CACHE_GENERATION_CLEANUP_GRACE_NANOSECONDS;
   for (const name of names) {
     if (name === current || name === previous || !cacheGenerationIdPattern.test(name)) continue;
     const directory = fileSystem.joinPath(root, name);
@@ -673,12 +652,12 @@ async function cleanupOldGenerations(
         (await metadataIsOlderThan(
           fileSystem,
           fileSystem.joinPath(directory, CACHE_GENERATION_RETIRED_FILE),
-          cutoffMs,
+          cutoffNanoseconds,
         )) ||
         (await metadataIsOlderThan(
           fileSystem,
           fileSystem.joinPath(directory, CACHE_GENERATION_PUBLISHED_FILE),
-          cutoffMs,
+          cutoffNanoseconds,
         ))
       ) {
         await fileSystem.removeDirectory(directory);
@@ -689,8 +668,8 @@ async function cleanupOldGenerations(
       const writerMetadata = await fileSystem.readPathMetadata!(writerPath);
       if (writerMetadata.kind === 'file') {
         if (
-          writerMetadata.mtimeMilliseconds === undefined ||
-          writerMetadata.mtimeMilliseconds >= cutoffMs
+          writerMetadata.mtimeNanoseconds === undefined ||
+          BigInt(writerMetadata.mtimeNanoseconds) >= cutoffNanoseconds
         )
           continue;
         let writerPid: number | null = null;
@@ -713,8 +692,8 @@ async function cleanupOldGenerations(
       const directoryMetadata = await fileSystem.readPathMetadata!(directory);
       if (
         directoryMetadata.kind === 'directory' &&
-        directoryMetadata.mtimeMilliseconds !== undefined &&
-        directoryMetadata.mtimeMilliseconds < cutoffMs
+        directoryMetadata.mtimeNanoseconds !== undefined &&
+        BigInt(directoryMetadata.mtimeNanoseconds) < cutoffNanoseconds
       )
         await fileSystem.removeDirectory(directory);
     } catch {

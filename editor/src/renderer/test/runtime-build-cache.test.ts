@@ -123,29 +123,6 @@ describe('persistent runtime build cache', () => {
     expect(projects[1]).toEqual(projects[0]);
   });
 
-  it('reuses a lower-resolution timestamp manifest when the shared millisecond projection matches', async () => {
-    const root = await createProjectWorkspace();
-    const tools = nativeTools([]);
-    expect((await runCachedTest(root, tools)).exitCode).toBe(0);
-
-    const generation = await currentGeneration(root);
-    const manifestPath = path.join(
-      root,
-      '.noveltea/cache/runtime/generations',
-      generation,
-      'manifest.json',
-    );
-    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
-      inputs: Array<{ mtimeNanoseconds?: string }>;
-    };
-    for (const input of manifest.inputs) delete input.mtimeNanoseconds;
-    await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`, 'utf8');
-
-    const result = await runCachedTest(root, tools);
-    expect(result.exitCode).toBe(0);
-    expect(cacheStatus(result)).toMatchObject({ status: 'hit' });
-  });
-
   it('invalidates when tracked input mtime or byte size changes', async () => {
     const root = await createProjectWorkspace();
     const tools = nativeTools([]);

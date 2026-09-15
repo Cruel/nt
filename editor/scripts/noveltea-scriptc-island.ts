@@ -17,6 +17,10 @@ import {
 } from './noveltea-scriptc-agent-kit-source';
 import { scriptcComfyUiWorkflowFiles } from './noveltea-scriptc-comfyui-workflows';
 import {
+  createScriptcPathMetadataReader,
+  type ScriptcHostInvoke,
+} from './noveltea-scriptc-path-metadata';
+import {
   createNodeProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
   ProjectWorkspaceTransactionService,
@@ -26,8 +30,6 @@ import { configureSha256BytesImplementation } from '../src/shared/web-crypto';
 configureSha256BytesImplementation(async (bytes) =>
   createHash('sha256').update(bytes).digest('hex'),
 );
-
-export type ScriptcHostInvoke = (operation: string, requestText: string) => string;
 
 function createNativeTools(invoke: ScriptcHostInvoke): NovelTeaCliNativeToolService {
   const call = (operation: string, request: unknown): unknown =>
@@ -177,7 +179,9 @@ export async function runNovelTeaScriptcIsland(
   const internal = await runInternalCommand(effectiveArgv, nativeTools, invokeHost);
   if (internal !== null) return internal;
 
-  const fileSystem = createNodeProjectWorkspaceFileSystem();
+  const fileSystem = createNodeProjectWorkspaceFileSystem(
+    createScriptcPathMetadataReader(invokeHost),
+  );
   const workspace = new ProjectWorkspaceService(
     fileSystem,
     new ProjectWorkspaceTransactionService(

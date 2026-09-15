@@ -2,6 +2,7 @@ export {
   createNodeProjectWorkspaceFileSystem,
   NodeProjectWorkspaceFileSystem,
   NodeProjectWorkspaceProcessLiveness,
+  type ProjectWorkspacePathMetadataReader,
 } from './node-project-workspace-file-system';
 export {
   EDITOR_LOCAL_STATE_SCHEMA,
@@ -11,6 +12,7 @@ export {
 export {
   assertProjectWorkspacePathContained,
   type ProjectWorkspaceFileSystem,
+  type ProjectWorkspacePathMetadata,
   type ProjectWorkspaceProcessLiveness,
 } from './project-workspace-file-system';
 export {
