@@ -42,7 +42,7 @@ test('CLI certification receives same-run shader headers without depending on ca
   const cliUpload = step(producer, 'Upload NovelTea host CLI');
   const cliDownload = step(consumer, 'Download NovelTea host CLI');
   const artifact = 'noveltea-cli-certification-shader-headers';
-  const includePath = 'build/linux-release/vcpkg_installed/x64-linux-noveltea/include/bgfx';
+  const includePath = 'build/linux-release/_deps/bgfx.cmake-src/bgfx/src';
   assert.match(upload, /uses: actions\/upload-artifact@/);
   assert.match(download, /uses: actions\/download-artifact@/);
   assert.ok(upload.includes(`name: ${artifact}`));
@@ -91,6 +91,19 @@ test('vcpkg binary caches have independent configuration writers and refresh on 
     field(step(job('linux-cooperative'), 'Set up vcpkg'), 'binary-fallback-scope'),
     'linux-debug',
   );
+});
+
+test('shader asset compilation uses the bgfx-matched nt-tools r5 bundle', () => {
+  const shaderAssets = job('shader-assets');
+  const download = step(shaderAssets, 'Download standalone shaderc');
+  assert.match(
+    download,
+    /Cruel\/nt-tools\/releases\/download\/r5\/noveltea-bgfx-shaderc-linux-x64\.tar\.gz/,
+  );
+  assert.match(download, /test -x "\$shaderc_root\/bin\/shaderc"/);
+  assert.match(download, /resources\/bgfx_shader\.sh/);
+  assert.match(download, /BGFX_SHADER_INCLUDE=\$shaderc_root\/resources/);
+  assert.doesNotMatch(download, /releases\/download\/r1\//);
 });
 
 test('artifact consumers do not wait for unrelated test and cooperative build jobs', () => {

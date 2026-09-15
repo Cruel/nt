@@ -142,9 +142,7 @@ ShaderMaterialProject make_builtin_hotspot_material_project()
         ShaderStageDefinition result;
         result.stage = shader_stage;
         result.compiled = {
-            system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/" + std::string(program) +
-                                          "." + std::string(suffix) + ".bin"),
-            system_binary("essl-100", "system:/shaders/bgfx/essl-100/" + std::string(program) +
+            system_binary("glsl-330", "system:/shaders/bgfx/glsl-330/" + std::string(program) +
                                           "." + std::string(suffix) + ".bin"),
             system_binary("essl-300", "system:/shaders/bgfx/essl-300/" + std::string(program) +
                                           "." + std::string(suffix) + ".bin"),

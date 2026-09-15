@@ -793,10 +793,8 @@ bool safe_project_logical_path(std::string_view value) noexcept
 std::string_view editor_shader_variant_name(EditorPreviewShaderVariant variant) noexcept
 {
     switch (variant) {
-    case EditorPreviewShaderVariant::Glsl120:
-        return "glsl-120";
-    case EditorPreviewShaderVariant::Essl100:
-        return "essl-100";
+    case EditorPreviewShaderVariant::Glsl330:
+        return "glsl-330";
     case EditorPreviewShaderVariant::Essl300:
         return "essl-300";
     case EditorPreviewShaderVariant::Metal:
@@ -2196,10 +2194,8 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
                                             "/templateId"));
         }
         if (auto value = string_field(document, "activeShaderVariant", diagnostics, "/", limits)) {
-            if (*value == "glsl-120")
-                result.active_shader_variant = EditorPreviewShaderVariant::Glsl120;
-            else if (*value == "essl-100")
-                result.active_shader_variant = EditorPreviewShaderVariant::Essl100;
+            if (*value == "glsl-330")
+                result.active_shader_variant = EditorPreviewShaderVariant::Glsl330;
             else if (*value == "essl-300")
                 result.active_shader_variant = EditorPreviewShaderVariant::Essl300;
             else if (*value == "metal")
@@ -2420,10 +2416,8 @@ decode_focused_editor_document_request_text(std::string_view request_text,
             optional_string("shaderStage", entry.shader_stage);
             if (item.contains("shaderVariant")) {
                 if (auto variant = entry_string("shaderVariant")) {
-                    if (*variant == "glsl-120")
-                        entry.shader_variant = EditorPreviewShaderVariant::Glsl120;
-                    else if (*variant == "essl-100")
-                        entry.shader_variant = EditorPreviewShaderVariant::Essl100;
+                    if (*variant == "glsl-330")
+                        entry.shader_variant = EditorPreviewShaderVariant::Glsl330;
                     else if (*variant == "essl-300")
                         entry.shader_variant = EditorPreviewShaderVariant::Essl300;
                     else if (*variant == "metal")

@@ -58,7 +58,7 @@ function createLease(
     hostGeneration: 1,
     nativeHostGeneration: () => 1,
     transportGeneration: () => 1,
-    activeShaderVariant: () => 'glsl-120',
+    activeShaderVariant: () => 'glsl-330',
     committedContentKey: () => committedContentKey,
     commitContent: (key: string) => {
       committedContentKey = key;
@@ -89,7 +89,7 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
     const applyFocusedEditorDocument = vi.fn().mockResolvedValue(undefined);
     const lease = createLease(
       applyFocusedEditorDocument,
-      `focused:project-one:room-preview:room-a:${revision}:glsl-120`,
+      `focused:project-one:room-preview:room-a:${revision}:glsl-330`,
     );
     const coordinator = new FocusedPreviewFreshnessCoordinator();
 
@@ -116,7 +116,7 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
     const applyFocusedEditorDocument = vi.fn().mockResolvedValue(undefined);
     const lease = createLease(
       applyFocusedEditorDocument,
-      `focused:project-one:room-preview:room-a:${revision}:glsl-120`,
+      `focused:project-one:room-preview:room-a:${revision}:glsl-330`,
     );
     const coordinator = new FocusedPreviewFreshnessCoordinator();
 

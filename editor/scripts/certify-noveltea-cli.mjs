@@ -48,24 +48,22 @@ const bgfxInclude = path.join(
   repositoryRoot,
   'build',
   releasePreset,
-  'vcpkg_installed',
-  releaseTriplet,
-  'include',
+  '_deps',
+  'bgfx.cmake-src',
   'bgfx',
+  'src',
 );
 
 const typedFragmentGoldens = Object.freeze({
-  'glsl-120': '0c6e9745c2d8c970e6712ff589ded92984997585b0292d44fe3d2ffb1edb79d8',
-  'essl-100': '60761370f25ccc732c1589d57bdb72be60aee25331676834c8739bbc1ce7087a',
-  'essl-300': 'c832f9615c10dce13576a4843cb3f4b9314072ca474aeb5abb0dbae8defb02d3',
-  metal: '7e0b1c86f64928f0b9c60fc2a849f831d81351af713d8b7a7872cb97fe9fa917',
+  'glsl-330': '74b7ccd9e4dd273e874a881c9f6ea1a31e0ca74cbea6f3aac1a5349202f5838e',
+  'essl-300': 'dedfb504e17d8055ba47cc49985ec58c76b03378a3fb29a4c7d7187565c18d35',
+  metal: 'ee0fdf7bbb3c6146d333b59c791b3784fa81ccf0305303c6edbc0d1eaf8bfd76',
 });
 
 const rawShaderGoldens = Object.freeze({
-  'glsl-120': 'd82504c243210381b4163788cb4c1923859efc47bab8b6733294b5095e0e00e9',
-  'essl-100': '4625d9a1ff2acd5f3b0cb3f5f9dcc7eb4c8ec8f05179c78e9f64d0ef16e51b81',
-  'essl-300': 'ad8bad426f71f58d1b481dd078b06b2cc07cb68303e12a4e7f664530c5bf4578',
-  metal: 'e95a26f5c321473cada296c5e0b936a8cf26d88e9412ae3dd73e7c61f0a7cf82',
+  'glsl-330': '321831391b668aef83484ce7364d043a49f13de2f423243567fc45719b17611c',
+  'essl-300': '321831391b668aef83484ce7364d043a49f13de2f423243567fc45719b17611c',
+  metal: '5ef111a60cef57b45a565750a20a8fa57d4edd8c801ebb610b8a45f3cc3b7dfe',
 });
 
 function fail(message) {
@@ -798,7 +796,7 @@ async function certifyTypedShaders(tempRoot) {
   );
   const payload = JSON.parse(result.stdout);
   const outputs = payload.native?.outputs;
-  if (!Array.isArray(outputs) || outputs.length !== 8)
+  if (!Array.isArray(outputs) || outputs.length !== 6)
     fail(
       `Typed shader compile returned ${Array.isArray(outputs) ? outputs.length : 'invalid'} outputs.`,
     );
@@ -818,8 +816,7 @@ async function certifyRawShaderc(tempRoot) {
   const source = path.join(repositoryRoot, 'engine', 'shaders', 'bgfx', 'vs_triangle.sc');
   const includeSource = path.join(repositoryRoot, 'engine', 'shaders', 'bgfx');
   const variants = [
-    ['glsl-120', 'linux', '120'],
-    ['essl-100', 'asm.js', '100_es'],
+    ['glsl-330', 'linux', '330'],
     ['essl-300', 'android', '300_es'],
     ['metal', 'osx', 'metal'],
   ];
@@ -948,7 +945,7 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
     architecture: 'wasm32',
     minimumPlatformVersion: 'certification',
     graphicsBackends: ['webgl2'],
-    shaderVariants: ['essl-100'],
+    shaderVariants: ['essl-300'],
     compiledProjectFormatVersion: 1,
     playerRuntimeApiVersion: 1,
     compiledFeatures: ['lua', 'web-threads'],

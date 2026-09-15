@@ -33,10 +33,10 @@ function successfulResponse(): ShaderCompileResponse {
     outputs: (['vertex', 'fragment'] as const).map((stage) => ({
       shader: 'basic',
       stage,
-      variant: 'glsl-120',
+      variant: 'glsl-330',
       sourcePath: `/project/basic.${stage}.sc`,
       outputPath: `/project/basic.${stage}.bin`,
-      runtimePath: `project:/shaders/bgfx/glsl-120/basic.${stage}.bin`,
+      runtimePath: `project:/shaders/bgfx/glsl-330/basic.${stage}.bin`,
       cacheKey: `${stage}-cache`,
       byteHash: `sha256:${stage === 'vertex' ? 'a'.repeat(64) : 'b'.repeat(64)}`,
       byteSize: 4,
@@ -84,7 +84,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
     const result = await prepareRuntimeArtifact({
       project,
       projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
       shaderCompiler: adapterFactory(successfulResponse()),
       paths: rendererRuntimeArtifactPaths,
@@ -98,7 +98,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
     const result = await prepareRuntimeArtifact({
       project,
       projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
       shaderCompiler: adapterFactory({
         ...response,
@@ -124,7 +124,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
     const result = await prepareRuntimeArtifact({
       project,
       projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
       shaderCompiler: adapterFactory({
         ok: false,
@@ -144,7 +144,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
     const result = await prepareRuntimeArtifact({
       project,
       projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
       shaderCompiler: adapterFactory({
         ok: false,
@@ -169,7 +169,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
     const result = await prepareRuntimeArtifact({
       project,
       projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
       shaderCompiler: adapterFactory(response),
       paths: rendererRuntimeArtifactPaths,
@@ -186,7 +186,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
     const result = await prepareRuntimeArtifact({
       project,
       projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
       shaderCompiler: adapterFactory({
         ok: true,
@@ -208,7 +208,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
     const result = await prepareRuntimeArtifact({
       project,
       projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
       shaderCompiler: adapterFactory({ ok: true, success: true, diagnostics: [], outputs: [] }),
       paths: rendererRuntimeArtifactPaths,
@@ -227,7 +227,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
     const result = await prepareRuntimeArtifact({
       project,
       projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
       shaderCompiler: adapterFactory(response),
       paths: rendererRuntimeArtifactPaths,
@@ -246,7 +246,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
     const result = await prepareRuntimeArtifact({
       project,
       projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
       shaderCompiler: adapterFactory(response),
       paths: rendererRuntimeArtifactPaths,
@@ -264,7 +264,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
     const result = await prepareRuntimeArtifact({
       project,
       projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
       shaderCompiler: adapterFactory(successfulResponse(), () => {
         cancelled = true;

@@ -6,12 +6,14 @@ foreach(required NOVELTEA_RELEASE_TAG NOVELTEA_ANDROID_ABI NOVELTEA_ANDROID_FLAV
 endforeach()
 set(root "${CMAKE_CURRENT_LIST_DIR}/..")
 cmake_path(ABSOLUTE_PATH root NORMALIZE OUTPUT_VARIABLE root)
+include("${root}/cmake/NovelTeaBgfxVersion.cmake")
 find_program(NODE_EXECUTABLE node REQUIRED)
 set(template_id "android-${NOVELTEA_ANDROID_ABI}-${NOVELTEA_ANDROID_FLAVOR}")
 set(stage "${root}/build/package/${template_id}")
 execute_process(COMMAND "${NODE_EXECUTABLE}" "${root}/cmake/package-android-player-template.mjs"
     "${root}" "${stage}" "${NOVELTEA_RELEASE_TAG}" "${NOVELTEA_ANDROID_ABI}"
-    "${NOVELTEA_ANDROID_FLAVOR}" "${NOVELTEA_BUNDLETOOL_JAR}" COMMAND_ERROR_IS_FATAL ANY)
+    "${NOVELTEA_ANDROID_FLAVOR}" "${NOVELTEA_BUNDLETOOL_JAR}" "${NOVELTEA_BGFX_VERSION}"
+    COMMAND_ERROR_IS_FATAL ANY)
 file(MAKE_DIRECTORY "${root}/dist")
 if(WIN32)
     set(extension zip)

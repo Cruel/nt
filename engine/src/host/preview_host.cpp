@@ -140,10 +140,8 @@ resolve_layout_source(const core::editor::TypedEditorLayoutSourceComponent& sour
 std::string_view shader_variant_name(core::editor::EditorPreviewShaderVariant variant) noexcept
 {
     switch (variant) {
-    case core::editor::EditorPreviewShaderVariant::Glsl120:
-        return "glsl-120";
-    case core::editor::EditorPreviewShaderVariant::Essl100:
-        return "essl-100";
+    case core::editor::EditorPreviewShaderVariant::Glsl330:
+        return "glsl-330";
     case core::editor::EditorPreviewShaderVariant::Essl300:
         return "essl-300";
     case core::editor::EditorPreviewShaderVariant::Metal:
