@@ -69,6 +69,9 @@ constexpr const char* kBaselineDocument = R"(
 <rml>
   <head></head>
   <body id="baseline-body">
+    <main id="baseline-main">
+      <section id="baseline-section">Baseline section</section>
+    </main>
     <p id="baseline-paragraph">Baseline paragraph</p>
     <button id="baseline-button">Baseline button</button>
     <div id="baseline-disabled" style="pointer-events: none;">
@@ -1608,6 +1611,40 @@ TEST_CASE("RuntimeUI input sink rebinding preserves gameplay revision and shell 
     values.view.mode = "stale";
     CHECK_FALSE(ui.apply_gameplay_ui_values(values));
     CHECK(notification->GetInnerRML() == "after-rebind");
+}
+
+TEST_CASE("RuntimeUI baseline preserves content width when the Load menu enables a vertical scrollbar")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_builtin_system_document(
+        ui, "runtime_load_menu", "system:/ui/menu/load-menu.rml"));
+    noveltea::core::RuntimeShellViewState view;
+    view.checkpoint = noveltea::core::CheckpointRuntimeObservation{
+        .readiness = {noveltea::core::CheckpointReadinessRevision::from_number(8), {}},
+        .presentation = {noveltea::core::CheckpointStatusRevision::from_number(4), {}, std::nullopt},
+        .retained_revision = noveltea::core::SaveCheckpointRevision::from_number(2),
+        .replay_distance = {0, 0, std::chrono::milliseconds{0}},
+        .thumbnail_available = false,
+        .thumbnail_capture_pending = false};
+    view.slots.push_back({.slot = noveltea::core::TypedSaveSlotId::autosave(), .occupied = false});
+    for (int slot = 1; slot <= 20; ++slot)
+        view.slots.push_back({.slot = noveltea::core::TypedSaveSlotId::manual(slot), .occupied = false});
+    ui.apply_runtime_shell_view(view);
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
+
+    auto* playback_driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(playback_driver);
+    auto* document = playback_driver->document("runtime_load_menu");
+    REQUIRE(document);
+    auto* panel = document->QuerySelector(".nt-shell-panel");
+    auto* summary = document->GetElementById("nt-checkpoint-summary");
+    REQUIRE(panel);
+    REQUIRE(summary);
+    CHECK(panel->GetBox().GetSize(Rml::BoxArea::Content).x == Catch::Approx(720.0f));
+    CHECK(summary->GetBox().GetSize(Rml::BoxArea::Border).x > 500.0f);
+    CHECK(summary->GetBox().GetSize(Rml::BoxArea::Border).y < 40.0f);
 }
 
 TEST_CASE("RuntimeUI built-in settings controls follow loaded project accessibility policy")
@@ -3340,16 +3377,22 @@ TEST_CASE("RuntimeUI applies universal RmlUi baselines below path and memory doc
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
     REQUIRE(driver);
 
+    auto* main = driver->element("baseline-path", "baseline-main");
+    auto* section = driver->element("baseline-path", "baseline-section");
     auto* paragraph = driver->element("baseline-path", "baseline-paragraph");
     auto* body = driver->element("baseline-path", "baseline-body");
     auto* button = driver->element("baseline-path", "baseline-button");
     auto* disabled = driver->element("baseline-path", "baseline-disabled");
     auto* disabled_child = driver->element("baseline-path", "baseline-disabled-child");
+    REQUIRE(main);
+    REQUIRE(section);
     REQUIRE(paragraph);
     REQUIRE(body);
     REQUIRE(button);
     REQUIRE(disabled);
     REQUIRE(disabled_child);
+    CHECK(main->GetComputedValues().display() == Rml::Style::Display::Block);
+    CHECK(section->GetComputedValues().display() == Rml::Style::Display::Block);
     CHECK(paragraph->GetComputedValues().display() == Rml::Style::Display::Block);
     CHECK(body->GetComputedValues().color() == Rml::Colourb(248, 250, 252, 255));
     CHECK(body->GetComputedValues().pointer_events() == Rml::Style::PointerEvents::None);
