@@ -7,9 +7,9 @@ injectWorkspacePackages: true
 autoInstallPeers: false
 
 minimumReleaseAgeExclude:
-  - "scriptc@0.0.34"
-  - "@scriptc/compiler@0.0.34"
-  - "@scriptc/runtime@0.0.34"
+  - "scriptc@0.1.1"
+  - "@scriptc/compiler@0.1.1"
+  - "@scriptc/runtime@0.1.1"
 
 catalog:
   "@electron/fuses": 2.1.3
@@ -40,5 +40,6 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
+  scriptc: true
   sharp: true
   workerd: true

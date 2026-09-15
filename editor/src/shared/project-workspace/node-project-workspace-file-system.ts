@@ -50,22 +50,27 @@ export class NodeProjectWorkspaceFileSystem extends ProjectWorkspaceFileSystemAd
 
   async readPathMetadata(value: string) {
     try {
-      const info = await fs.lstat(value, { bigint: true });
+      const info = (await fs.lstat(value, { bigint: true })) as unknown as {
+        readonly size: bigint | number;
+        readonly mtimeNs?: bigint;
+        readonly mtimeMs: bigint | number;
+        isSymbolicLink(): boolean;
+        isFile(): boolean;
+        isDirectory(): boolean;
+      };
       const byteSize = Number(info.size);
-      if (!Number.isSafeInteger(byteSize) || byteSize < 0) return { kind: 'other' as const };
+      const mtimeNanoseconds =
+        typeof info.mtimeNs === 'bigint' ? info.mtimeNs.toString() : undefined;
+      const mtimeMilliseconds = mtimeNanoseconds
+        ? Number(info.mtimeNs) / 1_000_000
+        : Number(info.mtimeMs);
+      if (!Number.isSafeInteger(byteSize) || byteSize < 0 || !Number.isFinite(mtimeMilliseconds))
+        return { kind: 'other' as const };
       if (info.isSymbolicLink()) return { kind: 'symlink' as const };
       if (info.isFile())
-        return {
-          kind: 'file' as const,
-          byteSize,
-          mtimeNanoseconds: info.mtimeNs.toString(),
-        };
+        return { kind: 'file' as const, byteSize, mtimeMilliseconds, mtimeNanoseconds };
       if (info.isDirectory())
-        return {
-          kind: 'directory' as const,
-          byteSize,
-          mtimeNanoseconds: info.mtimeNs.toString(),
-        };
+        return { kind: 'directory' as const, byteSize, mtimeMilliseconds, mtimeNanoseconds };
       return { kind: 'other' as const };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'missing' as const };

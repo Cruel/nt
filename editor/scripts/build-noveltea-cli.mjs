@@ -20,7 +20,7 @@ const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
-const scriptcVersion = '0.0.34';
+const scriptcVersion = '0.1.1';
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
 const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-release';
