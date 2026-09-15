@@ -1,0 +1,13 @@
+{
+  "id": "pilot-character-smile",
+  "label": "Reference Character Smile",
+  "data": {
+    "kind": "image",
+    "source": { "type": "project-file", "path": "assets/images/girl_smile.webp" },
+    "aliases": [],
+    "sampling": "linear",
+    "mimeType": "image/webp",
+    "extension": ".webp",
+    "imageMetadata": { "width": 384, "height": 768, "hasAlpha": true, "orientation": 1 }
+  }
+}

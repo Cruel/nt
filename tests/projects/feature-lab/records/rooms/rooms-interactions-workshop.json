@@ -1,0 +1,121 @@
+{
+  "id": "rooms-interactions-workshop",
+  "label": "Rooms & Interactions Workshop",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Rooms & Interactions Workshop",
+    "background": {
+      "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },
+      "material": null,
+      "fit": "cover",
+      "color": "#10202b"
+    },
+    "description": {
+      "source": { "kind": "inline", "text": "The bedroom door is locked. Press the wall button, then try the door again." },
+      "markup": "active-text"
+    },
+    "presentationSpace": {
+      "size": { "width": 1920, "height": 1080 },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [
+      {
+        "id": "gate-lever",
+        "interactable": { "$ref": { "registry": "interactableInstances", "id": "gate-lever-1" } },
+        "condition": { "kind": "always" },
+        "placementId": "gate-lever-placement",
+        "visible": true,
+        "order": 10
+      }
+    ],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": { "kind": "always" },
+      "canLeave": { "kind": "always" },
+      "beforeEnter": [],
+      "afterEnter": [],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [
+      {
+        "id": "east-gate",
+        "label": "Bedroom Door",
+        "direction": "east",
+        "target": { "$ref": { "collection": "rooms", "id": "rooms-interactions-destination" } },
+        "condition": {
+          "kind": "variable-comparison",
+          "variable": { "$ref": { "collection": "variables", "id": "gate-unlocked" } },
+          "operator": "truthy"
+        },
+        "transition": { "kind": "fade", "durationMs": 300, "color": "#000000", "skippable": true },
+        "onRejected": [
+          {
+            "id": "gate-locked",
+            "kind": "notify",
+            "message": { "source": { "kind": "inline", "text": "The bedroom door is locked." }, "markup": "plain" }
+          }
+        ]
+      }
+    ],
+    "placements": [
+      {
+        "id": "gate-lever-placement",
+        "bounds": { "x": 0.69, "y": 0.25, "width": 0.08, "height": 0.14 },
+        "order": 10,
+        "presentation": { "label": null, "layout": null }
+      }
+    ],
+    "fallbackInteractablePlacementId": null,
+    "features": [
+      {
+        "id": "east-gate-control",
+        "label": "Bedroom Door",
+        "traits": [],
+        "localProperties": [],
+        "defaultProperties": [],
+        "inventories": []
+      }
+    ],
+    "hotspots": [
+      {
+        "id": "gate-lever-hotspot",
+        "label": "Wall Button",
+        "condition": { "kind": "always" },
+        "inputOrder": 0,
+        "highlight": { "kind": "default" },
+        "shape": { "kind": "rect", "bounds": { "x": 0.69, "y": 0.25, "width": 0.08, "height": 0.14 } },
+        "target": {
+          "kind": "subject",
+          "subject": {
+            "kind": "interactable",
+            "interactable": { "$ref": { "registry": "interactableInstances", "id": "gate-lever-1" } }
+          }
+        }
+      },
+      {
+        "id": "east-gate-control-hotspot",
+        "label": "Bedroom Door",
+        "condition": { "kind": "always" },
+        "inputOrder": 1,
+        "highlight": { "kind": "default" },
+        "shape": { "kind": "rect", "bounds": { "x": 0.76, "y": 0.02, "width": 0.19, "height": 0.82 } },
+        "target": { "kind": "owner-feature", "featureId": "east-gate-control" }
+      }
+    ]
+  }
+}

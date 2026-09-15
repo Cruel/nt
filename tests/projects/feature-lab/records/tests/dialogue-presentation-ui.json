@@ -1,0 +1,58 @@
+{
+  "id": "dialogue-presentation-ui",
+  "label": "Dialogue & Presentation UI choice",
+  "data": {
+    "kind": "test",
+    "displayName": "Dialogue & Presentation UI choice",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh Lab home",
+        "expectations": []
+      },
+      {
+        "id": "enter-dialogue-pilot",
+        "input": "navigate",
+        "label": "Enter Dialogue pilot semantically",
+        "navigate": { "exitId": "dialogue-presentation-test-entry" },
+        "expectations": [
+          {
+            "id": "dialogue-open",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": { "kind": "dialogue", "flowId": "dialogue-presentation-pilot" }
+          }
+        ]
+      },
+      {
+        "id": "reveal-line",
+        "input": "continue",
+        "label": "Reveal the Dialogue line semantically",
+        "expectations": []
+      },
+      {
+        "id": "advance-to-choice",
+        "input": "continue",
+        "label": "Advance to the authored Dialogue choice semantically",
+        "expectations": []
+      },
+      {
+        "id": "click-dialogue-choice",
+        "input": "ui-click",
+        "label": "Click the real runtime Dialogue choice",
+        "uiClick": { "documentId": "runtime_game", "selector": "#rt_options .option" },
+        "expectations": [
+          {
+            "id": "ui-choice-records-authoritative-state",
+            "type": "property",
+            "operator": "eq",
+            "property": { "scope": "global", "ownerId": "", "propertyId": "presentation-accepted", "value": true }
+          }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

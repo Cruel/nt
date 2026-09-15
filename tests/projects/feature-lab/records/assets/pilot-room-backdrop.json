@@ -1,0 +1,13 @@
+{
+  "id": "pilot-room-backdrop",
+  "label": "Reference Bedroom",
+  "data": {
+    "kind": "image",
+    "source": { "type": "project-file", "path": "assets/images/bedroom.webp" },
+    "aliases": [],
+    "sampling": "linear",
+    "mimeType": "image/webp",
+    "extension": ".webp",
+    "imageMetadata": { "width": 960, "height": 528, "hasAlpha": false, "orientation": 1 }
+  }
+}

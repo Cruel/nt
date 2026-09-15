@@ -1,0 +1,11 @@
+{
+  "id": "presentation-accepted",
+  "label": "Presentation Accepted",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false,
+    "scope": "global"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "id": "rooms-interactions-destination",
+  "label": "Rooms & Interactions Destination",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Rooms & Interactions Destination",
+    "background": {
+      "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },
+      "material": null,
+      "fit": "cover",
+      "color": "#172f3d"
+    },
+    "description": {
+      "source": { "kind": "inline", "text": "The unlocked bedroom door leads here. Returning to the Lab starts a fresh session." },
+      "markup": "active-text"
+    },
+    "presentationSpace": {
+      "size": { "width": 1920, "height": 1080 },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": { "kind": "always" },
+      "canLeave": { "kind": "always" },
+      "beforeEnter": [],
+      "afterEnter": [
+        {
+          "id": "announce-destination",
+          "kind": "notify",
+          "message": { "source": { "kind": "inline", "text": "Destination Room after-enter lifecycle ran." }, "markup": "plain" }
+        }
+      ],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [],
+    "placements": [],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

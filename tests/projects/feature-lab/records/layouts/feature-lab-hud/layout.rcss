@@ -1,0 +1,17 @@
+body { font-family: 'Liberation Sans'; color: #e8f3f7; }
+#feature-lab-toolbar { position: absolute; right: 20px; top: 20px; display: flex; gap: 8px; }
+#feature-lab-toolbar button { padding: 10px 14px; }
+.feature-lab-room-controls { display: flex; gap: 8px; }
+#feature-lab-notification { position: absolute; left: 6%; bottom: 6%; max-width: 88%; padding: 14px; background-color: #071018; }
+.feature-lab-panel { position: absolute; left: 6%; top: 6%; width: 88%; max-height: 86%; overflow: auto; padding: 24px; background-color: rgba(7, 16, 24, 242); border: 2px solid #52798a; border-radius: 12px; }
+.hidden { display: none; }
+.feature-lab-header, .feature-lab-controls, .feature-lab-scenario-header { display: flex; align-items: center; gap: 10px; }
+.feature-lab-header { justify-content: space-between; }
+.feature-lab-controls { margin-bottom: 18px; }
+.feature-lab-controls input { width: 360px; }
+.feature-lab-category { margin-top: 20px; color: #9dd1df; }
+.feature-lab-scenario { margin: 10px 0; padding: 14px; background-color: rgba(31, 52, 63, 220); border-radius: 8px; }
+.feature-lab-scenario p { margin: 6px 0; }
+.feature-lab-check { margin-left: 18px; padding: 8px 0; }
+.feature-lab-status { margin-left: 8px; opacity: 0.8; }
+.feature-lab-recent { margin-left: 8px; font-weight: bold; color: #8fe4b8; }
