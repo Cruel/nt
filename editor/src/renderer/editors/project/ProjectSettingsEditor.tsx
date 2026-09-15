@@ -1140,6 +1140,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const [resolutionWidth, setResolutionWidth] = useState('');
   const [resolutionHeight, setResolutionHeight] = useState('');
   const [testingCursorId, setTestingCursorId] = useState<string | null>(null);
+  const [cursorIdDrafts, setCursorIdDrafts] = useState<Record<string, string>>({});
+  const [pendingCursorForceDeleteId, setPendingCursorForceDeleteId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<ProjectSettingsCategory>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState
@@ -1480,13 +1482,49 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     });
   }
 
-  function removeNamedCursor(index: number) {
+  function renameNamedCursor(fromId: string, toId: string) {
+    const normalized = toId.trim();
+    if (normalized === fromId) return true;
+    const result = runProjectCommand(
+      'project.renameNamedCursor',
+      { fromId, toId: normalized },
+      `Rename cursor ${fromId}`,
+    );
+    if (commandSucceeded(result)) {
+      if (testingCursorId === fromId) setTestingCursorId(normalized);
+      setCursorIdDrafts((drafts) => {
+        const next = { ...drafts };
+        delete next[fromId];
+        return next;
+      });
+      return true;
+    }
+    setCursorIdDrafts((drafts) => ({ ...drafts, [fromId]: fromId }));
+    return false;
+  }
+
+  function removeNamedCursor(index: number, force = false) {
     const removed = currentSettings.cursors.named[index];
-    if (removed && testingCursorId === removed.id) setTestingCursorId(null);
-    return setCursors({
-      ...currentSettings.cursors,
-      named: currentSettings.cursors.named.filter((_, cursorIndex) => cursorIndex !== index),
-    });
+    if (!removed) return false;
+    const result = runProjectCommand(
+      'project.deleteNamedCursor',
+      { cursorId: removed.id, force },
+      `${force ? 'Force delete' : 'Delete'} cursor ${removed.id}`,
+    );
+    const succeeded = commandSucceeded(result);
+    if (succeeded) {
+      if (testingCursorId === removed.id) setTestingCursorId(null);
+      if (pendingCursorForceDeleteId === removed.id) setPendingCursorForceDeleteId(null);
+    } else if (
+      !force &&
+      result.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.severity === 'error' && diagnostic.message.includes('Force Delete'),
+      )
+    ) {
+      setPendingCursorForceDeleteId(removed.id);
+    }
+    return succeeded;
   }
 
   function openResolutionDialog() {
@@ -2284,11 +2322,27 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                             <Label htmlFor={`cursor-id-${index}`}>ID</Label>
                             <Input
                               id={`cursor-id-${index}`}
-                              value={cursor.id}
+                              value={cursorIdDrafts[cursor.id] ?? cursor.id}
                               aria-invalid={fieldInvalid(`/settings/cursors/named/${index}/id`)}
                               onChange={(event) =>
-                                updateNamedCursor(index, { id: event.currentTarget.value })
+                                setCursorIdDrafts((drafts) => ({
+                                  ...drafts,
+                                  [cursor.id]: event.currentTarget.value,
+                                }))
                               }
+                              onBlur={(event) =>
+                                renameNamedCursor(cursor.id, event.currentTarget.value)
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') event.currentTarget.blur();
+                                if (event.key === 'Escape') {
+                                  setCursorIdDrafts((drafts) => ({
+                                    ...drafts,
+                                    [cursor.id]: cursor.id,
+                                  }));
+                                  event.currentTarget.blur();
+                                }
+                              }}
                             />
                           </div>
                           <div className="space-y-1">
@@ -2929,6 +2983,43 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         }}
         onOpenChange={(open) => setSystemLayoutSelectorRole(open ? systemLayoutSelectorRole : null)}
       />
+      <Dialog
+        open={pendingCursorForceDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingCursorForceDeleteId(null);
+        }}
+      >
+        <DialogPopup>
+          <DialogTitle>Force Delete Named Cursor?</DialogTitle>
+          <DialogDescription>
+            This cursor still has known references. Force Delete removes only the cursor definition;
+            Project defaults, Hotspots, RCSS, and Lua source are not silently retargeted. Validation
+            will continue to report the dangling references until you repair them.
+          </DialogDescription>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingCursorForceDeleteId(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (!pendingCursorForceDeleteId) return;
+                const index = currentSettings.cursors.named.findIndex(
+                  (cursor) => cursor.id === pendingCursorForceDeleteId,
+                );
+                if (index >= 0) removeNamedCursor(index, true);
+              }}
+            >
+              Force Delete
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
       <Dialog open={resolutionDialogOpen} onOpenChange={setResolutionDialogOpen}>
         <DialogPopup>
           <DialogTitle>Change Reference Resolution</DialogTitle>

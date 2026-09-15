@@ -5,6 +5,7 @@ import {
   undoCommand,
   redoCommand,
 } from './command-test-utils';
+import { executeCommand as executeCommandCore } from '@/commands/command-bus';
 import { toJsonValue } from '@/project/json-value';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import {
@@ -12,11 +13,15 @@ import {
   createAuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import {
   structuredMessageForPath,
   structuredMessageId,
 } from '../../shared/authoring-structured-messages';
 import { testTranslation } from './fixtures/localization-workflow';
+import { buildAuthoringDependencyGraph } from '../../shared/authoring-dependency-graph';
 
 function projectWithRooms() {
   const project = createAuthoringProject();
@@ -27,6 +32,53 @@ function projectWithRooms() {
     data: defaultRoomData('Hall'),
   };
   project.entrypoint = { kind: 'room', id: 'foyer' };
+  return project;
+}
+
+function projectWithCursorReferences() {
+  const project = createAuthoringProject();
+  project.settings.cursors.named = [
+    {
+      id: 'inspect',
+      image: { $ref: { collection: 'assets', id: 'cursor-image' } },
+      hotspotX: 0,
+      hotspotY: 0,
+    },
+  ];
+  project.settings.cursors.defaults.pointer = { kind: 'named', id: 'inspect' };
+
+  const room = defaultRoomData('Foyer');
+  room.hotspots = [
+    {
+      id: 'door',
+      label: 'Door',
+      condition: { kind: 'always' },
+      inputOrder: 0,
+      highlight: { kind: 'default' },
+      cursor: { kind: 'named', id: 'inspect' },
+      shape: { kind: 'rect', bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } },
+      target: { kind: 'exit', exitId: 'east' },
+    },
+  ];
+  project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+
+  const interactable = defaultInteractableData('Key');
+  interactable.presentation.cursor = { kind: 'named', id: 'inspect' };
+  interactable.presentation.hotspots = {
+    kind: 'custom',
+    hotspots: [
+      {
+        ...defaultHotspotBehavior('Inspect key'),
+        cursor: { kind: 'named', id: 'inspect' },
+        shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 1, height: 1 } },
+      },
+    ],
+  };
+  project.interactables.key = { id: 'key', label: 'Key', data: interactable };
+
+  const layout = defaultLayoutData('HUD');
+  layout.rcss.sourceText = '#target { cursor: inspect; }';
+  project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
   return project;
 }
 
@@ -59,6 +111,154 @@ describe('authoring entity operations', () => {
       rooms: { 'entry-hall': { id: 'entry-hall' }, hall: { id: 'hall' } },
     });
     expect(undoCommand(result.state).state.document).toEqual(state.document);
+  });
+
+  it('renames named cursors across structured and inline RCSS references with undo support', () => {
+    const state = createInitialCommandBusState(toJsonValue(projectWithCursorReferences()));
+    const result = executeCommand(state, {
+      type: 'project.renameNamedCursor',
+      payload: { fromId: 'inspect', toId: 'examine' },
+    });
+
+    expect(result.ok).toBe(true);
+    const renamed = authoringProjectSchema.parse(result.state.document);
+    expect(renamed.settings.cursors.named[0]?.id).toBe('examine');
+    expect(renamed.settings.cursors.defaults.pointer).toEqual({ kind: 'named', id: 'examine' });
+    expect(renamed.rooms.foyer?.data.hotspots[0]?.cursor).toEqual({ kind: 'named', id: 'examine' });
+    expect(renamed.interactables.key?.data.presentation.cursor).toEqual({
+      kind: 'named',
+      id: 'examine',
+    });
+    expect(renamed.interactables.key?.data.presentation.hotspots).toMatchObject({
+      kind: 'custom',
+      hotspots: [expect.objectContaining({ cursor: { kind: 'named', id: 'examine' } })],
+    });
+    expect(renamed.layouts.hud?.data.rcss.sourceText).toBe('#target { cursor: examine; }');
+    expect(undoCommand(result.state).state.document).toEqual(state.document);
+  });
+
+  it('rewrites literal Lua cursor names and reports computed cursor-name risk', async () => {
+    const project = projectWithCursorReferences();
+    project.layouts.hud!.data.lua.sourceText = [
+      'noveltea.presentation.cursor.set("inspect")',
+      'noveltea.presentation.cursor.set(cursor_name)',
+    ].join('\n');
+    const initial = createInitialCommandBusState(toJsonValue(project));
+    const graph = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: { entriesByAssetId: new Map() },
+    });
+    const projectRevision = initial.projectRevision ?? 1;
+    const state = {
+      ...initial,
+      projectRevision,
+      graphSnapshot: {
+        projectInstanceId: initial.projectInstanceId!,
+        projectRevision,
+        graphRevision: projectRevision,
+        graph,
+      },
+    };
+
+    const result = executeCommandCore(state, {
+      type: 'project.renameNamedCursor',
+      payload: { fromId: 'inspect', toId: 'examine' },
+      originSaveUnitId: 'test:save-unit',
+      persistencePolicy: 'manual-save',
+    });
+
+    expect(result.ok).toBe(true);
+    const renamed = authoringProjectSchema.parse(result.state.document);
+    expect(renamed.layouts.hud?.data.lua.sourceText).toBe(
+      [
+        'noveltea.presentation.cursor.set("examine")',
+        'noveltea.presentation.cursor.set(cursor_name)',
+      ].join('\n'),
+    );
+    expect(
+      result.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.severity === 'warning' &&
+          diagnostic.message.includes('computed Lua cursor-name usage'),
+      ),
+    ).toBe(true);
+    expect(undoCommand(result.state).state.document).toEqual(state.document);
+  });
+
+  it('keeps force-deleted literal Lua cursor usages diagnosable', async () => {
+    const project = projectWithCursorReferences();
+    project.layouts.hud!.data.lua.sourceText = 'noveltea . presentation . cursor . set("inspect")';
+    const initial = createInitialCommandBusState(toJsonValue(project));
+    const graph = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: { entriesByAssetId: new Map() },
+    });
+    const projectRevision = initial.projectRevision ?? 1;
+    const state = {
+      ...initial,
+      projectRevision,
+      graphSnapshot: {
+        projectInstanceId: initial.projectInstanceId!,
+        projectRevision,
+        graphRevision: projectRevision,
+        graph,
+      },
+    };
+    const forced = executeCommandCore(state, {
+      type: 'project.deleteNamedCursor',
+      payload: { cursorId: 'inspect', force: true },
+      originSaveUnitId: 'test:save-unit',
+      persistencePolicy: 'manual-save',
+    });
+    expect(forced.ok).toBe(true);
+
+    const deleted = authoringProjectSchema.parse(forced.state.document);
+    const rebuilt = await buildAuthoringDependencyGraph(deleted, {
+      mode: 'enabled',
+      sources: { entriesByAssetId: new Map() },
+    });
+    expect(rebuilt.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'authoring.cursor.lua_named_missing',
+          path: '/layouts/hud/data/lua/sourceText',
+          message: expect.stringContaining("unknown cursor 'inspect'"),
+        }),
+      ]),
+    );
+  });
+
+  it('blocks referenced named-cursor deletion, while force delete leaves references untouched', () => {
+    const state = createInitialCommandBusState(toJsonValue(projectWithCursorReferences()));
+    const blocked = executeCommand(state, {
+      type: 'project.deleteNamedCursor',
+      payload: { cursorId: 'inspect' },
+    });
+    expect(blocked.ok).toBe(false);
+
+    const forced = executeCommand(state, {
+      type: 'project.deleteNamedCursor',
+      payload: { cursorId: 'inspect', force: true },
+    });
+    expect(forced.ok).toBe(true);
+    const project = authoringProjectSchema.parse(forced.state.document);
+    expect(project.settings.cursors.named).toEqual([]);
+    expect(project.settings.cursors.defaults.pointer).toEqual({ kind: 'named', id: 'inspect' });
+    expect(project.rooms.foyer?.data.hotspots[0]?.cursor).toEqual({ kind: 'named', id: 'inspect' });
+    expect(project.layouts.hud?.data.rcss.sourceText).toBe('#target { cursor: inspect; }');
+    expect(forced.diagnostics.some((diagnostic) => diagnostic.severity === 'warning')).toBe(true);
+    expect(undoCommand(forced.state).state.document).toEqual(state.document);
+  });
+
+  it('rejects reserved named-cursor rename targets', () => {
+    const state = createInitialCommandBusState(toJsonValue(projectWithCursorReferences()));
+    for (const toId of ['pointer', 'rmlui-scroll']) {
+      const result = executeCommand(state, {
+        type: 'project.renameNamedCursor',
+        payload: { fromId: 'inspect', toId },
+      });
+      expect(result.ok).toBe(false);
+    }
   });
 
   it('preserves structured Message translations across a known record ID rename', () => {

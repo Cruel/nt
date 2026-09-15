@@ -81,6 +81,8 @@ export const AUTHORING_DEPENDENCY_ROLES = [
   'hotspot-target',
   'hotspot-material',
   'hotspot-source-image',
+  'cursor-reference',
+  'source-recognized-reference',
   'lua-possible-reference',
   'lua-recognized-reference',
   'lua-explicit-reference',
@@ -103,6 +105,16 @@ export type AuthoringDependencyEvidence =
       occurrence: LuaReferenceOccurrence<AuthoringDependencyNodeKey>;
       classification: Exclude<AuthoringSourceReferenceClassification, 'unrelated'>;
       recognizedBy?: string;
+      rewriteRange?: AuthoringSourceReferenceRewriteRange;
+    }
+  | {
+      kind: 'source-occurrence';
+      sourceUrl: string;
+      classification: Exclude<AuthoringSourceReferenceClassification, 'unrelated'>;
+      line?: number;
+      column?: number;
+      endLine?: number;
+      endColumn?: number;
       rewriteRange?: AuthoringSourceReferenceRewriteRange;
     }
   | { kind: 'explicit-lua-fallback'; declarationPath: JsonPointer };

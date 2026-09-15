@@ -2414,7 +2414,7 @@ describe('NovelTea headless CLI', () => {
       /case RuntimeCapabilityProfile::GameplayLayoutEvent:\s*return \{profile, all_gameplay_queries, gameplay_commands, false, false\};/,
     );
     expect(capabilityProfiles).toMatch(
-      /case RuntimeCapabilityProfile::ShellLayoutEvent:\s*return \{profile, capability_bit\(G::Save\) \| capability_bit\(G::Game\),\s*capability_bit\(G::Save\) \| capability_bit\(G::Game\), false, false\};/,
+      /case RuntimeCapabilityProfile::ShellLayoutEvent:\s*return \{profile, capability_bit\(G::Save\) \| capability_bit\(G::Game\),\s*capability_bit\(G::Save\) \| capability_bit\(G::Game\) \| capability_bit\(G::Cursor\),\s*false, false\};/,
     );
     for (const profile of [
       'Gameplay Script',
