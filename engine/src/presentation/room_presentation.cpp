@@ -390,7 +390,8 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
              .interactable_placement = std::nullopt,
              .interactable_bounds = std::nullopt,
              .owner_plane = PresentationPlane::WorldBackground,
-             .owner_order = 0});
+             .owner_order = 0,
+             .cursor = hotspot.cursor});
     }
     for (const auto& interactable : presentation.interactables) {
         const auto* definition = world.resolved_configuration(interactable.interactable);
@@ -438,7 +439,8 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                      compiled::RoomPlacementRef{visit.room, interactable.placement},
                  .interactable_bounds = placement->bounds,
                  .owner_plane = PresentationPlane::WorldContent,
-                 .owner_order = placement->order});
+                 .owner_order = placement->order,
+                 .cursor = hotspot.cursor ? hotspot.cursor : definition->presentation.cursor});
             return Result<void, Diagnostics>::success();
         };
         if (const auto* alpha =

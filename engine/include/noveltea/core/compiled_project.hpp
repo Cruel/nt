@@ -751,6 +751,7 @@ struct RoomHotspot {
     HotspotHighlight highlight;
     RectHotspotShape shape;
     RoomHotspotTarget target;
+    std::optional<CursorTarget> cursor;
 };
 struct InteractableHotspotBehavior {
     HotspotId id;
@@ -759,6 +760,7 @@ struct InteractableHotspotBehavior {
     std::int32_t input_order;
     HotspotHighlight highlight;
     InteractableHotspotTarget target;
+    std::optional<CursorTarget> cursor;
 };
 struct InteractableCustomHotspot : InteractableHotspotBehavior {
     RectHotspotShape shape;
@@ -944,6 +946,7 @@ struct InteractablePresentation {
     std::optional<MaterialId> material;
     std::optional<AssetId> sprite;
     InteractableHotspots hotspots;
+    std::optional<CursorTarget> cursor;
 };
 struct InteractableDefinition {
     PropertyBearingDefinition<InteractableDefinitionId> identity;

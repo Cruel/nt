@@ -1588,7 +1588,8 @@ bool LayoutRealizer::load_candidate(const CandidateLayout& candidate)
     if (!m_backend.set_mount_context(realized.document_id, realized.desired))
         return false;
 
-    if (std::holds_alternative<ProjectLayoutRealizationSource>(realized.desired.source) && m_project) {
+    if (std::holds_alternative<ProjectLayoutRealizationSource>(realized.desired.source) &&
+        m_project) {
         std::vector<std::string> cursor_image_dependencies;
         if (const auto* definition = m_project->find_layout(realized.desired.mounted.layout)) {
             cursor_image_dependencies.reserve(definition->dependencies.images.size());

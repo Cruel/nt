@@ -17,6 +17,7 @@ import { parseLayoutData } from './authoring-layouts';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
+import { cursorTargetSchema } from './authoring-cursor-vocabulary';
 import { featureDataSchema, roomHotspotTargetSchema } from './authoring-features';
 import { parseCharacterData } from './authoring-characters';
 import { interactableInstanceRefSchema, parseInteractableData } from './authoring-interactables';
@@ -191,6 +192,7 @@ export const roomExitDataSchema = strict({
 });
 export const roomHotspotDataSchema = strict({
   ...hotspotCommonShape,
+  cursor: cursorTargetSchema.nullable().optional(),
   shape: rectHotspotShapeSchema,
   target: roomHotspotTargetSchema,
 });
@@ -440,6 +442,16 @@ export function validateRoomData(
   uniqueIds(data.environments, `${base}/environments`, 'environment', diagnostics);
   uniqueIds(data.features, `${base}/features`, 'Feature', diagnostics);
   uniqueIds(data.hotspots, `${base}/hotspots`, 'hotspot', diagnostics);
+  const namedCursorIds = new Set(project.settings.cursors.named.map((cursor) => cursor.id));
+  data.hotspots.forEach((hotspot, index) => {
+    if (hotspot.cursor?.kind === 'named' && !namedCursorIds.has(hotspot.cursor.id))
+      diagnostics.push(
+        diagnostic(
+          `${base}/hotspots/${index}/cursor`,
+          `Hotspot cursor references missing named cursor '${hotspot.cursor.id}'.`,
+        ),
+      );
+  });
   const presentationBounds = data.presentationSpace.bounds ?? {
     x: 0,
     y: 0,

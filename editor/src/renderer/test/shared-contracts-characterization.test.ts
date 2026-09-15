@@ -419,6 +419,12 @@ describe('shared contracts characterization', () => {
       },
       queryState: { variables: [], properties: [], definitions: [], interactableLocations: [] },
       shaderMaterials: { schema: 'noveltea.shader-materials', shaders: {}, materials: {} },
+      cursors: {
+        defaultCursor: 'default',
+        pointerCursor: 'pointer',
+        hotspotCursor: 'pointer',
+        named: [],
+      },
       world: {
         presentationSpace: {
           size: { width: 1920, height: 1080 },
@@ -435,6 +441,7 @@ describe('shared contracts characterization', () => {
         props: [],
         environments: [],
         overlays: [],
+        hotspots: [],
       },
       layouts: [
         {

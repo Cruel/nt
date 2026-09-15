@@ -32,7 +32,7 @@ class CompiledProject;
 namespace editor {
 struct FocusedEditorManifestProjection;
 struct TypedEditorPreviewCursorSettings;
-}
+} // namespace editor
 } // namespace core
 namespace script {
 class ScriptRuntime;
@@ -63,8 +63,12 @@ public:
     [[nodiscard]] bool activate_font_fallbacks(const assets::FontAssetConfig& config);
     [[nodiscard]] bool configure_fonts(const assets::FontAssetConfig& config);
     void configure_project_cursors(const core::CompiledProject& project);
+    void set_world_hotspot_cursor(const std::optional<core::compiled::CursorTarget>& cursor,
+                                  std::string owner_label);
+    void clear_world_hotspot_cursor() noexcept;
     void clear_project_cursors() noexcept;
-    void configure_focused_preview_cursors(const core::editor::TypedEditorPreviewCursorSettings& cursors);
+    void configure_focused_preview_cursors(
+        const core::editor::TypedEditorPreviewCursorSettings& cursors);
     void configure_focused_preview_cursor_resources(
         const std::vector<core::editor::FocusedEditorManifestProjection>& resources);
     void clear_focused_preview_cursors() noexcept;

@@ -219,6 +219,7 @@ function compileInteractableHotspots(
       kind: 'sprite-alpha',
       hotspot: {
         ...definition.hotspot,
+        cursor: null,
         condition: compileCondition(definition.hotspot.condition),
         highlight: compileHighlight(definition.hotspot.highlight),
         target: compileInteractableHotspotTarget(definition.hotspot.target),
@@ -232,6 +233,7 @@ function compileInteractableHotspots(
       condition: compileCondition(hotspot.condition),
       inputOrder: hotspot.inputOrder,
       highlight: compileHighlight(hotspot.highlight),
+      cursor: hotspot.cursor ?? null,
       target: compileInteractableHotspotTarget(hotspot.target),
       shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
     })),
@@ -811,6 +813,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         condition: compileCondition(hotspot.condition),
         inputOrder: hotspot.inputOrder,
         highlight: compileHighlight(hotspot.highlight),
+        cursor: hotspot.cursor ?? null,
         shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
         target: compileRoomHotspotTarget(hotspot.target),
       })),
@@ -931,6 +934,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       presentation: {
         sprite: assetRef(data.presentation.sprite),
         material: materialRef(data.presentation.material),
+        cursor: data.presentation.cursor ?? null,
         hotspots: compileInteractableHotspots(data.presentation.hotspots),
       },
     });
@@ -1291,6 +1295,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           condition: compileCondition(hotspot.condition),
           inputOrder: hotspot.inputOrder,
           highlight: compileHighlight(hotspot.highlight),
+          cursor: hotspot.cursor ?? null,
           shape: { kind: 'rect' as const, bounds: { ...hotspot.shape.bounds } },
           target: compileRoomHotspotTarget(hotspot.target),
         })),
@@ -1463,6 +1468,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           presentation: {
             sprite: assetRef(data.presentation.sprite),
             material: materialRef(data.presentation.material),
+            cursor: data.presentation.cursor ?? null,
             hotspots: compileInteractableHotspots(data.presentation.hotspots),
           },
         },

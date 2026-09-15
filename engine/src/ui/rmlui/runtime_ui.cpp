@@ -139,30 +139,43 @@ DirectCursorImageValue parse_direct_cursor_image(std::string_view value)
 
 std::optional<host::CursorShape> cursor_shape(std::string_view name) noexcept
 {
-    if (name == "default") return host::CursorShape::Default;
-    if (name == "pointer") return host::CursorShape::Pointer;
-    if (name == "text") return host::CursorShape::Text;
-    if (name == "wait") return host::CursorShape::Wait;
-    if (name == "progress") return host::CursorShape::Progress;
-    if (name == "crosshair") return host::CursorShape::Crosshair;
-    if (name == "move") return host::CursorShape::Move;
-    if (name == "not-allowed") return host::CursorShape::NotAllowed;
-    if (name == "ns-resize") return host::CursorShape::NsResize;
-    if (name == "ew-resize") return host::CursorShape::EwResize;
-    if (name == "nesw-resize") return host::CursorShape::NeswResize;
-    if (name == "nwse-resize") return host::CursorShape::NwseResize;
+    if (name == "default")
+        return host::CursorShape::Default;
+    if (name == "pointer")
+        return host::CursorShape::Pointer;
+    if (name == "text")
+        return host::CursorShape::Text;
+    if (name == "wait")
+        return host::CursorShape::Wait;
+    if (name == "progress")
+        return host::CursorShape::Progress;
+    if (name == "crosshair")
+        return host::CursorShape::Crosshair;
+    if (name == "move")
+        return host::CursorShape::Move;
+    if (name == "not-allowed")
+        return host::CursorShape::NotAllowed;
+    if (name == "ns-resize")
+        return host::CursorShape::NsResize;
+    if (name == "ew-resize")
+        return host::CursorShape::EwResize;
+    if (name == "nesw-resize")
+        return host::CursorShape::NeswResize;
+    if (name == "nwse-resize")
+        return host::CursorShape::NwseResize;
     return std::nullopt;
 }
 
-std::optional<host::CursorPresentation> resolve_cursor_target(
-    const core::compiled::CursorSettings& settings,
-    const std::unordered_map<std::string, host::CursorPresentation>& named,
-    const core::compiled::CursorTarget& target, host::CursorShape fallback)
+std::optional<host::CursorPresentation>
+resolve_cursor_target(const core::compiled::CursorSettings& settings,
+                      const std::unordered_map<std::string, host::CursorPresentation>& named,
+                      const core::compiled::CursorTarget& target, host::CursorShape fallback)
 {
     using Kind = core::compiled::CursorTargetKind;
     switch (target.kind) {
     case Kind::System:
-        return host::CursorPresentation{.shape = cursor_shape(target.system), .custom = std::nullopt};
+        return host::CursorPresentation{.shape = cursor_shape(target.system),
+                                        .custom = std::nullopt};
     case Kind::Named:
         if (const auto found = named.find(target.named_id); found != named.end()) {
             auto presentation = found->second;
@@ -597,6 +610,7 @@ struct RuntimeUI::State {
     std::unordered_set<std::string> cursor_runtime_diagnostics;
     std::optional<std::string> focused_preview_default_cursor;
     std::optional<std::string> focused_preview_pointer_cursor;
+    std::optional<std::string> focused_preview_hotspot_cursor;
     std::unordered_map<std::string, host::CursorPresentation> focused_preview_named_cursors;
     std::unique_ptr<ui::rmlui::RmlUiHost> host;
     std::unique_ptr<ui::rmlui::RmlUiDocumentRegistry> document_registry;
@@ -1447,143 +1461,142 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     m_state->runtime_input_listener = std::make_unique<State::RuntimeInputListener>(*m_state);
     m_state->document_registry = std::make_unique<ui::rmlui::RmlUiDocumentRegistry>(*m_state->host);
     m_state->document_registry->set_runtime_input_listener(m_state->runtime_input_listener.get());
-    m_state->host->set_cursor_presentation_resolver(
-        [state = m_state](Rml::Context* context,
-                          std::string_view name) -> std::optional<host::CursorPresentation> {
-            const auto resolve_name = [](std::string_view requested,
-                                         const std::unordered_map<std::string,
-                                                                  host::CursorPresentation>& named,
-                                         host::CursorShape fallback)
-                -> std::optional<host::CursorPresentation> {
-                if (requested == "none")
-                    return host::CursorPresentation{.shape = host::CursorShape::Hidden,
-                                                    .custom = std::nullopt};
-                if (const auto found = named.find(std::string(requested)); found != named.end()) {
-                    auto presentation = found->second;
-                    presentation.shape = fallback;
-                    return presentation;
-                }
-                if (const auto shape = cursor_shape(requested))
-                    return host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
-                return std::nullopt;
-            };
-
-            auto* hover = context ? context->GetHoverElement() : nullptr;
-            auto* owner_document = hover ? hover->GetOwnerDocument() : nullptr;
-            const auto document_id = state->document_registry
-                                         ? state->document_registry->document_id(owner_document)
-                                         : std::optional<std::string>{};
-            const bool focused_preview =
-                document_id && (*document_id == "editor_authored_layout_preview" ||
-                                document_id->starts_with("focused://"));
-            const auto direct_image = parse_direct_cursor_image(name);
-            if (direct_image.matched) {
-                const auto diagnose = [&](std::string code, std::string message) {
-                    const std::string key = code + "\n" + std::string(name);
-                    if (state->cursor_runtime_diagnostics.insert(key).second)
-                        state->typed_diagnostics.push_back(
-                            core::Diagnostic{.code = std::move(code), .message = std::move(message)});
-                };
-                if (!direct_image.source) {
-                    diagnose("runtime.cursor.invalid_image_value",
-                             "Direct cursor image requires exactly one image source.");
-                    return std::nullopt;
-                }
-
-                const std::string& source = *direct_image.source;
-                const auto colon = source.find(':');
-                if (colon != std::string::npos && !source.starts_with("project:/") &&
-                    !source.starts_with("system:/")) {
-                    diagnose("runtime.cursor.invalid_image_path",
-                             "Direct cursor image uses an unsupported resource scheme.");
-                    return std::nullopt;
-                }
-                if (!state->assets) return std::nullopt;
-
-                Rml::String joined = source;
-                if (colon == std::string::npos && owner_document) {
-                    Rml::GetSystemInterface()->JoinPath(joined, owner_document->GetSourceURL(), source);
-                }
-                const std::string logical = ui::rmlui::resolve_asset_path(*state->assets, joined);
-                if (!logical.starts_with("project:/") && !logical.starts_with("system:/")) {
-                    diagnose("runtime.cursor.invalid_image_path",
-                             "Direct cursor image must resolve through project:/ or system:/ resources.");
-                    return std::nullopt;
-                }
-
-                CursorImageAssetMetadata metadata;
-                const auto& image_assets = focused_preview
-                                               ? state->focused_preview_cursor_image_assets
-                                               : state->cursor_image_assets;
-                const auto resource = image_assets.find(logical);
-                if (resource != image_assets.end()) {
-                    metadata = resource->second;
-                    if (!metadata.image) {
-                        diagnose("runtime.cursor.image_kind_mismatch",
-                                 "Direct cursor resource is not an Image Asset.");
-                        return std::nullopt;
-                    }
-                } else if (logical.starts_with("project:/") &&
-                           (focused_preview || state->cursor_settings)) {
-                    diagnose("runtime.cursor.image_not_admitted",
-                             "Direct cursor image is not admitted by the active Layout resources.");
-                    return std::nullopt;
-                }
-                if (!focused_preview && logical.starts_with("project:/")) {
-                    const auto dependencies = document_id
-                                                  ? state->layout_cursor_image_dependencies.find(
-                                                        *document_id)
-                                                  : state->layout_cursor_image_dependencies.end();
-                    if (dependencies == state->layout_cursor_image_dependencies.end() ||
-                        !dependencies->second.contains(logical)) {
-                        diagnose("runtime.cursor.image_dependency_missing",
-                                 "Direct cursor image is outside the owning Layout image dependency closure.");
-                        return std::nullopt;
-                    }
-                }
-                const auto fitted = host::fit_cursor_image_size(metadata.width, metadata.height);
-                return host::CursorPresentation{
-                    .shape = host::CursorShape::Default,
-                    .custom = host::CustomCursorPresentation{
-                        .id = "image(" + logical + ")",
-                        .logical_path = logical,
-                        .width = fitted.width,
-                        .height = fitted.height,
-                        .hotspot_x = 0,
-                        .hotspot_y = 0,
-                        .sampling = metadata.sampling,
-                        .fit_to_portable_bound = true}};
+    m_state->host->set_cursor_presentation_resolver([state = m_state](Rml::Context* context,
+                                                                      std::string_view name)
+                                                        -> std::optional<host::CursorPresentation> {
+        const auto resolve_name =
+            [](std::string_view requested,
+               const std::unordered_map<std::string, host::CursorPresentation>& named,
+               host::CursorShape fallback) -> std::optional<host::CursorPresentation> {
+            if (requested == "none")
+                return host::CursorPresentation{.shape = host::CursorShape::Hidden,
+                                                .custom = std::nullopt};
+            if (const auto found = named.find(std::string(requested)); found != named.end()) {
+                auto presentation = found->second;
+                presentation.shape = fallback;
+                return presentation;
             }
-
-            if (focused_preview && state->focused_preview_default_cursor &&
-                state->focused_preview_pointer_cursor) {
-                if (name == "default")
-                    return resolve_name(*state->focused_preview_default_cursor,
-                                        state->focused_preview_named_cursors,
-                                        host::CursorShape::Default);
-                if (name == "pointer")
-                    return resolve_name(*state->focused_preview_pointer_cursor,
-                                        state->focused_preview_named_cursors,
-                                        host::CursorShape::Pointer);
-                return resolve_name(name, state->focused_preview_named_cursors,
-                                    host::CursorShape::Default);
-            }
-
-            if (!state->cursor_settings)
-                return std::nullopt;
-            if (name == "default")
-                return resolve_cursor_target(*state->cursor_settings, state->named_cursors,
-                                             state->cursor_settings->default_cursor,
-                                             host::CursorShape::Default);
-            if (name == "pointer")
-                return resolve_cursor_target(*state->cursor_settings, state->named_cursors,
-                                             state->cursor_settings->pointer_cursor,
-                                             host::CursorShape::Pointer);
-            if (const auto found = state->named_cursors.find(std::string(name));
-                found != state->named_cursors.end())
-                return found->second;
+            if (const auto shape = cursor_shape(requested))
+                return host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
             return std::nullopt;
-        });
+        };
+
+        auto* hover = context ? context->GetHoverElement() : nullptr;
+        auto* owner_document = hover ? hover->GetOwnerDocument() : nullptr;
+        const auto document_id = state->document_registry
+                                     ? state->document_registry->document_id(owner_document)
+                                     : std::optional<std::string>{};
+        const bool focused_preview =
+            document_id && (*document_id == "editor_authored_layout_preview" ||
+                            document_id->starts_with("focused://"));
+        const auto direct_image = parse_direct_cursor_image(name);
+        if (direct_image.matched) {
+            const auto diagnose = [&](std::string code, std::string message) {
+                const std::string key = code + "\n" + std::string(name);
+                if (state->cursor_runtime_diagnostics.insert(key).second)
+                    state->typed_diagnostics.push_back(
+                        core::Diagnostic{.code = std::move(code), .message = std::move(message)});
+            };
+            if (!direct_image.source) {
+                diagnose("runtime.cursor.invalid_image_value",
+                         "Direct cursor image requires exactly one image source.");
+                return std::nullopt;
+            }
+
+            const std::string& source = *direct_image.source;
+            const auto colon = source.find(':');
+            if (colon != std::string::npos && !source.starts_with("project:/") &&
+                !source.starts_with("system:/")) {
+                diagnose("runtime.cursor.invalid_image_path",
+                         "Direct cursor image uses an unsupported resource scheme.");
+                return std::nullopt;
+            }
+            if (!state->assets)
+                return std::nullopt;
+
+            Rml::String joined = source;
+            if (colon == std::string::npos && owner_document) {
+                Rml::GetSystemInterface()->JoinPath(joined, owner_document->GetSourceURL(), source);
+            }
+            const std::string logical = ui::rmlui::resolve_asset_path(*state->assets, joined);
+            if (!logical.starts_with("project:/") && !logical.starts_with("system:/")) {
+                diagnose(
+                    "runtime.cursor.invalid_image_path",
+                    "Direct cursor image must resolve through project:/ or system:/ resources.");
+                return std::nullopt;
+            }
+
+            CursorImageAssetMetadata metadata;
+            const auto& image_assets = focused_preview ? state->focused_preview_cursor_image_assets
+                                                       : state->cursor_image_assets;
+            const auto resource = image_assets.find(logical);
+            if (resource != image_assets.end()) {
+                metadata = resource->second;
+                if (!metadata.image) {
+                    diagnose("runtime.cursor.image_kind_mismatch",
+                             "Direct cursor resource is not an Image Asset.");
+                    return std::nullopt;
+                }
+            } else if (logical.starts_with("project:/") &&
+                       (focused_preview || state->cursor_settings)) {
+                diagnose("runtime.cursor.image_not_admitted",
+                         "Direct cursor image is not admitted by the active Layout resources.");
+                return std::nullopt;
+            }
+            if (!focused_preview && logical.starts_with("project:/")) {
+                const auto dependencies =
+                    document_id ? state->layout_cursor_image_dependencies.find(*document_id)
+                                : state->layout_cursor_image_dependencies.end();
+                if (dependencies == state->layout_cursor_image_dependencies.end() ||
+                    !dependencies->second.contains(logical)) {
+                    diagnose("runtime.cursor.image_dependency_missing",
+                             "Direct cursor image is outside the owning Layout image dependency "
+                             "closure.");
+                    return std::nullopt;
+                }
+            }
+            const auto fitted = host::fit_cursor_image_size(metadata.width, metadata.height);
+            return host::CursorPresentation{
+                .shape = host::CursorShape::Default,
+                .custom = host::CustomCursorPresentation{.id = "image(" + logical + ")",
+                                                         .logical_path = logical,
+                                                         .width = fitted.width,
+                                                         .height = fitted.height,
+                                                         .hotspot_x = 0,
+                                                         .hotspot_y = 0,
+                                                         .sampling = metadata.sampling,
+                                                         .fit_to_portable_bound = true}};
+        }
+
+        if (focused_preview && state->focused_preview_default_cursor &&
+            state->focused_preview_pointer_cursor) {
+            if (name == "default")
+                return resolve_name(*state->focused_preview_default_cursor,
+                                    state->focused_preview_named_cursors,
+                                    host::CursorShape::Default);
+            if (name == "pointer")
+                return resolve_name(*state->focused_preview_pointer_cursor,
+                                    state->focused_preview_named_cursors,
+                                    host::CursorShape::Pointer);
+            return resolve_name(name, state->focused_preview_named_cursors,
+                                host::CursorShape::Default);
+        }
+
+        if (!state->cursor_settings)
+            return std::nullopt;
+        if (name == "default")
+            return resolve_cursor_target(*state->cursor_settings, state->named_cursors,
+                                         state->cursor_settings->default_cursor,
+                                         host::CursorShape::Default);
+        if (name == "pointer")
+            return resolve_cursor_target(*state->cursor_settings, state->named_cursors,
+                                         state->cursor_settings->pointer_cursor,
+                                         host::CursorShape::Pointer);
+        if (const auto found = state->named_cursors.find(std::string(name));
+            found != state->named_cursors.end())
+            return found->second;
+        return std::nullopt;
+    });
     m_state->host->set_cursor_owner_resolver([state = m_state](Rml::Context* context) {
         if (!state->document_registry || !context)
             return std::string{};
@@ -1676,9 +1689,8 @@ void RuntimeUI::configure_project_cursors(const core::CompiledProject& project)
         m_state->cursor_realizer->clear_custom();
 
     for (const auto& cursor : project.settings().cursors.named) {
-        const auto asset = std::ranges::find_if(project.assets(), [&](const auto& candidate) {
-            return candidate.id == cursor.image;
-        });
+        const auto asset = std::ranges::find_if(
+            project.assets(), [&](const auto& candidate) { return candidate.id == cursor.image; });
         if (asset == project.assets().end() || !asset->width || !asset->height)
             continue;
         host::CursorPresentation presentation{
@@ -1690,24 +1702,93 @@ void RuntimeUI::configure_project_cursors(const core::CompiledProject& project)
                                                      .hotspot_x = cursor.hotspot_x,
                                                      .hotspot_y = cursor.hotspot_y}};
         if (m_state->cursor_realizer && !m_state->cursor_realizer->prepare(*presentation.custom)) {
-            m_state->typed_diagnostics.push_back(core::Diagnostic{
-                .code = "runtime.cursor.realization_failed",
-                .message = "Failed to prepare named cursor '" + cursor.id +
-                           "'; native fallback will be used."});
+            m_state->typed_diagnostics.push_back(
+                core::Diagnostic{.code = "runtime.cursor.realization_failed",
+                                 .message = "Failed to prepare named cursor '" + cursor.id +
+                                            "'; native fallback will be used."});
         }
         m_state->named_cursors.insert_or_assign(cursor.id, std::move(presentation));
     }
 
     constexpr host::CursorAuthority::OwnerToken project_default_owner = 1;
-    auto project_default = resolve_cursor_target(project.settings().cursors, m_state->named_cursors,
-                                                 project.settings().cursors.default_cursor,
-                                                 host::CursorShape::Default)
-                               .value_or(host::CursorPresentation{});
+    auto project_default =
+        resolve_cursor_target(project.settings().cursors, m_state->named_cursors,
+                              project.settings().cursors.default_cursor, host::CursorShape::Default)
+            .value_or(host::CursorPresentation{});
     m_state->cursor_authority->publish(host::CursorRequestSource::ProjectDefault,
-                                      project_default_owner, std::move(project_default),
-                                      "project-default");
+                                       project_default_owner, std::move(project_default),
+                                       "project-default");
     m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::ProjectDefault,
                                                   {project_default_owner});
+    m_state->cursor_authority->resolve();
+}
+
+void RuntimeUI::set_world_hotspot_cursor(const std::optional<core::compiled::CursorTarget>& cursor,
+                                         std::string owner_label)
+{
+    if (!m_state || !m_state->cursor_authority)
+        return;
+    constexpr host::CursorAuthority::OwnerToken world_hotspot_owner = 1;
+    std::optional<host::CursorPresentation> presentation;
+    if (m_state->cursor_settings) {
+        const auto& settings = *m_state->cursor_settings;
+        presentation =
+            cursor ? resolve_cursor_target(settings, m_state->named_cursors, *cursor,
+                                           host::CursorShape::Pointer)
+                   : resolve_cursor_target(settings, m_state->named_cursors,
+                                           settings.hotspot_cursor, host::CursorShape::Pointer);
+    } else if (m_state->focused_preview_hotspot_cursor && m_state->focused_preview_pointer_cursor) {
+        const auto resolve_name = [&](std::string_view name, host::CursorShape fallback) {
+            if (name == "none")
+                return host::CursorPresentation{.shape = host::CursorShape::Hidden,
+                                                .custom = std::nullopt};
+            if (const auto found = m_state->focused_preview_named_cursors.find(std::string(name));
+                found != m_state->focused_preview_named_cursors.end()) {
+                auto value = found->second;
+                value.shape = fallback;
+                return value;
+            }
+            return host::CursorPresentation{.shape = cursor_shape(name).value_or(fallback),
+                                            .custom = std::nullopt};
+        };
+        if (!cursor) {
+            presentation =
+                resolve_name(*m_state->focused_preview_hotspot_cursor, host::CursorShape::Pointer);
+        } else {
+            using Kind = core::compiled::CursorTargetKind;
+            switch (cursor->kind) {
+            case Kind::System:
+                presentation = host::CursorPresentation{.shape = cursor_shape(cursor->system),
+                                                        .custom = std::nullopt};
+                break;
+            case Kind::Named:
+                presentation = resolve_name(cursor->named_id, host::CursorShape::Pointer);
+                break;
+            case Kind::None:
+                presentation = host::CursorPresentation{.shape = host::CursorShape::Hidden,
+                                                        .custom = std::nullopt};
+                break;
+            case Kind::InheritPointer:
+                presentation = resolve_name(*m_state->focused_preview_pointer_cursor,
+                                            host::CursorShape::Pointer);
+                break;
+            }
+        }
+    }
+    if (!presentation)
+        return;
+    m_state->cursor_authority->publish(host::CursorRequestSource::WorldHotspot, world_hotspot_owner,
+                                       std::move(*presentation), std::move(owner_label));
+    m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::WorldHotspot,
+                                                  {world_hotspot_owner});
+    m_state->cursor_authority->resolve();
+}
+
+void RuntimeUI::clear_world_hotspot_cursor() noexcept
+{
+    if (!m_state || !m_state->cursor_authority)
+        return;
+    m_state->cursor_authority->clear_source(host::CursorRequestSource::WorldHotspot);
     m_state->cursor_authority->resolve();
 }
 
@@ -1734,6 +1815,7 @@ void RuntimeUI::configure_focused_preview_cursors(
         return;
     m_state->focused_preview_default_cursor = cursors.default_cursor;
     m_state->focused_preview_pointer_cursor = cursors.pointer_cursor;
+    m_state->focused_preview_hotspot_cursor = cursors.hotspot_cursor;
     m_state->focused_preview_named_cursors.clear();
     for (const auto& cursor : cursors.named) {
         host::CursorPresentation presentation{
@@ -1746,8 +1828,7 @@ void RuntimeUI::configure_focused_preview_cursors(
                                                      .hotspot_y = cursor.hotspot_y}};
         if (m_state->cursor_realizer)
             (void)m_state->cursor_realizer->prepare(*presentation.custom);
-        m_state->focused_preview_named_cursors.insert_or_assign(cursor.id,
-                                                               std::move(presentation));
+        m_state->focused_preview_named_cursors.insert_or_assign(cursor.id, std::move(presentation));
     }
 
     constexpr host::CursorAuthority::OwnerToken project_default_owner = 1;
@@ -1762,8 +1843,8 @@ void RuntimeUI::configure_focused_preview_cursors(
         project_default.shape = *shape;
     }
     m_state->cursor_authority->publish(host::CursorRequestSource::ProjectDefault,
-                                      project_default_owner, std::move(project_default),
-                                      "focused-preview-default");
+                                       project_default_owner, std::move(project_default),
+                                       "focused-preview-default");
     m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::ProjectDefault,
                                                   {project_default_owner});
     m_state->cursor_authority->resolve();
@@ -1780,7 +1861,7 @@ void RuntimeUI::configure_focused_preview_cursor_resources(
         if (resource.sampling == std::optional<std::string>{"nearest"})
             metadata.sampling = host::CursorImageSampling::Nearest;
         m_state->focused_preview_cursor_image_assets.insert_or_assign(resource.logical_path,
-                                                                       metadata);
+                                                                      metadata);
     }
     if (m_state->cursor_realizer)
         m_state->cursor_realizer->clear_custom();
@@ -1794,6 +1875,7 @@ void RuntimeUI::clear_focused_preview_cursors() noexcept
         return;
     m_state->focused_preview_default_cursor.reset();
     m_state->focused_preview_pointer_cursor.reset();
+    m_state->focused_preview_hotspot_cursor.reset();
     m_state->focused_preview_named_cursors.clear();
     m_state->focused_preview_cursor_image_assets.clear();
     if (!m_state->cursor_authority)
@@ -1806,8 +1888,8 @@ void RuntimeUI::clear_focused_preview_cursors() noexcept
                                   host::CursorShape::Default)
                 .value_or(host::CursorPresentation{});
         m_state->cursor_authority->publish(host::CursorRequestSource::ProjectDefault,
-                                          project_default_owner, std::move(project_default),
-                                          "project-default");
+                                           project_default_owner, std::move(project_default),
+                                           "project-default");
         m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::ProjectDefault,
                                                       {project_default_owner});
     } else {

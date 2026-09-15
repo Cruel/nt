@@ -999,6 +999,26 @@ const layoutScaleOverridesSchema = strict({
   ui: layoutScaleInheritanceSchema.optional(),
   text: layoutScaleInheritanceSchema.optional(),
 });
+const cursorSystemNameSchema = z.enum([
+  'default',
+  'pointer',
+  'text',
+  'wait',
+  'progress',
+  'crosshair',
+  'move',
+  'not-allowed',
+  'ns-resize',
+  'ew-resize',
+  'nesw-resize',
+  'nwse-resize',
+]);
+const cursorTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('system'), cursor: cursorSystemNameSchema }),
+  strict({ kind: z.literal('named'), id }),
+  strict({ kind: z.literal('none') }),
+]);
+
 const hotspotHighlightSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('default') }),
   strict({ kind: z.literal('material'), material: materialReferenceSchema }),
@@ -1020,6 +1040,7 @@ const hotspotCommonShape = {
   condition: compiledConditionSchema,
   inputOrder: z.number().int(),
   highlight: hotspotHighlightSchema,
+  cursor: cursorTargetSchema.nullable().default(null),
 };
 const roomHotspotRefSchema = strict({
   kind: z.literal('room-hotspot'),
@@ -1362,6 +1383,7 @@ const interactableDefinitionSchema = strict({
   presentation: strict({
     material: materialReferenceSchema.nullable(),
     sprite: assetReferenceSchema.nullable(),
+    cursor: cursorTargetSchema.nullable().default(null),
     hotspots: z.discriminatedUnion('kind', [
       strict({ kind: z.literal('none') }),
       strict({
@@ -2376,25 +2398,6 @@ const compiledLocaleSchema = strict({
   }),
   catalogPath: z.string().min(1).optional(),
 });
-const cursorSystemNameSchema = z.enum([
-  'default',
-  'pointer',
-  'text',
-  'wait',
-  'progress',
-  'crosshair',
-  'move',
-  'not-allowed',
-  'ns-resize',
-  'ew-resize',
-  'nesw-resize',
-  'nwse-resize',
-]);
-const cursorTargetSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('system'), cursor: cursorSystemNameSchema }),
-  strict({ kind: z.literal('named'), id }),
-  strict({ kind: z.literal('none') }),
-]);
 const cursorHotspotTargetSchema = z.union([
   cursorTargetSchema,
   strict({ kind: z.literal('inherit'), semantic: z.literal('pointer') }),

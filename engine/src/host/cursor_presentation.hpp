@@ -51,7 +51,7 @@ struct CursorImageSize {
 };
 
 [[nodiscard]] CursorImageSize fit_cursor_image_size(std::uint32_t width,
-                                                     std::uint32_t height) noexcept;
+                                                    std::uint32_t height) noexcept;
 
 struct CustomCursorPresentation {
     std::string id;

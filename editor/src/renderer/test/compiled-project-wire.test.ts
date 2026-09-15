@@ -284,6 +284,7 @@ function representativeWireFixture() {
           presentation: {
             sprite: null,
             material: null,
+            cursor: null,
             hotspots: {
               kind: 'custom',
               hotspots: [],

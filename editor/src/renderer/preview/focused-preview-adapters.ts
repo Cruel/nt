@@ -396,6 +396,18 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
               : settings.cursors.defaults.pointer.kind === 'named'
                 ? settings.cursors.defaults.pointer.id
                 : 'none',
+          hotspotCursor:
+            settings.cursors.defaults.hotspot.kind === 'inherit'
+              ? settings.cursors.defaults.pointer.kind === 'system'
+                ? settings.cursors.defaults.pointer.cursor
+                : settings.cursors.defaults.pointer.kind === 'named'
+                  ? settings.cursors.defaults.pointer.id
+                  : 'none'
+              : settings.cursors.defaults.hotspot.kind === 'system'
+                ? settings.cursors.defaults.hotspot.cursor
+                : settings.cursors.defaults.hotspot.kind === 'named'
+                  ? settings.cursors.defaults.hotspot.id
+                  : 'none',
           named: settings.cursors.named.map((cursor) => {
             const asset = parseAssetData(context.project.assets[cursor.image.$ref.id]?.data);
             if (asset?.kind !== 'image' || !asset.imageMetadata)

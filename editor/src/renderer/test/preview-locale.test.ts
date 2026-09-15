@@ -155,6 +155,7 @@ describe('Preview Locale', () => {
     expect(document.data.cursors).toEqual({
       defaultCursor: 'default',
       pointerCursor: 'tea-pointer',
+      hotspotCursor: 'tea-pointer',
       named: [
         {
           id: 'tea-pointer',

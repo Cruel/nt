@@ -39,11 +39,17 @@ Presentation chooses one of three explicit Hotspot modes: `none`, `sprite-alpha`
 `none` performs no pointer hit testing and does not require a sprite. `sprite-alpha` provides one
 Hotspot whose hit area comes from the sprite alpha mask and therefore requires a valid image sprite.
 `custom` contains authored normalized rectangular Hotspots and requires a valid image sprite whenever
-the list is non-empty. Each Hotspot has stable owner-local identity, condition, semantic target, input
-priority, and highlight policy. It may select the owning Interactable, an owner-local Feature, or
-another exact admitted semantic subject. Hotspots own no Verb or Interaction program. An empty custom
-list remains structurally valid while authoring, but `none` is the canonical way to declare an
-intentionally non-clickable Interactable.
+the list is non-empty. Interactable presentation may also define one Definition-level cursor fallback;
+its implicit `sprite-alpha` Hotspot uses that cursor, while each custom Hotspot may override it. Cursor
+targets accept system semantic cursors, Project named cursors, or `none`, but not direct cursor images.
+If neither the custom Hotspot nor presentation supplies a cursor, resolution falls through the Project
+Hotspot default and then its Pointer/native fallback. Each Hotspot has stable owner-local identity,
+condition, semantic target, input priority, and highlight policy. It may select the owning
+Interactable, an owner-local Feature, or another exact admitted semantic subject. Hotspots own no Verb
+or Interaction program. Cursor presentation remains Definition-level and is inherited by every
+placement/Instance; there is no cursor-specific Instance override. An empty custom list remains
+structurally valid while authoring, but `none` is the canonical way to declare an intentionally
+non-clickable Interactable.
 
 ## Instance identity, Location, and state
 

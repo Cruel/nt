@@ -246,6 +246,124 @@ describe('graph-driven Room builder', () => {
     );
   });
 
+  it('projects effective Room and Interactable Hotspot cursors for focused preview', async () => {
+    const project = fixture();
+    project.assets.pointer = {
+      id: 'pointer',
+      label: 'Pointer',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/pointer.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 4,
+        contentHash: `sha256:${'c'.repeat(64)}`,
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.settings.cursors.defaults.hotspot = { kind: 'named', id: 'tea' };
+    project.settings.cursors.named = [
+      {
+        id: 'tea',
+        image: { $ref: { collection: 'assets', id: 'pointer' } },
+        hotspotX: 2,
+        hotspotY: 3,
+      },
+    ];
+    project.rooms.bedroom!.data.background.asset = {
+      $ref: { collection: 'assets', id: 'pointer' },
+    };
+    project.rooms.bedroom!.data.hotspots = [
+      {
+        id: 'room-hotspot',
+        label: 'Room hotspot',
+        condition: { kind: 'always' },
+        inputOrder: 2,
+        highlight: { kind: 'default' },
+        shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 0.25, height: 0.25 } },
+        target: {
+          kind: 'subject',
+          subject: {
+            kind: 'interactable',
+            interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
+          },
+        },
+      },
+    ];
+
+    const key = project.interactables.key!.data;
+    key.presentation.sprite = { $ref: { collection: 'assets', id: 'pointer' } };
+    key.presentation.cursor = { kind: 'system', cursor: 'crosshair' };
+    key.presentation.hotspots = {
+      kind: 'sprite-alpha',
+      hotspot: {
+        id: 'key-alpha',
+        label: 'Key',
+        condition: { kind: 'always' },
+        inputOrder: 0,
+        highlight: { kind: 'default' },
+        target: { kind: 'owner' },
+      },
+    };
+
+    const coin = defaultInteractableData('Coin');
+    coin.presentation.sprite = { $ref: { collection: 'assets', id: 'pointer' } };
+    coin.presentation.cursor = { kind: 'system', cursor: 'pointer' };
+    coin.presentation.hotspots = {
+      kind: 'custom',
+      hotspots: [
+        {
+          id: 'coin-face',
+          label: 'Coin face',
+          condition: { kind: 'always' },
+          inputOrder: 1,
+          highlight: { kind: 'none' },
+          cursor: { kind: 'none' },
+          target: { kind: 'owner' },
+          shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 1, height: 1 } },
+        },
+      ],
+    };
+    project.interactables.coin = { id: 'coin', label: 'Coin', data: coin };
+    project.interactableInstances.coin = defaultInteractableInstanceData('coin', 'coin', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'bedroom' } },
+    });
+    project.rooms.bedroom!.data.interactables.push({
+      id: 'coin',
+      interactable: { $ref: { registry: 'interactableInstances', id: 'coin' } },
+      condition: { kind: 'always' },
+      placementId: 'door',
+      visible: true,
+      order: 1,
+    });
+
+    const result = await build(project);
+
+    expect(result.data.cursors.hotspotCursor).toBe('tea');
+    expect(result.data.world.hotspots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ownerKind: 'room', hotspotId: 'room-hotspot', cursor: 'tea' }),
+        expect.objectContaining({
+          ownerKind: 'interactable',
+          ownerId: 'key',
+          hotspotId: 'key-alpha',
+          shape: { kind: 'alpha' },
+          cursor: 'crosshair',
+        }),
+        expect.objectContaining({
+          ownerKind: 'interactable',
+          ownerId: 'coin',
+          hotspotId: 'coin-face',
+          cursor: 'none',
+        }),
+      ]),
+    );
+    expect(result.resources).toContainEqual(
+      expect.objectContaining({ resourceId: 'asset:pointer', retainAlphaCoverage: true }),
+    );
+  });
+
   it('uses locale inheritance when the default locale lacks a Message translation', async () => {
     const project = fixture();
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f040';

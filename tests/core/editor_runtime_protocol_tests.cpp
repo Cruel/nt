@@ -58,6 +58,11 @@ nlohmann::json focused_room_document()
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
+        {"cursors",
+         {{"defaultCursor", "default"},
+          {"pointerCursor", "pointer"},
+          {"hotspotCursor", "pointer"},
+          {"named", nlohmann::json::array()}}},
         {"world",
          {{"presentationSpace",
            {{"size", {{"width", 1920.0}, {"height", 1080.0}}},
@@ -74,7 +79,8 @@ nlohmann::json focused_room_document()
           {"interactables", nlohmann::json::array()},
           {"props", nlohmann::json::array()},
           {"environments", nlohmann::json::array()},
-          {"overlays", nlohmann::json::array()}}},
+          {"overlays", nlohmann::json::array()},
+          {"hotspots", nlohmann::json::array()}}},
         {"layouts", nlohmann::json::array()},
         {"ui",
          {{"description", {{"markup", "plain"}, {"source", {{"kind", "resolved"}, {"text", ""}}}}},
@@ -100,6 +106,51 @@ TEST_CASE("focused Room decoder admits the strict native contract")
     auto open = focused_room_document();
     open["world"]["unexpected"] = true;
     CHECK_FALSE(decode_editor_room_preview_document_text(open.dump()));
+}
+
+TEST_CASE("focused Room decoder carries cursor settings and projected Hotspots")
+{
+    auto document = focused_room_document();
+    document["cursors"]["hotspotCursor"] = "inspect";
+    document["cursors"]["named"] =
+        nlohmann::json::array({{{"id", "inspect"},
+                                {"logicalPath", "project:/assets/images/inspect.png"},
+                                {"width", 32},
+                                {"height", 24},
+                                {"hotspotX", 2},
+                                {"hotspotY", 3}}});
+    document["world"]["hotspots"] = nlohmann::json::array(
+        {{{"ownerKind", "room"},
+          {"ownerId", "foyer"},
+          {"hotspotId", "desk"},
+          {"label", "Desk"},
+          {"condition", {{"kind", "always"}}},
+          {"inputOrder", 4},
+          {"shape",
+           {{"kind", "rect"},
+            {"bounds", {{"x", 0.1}, {"y", 0.2}, {"width", 0.3}, {"height", 0.4}}}}},
+          {"target", {{"kind", "room-feature"}, {"roomId", "foyer"}, {"featureId", "desk"}}},
+          {"cursor", "inspect"},
+          {"sourceAssetId", "room-image"},
+          {"sourceWidth", 1920},
+          {"sourceHeight", 1080},
+          {"placementId", nullptr}}});
+
+    auto result = decode_editor_room_preview_document_text(document.dump());
+    REQUIRE(result);
+    CHECK(result.value().cursors.hotspot_cursor == "inspect");
+    REQUIRE(result.value().cursors.named.size() == 1);
+    CHECK(result.value().cursors.named.front().id == "inspect");
+    REQUIRE(result.value().world.hotspots.size() == 1);
+    const auto& hotspot = result.value().world.hotspots.front();
+    CHECK(hotspot.owner_kind == "room");
+    CHECK(hotspot.hotspot_id == "desk");
+    CHECK(hotspot.cursor == "inspect");
+    CHECK(hotspot.target.kind == "room-feature");
+    REQUIRE(hotspot.target.secondary_id);
+    CHECK(*hotspot.target.secondary_id == "desk");
+    REQUIRE(hotspot.bounds);
+    CHECK(hotspot.bounds->x == 0.1);
 }
 
 TEST_CASE("focused Room decoder carries mounted Layout contracts with runtime defaults")
@@ -350,13 +401,13 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
         {"cursors",
          {{"defaultCursor", "default"},
           {"pointerCursor", "tea-pointer"},
-          {"named",
-           nlohmann::json::array({{{"id", "tea-pointer"},
-                                  {"logicalPath", "project:/assets/images/pointer.png"},
-                                  {"width", 32},
-                                  {"height", 24},
-                                  {"hotspotX", 2},
-                                  {"hotspotY", 3}}})}}},
+          {"hotspotCursor", "tea-pointer"},
+          {"named", nlohmann::json::array({{{"id", "tea-pointer"},
+                                            {"logicalPath", "project:/assets/images/pointer.png"},
+                                            {"width", 32},
+                                            {"height", 24},
+                                            {"hotspotX", 2},
+                                            {"hotspotY", 3}}})}}},
         {"shaderMaterials",
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},

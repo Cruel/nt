@@ -900,7 +900,14 @@
       "operator": "Operator",
       "value": "Value",
       "luaPredicate": "Lua predicate",
+      "cursor": "Cursor",
       "target": "Target"
+    },
+    "cursor": {
+      "projectDefault": "Project Hotspot default",
+      "interactableDefault": "Interactable presentation fallback",
+      "none": "None",
+      "missingNamed": "Missing named cursor: {{id}}"
     },
     "highlight": {
       "default": "Default",

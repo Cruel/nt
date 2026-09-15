@@ -835,8 +835,8 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             accessibility = AccessibilitySettings{*ui_scale, *text_scale};
     }
     std::optional<CursorSettings> cursors;
-    if (cursors_value && decoder.object(*cursors_value, pointer_child(pointer, "cursors"),
-                                        {"defaults", "named"})) {
+    if (cursors_value &&
+        decoder.object(*cursors_value, pointer_child(pointer, "cursors"), {"defaults", "named"})) {
         const auto cursors_pointer = pointer_child(pointer, "cursors");
         const auto* defaults_value = decoder.member(*cursors_value, "defaults", cursors_pointer);
         const auto* named_value = decoder.member(*cursors_value, "named", cursors_pointer);
@@ -848,8 +848,9 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                 return std::nullopt;
             }
             const auto* kind_value = decoder.member(target, "kind", target_pointer);
-            auto kind = kind_value ? decoder.string(*kind_value, pointer_child(target_pointer, "kind"))
-                                   : std::nullopt;
+            auto kind = kind_value
+                            ? decoder.string(*kind_value, pointer_child(target_pointer, "kind"))
+                            : std::nullopt;
             if (!kind)
                 return std::nullopt;
             if (*kind == "system") {
@@ -885,8 +886,8 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                              : std::nullopt;
                 return id_value_text
                            ? std::optional<CursorTarget>(CursorTarget{CursorTargetKind::Named,
-                                                                     CursorSystemName::Default,
-                                                                     std::move(*id_value_text)})
+                                                                      CursorSystemName::Default,
+                                                                      std::move(*id_value_text)})
                            : std::nullopt;
             }
             if (*kind == "none") {
@@ -898,13 +899,13 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                 if (!decoder.object(target, target_pointer, {"kind", "semantic"}))
                     return std::nullopt;
                 const auto* semantic_value = decoder.member(target, "semantic", target_pointer);
-                auto semantic = semantic_value
-                                    ? decoder.string(*semantic_value,
-                                                     pointer_child(target_pointer, "semantic"))
-                                    : std::nullopt;
+                auto semantic =
+                    semantic_value
+                        ? decoder.string(*semantic_value, pointer_child(target_pointer, "semantic"))
+                        : std::nullopt;
                 if (semantic && *semantic == "pointer")
-                    return CursorTarget{CursorTargetKind::InheritPointer,
-                                        CursorSystemName::Pointer, {}};
+                    return CursorTarget{
+                        CursorTargetKind::InheritPointer, CursorSystemName::Pointer, {}};
             }
             decoder.error(k_code_enum, "Unknown cursor target kind.",
                           pointer_child(target_pointer, "kind"));
@@ -918,9 +919,12 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             decoder.object(*defaults_value, pointer_child(cursors_pointer, "defaults"),
                            {"default", "hotspot", "pointer"})) {
             const auto defaults_pointer = pointer_child(cursors_pointer, "defaults");
-            const auto* default_value = decoder.member(*defaults_value, "default", defaults_pointer);
-            const auto* pointer_value = decoder.member(*defaults_value, "pointer", defaults_pointer);
-            const auto* hotspot_value = decoder.member(*defaults_value, "hotspot", defaults_pointer);
+            const auto* default_value =
+                decoder.member(*defaults_value, "default", defaults_pointer);
+            const auto* pointer_value =
+                decoder.member(*defaults_value, "pointer", defaults_pointer);
+            const auto* hotspot_value =
+                decoder.member(*defaults_value, "hotspot", defaults_pointer);
             if (default_value)
                 default_cursor = decode_cursor_target(
                     *default_value, pointer_child(defaults_pointer, "default"), false);
@@ -942,27 +946,29 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                               return std::nullopt;
                           const auto* id_value = decoder.member(item, "id", item_pointer);
                           const auto* image_value = decoder.member(item, "image", item_pointer);
-                          const auto* hotspot_x_value = decoder.member(item, "hotspotX", item_pointer);
-                          const auto* hotspot_y_value = decoder.member(item, "hotspotY", item_pointer);
-                          auto id_text = id_value
-                                             ? decoder.string(*id_value,
-                                                              pointer_child(item_pointer, "id"))
-                                             : std::nullopt;
+                          const auto* hotspot_x_value =
+                              decoder.member(item, "hotspotX", item_pointer);
+                          const auto* hotspot_y_value =
+                              decoder.member(item, "hotspotY", item_pointer);
+                          auto id_text =
+                              id_value
+                                  ? decoder.string(*id_value, pointer_child(item_pointer, "id"))
+                                  : std::nullopt;
                           auto image = image_value
                                            ? decode_reference<AssetId>(
                                                  decoder, *image_value,
                                                  pointer_child(item_pointer, "image"), "asset")
                                            : std::nullopt;
-                          auto hotspot_x = hotspot_x_value
-                                               ? decoder.unsigned_integer<std::uint32_t>(
-                                                     *hotspot_x_value,
-                                                     pointer_child(item_pointer, "hotspotX"))
-                                               : std::nullopt;
-                          auto hotspot_y = hotspot_y_value
-                                               ? decoder.unsigned_integer<std::uint32_t>(
-                                                     *hotspot_y_value,
-                                                     pointer_child(item_pointer, "hotspotY"))
-                                               : std::nullopt;
+                          auto hotspot_x =
+                              hotspot_x_value
+                                  ? decoder.unsigned_integer<std::uint32_t>(
+                                        *hotspot_x_value, pointer_child(item_pointer, "hotspotX"))
+                                  : std::nullopt;
+                          auto hotspot_y =
+                              hotspot_y_value
+                                  ? decoder.unsigned_integer<std::uint32_t>(
+                                        *hotspot_y_value, pointer_child(item_pointer, "hotspotY"))
+                                  : std::nullopt;
                           return id_text && image && hotspot_x && hotspot_y
                                      ? std::optional<NamedCursorDefinition>(NamedCursorDefinition{
                                            std::move(*id_text), std::move(*image), *hotspot_x,
@@ -1247,8 +1253,8 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             (*kind == TransitionKind::Fade || !color))
             transition = RoomNavigationTransition{*kind, *duration, std::move(color), *skippable};
     }
-    if (!display || !accessibility || !cursors || !audio || !inventory || !interaction || !layouts ||
-        !text || !title || !transition)
+    if (!display || !accessibility || !cursors || !audio || !inventory || !interaction ||
+        !layouts || !text || !title || !transition)
         return std::nullopt;
     return RuntimeSettings{std::move(*display), std::move(*accessibility), std::move(*layouts),
                            std::move(*text),    std::move(*title),         std::move(*transition),

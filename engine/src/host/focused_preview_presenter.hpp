@@ -58,9 +58,12 @@ public:
         std::function<void(const ShaderMaterialProject&)> apply_materials;
         std::function<void(const ShaderMaterialProject*)> bind_candidate_materials;
         std::function<void(RuntimeUiInputSink*)> bind_input_sink;
+        std::function<void(const core::editor::TypedEditorPreviewCursorSettings&)>
+            configure_cursors;
         std::function<void(const std::vector<core::editor::FocusedEditorManifestProjection>&)>
             configure_cursor_resources;
         std::function<void()> clear_cursor_resources;
+        std::function<void()> world_presentation_changed;
         std::function<void()> retire_legacy_preview;
         std::function<std::string_view()> active_shader_variant;
         std::function<std::string(bool fragment)> standalone_layout_style_prefix;

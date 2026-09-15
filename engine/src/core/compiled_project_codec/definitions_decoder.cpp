@@ -67,12 +67,66 @@ decode_hotspot_highlight(Decoder& decoder, const nlohmann::json& value, std::str
     return std::nullopt;
 }
 
+std::optional<CursorTarget> decode_hotspot_cursor_target(Decoder& decoder,
+                                                         const nlohmann::json& target,
+                                                         std::string_view pointer)
+{
+    if (!target.is_object()) {
+        decoder.error(k_code_type, "Hotspot cursor target must be an object.",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(target, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "system") {
+        if (!decoder.object(target, pointer, {"cursor", "kind"}))
+            return std::nullopt;
+        const auto* cursor_value = decoder.member(target, "cursor", pointer);
+        auto cursor = cursor_value ? decoder.enumeration<CursorSystemName>(
+                                         *cursor_value, pointer_child(pointer, "cursor"),
+                                         {{"default", CursorSystemName::Default},
+                                          {"pointer", CursorSystemName::Pointer},
+                                          {"text", CursorSystemName::Text},
+                                          {"wait", CursorSystemName::Wait},
+                                          {"progress", CursorSystemName::Progress},
+                                          {"crosshair", CursorSystemName::Crosshair},
+                                          {"move", CursorSystemName::Move},
+                                          {"not-allowed", CursorSystemName::NotAllowed},
+                                          {"ns-resize", CursorSystemName::NsResize},
+                                          {"ew-resize", CursorSystemName::EwResize},
+                                          {"nesw-resize", CursorSystemName::NeswResize},
+                                          {"nwse-resize", CursorSystemName::NwseResize}})
+                                   : std::nullopt;
+        return cursor ? std::optional<CursorTarget>(
+                            CursorTarget{CursorTargetKind::System, *cursor, {}})
+                      : std::nullopt;
+    }
+    if (*kind == "named") {
+        if (!decoder.object(target, pointer, {"id", "kind"}))
+            return std::nullopt;
+        const auto* id_value = decoder.member(target, "id", pointer);
+        auto id = id_value ? decoder.string(*id_value, pointer_child(pointer, "id")) : std::nullopt;
+        return id ? std::optional<CursorTarget>(CursorTarget{
+                        CursorTargetKind::Named, CursorSystemName::Default, std::move(*id)})
+                  : std::nullopt;
+    }
+    if (*kind == "none" && decoder.object(target, pointer, {"kind"}))
+        return CursorTarget{CursorTargetKind::None, CursorSystemName::None, {}};
+    decoder.error(k_code_enum, "Unknown hotspot cursor target kind.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
 struct DecodedHotspotCommon {
     HotspotId id;
     std::string label;
     Condition condition;
     std::int32_t input_order;
     HotspotHighlight highlight;
+    std::optional<CursorTarget> cursor;
 };
 
 std::optional<std::vector<InventoryDefinition>>
@@ -227,6 +281,8 @@ decode_hotspot_common(Decoder& decoder, const nlohmann::json& value, std::string
     const auto* condition_value = decoder.member(value, "condition", pointer);
     const auto* order_value = decoder.member(value, "inputOrder", pointer);
     const auto* highlight_value = decoder.member(value, "highlight", pointer);
+    const auto cursor_entry = value.find("cursor");
+    const auto* cursor_value = cursor_entry != value.end() ? &*cursor_entry : nullptr;
     auto id =
         id_value ? decoder.id<HotspotId>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
     auto label =
@@ -240,10 +296,17 @@ decode_hotspot_common(Decoder& decoder, const nlohmann::json& value, std::string
     auto highlight = highlight_value ? decode_hotspot_highlight(decoder, *highlight_value,
                                                                 pointer_child(pointer, "highlight"))
                                      : std::nullopt;
-    if (!id || !label || !condition || !order || !highlight)
+    std::optional<CursorTarget> cursor;
+    bool cursor_ok = true;
+    if (cursor_value && !cursor_value->is_null()) {
+        cursor =
+            decode_hotspot_cursor_target(decoder, *cursor_value, pointer_child(pointer, "cursor"));
+        cursor_ok = cursor.has_value();
+    }
+    if (!id || !label || !condition || !order || !highlight || !cursor_ok)
         return std::nullopt;
-    return DecodedHotspotCommon{std::move(*id), std::move(*label), std::move(*condition), *order,
-                                std::move(*highlight)};
+    return DecodedHotspotCommon{std::move(*id), std::move(*label),     std::move(*condition),
+                                *order,         std::move(*highlight), std::move(cursor)};
 }
 
 std::optional<RectHotspotShape>
@@ -1885,8 +1948,8 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                   [&](const nlohmann::json& hotspot,
                       const std::string& item_pointer) -> std::optional<RoomHotspot> {
                       if (!decoder.object(hotspot, item_pointer,
-                                          {"condition", "highlight", "id", "inputOrder", "label",
-                                           "shape", "target"}))
+                                          {"condition", "cursor", "highlight", "id", "inputOrder",
+                                           "label", "shape", "target"}))
                           return std::nullopt;
                       auto common = decode_hotspot_common(decoder, hotspot, item_pointer);
                       const auto* shape_value = decoder.member(hotspot, "shape", item_pointer);
@@ -1903,13 +1966,10 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                               : std::nullopt;
                       if (!common || !shape || !target)
                           return std::nullopt;
-                      return RoomHotspot{std::move(common->id),
-                                         std::move(common->label),
-                                         std::move(common->condition),
-                                         common->input_order,
-                                         std::move(common->highlight),
-                                         std::move(*shape),
-                                         std::move(*target)};
+                      return RoomHotspot{std::move(common->id),        std::move(common->label),
+                                         std::move(common->condition), common->input_order,
+                                         std::move(common->highlight), std::move(*shape),
+                                         std::move(*target),           std::move(common->cursor)};
                   })
             : std::nullopt;
     auto cast =
@@ -2388,12 +2448,15 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
     std::optional<InteractablePresentation> presentation;
     if (presentation_value &&
         decoder.object(*presentation_value, pointer_child(pointer, "presentation"),
-                       {"hotspots", "material", "sprite"})) {
+                       {"cursor", "hotspots", "material", "sprite"})) {
         const auto presentation_pointer = pointer_child(pointer, "presentation");
         const auto* material_value =
             decoder.member(*presentation_value, "material", presentation_pointer);
         const auto* sprite_value =
             decoder.member(*presentation_value, "sprite", presentation_pointer);
+        const auto cursor_entry = presentation_value->find("cursor");
+        const auto* cursor_value =
+            cursor_entry != presentation_value->end() ? &*cursor_entry : nullptr;
         const auto* hotspots_value =
             decoder.member(*presentation_value, "hotspots", presentation_pointer);
         std::optional<MaterialId> material;
@@ -2411,6 +2474,13 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                 decoder, *sprite_value, pointer_child(presentation_pointer, "sprite"), "asset");
             sprite_ok = sprite.has_value();
         }
+        std::optional<CursorTarget> cursor;
+        bool cursor_ok = true;
+        if (cursor_value && !cursor_value->is_null()) {
+            cursor = decode_hotspot_cursor_target(decoder, *cursor_value,
+                                                  pointer_child(presentation_pointer, "cursor"));
+            cursor_ok = cursor.has_value();
+        }
         std::optional<InteractableHotspots> hotspots;
         if (hotspots_value && hotspots_value->is_object()) {
             const auto hotspots_pointer = pointer_child(presentation_pointer, "hotspots");
@@ -2421,9 +2491,9 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
             auto decode_behavior = [&](const nlohmann::json& behavior,
                                        const std::string& behavior_pointer)
                 -> std::optional<InteractableHotspotBehavior> {
-                if (!decoder.object(
-                        behavior, behavior_pointer,
-                        {"condition", "highlight", "id", "inputOrder", "label", "target"}))
+                if (!decoder.object(behavior, behavior_pointer,
+                                    {"condition", "cursor", "highlight", "id", "inputOrder",
+                                     "label", "target"}))
                     return std::nullopt;
                 auto common = decode_hotspot_common(decoder, behavior, behavior_pointer);
                 const auto* target_value = decoder.member(behavior, "target", behavior_pointer);
@@ -2436,7 +2506,8 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                 return InteractableHotspotBehavior{
                     std::move(common->id),        std::move(common->label),
                     std::move(common->condition), common->input_order,
-                    std::move(common->highlight), std::move(*target)};
+                    std::move(common->highlight), std::move(*target),
+                    std::move(common->cursor)};
             };
             if (kind && *kind == "none" &&
                 decoder.object(*hotspots_value, hotspots_pointer, {"kind"})) {
@@ -2462,8 +2533,8 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                               [&](const nlohmann::json& item, const std::string& item_pointer)
                                   -> std::optional<InteractableCustomHotspot> {
                                   if (!decoder.object(item, item_pointer,
-                                                      {"condition", "highlight", "id", "inputOrder",
-                                                       "label", "shape", "target"}))
+                                                      {"condition", "cursor", "highlight", "id",
+                                                       "inputOrder", "label", "shape", "target"}))
                                       return std::nullopt;
                                   auto common = decode_hotspot_common(decoder, item, item_pointer);
                                   const auto* target_value =
@@ -2485,7 +2556,8 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                                   InteractableCustomHotspot result{
                                       {std::move(common->id), std::move(common->label),
                                        std::move(common->condition), common->input_order,
-                                       std::move(common->highlight), std::move(*target)},
+                                       std::move(common->highlight), std::move(*target),
+                                       std::move(common->cursor)},
                                       std::move(*shape)};
                                   return result;
                               })
@@ -2500,9 +2572,9 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                 }
             }
         }
-        if (material_ok && sprite_ok && hotspots)
+        if (material_ok && sprite_ok && cursor_ok && hotspots)
             presentation = InteractablePresentation{std::move(material), std::move(sprite),
-                                                    std::move(*hotspots)};
+                                                    std::move(*hotspots), std::move(cursor)};
     }
     if (features)
         decoder.duplicate_ids(*features, pointer_child(pointer, "features"),
