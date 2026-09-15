@@ -167,12 +167,15 @@ caller's prior intent intact; an image that is not yet realizable leaves the cur
 in place until realization can replace it atomically. Backend realization failure is diagnostic-only
 and does not fail gameplay.
 
-The cursor override is owned by the current Runtime Session rather than Scene, Room, Dialogue, or
-Layout scope. It therefore survives ordinary gameplay presentation changes but is cleared when that
-session ends or is replaced. `cursor.clear()` removes only this gameplay override, revealing the next
-eligible centralized cursor request. Runtime Session cursor intent and native cursor realization are
-transient host presentation state: they are not serialized into SaveState/checkpoints or gameplay
-recordings and are reconstructed only by gameplay behavior that requests them again.
+Outside a Layout callback, the cursor override is owned by the current Runtime Session rather than a
+Scene, Room, Dialogue, or other gameplay scope. It therefore survives ordinary gameplay presentation
+changes but is cleared when that session ends or is replaced. During Layout invocation, the same API
+infers the exact live Layout Mount occurrence instead: its request follows that Mount's visibility and
+presentation order and is discarded on unmount or occurrence replacement. In either scope,
+`cursor.clear()` removes only the caller's inferred owner and reveals the next eligible centralized
+cursor request. Runtime Session and Mount cursor intent plus native cursor realization are transient
+host presentation state: they are not serialized into SaveState/checkpoints or gameplay recordings and
+are reconstructed only by gameplay/Layout behavior that requests them again.
 
 There is no dispatcher-backed second `Game.*` implementation. `GameBinding`,
 `bind_game_session`, `bind_runtime_host`, `bind_runtime_command_dispatcher`, generic entity

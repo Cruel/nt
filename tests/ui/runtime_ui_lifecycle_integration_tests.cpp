@@ -17,6 +17,7 @@
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Types.h>
+#include <SDL3/SDL.h>
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_mouse.h>
 #include <catch2/catch_approx.hpp>
@@ -40,6 +41,15 @@
 namespace {
 
 using RuntimeUiFacadeAccess = noveltea::ui::rmlui::RuntimeUiFacadeAccess;
+
+noveltea::assets::AssetBytes one_pixel_cursor_png()
+{
+    return {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99,
+            0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+}
 
 void require_lua(lua_State* state, const char* script)
 {
@@ -2859,6 +2869,24 @@ TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing 
     CHECK(ui.active_text_presentation_phase() == stable_phase);
 }
 
+TEST_CASE("RuntimeUI accepts semantic cursor intent in headless pointerless composition")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    REQUIRE(ui.set_gameplay_cursor("pointer"));
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+    CHECK(inspection.source == "gameplay-lua");
+    CHECK(inspection.owner == "runtime-session");
+
+    REQUIRE(ui.set_gameplay_cursor("none"));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Hidden);
+    CHECK(inspection.source == "gameplay-lua");
+}
+
 TEST_CASE("RuntimeUI cursor requests resolve through one inspectable authority")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture;
@@ -3378,6 +3406,65 @@ TEST_CASE("RuntimeUI rejects direct RCSS image cursors outside the Layout depend
     CHECK(inspection.source == "project-default");
 }
 
+TEST_CASE("RuntimeUI retains the effective cursor until a Lua image cursor becomes realizable")
+{
+    const bool video_already_initialized = (SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) != 0;
+    if (!video_already_initialized) {
+        SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+        REQUIRE(SDL_InitSubSystem(SDL_INIT_VIDEO));
+    }
+
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path =
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto project_document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(project_document.is_discarded());
+    project_document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 1},
+        {"id", "dynamic-cursor"},
+        {"kind", "image"},
+        {"path", "assets/images/dynamic-cursor.png"},
+        {"sampling", "nearest"},
+        {"width", 1},
+    });
+    auto project = noveltea::core::decode_compiled_project(project_document, "cursor-project.json");
+    REQUIRE(project);
+    ui.configure_project_cursors(*project.value_if());
+
+    REQUIRE(ui.set_gameplay_cursor("wait"));
+    REQUIRE(ui.set_gameplay_cursor_image(noveltea::core::AssetId::create("dynamic-cursor").value(),
+                                         std::nullopt, std::nullopt));
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.effective_name == "wait");
+    CHECK(inspection.source == "gameplay-lua");
+
+    fixture.project_assets().add("assets/images/dynamic-cursor.png", one_pixel_cursor_png());
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective_name == "asset:dynamic-cursor");
+    CHECK(inspection.source == "gameplay-lua");
+    CHECK(inspection.owner == "runtime-session");
+    REQUIRE(inspection.custom);
+    CHECK(inspection.custom->width == 0);
+    CHECK(inspection.custom->height == 0);
+    CHECK(inspection.custom->hotspot_x == 0);
+    CHECK(inspection.custom->hotspot_y == 0);
+    CHECK(inspection.custom->sampling == noveltea::host::CursorImageSampling::Nearest);
+    CHECK(inspection.custom->fit_to_portable_bound);
+
+    fixture.shutdown();
+    if (!video_already_initialized)
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+}
+
 TEST_CASE("RuntimeUI focused Layout preview keeps direct cursor image sampling metadata")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture;
@@ -3753,6 +3840,26 @@ TEST_CASE("RuntimeUI clears transient cursor eligibility across bars leave and f
     inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
     CHECK(inspection.effective == noveltea::host::CursorShape::Default);
     CHECK(inspection.source == "native-default");
+
+    REQUIRE(ui.set_gameplay_cursor("wait"));
+    inspection = move(20.0f, 80.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.source == "gameplay-lua");
+    CHECK(inspection.owner == "runtime-session");
+
+    inspection = move(20.0f, 10.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.source == "gameplay-lua");
+
+    (void)ui.process_event(leave);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.source == "gameplay-lua");
+
+    (void)ui.process_event(focus_lost);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.source == "gameplay-lua");
 }
 
 TEST_CASE("RuntimeUI preserves lifecycle document state across migration and reload")

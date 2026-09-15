@@ -2288,13 +2288,15 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     REQUIRE(host.submit_runtime_input(
                     core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}})
                 .accepted());
+    REQUIRE(runtime_ui.set_gameplay_cursor("pointer"));
+    REQUIRE(runtime_ui.gameplay_cursor_name);
     REQUIRE(host.submit_runtime_input(core::RuntimeInputMessage{core::SaveRuntimeInput{
                                           core::TypedSaveSlotId::autosave()}})
                 .accepted());
     REQUIRE(host.submit_runtime_input(
                     core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::seconds{1}}})
                 .accepted());
-    REQUIRE(runtime_ui.set_gameplay_cursor("pointer"));
+    REQUIRE(runtime_ui.set_gameplay_cursor("wait"));
     REQUIRE(runtime_ui.gameplay_cursor_name);
     const auto pre_load_session = host.session_generation();
     const auto pre_load_backend = host.backend_generation();

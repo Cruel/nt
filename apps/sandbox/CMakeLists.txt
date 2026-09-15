@@ -2,6 +2,7 @@ set(NOVELTEA_SANDBOX_SOURCES
     main.cpp
     sandbox_app.cpp
     sandbox_demo_harness.cpp
+    tests/cursor_platform_smoke.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")

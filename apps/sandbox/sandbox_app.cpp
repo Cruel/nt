@@ -1,4 +1,5 @@
 #include "sandbox_app.hpp"
+#include "tests/cursor_platform_smoke.hpp"
 
 #include "noveltea/engine_tooling.hpp"
 #include "noveltea/platform.hpp"
@@ -138,6 +139,8 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             }
         } else if (std::strcmp(arg, "--show-fps") == 0) {
             options.show_fps_counter = true;
+        } else if (std::strcmp(arg, "--cursor-platform-smoke") == 0) {
+            options.cursor_platform_smoke = true;
         } else if (std::strcmp(arg, "--demo") == 0) {
             const char* mode = require_value(arg);
             if (!mode)
@@ -365,6 +368,8 @@ bool App::initialize(int argc, char* argv[])
         std::fprintf(stderr, "[app] engine initialization failed\n");
         return false;
     }
+    if (options.cursor_platform_smoke)
+        sandbox::run_cursor_platform_smoke();
     if (options.runtime_ui_scale &&
         !EngineTooling::set_runtime_ui_scale(m_engine, *options.runtime_ui_scale)) {
         std::fprintf(stderr, "[app] runtime UI scale was rejected: %.3f\n",
