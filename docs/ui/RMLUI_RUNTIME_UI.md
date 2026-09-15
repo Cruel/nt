@@ -256,6 +256,15 @@ above, so a consumed or modal context shields lower cursor requests while a clic
 no cursor request leaves lower eligible requests available. The authority exposes the effective cursor
 and winning source/owner to private test/debug adapters.
 
+Layout Lua uses the same `noveltea.presentation.cursor` API as gameplay Lua, but RuntimeUI attributes a
+call made during Layout invocation to the exact live Mount occurrence rather than the Runtime Session.
+A Mount request is retained while that occurrence is hidden, becomes eligible whenever it is visible
+(regardless of `input: None`), and is discarded when the occurrence is replaced or unmounted. Visible
+Mount requests arbitrate in deterministic front-to-back presentation order; they therefore outrank a
+Runtime Session cursor without relying on call timing. Gameplay-owned cursor intent is itself eligible
+only while Layout policy admits gameplay input, so a blocking shell/modal Layout suspends it and closing
+the blocker reveals the same retained gameplay request again. `clear()` affects only the inferred owner.
+
 The current native semantic vocabulary is `default`, `pointer`, `text`, `wait`, `progress`,
 `crosshair`, `move`, `not-allowed`, `ns-resize`, `ew-resize`, `nesw-resize`, and `nwse-resize`.
 Project cursor settings may override the semantic `default` and `pointer` targets and register reusable

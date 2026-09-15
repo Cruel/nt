@@ -564,6 +564,7 @@ struct RuntimeUI::State {
     void refresh_game_hud_map();
     void refresh_mounted_maps();
     void refresh_active_text_layout();
+    void refresh_cursor_eligibility();
     void load_runtime_document();
     void show_game_document();
     bool dispatch_shell_command(const core::RuntimeShellCommand& command);
@@ -587,9 +588,12 @@ struct RuntimeUI::State {
     bool with_active_layout_mount_document(const std::string& id, Dispatch&& dispatch)
     {
         const auto previous = active_layout_mount_document;
+        const bool previous_invocation = layout_invocation_active;
         active_layout_mount_document = id;
+        layout_invocation_active = true;
         const bool result = dispatch();
         active_layout_mount_document = previous;
+        layout_invocation_active = previous_invocation;
         return result;
     }
     Rml::Context* context_for(ContextKey key);
@@ -607,6 +611,12 @@ struct RuntimeUI::State {
     std::unordered_map<std::string, CursorImageAssetMetadata> cursor_image_assets;
     std::unordered_map<std::string, CursorImageAssetMetadata> gameplay_cursor_image_assets;
     std::optional<host::CursorPresentation> pending_gameplay_cursor;
+    struct PendingLayoutCursor {
+        host::CursorPresentation presentation;
+        std::string owner_label;
+    };
+    std::unordered_map<host::CursorAuthority::OwnerToken, PendingLayoutCursor>
+        pending_layout_cursors;
     std::unordered_map<std::string, CursorImageAssetMetadata> focused_preview_cursor_image_assets;
     std::unordered_map<std::string, std::unordered_set<std::string>>
         layout_cursor_image_dependencies;
@@ -628,7 +638,12 @@ struct RuntimeUI::State {
     std::optional<core::RuntimeShellViewState> runtime_shell_view;
     std::unordered_map<core::compiled::SystemLayoutRole, std::string> system_layout_documents;
     std::unordered_map<std::string, RuntimeUiLayoutMountContext> layout_mount_contexts;
+    std::unordered_map<std::string, std::unordered_set<host::CursorAuthority::OwnerToken>>
+        layout_cursor_retirements;
+    std::vector<std::string> layout_order;
     std::optional<std::string> active_layout_mount_document;
+    bool layout_invocation_active = false;
+    std::function<bool()> layout_gameplay_admission;
     bool system_layout_documents_authoritative = false;
     std::string title_project;
     std::string title_subtitle;
@@ -739,6 +754,32 @@ std::optional<std::string> RuntimeUI::State::mount_document(ContextKey key) cons
         result = document_id;
     }
     return result;
+}
+
+void RuntimeUI::State::refresh_cursor_eligibility()
+{
+    if (!cursor_authority)
+        return;
+
+    std::vector<host::CursorAuthority::OwnerToken> layout_owners;
+    layout_owners.reserve(layout_order.size());
+    for (auto it = layout_order.rbegin(); it != layout_order.rend(); ++it) {
+        const auto context = layout_mount_contexts.find(*it);
+        auto* document = document_registry ? document_registry->document(*it) : nullptr;
+        if (context == layout_mount_contexts.end() || !document || !document->IsVisible())
+            continue;
+        layout_owners.push_back(context->second.occurrence.number());
+    }
+    cursor_authority->set_eligible_order(host::CursorRequestSource::LayoutLua,
+                                         std::move(layout_owners));
+
+    constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
+    const bool gameplay_eligible = !layout_gameplay_admission || layout_gameplay_admission();
+    cursor_authority->set_eligible_order(
+        host::CursorRequestSource::GameplayLua,
+        gameplay_eligible ? std::vector<host::CursorAuthority::OwnerToken>{gameplay_cursor_owner}
+                          : std::vector<host::CursorAuthority::OwnerToken>{});
+    cursor_authority->resolve();
 }
 
 void RuntimeUI::State::load_runtime_document()
@@ -1808,7 +1849,7 @@ core::Result<void, core::Diagnostics> RuntimeUI::set_gameplay_cursor(std::string
     if (name == "auto")
         return core::Result<void, core::Diagnostics>::failure(
             {{.code = "runtime.cursor.invalid_name",
-              .message = "'auto' is not a valid gameplay Lua cursor target"}});
+              .message = "'auto' is not a valid Lua cursor target"}});
 
     std::optional<host::CursorPresentation> presentation;
     if (name == "none") {
@@ -1822,7 +1863,29 @@ core::Result<void, core::Diagnostics> RuntimeUI::set_gameplay_cursor(std::string
     } else {
         return core::Result<void, core::Diagnostics>::failure(
             {{.code = "runtime.cursor.invalid_name",
-              .message = "Unknown gameplay cursor name '" + name + "'"}});
+              .message = "Unknown cursor name '" + name + "'"}});
+    }
+
+    if (m_state->layout_invocation_active) {
+        if (!m_state->active_layout_mount_document) {
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "runtime.cursor.layout_context_unavailable",
+                  .message = "Layout cursor command has no live Mount occurrence"}});
+        }
+        const auto context =
+            m_state->layout_mount_contexts.find(*m_state->active_layout_mount_document);
+        if (context == m_state->layout_mount_contexts.end()) {
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "runtime.cursor.layout_context_unavailable",
+                  .message = "Layout cursor command has no live Mount occurrence"}});
+        }
+        const auto owner = context->second.occurrence.number();
+        m_state->pending_layout_cursors.erase(owner);
+        m_state->cursor_authority->publish(
+            host::CursorRequestSource::LayoutLua, owner, std::move(*presentation),
+            *m_state->active_layout_mount_document + "#" + std::to_string(owner));
+        m_state->refresh_cursor_eligibility();
+        return core::Result<void, core::Diagnostics>::success();
     }
 
     m_state->pending_gameplay_cursor.reset();
@@ -1830,9 +1893,7 @@ core::Result<void, core::Diagnostics> RuntimeUI::set_gameplay_cursor(std::string
     m_state->cursor_authority->publish(host::CursorRequestSource::GameplayLua,
                                        gameplay_cursor_owner, std::move(*presentation),
                                        "runtime-session");
-    m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::GameplayLua,
-                                                  {gameplay_cursor_owner});
-    m_state->cursor_authority->resolve();
+    m_state->refresh_cursor_eligibility();
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -1870,6 +1931,39 @@ RuntimeUI::set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uin
                                                  .hotspot_y = y,
                                                  .sampling = metadata.sampling,
                                                  .fit_to_portable_bound = true}};
+    if (m_state->layout_invocation_active) {
+        if (!m_state->active_layout_mount_document) {
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "runtime.cursor.layout_context_unavailable",
+                  .message = "Layout cursor command has no live Mount occurrence"}});
+        }
+        const auto context =
+            m_state->layout_mount_contexts.find(*m_state->active_layout_mount_document);
+        if (context == m_state->layout_mount_contexts.end()) {
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "runtime.cursor.layout_context_unavailable",
+                  .message = "Layout cursor command has no live Mount occurrence"}});
+        }
+        const auto owner = context->second.occurrence.number();
+        const std::string owner_label =
+            *m_state->active_layout_mount_document + "#" + std::to_string(owner);
+        if (m_state->cursor_realizer && !m_state->cursor_realizer->prepare(*presentation.custom)) {
+            m_state->pending_layout_cursors.insert_or_assign(
+                owner, State::PendingLayoutCursor{presentation, owner_label});
+            m_state->typed_diagnostics.push_back(
+                {.code = "runtime.cursor.realization_failed",
+                 .message =
+                     "Layout cursor image '" + asset.text() +
+                     "' is not currently realizable; keeping the previous effective cursor."});
+            return core::Result<void, core::Diagnostics>::success();
+        }
+        m_state->pending_layout_cursors.erase(owner);
+        m_state->cursor_authority->publish(host::CursorRequestSource::LayoutLua, owner,
+                                           std::move(presentation), owner_label);
+        m_state->refresh_cursor_eligibility();
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
     if (m_state->cursor_realizer && !m_state->cursor_realizer->prepare(*presentation.custom)) {
         m_state->pending_gameplay_cursor = presentation;
         m_state->typed_diagnostics.push_back(
@@ -1884,9 +1978,7 @@ RuntimeUI::set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uin
     m_state->cursor_authority->publish(host::CursorRequestSource::GameplayLua,
                                        gameplay_cursor_owner, std::move(presentation),
                                        "runtime-session");
-    m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::GameplayLua,
-                                                  {gameplay_cursor_owner});
-    m_state->cursor_authority->resolve();
+    m_state->refresh_cursor_eligibility();
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -1894,16 +1986,35 @@ void RuntimeUI::clear_gameplay_cursor() noexcept
 {
     if (!m_state || !m_state->cursor_authority)
         return;
+    if (m_state->layout_invocation_active) {
+        if (!m_state->active_layout_mount_document)
+            return;
+        const auto context =
+            m_state->layout_mount_contexts.find(*m_state->active_layout_mount_document);
+        if (context == m_state->layout_mount_contexts.end())
+            return;
+        const auto owner = context->second.occurrence.number();
+        m_state->pending_layout_cursors.erase(owner);
+        m_state->cursor_authority->clear(host::CursorRequestSource::LayoutLua, owner);
+        m_state->refresh_cursor_eligibility();
+        return;
+    }
     m_state->pending_gameplay_cursor.reset();
     m_state->cursor_authority->clear_source(host::CursorRequestSource::GameplayLua);
-    m_state->cursor_authority->resolve();
+    m_state->refresh_cursor_eligibility();
 }
 
 void RuntimeUI::clear_project_cursors() noexcept
 {
     if (!m_state)
         return;
-    clear_gameplay_cursor();
+    m_state->pending_gameplay_cursor.reset();
+    m_state->pending_layout_cursors.clear();
+    m_state->layout_cursor_retirements.clear();
+    if (m_state->cursor_authority) {
+        m_state->cursor_authority->clear_source(host::CursorRequestSource::GameplayLua);
+        m_state->cursor_authority->clear_source(host::CursorRequestSource::LayoutLua);
+    }
     m_state->cursor_settings.reset();
     m_state->named_cursors.clear();
     m_state->cursor_image_assets.clear();
@@ -2027,10 +2138,13 @@ RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event)
         [this](const State::ContextKey& key, core::MountedLayoutOwner owner,
                const std::function<bool()>& dispatch) {
             const auto previous = m_state->active_layout_mount_document;
+            const bool previous_invocation = m_state->layout_invocation_active;
             m_state->active_layout_mount_document = m_state->mount_document(key);
+            m_state->layout_invocation_active = true;
             const bool handled = m_state->action_gateway &&
                                  m_state->action_gateway->dispatch_layout_event(owner, dispatch);
             m_state->active_layout_mount_document = previous;
+            m_state->layout_invocation_active = previous_invocation;
             return handled;
         });
     if (m_state->action_gateway)
@@ -2052,17 +2166,29 @@ void RuntimeUI::resize(const PresentationMetrics& presentation)
 
 void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
 {
-    if (m_state && m_state->pending_gameplay_cursor && m_state->cursor_authority &&
-        (!m_state->cursor_realizer ||
-         m_state->cursor_realizer->prepare(*m_state->pending_gameplay_cursor->custom))) {
-        constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
-        m_state->cursor_authority->publish(
-            host::CursorRequestSource::GameplayLua, gameplay_cursor_owner,
-            std::move(*m_state->pending_gameplay_cursor), "runtime-session");
-        m_state->pending_gameplay_cursor.reset();
-        m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::GameplayLua,
-                                                      {gameplay_cursor_owner});
-        m_state->cursor_authority->resolve();
+    if (m_state && m_state->cursor_authority) {
+        if (m_state->pending_gameplay_cursor &&
+            (!m_state->cursor_realizer ||
+             m_state->cursor_realizer->prepare(*m_state->pending_gameplay_cursor->custom))) {
+            constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
+            m_state->cursor_authority->publish(
+                host::CursorRequestSource::GameplayLua, gameplay_cursor_owner,
+                std::move(*m_state->pending_gameplay_cursor), "runtime-session");
+            m_state->pending_gameplay_cursor.reset();
+        }
+        for (auto it = m_state->pending_layout_cursors.begin();
+             it != m_state->pending_layout_cursors.end();) {
+            if (m_state->cursor_realizer &&
+                !m_state->cursor_realizer->prepare(*it->second.presentation.custom)) {
+                ++it;
+                continue;
+            }
+            m_state->cursor_authority->publish(host::CursorRequestSource::LayoutLua, it->first,
+                                               std::move(it->second.presentation),
+                                               std::move(it->second.owner_label));
+            it = m_state->pending_layout_cursors.erase(it);
+        }
+        m_state->refresh_cursor_eligibility();
     }
     if (m_state && m_state->host && !m_state->host->contexts().empty()) {
         m_state->host->begin_frame(clocks);
@@ -2091,11 +2217,14 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
             [this](const State::ContextKey& key, core::MountedLayoutOwner owner,
                    const std::function<bool()>& dispatch) {
                 const auto previous = m_state->active_layout_mount_document;
+                const bool previous_invocation = m_state->layout_invocation_active;
                 m_state->active_layout_mount_document = m_state->mount_document(key);
+                m_state->layout_invocation_active = true;
                 const bool handled =
                     m_state->action_gateway &&
                     m_state->action_gateway->dispatch_layout_event(owner, dispatch);
                 m_state->active_layout_mount_document = previous;
+                m_state->layout_invocation_active = previous_invocation;
                 return handled;
             });
         m_state->refresh_active_text_layout();
@@ -2170,8 +2299,13 @@ bool RuntimeUI::load_document_for_layout(const std::string& id, const std::strin
         policy, composition_group, owner, scale_policy, compatibility_group);
     const bool loaded = m_state->with_active_layout_mount_document(
         id, [&]() { return m_state->document_registry->load_path(id, path, show, key); });
-    if (loaded)
+    if (loaded) {
+        if (std::find(m_state->layout_order.begin(), m_state->layout_order.end(), id) ==
+            m_state->layout_order.end())
+            m_state->layout_order.push_back(id);
         m_state->queue_message_refresh();
+        m_state->refresh_cursor_eligibility();
+    }
     return loaded;
 }
 
@@ -2190,8 +2324,13 @@ bool RuntimeUI::load_document_from_memory_for_layout(const std::string& id, cons
     const bool loaded = m_state->with_active_layout_mount_document(id, [&]() {
         return m_state->document_registry->load_memory(id, rml, source_url, show, key);
     });
-    if (loaded)
+    if (loaded) {
+        if (std::find(m_state->layout_order.begin(), m_state->layout_order.end(), id) ==
+            m_state->layout_order.end())
+            m_state->layout_order.push_back(id);
         m_state->queue_message_refresh();
+        m_state->refresh_cursor_eligibility();
+    }
     return loaded;
 }
 
@@ -2216,7 +2355,11 @@ bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_doc
                                                         show, key);
     });
     if (loaded) {
+        if (std::find(m_state->layout_order.begin(), m_state->layout_order.end(), document_id) ==
+            m_state->layout_order.end())
+            m_state->layout_order.push_back(document_id);
         m_state->queue_message_refresh();
+        m_state->refresh_cursor_eligibility();
         if (builtin_document == RuntimeLayoutBuiltinDocument::GameHud)
             m_state->refresh_game_hud_map();
         else
@@ -2259,8 +2402,25 @@ void RuntimeUI::set_system_layout_documents(
 
 bool RuntimeUI::apply_layout_order(const std::vector<std::string>& ordered_document_ids)
 {
-    return m_state && m_state->document_registry &&
-           m_state->document_registry->apply_order(ordered_document_ids);
+    if (!m_state || !m_state->document_registry ||
+        !m_state->document_registry->apply_order(ordered_document_ids))
+        return false;
+    m_state->layout_order = ordered_document_ids;
+    if (m_state->cursor_authority) {
+        for (auto& [document_id, owners] : m_state->layout_cursor_retirements) {
+            if (const auto current = m_state->layout_mount_contexts.find(document_id);
+                current != m_state->layout_mount_contexts.end()) {
+                owners.erase(current->second.occurrence.number());
+            }
+            for (const auto owner : owners) {
+                m_state->pending_layout_cursors.erase(owner);
+                m_state->cursor_authority->clear(host::CursorRequestSource::LayoutLua, owner);
+            }
+        }
+    }
+    m_state->layout_cursor_retirements.clear();
+    m_state->refresh_cursor_eligibility();
+    return true;
 }
 
 bool RuntimeUI::apply_layout_policy(const std::string& document_id,
@@ -2280,6 +2440,7 @@ bool RuntimeUI::apply_layout_policy(const std::string& document_id,
         m_state->refresh_game_hud_map();
         m_state->refresh_text_log_map();
         m_state->refresh_active_text_layout();
+        m_state->refresh_cursor_eligibility();
     }
     return applied;
 }
@@ -2328,8 +2489,24 @@ bool RuntimeUI::unload_document(const std::string& id)
     const bool unloaded = m_state->with_active_layout_mount_document(
         id, [&]() { return m_state->document_registry->unload(id); });
     if (unloaded) {
+        const auto clear_owner = [state = m_state](host::CursorAuthority::OwnerToken owner) {
+            state->pending_layout_cursors.erase(owner);
+            if (state->cursor_authority)
+                state->cursor_authority->clear(host::CursorRequestSource::LayoutLua, owner);
+        };
+        const auto context = m_state->layout_mount_contexts.find(id);
+        if (context != m_state->layout_mount_contexts.end())
+            clear_owner(context->second.occurrence.number());
+        if (const auto retired = m_state->layout_cursor_retirements.find(id);
+            retired != m_state->layout_cursor_retirements.end()) {
+            for (const auto owner : retired->second)
+                clear_owner(owner);
+            m_state->layout_cursor_retirements.erase(retired);
+        }
         m_state->layout_mount_contexts.erase(id);
         m_state->layout_cursor_image_dependencies.erase(id);
+        std::erase(m_state->layout_order, id);
+        m_state->refresh_cursor_eligibility();
     }
     return unloaded;
 }
@@ -2343,19 +2520,26 @@ bool RuntimeUI::show_document(const std::string& id)
     // Settle model-driven geometry while hidden, then commit onshow style changes before rendering.
     if (!document || !context || !context->Update())
         return false;
-    return m_state->with_active_layout_mount_document(id, [&]() {
+    const bool shown = m_state->with_active_layout_mount_document(id, [&]() {
         if (!m_state->document_registry->show(id))
             return false;
         document->UpdateDocument();
         return true;
     });
+    if (shown)
+        m_state->refresh_cursor_eligibility();
+    return shown;
 }
 
 bool RuntimeUI::hide_document(const std::string& id)
 {
-    return m_state && m_state->document_registry &&
-           m_state->with_active_layout_mount_document(
-               id, [&]() { return m_state->document_registry->hide(id); });
+    if (!m_state || !m_state->document_registry)
+        return false;
+    const bool hidden = m_state->with_active_layout_mount_document(
+        id, [&]() { return m_state->document_registry->hide(id); });
+    if (hidden)
+        m_state->refresh_cursor_eligibility();
+    return hidden;
 }
 
 bool RuntimeUI::set_document_opacity(const std::string& id, float opacity)
@@ -2369,7 +2553,18 @@ void RuntimeUI::set_layout_mount_context(const std::string& id,
 {
     if (!m_state)
         return;
+    const auto previous = m_state->layout_mount_contexts.find(id);
+    if (previous != m_state->layout_mount_contexts.end() &&
+        (!context || previous->second.occurrence != context->occurrence)) {
+        m_state->layout_cursor_retirements[id].insert(previous->second.occurrence.number());
+    }
     if (context) {
+        if (const auto retired = m_state->layout_cursor_retirements.find(id);
+            retired != m_state->layout_cursor_retirements.end()) {
+            retired->second.erase(context->occurrence.number());
+            if (retired->second.empty())
+                m_state->layout_cursor_retirements.erase(retired);
+        }
         if (m_state->host && m_state->document_registry) {
             m_state->host->set_context_material_parameters(
                 m_state->document_registry->document_context(id), context->material_parameters,
@@ -2384,6 +2579,7 @@ void RuntimeUI::set_layout_mount_context(const std::string& id,
         m_state->layout_mount_contexts.erase(id);
     }
     m_state->refresh_mounted_maps();
+    m_state->refresh_cursor_eligibility();
 }
 
 void RuntimeUI::set_layout_cursor_image_dependencies(const std::string& id,
@@ -2717,7 +2913,9 @@ void RuntimeUI::bind_layout_gameplay_admission(std::function<bool()> admission)
         m_state->action_gateway->set_lua_state(m_state->lua_state);
     }
     m_state->refresh_action_gateway_shell_slots();
+    m_state->layout_gameplay_admission = admission;
     m_state->action_gateway->bind_layout_gameplay_admission(std::move(admission));
+    m_state->refresh_cursor_eligibility();
 }
 
 void ui::rmlui::RuntimeUiFacadeAccess::bind_game_started_handler(RuntimeUI& runtime_ui,
