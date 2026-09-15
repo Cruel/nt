@@ -956,7 +956,7 @@ describe('Prepared Runtime Artifact module', () => {
     const authored = structuredClone(project);
     const options: RuntimeArtifactTestOptions = {
       projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
     };
     const before = await prepareRuntimeAssessmentForTest(project, options);
     const prepared = await prepareRuntimeAssessmentForTest(project, {
@@ -965,11 +965,11 @@ describe('Prepared Runtime Artifact module', () => {
         {
           shader: 'basic',
           stage: 'vertex',
-          variant: 'glsl-120',
+          variant: 'glsl-330',
           sourcePath: '/project/.noveltea/build/basic.vs.sc',
-          runtimePath: 'project:/shaders/bgfx/glsl-120/basic.vs.bin',
-          outputPath: '/project/shaders/bgfx/glsl-120/basic.vs.bin',
-          cacheKey: 'basic-vertex-glsl-120',
+          runtimePath: 'project:/shaders/bgfx/glsl-330/basic.vs.bin',
+          outputPath: '/project/shaders/bgfx/glsl-330/basic.vs.bin',
+          cacheKey: 'basic-vertex-glsl-330',
           byteHash: `sha256:${'b'.repeat(64)}`,
           byteSize: 4,
           cacheHit: false,
@@ -977,11 +977,11 @@ describe('Prepared Runtime Artifact module', () => {
         {
           shader: 'basic',
           stage: 'fragment',
-          variant: 'glsl-120',
+          variant: 'glsl-330',
           sourcePath: '/project/.noveltea/build/basic.fs.sc',
-          runtimePath: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
-          outputPath: '/project/shaders/bgfx/glsl-120/basic.fs.bin',
-          cacheKey: 'basic-fragment-glsl-120',
+          runtimePath: 'project:/shaders/bgfx/glsl-330/basic.fs.bin',
+          outputPath: '/project/shaders/bgfx/glsl-330/basic.fs.bin',
+          cacheKey: 'basic-fragment-glsl-330',
           byteHash: `sha256:${'a'.repeat(64)}`,
           byteSize: 4,
           cacheHit: false,
@@ -996,8 +996,8 @@ describe('Prepared Runtime Artifact module', () => {
           stages: {
             fragment: {
               compiled: {
-                'glsl-120': {
-                  runtimePath: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+                'glsl-330': {
+                  runtimePath: 'project:/shaders/bgfx/glsl-330/basic.fs.bin',
                   byteHash: `sha256:${'a'.repeat(64)}`,
                   byteSize: 4,
                 },
@@ -1007,9 +1007,9 @@ describe('Prepared Runtime Artifact module', () => {
         },
       },
     });
-    expect(prepared.packageOptions.shaderVariants).toEqual(['glsl-120']);
+    expect(prepared.packageOptions.shaderVariants).toEqual(['glsl-330']);
     expect(prepared.packageOptions.requiredShaderBinaryPaths).toContain(
-      'shaders/bgfx/glsl-120/basic.fs.bin',
+      'shaders/bgfx/glsl-330/basic.fs.bin',
     );
     expect(JSON.stringify(prepared.shaderMaterialMetadata)).not.toContain(
       'compileInputFingerprint',
@@ -1261,7 +1261,7 @@ describe('Prepared Runtime Artifact module', () => {
     };
     const profile: ExportProfileData = {
       ...defaultExportProfile(project),
-      shaderVariants: ['glsl-120'],
+      shaderVariants: ['glsl-330'],
     };
     const prepared = await prepareRuntimeArtifactForTest(project, {
       projectRoot: '/project',

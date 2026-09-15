@@ -1613,24 +1613,28 @@ TEST_CASE("RuntimeUI input sink rebinding preserves gameplay revision and shell 
     CHECK(notification->GetInnerRML() == "after-rebind");
 }
 
-TEST_CASE("RuntimeUI baseline preserves content width when the Load menu enables a vertical scrollbar")
+TEST_CASE(
+    "RuntimeUI baseline preserves content width when the Load menu enables a vertical scrollbar")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
     REQUIRE(fixture.initialize());
     auto& ui = fixture.runtime_ui();
-    REQUIRE(RuntimeUiFacadeAccess::load_builtin_system_document(
-        ui, "runtime_load_menu", "system:/ui/menu/load-menu.rml"));
+    REQUIRE(RuntimeUiFacadeAccess::load_builtin_system_document(ui, "runtime_load_menu",
+                                                                "system:/ui/menu/load-menu.rml"));
     noveltea::core::RuntimeShellViewState view;
     view.checkpoint = noveltea::core::CheckpointRuntimeObservation{
         .readiness = {noveltea::core::CheckpointReadinessRevision::from_number(8), {}},
-        .presentation = {noveltea::core::CheckpointStatusRevision::from_number(4), {}, std::nullopt},
+        .presentation = {noveltea::core::CheckpointStatusRevision::from_number(4),
+                         {},
+                         std::nullopt},
         .retained_revision = noveltea::core::SaveCheckpointRevision::from_number(2),
         .replay_distance = {0, 0, std::chrono::milliseconds{0}},
         .thumbnail_available = false,
         .thumbnail_capture_pending = false};
     view.slots.push_back({.slot = noveltea::core::TypedSaveSlotId::autosave(), .occupied = false});
     for (int slot = 1; slot <= 20; ++slot)
-        view.slots.push_back({.slot = noveltea::core::TypedSaveSlotId::manual(slot), .occupied = false});
+        view.slots.push_back(
+            {.slot = noveltea::core::TypedSaveSlotId::manual(slot), .occupied = false});
     ui.apply_runtime_shell_view(view);
     ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
 

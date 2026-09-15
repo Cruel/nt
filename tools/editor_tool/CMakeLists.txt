@@ -15,6 +15,7 @@ target_include_directories(noveltea_shader_tooling PRIVATE
     "${NOVELTEA_EMBEDDED_SHADERC_GENERATED_DIR}")
 target_compile_definitions(noveltea_shader_tooling PRIVATE
     NOVELTEA_HAS_EMBEDDED_SHADERC=1
+    NOVELTEA_BGFX_VERSION_STRING="${NOVELTEA_BGFX_VERSION}"
     BX_CONFIG_DEBUG=$<CONFIG:Debug>
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 if(MSVC)

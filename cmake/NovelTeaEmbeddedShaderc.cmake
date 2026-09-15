@@ -1,9 +1,11 @@
 include(FetchContent)
 
+if(NOT DEFINED NOVELTEA_BGFX_VERSION OR NOT DEFINED NOVELTEA_BGFX_ARCHIVE_SHA256)
+    message(FATAL_ERROR "NovelTeaEmbeddedShaderc requires NOVELTEA_BGFX_VERSION and NOVELTEA_BGFX_ARCHIVE_SHA256")
+endif()
 set(NOVELTEA_BGFX_SHADERC_ARCHIVE_URL
-    "https://github.com/bkaradzic/bgfx.cmake/releases/download/v1.129.8940-496/bgfx.cmake.v1.129.8940-496.tar.gz")
-set(NOVELTEA_BGFX_SHADERC_ARCHIVE_SHA256
-    "0fa0482d3b09ae262c9c7fc54a7193022510313f1250077caad5ff18504fce02")
+    "https://github.com/bkaradzic/bgfx.cmake/releases/download/v${NOVELTEA_BGFX_VERSION}/bgfx.cmake.v${NOVELTEA_BGFX_VERSION}.tar.gz")
+set(NOVELTEA_BGFX_SHADERC_ARCHIVE_SHA256 "${NOVELTEA_BGFX_ARCHIVE_SHA256}")
 set(NOVELTEA_PREBUILT_SHADERC_ROOT "" CACHE PATH
     "Extracted nt-tools static shaderc closure; empty builds the pinned source locally")
 
@@ -56,36 +58,31 @@ function(noveltea_configure_embedded_shaderc)
         return()
     endif()
 
-    set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(BGFX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
-    set(BGFX_BUILD_TOOLS ON CACHE BOOL "" FORCE)
-    set(BGFX_BUILD_TOOLS_BIN2C OFF CACHE BOOL "" FORCE)
-    set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
-    set(BGFX_BUILD_TOOLS_TEXTURE ON CACHE BOOL "" FORCE)
-    set(BGFX_BUILD_TOOLS_SHADER ON CACHE BOOL "" FORCE)
-    set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
-    set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
+    if(TARGET shaderc AND TARGET texturec AND NOVELTEA_BGFX_SOURCE_DIR)
+        set(noveltea_bgfx_shaderc_source_SOURCE_DIR "${NOVELTEA_BGFX_SOURCE_DIR}")
+    else()
+        set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(BGFX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
+        set(BGFX_BUILD_TOOLS ON CACHE BOOL "" FORCE)
+        set(BGFX_BUILD_TOOLS_BIN2C OFF CACHE BOOL "" FORCE)
+        set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
+        set(BGFX_BUILD_TOOLS_TEXTURE OFF CACHE BOOL "" FORCE)
+        set(BGFX_BUILD_TOOLS_SHADER ON CACHE BOOL "" FORCE)
+        set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
+        set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
 
-    find_package(Git REQUIRED)
-
-    FetchContent_Declare(
-        noveltea_bgfx_shaderc_source
-        URL "${NOVELTEA_BGFX_SHADERC_ARCHIVE_URL}"
-        URL_HASH "SHA256=${NOVELTEA_BGFX_SHADERC_ARCHIVE_SHA256}"
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-        PATCH_COMMAND "${CMAKE_COMMAND}"
-            "-DNOVELTEA_GIT_EXECUTABLE=${GIT_EXECUTABLE}"
-            "-DNOVELTEA_PATCH_SOURCE_DIR=<SOURCE_DIR>"
-            "-DNOVELTEA_PATCH_FILE=${CMAKE_SOURCE_DIR}/cmake/patches/bgfx-shaderc-fcpp-value-stack.patch"
-            -P "${CMAKE_SOURCE_DIR}/cmake/ApplyGitPatchOnce.cmake"
-        COMMAND "${CMAKE_COMMAND}"
-            "-DNOVELTEA_GIT_EXECUTABLE=${GIT_EXECUTABLE}"
-            "-DNOVELTEA_PATCH_SOURCE_DIR=<SOURCE_DIR>"
-            "-DNOVELTEA_PATCH_FILE=${CMAKE_SOURCE_DIR}/cmake/patches/bimg-texturec-embedded-entry.patch"
-            -P "${CMAKE_SOURCE_DIR}/cmake/ApplyGitPatchOnce.cmake"
-    )
-    FetchContent_MakeAvailable(noveltea_bgfx_shaderc_source)
+        FetchContent_Declare(
+            noveltea_bgfx_shaderc_source
+            URL "${NOVELTEA_BGFX_SHADERC_ARCHIVE_URL}"
+            URL_HASH "SHA256=${NOVELTEA_BGFX_SHADERC_ARCHIVE_SHA256}"
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        )
+        FetchContent_MakeAvailable(noveltea_bgfx_shaderc_source)
+        if(NOT TARGET texturec)
+            include("${noveltea_bgfx_shaderc_source_SOURCE_DIR}/cmake/bimg/texturec.cmake")
+        endif()
+    endif()
 
     if(NOT TARGET shaderc)
         message(FATAL_ERROR "Pinned bgfx source did not define its shaderc target")
@@ -102,29 +99,61 @@ function(noveltea_configure_embedded_shaderc)
 
     get_target_property(_shaderc_sources shaderc SOURCES)
     get_target_property(_shaderc_links shaderc LINK_LIBRARIES)
+    get_target_property(_shaderc_includes shaderc INCLUDE_DIRECTORIES)
+    get_target_property(_shaderc_definitions shaderc COMPILE_DEFINITIONS)
+    get_target_property(_shaderc_options shaderc COMPILE_OPTIONS)
     if(NOT _shaderc_sources OR NOT _shaderc_links)
         message(FATAL_ERROR "Pinned bgfx shaderc target did not expose its source/link closure")
     endif()
 
     add_library(noveltea_bgfx_shaderc_embedded STATIC ${_shaderc_sources})
     set_target_properties(noveltea_bgfx_shaderc_embedded PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    if(_shaderc_includes)
+        target_include_directories(noveltea_bgfx_shaderc_embedded PRIVATE ${_shaderc_includes})
+    endif()
+    if(_shaderc_definitions)
+        target_compile_definitions(noveltea_bgfx_shaderc_embedded PRIVATE ${_shaderc_definitions})
+    endif()
+    if(_shaderc_options)
+        target_compile_options(noveltea_bgfx_shaderc_embedded PRIVATE ${_shaderc_options})
+    endif()
     target_compile_definitions(noveltea_bgfx_shaderc_embedded PRIVATE
         main=noveltea_bgfx_shaderc_embedded_cli_main)
-    # shaderc is a build-host/editor tool. Keep its exact upstream host dependency
-    # closure (including RTTI/exceptions where enabled) separate from the shipped
-    # game-runtime compiler policy.
+    # The runtime bx target is intentionally built without RTTI. Build the embedded shaderc
+    # translation units with matching RTTI settings so subclasses of bx stream types do not emit
+    # references to RTTI symbols that the runtime bx archive does not provide. Exceptions remain
+    # enabled for the host tool and its compiler dependencies.
+    if(MSVC)
+        target_compile_options(noveltea_bgfx_shaderc_embedded PRIVATE /GR-)
+    else()
+        target_compile_options(noveltea_bgfx_shaderc_embedded PRIVATE -fno-rtti)
+    endif()
+    # shaderc is a build-host/editor tool. Keep its exact upstream host dependency closure
+    # (including exceptions where enabled) separate from the shipped game-runtime compiler policy.
     target_link_libraries(noveltea_bgfx_shaderc_embedded PRIVATE ${_shaderc_links})
 
     get_target_property(_texturec_sources texturec SOURCES)
     get_target_property(_texturec_links texturec LINK_LIBRARIES)
+    get_target_property(_texturec_includes texturec INCLUDE_DIRECTORIES)
+    get_target_property(_texturec_definitions texturec COMPILE_DEFINITIONS)
+    get_target_property(_texturec_options texturec COMPILE_OPTIONS)
     if(NOT _texturec_sources OR NOT _texturec_links)
         message(FATAL_ERROR "Pinned bgfx texturec target did not expose its source/link closure")
     endif()
 
     add_library(noveltea_bimg_texturec_embedded STATIC ${_texturec_sources})
     set_target_properties(noveltea_bimg_texturec_embedded PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    if(_texturec_includes)
+        target_include_directories(noveltea_bimg_texturec_embedded PRIVATE ${_texturec_includes})
+    endif()
+    if(_texturec_definitions)
+        target_compile_definitions(noveltea_bimg_texturec_embedded PRIVATE ${_texturec_definitions})
+    endif()
+    if(_texturec_options)
+        target_compile_options(noveltea_bimg_texturec_embedded PRIVATE ${_texturec_options})
+    endif()
     target_compile_definitions(noveltea_bimg_texturec_embedded PRIVATE
-        NOVELTEA_BIMG_TEXTUREC_EMBEDDED=1)
+        main=noveltea_bimg_texturec_main)
     target_link_libraries(noveltea_bimg_texturec_embedded PRIVATE ${_texturec_links})
 
     foreach(_link IN LISTS _shaderc_links _texturec_links)
@@ -138,6 +167,8 @@ function(noveltea_configure_embedded_shaderc)
     target_include_directories(noveltea_bgfx_shaderc_embedded PUBLIC
         "${noveltea_bgfx_shaderc_source_SOURCE_DIR}/bgfx/tools/shaderc"
         "${noveltea_bgfx_shaderc_source_SOURCE_DIR}/bgfx/src"
+        "${noveltea_bgfx_shaderc_source_SOURCE_DIR}/bgfx/include"
+        "${noveltea_bgfx_shaderc_source_SOURCE_DIR}/bimg/include"
         "${noveltea_bgfx_shaderc_source_SOURCE_DIR}/bx/include")
     set_target_properties(shaderc PROPERTIES EXCLUDE_FROM_ALL TRUE)
     set_target_properties(texturec PROPERTIES EXCLUDE_FROM_ALL TRUE)

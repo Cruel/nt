@@ -53,7 +53,7 @@ vi.mock('@/hooks/use-engine-preview', () => ({
         capabilities: [],
         hostGeneration: 1,
         transportGeneration: 1,
-        activeShaderVariant: 'glsl-120',
+        activeShaderVariant: 'glsl-330',
       });
     });
     return {
@@ -259,15 +259,15 @@ beforeEach(async () => {
   const shaderData = defaultShaderData('Noise');
   project.shaders.noise = { id: 'noise', label: 'Noise', data: shaderData };
   for (const [stageIndex, stage] of shaderData.stages.entries()) {
-    stage.compiled['glsl-120'] = {
-      path: `project:/shaders/bgfx/glsl-120/noise_${stage.stage}.bin`,
+    stage.compiled['glsl-330'] = {
+      path: `project:/shaders/bgfx/glsl-330/noise_${stage.stage}.bin`,
       byteHash: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' as const,
       byteSize: 1024,
       compileInputFingerprint: (await shaderCompileInputFingerprint(
         project,
         'noise',
         stageIndex,
-        'glsl-120',
+        'glsl-330',
       ))!,
     };
   }

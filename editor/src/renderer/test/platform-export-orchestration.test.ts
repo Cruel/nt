@@ -221,7 +221,7 @@ describe('platform export main-process trust boundary', () => {
     temporaryRoots.push(root);
     const project = exportableProject();
     const preparation = await prepared(project);
-    const templateToken = installLinuxTemplate(root, ['essl-100']);
+    const templateToken = installLinuxTemplate(root, ['essl-300']);
 
     const result = await exportProjectToPlatform({
       operationId: 'explicit-incompatible-template',
@@ -252,7 +252,7 @@ describe('platform export main-process trust boundary', () => {
     fs.writeFileSync(path.join(projectRoot, 'assets/icon.png'), 'icon');
     const project = exportableProject();
     const preparation = await prepared(project, projectRoot);
-    const templateToken = installLinuxTemplate(root, ['glsl-120']);
+    const templateToken = installLinuxTemplate(root, ['glsl-330']);
     const outputDirectory = path.join(root, 'dist/game');
     fs.mkdirSync(path.dirname(outputDirectory), { recursive: true });
     const adjacentPackage = `${outputDirectory}.game.ntpkg`;

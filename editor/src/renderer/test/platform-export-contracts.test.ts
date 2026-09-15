@@ -77,7 +77,7 @@ describe('platform export contracts', () => {
       architecture: 'x64',
       minimumPlatformVersion: 'provisional',
       graphicsBackends: ['opengl'],
-      shaderVariants: ['glsl-120'],
+      shaderVariants: ['glsl-330'],
       compiledProjectFormatVersion: 1,
       playerRuntimeApiVersion: 1,
       compiledFeatures: ['lua'],

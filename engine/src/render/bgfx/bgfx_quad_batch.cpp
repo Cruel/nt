@@ -571,8 +571,9 @@ bool Renderer::prepare_screenshot_capture_surfaces(const RendererScreenshotReque
     if (!m_initialized || !screenshot_rgba8_byte_size(request.width, request.height))
         return false;
     const auto* caps = bgfx::getCaps();
-    if (caps == nullptr || (caps->supported & BGFX_CAPS_TEXTURE_BLIT) == 0 ||
-        (caps->supported & BGFX_CAPS_TEXTURE_READ_BACK) == 0 ||
+    if (caps == nullptr ||
+        !bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8,
+                              BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK) ||
         request.width > caps->limits.maxTextureSize || request.height > caps->limits.maxTextureSize)
         return false;
 
@@ -726,8 +727,12 @@ void Renderer::finalize_screenshot_capture()
 
     const auto readback_texture = bgfx::TextureHandle{m_screenshot_readback_texture};
     const auto output_texture = bgfx::TextureHandle{m_screenshot_output_target.texture};
-    bgfx::blit(static_cast<bgfx::ViewId>(ViewScreenshotReadback), readback_texture, 0, 0,
-               output_texture, 0, 0, m_screenshot_output_width, m_screenshot_output_height);
+    bgfx::TextureRegion readback_region;
+    readback_region.init(readback_texture, 0, 0, m_screenshot_output_width,
+                         m_screenshot_output_height);
+    bgfx::TextureRegion output_region;
+    output_region.init(output_texture, 0, 0, m_screenshot_output_width, m_screenshot_output_height);
+    bgfx::blit(static_cast<bgfx::ViewId>(ViewScreenshotReadback), readback_region, output_region);
     const auto readback_bytes =
         screenshot_rgba8_byte_size(m_screenshot_output_width, m_screenshot_output_height);
     if (!readback_bytes) {
@@ -736,7 +741,7 @@ void Renderer::finalize_screenshot_capture()
     }
     m_screenshot_readback_pixels.resize(*readback_bytes);
     m_screenshot_readback_ready_frame =
-        bgfx::readTexture(readback_texture, m_screenshot_readback_pixels.data());
+        bgfx::read(readback_region, m_screenshot_readback_pixels.data());
     m_outstanding_screenshot_capture = request.request_id;
     m_active_screenshot_capture.reset();
 }

@@ -54,7 +54,6 @@ private:
 };
 
 [[nodiscard]] const char* system_shader_name(SystemShader shader);
-[[nodiscard]] const char* shader_variant_for_renderer(bgfx::RendererType::Enum renderer,
-                                                      bool web_platform);
+[[nodiscard]] const char* shader_variant_for_renderer(bgfx::RendererType::Enum renderer);
 
 } // namespace noveltea::bgfx_backend

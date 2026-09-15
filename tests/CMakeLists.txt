@@ -372,6 +372,7 @@ target_compile_definitions(noveltea_asset_tests PRIVATE
 )
 target_link_libraries(noveltea_asset_tests PRIVATE
     noveltea_engine
+    bgfx::bgfx
     miniz::miniz
     Catch2::Catch2WithMain
 )
@@ -427,6 +428,7 @@ target_compile_definitions(noveltea_asset_telemetry_tests PRIVATE
 )
 target_link_libraries(noveltea_asset_telemetry_tests PRIVATE
     noveltea_engine
+    bgfx::bgfx
     miniz::miniz
     Catch2::Catch2WithMain
 )
@@ -494,6 +496,7 @@ add_executable(noveltea_render_backend_tests
     render/material_binder_tests.cpp
     render/screenshot_capture_tests.cpp
     render/shader_variant_tests.cpp
+    render/webp_decode_tests.cpp
     render/world_presentation_tests.cpp
     render/world_transition_tests.cpp
 )
@@ -505,6 +508,11 @@ target_link_libraries(noveltea_render_backend_tests PRIVATE
     bgfx::bgfx
     Catch2::Catch2WithMain
 )
+if(TARGET bgfx::bimg_decode)
+    target_link_libraries(noveltea_render_backend_tests PRIVATE bgfx::bimg_decode)
+elseif(TARGET bimg_decode)
+    target_link_libraries(noveltea_render_backend_tests PRIVATE bimg_decode)
+endif()
 noveltea_attach_generated_shaders(noveltea_render_backend_tests)
 catch_discover_tests(noveltea_render_backend_tests)
 
