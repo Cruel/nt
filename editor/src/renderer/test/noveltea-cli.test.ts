@@ -1114,6 +1114,173 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
+  it('routes bare test run through the native suite operation with lowered catalog', async () => {
+    const project = validProject();
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
+    const value = fixture(project);
+    let suiteRequest: unknown;
+    const nativeTools: NovelTeaCliNativeToolService = {
+      async compileShaders() {
+        return { ok: true, success: true, diagnostics: [], outputs: [] };
+      },
+      async runHeadlessTest() {
+        throw new Error('single-test runner should not be used');
+      },
+      async runTestSuite(request) {
+        suiteRequest = request;
+        return {
+          ok: true,
+          success: true,
+          report: {
+            schema: 'noveltea.test-suite-report',
+            version: 1,
+            counts: { total: 1, passed: 1, failed: 0, blocked: 0, error: 0 },
+            entries: [
+              {
+                id: 'smoke',
+                runner: 'runtime',
+                status: 'passed',
+                report: { schema: 'noveltea.editor.playback-report', passed: true },
+              },
+            ],
+          },
+        };
+      },
+      async runUiTest() {
+        throw new Error('single UI runner should not be used');
+      },
+      async exportPackage() {
+        return { ok: true, success: true };
+      },
+      async validateFontCoverage() {
+        return { ok: true, success: true, diagnostics: [] };
+      },
+      shaderc() {
+        return 0;
+      },
+      texturec() {
+        return 0;
+      },
+    };
+
+    const result = await runNovelTeaCli(
+      ['--json', 'test', 'run'],
+      options(value, root, nativeTools),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.native).toMatchObject({
+      report: { counts: { total: 1, passed: 1, failed: 0, blocked: 0, error: 0 } },
+    });
+    expect(suiteRequest).toMatchObject({
+      projectRoot: root,
+      catalog: {
+        schema: 'noveltea.runtime-test-catalog',
+        version: 1,
+        entries: [{ id: 'smoke', status: 'runnable', runner: 'runtime' }],
+      },
+    });
+
+    const human = await runNovelTeaCli(['test', 'run'], options(value, root, nativeTools));
+    expect(human.exitCode).toBe(0);
+    expect(human.stdout).toBe('Test suite: 1 passed, 0 failed, 0 blocked, 0 errors.\n');
+  });
+
+  it('fails bare test run for failed/error entries but not blocked-only suites', async () => {
+    const project = validProject();
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
+    const value = fixture(project);
+    const baseTools: NovelTeaCliNativeToolService = {
+      async compileShaders() {
+        return { ok: true, success: true, diagnostics: [], outputs: [] };
+      },
+      async runHeadlessTest() {
+        return { ok: true, success: true };
+      },
+      async runUiTest() {
+        return { ok: true, success: true };
+      },
+      async exportPackage() {
+        return { ok: true, success: true };
+      },
+      async validateFontCoverage() {
+        return { ok: true, success: true, diagnostics: [] };
+      },
+      shaderc() {
+        return 0;
+      },
+      texturec() {
+        return 0;
+      },
+    };
+    const report = (status: 'blocked' | 'failed' | 'error') => ({
+      ok: true,
+      success: status === 'blocked',
+      report: {
+        schema: 'noveltea.test-suite-report',
+        version: 1,
+        counts: {
+          total: 1,
+          passed: 0,
+          failed: status === 'failed' ? 1 : 0,
+          blocked: status === 'blocked' ? 1 : 0,
+          error: status === 'error' ? 1 : 0,
+        },
+        entries: [
+          {
+            id: 'smoke',
+            runner: status === 'blocked' ? null : 'runtime',
+            status,
+            ...(status === 'blocked' || status === 'error'
+              ? { diagnostics: [{ severity: 'error', path: '/tests/smoke', message: 'detail' }] }
+              : { report: { passed: false } }),
+          },
+        ],
+      },
+    });
+
+    const blocked = await runNovelTeaCli(
+      ['--json', 'test', 'run'],
+      options(value, root, {
+        ...baseTools,
+        async runTestSuite() {
+          return report('blocked');
+        },
+      }),
+    );
+    expect(blocked.exitCode).toBe(0);
+    expect(blocked.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'native.test.blocked', severity: 'warning' }),
+    );
+
+    for (const status of ['failed', 'error'] as const) {
+      const result = await runNovelTeaCli(
+        ['--json', 'test', 'run'],
+        options(value, root, {
+          ...baseTools,
+          async runTestSuite() {
+            return report(status);
+          },
+        }),
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.envelope.native).toMatchObject({ report: { entries: [{ status }] } });
+      if (status === 'failed') {
+        const human = await runNovelTeaCli(
+          ['test', 'run'],
+          options(value, root, {
+            ...baseTools,
+            async runTestSuite() {
+              return report(status);
+            },
+          }),
+        );
+        expect(human.stderr).toContain('Test suite: 0 passed, 1 failed, 0 blocked, 0 errors.');
+        expect(human.stderr).toContain("Test 'smoke' failed.");
+      }
+    }
+  });
+
   it('routes authored selector-click tests through the UI runner with project authority', async () => {
     const project = validProject();
     const data = defaultTestData('UI smoke');

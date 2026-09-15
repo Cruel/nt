@@ -144,17 +144,89 @@ function withRuntimeCacheObservation(
   };
 }
 
+function nativeSuiteResult(response: unknown): CliSemanticResult {
+  const record =
+    response && typeof response === 'object' ? (response as Record<string, unknown>) : {};
+  if (record.ok !== true) {
+    const failed = nativeFailure('native.test.suite', '/tests', response);
+    return { ...failed, fields: { ...failed.fields, native: record } };
+  }
+  const report =
+    record.report && typeof record.report === 'object'
+      ? (record.report as Record<string, unknown>)
+      : null;
+  if (!report || !Array.isArray(report.entries))
+    return nativeFailure('native.test.suite', '/tests', {
+      error: 'Native suite report is invalid.',
+    });
+
+  const diagnostics = report.entries.flatMap((value) => {
+    if (!value || typeof value !== 'object') return [];
+    const entry = value as Record<string, unknown>;
+    const id = typeof entry.id === 'string' ? entry.id : 'unknown';
+    if (entry.status === 'failed')
+      return [cliDiagnostic('native.test.failed', `/tests/${id}`, `Test '${id}' failed.`)];
+    if (entry.status === 'blocked')
+      return [
+        cliDiagnostic(
+          'native.test.blocked',
+          `/tests/${id}`,
+          `Test '${id}' is blocked and was not executed.`,
+          'warning',
+        ),
+      ];
+    if (entry.status === 'error') {
+      const nested = Array.isArray(entry.diagnostics) ? entry.diagnostics : [];
+      const message = nested
+        .map((item) =>
+          item &&
+          typeof item === 'object' &&
+          typeof (item as Record<string, unknown>).message === 'string'
+            ? ((item as Record<string, unknown>).message as string)
+            : '',
+        )
+        .filter(Boolean)
+        .join('; ');
+      return [
+        cliDiagnostic(
+          'native.test.error',
+          `/tests/${id}`,
+          message || `Test '${id}' could not execute.`,
+        ),
+      ];
+    }
+    return [];
+  });
+  const counts =
+    report.counts && typeof report.counts === 'object'
+      ? (report.counts as Record<string, unknown>)
+      : {};
+  const count = (key: string) =>
+    typeof counts[key] === 'number' && Number.isInteger(counts[key]) ? counts[key] : 0;
+  const summary =
+    `Test suite: ${count('passed')} passed, ${count('failed')} failed, ` +
+    `${count('blocked')} blocked, ${count('error')} errors.`;
+  const success = record.success !== false;
+  if (!success) diagnostics.push(cliDiagnostic('native.test.suite.summary', '/tests', summary));
+  return {
+    ok: success,
+    diagnostics,
+    fields: { native: record },
+    ...(success ? { humanSuccess: summary } : {}),
+  };
+}
+
 export const testRunCommand: CliCommandDefinition = {
   path: ['test', 'run'],
   parse(arguments_): CliCommandInvocation {
-    if (arguments_.length !== 1)
-      throw new CliCommandUsageError('test run requires exactly one test ID.');
-    const testId = arguments_[0]!;
+    if (arguments_.length > 1)
+      throw new CliCommandUsageError('test run accepts at most one test ID.');
+    const testId = arguments_[0];
     return {
       dryRun: false,
       mutation: false,
       async run(context) {
-        if (!context.snapshot.project.tests[testId])
+        if (testId && !context.snapshot.project.tests[testId])
           return {
             ok: false,
             diagnostics: [
@@ -223,6 +295,33 @@ export const testRunCommand: CliCommandDefinition = {
             published: publication.published,
             ...(publication.reason ? { publicationReason: publication.reason } : {}),
           };
+        }
+
+        if (!testId) {
+          if (!context.nativeTools.runTestSuite)
+            return withRuntimeCacheObservation(
+              {
+                ok: false,
+                diagnostics: [
+                  cliDiagnostic(
+                    'native.test.suite.unavailable',
+                    '/tests',
+                    'Native test-suite runner is unavailable.',
+                  ),
+                ],
+              },
+              cacheObservation,
+            );
+          return withRuntimeCacheObservation(
+            nativeSuiteResult(
+              await context.nativeTools.runTestSuite({
+                project: artifact.compiledProject,
+                catalog: testCatalog,
+                projectRoot: context.snapshot.projectRoot,
+              }),
+            ),
+            cacheObservation,
+          );
         }
 
         const entry = findRuntimeTestCatalogEntry(testCatalog, testId);

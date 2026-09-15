@@ -11,6 +11,8 @@ uint64_t noveltea_tooling_compile_shaders_json(const uint8_t* request, uint64_t 
                                                uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_run_headless_test_json(const uint8_t* request, uint64_t request_size,
                                                  uint8_t* response, uint64_t response_capacity);
+uint64_t noveltea_tooling_run_test_suite_json(const uint8_t* request, uint64_t request_size,
+                                              uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_run_ui_test_json(const uint8_t* request, uint64_t request_size,
                                            uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_export_package_json(const uint8_t* request, uint64_t request_size,
