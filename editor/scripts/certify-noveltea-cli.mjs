@@ -859,6 +859,37 @@ async function certifyRawShaderc(tempRoot) {
 async function certifyNativeOperations(tempRoot, pristine) {
   const root = path.join(tempRoot, 'native-operations');
   await resetCase(pristine, root);
+
+  requireSuccess(
+    'runtime-cache authored test creation',
+    runNative(['--project', root, '--json', 'entity', 'create', 'tests', 'cache-certification'], {
+      cwd: root,
+    }),
+  );
+  const firstCachedTest = requireSuccess(
+    'runtime-cache first authored test',
+    runNative(['--project', root, '--json', 'test', 'run', 'cache-certification'], { cwd: root }),
+  );
+  const firstCachedPayload = JSON.parse(firstCachedTest.stdout);
+  if (
+    firstCachedPayload.runtimeCache?.status !== 'miss' ||
+    firstCachedPayload.runtimeCache?.published !== true
+  )
+    fail(
+      `Standalone runtime cache did not publish on first authored test: ${firstCachedTest.stdout}`,
+    );
+  const secondCachedTest = requireSuccess(
+    'runtime-cache second authored test',
+    runNative(['--project', root, '--json', 'test', 'run', 'cache-certification'], {
+      cwd: root,
+    }),
+  );
+  const secondCachedPayload = JSON.parse(secondCachedTest.stdout);
+  if (secondCachedPayload.runtimeCache?.status !== 'hit')
+    fail(
+      `Standalone runtime cache did not hit on second authored test: ${secondCachedTest.stdout}`,
+    );
+
   const playback = `${JSON.stringify({
     schema: 'noveltea.editor.playback',
     version: 1,

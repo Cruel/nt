@@ -123,6 +123,29 @@ describe('persistent runtime build cache', () => {
     expect(projects[1]).toEqual(projects[0]);
   });
 
+  it('reuses a lower-resolution timestamp manifest when the shared millisecond projection matches', async () => {
+    const root = await createProjectWorkspace();
+    const tools = nativeTools([]);
+    expect((await runCachedTest(root, tools)).exitCode).toBe(0);
+
+    const generation = await currentGeneration(root);
+    const manifestPath = path.join(
+      root,
+      '.noveltea/cache/runtime/generations',
+      generation,
+      'manifest.json',
+    );
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      inputs: Array<{ mtimeNanoseconds?: string }>;
+    };
+    for (const input of manifest.inputs) delete input.mtimeNanoseconds;
+    await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`, 'utf8');
+
+    const result = await runCachedTest(root, tools);
+    expect(result.exitCode).toBe(0);
+    expect(cacheStatus(result)).toMatchObject({ status: 'hit' });
+  });
+
   it('invalidates when tracked input mtime or byte size changes', async () => {
     const root = await createProjectWorkspace();
     const tools = nativeTools([]);
@@ -216,24 +239,74 @@ describe('persistent runtime build cache', () => {
     });
   });
 
-  it('ignores an unpublished partial generation', async () => {
+  it('ignores recent partial generations and cleans aged crash/concurrency orphans on publish', async () => {
     const root = await createProjectWorkspace();
     const tools = nativeTools([]);
     expect((await runCachedTest(root, tools)).exitCode).toBe(0);
     const published = await currentGeneration(root);
+    const generations = path.join(root, '.noveltea/cache/runtime/generations');
 
-    const partial = path.join(
-      root,
-      '.noveltea/cache/runtime/generations',
-      '11111111-1111-4111-8111-111111111111',
-    );
+    const partial = path.join(generations, '11111111-1111-4111-8111-111111111111');
     await mkdir(partial, { recursive: true });
     await writeFile(path.join(partial, 'artifact.json'), '{partial', 'utf8');
 
-    const result = await runCachedTest(root, tools);
-    expect(result.exitCode).toBe(0);
-    expect(cacheStatus(result)).toMatchObject({ status: 'hit' });
+    const unchanged = await runCachedTest(root, tools);
+    expect(unchanged.exitCode).toBe(0);
+    expect(cacheStatus(unchanged)).toMatchObject({ status: 'hit' });
     expect(await currentGeneration(root)).toBe(published);
+    await expect(stat(partial)).resolves.toBeDefined();
+
+    const overwritten = path.join(generations, '22222222-2222-4222-8222-222222222222');
+    await mkdir(overwritten, { recursive: true });
+    const publishedMarker = path.join(overwritten, 'published');
+    await writeFile(publishedMarker, 'published\n', 'utf8');
+    const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    await utimes(partial, old, old);
+    await utimes(publishedMarker, old, old);
+    await utimes(overwritten, old, old);
+
+    const projectJson = path.join(root, 'project.json');
+    const before = await stat(projectJson);
+    const moved = new Date(before.mtimeMs + 5000);
+    await utimes(projectJson, moved, moved);
+    const rebuilt = await runCachedTest(root, tools);
+    expect(rebuilt.exitCode).toBe(0);
+    expect(cacheStatus(rebuilt)).toMatchObject({ status: 'stale', published: true });
+    await expect(stat(partial)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(overwritten)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('preserves an aged generation owned by a live writer', async () => {
+    const root = await createProjectWorkspace();
+    const tools = nativeTools([]);
+    expect((await runCachedTest(root, tools)).exitCode).toBe(0);
+
+    const live = path.join(
+      root,
+      '.noveltea/cache/runtime/generations',
+      '33333333-3333-4333-8333-333333333333',
+    );
+    await mkdir(live, { recursive: true });
+    const writer = path.join(live, 'writer.json');
+    await writeFile(
+      writer,
+      `${JSON.stringify({
+        schema: 'noveltea.runtime-build-cache.writer',
+        pid: process.pid,
+        startedAtMs: Date.now() - 48 * 60 * 60 * 1000,
+      })}\n`,
+      'utf8',
+    );
+    const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    await utimes(writer, old, old);
+    await utimes(live, old, old);
+
+    const projectJson = path.join(root, 'project.json');
+    const before = await stat(projectJson);
+    const moved = new Date(before.mtimeMs + 5000);
+    await utimes(projectJson, moved, moved);
+    expect((await runCachedTest(root, tools)).exitCode).toBe(0);
+    await expect(stat(live)).resolves.toBeDefined();
   });
 
   it('rejects incompatible compiler identity and self-heals corrupt cached artifacts', async () => {
@@ -270,7 +343,26 @@ describe('persistent runtime build cache', () => {
     const corrupt = await runCachedTest(root, tools);
     expect(cacheStatus(corrupt)).toMatchObject({
       status: 'unusable',
-      reason: 'artifact-invalid',
+      reason: 'artifact-digest-mismatch',
+      published: true,
+    });
+
+    const digestGeneration = await currentGeneration(root);
+    const artifactPath = path.join(
+      root,
+      '.noveltea/cache/runtime/generations',
+      digestGeneration,
+      'artifact.json',
+    );
+    const schemaValidArtifact = JSON.parse(await readFile(artifactPath, 'utf8')) as {
+      compiledProject: { project: { name: string } };
+    };
+    schemaValidArtifact.compiledProject.project.name = 'Tampered but schema-valid';
+    await writeFile(artifactPath, `${JSON.stringify(schemaValidArtifact)}\n`, 'utf8');
+    const tampered = await runCachedTest(root, tools);
+    expect(cacheStatus(tampered)).toMatchObject({
+      status: 'unusable',
+      reason: 'artifact-digest-mismatch',
       published: true,
     });
   });

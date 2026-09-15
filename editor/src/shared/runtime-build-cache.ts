@@ -17,7 +17,9 @@ import {
   compareProjectWorkspaceUnicodeCodePoints,
   type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceFileSystem,
+  type ProjectWorkspaceProcessLiveness,
 } from './project-workspace';
+import { sha256PrefixedUtf8 } from './web-crypto';
 
 export const RUNTIME_BUILD_CACHE_SCHEMA = 'noveltea.runtime-build-cache' as const;
 export const RUNTIME_BUILD_CACHE_ROOT = '.noveltea/cache/runtime' as const;
@@ -39,7 +41,13 @@ export interface RuntimeBuildCacheInputSnapshot {
 interface RuntimeBuildCacheInputEntry {
   readonly path: string;
   readonly byteSize: number;
-  readonly mtimeNanoseconds: string;
+  readonly mtimeMilliseconds: number;
+  readonly mtimeNanoseconds?: string;
+}
+
+export interface RuntimeBuildCachePublicationHost {
+  readonly pid: number;
+  readonly processLiveness: ProjectWorkspaceProcessLiveness;
 }
 
 interface RuntimeBuildCacheSourceRevisionEntry {
@@ -71,7 +79,8 @@ const inputEntrySchema = z
   .object({
     path: z.string().min(1),
     byteSize: z.number().int().nonnegative(),
-    mtimeNanoseconds: z.string().regex(/^\d+$/u),
+    mtimeMilliseconds: z.number().finite(),
+    mtimeNanoseconds: z.string().regex(/^\d+$/u).optional(),
   })
   .strict();
 
@@ -113,6 +122,7 @@ const runtimeBuildCacheManifestSchema = z
     sourceRevisions: z.array(sourceRevisionEntrySchema),
     inputs: z.array(inputEntrySchema),
     artifactFile: z.literal('artifact.json'),
+    artifactSha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
   })
   .strict();
 
@@ -182,7 +192,11 @@ async function assertContainedRegularFile(
   const absolute = fileSystem.joinPath(projectRoot, relative);
   const metadata = await fileSystem.readPathMetadata!(absolute);
   if (metadata.kind === 'missing') throw new RuntimeBuildCacheInputError('input-missing');
-  if (metadata.kind !== 'file' || metadata.byteSize === undefined || !metadata.mtimeNanoseconds)
+  if (
+    metadata.kind !== 'file' ||
+    metadata.byteSize === undefined ||
+    metadata.mtimeMilliseconds === undefined
+  )
     throw new RuntimeBuildCacheInputError(
       metadata.kind === 'symlink' ? 'input-symlink' : 'input-not-regular-file',
     );
@@ -198,7 +212,8 @@ async function assertContainedRegularFile(
   return {
     path: normalizeRelativePath(relative),
     byteSize: metadata.byteSize,
-    mtimeNanoseconds: metadata.mtimeNanoseconds,
+    mtimeMilliseconds: metadata.mtimeMilliseconds,
+    ...(metadata.mtimeNanoseconds ? { mtimeNanoseconds: metadata.mtimeNanoseconds } : {}),
   };
 }
 
@@ -283,7 +298,22 @@ function sameInputSnapshot(
   left: RuntimeBuildCacheInputSnapshot,
   right: RuntimeBuildCacheInputSnapshot,
 ): boolean {
-  return JSON.stringify(left.entries) === JSON.stringify(right.entries);
+  if (left.entries.length !== right.entries.length) return false;
+  return left.entries.every((entry, index) => {
+    const other = right.entries[index];
+    if (
+      !other ||
+      entry.path !== other.path ||
+      entry.byteSize !== other.byteSize ||
+      entry.mtimeMilliseconds !== other.mtimeMilliseconds
+    )
+      return false;
+    return (
+      !entry.mtimeNanoseconds ||
+      !other.mtimeNanoseconds ||
+      entry.mtimeNanoseconds === other.mtimeNanoseconds
+    );
+  });
 }
 
 function sameDiscoveryScopes(value: readonly RuntimeBuildCacheDiscoveryScope[]): boolean {
@@ -336,6 +366,7 @@ function manifestFor(
   compilerIdentity: string,
   snapshot: LoadedProjectWorkspaceSnapshot,
   inputSnapshot: RuntimeBuildCacheInputSnapshot,
+  artifactSha256: `sha256:${string}`,
 ): RuntimeBuildCacheManifest {
   return {
     schema: RUNTIME_BUILD_CACHE_SCHEMA,
@@ -358,6 +389,7 @@ function manifestFor(
     sourceRevisions: runtimeSourceRevisions(snapshot),
     inputs: [...inputSnapshot.entries],
     artifactFile: 'artifact.json',
+    artifactSha256,
   };
 }
 
@@ -502,15 +534,18 @@ export async function lookupCanonicalRuntimeBuildCache(
     };
 
   try {
-    const artifact = preparedRuntimeArtifactSchema.parse(
-      JSON.parse(
-        await readContainedCacheText(
-          fileSystem,
-          snapshot.projectRoot,
-          fileSystem.joinPath(directory, manifest.artifactFile),
-        ),
-      ),
+    const artifactText = await readContainedCacheText(
+      fileSystem,
+      snapshot.projectRoot,
+      fileSystem.joinPath(directory, manifest.artifactFile),
     );
+    if ((await sha256PrefixedUtf8(artifactText)) !== manifest.artifactSha256)
+      return {
+        enabled: true,
+        observation: { status: 'unusable', reason: 'artifact-digest-mismatch' },
+        inputSnapshot: inputs,
+      };
+    const artifact = preparedRuntimeArtifactSchema.parse(JSON.parse(artifactText));
     return {
       enabled: true,
       observation: { status: 'hit', reason: 'current-generation-valid' },
@@ -526,8 +561,62 @@ export async function lookupCanonicalRuntimeBuildCache(
   }
 }
 
-const CACHE_GENERATION_CLEANUP_GRACE_NANOSECONDS = 24n * 60n * 60n * 1_000_000_000n;
+const CACHE_GENERATION_CLEANUP_GRACE_MILLISECONDS = 24 * 60 * 60 * 1000;
 const CACHE_GENERATION_RETIRED_FILE = 'retired';
+const CACHE_GENERATION_PUBLISHED_FILE = 'published';
+const CACHE_GENERATION_WRITER_FILE = 'writer.json';
+const CACHE_GENERATION_WRITER_SCHEMA = 'noveltea.runtime-build-cache.writer';
+
+const cacheGenerationWriterSchema = z
+  .object({
+    schema: z.literal(CACHE_GENERATION_WRITER_SCHEMA),
+    pid: z.number().int().positive(),
+    startedAtMs: z.number().int().nonnegative(),
+  })
+  .strict();
+
+async function writeGenerationWriterLease(
+  fileSystem: ProjectWorkspaceFileSystem,
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  generation: string,
+  host: RuntimeBuildCachePublicationHost,
+): Promise<void> {
+  await fileSystem.writeTextAtomic(
+    fileSystem.joinPath(
+      generationDirectory(fileSystem, snapshot.projectRoot, generation),
+      CACHE_GENERATION_WRITER_FILE,
+    ),
+    `${JSON.stringify({
+      schema: CACHE_GENERATION_WRITER_SCHEMA,
+      pid: host.pid,
+      startedAtMs: Date.now(),
+    })}\n`,
+  );
+}
+
+async function markGenerationPublished(
+  fileSystem: ProjectWorkspaceFileSystem,
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  generation: string,
+): Promise<void> {
+  try {
+    await fileSystem.writeTextAtomic(
+      fileSystem.joinPath(
+        generationDirectory(fileSystem, snapshot.projectRoot, generation),
+        CACHE_GENERATION_PUBLISHED_FILE,
+      ),
+      `${Date.now()}\n`,
+    );
+    await fileSystem.removeFile(
+      fileSystem.joinPath(
+        generationDirectory(fileSystem, snapshot.projectRoot, generation),
+        CACHE_GENERATION_WRITER_FILE,
+      ),
+    );
+  } catch {
+    // Current-generation publication is already committed; bookkeeping is best-effort.
+  }
+}
 
 async function markGenerationRetired(
   fileSystem: ProjectWorkspaceFileSystem,
@@ -548,11 +637,25 @@ async function markGenerationRetired(
   }
 }
 
+async function metadataIsOlderThan(
+  fileSystem: ProjectWorkspaceFileSystem,
+  path: string,
+  cutoffMs: number,
+): Promise<boolean> {
+  const metadata = await fileSystem.readPathMetadata!(path);
+  return (
+    metadata.kind === 'file' &&
+    metadata.mtimeMilliseconds !== undefined &&
+    metadata.mtimeMilliseconds < cutoffMs
+  );
+}
+
 async function cleanupOldGenerations(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: LoadedProjectWorkspaceSnapshot,
   current: string,
   previous: string | null,
+  host: RuntimeBuildCachePublicationHost,
 ): Promise<void> {
   const root = generationsRoot(fileSystem, snapshot.projectRoot);
   let names: readonly string[];
@@ -561,23 +664,61 @@ async function cleanupOldGenerations(
   } catch {
     return;
   }
-  const cutoff = BigInt(Date.now()) * 1_000_000n - CACHE_GENERATION_CLEANUP_GRACE_NANOSECONDS;
+  const cutoffMs = Date.now() - CACHE_GENERATION_CLEANUP_GRACE_MILLISECONDS;
   for (const name of names) {
     if (name === current || name === previous || !cacheGenerationIdPattern.test(name)) continue;
     const directory = fileSystem.joinPath(root, name);
     try {
-      const retired = await fileSystem.readPathMetadata!(
-        fileSystem.joinPath(directory, CACHE_GENERATION_RETIRED_FILE),
-      );
       if (
-        retired.kind !== 'file' ||
-        !retired.mtimeNanoseconds ||
-        BigInt(retired.mtimeNanoseconds) >= cutoff
-      )
+        (await metadataIsOlderThan(
+          fileSystem,
+          fileSystem.joinPath(directory, CACHE_GENERATION_RETIRED_FILE),
+          cutoffMs,
+        )) ||
+        (await metadataIsOlderThan(
+          fileSystem,
+          fileSystem.joinPath(directory, CACHE_GENERATION_PUBLISHED_FILE),
+          cutoffMs,
+        ))
+      ) {
+        await fileSystem.removeDirectory(directory);
         continue;
-      await fileSystem.removeDirectory(directory);
+      }
+
+      const writerPath = fileSystem.joinPath(directory, CACHE_GENERATION_WRITER_FILE);
+      const writerMetadata = await fileSystem.readPathMetadata!(writerPath);
+      if (writerMetadata.kind === 'file') {
+        if (
+          writerMetadata.mtimeMilliseconds === undefined ||
+          writerMetadata.mtimeMilliseconds >= cutoffMs
+        )
+          continue;
+        let writerPid: number | null = null;
+        try {
+          const parsed = cacheGenerationWriterSchema.safeParse(
+            JSON.parse(await readContainedCacheText(fileSystem, snapshot.projectRoot, writerPath)),
+          );
+          if (parsed.success) writerPid = parsed.data.pid;
+        } catch {
+          writerPid = null;
+        }
+        if (writerPid !== null) {
+          const alive = await host.processLiveness.isProcessAlive(writerPid);
+          if (alive !== false) continue;
+        }
+        await fileSystem.removeDirectory(directory);
+        continue;
+      }
+
+      const directoryMetadata = await fileSystem.readPathMetadata!(directory);
+      if (
+        directoryMetadata.kind === 'directory' &&
+        directoryMetadata.mtimeMilliseconds !== undefined &&
+        directoryMetadata.mtimeMilliseconds < cutoffMs
+      )
+        await fileSystem.removeDirectory(directory);
     } catch {
-      // Obsolete cache cleanup must never affect playback.
+      // Obsolete/abandoned cache cleanup must never affect playback.
     }
   }
 }
@@ -588,6 +729,7 @@ export async function publishCanonicalRuntimeBuildCache(
   currentSnapshot: LoadedProjectWorkspaceSnapshot,
   artifact: PreparedRuntimeArtifact,
   expectedInputs: RuntimeBuildCacheInputSnapshot,
+  host: RuntimeBuildCachePublicationHost,
   compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
   if (!fileSystem.readPathMetadata) return { published: false, reason: 'metadata-unavailable' };
@@ -627,25 +769,20 @@ export async function publishCanonicalRuntimeBuildCache(
 
   const id = generationId();
   const directory = generationDirectory(fileSystem, snapshot.projectRoot, id);
+  const pointer = currentPointerPath(fileSystem, snapshot.projectRoot);
   try {
     await assertProjectWorkspacePathContained(fileSystem, snapshot.projectRoot, directory);
-    await assertProjectWorkspacePathContained(
-      fileSystem,
-      snapshot.projectRoot,
-      currentPointerPath(fileSystem, snapshot.projectRoot),
-    );
+    await assertProjectWorkspacePathContained(fileSystem, snapshot.projectRoot, pointer);
     await fileSystem.createDirectory(directory);
-    await fileSystem.writeTextAtomic(
-      fileSystem.joinPath(directory, 'artifact.json'),
-      `${JSON.stringify(artifact)}\n`,
-    );
+    await writeGenerationWriterLease(fileSystem, snapshot, id, host);
+    const artifactText = `${JSON.stringify(artifact)}\n`;
+    const artifactSha256 = await sha256PrefixedUtf8(artifactText);
+    await fileSystem.writeTextAtomic(fileSystem.joinPath(directory, 'artifact.json'), artifactText);
     await fileSystem.writeTextAtomic(
       fileSystem.joinPath(directory, 'manifest.json'),
-      `${JSON.stringify(manifestFor(compilerIdentity, currentSnapshot, currentInputs))}\n`,
-    );
-    await fileSystem.writeTextAtomic(
-      currentPointerPath(fileSystem, snapshot.projectRoot),
-      `${id}\n`,
+      `${JSON.stringify(
+        manifestFor(compilerIdentity, currentSnapshot, currentInputs, artifactSha256),
+      )}\n`,
     );
   } catch {
     try {
@@ -656,7 +793,19 @@ export async function publishCanonicalRuntimeBuildCache(
     return { published: false, reason: 'cache-publication-failed' };
   }
 
+  try {
+    await fileSystem.writeTextAtomic(pointer, `${id}\n`);
+  } catch {
+    try {
+      await fileSystem.removeDirectory(directory);
+    } catch {
+      // A failed cache publication is disposable state.
+    }
+    return { published: false, reason: 'cache-publication-failed' };
+  }
+
+  await markGenerationPublished(fileSystem, snapshot, id);
   await markGenerationRetired(fileSystem, snapshot, previous);
-  void cleanupOldGenerations(fileSystem, snapshot, id, previous);
+  await cleanupOldGenerations(fileSystem, snapshot, id, previous, host);
   return { published: true };
 }

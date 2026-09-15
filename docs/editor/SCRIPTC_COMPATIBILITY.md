@@ -1,6 +1,6 @@
 # scriptc CLI Compatibility
 
-NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.0.34. The release architecture intentionally uses scriptc's dynamic tier for the shared TypeScript authoring implementation and a very small statically compiled host for capabilities that require exact host/native behavior.
+NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.1.1. The release architecture intentionally uses scriptc's dynamic tier for the shared TypeScript authoring implementation and a very small statically compiled host for capabilities that require exact host/native behavior.
 
 ## Release architecture
 
@@ -29,8 +29,8 @@ Built-in ComfyUI packages are handled the same way. The checked-in manifests and
 
 ## Build pin and admitted host
 
-- scriptc: exact `0.0.34`
-- pnpm's 24-hour minimum-release-age policy exempts only `scriptc@0.0.34`, `@scriptc/compiler@0.0.34`, and `@scriptc/runtime@0.0.34`; future scriptc versions must either age normally or receive a new explicit reviewed exemption
+- scriptc: exact `0.1.1`
+- pnpm's 24-hour minimum-release-age policy exempts only `scriptc@0.1.1`, `@scriptc/compiler@0.1.1`, and `@scriptc/runtime@0.1.1`; future scriptc versions must either age normally or receive a new explicit reviewed exemption
 - Node used to drive release builds/reference certification: exact `24.18.0`
 - Linux release builds require host `clang`; Windows release builds require MinGW `gcc`/`g++` plus Zig 0.16.0 and target ScriptC as `x86_64-windows-gnu`
 - admitted standalone targets: Linux x64 and Windows x64

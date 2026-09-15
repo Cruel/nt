@@ -17,12 +17,14 @@ import {
   nodeRuntimeArtifactPaths,
   nodeShaderCompilerAdapter,
 } from '../../main/services/node-runtime-artifact-adapters';
+import { NodeProjectWorkspaceProcessLiveness } from '../../shared/project-workspace';
 import { cliDiagnostic } from '../contracts';
 import type { CliSemanticResult } from '../semantic-project';
 import type { CliCommandContext, CliCommandDefinition, CliCommandInvocation } from './types';
 import { CliCommandUsageError } from './types';
 
 const shaderVariantIds = new Set(['glsl-120', 'essl-100', 'essl-300', 'metal']);
+const runtimeBuildCacheProcessLiveness = new NodeProjectWorkspaceProcessLiveness();
 
 function nativeFailure(code: string, pathValue: string, response: unknown): CliSemanticResult {
   const record =
@@ -215,6 +217,7 @@ export const testRunCommand: CliCommandDefinition = {
                   reopened.snapshot,
                   artifact,
                   lookup.inputSnapshot,
+                  { pid: process.pid, processLiveness: runtimeBuildCacheProcessLiveness },
                 )
               : { published: false, reason: 'workspace-revalidation-failed' };
             cacheObservation = {
