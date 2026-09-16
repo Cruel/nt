@@ -1,7 +1,9 @@
+/* oxlint-disable typescript/no-explicit-any -- ScriptC static lowering requires erased native JSON boundary shapes here; unknown/union forms force this fast path into the dynamic island. */
 import { mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
+  NOVELTEA_CLI_BUILD_IDENTITY,
   NOVELTEA_CLI_HELP,
   NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
   NOVELTEA_CLI_VERSION,
@@ -18,6 +20,7 @@ type HostResult = readonly [exitCode: number, stdout: string, stderr: string];
 
 let nativeCallSequence = 0;
 let nativeResponseRoot: string | null = null;
+let cachedStdin: string | null = null;
 
 function trace(message: string): void {
   if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-host] ${message}\n`);
@@ -43,7 +46,10 @@ function processAlive(requestText: string): string {
 
 function invokeHost(operation: string, requestText: string): string {
   if (operation === 'process-alive') return processAlive(requestText);
-  if (operation === 'read-stdin') return readFileSync(0, 'utf8');
+  if (operation === 'read-stdin') {
+    if (cachedStdin === null) cachedStdin = readFileSync(0, 'utf8');
+    return cachedStdin;
+  }
   if (operation === 'run-process') return runNovelTeaScriptcProcess(requestText);
 
   const responsePath = join(getNativeResponseRoot(), `${nativeCallSequence}.json`);
@@ -80,6 +86,345 @@ function nativeTexturec(arguments_: readonly string[]): number {
   if (!Number.isSafeInteger(exitCode) || exitCode < 0)
     throw new Error(`Native texturec returned invalid exit code '${String(exitCode)}'.`);
   return exitCode;
+}
+
+type StaticDiagnostic = Readonly<{
+  code: string;
+  severity: 'info' | 'warning' | 'error';
+  path: string;
+  message: string;
+}>;
+
+const staticRuntimeCacheObservation = Object.freeze({
+  status: 'hit',
+  reason: 'current-generation-valid',
+  testCatalogStatus: 'hit',
+  testCatalogReason: 'current-test-catalog-valid',
+});
+
+function compareStaticText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function compareStaticDiagnostic(left: StaticDiagnostic, right: StaticDiagnostic): number {
+  return (
+    compareStaticText(left.code, right.code) ||
+    compareStaticText(left.path, right.path) ||
+    compareStaticText(left.message, right.message)
+  );
+}
+
+function formatStaticCommand(
+  json: boolean,
+  success: boolean,
+  exitCode: number,
+  projectRoot: string,
+  diagnostics: readonly StaticDiagnostic[],
+  fields: Readonly<Record<string, unknown>>,
+  successMessage: string,
+): HostResult {
+  const sorted = [...diagnostics].sort(compareStaticDiagnostic);
+  const envelope: any = {
+    success,
+    exitCode,
+    diagnostics: sorted,
+    projectRoot,
+    protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
+  };
+  if (fields.runtimeCache !== undefined) envelope.runtimeCache = fields.runtimeCache;
+  if (fields.native !== undefined) envelope.native = fields.native;
+  if (json) return [exitCode, `${JSON.stringify(envelope)}\n`, ''];
+  const diagnosticText = sorted
+    .map((item) => `[${item.severity}] ${item.code} ${item.path}: ${item.message}`)
+    .join('\n');
+  if (success)
+    return [
+      exitCode,
+      successMessage ? `${successMessage}\n` : '',
+      diagnosticText ? `${diagnosticText}\n` : '',
+    ];
+  const failureMessage = sorted[0]?.message ?? 'NovelTea command failed.';
+  return [exitCode, '', `${[diagnosticText, failureMessage].filter(Boolean).join('\n')}\n`];
+}
+
+function staticNativeFailureDiagnostics(
+  response: any,
+  fallbackCode: string,
+  fallbackPath: string,
+): StaticDiagnostic[] {
+  const diagnostics: StaticDiagnostic[] = [];
+  if (response && response.diagnostics && typeof response.diagnostics.length === 'number') {
+    for (const raw of response.diagnostics) {
+      const value: any = raw && typeof raw === 'object' ? raw : {};
+      diagnostics.push({
+        code: typeof value.code === 'string' ? `native.${value.code}` : fallbackCode,
+        severity:
+          value.severity === 'warning' || value.severity === 'info' ? value.severity : 'error',
+        path: typeof value.path === 'string' ? value.path : fallbackPath,
+        message:
+          typeof value.message === 'string'
+            ? value.message
+            : typeof response.error === 'string'
+              ? response.error
+              : 'Native operation failed.',
+      });
+    }
+  }
+  if (diagnostics.length === 0)
+    diagnostics.push({
+      code: fallbackCode,
+      severity: 'error',
+      path: fallbackPath,
+      message: typeof response?.error === 'string' ? response.error : 'Native operation failed.',
+    });
+  return diagnostics;
+}
+
+function cachedPayloadAdmissionFailure(response: any, includeCatalog: boolean): boolean {
+  if (response?.compiledProjectAdmissionRejected === true) return true;
+  const message = typeof response?.error === 'string' ? response.error : '';
+  if (
+    message.startsWith('Compiled project validation failed') ||
+    message.startsWith('Compiled runtime load failed') ||
+    message.startsWith('Compiled runtime startup failed')
+  )
+    return true;
+  if (!includeCatalog) return false;
+  return (
+    message.startsWith('Playback spec parse failed') ||
+    message.startsWith('UI click playback input requires') ||
+    message.startsWith('Request requires current lowered test catalog') ||
+    message.startsWith('Lowered test catalog') ||
+    message.startsWith('Blocked test catalog entry') ||
+    message.startsWith('Runnable test catalog entry')
+  );
+}
+
+function invalidateRuntimeCachePointer(projectRoot: string): void {
+  try {
+    unlinkSync(join(projectRoot, '.noveltea', 'cache', 'runtime', 'current'));
+    trace('cached payload rejected; invalidated current generation before canonical retry');
+  } catch {
+    trace('cached payload rejected; current generation could not be invalidated');
+  }
+}
+
+function parseNativeResponse(operation: string, request: any): any {
+  const parsed: any = JSON.parse(invokeHost(operation, JSON.stringify(request)));
+  return parsed && typeof parsed === 'object' ? parsed : null;
+}
+
+function staticTestPath(argv: readonly string[]): HostResult | null {
+  let json = false;
+  let projectRoot: string | null = null;
+  let index = 0;
+  while (index < argv.length && argv[index]!.startsWith('--')) {
+    const argument = argv[index]!;
+    if (argument === '--json') {
+      if (json) return null;
+      json = true;
+      index += 1;
+      continue;
+    }
+    if (argument === '--project') {
+      if (projectRoot !== null) return null;
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) return null;
+      projectRoot = resolve(process.cwd(), value);
+      index += 2;
+      continue;
+    }
+    return null;
+  }
+  if (argv[index] !== 'test') return null;
+  const operation = argv[index + 1];
+  const trailing = argv.slice(index + 2);
+  const single = operation === 'run' && trailing.length === 1;
+  const suite = operation === 'run' && trailing.length === 0;
+  const stdinRuntime = operation === 'run-spec' && trailing.length === 0;
+  const stdinUi = operation === 'run-ui-spec' && trailing.length === 0;
+  if (!single && !suite && !stdinRuntime && !stdinUi) return null;
+
+  // Implicit native discovery is deliberately root-only. Upward discovery remains owned by the
+  // canonical TypeScript workspace path whenever cwd is not itself the intended Project root.
+  const root = projectRoot ?? process.cwd();
+  const probe: any = parseNativeResponse('runtime-cache-probe', {
+    projectRoot: root,
+    compilerIdentity: `${NOVELTEA_CLI_VERSION}:${NOVELTEA_CLI_BUILD_IDENTITY}`,
+  });
+  if (!probe || probe.ok !== true || probe.status !== 'hit') {
+    trace(`runtime cache ${probe?.status ?? 'unusable'}: ${probe?.reason ?? 'probe-failed'}`);
+    return null;
+  }
+  const compiledProject: any = probe.artifact?.compiledProject;
+  if (!compiledProject || !probe.catalog || !probe.catalog.entries) {
+    trace('runtime cache unusable: admitted payload missing');
+    return null;
+  }
+  const entries: any[] = probe.catalog.entries;
+  trace('runtime cache hit: static/native test path admitted');
+
+  let nativeResponse: any = null;
+  let successMessage = '';
+  let cachedCatalogPayload = false;
+  const fields: any = { runtimeCache: staticRuntimeCacheObservation };
+
+  if (single) {
+    const testId = trailing[0]!;
+    let entry: any = null;
+    for (const candidate of entries) {
+      if (candidate && typeof candidate === 'object' && candidate.id === testId) {
+        entry = candidate;
+        break;
+      }
+    }
+    if (!entry) return null;
+    if (entry.status === 'blocked') {
+      const source: any[] = entry.diagnostics ?? [];
+      const diagnostics: StaticDiagnostic[] = [];
+      for (const value of source) {
+        diagnostics.push({
+          code: 'native.test.spec',
+          severity:
+            value?.severity === 'warning' || value?.severity === 'info' ? value.severity : 'error',
+          path: typeof value?.path === 'string' ? value.path : `/tests/${testId}`,
+          message: typeof value?.message === 'string' ? value.message : 'Test is blocked.',
+        });
+      }
+      return formatStaticCommand(json, false, 6, root, diagnostics, fields, '');
+    }
+    if (
+      entry.status !== 'runnable' ||
+      (entry.runner !== 'runtime' && entry.runner !== 'runtime-ui') ||
+      entry.spec === undefined
+    )
+      return null;
+    const request: any = { project: compiledProject, spec: entry.spec };
+    if (entry.runner === 'runtime-ui') request.projectRoot = root;
+    nativeResponse = parseNativeResponse(
+      entry.runner === 'runtime-ui' ? 'run-ui-test' : 'run-test',
+      request,
+    );
+    cachedCatalogPayload = true;
+    successMessage = `NovelTea test run ${testId} succeeded.`;
+  } else if (suite) {
+    nativeResponse = parseNativeResponse('run-test-suite', {
+      project: compiledProject,
+      catalog: probe.catalog,
+      projectRoot: root,
+    });
+  } else {
+    const stdinText = invokeHost('read-stdin', '');
+    if (!stdinText || stdinText.trim() === '') return null;
+    let spec: any;
+    try {
+      spec = JSON.parse(stdinText);
+    } catch {
+      return null;
+    }
+    const request: any = { project: compiledProject, spec };
+    if (stdinUi) request.projectRoot = root;
+    nativeResponse = parseNativeResponse(stdinUi ? 'run-ui-test' : 'run-test', request);
+    successMessage = `NovelTea test ${stdinUi ? 'run-ui-spec' : 'run-spec'} succeeded.`;
+  }
+
+  if (!nativeResponse || nativeResponse.ok !== true) {
+    if (suite || cachedPayloadAdmissionFailure(nativeResponse, cachedCatalogPayload)) {
+      invalidateRuntimeCachePointer(root);
+      return null;
+    }
+    const diagnostics = staticNativeFailureDiagnostics(nativeResponse, 'native.operation', '/');
+    return formatStaticCommand(json, false, 6, root, diagnostics, fields, '');
+  }
+  fields.native = nativeResponse;
+
+  if (!suite) return formatStaticCommand(json, true, 0, root, [], fields, successMessage);
+
+  const report: any =
+    nativeResponse.report && typeof nativeResponse.report === 'object'
+      ? nativeResponse.report
+      : null;
+  if (!report || !report.entries) {
+    invalidateRuntimeCachePointer(root);
+    return null;
+  }
+  const diagnostics: StaticDiagnostic[] = [];
+  for (const raw of report.entries) {
+    if (!raw || typeof raw !== 'object') continue;
+    const entry: any = raw;
+    const id = typeof entry.id === 'string' ? entry.id : 'unknown';
+    if (entry.status === 'failed')
+      diagnostics.push({
+        code: 'native.test.failed',
+        severity: 'error',
+        path: `/tests/${id}`,
+        message: `Test '${id}' failed.`,
+      });
+    else if (entry.status === 'blocked') {
+      const nested: any[] = entry.diagnostics ?? [];
+      let promoted = false;
+      for (const item of nested) {
+        if (!item || typeof item !== 'object' || typeof item.message !== 'string') continue;
+        diagnostics.push({
+          code: 'native.test.blocked',
+          severity: 'warning',
+          path: typeof item.path === 'string' ? item.path : `/tests/${id}`,
+          message: item.message,
+        });
+        promoted = true;
+      }
+      if (!promoted)
+        diagnostics.push({
+          code: 'native.test.blocked',
+          severity: 'warning',
+          path: `/tests/${id}`,
+          message: `Test '${id}' is blocked and was not executed.`,
+        });
+    } else if (entry.status === 'error') {
+      const nested: any[] = entry.diagnostics ?? [];
+      let promoted = false;
+      for (const item of nested) {
+        if (!item || typeof item !== 'object' || typeof item.message !== 'string') continue;
+        diagnostics.push({
+          code: 'native.test.error',
+          severity: 'error',
+          path: typeof item.path === 'string' ? item.path : `/tests/${id}`,
+          message: item.message,
+        });
+        promoted = true;
+      }
+      if (!promoted)
+        diagnostics.push({
+          code: 'native.test.error',
+          severity: 'error',
+          path: `/tests/${id}`,
+          message: `Test '${id}' could not execute.`,
+        });
+    }
+  }
+  const counts: any = report.counts && typeof report.counts === 'object' ? report.counts : {};
+  const count = (key: string) =>
+    typeof counts[key] === 'number' && Number.isInteger(counts[key]) ? counts[key] : 0;
+  const summary =
+    `Test suite: ${count('passed')} passed, ${count('failed')} failed, ` +
+    `${count('blocked')} blocked, ${count('error')} errors.`;
+  const success = nativeResponse.success !== false;
+  if (!success)
+    diagnostics.push({
+      code: 'native.test.suite.summary',
+      severity: 'error',
+      path: '/tests',
+      message: summary,
+    });
+  return formatStaticCommand(
+    json,
+    success,
+    success ? 0 : 6,
+    root,
+    diagnostics,
+    fields,
+    success ? summary : '',
+  );
 }
 
 function staticNativePath(argv: readonly string[]): HostResult | null {
@@ -193,7 +538,7 @@ async function main(): Promise<void> {
   try {
     // scriptc's argv slice throws when the process has no user arguments.
     const argv = process.argv.length > 2 ? process.argv.slice(2) : [];
-    const fastPath = staticFastPath(argv) ?? staticNativePath(argv);
+    const fastPath = staticFastPath(argv) ?? staticTestPath(argv) ?? staticNativePath(argv);
     if (fastPath !== null) {
       emit(fastPath);
       exitCode = fastPath[0];

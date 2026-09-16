@@ -7,6 +7,7 @@ import {
   compileShadersNative,
   exportPackageNative,
   runHeadlessTestNative,
+  runTestSuiteNative,
   runUiTestNative,
   shadercNative,
   texturecNative,
@@ -19,6 +20,7 @@ export interface NovelTeaCliNativeToolService {
     options: ShaderCompileOptions,
   ): Promise<ShaderCompileResponse>;
   runHeadlessTest(request: unknown): Promise<unknown>;
+  runTestSuite?(request: unknown): Promise<unknown>;
   runUiTest(request: unknown): Promise<unknown>;
   exportPackage(request: unknown): Promise<unknown>;
   validateFontCoverage?(
@@ -38,6 +40,9 @@ export function createInProcessNovelTeaCliNativeToolService(): NovelTeaCliNative
     },
     async runHeadlessTest(request) {
       return runHeadlessTestNative(request);
+    },
+    async runTestSuite(request) {
+      return runTestSuiteNative(request);
     },
     async runUiTest(request) {
       return runUiTestNative(request);

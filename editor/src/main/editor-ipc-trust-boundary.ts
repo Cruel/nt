@@ -21,7 +21,10 @@ import {
 } from '../shared/comfyui-workflows';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { isSafeProjectAssetPath } from '../shared/project-schema/authoring-assets';
-import { editorProjectStateSchema } from '../shared/project-schema/editor-project-state';
+import {
+  editorPendingRawInputSchema,
+  editorProjectStateSchema,
+} from '../shared/project-schema/editor-project-state';
 import { compiledProjectWireSchema } from '../shared/project-schema/compiled-project';
 import { preparedRuntimeArtifactSchema } from '../shared/project-schema/prepared-runtime-artifact';
 import {
@@ -503,9 +506,25 @@ export const validateProjectArgumentsSchema = z.tuple([
   authoringProjectSchema,
 ]);
 export const listPlaybackTestsArgumentsSchema = z.tuple([authoringProjectSchema]);
+const runtimeRecoveryFingerprintSchema = z.record(
+  z.string().min(1).max(MAX_SAVE_LABEL_LENGTH),
+  z.record(z.string().min(1).max(MAX_PROJECT_PATH_LENGTH), editorPendingRawInputSchema),
+);
+export const prepareEditorRuntimeArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  authoringProjectSchema,
+  runtimeRecoveryFingerprintSchema,
+]);
 export const runPlaybackTestArgumentsSchema = z.tuple([
+  projectSessionIdSchema.nullable(),
   authoringProjectSchema,
   z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+  runtimeRecoveryFingerprintSchema.default({}),
+]);
+export const runPlaybackSuiteArgumentsSchema = z.tuple([
+  projectSessionIdSchema.nullable(),
+  authoringProjectSchema,
+  runtimeRecoveryFingerprintSchema.default({}),
 ]);
 export const runPlaybackSpecArgumentsSchema = z.tuple([
   compiledProjectWireSchema,

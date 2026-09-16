@@ -23,6 +23,12 @@ export {
 } from '../../shared/noveltea-cli-subprocess';
 import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
 import { buildRuntimePlaybackSpecFromAuthoringTest } from '../../shared/project-schema/test-playback-project';
+import {
+  logicalRuntimeArtifactPaths,
+  prepareRuntimeArtifact,
+} from '../../shared/runtime-artifact-preparation';
+import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
+import { buildRuntimeTestCatalog } from '../../shared/runtime-test-catalog';
 
 export async function openProject(projectPath: string) {
   const workspace = createNodeProjectWorkspaceService();
@@ -137,6 +143,33 @@ export async function runPlaybackTest(project: unknown, testId: string) {
     success: false,
     error: 'Playback requires an authoring project.',
   };
+}
+
+export async function runPlaybackSuite(project: unknown) {
+  if (!isAuthoringProject(project))
+    return {
+      ok: false,
+      success: false,
+      diagnostics: [],
+      error: 'Playback requires an authoring project.',
+    };
+
+  const prepared = await prepareRuntimeArtifact({
+    project,
+    projectRoot: null,
+    profile: selectedExportProfile(project),
+    intent: 'test-playback',
+    paths: logicalRuntimeArtifactPaths,
+  });
+  if (prepared.status !== 'prepared')
+    return { ok: false, success: false, diagnostics: prepared.diagnostics };
+
+  return invokeNovelTeaNativeOperation('run-test-suite', {
+    project: prepared.artifact.compiledProject,
+    catalog: buildRuntimeTestCatalog(project),
+    projectRoot: null,
+    shaderMaterialMetadata: prepared.artifact.shaderMaterialMetadata ?? null,
+  });
 }
 
 export function runPlaybackSpec(project: unknown, spec: unknown) {

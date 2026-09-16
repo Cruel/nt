@@ -6,11 +6,12 @@ import tailwindcss from '@tailwindcss/vite';
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite-plus';
-import { readNovelTeaVersion } from '../scripts/noveltea-version.mjs';
+import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../scripts/noveltea-version.mjs';
 
 const editorRoot = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
+const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
 const nodeRuntimeExternals = [
   ...new Set(builtinModules.flatMap((moduleName) => [moduleName, `node:${moduleName}`])),
 ];
@@ -36,6 +37,7 @@ const commonNodePack = {
   target: 'node24.18',
   define: {
     __NOVELTEA_VERSION__: JSON.stringify(productVersion),
+    __NOVELTEA_BUILD_IDENTITY__: JSON.stringify(buildIdentity),
   },
   sourcemap: !productionBuild,
   hash: false,
@@ -50,6 +52,7 @@ export default defineConfig({
   base: './',
   define: {
     __NOVELTEA_VERSION__: JSON.stringify(productVersion),
+    __NOVELTEA_BUILD_IDENTITY__: JSON.stringify(buildIdentity),
   },
   server: {
     headers: {

@@ -61,6 +61,7 @@ import {
   resolveProjectOriginalAssetUrl,
 } from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
+import { EditorRuntimeCacheService } from './main/services/editor-runtime-cache-service';
 import { importDesktopProject } from './main/services/desktop-project-import-service';
 import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
 import { LocalizationFontCoverageService } from './main/services/localization-font-coverage-service';
@@ -70,6 +71,7 @@ import {
   listPlaybackTests,
   openProject,
   runPlaybackSpec,
+  runPlaybackSuite,
   runPlaybackTest,
   runUiPlaybackSpec,
   validateProject,
@@ -157,6 +159,7 @@ import {
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
   previewExportedPackageArgumentsSchema,
+  prepareEditorRuntimeArgumentsSchema,
   previewSessionArgumentsSchema,
   projectAssetIdentityArgumentsSchema,
   projectAssetPathsArgumentsSchema,
@@ -166,6 +169,7 @@ import {
   removePlayerTemplateArgumentsSchema,
   resolvePlayerTemplateArgumentsSchema,
   runPlaybackSpecArgumentsSchema,
+  runPlaybackSuiteArgumentsSchema,
   runPlaybackTestArgumentsSchema,
   runUiPlaybackSpecArgumentsSchema,
   saveProjectContentArgumentsSchema,
@@ -285,6 +289,7 @@ const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
   : undefined;
 const activeProjectSessions = new ActiveProjectSessionService();
+const editorRuntimeCache = new EditorRuntimeCacheService();
 const assetMetadataInspectionService = new AssetMetadataInspectionService(activeProjectSessions);
 const localizationFontCoverageService = new LocalizationFontCoverageService();
 const imageThumbnailService = new ImageThumbnailService(
@@ -1019,9 +1024,41 @@ void app.whenReady().then(async () => {
   );
 
   guardedIpc.handle(
+    IPC_CHANNELS.PREPARE_EDITOR_RUNTIME,
+    (arguments_) => prepareEditorRuntimeArgumentsSchema.parse(arguments_),
+    (projectSessionId, project, recoveryFingerprint) =>
+      editorRuntimeCache.preparePlay(
+        activeProjectSessions.requireActiveWorkspace(projectSessionId),
+        project,
+        recoveryFingerprint,
+      ),
+  );
+
+  guardedIpc.handle(
     IPC_CHANNELS.RUN_PLAYBACK_TEST,
     (arguments_) => runPlaybackTestArgumentsSchema.parse(arguments_),
-    (project, testId) => runPlaybackTest(project, testId),
+    (projectSessionId, project, testId, recoveryFingerprint) =>
+      projectSessionId
+        ? editorRuntimeCache.runPlaybackTest(
+            activeProjectSessions.requireActiveWorkspace(projectSessionId),
+            project,
+            testId,
+            recoveryFingerprint ?? {},
+          )
+        : runPlaybackTest(project, testId),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.RUN_PLAYBACK_SUITE,
+    (arguments_) => runPlaybackSuiteArgumentsSchema.parse(arguments_),
+    (projectSessionId, project, recoveryFingerprint) =>
+      projectSessionId
+        ? editorRuntimeCache.runPlaybackSuite(
+            activeProjectSessions.requireActiveWorkspace(projectSessionId),
+            project,
+            recoveryFingerprint ?? {},
+          )
+        : runPlaybackSuite(project),
   );
 
   guardedIpc.handle(

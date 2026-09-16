@@ -61,6 +61,7 @@ export interface TestListResponse {
 
 export interface PlaybackReportResponse {
   ok: boolean;
+  success?: boolean;
   report?: unknown;
   diagnostics: ToolDiagnostic[];
   error?: string;

@@ -8,6 +8,45 @@ are effect-free; shader compiler effects are reserved for explicit export intent
 value is canonical `noveltea.compiled.project` Format V1 plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
 a second runtime-project shape.
 
+The shared TypeScript CLI and Electron main process persist canonical runtime/test preparation under
+`.noveltea/cache/runtime/`. Each disposable Project-local generation contains the canonical prepared
+runtime artifact plus a lowered authored-test catalog. Runtime freshness and Test-catalog freshness
+are independent: runtime freshness uses exact relevant Project Workspace files, declared Asset source
+paths, conservative NovelTea-source discovery, and exact file modification-time-plus-size metadata,
+while Test freshness uses the canonical `records/tests/` source revisions. A Test-only edit therefore
+republishes the catalog while carrying forward the still-fresh runtime artifact bytes; a
+runtime-affecting change causes normal runtime preparation and regenerates the catalog against the
+new Project state. General persistent incremental runtime compilation remains deferred: only the
+Test-catalog/runtime-artifact split is independently refreshable in this cache version.
+
+Electron persistent-cache admission and publication are main-process responsibilities. The active
+Project session supplies the authoritative saved Workspace snapshot; renderer tab dirtiness is not an
+admission signal. Clean full-game Play compares only runtime-compilation content, so editor-local and
+Test-only in-memory changes may still reuse the saved canonical runtime artifact. Clean authored-test
+execution additionally requires the current Test content to match the saved Workspace before it can
+consume/publish the saved lowered catalog. Pending raw inputs follow the same distinction: Test-only
+pending input does not disqualify Play, while any pending runtime-compilation input keeps Play
+session-local. A dirty/recovered Test or runtime input is prepared from the current in-memory Project
+for that invocation and is never published over the canonical generation. Successful canonical
+preparation may be published before the preview/native runner is launched; a later window, GPU, UI
+runner, or other environment failure does not invalidate already-certified compiled cache state.
+
+The catalog is the native-facing Test boundary. Every authored Test ID is emitted deterministically as
+either `runnable`, with its runner kind and already-lowered `noveltea.editor.playback` specification,
+or `blocked`, with deterministic readiness diagnostics. Cached consumers never need authored Test
+schema/Zod parsing. A blocked Test does not invalidate the runtime artifact or prevent cache
+publication, but explicitly running that Test returns its readiness diagnostics without invoking the
+native runner. A malformed cache generation or failed publication remains disposable and falls back
+to ordinary preparation. The standalone ScriptC host now probes this same cache contract before
+importing its QuickJS island for the test command family. A proven hit executes from the cached
+Compiled Project/lowered catalog in the static/native tier; any miss, stale/unusable generation, or
+conservative Project-root uncertainty imports the shared TypeScript application and uses the normal
+preparation/publication path instead. Bare CLI `test run` and the editor's `Run All` action both hand
+the complete lowered catalog to the same native `run-test-suite` operation. That operation executes
+runnable Tests sequentially in deterministic Test-ID order, continues after independent failures,
+keeps complete playback reports for executed entries, and returns aggregate
+`passed`/`failed`/`blocked`/`error` statuses with blocked readiness diagnostics.
+
 Only diagnostics classified for the `runtime-package` boundary block Play or `.ntpkg`. Platform-only
 application identity, locale, signing, and deployment diagnostics remain visible at their owning
 boundary without suppressing the playable artifact. Compiler or native Lua-certification errors
@@ -52,14 +91,22 @@ Localization owns one editor-local **Preview Locale** selection under local edit
 previews and Play resolve against that selection instead of mutating the Project Source or Default
 locale. Any declared locale, including work-in-progress/non-Supported locales, may be selected for
 preview; Play enables that locale only in its detached compilation input so the tracked Project locale
-policy remains unchanged. A virtual **Pseudo-localized** QA choice is generated from the current
-Message source/structure: visible text is marked and expanded while placeholders, selector structure,
-semantic Dialogue Cue identities, and RML/rich-text markup remain intact. Play materializes the
-virtual target only in its detached compilation input, and focused previews derive the corresponding
-presentation directly; no pseudo locale, translations, inheritance, or support policy are persisted to
-Project localization storage or emitted by ordinary package/export preparation. Removing a selected
-real locale falls back to the Project Default. Preview Locale itself is not part of runtime package/export
-preparation.
+policy remains unchanged. Full-game Play treats those detached inputs as explicit build-context
+variants: the Project Default uses the persistent canonical runtime/test generation, real preview
+locales use persistent `preview-locale:<locale>` variants, and the virtual QA locale uses a distinct
+persistent pseudo-preview context. Preview-only generations share the disposable runtime-cache
+namespace but are indexed separately from the canonical `current` pointer. Their persistent LRU is
+capped at four active variants and the standalone native CLI probe accepts only `canonical-runtime`,
+so a preview artifact can never masquerade as the canonical test/runtime artifact. A virtual
+**Pseudo-localized** QA choice is generated from the current Message
+source/structure: visible text is marked and expanded while placeholders, selector structure, semantic
+Dialogue Cue identities, and RML/rich-text markup remain intact. Play materializes the virtual target
+only in its detached compilation input, and focused previews derive the corresponding presentation
+directly; no pseudo locale, translations, inheritance, or support policy are persisted to Project
+localization storage or emitted by ordinary package/export preparation. Removing a selected real locale
+falls back to the Project Default. Preview Locale itself is not part of runtime package/export
+preparation. Focused Room/Layout/Shader preview builders keep their existing specialized preparation
+and freshness paths; they do not consult this full-runtime persistent/variant cache.
 
 Finite presentation in Play preview uses the same `PresentationCoordinator` and typed renderer
 backend as packaged playback. Runtime load/reset/project replacement terminates in-flight

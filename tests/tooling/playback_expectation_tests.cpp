@@ -83,6 +83,121 @@ TEST_CASE("native semantic playback reports failed step and final expectations d
 }
 
 TEST_CASE(
+    "native test suite orders entries, continues after failures and errors, and preserves reports")
+{
+    const auto passing_spec = nlohmann::json{{"schema", "noveltea.editor.playback"},
+                                             {"version", 1},
+                                             {"id", "z-pass"},
+                                             {"steps", nlohmann::json::array()},
+                                             {"finalExpectations", nlohmann::json::array()}};
+    auto failing_spec = passing_spec;
+    failing_spec["id"] = "a-fail";
+    failing_spec["finalExpectations"] = nlohmann::json::array({{{"id", "wrong-room"},
+                                                                {"type", "current-room"},
+                                                                {"operator", "eq"},
+                                                                {"roomId", "elsewhere"}}});
+    const nlohmann::json request = {
+        {"project", load_minimal_compiled_project()},
+        {"catalog",
+         {{"schema", "noveltea.runtime-test-catalog"},
+          {"entries", nlohmann::json::array(
+                          {{{"id", "z-pass"},
+                            {"status", "runnable"},
+                            {"runner", "runtime"},
+                            {"spec", passing_spec}},
+                           {{"id", "m-error"},
+                            {"status", "runnable"},
+                            {"runner", "runtime"},
+                            {"spec", nlohmann::json::object()}},
+                           {{"id", "b-blocked"},
+                            {"status", "blocked"},
+                            {"diagnostics", nlohmann::json::array({{{"severity", "error"},
+                                                                    {"path", "/tests/b-blocked"},
+                                                                    {"message", "Not ready."}}})}},
+                           {{"id", "a-fail"},
+                            {"status", "runnable"},
+                            {"runner", "runtime"},
+                            {"spec", failing_spec}}})}}}};
+
+    const auto result = noveltea::tooling::run_test_suite(request.dump());
+    REQUIRE(result.exit_code == 0);
+    const auto response = nlohmann::json::parse(result.response_json);
+    REQUIRE(response["ok"] == true);
+    CHECK(response["success"] == false);
+    const auto& report = response["report"];
+    CHECK(report["counts"] ==
+          nlohmann::json{{"total", 4}, {"passed", 1}, {"failed", 1}, {"blocked", 1}, {"error", 1}});
+    REQUIRE(report["entries"].size() == 4);
+    CHECK(report["entries"][0]["id"] == "a-fail");
+    CHECK(report["entries"][0]["status"] == "failed");
+    CHECK(report["entries"][0]["report"]["passed"] == false);
+    CHECK(report["entries"][1]["id"] == "b-blocked");
+    CHECK(report["entries"][1]["status"] == "blocked");
+    CHECK(report["entries"][1]["diagnostics"][0]["message"] == "Not ready.");
+    CHECK(report["entries"][2]["id"] == "m-error");
+    CHECK(report["entries"][2]["status"] == "error");
+    CHECK_FALSE(report["entries"][2]["diagnostics"].empty());
+    CHECK(report["entries"][3]["id"] == "z-pass");
+    CHECK(report["entries"][3]["status"] == "passed");
+    CHECK(report["entries"][3]["report"]["passed"] == true);
+}
+
+TEST_CASE("native test suite treats blocked-only and empty catalogs as successful")
+{
+    for (const auto& entries : std::vector<nlohmann::json>{
+             nlohmann::json::array(),
+             nlohmann::json::array(
+                 {{{"id", "blocked"},
+                   {"status", "blocked"},
+                   {"diagnostics", nlohmann::json::array({{{"severity", "error"},
+                                                           {"path", "/tests/blocked"},
+                                                           {"message", "Not ready."}}})}}})}) {
+        const nlohmann::json request = {
+            {"project", load_minimal_compiled_project()},
+            {"catalog", {{"schema", "noveltea.runtime-test-catalog"}, {"entries", entries}}}};
+        const auto result = noveltea::tooling::run_test_suite(request.dump());
+        REQUIRE(result.exit_code == 0);
+        const auto response = nlohmann::json::parse(result.response_json);
+        CHECK(response["ok"] == true);
+        CHECK(response["success"] == true);
+        CHECK(response["report"]["counts"]["failed"] == 0);
+        CHECK(response["report"]["counts"]["error"] == 0);
+    }
+}
+
+TEST_CASE("native test suite reports invalid compiled project as a suite-level failure")
+{
+    const nlohmann::json request = {
+        {"project", nlohmann::json::object()},
+        {"catalog",
+         {{"schema", "noveltea.runtime-test-catalog"}, {"entries", nlohmann::json::array()}}}};
+    const auto result = noveltea::tooling::run_test_suite(request.dump());
+    CHECK(result.exit_code == 1);
+    const auto response = nlohmann::json::parse(result.response_json);
+    CHECK(response["ok"] == false);
+    CHECK_FALSE(response.contains("report"));
+}
+
+TEST_CASE("native UI playback marks compiled-project admission failures for cache recovery")
+{
+    const nlohmann::json request = {
+        {"project", nlohmann::json{{"schema", "noveltea.compiled.project"}}},
+        {"spec",
+         {{"schema", "noveltea.editor.playback"},
+          {"version", 1},
+          {"id", "invalid-ui-project"},
+          {"steps", nlohmann::json::array()},
+          {"finalExpectations", nlohmann::json::array()}}},
+    };
+
+    const auto result = noveltea::tooling::run_ui_test(request.dump());
+    const auto response = nlohmann::json::parse(result.response_json, nullptr, false);
+    REQUIRE_FALSE(response.is_discarded());
+    CHECK(response.value("ok", true) == false);
+    CHECK(response.value("compiledProjectAdmissionRejected", false) == true);
+}
+
+TEST_CASE(
     "native UI playback drives file-backed RmlUi selector input into authoritative gameplay state")
 {
     const auto path =

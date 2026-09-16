@@ -1039,6 +1039,19 @@ describe('Prepared Runtime Artifact module', () => {
         })
       ).status,
     ).toBe('verified');
+
+    const testOnlyEdit = structuredClone(project);
+    testOnlyEdit.tests.smoke!.label = 'Renamed smoke test';
+    expect(
+      (
+        await verifyPreparedRuntimeArtifact(prepared.artifact, {
+          project: testOnlyEdit,
+          projectRoot: '/project',
+          profile,
+          paths: rendererRuntimeArtifactPaths,
+        })
+      ).status,
+    ).toBe('verified');
   });
 
   it('rejects unsupported and internally inconsistent prepared evidence', async () => {

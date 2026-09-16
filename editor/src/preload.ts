@@ -62,8 +62,41 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_PROJECT, projectSessionId, project),
   listPlaybackTests: (project: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.LIST_PLAYBACK_TESTS, project),
-  runPlaybackTest: (project: unknown, testId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.RUN_PLAYBACK_TEST, project, testId),
+  prepareEditorRuntime: (
+    projectSessionId: string,
+    project: unknown,
+    recoveryFingerprint: unknown,
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.PREPARE_EDITOR_RUNTIME,
+      projectSessionId,
+      project,
+      recoveryFingerprint,
+    ),
+  runPlaybackTest: (
+    projectSessionId: string | null,
+    project: unknown,
+    testId: string,
+    recoveryFingerprint?: unknown,
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.RUN_PLAYBACK_TEST,
+      projectSessionId,
+      project,
+      testId,
+      recoveryFingerprint,
+    ),
+  runPlaybackSuite: (
+    projectSessionId: string | null,
+    project: unknown,
+    recoveryFingerprint?: unknown,
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.RUN_PLAYBACK_SUITE,
+      projectSessionId,
+      project,
+      recoveryFingerprint,
+    ),
   runPlaybackSpec: (project: unknown, spec: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.RUN_PLAYBACK_SPEC, project, spec),
   runUiPlaybackSpec: (

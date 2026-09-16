@@ -376,6 +376,15 @@ nlohmann::json fail(std::string message, nlohmann::json diagnostics = nlohmann::
     return {{"ok", false}, {"error", std::move(message)}, {"diagnostics", std::move(diagnostics)}};
 }
 
+nlohmann::json
+compiled_project_admission_failure(std::string message,
+                                   nlohmann::json diagnostics = nlohmann::json::array())
+{
+    auto result = fail(std::move(message), std::move(diagnostics));
+    result["compiledProjectAdmissionRejected"] = true;
+    return result;
+}
+
 nlohmann::json compiled_diagnostics_to_json(const Diagnostics& diagnostics)
 {
     auto result = nlohmann::json::array();
@@ -472,7 +481,7 @@ std::optional<nlohmann::json> compiled_project_from_request(const nlohmann::json
 {
     const auto project_it = request.find("project");
     if (project_it == request.end()) {
-        error_response = fail("Request requires compiled project.");
+        error_response = compiled_project_admission_failure("Request requires compiled project.");
         return std::nullopt;
     }
     nlohmann::json project = *project_it;
@@ -480,13 +489,13 @@ std::optional<nlohmann::json> compiled_project_from_request(const nlohmann::json
         project =
             nlohmann::json::parse(json_access::get_or<std::string>(project, {}), nullptr, false);
     if (project.is_discarded()) {
-        error_response = fail("Compiled project JSON is malformed.");
+        error_response = compiled_project_admission_failure("Compiled project JSON is malformed.");
         return std::nullopt;
     }
     auto decoded = decode_compiled_project(project, "game");
     if (!decoded) {
-        error_response = fail("Compiled project validation failed.",
-                              compiled_diagnostics_to_json(decoded.error()));
+        error_response = compiled_project_admission_failure(
+            "Compiled project validation failed.", compiled_diagnostics_to_json(decoded.error()));
         return std::nullopt;
     }
     return project;
@@ -519,11 +528,13 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     HeadlessPresentationRuntime presentation;
     auto input = make_headless_running_game_input(*project, std::nullopt, "en");
     if (!input)
-        return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(input.error()));
+        return compiled_project_admission_failure("Compiled runtime load failed.",
+                                                  compiled_diagnostics_to_json(input.error()));
     auto runtime =
         load_headless_running_game(std::move(*input.value_if()), scripts, presentation, saves);
     if (!runtime)
-        return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(runtime.error()));
+        return compiled_project_admission_failure("Compiled runtime load failed.",
+                                                  compiled_diagnostics_to_json(runtime.error()));
 
     auto decoded_spec = editor::decode_editor_playback_text(spec_it->dump());
     if (!decoded_spec)
@@ -918,10 +929,193 @@ nlohmann::json run_external_ui_playback(const nlohmann::json& request)
     return response;
 }
 
+bool playback_report_has_execution_error(const nlohmann::json& report)
+{
+    const auto steps = report.find("steps");
+    if (steps == report.end() || !steps->is_array())
+        return true;
+    for (const auto& step : *steps) {
+        if (!step.is_object() || !json_access::value_or(step, "handled", false))
+            return true;
+        const auto diagnostics = step.find("diagnostics");
+        if (diagnostics == step.end() || !diagnostics->is_array())
+            return true;
+        for (const auto& diagnostic : *diagnostics) {
+            const auto severity = json_access::value_or(diagnostic, "severity", std::string{});
+            if (severity == "error" || severity == "fatal")
+                return true;
+        }
+    }
+    return false;
+}
+
+nlohmann::json playback_report_error_diagnostics(const nlohmann::json& report,
+                                                 std::string_view test_id)
+{
+    auto result = nlohmann::json::array();
+    const auto steps = report.find("steps");
+    if (steps != report.end() && steps->is_array()) {
+        for (const auto& step : *steps) {
+            if (!step.is_object())
+                continue;
+            const auto diagnostics = step.find("diagnostics");
+            if (diagnostics == step.end() || !diagnostics->is_array())
+                continue;
+            for (const auto& diagnostic : *diagnostics) {
+                if (!diagnostic.is_object())
+                    continue;
+                const auto severity = json_access::value_or(diagnostic, "severity", std::string{});
+                if (severity == "error" || severity == "fatal")
+                    result.push_back(diagnostic);
+            }
+        }
+    }
+    if (result.empty()) {
+        result.push_back({{"severity", "error"},
+                          {"path", "/tests/" + std::string(test_id)},
+                          {"message", "Native test execution did not complete successfully."}});
+    }
+    return result;
+}
+
+nlohmann::json suite_error_diagnostics(const nlohmann::json& response, std::string_view test_id)
+{
+    if (auto diagnostics = response.find("diagnostics");
+        diagnostics != response.end() && diagnostics->is_array())
+        return *diagnostics;
+    return nlohmann::json::array(
+        {{{"severity", "error"},
+          {"path", "/tests/" + std::string(test_id)},
+          {"message", json_access::value_or(response, "error",
+                                            std::string("Native test execution failed."))}}});
+}
+
+nlohmann::json run_test_suite(const nlohmann::json& request)
+{
+    nlohmann::json error_response;
+    auto project = compiled_project_from_request(request, error_response);
+    if (!project)
+        return error_response;
+
+    const auto catalog_it = request.find("catalog");
+    if (catalog_it == request.end() || !catalog_it->is_object() ||
+        json_access::value_or(*catalog_it, "schema", std::string{}) !=
+            "noveltea.runtime-test-catalog")
+        return fail("Request requires current lowered test catalog.");
+    const auto entries_it = catalog_it->find("entries");
+    if (entries_it == catalog_it->end() || !entries_it->is_array())
+        return fail("Lowered test catalog requires entries.");
+
+    std::vector<nlohmann::json> entries(entries_it->begin(), entries_it->end());
+    std::sort(entries.begin(), entries.end(), [](const auto& left, const auto& right) {
+        return json_access::value_or(left, "id", std::string{}) <
+               json_access::value_or(right, "id", std::string{});
+    });
+
+    const bool has_runnable = std::any_of(entries.begin(), entries.end(), [](const auto& entry) {
+        return json_access::value_or(entry, "status", std::string{}) == "runnable";
+    });
+    if (has_runnable) {
+        const nlohmann::json preflight_request = {
+            {"project", *project},
+            {"spec",
+             {{"schema", "noveltea.editor.playback"},
+              {"version", 1},
+              {"id", "__suite_preflight__"},
+              {"steps", nlohmann::json::array()},
+              {"finalExpectations", nlohmann::json::array()}}},
+        };
+        const auto preflight = run_compiled_playback(preflight_request);
+        if (!json_access::value_or(preflight, "ok", false))
+            return preflight;
+        const auto preflight_report = preflight.find("report");
+        if (preflight_report == preflight.end() ||
+            !json_access::value_or(*preflight_report, "passed", false))
+            return compiled_project_admission_failure(
+                "Compiled runtime startup failed during suite preflight.");
+    }
+
+    nlohmann::json report_entries = nlohmann::json::array();
+    std::string previous_id;
+    std::size_t passed = 0, failed = 0, blocked = 0, errors = 0;
+    for (const auto& entry : entries) {
+        const auto id = json_access::value_or(entry, "id", std::string{});
+        if (id.empty() || id == previous_id)
+            return fail("Lowered test catalog contains invalid or duplicate test IDs.");
+        previous_id = id;
+        const auto status = json_access::value_or(entry, "status", std::string{});
+        if (status == "blocked") {
+            auto diagnostics = json_access::value_or(entry, "diagnostics", nlohmann::json::array());
+            if (!diagnostics.is_array() || diagnostics.empty())
+                return fail("Blocked test catalog entry requires diagnostics.");
+            report_entries.push_back({{"id", id},
+                                      {"runner", nullptr},
+                                      {"status", "blocked"},
+                                      {"diagnostics", std::move(diagnostics)}});
+            ++blocked;
+            continue;
+        }
+        if (status != "runnable")
+            return fail("Lowered test catalog entry has unknown status.");
+        const auto runner = json_access::value_or(entry, "runner", std::string{});
+        const auto spec = entry.find("spec");
+        if ((runner != "runtime" && runner != "runtime-ui") || spec == entry.end())
+            return fail("Runnable test catalog entry is incomplete.");
+
+        nlohmann::json single_request = {{"project", *project}, {"spec", *spec}};
+        if (auto root = request.find("projectRoot"); root != request.end())
+            single_request["projectRoot"] = *root;
+        if (auto shader_metadata = request.find("shaderMaterialMetadata");
+            shader_metadata != request.end())
+            single_request["shaderMaterialMetadata"] = *shader_metadata;
+        const auto response = runner == "runtime-ui" ? run_external_ui_playback(single_request)
+                                                     : run_compiled_playback(single_request);
+        if (!json_access::value_or(response, "ok", false) || !response.contains("report")) {
+            report_entries.push_back({{"id", id},
+                                      {"runner", runner},
+                                      {"status", "error"},
+                                      {"diagnostics", suite_error_diagnostics(response, id)}});
+            ++errors;
+            continue;
+        }
+        const auto& playback_report = response["report"];
+        const bool execution_error = playback_report_has_execution_error(playback_report);
+        const bool test_passed = json_access::value_or(playback_report, "passed", false);
+        const auto result_status = execution_error ? "error" : test_passed ? "passed" : "failed";
+        nlohmann::json report_entry = {
+            {"id", id}, {"runner", runner}, {"status", result_status}, {"report", playback_report}};
+        if (execution_error)
+            report_entry["diagnostics"] = playback_report_error_diagnostics(playback_report, id);
+        report_entries.push_back(std::move(report_entry));
+        if (execution_error)
+            ++errors;
+        else if (test_passed)
+            ++passed;
+        else
+            ++failed;
+    }
+
+    const auto total = entries.size();
+    return ok({{"success", failed == 0 && errors == 0},
+               {"report",
+                {{"schema", "noveltea.test-suite-report"},
+                 {"counts",
+                  {{"total", total},
+                   {"passed", passed},
+                   {"failed", failed},
+                   {"blocked", blocked},
+                   {"error", errors}}},
+                 {"entries", std::move(report_entries)}}}});
+}
+
 nlohmann::json run_command(std::string_view command, const nlohmann::json& request)
 {
     if (command == "run-test") {
         return run_compiled_playback(request);
+    }
+
+    if (command == "run-test-suite") {
+        return run_test_suite(request);
     }
 
     if (command == "run-ui-test") {
@@ -1021,6 +1215,11 @@ NativeOperationResult run_headless_test(std::string_view request_json)
     return invoke_json_operation("run-test", request_json);
 }
 
+NativeOperationResult run_test_suite(std::string_view request_json)
+{
+    return invoke_json_operation("run-test-suite", request_json);
+}
+
 NativeOperationResult run_ui_test(std::string_view request_json)
 {
     return invoke_json_operation("run-ui-test", request_json);
@@ -1053,6 +1252,16 @@ noveltea_tooling_run_headless_test_json(const std::uint8_t* request, std::uint64
 {
     return noveltea::tooling::copy_result(
         noveltea::tooling::run_headless_test(noveltea::tooling::request_view(request, request_size)),
+        response, response_capacity);
+}
+
+extern "C" std::uint64_t noveltea_tooling_run_test_suite_json(const std::uint8_t* request,
+                                                              std::uint64_t request_size,
+                                                              std::uint8_t* response,
+                                                              std::uint64_t response_capacity)
+{
+    return noveltea::tooling::copy_result(
+        noveltea::tooling::run_test_suite(noveltea::tooling::request_view(request, request_size)),
         response, response_capacity);
 }
 
