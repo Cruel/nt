@@ -26,7 +26,6 @@ const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
 const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-release';
-const releaseTriplet = isWindows ? 'x64-mingw-static-noveltea' : 'x64-linux-noveltea';
 const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
 const nativeCli = path.resolve(
   process.env.NOVELTEA_CLI_PATH ??
