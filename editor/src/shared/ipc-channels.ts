@@ -30,6 +30,7 @@ export const IPC_CHANNELS = {
   VALIDATE_PROJECT: 'noveltea:validate-project',
   LIST_PLAYBACK_TESTS: 'noveltea:list-playback-tests',
   RUN_PLAYBACK_TEST: 'noveltea:run-playback-test',
+  RUN_PLAYBACK_SUITE: 'noveltea:run-playback-suite',
   PREPARE_EDITOR_RUNTIME: 'noveltea:prepare-editor-runtime',
   RUN_PLAYBACK_SPEC: 'noveltea:run-playback-spec',
   RUN_UI_PLAYBACK_SPEC: 'noveltea:run-ui-playback-spec',

@@ -12,7 +12,7 @@ import {
   createAuthoringProject,
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
-import { defaultTestData } from '../../shared/project-schema/authoring-tests';
+import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 import { PSEUDO_PREVIEW_LOCALE } from '../../shared/pseudo-localization';
 import { projectWorkspaceFiles } from '../../shared/project-workspace';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
@@ -79,6 +79,38 @@ function serviceWithNativeLog(log: Array<{ operation: string; request: unknown }
         diagnostics: [],
         report: { schema: 'noveltea.editor.playback-report', version: 1, passed: true },
       };
+    if (operation === 'run-test-suite') {
+      const entries = (
+        (request as { catalog?: { entries?: Array<{ id: string; status: string }> } }).catalog
+          ?.entries ?? []
+      ).map((entry) => ({
+        id: entry.id,
+        runner: entry.status === 'runnable' ? 'runtime' : null,
+        status: entry.status === 'runnable' ? 'passed' : 'blocked',
+        ...(entry.status === 'runnable'
+          ? { report: { schema: 'noveltea.editor.playback-report', version: 1, passed: true } }
+          : {
+              diagnostics: [{ severity: 'error', path: `/tests/${entry.id}`, message: 'blocked' }],
+            }),
+      }));
+      const blocked = entries.filter((entry) => entry.status === 'blocked').length;
+      return {
+        ok: true,
+        success: true,
+        report: {
+          schema: 'noveltea.test-suite-report',
+          version: 1,
+          counts: {
+            total: entries.length,
+            passed: entries.length - blocked,
+            failed: 0,
+            blocked,
+            error: 0,
+          },
+          entries,
+        },
+      };
+    }
     throw new Error(`Unexpected native operation '${operation}'.`);
   });
 }
@@ -357,5 +389,53 @@ describe('editor persistent runtime cache', () => {
     expect(await service.preparePlay(workspace, dirty, {})).toMatchObject({
       status: 'session-local',
     });
+  });
+
+  it('runs suites through one native operation using cached clean state and session-local dirty state', async () => {
+    const { root, project, workspace } = await createWorkspace();
+    const nativeCalls: Array<{ operation: string; request: unknown }> = [];
+    const service = serviceWithNativeLog(nativeCalls);
+
+    const clean = await service.runPlaybackSuite(workspace, project, {});
+    const generation = await currentGeneration(root);
+    const dirty = cloneProject(project);
+    const blockedData = defaultTestData('Blocked');
+    blockedData.steps = [
+      {
+        ...defaultTestStep('save'),
+        id: 'save-named-slot',
+        label: 'Save named slot',
+        saveSlot: { slotId: 'named-slot' },
+      },
+    ];
+    blockedData.preview.selectedStepId = 'save-named-slot';
+    dirty.tests.blocked = { id: 'blocked', label: 'Blocked', data: blockedData };
+    const dirtyResult = await service.runPlaybackSuite(workspace, dirty, {});
+
+    expect(clean).toMatchObject({
+      ok: true,
+      report: { counts: { total: 1, passed: 1, blocked: 0 } },
+    });
+    expect(dirtyResult).toMatchObject({
+      ok: true,
+      report: { counts: { total: 2, passed: 1, blocked: 1 } },
+    });
+    const suiteCalls = nativeCalls.filter((call) => call.operation === 'run-test-suite');
+    expect(suiteCalls).toHaveLength(2);
+    expect(suiteCalls[0]?.request).toMatchObject({
+      projectRoot: root,
+      catalog: { schema: 'noveltea.runtime-test-catalog', entries: [{ id: 'smoke' }] },
+    });
+    expect(suiteCalls[1]?.request).toMatchObject({
+      projectRoot: root,
+      catalog: {
+        schema: 'noveltea.runtime-test-catalog',
+        entries: [
+          { id: 'blocked', status: 'blocked' },
+          { id: 'smoke', status: 'runnable' },
+        ],
+      },
+    });
+    expect(await currentGeneration(root)).toBe(generation);
   });
 });

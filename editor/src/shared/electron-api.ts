@@ -62,6 +62,11 @@ interface NovelTeaElectronApiContract {
     testId: string,
     recoveryFingerprint?: unknown,
   ): Promise<PlaybackReportResponse>;
+  runPlaybackSuite(
+    projectSessionId: string | null,
+    project: unknown,
+    recoveryFingerprint?: unknown,
+  ): Promise<PlaybackReportResponse>;
   runPlaybackSpec(project: unknown, spec: unknown): Promise<PlaybackReportResponse>;
   runUiPlaybackSpec(
     projectSessionId: string | null,

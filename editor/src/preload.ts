@@ -86,6 +86,17 @@ const api: NovelTeaElectronApi = {
       testId,
       recoveryFingerprint,
     ),
+  runPlaybackSuite: (
+    projectSessionId: string | null,
+    project: unknown,
+    recoveryFingerprint?: unknown,
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.RUN_PLAYBACK_SUITE,
+      projectSessionId,
+      project,
+      recoveryFingerprint,
+    ),
   runPlaybackSpec: (project: unknown, spec: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.RUN_PLAYBACK_SPEC, project, spec),
   runUiPlaybackSpec: (

@@ -319,7 +319,7 @@ authoring project. Instead, the Tests Editor owns the detailed readiness state.
 The Tests Editor is split into a main authoring area and a selected-step
 inspector.
 
-The top area shows:
+The detail editor top area shows:
 
 - record label and test id;
 - run-readiness badge;
@@ -327,6 +327,17 @@ The top area shows:
 - Run Test action;
 - display name;
 - ordered semantic step list.
+
+The global Tests suite surface exposes one `Run All` action. It delegates the complete lowered Test
+catalog to the native `run-test-suite` operation rather than looping runnable Tests in React. The
+returned aggregate keeps deterministic native ordering and displays `passed`, `failed`, `blocked`,
+and `error` statuses; blocked/error diagnostics stay visible in the suite list. Executed entries keep
+their complete playback report and expose it through the existing Test Playback panel.
+
+For a clean saved Project, suite execution uses the shared persistent canonical runtime artifact and
+lowered Test catalog. Compilation-relevant dirty or recovered Project state is compiled from the
+current in-memory Project for that invocation only and is not published to the persistent cache.
+Single-Test execution keeps the same clean-cache/session-local distinction.
 
 The step list shows each step’s order, label, input type, disabled state, and any
 matching playback observation state from the last report.

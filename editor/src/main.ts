@@ -71,6 +71,7 @@ import {
   listPlaybackTests,
   openProject,
   runPlaybackSpec,
+  runPlaybackSuite,
   runPlaybackTest,
   runUiPlaybackSpec,
   validateProject,
@@ -168,6 +169,7 @@ import {
   removePlayerTemplateArgumentsSchema,
   resolvePlayerTemplateArgumentsSchema,
   runPlaybackSpecArgumentsSchema,
+  runPlaybackSuiteArgumentsSchema,
   runPlaybackTestArgumentsSchema,
   runUiPlaybackSpecArgumentsSchema,
   saveProjectContentArgumentsSchema,
@@ -1044,6 +1046,19 @@ void app.whenReady().then(async () => {
             recoveryFingerprint ?? {},
           )
         : runPlaybackTest(project, testId),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.RUN_PLAYBACK_SUITE,
+    (arguments_) => runPlaybackSuiteArgumentsSchema.parse(arguments_),
+    (projectSessionId, project, recoveryFingerprint) =>
+      projectSessionId
+        ? editorRuntimeCache.runPlaybackSuite(
+            activeProjectSessions.requireActiveWorkspace(projectSessionId),
+            project,
+            recoveryFingerprint ?? {},
+          )
+        : runPlaybackSuite(project),
   );
 
   guardedIpc.handle(
