@@ -16,7 +16,8 @@ paths, conservative NovelTea-source discovery, and exact file modification-time-
 while Test freshness uses the canonical `records/tests/` source revisions. A Test-only edit therefore
 republishes the catalog while carrying forward the still-fresh runtime artifact bytes; a
 runtime-affecting change causes normal runtime preparation and regenerates the catalog against the
-new Project state.
+new Project state. General persistent incremental runtime compilation remains deferred: only the
+Test-catalog/runtime-artifact split is independently refreshable in this cache version.
 
 Electron persistent-cache admission and publication are main-process responsibilities. The active
 Project session supplies the authoritative saved Workspace snapshot; renderer tab dirtiness is not an
@@ -40,7 +41,11 @@ to ordinary preparation. The standalone ScriptC host now probes this same cache 
 importing its QuickJS island for the test command family. A proven hit executes from the cached
 Compiled Project/lowered catalog in the static/native tier; any miss, stale/unusable generation, or
 conservative Project-root uncertainty imports the shared TypeScript application and uses the normal
-preparation/publication path instead.
+preparation/publication path instead. Bare CLI `test run` and the editor's `Run All` action both hand
+the complete lowered catalog to the same native `run-test-suite` operation. That operation executes
+runnable Tests sequentially in deterministic Test-ID order, continues after independent failures,
+keeps complete playback reports for executed entries, and returns aggregate
+`passed`/`failed`/`blocked`/`error` statuses with blocked readiness diagnostics.
 
 Only diagnostics classified for the `runtime-package` boundary block Play or `.ntpkg`. Platform-only
 application identity, locale, signing, and deployment diagnostics remain visible at their owning

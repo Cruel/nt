@@ -541,17 +541,19 @@ ergonomics while preserving the semantic input contract and public-runtime-obser
 Relevant verification commands from the editor package:
 
 ```bash
-pnpm -C editor run typecheck
+pnpm -C editor run check
 pnpm -C editor run test
-pnpm lint
+pnpm -C editor run noveltea:certify
 ```
 
-Focused tests can be run with Vitest filters:
+The standalone certification command requires the release-admitted native/ScriptC CLI build and is
+also a release/CI gate. Focused editor tests can be run with Vite+ filters:
 
 ```bash
-pnpm vitest run src/renderer/test/authoring-tests.test.ts
-pnpm vitest run src/renderer/test/test-operations.test.ts
-pnpm vitest run src/renderer/test/test-playback-project.test.ts
+pnpm -C editor exec vp test run src/renderer/test/authoring-tests.test.ts
+pnpm -C editor exec vp test run src/renderer/test/test-playback-project.test.ts
+pnpm -C editor exec vp test run src/renderer/test/runtime-build-cache.test.ts
+pnpm -C editor exec vp test run src/renderer/test/test-suite-editor.test.tsx
 ```
 
 Expected coverage:
@@ -571,4 +573,10 @@ Expected coverage:
 - native UI playback resolves a real visible RmlUi target, dispatches pointer input through the normal
   Layout path, can cause an authoritative gameplay state change, and evaluates it with the same typed
   expectation/reporting contract;
-- readiness reflects Test lowering and runtime-artifact compilation honestly.
+- readiness reflects Test lowering and runtime-artifact compilation honestly;
+- clean repeated test commands reuse the disposable canonical runtime/Test cache while dirty editor
+  execution stays session-local;
+- bare suite execution uses the shared native runner and reports deterministic
+  `passed`/`failed`/`blocked`/`error` aggregate semantics;
+- standalone certification proves fallback/publication, native-only cache hits, Node/ScriptC public
+  parity, freshness/recovery behavior, and the Feature Lab authored suite.
