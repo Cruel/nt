@@ -100,7 +100,6 @@ TEST_CASE(
         {"project", load_minimal_compiled_project()},
         {"catalog",
          {{"schema", "noveltea.runtime-test-catalog"},
-          {"version", 1},
           {"entries", nlohmann::json::array(
                           {{{"id", "z-pass"},
                             {"status", "runnable"},
@@ -137,6 +136,7 @@ TEST_CASE(
     CHECK(report["entries"][1]["diagnostics"][0]["message"] == "Not ready.");
     CHECK(report["entries"][2]["id"] == "m-error");
     CHECK(report["entries"][2]["status"] == "error");
+    CHECK_FALSE(report["entries"][2]["diagnostics"].empty());
     CHECK(report["entries"][3]["id"] == "z-pass");
     CHECK(report["entries"][3]["status"] == "passed");
     CHECK(report["entries"][3]["report"]["passed"] == true);
@@ -154,8 +154,7 @@ TEST_CASE("native test suite treats blocked-only and empty catalogs as successfu
                                                            {"message", "Not ready."}}})}}})}) {
         const nlohmann::json request = {
             {"project", load_minimal_compiled_project()},
-            {"catalog",
-             {{"schema", "noveltea.runtime-test-catalog"}, {"version", 1}, {"entries", entries}}}};
+            {"catalog", {{"schema", "noveltea.runtime-test-catalog"}, {"entries", entries}}}};
         const auto result = noveltea::tooling::run_test_suite(request.dump());
         REQUIRE(result.exit_code == 0);
         const auto response = nlohmann::json::parse(result.response_json);
@@ -168,16 +167,34 @@ TEST_CASE("native test suite treats blocked-only and empty catalogs as successfu
 
 TEST_CASE("native test suite reports invalid compiled project as a suite-level failure")
 {
-    const nlohmann::json request = {{"project", nlohmann::json::object()},
-                                    {"catalog",
-                                     {{"schema", "noveltea.runtime-test-catalog"},
-                                      {"version", 1},
-                                      {"entries", nlohmann::json::array()}}}};
+    const nlohmann::json request = {
+        {"project", nlohmann::json::object()},
+        {"catalog",
+         {{"schema", "noveltea.runtime-test-catalog"}, {"entries", nlohmann::json::array()}}}};
     const auto result = noveltea::tooling::run_test_suite(request.dump());
     CHECK(result.exit_code == 1);
     const auto response = nlohmann::json::parse(result.response_json);
     CHECK(response["ok"] == false);
     CHECK_FALSE(response.contains("report"));
+}
+
+TEST_CASE("native UI playback marks compiled-project admission failures for cache recovery")
+{
+    const nlohmann::json request = {
+        {"project", nlohmann::json{{"schema", "noveltea.compiled.project"}}},
+        {"spec",
+         {{"schema", "noveltea.editor.playback"},
+          {"version", 1},
+          {"id", "invalid-ui-project"},
+          {"steps", nlohmann::json::array()},
+          {"finalExpectations", nlohmann::json::array()}}},
+    };
+
+    const auto result = noveltea::tooling::run_ui_test(request.dump());
+    const auto response = nlohmann::json::parse(result.response_json, nullptr, false);
+    REQUIRE_FALSE(response.is_discarded());
+    CHECK(response.value("ok", true) == false);
+    CHECK(response.value("compiledProjectAdmissionRejected", false) == true);
 }
 
 TEST_CASE(

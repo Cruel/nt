@@ -13,7 +13,7 @@ export type EditorRuntimePreparationResult =
       artifact: PreparedRuntimeArtifact;
       buildContext: EditorRuntimeBuildContext;
       cache: {
-        scope: 'persistent-canonical' | 'preview-session';
+        scope: 'persistent-canonical' | 'persistent-preview';
         status: 'hit' | 'prepared';
         observation?: RuntimeBuildCacheObservation;
       };
@@ -23,7 +23,7 @@ export type EditorRuntimePreparationResult =
       diagnostics: ProjectValidationDiagnostic[];
       buildContext: EditorRuntimeBuildContext;
       cache: {
-        scope: 'persistent-canonical' | 'preview-session';
+        scope: 'persistent-canonical' | 'persistent-preview';
         status: 'prepared';
         observation?: RuntimeBuildCacheObservation;
       };

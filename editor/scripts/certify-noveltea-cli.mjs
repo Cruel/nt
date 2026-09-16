@@ -27,7 +27,6 @@ const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
 const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-release';
-const releaseTriplet = isWindows ? 'x64-mingw-static-noveltea' : 'x64-linux-noveltea';
 const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
 const nativeCli = path.resolve(
   process.env.NOVELTEA_CLI_PATH ??
@@ -1045,9 +1044,9 @@ async function certifyRuntimeCacheInvalidation(tempRoot, pristine) {
 
   manifestPath = await currentManifestPath();
   manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  manifest.schema = 'noveltea.runtime-build-cache.incompatible';
+  manifest.schema = 17;
   await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
-  const schemaChanged = runCached('runtime-cache schema incompatibility', true, 'unusable');
+  const schemaChanged = runCached('runtime-cache malformed typed schema', true, 'unusable');
   if (schemaChanged.payload.runtimeCache?.published !== true)
     fail(`Cache-schema incompatibility did not self-heal: ${schemaChanged.result.stdout}`);
 
@@ -1376,6 +1375,13 @@ async function certifyNativeOperations(tempRoot, pristine) {
     blockedSuitePayload.native?.report?.counts?.error !== 0
   )
     fail(`Blocked-only cached suite returned unexpected counts: ${blockedSuite.stdout}`);
+  const blockedSuiteReadiness =
+    blockedSuitePayload.native?.report?.entries?.[0]?.diagnostics?.[0]?.message;
+  if (
+    typeof blockedSuiteReadiness !== 'string' ||
+    !blockedSuitePayload.diagnostics?.some((item) => item.message === blockedSuiteReadiness)
+  )
+    fail(`Blocked cached suite did not promote readiness diagnostics: ${blockedSuite.stdout}`);
 
   const output = path.join(tempRoot, 'certification.ntpkg');
   requireSuccess(

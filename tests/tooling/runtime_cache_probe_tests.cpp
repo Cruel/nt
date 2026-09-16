@@ -6,13 +6,20 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
 
 namespace {
 
@@ -43,6 +50,14 @@ void write_text(const std::filesystem::path& path, std::string_view text)
     REQUIRE(output.good());
     output.write(text.data(), static_cast<std::streamsize>(text.size()));
     REQUIRE(output.good());
+}
+
+std::optional<std::string> read_text(const std::filesystem::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return std::nullopt;
+    return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
 }
 
 std::string sha256_prefixed(std::string_view text)
@@ -79,11 +94,6 @@ Json input_entry(const std::filesystem::path& root, std::string_view relative)
             {"mtimeNanoseconds", info["mtimeNanoseconds"]}};
 }
 
-Json revision_entry(std::string_view relative, std::string_view text)
-{
-    return {{"path", relative}, {"contentHash", sha256_prefixed(text)}, {"byteSize", text.size()}};
-}
-
 Json canonical_scopes()
 {
     return Json::array({{{"root", "records"},
@@ -107,7 +117,7 @@ void create_cache(const std::filesystem::path& root)
     const std::string artifact =
         R"({"schema":"noveltea.prepared-runtime-artifact","compiledProject":{"schema":"noveltea.compiled.project"}})";
     const std::string catalog =
-        R"({"schema":"noveltea.runtime-test-catalog","version":1,"entries":[{"id":"smoke","status":"runnable","runner":"runtime","spec":{}}]})";
+        R"({"schema":"noveltea.runtime-test-catalog","entries":[{"id":"smoke","status":"runnable","runner":"runtime","spec":{}}]})";
     const std::string generation = "11111111-1111-4111-8111-111111111111";
     const auto directory = root / ".noveltea/cache/runtime/generations" / generation;
     write_text(directory / "artifact.json", artifact);
@@ -121,12 +131,11 @@ void create_cache(const std::filesystem::path& root)
         {"compiledProject", {{"schema", "noveltea.compiled.project"}, {"formatVersion", 1}}},
         {"preparedArtifactSchema", "noveltea.prepared-runtime-artifact"},
         {"discoveryScopes", canonical_scopes()},
-        {"sourceRevisions", Json::array({revision_entry("project.json", project)})},
         {"inputs", Json::array({input_entry(root, "project.json")})},
         {"artifactFile", "artifact.json"},
         {"artifactSha256", sha256_prefixed(artifact)},
         {"testCatalog",
-         {{"sourceRevisions", Json::array({revision_entry("records/tests/smoke.json", test)})},
+         {{"inputs", Json::array({input_entry(root, "records/tests/smoke.json")})},
           {"catalogFile", "tests.json"},
           {"catalogSha256", sha256_prefixed(catalog)}}},
     };
@@ -151,6 +160,23 @@ TEST_CASE("native runtime cache probe admits a fresh canonical generation")
 }
 
 TEST_CASE(
+    "native runtime cache admission uses exact metadata without hashing authored source bytes")
+{
+    auto root = temp_root();
+    create_cache(root.path);
+    const auto project_path = root.path / "project.json";
+    const auto timestamp = std::filesystem::last_write_time(project_path);
+    write_text(project_path, R"({"schema":"noveltea.project.workspace","schemaVersion":2})");
+    std::filesystem::last_write_time(project_path, timestamp);
+
+    const auto result = invoke(
+        noveltea_tooling_probe_runtime_cache_json,
+        {{"projectRoot", root.path.generic_string()}, {"compilerIdentity", "test-compiler"}});
+    REQUIRE(result["ok"] == true);
+    CHECK(result["status"] == "hit");
+}
+
+TEST_CASE(
     "native runtime cache probe rejects stale test content without parsing authored Test data")
 {
     auto root = temp_root();
@@ -161,5 +187,46 @@ TEST_CASE(
         {{"projectRoot", root.path.generic_string()}, {"compilerIdentity", "test-compiler"}});
     REQUIRE(result["ok"] == true);
     CHECK(result["status"] == "stale");
-    CHECK(result["reason"] == "test-source-revision-changed");
+    CHECK(result["reason"] == "test-input-metadata-changed");
 }
+
+TEST_CASE("native runtime cache probe treats malformed typed manifest fields as unusable")
+{
+    auto root = temp_root();
+    create_cache(root.path);
+    const auto generation =
+        read_text(root.path / ".noveltea/cache/runtime/current").value_or(std::string{});
+    auto trimmed = generation;
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back())))
+        trimmed.pop_back();
+    const auto manifest_path =
+        root.path / ".noveltea/cache/runtime/generations" / trimmed / "manifest.json";
+    auto manifest = Json::parse(read_text(manifest_path).value_or("{}"));
+    manifest["schema"] = 17;
+    write_text(manifest_path, manifest.dump());
+
+    const auto result = invoke(
+        noveltea_tooling_probe_runtime_cache_json,
+        {{"projectRoot", root.path.generic_string()}, {"compilerIdentity", "test-compiler"}});
+    REQUIRE(result["ok"] == true);
+    CHECK(result["status"] == "unusable");
+    CHECK(result["reason"] == "manifest-invalid");
+}
+
+#if !defined(_WIN32)
+TEST_CASE("native runtime cache probe rejects a non-regular plausible source candidate")
+{
+    auto root = temp_root();
+    create_cache(root.path);
+    const auto fifo = root.path / "scripts/new.lua";
+    std::filesystem::create_directories(fifo.parent_path());
+    REQUIRE(::mkfifo(fifo.c_str(), 0600) == 0);
+
+    const auto result = invoke(
+        noveltea_tooling_probe_runtime_cache_json,
+        {{"projectRoot", root.path.generic_string()}, {"compilerIdentity", "test-compiler"}});
+    REQUIRE(result["ok"] == true);
+    CHECK(result["status"] == "stale");
+    CHECK(result["reason"] == "discovery-inputs-changed");
+}
+#endif

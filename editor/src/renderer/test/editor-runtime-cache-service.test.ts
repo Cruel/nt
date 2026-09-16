@@ -67,6 +67,15 @@ async function currentGeneration(root: string) {
   return (await readFile(path.join(root, '.noveltea/cache/runtime/current'), 'utf8')).trim();
 }
 
+async function previewIndex(root: string) {
+  return JSON.parse(
+    await readFile(path.join(root, '.noveltea/cache/runtime/preview-index.json'), 'utf8'),
+  ) as {
+    schema: string;
+    entries: Array<{ variant: string; generation: string; lastUsedAtMs: number }>;
+  };
+}
+
 function serviceWithNativeLog(log: Array<{ operation: string; request: unknown }> = []) {
   return new EditorRuntimeCacheService(async (operation, request) => {
     log.push({ operation, request });
@@ -99,7 +108,6 @@ function serviceWithNativeLog(log: Array<{ operation: string; request: unknown }
         success: true,
         report: {
           schema: 'noveltea.test-suite-report',
-          version: 1,
           counts: {
             total: entries.length,
             passed: entries.length - blocked,
@@ -130,7 +138,6 @@ function cliNativeTools(projects: unknown[]): NovelTeaCliNativeToolService {
         success: true,
         report: {
           schema: 'noveltea.test-suite-report',
-          version: 1,
           counts: { total: 1, passed: 1, failed: 0, blocked: 0, error: 0 },
           entries: [],
         },
@@ -159,6 +166,27 @@ afterEach(async () => {
 });
 
 describe('editor persistent runtime cache', () => {
+  it('refuses to publish stale editor content against a newly changed disk snapshot', async () => {
+    const { root, project, workspace } = await createWorkspace();
+    const roomPath = path.join(root, 'records', 'rooms', 'start.json');
+    const diskRoom = JSON.parse(await readFile(roomPath, 'utf8')) as Record<string, unknown>;
+    diskRoom.label = 'Externally Changed';
+    await writeFile(roomPath, `${JSON.stringify(diskRoom, null, 2)}\n`, 'utf8');
+
+    const result = await serviceWithNativeLog().preparePlay(workspace, project, {});
+
+    expect(result).toMatchObject({
+      status: 'prepared',
+      cache: {
+        scope: 'persistent-canonical',
+        observation: {
+          published: false,
+          publicationReason: 'workspace-source-changed-during-preparation',
+        },
+      },
+    });
+  });
+
   it('publishes clean canonical Play and reuses the generation on the next preparation', async () => {
     const { root, project, workspace } = await createWorkspace();
     const service = serviceWithNativeLog();
@@ -299,13 +327,15 @@ describe('editor persistent runtime cache', () => {
       expect(result).toMatchObject({
         status: 'prepared',
         buildContext: { kind: 'preview-locale', locale },
-        cache: { scope: 'preview-session', status: 'prepared' },
+        cache: { scope: 'persistent-preview', status: 'prepared' },
       });
       if (result.status === 'prepared')
         expect(result.artifact.fileEntries.every((entry) => !path.isAbsolute(entry.source))).toBe(
           true,
         );
-      expect(service.previewVariantCount()).toBeLessThanOrEqual(4);
+      expect((await previewIndex(root)).entries).toHaveLength(
+        Math.min(locales.indexOf(locale) + 1, 4),
+      );
     }
     const pseudo = cloneProject(workspace.project());
     pseudo.editor.previewLocale = PSEUDO_PREVIEW_LOCALE;
@@ -313,10 +343,18 @@ describe('editor persistent runtime cache', () => {
     expect(pseudoResult).toMatchObject({
       status: 'prepared',
       buildContext: { kind: 'pseudo-preview-locale', locale: PSEUDO_PREVIEW_LOCALE },
-      cache: { scope: 'preview-session' },
+      cache: { scope: 'persistent-preview' },
     });
-    expect(service.previewVariantCount()).toBe(4);
+    expect((await previewIndex(root)).entries).toHaveLength(4);
     expect(await currentGeneration(root)).toBe(refreshedCanonicalGeneration);
+
+    const restartedService = serviceWithNativeLog();
+    const reusedPreview = cloneProject(workspace.project());
+    reusedPreview.editor.previewLocale = PSEUDO_PREVIEW_LOCALE;
+    expect(await restartedService.preparePlay(workspace, reusedPreview, {})).toMatchObject({
+      status: 'prepared',
+      cache: { scope: 'persistent-preview', status: 'hit', observation: { status: 'hit' } },
+    });
 
     const projects: unknown[] = [];
     const cliResult = await runNovelTeaCli(['--json', 'test', 'run', 'smoke'], {
@@ -329,6 +367,42 @@ describe('editor persistent runtime cache', () => {
       testCatalogStatus: 'hit',
     });
     expect(projects).toHaveLength(1);
+  });
+
+  it('rebuilds once and retries once when native admission rejects a cached compiled project', async () => {
+    const { project, workspace } = await createWorkspace();
+    const warmup = serviceWithNativeLog();
+    expect(await warmup.runPlaybackTest(workspace, project, 'smoke', {})).toMatchObject({
+      ok: true,
+    });
+
+    let playbackCalls = 0;
+    const recovering = new EditorRuntimeCacheService(async (operation) => {
+      if (operation === 'compile-shaders')
+        return { ok: true, success: true, diagnostics: [], outputs: [] };
+      if (operation === 'run-test') {
+        playbackCalls += 1;
+        if (playbackCalls === 1)
+          return {
+            ok: false,
+            success: false,
+            compiledProjectAdmissionRejected: true,
+            error: 'Cached compiled project was rejected.',
+          };
+        return {
+          ok: true,
+          success: true,
+          report: { schema: 'noveltea.editor.playback-report', version: 1, passed: true },
+        };
+      }
+      throw new Error(`Unexpected native operation '${operation}'.`);
+    });
+
+    expect(await recovering.runPlaybackTest(workspace, project, 'smoke', {})).toMatchObject({
+      ok: true,
+      success: true,
+    });
+    expect(playbackCalls).toBe(2);
   });
 
   it('keeps a published canonical generation when later native test launch fails', async () => {

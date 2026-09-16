@@ -96,6 +96,26 @@ async function runCachedTest(root: string, tools: NovelTeaCliNativeToolService) 
   return runNovelTeaCli(['--json', 'test', 'run', 'smoke'], { cwd: root, nativeTools: tools });
 }
 
+async function runCachedStdinTest(
+  root: string,
+  tools: NovelTeaCliNativeToolService,
+  operation: 'run-spec' | 'run-ui-spec',
+) {
+  return runNovelTeaCli(['--json', 'test', operation], {
+    cwd: root,
+    nativeTools: tools,
+    readStdinText() {
+      return JSON.stringify({
+        schema: 'noveltea.editor.playback',
+        version: 1,
+        id: operation,
+        steps: [],
+        finalExpectations: [],
+      });
+    },
+  });
+}
+
 function cacheStatus(result: Awaited<ReturnType<typeof runNovelTeaCli>>) {
   return result.envelope.runtimeCache as
     | {
@@ -134,6 +154,45 @@ describe('persistent runtime build cache', () => {
     expect(projects[1]).toEqual(projects[0]);
   });
 
+  it('rebuilds once and retries once when the CLI native consumer rejects a cached compiled project', async () => {
+    const root = await createProjectWorkspace();
+    expect((await runCachedTest(root, nativeTools([]))).exitCode).toBe(0);
+    const firstGeneration = await currentGeneration(root);
+
+    let calls = 0;
+    const recovering = nativeTools([]);
+    recovering.runHeadlessTest = async () => {
+      calls += 1;
+      if (calls === 1)
+        return {
+          ok: false,
+          success: false,
+          compiledProjectAdmissionRejected: true,
+          error: 'Cached compiled project rejected.',
+        };
+      return { ok: true, success: true };
+    };
+
+    const result = await runCachedTest(root, recovering);
+    expect(result.exitCode).toBe(0);
+    expect(calls).toBe(2);
+    expect(await currentGeneration(root)).not.toBe(firstGeneration);
+  });
+
+  it('publishes cold stdin test commands and reuses the shared cache on the next invocation', async () => {
+    for (const operation of ['run-spec', 'run-ui-spec'] as const) {
+      const root = await createProjectWorkspace();
+      const tools = nativeTools([]);
+      const first = await runCachedStdinTest(root, tools, operation);
+      const second = await runCachedStdinTest(root, tools, operation);
+
+      expect(first.exitCode).toBe(0);
+      expect(second.exitCode).toBe(0);
+      expect(cacheStatus(first)).toMatchObject({ status: 'miss', published: true });
+      expect(cacheStatus(second)).toMatchObject({ status: 'hit' });
+    }
+  });
+
   it('invalidates when tracked input mtime or byte size changes', async () => {
     const root = await createProjectWorkspace();
     const tools = nativeTools([]);
@@ -154,7 +213,7 @@ describe('persistent runtime build cache', () => {
     const sizeChanged = await runCachedTest(root, tools);
     expect(cacheStatus(sizeChanged)).toMatchObject({
       status: 'stale',
-      reason: 'workspace-source-revision-changed',
+      reason: 'input-metadata-changed',
       published: true,
     });
   });
@@ -179,7 +238,7 @@ describe('persistent runtime build cache', () => {
     expect(cacheStatus(result)).toMatchObject({
       status: 'hit',
       testCatalogStatus: 'stale',
-      testCatalogReason: 'test-source-revision-changed',
+      testCatalogReason: 'test-input-metadata-changed',
       published: true,
     });
     const secondGeneration = await currentGeneration(root);
@@ -215,7 +274,7 @@ describe('persistent runtime build cache', () => {
     expect(rebuilt.exitCode).toBe(0);
     expect(cacheStatus(rebuilt)).toMatchObject({
       status: 'stale',
-      reason: 'workspace-source-revision-changed',
+      reason: 'input-metadata-changed',
       published: true,
     });
     const secondGeneration = await currentGeneration(root);
@@ -255,7 +314,6 @@ describe('persistent runtime build cache', () => {
       await readFile(generationPath(root, generation, 'tests.json'), 'utf8'),
     ) as {
       schema: string;
-      version: number;
       entries: Array<{
         id: string;
         status: string;
@@ -264,7 +322,7 @@ describe('persistent runtime build cache', () => {
         diagnostics?: Array<{ path: string; message: string }>;
       }>;
     };
-    expect(catalog).toMatchObject({ schema: 'noveltea.runtime-test-catalog', version: 1 });
+    expect(catalog).toMatchObject({ schema: 'noveltea.runtime-test-catalog' });
     expect(catalog.entries.map((entry) => entry.id)).toEqual(['secondary', 'smoke']);
     expect(catalog.entries[0]).toMatchObject({
       id: 'secondary',

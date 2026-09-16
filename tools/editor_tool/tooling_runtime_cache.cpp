@@ -35,7 +35,6 @@ constexpr std::string_view kCompiledProjectSchema = "noveltea.compiled.project";
 constexpr int kCompiledProjectVersion = 1;
 constexpr std::string_view kPreparedArtifactSchema = "noveltea.prepared-runtime-artifact";
 constexpr std::string_view kTestCatalogSchema = "noveltea.runtime-test-catalog";
-constexpr int kTestCatalogVersion = 1;
 
 std::filesystem::path filesystem_path_from_utf8(std::string_view value)
 {
@@ -149,6 +148,46 @@ bool is_uuid(std::string_view value)
     return true;
 }
 
+std::optional<std::string> string_field(const Json& object, std::string_view key)
+{
+    if (!object.is_object())
+        return std::nullopt;
+    const auto found = object.find(std::string(key));
+    if (found == object.end() || !found->is_string())
+        return std::nullopt;
+    return found->get<std::string>();
+}
+
+std::optional<std::uint64_t> unsigned_field(const Json& object, std::string_view key)
+{
+    if (!object.is_object())
+        return std::nullopt;
+    const auto found = object.find(std::string(key));
+    if (found == object.end() || !found->is_number_unsigned())
+        return std::nullopt;
+    return found->get<std::uint64_t>();
+}
+
+std::optional<int> integer_field(const Json& object, std::string_view key)
+{
+    if (!object.is_object())
+        return std::nullopt;
+    const auto found = object.find(std::string(key));
+    if (found == object.end() || !found->is_number_integer())
+        return std::nullopt;
+    return found->get<int>();
+}
+
+std::optional<bool> bool_field(const Json& object, std::string_view key)
+{
+    if (!object.is_object())
+        return std::nullopt;
+    const auto found = object.find(std::string(key));
+    if (found == object.end() || !found->is_boolean())
+        return std::nullopt;
+    return found->get<bool>();
+}
+
 Json path_metadata(const std::filesystem::path& path)
 {
     const auto request = Json{{"path", filesystem_path_to_utf8(path)}}.dump();
@@ -180,34 +219,13 @@ bool metadata_matches(const std::filesystem::path& root, const Json& entry)
     if (!contained_by_root(root, absolute))
         return false;
     const auto metadata = path_metadata(absolute);
-    return !metadata.is_discarded() && metadata.value("ok", false) &&
-           metadata.value("kind", std::string{}) == "file" &&
-           metadata.value("byteSize", std::uint64_t{}) == entry["byteSize"].get<std::uint64_t>() &&
-           metadata.value("mtimeNanoseconds", std::string{}) ==
-               entry["mtimeNanoseconds"].get<std::string>();
-}
-
-bool source_revisions_match(const std::filesystem::path& root, const Json& revisions)
-{
-    if (!revisions.is_array())
-        return false;
-    for (const auto& revision : revisions) {
-        if (!revision.is_object() || !revision.contains("path") || !revision["path"].is_string() ||
-            !revision.contains("contentHash") || !revision["contentHash"].is_string() ||
-            !revision.contains("byteSize") || !revision["byteSize"].is_number_unsigned())
-            return false;
-        const auto relative = revision["path"].get<std::string>();
-        if (!safe_relative(relative))
-            return false;
-        const auto absolute = root / std::filesystem::path(relative);
-        if (!contained_by_root(root, absolute))
-            return false;
-        const auto text = read_text(absolute);
-        if (!text || text->size() != revision["byteSize"].get<std::uint64_t>() ||
-            sha256_prefixed(*text) != revision["contentHash"].get<std::string>())
-            return false;
-    }
-    return true;
+    const auto ok = bool_field(metadata, "ok");
+    const auto kind = string_field(metadata, "kind");
+    const auto byte_size = unsigned_field(metadata, "byteSize");
+    const auto mtime = string_field(metadata, "mtimeNanoseconds");
+    return !metadata.is_discarded() && ok && *ok && kind && *kind == "file" && byte_size &&
+           *byte_size == entry["byteSize"].get<std::uint64_t>() && mtime &&
+           *mtime == entry["mtimeNanoseconds"].get<std::string>();
 }
 
 bool excluded(std::string_view relative, const Json& prefixes)
@@ -257,8 +275,7 @@ bool discovery_contract_matches(const Json& scopes)
 }
 
 bool discovery_matches(const std::filesystem::path& root, const Json& scopes,
-                       const std::set<std::string>& input_paths,
-                       const std::set<std::string>& source_revision_paths)
+                       const std::set<std::string>& input_paths)
 {
     if (!scopes.is_array())
         return false;
@@ -285,15 +302,17 @@ bool discovery_matches(const std::filesystem::path& root, const Json& scopes,
             const auto status = iterator->symlink_status(error);
             if (error || std::filesystem::is_symlink(status))
                 return false;
-            if (!std::filesystem::is_regular_file(status))
-                continue;
             const auto relative_path = std::filesystem::relative(iterator->path(), root, error);
             if (error)
                 return false;
             const auto relative = filesystem_path_to_utf8(relative_path);
-            if (!excluded(relative, scope["excludedPrefixes"]) &&
-                extension_matches(relative, scope["extensions"]) &&
-                (!input_paths.contains(relative) || !source_revision_paths.contains(relative)))
+            const bool candidate = !excluded(relative, scope["excludedPrefixes"]) &&
+                                   extension_matches(relative, scope["extensions"]);
+            if (candidate && !std::filesystem::is_regular_file(status))
+                return false;
+            if (!std::filesystem::is_regular_file(status))
+                continue;
+            if (candidate && !input_paths.contains(relative))
                 return false;
         }
         if (error)
@@ -304,9 +323,9 @@ bool discovery_matches(const std::filesystem::path& root, const Json& scopes,
 
 bool catalog_shape_valid(const Json& catalog)
 {
-    if (!catalog.is_object() || catalog.value("schema", std::string{}) != kTestCatalogSchema ||
-        catalog.value("version", 0) != kTestCatalogVersion || !catalog.contains("entries") ||
-        !catalog["entries"].is_array())
+    if (!catalog.is_object() || !catalog.contains("schema") || !catalog["schema"].is_string() ||
+        catalog["schema"].get<std::string>() != kTestCatalogSchema ||
+        !catalog.contains("entries") || !catalog["entries"].is_array())
         return false;
     std::string previous_id;
     for (const auto& entry : catalog["entries"]) {
@@ -425,23 +444,32 @@ Json probe(const Json& request)
     if (manifest.is_discarded() || !manifest.is_object())
         return response("unusable", "manifest-invalid");
 
-    if (manifest.value("schema", std::string{}) != kCacheSchema ||
-        manifest.value("variant", std::string{}) != "canonical-runtime")
+    const auto manifest_schema = string_field(manifest, "schema");
+    const auto manifest_variant = string_field(manifest, "variant");
+    const auto compiler_identity = string_field(manifest, "compilerIdentity");
+    if (!manifest_schema || *manifest_schema != kCacheSchema || !manifest_variant ||
+        *manifest_variant != "canonical-runtime" || !compiler_identity)
         return response("unusable", "manifest-invalid");
-    if (manifest.value("compilerIdentity", std::string{}) !=
-        request["compilerIdentity"].get<std::string>())
+    if (*compiler_identity != request["compilerIdentity"].get<std::string>())
         return response("stale", "compiler-identity-changed");
+
     if (!manifest.contains("projectWorkspace") || !manifest["projectWorkspace"].is_object() ||
-        manifest["projectWorkspace"].value("schema", std::string{}) != kWorkspaceSchema ||
-        manifest["projectWorkspace"].value("formatVersion", 0) != kWorkspaceVersion ||
-        !manifest.contains("compiledProject") || !manifest["compiledProject"].is_object() ||
-        manifest["compiledProject"].value("schema", std::string{}) != kCompiledProjectSchema ||
-        manifest["compiledProject"].value("formatVersion", 0) != kCompiledProjectVersion ||
-        manifest.value("preparedArtifactSchema", std::string{}) != kPreparedArtifactSchema)
+        !manifest.contains("compiledProject") || !manifest["compiledProject"].is_object())
+        return response("unusable", "manifest-invalid");
+    const auto workspace_schema = string_field(manifest["projectWorkspace"], "schema");
+    const auto workspace_version = integer_field(manifest["projectWorkspace"], "formatVersion");
+    const auto compiled_schema = string_field(manifest["compiledProject"], "schema");
+    const auto compiled_version = integer_field(manifest["compiledProject"], "formatVersion");
+    const auto artifact_schema = string_field(manifest, "preparedArtifactSchema");
+    if (!workspace_schema || *workspace_schema != kWorkspaceSchema || !workspace_version ||
+        *workspace_version != kWorkspaceVersion || !compiled_schema ||
+        *compiled_schema != kCompiledProjectSchema || !compiled_version ||
+        *compiled_version != kCompiledProjectVersion || !artifact_schema ||
+        *artifact_schema != kPreparedArtifactSchema)
         return response("stale", "cache-contract-changed");
 
     if (!manifest.contains("inputs") || !manifest["inputs"].is_array() ||
-        !manifest.contains("sourceRevisions") || !manifest.contains("discoveryScopes") ||
+        !manifest.contains("discoveryScopes") || !manifest["discoveryScopes"].is_array() ||
         !manifest.contains("artifactFile") || !manifest["artifactFile"].is_string() ||
         !manifest.contains("artifactSha256") || !manifest["artifactSha256"].is_string() ||
         !manifest.contains("testCatalog") || !manifest["testCatalog"].is_object())
@@ -450,38 +478,29 @@ Json probe(const Json& request)
     if (!discovery_contract_matches(manifest["discoveryScopes"]))
         return response("stale", "discovery-contract-changed");
 
-    std::set<std::string> source_revision_paths;
-    for (const auto& revision : manifest["sourceRevisions"]) {
-        if (!revision.is_object() || !revision.contains("path") || !revision["path"].is_string())
-            return response("unusable", "manifest-invalid");
-        source_revision_paths.insert(revision["path"].get<std::string>());
-    }
-    if (!source_revision_paths.contains("project.json"))
-        return response("unusable", "manifest-invalid");
-
     std::set<std::string> input_paths;
     for (const auto& input : manifest["inputs"]) {
         if (!metadata_matches(root, input))
             return response("stale", "input-metadata-changed");
         input_paths.insert(input["path"].get<std::string>());
     }
-    if (!source_revisions_match(root, manifest["sourceRevisions"]))
-        return response("stale", "workspace-source-revision-changed");
-    if (!discovery_matches(root, manifest["discoveryScopes"], input_paths, source_revision_paths))
+    if (!input_paths.contains("project.json"))
+        return response("unusable", "manifest-invalid");
+    if (!discovery_matches(root, manifest["discoveryScopes"], input_paths))
         return response("stale", "discovery-inputs-changed");
 
     const auto& catalog_manifest = manifest["testCatalog"];
-    if (!catalog_manifest.contains("sourceRevisions") ||
-        !catalog_manifest["sourceRevisions"].is_array() ||
+    if (!catalog_manifest.contains("inputs") || !catalog_manifest["inputs"].is_array() ||
         !catalog_manifest.contains("catalogFile") || !catalog_manifest["catalogFile"].is_string() ||
         !catalog_manifest.contains("catalogSha256") ||
         !catalog_manifest["catalogSha256"].is_string())
         return response("unusable", "manifest-invalid");
-    if (!source_revisions_match(root, catalog_manifest["sourceRevisions"]))
-        return response("stale", "test-source-revision-changed");
     std::set<std::string> expected_tests;
-    for (const auto& revision : catalog_manifest["sourceRevisions"])
-        expected_tests.insert(revision["path"].get<std::string>());
+    for (const auto& input : catalog_manifest["inputs"]) {
+        if (!metadata_matches(root, input))
+            return response("stale", "test-input-metadata-changed");
+        expected_tests.insert(input["path"].get<std::string>());
+    }
     const auto current_tests = test_files(root);
     if (!current_tests)
         return response("unusable", "test-source-set-unreadable");
@@ -513,8 +532,9 @@ Json probe(const Json& request)
 
     const auto artifact = Json::parse(*artifact_text, nullptr, false);
     const auto catalog = Json::parse(*catalog_text, nullptr, false);
-    if (artifact.is_discarded() || !artifact.is_object() ||
-        artifact.value("schema", std::string{}) != kPreparedArtifactSchema ||
+    const auto parsed_artifact_schema = string_field(artifact, "schema");
+    if (artifact.is_discarded() || !artifact.is_object() || !parsed_artifact_schema ||
+        *parsed_artifact_schema != kPreparedArtifactSchema ||
         !artifact.contains("compiledProject") || !artifact["compiledProject"].is_object())
         return response("unusable", "artifact-invalid");
     if (catalog.is_discarded() || !catalog_shape_valid(catalog))

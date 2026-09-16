@@ -1133,7 +1133,6 @@ describe('NovelTea headless CLI', () => {
           success: true,
           report: {
             schema: 'noveltea.test-suite-report',
-            version: 1,
             counts: { total: 1, passed: 1, failed: 0, blocked: 0, error: 0 },
             entries: [
               {
@@ -1176,7 +1175,6 @@ describe('NovelTea headless CLI', () => {
       projectRoot: root,
       catalog: {
         schema: 'noveltea.runtime-test-catalog',
-        version: 1,
         entries: [{ id: 'smoke', status: 'runnable', runner: 'runtime' }],
       },
     });
@@ -1218,7 +1216,6 @@ describe('NovelTea headless CLI', () => {
       success: status === 'blocked',
       report: {
         schema: 'noveltea.test-suite-report',
-        version: 1,
         counts: {
           total: 1,
           passed: 0,
