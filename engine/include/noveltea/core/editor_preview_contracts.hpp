@@ -17,8 +17,7 @@ inline constexpr std::size_t kFocusedPreviewMaxResourceBytes = 128U * 1024U * 10
 inline constexpr std::size_t kFocusedPreviewMaxTotalResourceBytes = 512U * 1024U * 1024U;
 
 enum class EditorPreviewShaderVariant : std::uint8_t {
-    Glsl120,
-    Essl100,
+    Glsl330,
     Essl300,
     Metal,
 };
@@ -419,7 +418,7 @@ struct TypedEditorShaderPreviewDocument {
     std::string preview_material_id = "ui/noise_panel";
     std::string shader_id;
     std::string template_id;
-    EditorPreviewShaderVariant active_shader_variant = EditorPreviewShaderVariant::Glsl120;
+    EditorPreviewShaderVariant active_shader_variant = EditorPreviewShaderVariant::Glsl330;
 };
 
 using TypedEditorPreviewDocument =

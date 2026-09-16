@@ -50,22 +50,16 @@ const char* system_shader_name(SystemShader shader)
 
 const char* BgfxShaderLoader::shader_variant() const
 {
-    return shader_variant_for_renderer(bgfx::getRendererType(),
-#if defined(NOVELTEA_PLATFORM_WEB)
-                                       true
-#else
-                                       false
-#endif
-    );
+    return shader_variant_for_renderer(bgfx::getRendererType());
 }
 
-const char* shader_variant_for_renderer(bgfx::RendererType::Enum renderer, bool web_platform)
+const char* shader_variant_for_renderer(bgfx::RendererType::Enum renderer)
 {
     switch (renderer) {
     case bgfx::RendererType::OpenGL:
-        return "glsl-120";
+        return "glsl-330";
     case bgfx::RendererType::OpenGLES:
-        return web_platform ? "essl-100" : "essl-300";
+        return "essl-300";
     case bgfx::RendererType::Metal:
         return "metal";
     default:

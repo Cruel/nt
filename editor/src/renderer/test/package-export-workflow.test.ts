@@ -154,11 +154,11 @@ describe('package export workflow', () => {
         {
           shader: 'basic',
           stage: 'vertex',
-          variant: 'glsl-120',
+          variant: 'glsl-330',
           sourcePath: '/project/.noveltea/build/basic.vs.sc',
-          runtimePath: 'project:/shaders/bgfx/glsl-120/basic.vs.bin',
-          outputPath: '/project/shaders/bgfx/glsl-120/basic.vs.bin',
-          cacheKey: 'basic-vertex-glsl-120',
+          runtimePath: 'project:/shaders/bgfx/glsl-330/basic.vs.bin',
+          outputPath: '/project/shaders/bgfx/glsl-330/basic.vs.bin',
+          cacheKey: 'basic-vertex-glsl-330',
           byteHash: `sha256:${'b'.repeat(64)}`,
           byteSize: 4,
           cacheHit: false,
@@ -166,11 +166,11 @@ describe('package export workflow', () => {
         {
           shader: 'basic',
           stage: 'fragment',
-          variant: 'glsl-120',
+          variant: 'glsl-330',
           sourcePath: '/project/.noveltea/build/basic.fs.sc',
-          runtimePath: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
-          outputPath: '/project/shaders/bgfx/glsl-120/basic.fs.bin',
-          cacheKey: 'basic-fragment-glsl-120',
+          runtimePath: 'project:/shaders/bgfx/glsl-330/basic.fs.bin',
+          outputPath: '/project/shaders/bgfx/glsl-330/basic.fs.bin',
+          cacheKey: 'basic-fragment-glsl-330',
           byteHash: `sha256:${'a'.repeat(64)}`,
           byteSize: 4,
           cacheHit: false,
@@ -185,7 +185,7 @@ describe('package export workflow', () => {
       profile: {
         ...defaultExportProfile(project),
         compileShadersBeforeExport: true,
-        shaderVariants: ['glsl-120'],
+        shaderVariants: ['glsl-330'],
       },
     });
 
@@ -198,10 +198,10 @@ describe('package export workflow', () => {
       expect.anything(),
       '/project/out.ntpkg',
       expect.objectContaining({
-        shaderVariants: ['glsl-120'],
+        shaderVariants: ['glsl-330'],
         requiredShaderBinaryPaths: [
-          'shaders/bgfx/glsl-120/basic.fs.bin',
-          'shaders/bgfx/glsl-120/basic.vs.bin',
+          'shaders/bgfx/glsl-330/basic.fs.bin',
+          'shaders/bgfx/glsl-330/basic.vs.bin',
         ],
         shaderMaterialMetadata: expect.objectContaining({
           shaders: expect.objectContaining({
@@ -209,8 +209,8 @@ describe('package export workflow', () => {
               stages: expect.objectContaining({
                 fragment: expect.objectContaining({
                   compiled: {
-                    'glsl-120': expect.objectContaining({
-                      runtimePath: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+                    'glsl-330': expect.objectContaining({
+                      runtimePath: 'project:/shaders/bgfx/glsl-330/basic.fs.bin',
                       byteHash: `sha256:${'a'.repeat(64)}`,
                       byteSize: 4,
                     }),

@@ -81,6 +81,27 @@ describe('decodeAuthoringProject', () => {
     expect(JSON.stringify(decoded.project)).not.toContain('prefetchAllowancePercent');
   });
 
+  it('rejects retired shader variants instead of migrating development project shapes', () => {
+    const project = stripEditorProjectState(createAuthoringProject()) as unknown as Record<
+      string,
+      unknown
+    >;
+    const exportSettings = project.export as Record<string, unknown>;
+    const runtime = exportSettings.runtime as Record<string, unknown>;
+    runtime.shaderVariants = ['glsl-120', 'essl-300', 'metal'];
+
+    const decoded = decodeAuthoringProject(project);
+
+    expect(decoded.project).toBeNull();
+    expect(decoded.differsFromDisk).toBe(false);
+    expect(decoded.repairs).toEqual([]);
+    expect(decoded.structuralDiagnostics).toContainEqual(
+      expect.objectContaining({
+        path: '/export/runtime/shaderVariants/0',
+      }),
+    );
+  });
+
   it('preserves invalid present world raster policy values for settings recovery', () => {
     const project = createAuthoringProject();
     project.settings.display.worldRasterPolicy = 'future-policy' as never;

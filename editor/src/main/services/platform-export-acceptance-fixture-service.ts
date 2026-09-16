@@ -150,13 +150,11 @@ export async function materializePlatformExportAcceptanceFixture(
       stripShaderSources: true,
       compileShadersBeforeExport: true,
       shaderVariants:
-        options.target === 'web'
-          ? ['essl-100']
-          : options.target === 'android'
-            ? ['essl-300']
-            : options.target === 'macos'
-              ? ['metal']
-              : ['glsl-120'],
+        options.target === 'web' || options.target === 'android'
+          ? ['essl-300']
+          : options.target === 'macos'
+            ? ['metal']
+            : ['glsl-330'],
       excludeUnusedAssets: true,
       includeShaderSources: false,
       includeTests: false,

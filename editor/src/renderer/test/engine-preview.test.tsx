@@ -101,7 +101,7 @@ async function connectRenderedPreview(iframe: HTMLIFrameElement, waitForWorkspac
       capabilities: [],
       hostGeneration: 1,
       transportGeneration: 1,
-      activeShaderVariant: 'glsl-120',
+      activeShaderVariant: 'glsl-330',
     });
   });
   if (waitForWorkspaceReady) {
@@ -240,7 +240,7 @@ describe('EnginePreview', () => {
         capabilities: [],
         hostGeneration: 1,
         transportGeneration: 1,
-        activeShaderVariant: 'glsl-120',
+        activeShaderVariant: 'glsl-330',
       });
       previewPort?.postMessage({
         version: 1,
@@ -316,7 +316,7 @@ describe('EnginePreview', () => {
         capabilities: [],
         hostGeneration: 1,
         transportGeneration: 1,
-        activeShaderVariant: 'glsl-120',
+        activeShaderVariant: 'glsl-330',
       });
     });
     await waitFor(() => expect(screen.queryByText('loading')).not.toBeInTheDocument());
@@ -828,7 +828,7 @@ describe('EnginePreview', () => {
         capabilities: [],
         hostGeneration: 1,
         transportGeneration: 1,
-        activeShaderVariant: 'glsl-120',
+        activeShaderVariant: 'glsl-330',
       });
     });
     await waitFor(() =>

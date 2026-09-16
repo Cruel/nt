@@ -316,8 +316,8 @@ template. Successful master Build runs publish the same-run Linux CLI and Web te
 [development toolchain snapshots](DEVELOPMENT_SNAPSHOTS.md), without a second release build.
 
 Release CI builds and certifies one `noveltea` host CLI on Linux x64 and one on Windows x64. The
-Linux CLI also produces the canonical `glsl-120`, `essl-100`, and `essl-300` shader trees consumed by
-the player jobs. Android and Web reuse the certified Linux CLI for host-side export acceptance;
+Linux CLI also produces the canonical `glsl-330`, `essl-300`, and `metal` shader trees consumed by
+the player jobs; Web and Android share the `essl-300` tree. Android and Web reuse the certified Linux CLI for host-side export acceptance;
 each Electron editor job embeds the exact certified CLI from its own host. Tagged releases publish
 both standalone executables and the editor packages. Manual dispatch accepts a proposed tag and
 commit for a non-publishing full-matrix qualification run; create the immutable tag only after that

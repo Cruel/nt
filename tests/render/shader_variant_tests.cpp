@@ -6,13 +6,9 @@ using noveltea::bgfx_backend::shader_variant_for_renderer;
 
 TEST_CASE("runtime shader resolver maps each supported renderer backend")
 {
-    CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::OpenGL, false)) ==
-          "glsl-120");
-    CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::OpenGLES, true)) ==
-          "essl-100");
-    CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::OpenGLES, false)) ==
-          "essl-300");
-    CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::Metal, false)) == "metal");
-    CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::Direct3D11, false)).empty());
-    CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::Vulkan, false)).empty());
+    CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::OpenGL)) == "glsl-330");
+    CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::OpenGLES)) == "essl-300");
+    CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::Metal)) == "metal");
+    CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::Direct3D11)).empty());
+    CHECK(std::string(shader_variant_for_renderer(bgfx::RendererType::Vulkan)).empty());
 }

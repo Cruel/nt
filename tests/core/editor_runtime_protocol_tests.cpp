@@ -412,7 +412,7 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
 
     auto shader = decode_editor_preview_document_text(
         "shader-preview",
-        R"({"schema":"noveltea.shader-preview","contentMode":"shader","previewMaterialId":"editor/preview","shaderId":"shader/noise","templateId":"shader-square-v1","activeShaderVariant":"glsl-120","shaderMaterials":{"schema":"noveltea.shader-materials","shaders":{},"materials":{}}})");
+        R"({"schema":"noveltea.shader-preview","contentMode":"shader","previewMaterialId":"editor/preview","shaderId":"shader/noise","templateId":"shader-square-v1","activeShaderVariant":"glsl-330","shaderMaterials":{"schema":"noveltea.shader-materials","shaders":{},"materials":{}}})");
     REQUIRE(shader);
     const auto* shader_request = std::get_if<TypedEditorShaderPreviewDocument>(&shader.value());
     REQUIRE(shader_request != nullptr);
@@ -501,7 +501,7 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
                                     {"previewMaterialId", "editor/preview"},
                                     {"shaderId", "shader/noise"},
                                     {"templateId", "shader-square-v1"},
-                                    {"activeShaderVariant", "glsl-120"},
+                                    {"activeShaderVariant", "glsl-330"},
                                     {"shaderMaterials",
                                      {{"schema", "noveltea.shader-materials"},
                                       {"shaders", nlohmann::json::object()},
@@ -515,7 +515,7 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
     const auto* typed_shader = std::get_if<TypedEditorShaderPreviewDocument>(&shader.value());
     REQUIRE(typed_shader != nullptr);
     CHECK(typed_shader->template_id == "shader-square-v1");
-    CHECK(typed_shader->active_shader_variant == EditorPreviewShaderVariant::Glsl120);
+    CHECK(typed_shader->active_shader_variant == EditorPreviewShaderVariant::Glsl330);
 }
 
 TEST_CASE("focused preview manifest image sampling is explicit and discriminated")
@@ -586,11 +586,11 @@ TEST_CASE("focused preview manifest image sampling is explicit and discriminated
     request["resources"][0]["sampling"] = "linear";
     CHECK_FALSE(decode_focused_editor_document_request_text(request.dump()));
 
-    request["resources"][0] = nlohmann::json{{"resourceId", "shader:test:vertex:glsl-120"},
+    request["resources"][0] = nlohmann::json{{"resourceId", "shader:test:vertex:glsl-330"},
                                              {"sourceKind", "shader-compiled-output"},
                                              {"shaderId", "test"},
                                              {"shaderStage", "vertex"},
-                                             {"shaderVariant", "glsl-120"},
+                                             {"shaderVariant", "glsl-330"},
                                              {"logicalPath", "project:/shaders/test.bin"},
                                              {"contentHash", revision},
                                              {"byteSize", 12},

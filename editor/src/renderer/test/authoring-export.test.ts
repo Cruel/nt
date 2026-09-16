@@ -17,7 +17,7 @@ describe('authoring export settings', () => {
       includeChecksums: true,
       stripShaderSources: true,
       compileShadersBeforeExport: true,
-      shaderVariants: ['glsl-120', 'essl-100', 'essl-300', 'metal'],
+      shaderVariants: ['glsl-330', 'essl-300', 'metal'],
       includeTests: false,
     });
     expect(project.export.runtime.id).toBe('runtime-default');
@@ -28,7 +28,7 @@ describe('authoring export settings', () => {
     expect(normalizeExportProfile({ label: '', shaderVariants: [] }, project)).toMatchObject({
       id: 'runtime-default',
       label: 'Runtime Package',
-      shaderVariants: ['glsl-120', 'essl-100', 'essl-300', 'metal'],
+      shaderVariants: ['glsl-330', 'essl-300', 'metal'],
     });
   });
 
@@ -44,10 +44,10 @@ describe('authoring export settings', () => {
       shaderVariants: ['essl-300'],
     });
     expect(runtimeExportProfileForPlatform(project, 'windows').shaderVariants).toEqual([
-      'glsl-120',
+      'glsl-330',
     ]);
-    expect(runtimeExportProfileForPlatform(project, 'linux').shaderVariants).toEqual(['glsl-120']);
-    expect(runtimeExportProfileForPlatform(project, 'web').shaderVariants).toEqual(['essl-100']);
+    expect(runtimeExportProfileForPlatform(project, 'linux').shaderVariants).toEqual(['glsl-330']);
+    expect(runtimeExportProfileForPlatform(project, 'web').shaderVariants).toEqual(['essl-300']);
     expect(runtimeExportProfileForPlatform(project, 'android').shaderVariants).toEqual([
       'essl-300',
     ]);

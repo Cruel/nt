@@ -9,7 +9,6 @@
 #include <SDL3/SDL.h>
 
 #include <bgfx/bgfx.h>
-#include <bgfx/platform.h>
 
 #include <algorithm>
 #include <cstdarg>
@@ -138,8 +137,6 @@ bool Renderer::initialize(const RendererConfig& config)
     }
 
     bgfx::PlatformData pd{};
-    pd.ndt = config.native_display;
-    pd.nwh = config.native_window;
     pd.type = config.native_window_type == NativeWindowHandleType::Wayland
                   ? bgfx::NativeWindowHandleType::Wayland
                   : bgfx::NativeWindowHandleType::Default;
@@ -160,11 +157,13 @@ bool Renderer::initialize(const RendererConfig& config)
     const PresentationMetrics presentation = config.presentation;
     const HostSurfaceMetrics host = sanitize_host_surface_metrics(presentation.host);
     const IntegerSize backbuffer_size = resolve_backbuffer_size({}, host.framebuffer_size);
-    init.resolution.width = static_cast<uint32_t>(backbuffer_size.width);
-    init.resolution.height = static_cast<uint32_t>(backbuffer_size.height);
+    init.swapChain.nwh = config.native_window;
+    init.swapChain.ndt = config.native_display;
+    init.swapChain.width = static_cast<uint32_t>(backbuffer_size.width);
+    init.swapChain.height = static_cast<uint32_t>(backbuffer_size.height);
     // Keep swapchain MSAA off. RmlUi resolves its own offscreen MSAA before final presentation,
     // matching the upstream GL3 renderer's normal-backbuffer final pass.
-    init.resolution.reset = (config.vsync ? BGFX_RESET_VSYNC : 0);
+    init.reset = (config.vsync ? BGFX_RESET_VSYNC : 0);
 
     SDL_Log("[renderer] starting bgfx::init requested=%s window=%p display=%p", requested_renderer,
             config.native_window, config.native_display);
@@ -380,9 +379,10 @@ void Renderer::resize(const PresentationMetrics& presentation)
     const IntegerSize next_backbuffer_size =
         resolve_backbuffer_size(m_backbuffer_size, host.framebuffer_size);
     if (next_backbuffer_size != m_backbuffer_size) {
-        bgfx::reset(static_cast<uint32_t>(next_backbuffer_size.width),
-                    static_cast<uint32_t>(next_backbuffer_size.height),
-                    (m_vsync ? BGFX_RESET_VSYNC : 0));
+        bgfx::SwapChain swap_chain;
+        swap_chain.width = static_cast<uint32_t>(next_backbuffer_size.width);
+        swap_chain.height = static_cast<uint32_t>(next_backbuffer_size.height);
+        bgfx::reset((m_vsync ? BGFX_RESET_VSYNC : 0), &swap_chain);
         m_backbuffer_size = next_backbuffer_size;
     }
     bgfx::setViewRect(ViewPresentationClear, 0, 0,

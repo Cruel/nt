@@ -38,6 +38,17 @@ function(noveltea_apply_runtime_dependency_policy target)
     endif()
 
     noveltea_apply_runtime_compiler_policy("${target}")
+
+    if(APPLE)
+        get_target_property(_noveltea_source_dir "${target}" SOURCE_DIR)
+        if(_noveltea_source_dir MATCHES "[/\\\\]bgfx\\.cmake-src([/\\\\]|$)")
+            # bgfx.cmake forces its Apple Makefile/Ninja dependency sources through the
+            # Objective-C++ frontend with -ObjC++. Disable that exception model only for
+            # those targets; normal NovelTea C++ translation units reject this flag under -Werror.
+            target_compile_options("${target}" PRIVATE
+                $<$<COMPILE_LANGUAGE:CXX>:-fno-objc-exceptions>)
+        endif()
+    endif()
 endfunction()
 function(noveltea_apply_policy_warnings target)
     if(MSVC)

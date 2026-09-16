@@ -25,7 +25,7 @@ import type { CliSemanticResult } from '../semantic-project';
 import type { CliCommandContext, CliCommandDefinition, CliCommandInvocation } from './types';
 import { CliCommandUsageError } from './types';
 
-const shaderVariantIds = new Set(['glsl-120', 'essl-100', 'essl-300', 'metal']);
+const shaderVariantIds = new Set(['glsl-330', 'essl-300', 'metal']);
 const runtimeBuildCacheProcessLiveness = new NodeProjectWorkspaceProcessLiveness();
 
 function nativeFailure(code: string, pathValue: string, response: unknown): CliSemanticResult {
