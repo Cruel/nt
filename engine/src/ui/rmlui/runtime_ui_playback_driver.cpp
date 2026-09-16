@@ -56,7 +56,8 @@ bool has_runtime_activation_attribute(Rml::Element& element)
 
 bool has_runtime_activation_behavior(Rml::Element& target)
 {
-    if (target.HasAttribute("onclick") || has_runtime_activation_attribute(target))
+    if (target.HasAttribute("onclick") || target.HasAttribute("data-event-click") ||
+        has_runtime_activation_attribute(target))
         return true;
     return target.GetTagName() == "nt-active-text" || find_ancestor_tag(&target, "nt-active-text");
 }

@@ -18,11 +18,14 @@ import { createDefaultAuthoringRecord } from '../project/entity-operations';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
+import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { projectWorkspaceFiles } from '../../shared/project-workspace';
 
 const roots: string[] = [];
 
-async function createProjectWorkspace(options: Readonly<{ assetPath?: string }> = {}) {
+async function createProjectWorkspace(
+  options: Readonly<{ assetPath?: string; withShader?: boolean }> = {},
+) {
   const root = await mkdtemp(path.join(tmpdir(), 'noveltea-runtime-cache-'));
   roots.push(root);
   const project = createAuthoringProject({ id: 'cache-test', name: 'Cache Test' });
@@ -37,6 +40,8 @@ async function createProjectWorkspace(options: Readonly<{ assetPath?: string }> 
     label: 'Secondary',
     data: defaultTestData('Secondary'),
   };
+  if (options.withShader)
+    project.shaders.basic = { id: 'basic', label: 'Basic', data: defaultShaderData('Basic') };
   if (options.assetPath)
     project.assets.unused = {
       id: 'unused',
@@ -191,6 +196,25 @@ describe('persistent runtime build cache', () => {
       expect(cacheStatus(first)).toMatchObject({ status: 'miss', published: true });
       expect(cacheStatus(second)).toMatchObject({ status: 'hit' });
     }
+  });
+
+  it('forwards cached shader material metadata to CLI UI playback', async () => {
+    const root = await createProjectWorkspace({ withShader: true });
+    const requests: Array<Record<string, unknown>> = [];
+    const tools = nativeTools([]);
+    tools.runUiTest = async (request) => {
+      requests.push(request as Record<string, unknown>);
+      return { ok: true, success: true };
+    };
+
+    expect((await runCachedStdinTest(root, tools, 'run-ui-spec')).exitCode).toBe(0);
+    expect((await runCachedStdinTest(root, tools, 'run-ui-spec')).exitCode).toBe(0);
+    expect(requests).toHaveLength(2);
+    for (const request of requests)
+      expect(request.shaderMaterialMetadata).toMatchObject({
+        schema: 'noveltea.shader-materials',
+        shaders: { basic: expect.any(Object) },
+      });
   });
 
   it('invalidates when tracked input mtime or byte size changes', async () => {
@@ -575,6 +599,26 @@ describe('persistent runtime build cache', () => {
       }
     },
   );
+
+  it('forces one canonical rebuild after static native admission rejection', async () => {
+    const root = await createProjectWorkspace();
+    const tools = nativeTools([]);
+    expect((await runCachedTest(root, tools)).exitCode).toBe(0);
+    const previous = await currentGeneration(root);
+
+    const result = await runNovelTeaCli(['--json', 'test', 'run', 'smoke'], {
+      cwd: root,
+      nativeTools: tools,
+      forceRuntimeCacheRebuild: true,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(cacheStatus(result)).toMatchObject({
+      status: 'unusable',
+      reason: 'cached-native-admission-rejected',
+      published: true,
+    });
+    expect(await currentGeneration(root)).not.toBe(previous);
+  });
 
   it('keeps cache diagnostics out of normal human output', async () => {
     const root = await createProjectWorkspace();

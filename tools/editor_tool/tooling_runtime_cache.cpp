@@ -321,6 +321,24 @@ bool discovery_matches(const std::filesystem::path& root, const Json& scopes,
     return true;
 }
 
+bool authoring_diagnostics_shape_valid(const Json& diagnostics)
+{
+    if (!diagnostics.is_array())
+        return false;
+    for (const auto& diagnostic : diagnostics) {
+        if (!diagnostic.is_object() || !diagnostic.contains("code") ||
+            !diagnostic["code"].is_string() || diagnostic["code"].get<std::string>().empty() ||
+            !diagnostic.contains("severity") || !diagnostic["severity"].is_string() ||
+            !diagnostic.contains("path") || !diagnostic["path"].is_string() ||
+            !diagnostic.contains("message") || !diagnostic["message"].is_string())
+            return false;
+        const auto severity = diagnostic["severity"].get<std::string>();
+        if (severity != "error" && severity != "warning" && severity != "info")
+            return false;
+    }
+    return true;
+}
+
 bool catalog_shape_valid(const Json& catalog)
 {
     if (!catalog.is_object() || !catalog.contains("schema") || !catalog["schema"].is_string() ||
@@ -465,14 +483,14 @@ Json probe(const Json& request)
         *workspace_version != kWorkspaceVersion || !compiled_schema ||
         *compiled_schema != kCompiledProjectSchema || !compiled_version ||
         *compiled_version != kCompiledProjectVersion || !artifact_schema ||
-        *artifact_schema != kPreparedArtifactSchema)
+        *artifact_schema != kPreparedArtifactSchema || !manifest.contains("authoringDiagnostics") ||
+        !authoring_diagnostics_shape_valid(manifest["authoringDiagnostics"]))
         return response("stale", "cache-contract-changed");
 
     if (!manifest.contains("inputs") || !manifest["inputs"].is_array() ||
         !manifest.contains("discoveryScopes") || !manifest["discoveryScopes"].is_array() ||
         !manifest.contains("artifactFile") || !manifest["artifactFile"].is_string() ||
-        !manifest.contains("artifactSha256") || !manifest["artifactSha256"].is_string() ||
-        !manifest.contains("testCatalog") || !manifest["testCatalog"].is_object())
+        !manifest.contains("artifactSha256") || !manifest["artifactSha256"].is_string())
         return response("unusable", "manifest-invalid");
 
     if (!discovery_contract_matches(manifest["discoveryScopes"]))
@@ -489,59 +507,76 @@ Json probe(const Json& request)
     if (!discovery_matches(root, manifest["discoveryScopes"], input_paths))
         return response("stale", "discovery-inputs-changed");
 
-    const auto& catalog_manifest = manifest["testCatalog"];
-    if (!catalog_manifest.contains("inputs") || !catalog_manifest["inputs"].is_array() ||
-        !catalog_manifest.contains("catalogFile") || !catalog_manifest["catalogFile"].is_string() ||
-        !catalog_manifest.contains("catalogSha256") ||
-        !catalog_manifest["catalogSha256"].is_string())
-        return response("unusable", "manifest-invalid");
-    std::set<std::string> expected_tests;
-    for (const auto& input : catalog_manifest["inputs"]) {
-        if (!metadata_matches(root, input))
-            return response("stale", "test-input-metadata-changed");
-        expected_tests.insert(input["path"].get<std::string>());
-    }
-    const auto current_tests = test_files(root);
-    if (!current_tests)
-        return response("unusable", "test-source-set-unreadable");
-    if (*current_tests != expected_tests)
-        return response("stale", "test-source-set-changed");
-
     const auto artifact_relative = manifest["artifactFile"].get<std::string>();
-    const auto catalog_relative = catalog_manifest["catalogFile"].get<std::string>();
-    if (!safe_relative(artifact_relative) || !safe_relative(catalog_relative))
+    if (!safe_relative(artifact_relative))
         return response("unusable", "manifest-invalid");
     const auto artifact_path = directory / artifact_relative;
-    const auto catalog_path = directory / catalog_relative;
     const auto artifact_status = std::filesystem::symlink_status(artifact_path, error);
     if (error || std::filesystem::is_symlink(artifact_status) ||
         !std::filesystem::is_regular_file(artifact_status))
         return response("unusable", "artifact-invalid");
-    const auto catalog_status = std::filesystem::symlink_status(catalog_path, error);
-    if (error || std::filesystem::is_symlink(catalog_status) ||
-        !std::filesystem::is_regular_file(catalog_status))
-        return response("unusable", "test-catalog-invalid");
     const auto artifact_text = read_text(artifact_path);
-    const auto catalog_text = read_text(catalog_path);
     if (!artifact_text ||
         sha256_prefixed(*artifact_text) != manifest["artifactSha256"].get<std::string>())
         return response("unusable", "artifact-digest-mismatch");
-    if (!catalog_text ||
-        sha256_prefixed(*catalog_text) != catalog_manifest["catalogSha256"].get<std::string>())
-        return response("unusable", "test-catalog-digest-mismatch");
 
     const auto artifact = Json::parse(*artifact_text, nullptr, false);
-    const auto catalog = Json::parse(*catalog_text, nullptr, false);
     const auto parsed_artifact_schema = string_field(artifact, "schema");
     if (artifact.is_discarded() || !artifact.is_object() || !parsed_artifact_schema ||
         *parsed_artifact_schema != kPreparedArtifactSchema ||
         !artifact.contains("compiledProject") || !artifact["compiledProject"].is_object())
         return response("unusable", "artifact-invalid");
-    if (catalog.is_discarded() || !catalog_shape_valid(catalog))
-        return response("unusable", "test-catalog-invalid");
 
-    auto result = response("hit", "current-generation-valid");
+    auto result = response("hit", "current-runtime-generation-valid");
     result["artifact"] = artifact;
+    result["diagnostics"] = manifest["authoringDiagnostics"];
+    const auto catalog_result = [&result](std::string status, std::string reason) -> Json {
+        result["testCatalogStatus"] = std::move(status);
+        result["testCatalogReason"] = std::move(reason);
+        return result;
+    };
+
+    if (!manifest.contains("testCatalog") || !manifest["testCatalog"].is_object())
+        return catalog_result("unusable", "test-catalog-manifest-invalid");
+    const auto& catalog_manifest = manifest["testCatalog"];
+    if (!catalog_manifest.contains("inputs") || !catalog_manifest["inputs"].is_array() ||
+        !catalog_manifest.contains("catalogFile") || !catalog_manifest["catalogFile"].is_string() ||
+        !catalog_manifest.contains("catalogSha256") ||
+        !catalog_manifest["catalogSha256"].is_string())
+        return catalog_result("unusable", "test-catalog-manifest-invalid");
+
+    std::set<std::string> expected_tests;
+    for (const auto& input : catalog_manifest["inputs"]) {
+        if (!metadata_matches(root, input))
+            return catalog_result("stale", "test-input-metadata-changed");
+        expected_tests.insert(input["path"].get<std::string>());
+    }
+    const auto current_tests = test_files(root);
+    if (!current_tests)
+        return catalog_result("unusable", "test-source-set-unreadable");
+    if (*current_tests != expected_tests)
+        return catalog_result("stale", "test-source-set-changed");
+
+    const auto catalog_relative = catalog_manifest["catalogFile"].get<std::string>();
+    if (!safe_relative(catalog_relative))
+        return catalog_result("unusable", "test-catalog-manifest-invalid");
+    const auto catalog_path = directory / catalog_relative;
+    const auto catalog_status = std::filesystem::symlink_status(catalog_path, error);
+    if (error || std::filesystem::is_symlink(catalog_status) ||
+        !std::filesystem::is_regular_file(catalog_status))
+        return catalog_result("unusable", "test-catalog-invalid");
+    const auto catalog_text = read_text(catalog_path);
+    if (!catalog_text ||
+        sha256_prefixed(*catalog_text) != catalog_manifest["catalogSha256"].get<std::string>())
+        return catalog_result("unusable", "test-catalog-digest-mismatch");
+
+    const auto catalog = Json::parse(*catalog_text, nullptr, false);
+    if (catalog.is_discarded() || !catalog_shape_valid(catalog))
+        return catalog_result("unusable", "test-catalog-invalid");
+
+    result["reason"] = "current-generation-valid";
+    result["testCatalogStatus"] = "hit";
+    result["testCatalogReason"] = "current-test-catalog-valid";
     result["catalog"] = catalog;
     return result;
 }

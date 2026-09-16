@@ -21,6 +21,7 @@ import {
 } from './project-workspace';
 import { sha256PrefixedUtf8 } from './web-crypto';
 import { runtimeTestCatalogSchema, type RuntimeTestCatalog } from './runtime-test-catalog';
+import { validateAuthoringProject } from './project-schema/authoring-validation';
 
 export const RUNTIME_BUILD_CACHE_SCHEMA = 'noveltea.runtime-build-cache' as const;
 export const RUNTIME_BUILD_CACHE_ROOT = '.noveltea/cache/runtime' as const;
@@ -88,6 +89,15 @@ const discoveryScopeSchema = z
   })
   .strict();
 
+const cachedAuthoringDiagnosticSchema = z
+  .object({
+    code: z.string().min(1),
+    severity: z.enum(['error', 'warning', 'info']),
+    path: z.string(),
+    message: z.string(),
+  })
+  .strict();
+
 const runtimeBuildCacheManifestSchema = z
   .object({
     schema: z.literal(RUNTIME_BUILD_CACHE_SCHEMA),
@@ -107,6 +117,7 @@ const runtimeBuildCacheManifestSchema = z
       .strict(),
     preparedArtifactSchema: z.literal(PREPARED_RUNTIME_ARTIFACT_SCHEMA),
     discoveryScopes: z.array(discoveryScopeSchema),
+    authoringDiagnostics: z.array(cachedAuthoringDiagnosticSchema),
     inputs: z.array(inputEntrySchema),
     artifactFile: z.literal('artifact.json'),
     artifactSha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
@@ -421,6 +432,7 @@ function manifestFor(
   variant: string,
   inputSnapshot: RuntimeBuildCacheInputSnapshot,
   testInputSnapshot: RuntimeBuildCacheInputSnapshot,
+  authoringDiagnostics: RuntimeBuildCacheManifest['authoringDiagnostics'],
   artifactSha256: `sha256:${string}`,
   catalogSha256: `sha256:${string}`,
 ): RuntimeBuildCacheManifest {
@@ -442,6 +454,7 @@ function manifestFor(
       extensions: [...scope.extensions],
       excludedPrefixes: [...scope.excludedPrefixes],
     })),
+    authoringDiagnostics,
     inputs: [...inputSnapshot.entries],
     artifactFile: 'artifact.json',
     artifactSha256,
@@ -945,6 +958,13 @@ async function publishRuntimeBuildCache(
   if (!sameInputSnapshot(expectedTestInputs, currentTestInputs))
     return { published: false, reason: 'test-inputs-changed-during-preparation' };
 
+  const authoringDiagnostics = validateAuthoringProject(currentSnapshot.project).map((item) => ({
+    code: item.code,
+    severity: item.severity,
+    path: item.path,
+    message: item.message,
+  }));
+
   let previous: string | null = null;
   let previewIndex: PreviewIndex = { schema: PREVIEW_INDEX_SCHEMA, entries: [] };
   if (variant === RUNTIME_BUILD_CACHE_CANONICAL_VARIANT) {
@@ -994,6 +1014,7 @@ async function publishRuntimeBuildCache(
           variant,
           currentInputs,
           currentTestInputs,
+          authoringDiagnostics,
           artifactSha256,
           catalogSha256,
         ),

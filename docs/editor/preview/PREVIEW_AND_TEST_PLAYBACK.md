@@ -38,10 +38,14 @@ schema/Zod parsing. A blocked Test does not invalidate the runtime artifact or p
 publication, but explicitly running that Test returns its readiness diagnostics without invoking the
 native runner. A malformed cache generation or failed publication remains disposable and falls back
 to ordinary preparation. The standalone ScriptC host now probes this same cache contract before
-importing its QuickJS island for the test command family. A proven hit executes from the cached
-Compiled Project/lowered catalog in the static/native tier; any miss, stale/unusable generation, or
-conservative Project-root uncertainty imports the shared TypeScript application and uses the normal
-preparation/publication path instead. Bare CLI `test run` and the editor's `Run All` action both hand
+importing its QuickJS island for the test command family. Authored single/suite execution requires a
+proven runtime-artifact hit plus a proven lowered-catalog hit, while stdin `run-spec`/`run-ui-spec`
+require only the runtime artifact and therefore remain static/native when authored Test sources alone
+are stale. A runtime miss, stale/unusable generation, or conservative Project-root uncertainty imports
+the shared TypeScript application and uses the normal preparation/publication path instead. Cached
+prepared-artifact diagnostics and shader/material metadata are carried through the static path so a
+cache hit preserves the same public warnings and UI runtime inputs as canonical fallback execution.
+Bare CLI `test run` and the editor's `Run All` action both hand
 the complete lowered catalog to the same native `run-test-suite` operation. That operation executes
 runnable Tests sequentially in deterministic Test-ID order, continues after independent failures,
 keeps complete playback reports for executed entries, and returns aggregate

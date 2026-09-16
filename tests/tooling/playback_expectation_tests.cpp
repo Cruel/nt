@@ -206,6 +206,10 @@ TEST_CASE(
     std::ifstream stream(path);
     REQUIRE(stream.good());
     auto project = nlohmann::json::parse(stream);
+    for (auto& system_layout : project["settings"]["systemLayouts"]) {
+        if (system_layout.value("role", std::string{}) == "game-hud")
+            system_layout["layout"] = nullptr;
+    }
 
     const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto project_root =
@@ -304,7 +308,7 @@ return {}
                         {{{"index", 0},
                           {"input",
                            {{"type", "ui-click"},
-                            {"documentId", "layout_stateful-overlay_instance_1_realization_1"},
+                            {"documentId", "layout_stateful-overlay_instance_2_realization_1"},
                             {"selector", "#confirm"}}},
                           {"expectations", nlohmann::json::array({{{"id", "signal-mutated-count"},
                                                                    {"type", "property"},

@@ -9,6 +9,13 @@
     </div>
   </div>
   <div id="feature-lab-notification" data-model="noveltea" data-if="gameplay.notification != ''">{{ gameplay.notification }}</div>
+  <div id="rt_options" data-model="noveltea" data-if="gameplay.dialogue.choices.size > 0">
+    <button data-for="choice : gameplay.dialogue.choices"
+            class="option"
+            data-class-disabled="!choice.enabled"
+            data-attrif-disabled="!choice.enabled"
+            data-event-click="ui_choose('dialogue', choice.id)">{{ choice.label }}</button>
+  </div>
   <div id="feature-lab-panel" class="feature-lab-panel hidden">
     <div class="feature-lab-header">
       <h1>Feature Lab</h1>

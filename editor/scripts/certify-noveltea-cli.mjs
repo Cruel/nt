@@ -931,6 +931,10 @@ async function certifyTestCommandParity(tempRoot, pristine) {
         await writeJson(testRecordPath, testRecord);
       }
     }
+    const warningRoomPath = path.join(baseline, 'records', 'rooms', 'gallery.json');
+    const warningRoom = JSON.parse(await readFile(warningRoomPath, 'utf8'));
+    warningRoom.data.description.source.text = '';
+    await writeJson(warningRoomPath, warningRoom);
 
     const args = ['--project', root, '--json', ...test.command];
     const invokeNode = () =>
@@ -951,6 +955,13 @@ async function certifyTestCommandParity(tempRoot, pristine) {
     const nodeHit = invokeNode();
     const scriptcHit = invokeNative();
     assertPublicCommandParity(`${test.name} cache hit`, nodeHit, scriptcHit);
+    const hitPayload = JSON.parse(scriptcHit.stdout);
+    if (
+      !hitPayload.diagnostics?.some(
+        (item) => item.code === 'authoring.rooms.rooms.record.data.description',
+      )
+    )
+      fail(`Static cache hit lost persisted authoring diagnostics: ${scriptcHit.stdout}`);
 
     const humanArgs = ['--project', root, ...test.command];
     const nodeHuman = test.stdinPath
@@ -1205,6 +1216,16 @@ async function certifyNativeOperations(tempRoot, pristine) {
     fail(
       `Standalone runtime cache hit was not visible in trace output: ${secondCachedTest.stderr}`,
     );
+  const missingCachedTest = runNative(
+    ['--project', root, '--json', 'test', 'run', 'does-not-exist'],
+    { cwd: root, env: tracedEnvironment },
+  );
+  if (missingCachedTest.status === 0)
+    fail('Missing authored Test unexpectedly succeeded from the static cache path.');
+  assertIslandTrace('runtime-cache missing authored Test', missingCachedTest, false);
+  const missingCachedPayload = JSON.parse(missingCachedTest.stdout);
+  if (!missingCachedPayload.diagnostics?.some((item) => item.code === 'native.test.spec'))
+    fail(`Missing static cached Test did not preserve diagnostics: ${missingCachedTest.stdout}`);
 
   await rm(cacheRoot, { recursive: true, force: true });
   const coldSuite = requireSuccess(
@@ -1293,14 +1314,15 @@ async function certifyNativeOperations(tempRoot, pristine) {
     !admissionRetry.stderr.includes(
       '[scriptc-host] runtime cache hit: static/native test path admitted',
     ) ||
-    !admissionRetry.stderr.includes('invalidated current generation before canonical retry')
+    !admissionRetry.stderr.includes('forced canonical retry')
   )
     fail(
-      `Standalone native admission retry did not invalidate the cached payload: ${admissionRetry.stderr}`,
+      `Standalone native admission retry did not force canonical recovery: ${admissionRetry.stderr}`,
     );
   const admissionRetryPayload = JSON.parse(admissionRetry.stdout);
   if (
-    admissionRetryPayload.runtimeCache?.status !== 'miss' ||
+    admissionRetryPayload.runtimeCache?.status !== 'unusable' ||
+    admissionRetryPayload.runtimeCache?.reason !== 'cached-native-admission-rejected' ||
     admissionRetryPayload.runtimeCache?.published !== true
   )
     fail(`Standalone native admission retry did not rebuild canonically: ${admissionRetry.stdout}`);
@@ -1336,6 +1358,7 @@ async function certifyNativeOperations(tempRoot, pristine) {
   )
     fail(`Standalone stale cache fallback did not refresh the catalog: ${staleFallback.stdout}`);
 
+  const runnableSteps = testRecord.data.steps;
   testRecord.data.steps = [];
   await writeFile(testRecordPath, `${JSON.stringify(testRecord, null, 2)}\n`);
   const blockedRefresh = runNative(
@@ -1382,6 +1405,80 @@ async function certifyNativeOperations(tempRoot, pristine) {
     !blockedSuitePayload.diagnostics?.some((item) => item.message === blockedSuiteReadiness)
   )
     fail(`Blocked cached suite did not promote readiness diagnostics: ${blockedSuite.stdout}`);
+
+  testRecord.data.steps = runnableSteps;
+  await writeFile(testRecordPath, `${JSON.stringify(testRecord, null, 2)}\n`);
+
+  const staleCatalogRoot = path.join(tempRoot, 'runtime-cache-stdin-stale-catalog');
+  await resetCase(pristine, staleCatalogRoot);
+  requireSuccess(
+    'runtime-cache stale-catalog stdin setup',
+    runNative(
+      ['--project', staleCatalogRoot, '--json', 'entity', 'create', 'tests', 'cache-certification'],
+      { cwd: staleCatalogRoot },
+    ),
+  );
+  requireSuccess(
+    'runtime-cache stale-catalog baseline publish',
+    runNative(['--project', staleCatalogRoot, '--json', 'test', 'run', 'cache-certification'], {
+      cwd: staleCatalogRoot,
+      env: tracedEnvironment,
+    }),
+  );
+  const staleCatalogTestPath = path.join(
+    staleCatalogRoot,
+    'records',
+    'tests',
+    'cache-certification.json',
+  );
+  const staleCatalogTest = JSON.parse(await readFile(staleCatalogTestPath, 'utf8'));
+  staleCatalogTest.label = 'Changed without changing runtime';
+  await writeJson(staleCatalogTestPath, staleCatalogTest);
+  const staleCatalogSpec = requireSuccess(
+    'runtime-cache stdin playback with stale authored-test catalog',
+    runNativeWithStdinFile(
+      ['--project', staleCatalogRoot, '--json', 'test', 'run-spec'],
+      playbackPath,
+      { cwd: staleCatalogRoot, env: tracedEnvironment },
+    ),
+  );
+  assertIslandTrace(
+    'runtime-cache stdin playback with stale authored-test catalog',
+    staleCatalogSpec,
+    false,
+  );
+  const staleCatalogSpecPayload = JSON.parse(staleCatalogSpec.stdout);
+  if (
+    staleCatalogSpecPayload.runtimeCache?.status !== 'hit' ||
+    staleCatalogSpecPayload.runtimeCache?.testCatalogStatus !== 'stale'
+  )
+    fail(
+      `Stdin playback did not preserve the native runtime hit across stale authored Tests: ${staleCatalogSpec.stdout}`,
+    );
+
+  const emptyStdin = runNative(['--project', staleCatalogRoot, '--json', 'test', 'run-spec'], {
+    cwd: staleCatalogRoot,
+    env: tracedEnvironment,
+    stdin: '',
+  });
+  if (emptyStdin.status !== 2) fail(`Cached empty stdin returned exit ${emptyStdin.status}.`);
+  assertIslandTrace('runtime-cache empty stdin usage error', emptyStdin, false);
+  const emptyStdinPayload = JSON.parse(emptyStdin.stdout);
+  if (
+    emptyStdinPayload.diagnostics?.length !== 1 ||
+    emptyStdinPayload.diagnostics[0]?.code !== 'CLI_USAGE' ||
+    emptyStdinPayload.diagnostics[0]?.message !== 'Command requires one UTF-8 JSON value on stdin.'
+  )
+    fail(`Cached empty stdin changed CLI usage semantics: ${emptyStdin.stdout}`);
+
+  const malformedStdin = runNative(['--project', staleCatalogRoot, '--json', 'test', 'run-spec'], {
+    cwd: staleCatalogRoot,
+    env: tracedEnvironment,
+    stdin: '{bad',
+  });
+  if (malformedStdin.status !== 2)
+    fail(`Cached malformed stdin returned exit ${malformedStdin.status}.`);
+  assertIslandTrace('runtime-cache malformed stdin canonical diagnostics', malformedStdin, true);
 
   const output = path.join(tempRoot, 'certification.ntpkg');
   requireSuccess(
