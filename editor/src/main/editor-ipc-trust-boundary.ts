@@ -521,6 +521,11 @@ export const runPlaybackTestArgumentsSchema = z.tuple([
   z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
   runtimeRecoveryFingerprintSchema.default({}),
 ]);
+export const runPlaybackSuiteArgumentsSchema = z.tuple([
+  projectSessionIdSchema.nullable(),
+  authoringProjectSchema,
+  runtimeRecoveryFingerprintSchema.default({}),
+]);
 export const runPlaybackSpecArgumentsSchema = z.tuple([
   compiledProjectWireSchema,
   playbackSpecSchema,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useProjectStore } from '@/project/project-store';
@@ -13,6 +13,85 @@ import {
   type TestRunReadiness,
 } from '../../../shared/project-schema/test-playback-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+
+type SuiteStatus = 'passed' | 'failed' | 'blocked' | 'error';
+
+type SuiteEntry = {
+  id: string;
+  runner: 'runtime' | 'runtime-ui' | null;
+  status: SuiteStatus;
+  report?: unknown;
+  diagnostics?: Array<{ message?: string }>;
+};
+
+type SuiteReport = {
+  counts: {
+    total: number;
+    passed: number;
+    failed: number;
+    blocked: number;
+    error: number;
+  };
+  entries: SuiteEntry[];
+};
+
+function parseSuiteReport(value: unknown): SuiteReport | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const report = value as Record<string, unknown>;
+  if (report.schema !== 'noveltea.test-suite-report' || report.version !== 1) return null;
+  if (!report.counts || typeof report.counts !== 'object' || Array.isArray(report.counts))
+    return null;
+  if (!Array.isArray(report.entries)) return null;
+  const counts = report.counts as Record<string, unknown>;
+  const number = (key: string) =>
+    typeof counts[key] === 'number' && Number.isInteger(counts[key]) ? (counts[key] as number) : 0;
+  const entries = report.entries.flatMap((value): SuiteEntry[] => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    const entry = value as Record<string, unknown>;
+    if (typeof entry.id !== 'string') return [];
+    if (
+      entry.status !== 'passed' &&
+      entry.status !== 'failed' &&
+      entry.status !== 'blocked' &&
+      entry.status !== 'error'
+    )
+      return [];
+    const runner =
+      entry.runner === 'runtime' || entry.runner === 'runtime-ui' ? entry.runner : null;
+    const diagnostics = Array.isArray(entry.diagnostics)
+      ? entry.diagnostics.flatMap((diagnostic) =>
+          diagnostic && typeof diagnostic === 'object' && !Array.isArray(diagnostic)
+            ? [{ message: (diagnostic as Record<string, unknown>).message as string | undefined }]
+            : [],
+        )
+      : undefined;
+    return [
+      {
+        id: entry.id,
+        runner,
+        status: entry.status,
+        ...(entry.report !== undefined ? { report: entry.report } : {}),
+        ...(diagnostics ? { diagnostics } : {}),
+      },
+    ];
+  });
+  return {
+    counts: {
+      total: number('total'),
+      passed: number('passed'),
+      failed: number('failed'),
+      blocked: number('blocked'),
+      error: number('error'),
+    },
+    entries,
+  };
+}
+
+function suiteBadgeVariant(status: SuiteStatus): 'default' | 'secondary' | 'destructive' {
+  if (status === 'passed') return 'default';
+  if (status === 'blocked') return 'secondary';
+  return 'destructive';
+}
 
 export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
@@ -31,8 +110,12 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
       label: string;
     }>
   >([]);
+  const [suiteReport, setSuiteReport] = useState<SuiteReport | null>(null);
+  const [runningSuite, setRunningSuite] = useState(false);
+
   useEffect(() => {
     let current = true;
+    setSuiteReport(null);
     if (!project) {
       setTests([]);
       return () => {
@@ -60,6 +143,11 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
     };
   }, [project]);
 
+  const suiteEntryById = useMemo(
+    () => new Map((suiteReport?.entries ?? []).map((entry) => [entry.id, entry])),
+    [suiteReport],
+  );
+
   if (!project)
     return (
       <div className="p-4 text-sm text-muted-foreground">
@@ -86,13 +174,32 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   }
 
   async function runAll() {
-    for (const test of tests) {
-      if (!test.readiness.runnable) continue;
-      await runTest(test.id);
+    setRunningSuite(true);
+    try {
+      const result = await window.noveltea.runPlaybackSuite(
+        projectSessionId,
+        activeProject,
+        usePendingInputStore.getState().entriesBySaveUnitId,
+      );
+      const report = parseSuiteReport(result.report);
+      setSuiteReport(report);
+      const message = result.ok
+        ? result.success === false
+          ? 'Test suite completed with failures'
+          : 'Test suite completed'
+        : (result.error ?? 'Test suite failed');
+      setStatusMessage(message);
+      addTimelineEntry({ source: 'playback', message, detail: result });
+    } finally {
+      setRunningSuite(false);
     }
   }
 
-  const readyCount = tests.filter((test) => test.readiness.runnable).length;
+  function showReport(entry: SuiteEntry) {
+    if (entry.report === undefined) return;
+    setLastPlaybackReport(entry.report);
+    setBottomPanel('test-playback');
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
@@ -100,45 +207,77 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold">Tests</h2>
           <p className="text-xs text-muted-foreground">
-            Global test suite. Open a test detail tab for step editing or run the ready tests from
-            here.
+            Global test suite. Open a test detail tab for step editing or run the complete suite
+            from here.
           </p>
+          {suiteReport ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              {suiteReport.counts.passed} passed · {suiteReport.counts.failed} failed ·{' '}
+              {suiteReport.counts.blocked} blocked · {suiteReport.counts.error} error
+            </div>
+          ) : null}
         </div>
-        <Button size="sm" onClick={() => void runAll()} disabled={readyCount === 0}>
-          Run All Ready
+        <Button size="sm" onClick={() => void runAll()} disabled={runningSuite}>
+          {runningSuite ? 'Running…' : 'Run All'}
         </Button>
       </div>
       <div className="mt-4 space-y-2">
-        {tests.map((test) => (
-          <div key={test.id} className="flex items-center gap-3 rounded border p-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate font-medium">{test.label}</span>
-                <Badge variant={test.readiness.runnable ? 'default' : 'secondary'}>
-                  {test.readiness.runnable ? 'ready' : 'blocked'}
-                </Badge>
+        {tests.map((test) => {
+          const suiteEntry = suiteEntryById.get(test.id);
+          const diagnostics =
+            suiteEntry?.diagnostics?.map((item) => item.message).filter(Boolean) ?? [];
+          return (
+            <div
+              key={test.id}
+              data-testid={`suite-test-${test.id}`}
+              className="flex items-center gap-3 rounded border p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-medium">{test.label}</span>
+                  {suiteEntry ? (
+                    <Badge variant={suiteBadgeVariant(suiteEntry.status)}>
+                      {suiteEntry.status}
+                    </Badge>
+                  ) : (
+                    <Badge variant={test.readiness.runnable ? 'default' : 'secondary'}>
+                      {test.readiness.runnable ? 'ready' : 'blocked'}
+                    </Badge>
+                  )}
+                </div>
+                <div className="mt-1 font-mono text-[10px] text-muted-foreground">{test.id}</div>
+                {suiteEntry ? (
+                  diagnostics.map((message) => (
+                    <div key={message} className="mt-1 text-xs text-muted-foreground">
+                      {message}
+                    </div>
+                  ))
+                ) : !test.readiness.runnable ? (
+                  <div className="mt-1 text-xs text-muted-foreground">{test.readiness.reason}</div>
+                ) : null}
               </div>
-              <div className="mt-1 font-mono text-[10px] text-muted-foreground">{test.id}</div>
-              {!test.readiness.runnable ? (
-                <div className="mt-1 text-xs text-muted-foreground">{test.readiness.reason}</div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => openTab(buildTestDetailTabForRecord(test.id, test.label))}
+              >
+                Open
+              </Button>
+              {suiteEntry?.report !== undefined ? (
+                <Button size="sm" variant="outline" onClick={() => showReport(suiteEntry)}>
+                  Report
+                </Button>
               ) : null}
+              <Button
+                size="sm"
+                onClick={() => void runTest(test.id)}
+                disabled={!test.readiness.runnable}
+              >
+                Run
+              </Button>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => openTab(buildTestDetailTabForRecord(test.id, test.label))}
-            >
-              Open
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => void runTest(test.id)}
-              disabled={!test.readiness.runnable}
-            >
-              Run
-            </Button>
-          </div>
-        ))}
+          );
+        })}
       </div>
       {tests.length === 0 ? (
         <div className="mt-8 rounded border p-4 text-sm text-muted-foreground">

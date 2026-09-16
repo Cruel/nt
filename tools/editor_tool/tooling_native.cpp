@@ -1025,6 +1025,9 @@ nlohmann::json run_test_suite(const nlohmann::json& request)
         nlohmann::json single_request = {{"project", *project}, {"spec", *spec}};
         if (auto root = request.find("projectRoot"); root != request.end())
             single_request["projectRoot"] = *root;
+        if (auto shader_metadata = request.find("shaderMaterialMetadata");
+            shader_metadata != request.end())
+            single_request["shaderMaterialMetadata"] = *shader_metadata;
         const auto response = runner == "runtime-ui" ? run_external_ui_playback(single_request)
                                                      : run_compiled_playback(single_request);
         if (!json_access::value_or(response, "ok", false) || !response.contains("report")) {

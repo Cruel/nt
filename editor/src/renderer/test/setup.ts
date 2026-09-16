@@ -181,6 +181,17 @@ Object.defineProperty(window, 'noveltea', {
     runPlaybackTest: vi
       .fn()
       .mockResolvedValue({ ok: true, report: { id: 'smoke', passed: true }, diagnostics: [] }),
+    runPlaybackSuite: vi.fn().mockResolvedValue({
+      ok: true,
+      success: true,
+      report: {
+        schema: 'noveltea.test-suite-report',
+        version: 1,
+        counts: { total: 0, passed: 0, failed: 0, blocked: 0, error: 0 },
+        entries: [],
+      },
+      diagnostics: [],
+    }),
     runPlaybackSpec: vi.fn().mockResolvedValue({
       ok: true,
       report: { id: 'smoke', passed: true, observations: [] },

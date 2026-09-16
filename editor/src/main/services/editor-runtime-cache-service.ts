@@ -405,4 +405,32 @@ export class EditorRuntimeCacheService {
         })
       : this.invokeNative('run-test', request);
   }
+
+  async runPlaybackSuite(
+    workspace: ActiveProjectWorkspaceSession,
+    project: AuthoringProject,
+    recoveryFingerprint: unknown,
+  ): Promise<unknown> {
+    if (!this.isCanonicalCacheEligible(workspace, project, recoveryFingerprint)) {
+      const prepared = await this.prepareCanonicalArtifact(project, 'test-playback');
+      if (prepared.status !== 'prepared')
+        return { ok: false, success: false, diagnostics: prepared.diagnostics };
+      return this.invokeNative('run-test-suite', {
+        project: prepared.artifact.compiledProject,
+        catalog: buildRuntimeTestCatalog(project),
+        projectRoot: workspace.projectRoot(),
+        shaderMaterialMetadata: prepared.artifact.shaderMaterialMetadata ?? null,
+      });
+    }
+
+    const canonical = await this.obtainCanonical(workspace, project, 'test-playback');
+    if (canonical.status === 'blocked')
+      return { ok: false, success: false, diagnostics: canonical.diagnostics };
+    return this.invokeNative('run-test-suite', {
+      project: canonical.artifact.compiledProject,
+      catalog: canonical.testCatalog,
+      projectRoot: workspace.projectRoot(),
+      shaderMaterialMetadata: canonical.artifact.shaderMaterialMetadata ?? null,
+    });
+  }
 }
