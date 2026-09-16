@@ -36,5 +36,7 @@ refs/
 .cxx
 android/app/libs/*.aar
 
+.noveltea/
+
 DESLOPPIFY.md
 docs/desloppify/
