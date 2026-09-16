@@ -18,7 +18,7 @@ math(EXPR last_command "${command_count} - 1")
 set(required_source_fragments
     "/_deps/bgfx.cmake-src/bx/"
     "/_deps/bgfx.cmake-src/bimg/"
-    "/_deps/bgfx.cmake-src/bgfx/"
+    "/_deps/bgfx.cmake-src/bgfx/src/"
     "/_deps/harfbuzz-src/"
     "/_deps/imgui-src/"
     "/_deps/rmlui-src/"
@@ -62,6 +62,7 @@ foreach(index RANGE 0 ${last_command})
     endif()
 
     string(JSON command GET "${commands}" ${index} command)
+    string(JSON output GET "${commands}" ${index} output)
     if(is_first_party)
         math(EXPR found_first_party_commands "${found_first_party_commands} + 1")
         foreach(required IN LISTS required_compiler_flags)
@@ -73,6 +74,14 @@ foreach(index RANGE 0 ${last_command})
         if(NOT command MATCHES "${required_policy_include}[^ ]*compiler_policy\\.hpp")
             message(FATAL_ERROR "First-party compile command lacks forced compiler_policy.hpp: ${source}")
         endif()
+    endif()
+
+    # bgfx/bimg host tools share sources with shipped runtime targets. Exclude host-only tool
+    # compilations by both source location and generated target output so a source such as
+    # bgfx/src/shader.cpp remains audited when compiled into bgfx but not when reused by shaderc.
+    if(source MATCHES "/_deps/bgfx\\.cmake-src/(bgfx|bimg)/tools/" OR
+       output MATCHES "CMakeFiles[/\\\\](shaderc|noveltea_bgfx_shaderc_embedded)\\.dir[/\\\\]")
+        continue()
     endif()
 
     set(is_required FALSE)
@@ -97,6 +106,13 @@ foreach(index RANGE 0 ${last_command})
             message(FATAL_ERROR "Dependency compile command lacks ${required}: ${source}")
         endif()
     endforeach()
+    if(platform_name STREQUAL "darwin" AND command MATCHES "(^| )-ObjC\\+\\+($| )")
+        string(FIND " ${command} " " -fno-objc-exceptions " objc_exceptions_position)
+        if(objc_exceptions_position EQUAL -1)
+            message(FATAL_ERROR
+                "Objective-C++ dependency compile command lacks -fno-objc-exceptions: ${source}")
+        endif()
+    endif()
     if(source MATCHES "/_deps/rmlui(_bgfx)?-src/")
         if(NOT command MATCHES "[/-]DRMLUI_CUSTOM_RTTI")
             message(FATAL_ERROR "RmlUi compile command lacks RMLUI_CUSTOM_RTTI: ${source}")

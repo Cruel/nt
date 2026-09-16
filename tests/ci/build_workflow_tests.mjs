@@ -93,17 +93,21 @@ test('vcpkg binary caches have independent configuration writers and refresh on 
   );
 });
 
-test('shader asset compilation uses the bgfx-matched nt-tools r5 bundle', () => {
+test('shader tool consumers use the pinned bgfx-matched nt-tools bundle', () => {
+  assert.match(workflow, /^  NOVELTEA_SHADERC_TOOLCHAIN_TAG: r6$/m);
+
   const shaderAssets = job('shader-assets');
   const download = step(shaderAssets, 'Download standalone shaderc');
   assert.match(
     download,
-    /Cruel\/nt-tools\/releases\/download\/r5\/noveltea-bgfx-shaderc-linux-x64\.tar\.gz/,
+    /Cruel\/nt-tools\/releases\/download\/\$NOVELTEA_SHADERC_TOOLCHAIN_TAG\/noveltea-bgfx-shaderc-linux-x64\.tar\.gz/,
   );
   assert.match(download, /test -x "\$shaderc_root\/bin\/shaderc"/);
   assert.match(download, /resources\/bgfx_shader\.sh/);
   assert.match(download, /BGFX_SHADER_INCLUDE=\$shaderc_root\/resources/);
-  assert.doesNotMatch(download, /releases\/download\/r1\//);
+
+  const hostCliDownload = step(job('linux-cli'), 'Download prebuilt embedded bgfx tool closure');
+  assert.match(hostCliDownload, /gh release download "\$NOVELTEA_SHADERC_TOOLCHAIN_TAG"/);
 });
 
 test('artifact consumers do not wait for unrelated test and cooperative build jobs', () => {
