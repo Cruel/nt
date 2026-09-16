@@ -108,6 +108,17 @@ function project() {
       imageMetadata: { width: 1024, height: 1024, hasAlpha: true, orientation: 1 },
     },
   };
+  next.assets.pointer = {
+    id: 'pointer',
+    label: 'Pointer Cursor',
+    data: {
+      kind: 'image',
+      source: { type: 'project-file', path: 'assets/images/pointer.png' },
+      aliases: [],
+      extension: '.png',
+      imageMetadata: { width: 32, height: 24, hasAlpha: true, orientation: 1 },
+    },
+  };
   return next;
 }
 
@@ -210,6 +221,45 @@ describe('ProjectSettingsEditor', () => {
       'page',
     );
     expect(screen.getByLabelText('Display name')).toBeInTheDocument();
+  });
+
+  it('authors Project cursor defaults and named cursor definitions', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Cursors');
+
+    expect(screen.getByText('Named Cursors')).toBeInTheDocument();
+    expect(screen.getByLabelText('Default')).toHaveValue('system:default');
+    expect(screen.getByLabelText('Pointer')).toHaveValue('system:pointer');
+    expect(screen.getByLabelText('Hotspot')).toHaveValue('inherit:pointer');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Cursor' }));
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<typeof project>;
+      expect(current.settings.cursors.named).toEqual([
+        {
+          id: 'cursor',
+          image: { $ref: { collection: 'assets', id: 'pointer' } },
+          hotspotX: 0,
+          hotspotY: 0,
+        },
+      ]);
+    });
+
+    expect(screen.getByText('32×24 source pixels')).toBeInTheDocument();
+    expect(screen.getByLabelText('Hotspot 0, 0')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Test Cursor' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Pointer'), { target: { value: 'named:cursor' } });
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<typeof project>;
+      expect(current.settings.cursors.defaults.pointer).toEqual({ kind: 'named', id: 'cursor' });
+    });
   });
 
   it('authors semantic Purpose mixing and Voice ducking from the Audio category', async () => {

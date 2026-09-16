@@ -58,11 +58,14 @@ owner-qualified `(RoomId, FeatureId)` identity. Features are nested content, not
 collection.
 
 Room Hotspots have stable IDs within their Room, normalized rectangular image bounds, a condition,
-signed input priority, highlight policy, and one semantic target. A Room Hotspot may select an
-owner-local Feature, another exact admitted subject, or one of the Room's exits. Hotspots own no Verb
-or Interaction behavior. Exit targets reuse the selected-exit navigation path above; subject targets
-reuse ordinary semantic subject selection. Different Hotspots may intentionally select the same
-Feature and therefore produce the same runtime subject identity.
+signed input priority, highlight policy, one semantic target, and an optional cursor target. A cursor
+target may select a system semantic cursor, a Project named cursor, or `none`; direct cursor images are
+not part of the Hotspot contract. Unset uses the Project Hotspot default, which inherits the Project
+Pointer default unless explicitly changed. A Room Hotspot may select an owner-local Feature, another
+exact admitted subject, or one of the Room's exits. Hotspots own no Verb or Interaction behavior. Exit
+targets reuse the selected-exit navigation path above; subject targets reuse ordinary semantic subject
+selection. Different Hotspots may intentionally select the same Feature and therefore produce the
+same runtime subject identity.
 
 The final animated request contract is `RoomNavigationTransitionOperation`. It is deliberately
 distinct from `SceneTransitionGroupOperation`, but both embed the same
@@ -152,7 +155,7 @@ covers stable ID, label, compatible Traits, and compatible Properties. The image
 manipulation: click a Hotspot to select it, drag a rectangular Hotspot or its handles to move/resize
 it, drag empty image space to pan, and use the temporary `Add hotspot` action to draw one new rectangle
 before returning to normal interaction. The selected Hotspot edits geometry, condition, highlight,
-input order, and semantic target rather than a Verb activation.
+input order, cursor selection, and semantic target rather than a Verb activation.
 Room background `cover`,
 `contain`, `stretch`, and `center` transforms use the same normalized image-coordinate policy consumed
 by runtime projection. No editor-preview-only manipulation contract exists.

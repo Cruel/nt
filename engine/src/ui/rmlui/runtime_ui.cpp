@@ -1,11 +1,16 @@
 #include "ui/rmlui/runtime_ui.hpp"
 
+#include "host/cursor_presentation.hpp"
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/core/editor_preview_contracts.hpp"
+#include "noveltea/core/compiled_project.hpp"
 #include "noveltea/presentation/runtime_layout_manager.hpp"
+#include "platform/sdl/sdl_cursor_realizer.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <functional>
@@ -28,6 +33,7 @@
 #include <sol/sol.hpp>
 #include "ui/rmlui/active_text_presenter.hpp"
 #include "ui/rmlui/rmlui_document_registry.hpp"
+#include "ui/rmlui/rmlui_file_interface.hpp"
 #include "ui/rmlui/rmlui_custom_components.hpp"
 #include "ui/rmlui/rmlui_host.hpp"
 #include "ui/rmlui/runtime_ui_action_gateway.hpp"
@@ -43,6 +49,149 @@ using presentation::RuntimeLayoutBuiltinDocument;
 namespace {
 
 char g_layout_state_null_marker;
+
+host::CursorShape cursor_shape(core::compiled::CursorSystemName name) noexcept
+{
+    using Name = core::compiled::CursorSystemName;
+    switch (name) {
+    case Name::Default:
+        return host::CursorShape::Default;
+    case Name::Pointer:
+        return host::CursorShape::Pointer;
+    case Name::Text:
+        return host::CursorShape::Text;
+    case Name::Wait:
+        return host::CursorShape::Wait;
+    case Name::Progress:
+        return host::CursorShape::Progress;
+    case Name::Crosshair:
+        return host::CursorShape::Crosshair;
+    case Name::Move:
+        return host::CursorShape::Move;
+    case Name::NotAllowed:
+        return host::CursorShape::NotAllowed;
+    case Name::NsResize:
+        return host::CursorShape::NsResize;
+    case Name::EwResize:
+        return host::CursorShape::EwResize;
+    case Name::NeswResize:
+        return host::CursorShape::NeswResize;
+    case Name::NwseResize:
+        return host::CursorShape::NwseResize;
+    case Name::None:
+        return host::CursorShape::Hidden;
+    }
+    return host::CursorShape::Default;
+}
+
+struct CursorImageAssetMetadata {
+    bool image = false;
+    std::string logical_path;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    host::CursorImageSampling sampling = host::CursorImageSampling::Linear;
+};
+
+std::string_view trim_cursor_value(std::string_view value) noexcept
+{
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front())))
+        value.remove_prefix(1);
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())))
+        value.remove_suffix(1);
+    return value;
+}
+
+struct DirectCursorImageValue {
+    bool matched = false;
+    std::optional<std::string> source;
+};
+
+DirectCursorImageValue parse_direct_cursor_image(std::string_view value)
+{
+    value = trim_cursor_value(value);
+    if (!value.starts_with("image"))
+        return {};
+    if (value.size() > 5 && !std::isspace(static_cast<unsigned char>(value[5])) && value[5] != '(')
+        return {};
+    auto suffix = trim_cursor_value(value.substr(5));
+    if (suffix.size() < 2 || suffix.front() != '(' || suffix.back() != ')')
+        return {.matched = true, .source = std::nullopt};
+    auto argument = trim_cursor_value(suffix.substr(1, suffix.size() - 2));
+    if (argument.empty())
+        return {.matched = true, .source = std::nullopt};
+
+    if (argument.front() == '\'' || argument.front() == '"') {
+        const char quote = argument.front();
+        if (argument.size() < 2 || argument.back() != quote)
+            return {.matched = true, .source = std::nullopt};
+        const auto inner = argument.substr(1, argument.size() - 2);
+        if (inner.empty() || inner.find(quote) != std::string_view::npos)
+            return {.matched = true, .source = std::nullopt};
+        return {.matched = true, .source = std::string(inner)};
+    }
+
+    if (std::any_of(argument.begin(), argument.end(), [](char ch) {
+            return std::isspace(static_cast<unsigned char>(ch)) || ch == ',' || ch == '\'' ||
+                   ch == '"' || ch == '(' || ch == ')';
+        }))
+        return {.matched = true, .source = std::nullopt};
+    return {.matched = true, .source = std::string(argument)};
+}
+
+std::optional<host::CursorShape> cursor_shape(std::string_view name) noexcept
+{
+    if (name == "default")
+        return host::CursorShape::Default;
+    if (name == "pointer")
+        return host::CursorShape::Pointer;
+    if (name == "text")
+        return host::CursorShape::Text;
+    if (name == "wait")
+        return host::CursorShape::Wait;
+    if (name == "progress")
+        return host::CursorShape::Progress;
+    if (name == "crosshair")
+        return host::CursorShape::Crosshair;
+    if (name == "move")
+        return host::CursorShape::Move;
+    if (name == "not-allowed")
+        return host::CursorShape::NotAllowed;
+    if (name == "ns-resize")
+        return host::CursorShape::NsResize;
+    if (name == "ew-resize")
+        return host::CursorShape::EwResize;
+    if (name == "nesw-resize")
+        return host::CursorShape::NeswResize;
+    if (name == "nwse-resize")
+        return host::CursorShape::NwseResize;
+    return std::nullopt;
+}
+
+std::optional<host::CursorPresentation>
+resolve_cursor_target(const core::compiled::CursorSettings& settings,
+                      const std::unordered_map<std::string, host::CursorPresentation>& named,
+                      const core::compiled::CursorTarget& target, host::CursorShape fallback)
+{
+    using Kind = core::compiled::CursorTargetKind;
+    switch (target.kind) {
+    case Kind::System:
+        return host::CursorPresentation{.shape = cursor_shape(target.system),
+                                        .custom = std::nullopt};
+    case Kind::Named:
+        if (const auto found = named.find(target.named_id); found != named.end()) {
+            auto presentation = found->second;
+            presentation.shape = fallback;
+            return presentation;
+        }
+        return host::CursorPresentation{.shape = fallback, .custom = std::nullopt};
+    case Kind::None:
+        return host::CursorPresentation{.shape = host::CursorShape::Hidden, .custom = std::nullopt};
+    case Kind::InheritPointer:
+        return resolve_cursor_target(settings, named, settings.pointer_cursor,
+                                     host::CursorShape::Pointer);
+    }
+    return host::CursorPresentation{.shape = fallback, .custom = std::nullopt};
+}
 
 [[nodiscard]] sol::object mount_layout_state_null(sol::state_view lua)
 {
@@ -538,6 +687,16 @@ struct RuntimeUI::State {
     void refresh_game_hud_map();
     void refresh_mounted_maps();
     void refresh_active_text_layout();
+    void refresh_cursor_eligibility();
+    void publish_cursor_image(host::CursorRequestSource source,
+                              host::CursorAuthority::OwnerToken owner,
+                              host::CursorPresentation presentation, std::string owner_label,
+                              std::string_view asset_id);
+    void publish_cursor_image_fallback(host::CursorRequestSource source,
+                                       host::CursorAuthority::OwnerToken owner,
+                                       host::CursorPresentation presentation,
+                                       std::string owner_label, std::string_view asset_id,
+                                       std::string_view reason);
     void load_runtime_document();
     void show_game_document();
     bool dispatch_shell_command(const core::RuntimeShellCommand& command);
@@ -561,9 +720,12 @@ struct RuntimeUI::State {
     bool with_active_layout_mount_document(const std::string& id, Dispatch&& dispatch)
     {
         const auto previous = active_layout_mount_document;
+        const bool previous_invocation = layout_invocation_active;
         active_layout_mount_document = id;
+        layout_invocation_active = true;
         const bool result = dispatch();
         active_layout_mount_document = previous;
+        layout_invocation_active = previous_invocation;
         return result;
     }
     Rml::Context* context_for(ContextKey key);
@@ -573,6 +735,30 @@ struct RuntimeUI::State {
         void ProcessEvent(Rml::Event& event) override;
         State& owner;
     };
+    assets::AssetManager* assets = nullptr;
+    std::unique_ptr<sdl_platform::SdlCursorRealizer> cursor_realizer;
+    std::unique_ptr<host::CursorAuthority> cursor_authority;
+    std::optional<core::compiled::CursorSettings> cursor_settings;
+    std::unordered_map<std::string, host::CursorPresentation> named_cursors;
+    std::unordered_map<std::string, CursorImageAssetMetadata> cursor_image_assets;
+    std::unordered_map<std::string, CursorImageAssetMetadata> gameplay_cursor_image_assets;
+    struct PendingCursorImage {
+        host::CursorPresentation presentation;
+        assets::AssetRequestHandle<assets::TextureAsset> request;
+        std::string owner_label;
+        std::string asset_id;
+    };
+    std::optional<PendingCursorImage> pending_gameplay_cursor;
+    std::unordered_map<host::CursorAuthority::OwnerToken, PendingCursorImage>
+        pending_layout_cursors;
+    std::unordered_map<std::string, CursorImageAssetMetadata> focused_preview_cursor_image_assets;
+    std::unordered_map<std::string, std::unordered_set<std::string>>
+        layout_cursor_image_dependencies;
+    std::unordered_set<std::string> cursor_runtime_diagnostics;
+    std::optional<std::string> focused_preview_default_cursor;
+    std::optional<std::string> focused_preview_pointer_cursor;
+    std::optional<std::string> focused_preview_hotspot_cursor;
+    std::unordered_map<std::string, host::CursorPresentation> focused_preview_named_cursors;
     std::unique_ptr<ui::rmlui::RmlUiHost> host;
     std::unique_ptr<ui::rmlui::RmlUiDocumentRegistry> document_registry;
     std::unique_ptr<ui::rmlui::RuntimeUiActionGateway> action_gateway;
@@ -586,7 +772,12 @@ struct RuntimeUI::State {
     std::optional<core::RuntimeShellViewState> runtime_shell_view;
     std::unordered_map<core::compiled::SystemLayoutRole, std::string> system_layout_documents;
     std::unordered_map<std::string, RuntimeUiLayoutMountContext> layout_mount_contexts;
+    std::unordered_map<std::string, std::unordered_set<host::CursorAuthority::OwnerToken>>
+        layout_cursor_retirements;
+    std::vector<std::string> layout_order;
     std::optional<std::string> active_layout_mount_document;
+    bool layout_invocation_active = false;
+    std::function<bool()> layout_gameplay_admission;
     bool system_layout_documents_authoritative = false;
     std::string title_project;
     std::string title_subtitle;
@@ -599,6 +790,35 @@ struct RuntimeUI::State {
     bool message_refresh_pending = false;
     std::string typed_notification;
 };
+
+void RuntimeUI::State::publish_cursor_image(host::CursorRequestSource source,
+                                            host::CursorAuthority::OwnerToken owner,
+                                            host::CursorPresentation presentation,
+                                            std::string owner_label, std::string_view asset_id)
+{
+    if (presentation.custom && cursor_realizer && !cursor_realizer->prepare(*presentation.custom)) {
+        publish_cursor_image_fallback(source, owner, std::move(presentation),
+                                      std::move(owner_label), asset_id,
+                                      "native cursor realization failed");
+        return;
+    }
+    cursor_authority->publish(source, owner, std::move(presentation), std::move(owner_label));
+}
+
+void RuntimeUI::State::publish_cursor_image_fallback(host::CursorRequestSource source,
+                                                     host::CursorAuthority::OwnerToken owner,
+                                                     host::CursorPresentation presentation,
+                                                     std::string owner_label,
+                                                     std::string_view asset_id,
+                                                     std::string_view reason)
+{
+    presentation.custom.reset();
+    typed_diagnostics.push_back({.code = "runtime.cursor.realization_failed",
+                                 .message = "Cursor image '" + std::string(asset_id) +
+                                            "' could not be realized (" + std::string(reason) +
+                                            "); using the native fallback."});
+    cursor_authority->publish(source, owner, std::move(presentation), std::move(owner_label));
+}
 
 void RuntimeUI::State::refresh_message_elements(Rml::ElementDocument& document)
 {
@@ -697,6 +917,32 @@ std::optional<std::string> RuntimeUI::State::mount_document(ContextKey key) cons
         result = document_id;
     }
     return result;
+}
+
+void RuntimeUI::State::refresh_cursor_eligibility()
+{
+    if (!cursor_authority)
+        return;
+
+    std::vector<host::CursorAuthority::OwnerToken> layout_owners;
+    layout_owners.reserve(layout_order.size());
+    for (auto it = layout_order.rbegin(); it != layout_order.rend(); ++it) {
+        const auto context = layout_mount_contexts.find(*it);
+        auto* document = document_registry ? document_registry->document(*it) : nullptr;
+        if (context == layout_mount_contexts.end() || !document || !document->IsVisible())
+            continue;
+        layout_owners.push_back(context->second.occurrence.number());
+    }
+    cursor_authority->set_eligible_order(host::CursorRequestSource::LayoutLua,
+                                         std::move(layout_owners));
+
+    constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
+    const bool gameplay_eligible = !layout_gameplay_admission || layout_gameplay_admission();
+    cursor_authority->set_eligible_order(
+        host::CursorRequestSource::GameplayLua,
+        gameplay_eligible ? std::vector<host::CursorAuthority::OwnerToken>{gameplay_cursor_owner}
+                          : std::vector<host::CursorAuthority::OwnerToken>{});
+    cursor_authority->resolve();
 }
 
 void RuntimeUI::State::load_runtime_document()
@@ -1362,6 +1608,15 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
 
     if (!m_state)
         m_state = new State;
+    m_state->assets = assets;
+    if (!m_state->cursor_realizer)
+        m_state->cursor_realizer = std::make_unique<sdl_platform::SdlCursorRealizer>(assets);
+    if (!m_state->cursor_authority) {
+        m_state->cursor_authority =
+            std::make_unique<host::CursorAuthority>(m_state->cursor_realizer.get());
+    } else {
+        m_state->cursor_authority->bind_realizer(m_state->cursor_realizer.get());
+    }
     if (!m_state->host)
         m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
     if (!m_state->active_text_presenter) {
@@ -1425,6 +1680,7 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
                                          .window = window,
                                          .lua_state = m_state->lua_state,
                                          .shader_materials = shader_materials,
+                                         .cursor_authority = m_state->cursor_authority.get(),
                                          .presentation = pending_presentation,
                                          .headless_render = headless_render})) {
         cleanup_state();
@@ -1435,6 +1691,150 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     m_state->runtime_input_listener = std::make_unique<State::RuntimeInputListener>(*m_state);
     m_state->document_registry = std::make_unique<ui::rmlui::RmlUiDocumentRegistry>(*m_state->host);
     m_state->document_registry->set_runtime_input_listener(m_state->runtime_input_listener.get());
+    m_state->host->set_cursor_presentation_resolver([state = m_state](Rml::Context* context,
+                                                                      std::string_view name)
+                                                        -> std::optional<host::CursorPresentation> {
+        const auto resolve_name =
+            [](std::string_view requested,
+               const std::unordered_map<std::string, host::CursorPresentation>& named,
+               host::CursorShape fallback) -> std::optional<host::CursorPresentation> {
+            if (requested == "none")
+                return host::CursorPresentation{.shape = host::CursorShape::Hidden,
+                                                .custom = std::nullopt};
+            if (const auto found = named.find(std::string(requested)); found != named.end()) {
+                auto presentation = found->second;
+                presentation.shape = fallback;
+                return presentation;
+            }
+            if (const auto shape = cursor_shape(requested))
+                return host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
+            return std::nullopt;
+        };
+
+        auto* hover = context ? context->GetHoverElement() : nullptr;
+        auto* owner_document = hover ? hover->GetOwnerDocument() : nullptr;
+        const auto document_id = state->document_registry
+                                     ? state->document_registry->document_id(owner_document)
+                                     : std::optional<std::string>{};
+        const bool focused_preview =
+            document_id && (*document_id == "editor_authored_layout_preview" ||
+                            document_id->starts_with("focused://"));
+        const auto direct_image = parse_direct_cursor_image(name);
+        if (direct_image.matched) {
+            const auto diagnose = [&](std::string code, std::string message) {
+                const std::string key = code + "\n" + std::string(name);
+                if (state->cursor_runtime_diagnostics.insert(key).second)
+                    state->typed_diagnostics.push_back(
+                        core::Diagnostic{.code = std::move(code), .message = std::move(message)});
+            };
+            if (!direct_image.source) {
+                diagnose("runtime.cursor.invalid_image_value",
+                         "Direct cursor image requires exactly one image source.");
+                return std::nullopt;
+            }
+
+            const std::string& source = *direct_image.source;
+            const auto colon = source.find(':');
+            if (colon != std::string::npos && !source.starts_with("project:/") &&
+                !source.starts_with("system:/")) {
+                diagnose("runtime.cursor.invalid_image_path",
+                         "Direct cursor image uses an unsupported resource scheme.");
+                return std::nullopt;
+            }
+            if (!state->assets)
+                return std::nullopt;
+
+            Rml::String joined = source;
+            if (colon == std::string::npos && owner_document) {
+                Rml::GetSystemInterface()->JoinPath(joined, owner_document->GetSourceURL(), source);
+            }
+            const std::string logical = ui::rmlui::resolve_asset_path(*state->assets, joined);
+            if (!logical.starts_with("project:/") && !logical.starts_with("system:/")) {
+                diagnose(
+                    "runtime.cursor.invalid_image_path",
+                    "Direct cursor image must resolve through project:/ or system:/ resources.");
+                return std::nullopt;
+            }
+
+            CursorImageAssetMetadata metadata;
+            const auto& image_assets = focused_preview ? state->focused_preview_cursor_image_assets
+                                                       : state->cursor_image_assets;
+            const auto resource = image_assets.find(logical);
+            if (resource != image_assets.end()) {
+                metadata = resource->second;
+                if (!metadata.image) {
+                    diagnose("runtime.cursor.image_kind_mismatch",
+                             "Direct cursor resource is not an Image Asset.");
+                    return std::nullopt;
+                }
+            } else if (logical.starts_with("project:/") &&
+                       (focused_preview || state->cursor_settings)) {
+                diagnose("runtime.cursor.image_not_admitted",
+                         "Direct cursor image is not admitted by the active Layout resources.");
+                return std::nullopt;
+            }
+            if (!focused_preview && logical.starts_with("project:/")) {
+                const auto dependencies =
+                    document_id ? state->layout_cursor_image_dependencies.find(*document_id)
+                                : state->layout_cursor_image_dependencies.end();
+                if (dependencies == state->layout_cursor_image_dependencies.end() ||
+                    !dependencies->second.contains(logical)) {
+                    diagnose("runtime.cursor.image_dependency_missing",
+                             "Direct cursor image is outside the owning Layout image dependency "
+                             "closure.");
+                    return std::nullopt;
+                }
+            }
+            const auto fitted = host::fit_cursor_image_size(metadata.width, metadata.height);
+            return host::CursorPresentation{
+                .shape = host::CursorShape::Default,
+                .custom = host::CustomCursorPresentation{.id = "image(" + logical + ")",
+                                                         .logical_path = logical,
+                                                         .width = fitted.width,
+                                                         .height = fitted.height,
+                                                         .hotspot_x = 0,
+                                                         .hotspot_y = 0,
+                                                         .sampling = metadata.sampling,
+                                                         .fit_to_portable_bound = true}};
+        }
+
+        if (focused_preview && state->focused_preview_default_cursor &&
+            state->focused_preview_pointer_cursor) {
+            if (name == "default")
+                return resolve_name(*state->focused_preview_default_cursor,
+                                    state->focused_preview_named_cursors,
+                                    host::CursorShape::Default);
+            if (name == "pointer")
+                return resolve_name(*state->focused_preview_pointer_cursor,
+                                    state->focused_preview_named_cursors,
+                                    host::CursorShape::Pointer);
+            return resolve_name(name, state->focused_preview_named_cursors,
+                                host::CursorShape::Default);
+        }
+
+        if (!state->cursor_settings)
+            return std::nullopt;
+        if (name == "default")
+            return resolve_cursor_target(*state->cursor_settings, state->named_cursors,
+                                         state->cursor_settings->default_cursor,
+                                         host::CursorShape::Default);
+        if (name == "pointer")
+            return resolve_cursor_target(*state->cursor_settings, state->named_cursors,
+                                         state->cursor_settings->pointer_cursor,
+                                         host::CursorShape::Pointer);
+        if (const auto found = state->named_cursors.find(std::string(name));
+            found != state->named_cursors.end())
+            return found->second;
+        return std::nullopt;
+    });
+    m_state->host->set_cursor_owner_resolver([state = m_state](Rml::Context* context) {
+        if (!state->document_registry || !context)
+            return std::string{};
+        auto* hover = context->GetHoverElement();
+        auto* owner_document = hover ? hover->GetOwnerDocument() : nullptr;
+        const auto id = state->document_registry->document_id(owner_document);
+        return id.value_or(std::string{});
+    });
     m_state->refresh_data_model_shell();
     m_state->playback_driver = std::make_unique<ui::rmlui::RuntimeUiPlaybackDriver>(
         *m_state->host, *m_state->document_registry,
@@ -1478,6 +1878,14 @@ void ui::rmlui::RuntimeUiFacadeAccess::set_context_render_observer(
         runtime_ui.m_state->host->set_context_render_observer(std::move(observer));
 }
 
+host::CursorInspection
+ui::rmlui::RuntimeUiFacadeAccess::cursor_inspection(const RuntimeUI& runtime_ui)
+{
+    return runtime_ui.m_state && runtime_ui.m_state->cursor_authority
+               ? runtime_ui.m_state->cursor_authority->inspection()
+               : host::CursorInspection{};
+}
+
 bool RuntimeUI::prepare_fonts(const assets::FontAssetConfig& config)
 {
     return m_state && m_state->host && m_state->host->prepare_fonts(config);
@@ -1491,6 +1899,482 @@ bool RuntimeUI::activate_font_fallbacks(const assets::FontAssetConfig& config)
 bool RuntimeUI::configure_fonts(const assets::FontAssetConfig& config)
 {
     return m_state && m_state->host && m_state->host->configure_fonts(config);
+}
+
+void RuntimeUI::configure_project_cursors(const core::CompiledProject& project)
+{
+    if (!m_state || !m_state->cursor_authority)
+        return;
+
+    m_state->cursor_settings = project.settings().cursors;
+    m_state->named_cursors.clear();
+    m_state->cursor_image_assets.clear();
+    m_state->gameplay_cursor_image_assets.clear();
+    m_state->cursor_runtime_diagnostics.clear();
+    for (const auto& asset : project.assets()) {
+        const std::string logical_path = "project:/" + asset.path;
+        CursorImageAssetMetadata metadata{.image = asset.kind == core::compiled::AssetKind::Image,
+                                          .logical_path = logical_path,
+                                          .width = asset.width.value_or(0),
+                                          .height = asset.height.value_or(0)};
+        if (asset.sampling == core::compiled::ImageSampling::Nearest)
+            metadata.sampling = host::CursorImageSampling::Nearest;
+        m_state->cursor_image_assets.insert_or_assign(logical_path, metadata);
+        m_state->gameplay_cursor_image_assets.insert_or_assign(asset.id.text(),
+                                                               std::move(metadata));
+    }
+    if (m_state->cursor_realizer)
+        m_state->cursor_realizer->clear_custom();
+
+    for (const auto& cursor : project.settings().cursors.named) {
+        const auto asset = std::ranges::find_if(
+            project.assets(), [&](const auto& candidate) { return candidate.id == cursor.image; });
+        if (asset == project.assets().end() || !asset->width || !asset->height)
+            continue;
+        host::CursorPresentation presentation{
+            .shape = host::CursorShape::Default,
+            .custom = host::CustomCursorPresentation{.id = cursor.id,
+                                                     .logical_path = "project:/" + asset->path,
+                                                     .width = *asset->width,
+                                                     .height = *asset->height,
+                                                     .hotspot_x = cursor.hotspot_x,
+                                                     .hotspot_y = cursor.hotspot_y}};
+        if (m_state->cursor_realizer && !m_state->cursor_realizer->prepare(*presentation.custom)) {
+            m_state->typed_diagnostics.push_back(
+                core::Diagnostic{.code = "runtime.cursor.realization_failed",
+                                 .message = "Failed to prepare named cursor '" + cursor.id +
+                                            "'; native fallback will be used."});
+        }
+        m_state->named_cursors.insert_or_assign(cursor.id, std::move(presentation));
+    }
+
+    constexpr host::CursorAuthority::OwnerToken project_default_owner = 1;
+    auto project_default =
+        resolve_cursor_target(project.settings().cursors, m_state->named_cursors,
+                              project.settings().cursors.default_cursor, host::CursorShape::Default)
+            .value_or(host::CursorPresentation{});
+    m_state->cursor_authority->publish(host::CursorRequestSource::ProjectDefault,
+                                       project_default_owner, std::move(project_default),
+                                       "project-default");
+    m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::ProjectDefault,
+                                                  {project_default_owner});
+    m_state->cursor_authority->resolve();
+}
+
+void RuntimeUI::set_world_hotspot_cursor(const std::optional<core::compiled::CursorTarget>& cursor,
+                                         std::string owner_label)
+{
+    if (!m_state || !m_state->cursor_authority)
+        return;
+    constexpr host::CursorAuthority::OwnerToken world_hotspot_owner = 1;
+    std::optional<host::CursorPresentation> presentation;
+    if (m_state->cursor_settings) {
+        const auto& settings = *m_state->cursor_settings;
+        presentation =
+            cursor ? resolve_cursor_target(settings, m_state->named_cursors, *cursor,
+                                           host::CursorShape::Pointer)
+                   : resolve_cursor_target(settings, m_state->named_cursors,
+                                           settings.hotspot_cursor, host::CursorShape::Pointer);
+    } else if (m_state->focused_preview_hotspot_cursor && m_state->focused_preview_pointer_cursor) {
+        const auto resolve_name = [&](std::string_view name, host::CursorShape fallback) {
+            if (name == "none")
+                return host::CursorPresentation{.shape = host::CursorShape::Hidden,
+                                                .custom = std::nullopt};
+            if (const auto found = m_state->focused_preview_named_cursors.find(std::string(name));
+                found != m_state->focused_preview_named_cursors.end()) {
+                auto value = found->second;
+                value.shape = fallback;
+                return value;
+            }
+            return host::CursorPresentation{.shape = cursor_shape(name).value_or(fallback),
+                                            .custom = std::nullopt};
+        };
+        if (!cursor) {
+            presentation =
+                resolve_name(*m_state->focused_preview_hotspot_cursor, host::CursorShape::Pointer);
+        } else {
+            using Kind = core::compiled::CursorTargetKind;
+            switch (cursor->kind) {
+            case Kind::System:
+                presentation = host::CursorPresentation{.shape = cursor_shape(cursor->system),
+                                                        .custom = std::nullopt};
+                break;
+            case Kind::Named:
+                presentation = resolve_name(cursor->named_id, host::CursorShape::Pointer);
+                break;
+            case Kind::None:
+                presentation = host::CursorPresentation{.shape = host::CursorShape::Hidden,
+                                                        .custom = std::nullopt};
+                break;
+            case Kind::InheritPointer:
+                presentation = resolve_name(*m_state->focused_preview_pointer_cursor,
+                                            host::CursorShape::Pointer);
+                break;
+            }
+        }
+    }
+    if (!presentation)
+        return;
+    m_state->cursor_authority->publish(host::CursorRequestSource::WorldHotspot, world_hotspot_owner,
+                                       std::move(*presentation), std::move(owner_label));
+    m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::WorldHotspot,
+                                                  {world_hotspot_owner});
+    m_state->cursor_authority->resolve();
+}
+
+void RuntimeUI::clear_world_hotspot_cursor() noexcept
+{
+    if (!m_state || !m_state->cursor_authority)
+        return;
+    m_state->cursor_authority->clear_source(host::CursorRequestSource::WorldHotspot);
+    m_state->cursor_authority->resolve();
+}
+
+core::Result<void, core::Diagnostics> RuntimeUI::set_gameplay_cursor(std::string name)
+{
+    if (!m_state || !m_state->cursor_authority)
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.unavailable", .message = "Cursor system is unavailable"}});
+    if (name == "auto")
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.invalid_name",
+              .message = "'auto' is not a valid Lua cursor target"}});
+
+    const auto resolve_focused_target =
+        [state = m_state](std::string_view target,
+                          host::CursorShape fallback) -> std::optional<host::CursorPresentation> {
+        if (target == "none")
+            return host::CursorPresentation{.shape = host::CursorShape::Hidden,
+                                            .custom = std::nullopt};
+        if (const auto found = state->focused_preview_named_cursors.find(std::string(target));
+            found != state->focused_preview_named_cursors.end()) {
+            auto value = found->second;
+            value.shape = fallback;
+            return value;
+        }
+        if (const auto shape = cursor_shape(target))
+            return host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
+        return std::nullopt;
+    };
+
+    std::optional<host::CursorPresentation> presentation;
+    if (name == "none") {
+        presentation =
+            host::CursorPresentation{.shape = host::CursorShape::Hidden, .custom = std::nullopt};
+    } else if (name == "default" && m_state->focused_preview_default_cursor) {
+        presentation = resolve_focused_target(*m_state->focused_preview_default_cursor,
+                                              host::CursorShape::Default);
+    } else if (name == "pointer" && m_state->focused_preview_pointer_cursor) {
+        presentation = resolve_focused_target(*m_state->focused_preview_pointer_cursor,
+                                              host::CursorShape::Pointer);
+    } else if (name == "default" && m_state->cursor_settings) {
+        presentation = resolve_cursor_target(*m_state->cursor_settings, m_state->named_cursors,
+                                             m_state->cursor_settings->default_cursor,
+                                             host::CursorShape::Default);
+    } else if (name == "pointer" && m_state->cursor_settings) {
+        presentation = resolve_cursor_target(*m_state->cursor_settings, m_state->named_cursors,
+                                             m_state->cursor_settings->pointer_cursor,
+                                             host::CursorShape::Pointer);
+    } else if (const auto shape = cursor_shape(name)) {
+        presentation = host::CursorPresentation{.shape = *shape, .custom = std::nullopt};
+    } else if (const auto focused = m_state->focused_preview_named_cursors.find(name);
+               focused != m_state->focused_preview_named_cursors.end()) {
+        presentation = focused->second;
+    } else if (const auto found = m_state->named_cursors.find(name);
+               found != m_state->named_cursors.end()) {
+        presentation = found->second;
+    } else {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.invalid_name",
+              .message = "Unknown cursor name '" + name + "'"}});
+    }
+
+    if (m_state->layout_invocation_active) {
+        if (!m_state->active_layout_mount_document) {
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "runtime.cursor.layout_context_unavailable",
+                  .message = "Layout cursor command has no live Mount occurrence"}});
+        }
+        const auto context =
+            m_state->layout_mount_contexts.find(*m_state->active_layout_mount_document);
+        if (context == m_state->layout_mount_contexts.end()) {
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "runtime.cursor.layout_context_unavailable",
+                  .message = "Layout cursor command has no live Mount occurrence"}});
+        }
+        const auto owner = context->second.occurrence.number();
+        m_state->pending_layout_cursors.erase(owner);
+        m_state->cursor_authority->publish(
+            host::CursorRequestSource::LayoutLua, owner, std::move(*presentation),
+            *m_state->active_layout_mount_document + "#" + std::to_string(owner));
+        m_state->refresh_cursor_eligibility();
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    m_state->pending_gameplay_cursor.reset();
+    constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
+    m_state->cursor_authority->publish(host::CursorRequestSource::GameplayLua,
+                                       gameplay_cursor_owner, std::move(*presentation),
+                                       "runtime-session");
+    m_state->refresh_cursor_eligibility();
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeUI::set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                                     std::optional<std::uint32_t> hotspot_y)
+{
+    if (!m_state || !m_state->cursor_authority)
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.unavailable", .message = "Cursor system is unavailable"}});
+    const auto found = m_state->gameplay_cursor_image_assets.find(asset.text());
+    if (found == m_state->gameplay_cursor_image_assets.end() || !found->second.image ||
+        found->second.width == 0 || found->second.height == 0) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.invalid_image_asset",
+              .message =
+                  "Gameplay cursor images require an existing Image Asset ID with dimensions"}});
+    }
+    const auto& metadata = found->second;
+    const std::uint32_t x = hotspot_x.value_or(metadata.width / 2);
+    const std::uint32_t y = hotspot_y.value_or(metadata.height / 2);
+    if (x >= metadata.width || y >= metadata.height) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.cursor.invalid_hotspot",
+              .message = "Gameplay cursor hotspot must be inside the source image"}});
+    }
+
+    host::CursorPresentation presentation{
+        .shape = host::CursorShape::Default,
+        .custom = host::CustomCursorPresentation{.id = "asset:" + asset.text(),
+                                                 .logical_path = metadata.logical_path,
+                                                 .width = 0,
+                                                 .height = 0,
+                                                 .hotspot_x = x,
+                                                 .hotspot_y = y,
+                                                 .sampling = metadata.sampling,
+                                                 .fit_to_portable_bound = true}};
+    host::CursorRequestSource source = host::CursorRequestSource::GameplayLua;
+    constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
+    host::CursorAuthority::OwnerToken owner = gameplay_cursor_owner;
+    std::string owner_label = "runtime-session";
+    const bool layout_owned = m_state->layout_invocation_active;
+    if (layout_owned) {
+        if (!m_state->active_layout_mount_document) {
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "runtime.cursor.layout_context_unavailable",
+                  .message = "Layout cursor command has no live Mount occurrence"}});
+        }
+        const auto context =
+            m_state->layout_mount_contexts.find(*m_state->active_layout_mount_document);
+        if (context == m_state->layout_mount_contexts.end()) {
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "runtime.cursor.layout_context_unavailable",
+                  .message = "Layout cursor command has no live Mount occurrence"}});
+        }
+        source = host::CursorRequestSource::LayoutLua;
+        owner = context->second.occurrence.number();
+        owner_label = *m_state->active_layout_mount_document + "#" + std::to_string(owner);
+    }
+
+    const auto clear_pending = [&]() {
+        if (layout_owned)
+            m_state->pending_layout_cursors.erase(owner);
+        else
+            m_state->pending_gameplay_cursor.reset();
+    };
+    const auto publish_ready = [&](host::CursorPresentation value) {
+        clear_pending();
+        m_state->publish_cursor_image(source, owner, std::move(value), owner_label, asset.text());
+        m_state->refresh_cursor_eligibility();
+    };
+    const auto publish_fallback = [&](host::CursorPresentation value, std::string_view reason) {
+        clear_pending();
+        m_state->publish_cursor_image_fallback(source, owner, std::move(value), owner_label,
+                                               asset.text(), reason);
+        m_state->refresh_cursor_eligibility();
+    };
+
+    if (!m_state->assets || !m_state->cursor_realizer) {
+        publish_ready(std::move(presentation));
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    const assets::TextureAssetRequest texture_request{
+        .path = metadata.logical_path,
+        .sampler = metadata.sampling == host::CursorImageSampling::Nearest
+                       ? MaterialTextureSampler::ClampNearest
+                       : MaterialTextureSampler::ClampLinear,
+    };
+    auto requested =
+        m_state->assets->request_texture(texture_request, assets::AssetRequestReason::Demand,
+                                         assets::AssetRequestUrgency::Background);
+    if (!requested) {
+        // A headless or otherwise pointerless host may intentionally have no typed texture loader.
+        // In that case use the native cursor backend once without introducing a retry loop.
+        publish_ready(std::move(presentation));
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    auto request = std::move(*requested.value_if());
+    switch (request.state()) {
+    case assets::AssetRequestState::Pending: {
+        State::PendingCursorImage pending{std::move(presentation), std::move(request), owner_label,
+                                          asset.text()};
+        if (layout_owned)
+            m_state->pending_layout_cursors.insert_or_assign(owner, std::move(pending));
+        else
+            m_state->pending_gameplay_cursor = std::move(pending);
+        return core::Result<void, core::Diagnostics>::success();
+    }
+    case assets::AssetRequestState::Ready:
+        publish_ready(std::move(presentation));
+        return core::Result<void, core::Diagnostics>::success();
+    case assets::AssetRequestState::Failed:
+        publish_fallback(std::move(presentation), "Asset preparation failed");
+        return core::Result<void, core::Diagnostics>::success();
+    case assets::AssetRequestState::Canceled:
+        publish_fallback(std::move(presentation), "Asset preparation was canceled");
+        return core::Result<void, core::Diagnostics>::success();
+    }
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+void RuntimeUI::clear_gameplay_cursor() noexcept
+{
+    if (!m_state || !m_state->cursor_authority)
+        return;
+    if (m_state->layout_invocation_active) {
+        if (!m_state->active_layout_mount_document)
+            return;
+        const auto context =
+            m_state->layout_mount_contexts.find(*m_state->active_layout_mount_document);
+        if (context == m_state->layout_mount_contexts.end())
+            return;
+        const auto owner = context->second.occurrence.number();
+        m_state->pending_layout_cursors.erase(owner);
+        m_state->cursor_authority->clear(host::CursorRequestSource::LayoutLua, owner);
+        m_state->refresh_cursor_eligibility();
+        return;
+    }
+    m_state->pending_gameplay_cursor.reset();
+    m_state->cursor_authority->clear_source(host::CursorRequestSource::GameplayLua);
+    m_state->refresh_cursor_eligibility();
+}
+
+void RuntimeUI::clear_project_cursors() noexcept
+{
+    if (!m_state)
+        return;
+    m_state->pending_gameplay_cursor.reset();
+    m_state->pending_layout_cursors.clear();
+    m_state->layout_cursor_retirements.clear();
+    if (m_state->cursor_authority) {
+        m_state->cursor_authority->clear_source(host::CursorRequestSource::GameplayLua);
+        m_state->cursor_authority->clear_source(host::CursorRequestSource::LayoutLua);
+    }
+    m_state->cursor_settings.reset();
+    m_state->named_cursors.clear();
+    m_state->cursor_image_assets.clear();
+    m_state->gameplay_cursor_image_assets.clear();
+    m_state->cursor_runtime_diagnostics.clear();
+    if (m_state->cursor_realizer)
+        m_state->cursor_realizer->clear_custom();
+    if (m_state->cursor_authority) {
+        m_state->cursor_authority->clear_source(host::CursorRequestSource::ProjectDefault);
+        m_state->cursor_authority->resolve();
+    }
+}
+
+void RuntimeUI::configure_focused_preview_cursors(
+    const core::editor::TypedEditorPreviewCursorSettings& cursors)
+{
+    if (!m_state || !m_state->cursor_authority)
+        return;
+    m_state->focused_preview_default_cursor = cursors.default_cursor;
+    m_state->focused_preview_pointer_cursor = cursors.pointer_cursor;
+    m_state->focused_preview_hotspot_cursor = cursors.hotspot_cursor;
+    m_state->focused_preview_named_cursors.clear();
+    for (const auto& cursor : cursors.named) {
+        host::CursorPresentation presentation{
+            .shape = host::CursorShape::Default,
+            .custom = host::CustomCursorPresentation{.id = cursor.id,
+                                                     .logical_path = cursor.logical_path,
+                                                     .width = cursor.width,
+                                                     .height = cursor.height,
+                                                     .hotspot_x = cursor.hotspot_x,
+                                                     .hotspot_y = cursor.hotspot_y}};
+        if (m_state->cursor_realizer)
+            (void)m_state->cursor_realizer->prepare(*presentation.custom);
+        m_state->focused_preview_named_cursors.insert_or_assign(cursor.id, std::move(presentation));
+    }
+
+    constexpr host::CursorAuthority::OwnerToken project_default_owner = 1;
+    const auto default_name = *m_state->focused_preview_default_cursor;
+    host::CursorPresentation project_default{};
+    if (default_name == "none") {
+        project_default.shape = host::CursorShape::Hidden;
+    } else if (const auto found = m_state->focused_preview_named_cursors.find(default_name);
+               found != m_state->focused_preview_named_cursors.end()) {
+        project_default = found->second;
+    } else if (const auto shape = cursor_shape(default_name)) {
+        project_default.shape = *shape;
+    }
+    m_state->cursor_authority->publish(host::CursorRequestSource::ProjectDefault,
+                                       project_default_owner, std::move(project_default),
+                                       "focused-preview-default");
+    m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::ProjectDefault,
+                                                  {project_default_owner});
+    m_state->cursor_authority->resolve();
+}
+
+void RuntimeUI::configure_focused_preview_cursor_resources(
+    const std::vector<core::editor::FocusedEditorManifestProjection>& resources)
+{
+    if (!m_state)
+        return;
+    m_state->focused_preview_cursor_image_assets.clear();
+    for (const auto& resource : resources) {
+        CursorImageAssetMetadata metadata{.image = resource.kind == "image",
+                                          .logical_path = resource.logical_path};
+        if (resource.sampling == std::optional<std::string>{"nearest"})
+            metadata.sampling = host::CursorImageSampling::Nearest;
+        m_state->focused_preview_cursor_image_assets.insert_or_assign(resource.logical_path,
+                                                                      metadata);
+    }
+    if (m_state->cursor_realizer)
+        m_state->cursor_realizer->clear_custom();
+    if (m_state->cursor_authority)
+        m_state->cursor_authority->invalidate_realization();
+}
+
+void RuntimeUI::clear_focused_preview_cursors() noexcept
+{
+    if (!m_state)
+        return;
+    m_state->focused_preview_default_cursor.reset();
+    m_state->focused_preview_pointer_cursor.reset();
+    m_state->focused_preview_hotspot_cursor.reset();
+    m_state->focused_preview_named_cursors.clear();
+    m_state->focused_preview_cursor_image_assets.clear();
+    if (!m_state->cursor_authority)
+        return;
+    constexpr host::CursorAuthority::OwnerToken project_default_owner = 1;
+    if (m_state->cursor_settings) {
+        auto project_default =
+            resolve_cursor_target(*m_state->cursor_settings, m_state->named_cursors,
+                                  m_state->cursor_settings->default_cursor,
+                                  host::CursorShape::Default)
+                .value_or(host::CursorPresentation{});
+        m_state->cursor_authority->publish(host::CursorRequestSource::ProjectDefault,
+                                           project_default_owner, std::move(project_default),
+                                           "project-default");
+        m_state->cursor_authority->set_eligible_order(host::CursorRequestSource::ProjectDefault,
+                                                      {project_default_owner});
+    } else {
+        m_state->cursor_authority->clear_source(host::CursorRequestSource::ProjectDefault);
+    }
+    m_state->cursor_authority->resolve();
 }
 
 RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event)
@@ -1512,10 +2396,13 @@ RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event)
         [this](const State::ContextKey& key, core::MountedLayoutOwner owner,
                const std::function<bool()>& dispatch) {
             const auto previous = m_state->active_layout_mount_document;
+            const bool previous_invocation = m_state->layout_invocation_active;
             m_state->active_layout_mount_document = m_state->mount_document(key);
+            m_state->layout_invocation_active = true;
             const bool handled = m_state->action_gateway &&
                                  m_state->action_gateway->dispatch_layout_event(owner, dispatch);
             m_state->active_layout_mount_document = previous;
+            m_state->layout_invocation_active = previous_invocation;
             return handled;
         });
     if (m_state->action_gateway)
@@ -1537,6 +2424,51 @@ void RuntimeUI::resize(const PresentationMetrics& presentation)
 
 void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
 {
+    if (m_state && m_state->cursor_authority) {
+        if (m_state->pending_gameplay_cursor && m_state->pending_gameplay_cursor->request.state() !=
+                                                    assets::AssetRequestState::Pending) {
+            constexpr host::CursorAuthority::OwnerToken gameplay_cursor_owner = 1;
+            auto pending = std::move(*m_state->pending_gameplay_cursor);
+            m_state->pending_gameplay_cursor.reset();
+            if (pending.request.state() == assets::AssetRequestState::Ready) {
+                m_state->publish_cursor_image(host::CursorRequestSource::GameplayLua,
+                                              gameplay_cursor_owner,
+                                              std::move(pending.presentation),
+                                              std::move(pending.owner_label), pending.asset_id);
+            } else {
+                m_state->publish_cursor_image_fallback(
+                    host::CursorRequestSource::GameplayLua, gameplay_cursor_owner,
+                    std::move(pending.presentation), std::move(pending.owner_label),
+                    pending.asset_id,
+                    pending.request.state() == assets::AssetRequestState::Failed
+                        ? "Asset preparation failed"
+                        : "Asset preparation was canceled");
+            }
+        }
+        for (auto it = m_state->pending_layout_cursors.begin();
+             it != m_state->pending_layout_cursors.end();) {
+            if (it->second.request.state() == assets::AssetRequestState::Pending) {
+                ++it;
+                continue;
+            }
+            const auto owner = it->first;
+            auto pending = std::move(it->second);
+            it = m_state->pending_layout_cursors.erase(it);
+            if (pending.request.state() == assets::AssetRequestState::Ready) {
+                m_state->publish_cursor_image(host::CursorRequestSource::LayoutLua, owner,
+                                              std::move(pending.presentation),
+                                              std::move(pending.owner_label), pending.asset_id);
+            } else {
+                m_state->publish_cursor_image_fallback(
+                    host::CursorRequestSource::LayoutLua, owner, std::move(pending.presentation),
+                    std::move(pending.owner_label), pending.asset_id,
+                    pending.request.state() == assets::AssetRequestState::Failed
+                        ? "Asset preparation failed"
+                        : "Asset preparation was canceled");
+            }
+        }
+        m_state->refresh_cursor_eligibility();
+    }
     if (m_state && m_state->host && !m_state->host->contexts().empty()) {
         m_state->host->begin_frame(clocks);
         const float delta_time = std::chrono::duration<float>(clocks.gameplay_delta).count();
@@ -1556,6 +2488,24 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
             m_state->message_refresh_pending = false;
             m_state->host->update_contexts();
         }
+        m_state->host->refresh_pointer_cursor(
+            [this](Rml::Context* context) {
+                return m_state->document_registry &&
+                       m_state->document_registry->has_visible_document(context);
+            },
+            [this](const State::ContextKey& key, core::MountedLayoutOwner owner,
+                   const std::function<bool()>& dispatch) {
+                const auto previous = m_state->active_layout_mount_document;
+                const bool previous_invocation = m_state->layout_invocation_active;
+                m_state->active_layout_mount_document = m_state->mount_document(key);
+                m_state->layout_invocation_active = true;
+                const bool handled =
+                    m_state->action_gateway &&
+                    m_state->action_gateway->dispatch_layout_event(owner, dispatch);
+                m_state->active_layout_mount_document = previous;
+                m_state->layout_invocation_active = previous_invocation;
+                return handled;
+            });
         m_state->refresh_active_text_layout();
     }
 }
@@ -1628,8 +2578,13 @@ bool RuntimeUI::load_document_for_layout(const std::string& id, const std::strin
         policy, composition_group, owner, scale_policy, compatibility_group);
     const bool loaded = m_state->with_active_layout_mount_document(
         id, [&]() { return m_state->document_registry->load_path(id, path, show, key); });
-    if (loaded)
+    if (loaded) {
+        if (std::find(m_state->layout_order.begin(), m_state->layout_order.end(), id) ==
+            m_state->layout_order.end())
+            m_state->layout_order.push_back(id);
         m_state->queue_message_refresh();
+        m_state->refresh_cursor_eligibility();
+    }
     return loaded;
 }
 
@@ -1648,8 +2603,13 @@ bool RuntimeUI::load_document_from_memory_for_layout(const std::string& id, cons
     const bool loaded = m_state->with_active_layout_mount_document(id, [&]() {
         return m_state->document_registry->load_memory(id, rml, source_url, show, key);
     });
-    if (loaded)
+    if (loaded) {
+        if (std::find(m_state->layout_order.begin(), m_state->layout_order.end(), id) ==
+            m_state->layout_order.end())
+            m_state->layout_order.push_back(id);
         m_state->queue_message_refresh();
+        m_state->refresh_cursor_eligibility();
+    }
     return loaded;
 }
 
@@ -1674,7 +2634,11 @@ bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_doc
                                                         show, key);
     });
     if (loaded) {
+        if (std::find(m_state->layout_order.begin(), m_state->layout_order.end(), document_id) ==
+            m_state->layout_order.end())
+            m_state->layout_order.push_back(document_id);
         m_state->queue_message_refresh();
+        m_state->refresh_cursor_eligibility();
         if (builtin_document == RuntimeLayoutBuiltinDocument::GameHud)
             m_state->refresh_game_hud_map();
         else
@@ -1717,8 +2681,25 @@ void RuntimeUI::set_system_layout_documents(
 
 bool RuntimeUI::apply_layout_order(const std::vector<std::string>& ordered_document_ids)
 {
-    return m_state && m_state->document_registry &&
-           m_state->document_registry->apply_order(ordered_document_ids);
+    if (!m_state || !m_state->document_registry ||
+        !m_state->document_registry->apply_order(ordered_document_ids))
+        return false;
+    m_state->layout_order = ordered_document_ids;
+    if (m_state->cursor_authority) {
+        for (auto& [document_id, owners] : m_state->layout_cursor_retirements) {
+            if (const auto current = m_state->layout_mount_contexts.find(document_id);
+                current != m_state->layout_mount_contexts.end()) {
+                owners.erase(current->second.occurrence.number());
+            }
+            for (const auto owner : owners) {
+                m_state->pending_layout_cursors.erase(owner);
+                m_state->cursor_authority->clear(host::CursorRequestSource::LayoutLua, owner);
+            }
+        }
+    }
+    m_state->layout_cursor_retirements.clear();
+    m_state->refresh_cursor_eligibility();
+    return true;
 }
 
 bool RuntimeUI::apply_layout_policy(const std::string& document_id,
@@ -1738,6 +2719,7 @@ bool RuntimeUI::apply_layout_policy(const std::string& document_id,
         m_state->refresh_game_hud_map();
         m_state->refresh_text_log_map();
         m_state->refresh_active_text_layout();
+        m_state->refresh_cursor_eligibility();
     }
     return applied;
 }
@@ -1785,8 +2767,26 @@ bool RuntimeUI::unload_document(const std::string& id)
         return false;
     const bool unloaded = m_state->with_active_layout_mount_document(
         id, [&]() { return m_state->document_registry->unload(id); });
-    if (unloaded)
+    if (unloaded) {
+        const auto clear_owner = [state = m_state](host::CursorAuthority::OwnerToken owner) {
+            state->pending_layout_cursors.erase(owner);
+            if (state->cursor_authority)
+                state->cursor_authority->clear(host::CursorRequestSource::LayoutLua, owner);
+        };
+        const auto context = m_state->layout_mount_contexts.find(id);
+        if (context != m_state->layout_mount_contexts.end())
+            clear_owner(context->second.occurrence.number());
+        if (const auto retired = m_state->layout_cursor_retirements.find(id);
+            retired != m_state->layout_cursor_retirements.end()) {
+            for (const auto owner : retired->second)
+                clear_owner(owner);
+            m_state->layout_cursor_retirements.erase(retired);
+        }
         m_state->layout_mount_contexts.erase(id);
+        m_state->layout_cursor_image_dependencies.erase(id);
+        std::erase(m_state->layout_order, id);
+        m_state->refresh_cursor_eligibility();
+    }
     return unloaded;
 }
 
@@ -1799,19 +2799,26 @@ bool RuntimeUI::show_document(const std::string& id)
     // Settle model-driven geometry while hidden, then commit onshow style changes before rendering.
     if (!document || !context || !context->Update())
         return false;
-    return m_state->with_active_layout_mount_document(id, [&]() {
+    const bool shown = m_state->with_active_layout_mount_document(id, [&]() {
         if (!m_state->document_registry->show(id))
             return false;
         document->UpdateDocument();
         return true;
     });
+    if (shown)
+        m_state->refresh_cursor_eligibility();
+    return shown;
 }
 
 bool RuntimeUI::hide_document(const std::string& id)
 {
-    return m_state && m_state->document_registry &&
-           m_state->with_active_layout_mount_document(
-               id, [&]() { return m_state->document_registry->hide(id); });
+    if (!m_state || !m_state->document_registry)
+        return false;
+    const bool hidden = m_state->with_active_layout_mount_document(
+        id, [&]() { return m_state->document_registry->hide(id); });
+    if (hidden)
+        m_state->refresh_cursor_eligibility();
+    return hidden;
 }
 
 bool RuntimeUI::set_document_opacity(const std::string& id, float opacity)
@@ -1820,12 +2827,28 @@ bool RuntimeUI::set_document_opacity(const std::string& id, float opacity)
            m_state->document_registry->set_opacity(id, opacity);
 }
 
+bool RuntimeUI::with_layout_invocation(const std::string& id, const std::function<bool()>& dispatch)
+{
+    return m_state && m_state->with_active_layout_mount_document(id, dispatch);
+}
+
 void RuntimeUI::set_layout_mount_context(const std::string& id,
                                          std::optional<RuntimeUiLayoutMountContext> context)
 {
     if (!m_state)
         return;
+    const auto previous = m_state->layout_mount_contexts.find(id);
+    if (previous != m_state->layout_mount_contexts.end() &&
+        (!context || previous->second.occurrence != context->occurrence)) {
+        m_state->layout_cursor_retirements[id].insert(previous->second.occurrence.number());
+    }
     if (context) {
+        if (const auto retired = m_state->layout_cursor_retirements.find(id);
+            retired != m_state->layout_cursor_retirements.end()) {
+            retired->second.erase(context->occurrence.number());
+            if (retired->second.empty())
+                m_state->layout_cursor_retirements.erase(retired);
+        }
         if (m_state->host && m_state->document_registry) {
             m_state->host->set_context_material_parameters(
                 m_state->document_registry->document_context(id), context->material_parameters,
@@ -1840,6 +2863,19 @@ void RuntimeUI::set_layout_mount_context(const std::string& id,
         m_state->layout_mount_contexts.erase(id);
     }
     m_state->refresh_mounted_maps();
+    m_state->refresh_cursor_eligibility();
+}
+
+void RuntimeUI::set_layout_cursor_image_dependencies(const std::string& id,
+                                                     std::vector<std::string> logical_paths)
+{
+    if (!m_state)
+        return;
+    std::unordered_set<std::string> admitted;
+    admitted.reserve(logical_paths.size());
+    for (auto& logical_path : logical_paths)
+        admitted.insert(std::move(logical_path));
+    m_state->layout_cursor_image_dependencies.insert_or_assign(id, std::move(admitted));
 }
 
 std::optional<RuntimeUiLayoutMountContext>
@@ -2173,7 +3209,9 @@ void RuntimeUI::bind_layout_gameplay_admission(std::function<bool()> admission)
         m_state->action_gateway->set_lua_state(m_state->lua_state);
     }
     m_state->refresh_action_gateway_shell_slots();
+    m_state->layout_gameplay_admission = admission;
     m_state->action_gateway->bind_layout_gameplay_admission(std::move(admission));
+    m_state->refresh_cursor_eligibility();
 }
 
 void ui::rmlui::RuntimeUiFacadeAccess::bind_game_started_handler(RuntimeUI& runtime_ui,

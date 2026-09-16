@@ -145,6 +145,7 @@ TEST_CASE("capability profiles are closed engine-selected values")
 
     const auto shell = describe(RuntimeCapabilityProfile::ShellLayoutEvent);
     CHECK((shell.command_groups & capability_bit(RuntimeCapabilityGroup::Game)) != 0);
+    CHECK((shell.command_groups & capability_bit(RuntimeCapabilityGroup::Cursor)) != 0);
     CHECK((shell.command_groups & capability_bit(RuntimeCapabilityGroup::Properties)) == 0);
     CHECK((shell.command_groups & capability_bit(RuntimeCapabilityGroup::Presentation)) == 0);
     CHECK_FALSE(shell.may_yield);
@@ -191,6 +192,7 @@ TEST_CASE("capability sets issue non-forgeable query and command authority")
     const auto shell = issuer.issue(RuntimeCapabilityProfile::ShellLayoutEvent);
     REQUIRE(shell.has_value());
     CHECK(shell->can_command(RuntimeCapabilityGroup::Save));
+    CHECK(shell->can_command(RuntimeCapabilityGroup::Cursor));
     CHECK_FALSE(shell->can_command(RuntimeCapabilityGroup::Properties));
     CHECK_FALSE(shell->can_command(RuntimeCapabilityGroup::Presentation));
 
@@ -198,6 +200,7 @@ TEST_CASE("capability sets issue non-forgeable query and command authority")
     REQUIRE(gameplay_layout.has_value());
     CHECK(gameplay_layout->can_query(RuntimeCapabilityGroup::Presentation));
     CHECK(gameplay_layout->can_command(RuntimeCapabilityGroup::Presentation));
+    CHECK(gameplay_layout->can_command(RuntimeCapabilityGroup::Cursor));
 
     CHECK_FALSE(issuer.issue(RuntimeCapabilityProfile::RoomComposition).has_value());
     CHECK_FALSE(issuer.issue(static_cast<RuntimeCapabilityProfile>(255)).has_value());

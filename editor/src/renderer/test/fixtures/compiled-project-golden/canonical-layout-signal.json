@@ -2698,7 +2698,7 @@
       }
     ]
   },
-  "saveContract": "sc1:57a22644726165c6dc477c544a3a1ed2",
+  "saveContract": "sc1:1cd4c66e7db1dfb0a3114b7e87cee1bc",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {
@@ -2713,6 +2713,23 @@
         "maximum": 2,
         "minimum": 1
       }
+    },
+    "cursors": {
+      "defaults": {
+        "default": {
+          "kind": "system",
+          "cursor": "default"
+        },
+        "pointer": {
+          "kind": "system",
+          "cursor": "pointer"
+        },
+        "hotspot": {
+          "kind": "inherit",
+          "semantic": "pointer"
+        }
+      },
+      "named": []
     },
     "audio": {
       "purposes": {

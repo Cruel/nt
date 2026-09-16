@@ -28,6 +28,14 @@ function representativeWireFixture() {
         uiScale: { enabled: true, minimum: 1, maximum: 2 },
         textScale: { enabled: true, minimum: 1, maximum: 2 },
       },
+      cursors: {
+        defaults: {
+          default: { kind: 'system', cursor: 'default' },
+          pointer: { kind: 'system', cursor: 'pointer' },
+          hotspot: { kind: 'inherit', semantic: 'pointer' },
+        },
+        named: [],
+      },
       audio: {
         purposes: {
           music: { volume: 1, muted: false },
@@ -276,6 +284,7 @@ function representativeWireFixture() {
           presentation: {
             sprite: null,
             material: null,
+            cursor: null,
             hotspots: {
               kind: 'custom',
               hotspots: [],

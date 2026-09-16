@@ -1978,7 +1978,8 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
         exact_fields(document,
                      {"schema", "contentMode", "layoutId", "layoutKind", "templateId", "sourceUrl",
                       "defaultParent", "scopedStyles", "script", "rml", "rcss", "lua",
-                      "scalePolicy", "contract", "sampleState", "environment", "shaderMaterials"},
+                      "scalePolicy", "contract", "sampleState", "environment", "cursors",
+                      "shaderMaterials"},
                      diagnostics, "/");
         const auto schema = string_field(document, "schema", diagnostics, "/", limits);
         if (schema && *schema != "noveltea.layout-preview")
@@ -2022,6 +2023,85 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
         auto environment = preview_authored_environment(document, diagnostics, limits);
         if (environment)
             result.environment = std::move(*environment);
+
+        if (const auto cursors = document.find("cursors");
+            cursors == document.end() || !cursors->is_object()) {
+            diagnostics.push_back(
+                error("editor_preview.wrong_type", "cursors must be an object.", "/cursors"));
+        } else {
+            exact_fields(*cursors, {"defaultCursor", "pointerCursor", "hotspotCursor", "named"},
+                         diagnostics, "/cursors");
+            if (auto value =
+                    string_field(*cursors, "defaultCursor", diagnostics, "/cursors", limits))
+                result.cursors.default_cursor = std::move(*value);
+            if (auto value =
+                    string_field(*cursors, "pointerCursor", diagnostics, "/cursors", limits))
+                result.cursors.pointer_cursor = std::move(*value);
+            if (auto value =
+                    string_field(*cursors, "hotspotCursor", diagnostics, "/cursors", limits))
+                result.cursors.hotspot_cursor = std::move(*value);
+            const auto named = cursors->find("named");
+            if (named == cursors->end() || !named->is_array()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "cursors.named must be an array.", "/cursors/named"));
+            } else {
+                for (std::size_t index = 0; index < named->size(); ++index) {
+                    const auto& value = (*named)[index];
+                    const std::string base = "/cursors/named/" + std::to_string(index);
+                    if (!value.is_object()) {
+                        diagnostics.push_back(error("editor_preview.wrong_type",
+                                                    "Named cursor must be an object.", base));
+                        continue;
+                    }
+                    exact_fields(value,
+                                 {"id", "logicalPath", "width", "height", "hotspotX", "hotspotY"},
+                                 diagnostics, base);
+                    auto id = string_field(value, "id", diagnostics, base, limits);
+                    auto logical_path =
+                        string_field(value, "logicalPath", diagnostics, base, limits);
+                    const auto read_uint =
+                        [&](std::string_view field) -> std::optional<std::uint32_t> {
+                        const auto it = value.find(std::string(field));
+                        if (it == value.end() || !it->is_number_unsigned()) {
+                            diagnostics.push_back(
+                                error("editor_preview.wrong_type",
+                                      std::string(field) + " must be an unsigned integer.",
+                                      base + "/" + std::string(field)));
+                            return std::nullopt;
+                        }
+                        const auto number = it->get<std::uint64_t>();
+                        if (number > std::numeric_limits<std::uint32_t>::max()) {
+                            diagnostics.push_back(error("editor_preview.invalid_number",
+                                                        std::string(field) + " is out of range.",
+                                                        base + "/" + std::string(field)));
+                            return std::nullopt;
+                        }
+                        return static_cast<std::uint32_t>(number);
+                    };
+                    auto width = read_uint("width");
+                    auto height = read_uint("height");
+                    auto hotspot_x = read_uint("hotspotX");
+                    auto hotspot_y = read_uint("hotspotY");
+                    if (logical_path && !safe_project_logical_path(*logical_path)) {
+                        diagnostics.push_back(
+                            error("editor_preview.invalid_resource_path",
+                                  "Cursor logicalPath must use a safe project:/ path.",
+                                  base + "/logicalPath"));
+                        logical_path.reset();
+                    }
+                    if (id && logical_path && width && height && hotspot_x && hotspot_y) {
+                        result.cursors.named.push_back(TypedEditorPreviewCursorDefinition{
+                            .id = std::move(*id),
+                            .logical_path = std::move(*logical_path),
+                            .width = *width,
+                            .height = *height,
+                            .hotspot_x = *hotspot_x,
+                            .hotspot_y = *hotspot_y,
+                        });
+                    }
+                }
+            }
+        }
         auto rml = preview_layout_source(document, "rml", diagnostics, limits);
         auto rcss = preview_layout_source(document, "rcss", diagnostics, limits);
         auto lua = preview_layout_source(document, "lua", diagnostics, limits);
@@ -2523,7 +2603,7 @@ decode_editor_room_preview_document_text(std::string_view data_text,
     Diagnostics diagnostics;
     exact_fields(document,
                  {"schema", "environment", "room", "luaAdmission", "queryState", "shaderMaterials",
-                  "world", "layouts", "ui", "composition"},
+                  "world", "layouts", "ui", "composition", "cursors"},
                  diagnostics, "/");
     const auto schema = json_access::member_as<std::string>(document, "schema");
     if (!schema || *schema != "noveltea.room-preview")
@@ -2957,6 +3037,52 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         return result_value;
     };
 
+    if (const auto* cursors = object("cursors")) {
+        exact_fields(*cursors, {"defaultCursor", "pointerCursor", "hotspotCursor", "named"},
+                     diagnostics, "/cursors");
+        result.cursors.default_cursor = required_string(*cursors, "defaultCursor", "/cursors");
+        result.cursors.pointer_cursor = required_string(*cursors, "pointerCursor", "/cursors");
+        result.cursors.hotspot_cursor = required_string(*cursors, "hotspotCursor", "/cursors");
+        if (const auto named = cursors->find("named");
+            named != cursors->end() && named->is_array()) {
+            for (std::size_t index = 0; index < named->size(); ++index) {
+                const auto& value = (*named)[index];
+                const auto path = "/cursors/named/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Named cursor must be an object.", path));
+                    continue;
+                }
+                exact_fields(value,
+                             {"id", "logicalPath", "width", "height", "hotspotX", "hotspotY"},
+                             diagnostics, path);
+                TypedEditorPreviewCursorDefinition cursor;
+                cursor.id = required_string(value, "id", path);
+                cursor.logical_path = required_string(value, "logicalPath", path);
+                cursor.width = json_access::member_as<std::uint32_t>(value, "width").value_or(0);
+                cursor.height = json_access::member_as<std::uint32_t>(value, "height").value_or(0);
+                cursor.hotspot_x =
+                    json_access::member_as<std::uint32_t>(value, "hotspotX").value_or(0);
+                cursor.hotspot_y =
+                    json_access::member_as<std::uint32_t>(value, "hotspotY").value_or(0);
+                if (!safe_project_logical_path(cursor.logical_path))
+                    diagnostics.push_back(
+                        error("editor_preview.invalid_resource_path",
+                              "Cursor logicalPath must use a safe project:/ path.",
+                              path + "/logicalPath"));
+                if (cursor.width == 0 || cursor.height == 0 || cursor.hotspot_x >= cursor.width ||
+                    cursor.hotspot_y >= cursor.height)
+                    diagnostics.push_back(error("editor_preview.invalid_cursor",
+                                                "Focused cursor dimensions or hotspot are invalid.",
+                                                path));
+                result.cursors.named.push_back(std::move(cursor));
+            }
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "cursors.named must be an array.", "/cursors/named"));
+        }
+    }
+
     if (const auto* environment = object("environment")) {
         exact_fields(*environment, {"profile", "project"}, diagnostics, "/environment");
         if (const auto profile = environment->find("profile");
@@ -3284,7 +3410,7 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         exact_fields(*world,
                      {"presentationSpace", "anchors", "background", "placements",
                       "persistentCharacters", "cast", "interactables", "props", "environments",
-                      "overlays"},
+                      "overlays", "hotspots"},
                      diagnostics, "/world");
         if (const auto presentation = world->find("presentationSpace");
             presentation != world->end() && presentation->is_object()) {
@@ -3570,6 +3696,122 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                      .layout_id = required_string(value, "layoutId", path),
                      .visible = required_bool(value, "visible", path),
                      .order = json_access::member_as<int>(value, "order").value_or(0)});
+            }
+        if (const auto* hotspots = array("hotspots"))
+            for (std::size_t index = 0; index < hotspots->size(); ++index) {
+                const auto& value = (*hotspots)[index];
+                const auto path = "/world/hotspots/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(
+                        error("editor_preview.wrong_type", "Hotspot must be an object.", path));
+                    continue;
+                }
+                exact_fields(value,
+                             {"ownerKind", "ownerId", "hotspotId", "label", "condition",
+                              "inputOrder", "shape", "target", "cursor", "sourceAssetId",
+                              "sourceWidth", "sourceHeight", "placementId"},
+                             diagnostics, path);
+                TypedFocusedRoomWorldDefinition::Hotspot typed{
+                    .owner_kind = required_string(value, "ownerKind", path),
+                    .owner_id = required_string(value, "ownerId", path),
+                    .hotspot_id = required_string(value, "hotspotId", path),
+                    .label = required_string(value, "label", path),
+                    .condition = condition(value["condition"], path + "/condition"),
+                    .input_order = json_access::member_as<int>(value, "inputOrder").value_or(0),
+                    .alpha_shape = false,
+                    .bounds = std::nullopt,
+                    .target = {},
+                    .cursor = required_string(value, "cursor", path),
+                    .source_asset = std::nullopt,
+                    .source_width = 0,
+                    .source_height = 0,
+                    .placement_id = optional_string(value, "placementId", path)};
+                const auto source_asset_text = required_string(value, "sourceAssetId", path);
+                if (auto source_asset = AssetId::create(source_asset_text))
+                    typed.source_asset = std::move(source_asset).value();
+                else
+                    diagnostics.push_back(error("editor_preview.invalid_id",
+                                                "Hotspot sourceAssetId is invalid.",
+                                                path + "/sourceAssetId"));
+                const auto source_width =
+                    json_access::member_as<std::uint32_t>(value, "sourceWidth");
+                const auto source_height =
+                    json_access::member_as<std::uint32_t>(value, "sourceHeight");
+                if (!source_width || *source_width == 0 || *source_width > UINT16_MAX)
+                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                "Hotspot sourceWidth must be between 1 and 65535.",
+                                                path + "/sourceWidth"));
+                else
+                    typed.source_width = static_cast<std::uint16_t>(*source_width);
+                if (!source_height || *source_height == 0 || *source_height > UINT16_MAX)
+                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                "Hotspot sourceHeight must be between 1 and 65535.",
+                                                path + "/sourceHeight"));
+                else
+                    typed.source_height = static_cast<std::uint16_t>(*source_height);
+                if (const auto shape = value.find("shape");
+                    shape != value.end() && shape->is_object()) {
+                    const auto shape_path = path + "/shape";
+                    const auto kind = required_string(*shape, "kind", shape_path);
+                    if (kind == "alpha") {
+                        exact_fields(*shape, {"kind"}, diagnostics, shape_path);
+                        typed.alpha_shape = true;
+                    } else if (kind == "rect") {
+                        exact_fields(*shape, {"kind", "bounds"}, diagnostics, shape_path);
+                        if (shape->contains("bounds"))
+                            typed.bounds = rect((*shape)["bounds"], shape_path + "/bounds");
+                    } else {
+                        diagnostics.push_back(error("editor_preview.invalid_value",
+                                                    "Hotspot shape kind is invalid.",
+                                                    shape_path + "/kind"));
+                    }
+                } else {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Hotspot shape must be an object.",
+                                                path + "/shape"));
+                }
+                if (const auto target = value.find("target");
+                    target != value.end() && target->is_object()) {
+                    const auto target_path = path + "/target";
+                    const auto kind = required_string(*target, "kind", target_path);
+                    typed.target.kind = kind;
+                    if (kind == "character") {
+                        exact_fields(*target, {"kind", "characterId"}, diagnostics, target_path);
+                        typed.target.primary_id =
+                            required_string(*target, "characterId", target_path);
+                    } else if (kind == "interactable") {
+                        exact_fields(*target, {"kind", "interactableId"}, diagnostics, target_path);
+                        typed.target.primary_id =
+                            required_string(*target, "interactableId", target_path);
+                    } else if (kind == "room-feature") {
+                        exact_fields(*target, {"kind", "roomId", "featureId"}, diagnostics,
+                                     target_path);
+                        typed.target.primary_id = required_string(*target, "roomId", target_path);
+                        typed.target.secondary_id =
+                            required_string(*target, "featureId", target_path);
+                    } else if (kind == "interactable-feature") {
+                        exact_fields(*target, {"kind", "interactableId", "featureId"}, diagnostics,
+                                     target_path);
+                        typed.target.primary_id =
+                            required_string(*target, "interactableId", target_path);
+                        typed.target.secondary_id =
+                            required_string(*target, "featureId", target_path);
+                    } else if (kind == "exit") {
+                        exact_fields(*target, {"kind", "roomId", "exitId"}, diagnostics,
+                                     target_path);
+                        typed.target.primary_id = required_string(*target, "roomId", target_path);
+                        typed.target.secondary_id = required_string(*target, "exitId", target_path);
+                    } else {
+                        diagnostics.push_back(error("editor_preview.invalid_value",
+                                                    "Hotspot target kind is invalid.",
+                                                    target_path + "/kind"));
+                    }
+                } else {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Hotspot target must be an object.",
+                                                path + "/target"));
+                }
+                result.world.hotspots.push_back(std::move(typed));
             }
     }
 

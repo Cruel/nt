@@ -199,6 +199,10 @@
       if (frames) args.push('--frames', frames);
       const showFps = (params.get('showFps') || '').toLowerCase();
       if (showFps === '1' || showFps === 'true' || showFps === 'yes') args.push('--show-fps');
+      const cursorPlatformSmoke = (params.get('cursorPlatformSmoke') || '').toLowerCase();
+      if (cursorPlatformSmoke === '1' || cursorPlatformSmoke === 'true' || cursorPlatformSmoke === 'yes') {
+        args.push('--cursor-platform-smoke');
+      }
       const fpsCap = Number.parseInt(params.get('fpsCap') || '0', 10) || 0;
       if (fpsCap > 0) args.push('--fps-cap', String(Math.min(1000, fpsCap)));
       const rmluiDocument = params.get('rmlui-document') || params.get('rmluiDocument');

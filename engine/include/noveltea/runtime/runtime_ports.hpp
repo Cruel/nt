@@ -281,6 +281,20 @@ public:
     {
         return false;
     }
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics> set_gameplay_cursor(std::string)
+    {
+        return core::Result<void, core::Diagnostics>::success();
+    }
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId, std::optional<std::uint32_t>,
+                              std::optional<std::uint32_t>)
+    {
+        return core::Result<void, core::Diagnostics>::success();
+    }
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics> clear_gameplay_cursor()
+    {
+        return core::Result<void, core::Diagnostics>::success();
+    }
     virtual void terminate(core::PresentationCancellationReason reason) = 0;
 };
 

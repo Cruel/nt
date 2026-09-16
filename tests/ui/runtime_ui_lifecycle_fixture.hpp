@@ -106,6 +106,10 @@ public:
 
     [[nodiscard]] assets::MemoryAssetSource& project_assets() noexcept { return *m_project_assets; }
     [[nodiscard]] assets::AssetManager& assets() noexcept { return m_assets; }
+    [[nodiscard]] bool run_asset_jobs_until_idle(std::size_t max_steps = 64)
+    {
+        return m_executor.run_until_idle(max_steps);
+    }
     [[nodiscard]] script::ScriptRuntime& scripts() noexcept { return m_scripts; }
     [[nodiscard]] lua_State* lua_state() noexcept
     {

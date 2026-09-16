@@ -25,6 +25,10 @@ import { parseMaterialData } from '../../../shared/project-schema/authoring-mate
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import type { Condition } from '../../../shared/project-schema/authoring-flow';
+import {
+  systemCursorNames,
+  type CursorTarget,
+} from '../../../shared/project-schema/authoring-cursor-vocabulary';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
 import { useProjectStore } from '@/project/project-store';
@@ -40,6 +44,7 @@ export interface EditableHotspot {
     kind: 'default' | 'none' | 'material';
     material?: { $ref: { collection: 'materials'; id: string } };
   };
+  cursor?: CursorTarget | null;
   target: EditableHotspotTarget;
   shape?: { kind: 'rect'; bounds: ImageNormalizedRect };
 }
@@ -221,6 +226,7 @@ export function HotspotAuthoringPanel(props: Props) {
       condition: selected.condition,
       inputOrder: selected.inputOrder,
       highlight: selected.highlight,
+      cursor: selected.cursor ?? null,
       target: selected.target,
       ...patch,
     });
@@ -241,6 +247,12 @@ export function HotspotAuthoringPanel(props: Props) {
   const selectedTargetOption = selected
     ? targetOptions.find((option) => targetKey(option.target) === targetKey(selected.target))
     : null;
+  const selectedNamedCursorId = selected?.cursor?.kind === 'named' ? selected.cursor.id : null;
+  const missingNamedCursorId =
+    selectedNamedCursorId &&
+    !props.project.settings.cursors.named.some((cursor) => cursor.id === selectedNamedCursorId)
+      ? selectedNamedCursorId
+      : null;
 
   return (
     <section
@@ -403,6 +415,62 @@ export function HotspotAuthoringPanel(props: Props) {
                 >
                   {t('hotspots.searchRecords')}
                 </Button>
+              </div>
+            ) : null}
+            {props.ownerKind === 'room' || !props.alphaMode ? (
+              <div>
+                <Label>{t('hotspots.fields.cursor')}</Label>
+                <Select
+                  value={
+                    selected.cursor?.kind === 'system'
+                      ? `system:${selected.cursor.cursor}`
+                      : selected.cursor?.kind === 'named'
+                        ? `named:${selected.cursor.id}`
+                        : selected.cursor?.kind === 'none'
+                          ? 'none'
+                          : 'fallback'
+                  }
+                  onValueChange={(value) => {
+                    if (!value) return;
+                    if (value === 'fallback') updateSelected({ cursor: null });
+                    else if (value === 'none') updateSelected({ cursor: { kind: 'none' } });
+                    else if (value.startsWith('system:'))
+                      updateSelected({
+                        cursor: {
+                          kind: 'system',
+                          cursor: value.slice(
+                            'system:'.length,
+                          ) as (typeof systemCursorNames)[number],
+                        },
+                      });
+                    else if (value.startsWith('named:'))
+                      updateSelected({
+                        cursor: { kind: 'named', id: value.slice('named:'.length) },
+                      });
+                  }}
+                >
+                  <SelectItem value="fallback">
+                    {props.ownerKind === 'room'
+                      ? t('hotspots.cursor.projectDefault')
+                      : t('hotspots.cursor.interactableDefault')}
+                  </SelectItem>
+                  <SelectItem value="none">{t('hotspots.cursor.none')}</SelectItem>
+                  {systemCursorNames.map((cursor) => (
+                    <SelectItem key={cursor} value={`system:${cursor}`}>
+                      {cursor}
+                    </SelectItem>
+                  ))}
+                  {props.project.settings.cursors.named.map((cursor) => (
+                    <SelectItem key={cursor.id} value={`named:${cursor.id}`}>
+                      {cursor.id}
+                    </SelectItem>
+                  ))}
+                  {missingNamedCursorId ? (
+                    <SelectItem value={`named:${missingNamedCursorId}`}>
+                      {t('hotspots.cursor.missingNamed', { id: missingNamedCursorId })}
+                    </SelectItem>
+                  ) : null}
+                </Select>
               </div>
             ) : null}
             <div className="@3xl:col-span-2">

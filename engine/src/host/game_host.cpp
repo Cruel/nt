@@ -76,6 +76,8 @@ private:
 
 class GameHost::RunningGamePresentationPort final : public runtime::PresentationRuntimePort {
 public:
+    explicit RunningGamePresentationPort(GameHost& host) noexcept : m_host(host) {}
+
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile_snapshot(const core::RuntimePresentationSnapshot& snapshot) override
     {
@@ -115,9 +117,47 @@ public:
         return m_delegate ? m_delegate->presentation_operation_active(operation) : false;
     }
 
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor(std::string name) override
+    {
+        if (m_active) {
+            auto applied = m_host.m_dependencies.runtime_ui.set_gameplay_cursor(name);
+            if (!applied)
+                return applied;
+        }
+        m_staged_cursor = CursorName{std::move(name)};
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                              std::optional<std::uint32_t> hotspot_y) override
+    {
+        if (m_active) {
+            auto applied = m_host.m_dependencies.runtime_ui.set_gameplay_cursor_image(
+                asset, hotspot_x, hotspot_y);
+            if (!applied)
+                return applied;
+        }
+        m_staged_cursor = CursorImage{std::move(asset), hotspot_x, hotspot_y};
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    [[nodiscard]] core::Result<void, core::Diagnostics> clear_gameplay_cursor() override
+    {
+        m_staged_cursor.reset();
+        if (m_active)
+            m_host.m_dependencies.runtime_ui.clear_gameplay_cursor();
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
     void terminate(core::PresentationCancellationReason reason) override
     {
         m_operations.clear();
+        m_staged_cursor.reset();
+        if (m_active)
+            m_host.m_dependencies.runtime_ui.clear_gameplay_cursor();
+        m_active = false;
         if (m_delegate)
             m_delegate->terminate(reason);
     }
@@ -146,17 +186,52 @@ public:
             }
         }
         m_operations.clear();
+        m_host.m_dependencies.runtime_ui.clear_gameplay_cursor();
+        m_active = true;
+        if (m_staged_cursor) {
+            auto applied = std::visit(
+                [this](auto& cursor) -> core::Result<void, core::Diagnostics> {
+                    using T = std::decay_t<decltype(cursor)>;
+                    if constexpr (std::is_same_v<T, CursorName>)
+                        return m_host.m_dependencies.runtime_ui.set_gameplay_cursor(cursor.name);
+                    else
+                        return m_host.m_dependencies.runtime_ui.set_gameplay_cursor_image(
+                            cursor.asset, cursor.hotspot_x, cursor.hotspot_y);
+                },
+                *m_staged_cursor);
+            if (!applied) {
+                m_active = false;
+                m_delegate = nullptr;
+                return applied;
+            }
+        }
         return core::Result<void, core::Diagnostics>::success();
     }
 
-    void detach() noexcept { m_delegate = nullptr; }
+    void detach() noexcept
+    {
+        m_delegate = nullptr;
+        m_active = false;
+    }
 
 private:
+    struct CursorName {
+        std::string name;
+    };
+    struct CursorImage {
+        core::AssetId asset;
+        std::optional<std::uint32_t> hotspot_x;
+        std::optional<std::uint32_t> hotspot_y;
+    };
+    using StagedCursor = std::variant<CursorName, CursorImage>;
     using StagedOperation = std::variant<core::PresentationOperation, core::AudioOperation>;
 
+    GameHost& m_host;
     runtime::PresentationRuntimePort* m_delegate = nullptr;
     std::optional<core::RuntimePresentationSnapshot> m_snapshot;
     std::vector<StagedOperation> m_operations;
+    std::optional<StagedCursor> m_staged_cursor;
+    bool m_active = false;
     core::PresentationCheckpointStatus m_staged_checkpoint_status{
         core::CheckpointStatusRevision::from_number(1), {}, std::nullopt};
 };
@@ -329,7 +404,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
         }
     };
 
-    auto candidate_presentation = std::make_unique<RunningGamePresentationPort>();
+    auto candidate_presentation = std::make_unique<RunningGamePresentationPort>(*this);
     auto loaded =
         runtime::load_running_game(std::move(source.input), *candidate_scripts, *candidate_scripts,
                                    *candidate_presentation, *m_save_slots);
@@ -580,7 +655,7 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
         return failed;
     }
 
-    auto candidate_presentation = std::make_unique<RunningGamePresentationPort>();
+    auto candidate_presentation = std::make_unique<RunningGamePresentationPort>(*this);
     core::Result<std::unique_ptr<runtime::RuntimeSessionCandidate>, core::Diagnostics> candidate =
         reset ? m_running_game->prepare_reset_candidate(*reset, *candidate_scripts,
                                                         *candidate_presentation)
@@ -1229,6 +1304,7 @@ void GameHost::detach_runtime_bindings() noexcept
     m_dependencies.runtime_ui.clear_runtime_shell_view();
     m_dependencies.runtime_ui.set_runtime_notification({});
     m_dependencies.runtime_ui.clear_typed_runtime_diagnostics();
+    m_dependencies.runtime_ui.clear_gameplay_cursor();
     m_system_layouts.reset();
     m_runtime_layouts.reset();
     m_runtime_ui_asset_service.clear();

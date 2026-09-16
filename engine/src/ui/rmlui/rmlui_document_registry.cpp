@@ -503,6 +503,17 @@ Rml::ElementDocument* RmlUiDocumentRegistry::document(const std::string& id) con
     return found == m_documents.end() ? nullptr : found->second.document;
 }
 
+std::optional<std::string>
+RmlUiDocumentRegistry::document_id(const Rml::ElementDocument* document_value) const
+{
+    if (!document_value)
+        return std::nullopt;
+    const auto found = std::find_if(m_documents.begin(), m_documents.end(), [&](const auto& entry) {
+        return entry.second.document == document_value;
+    });
+    return found == m_documents.end() ? std::nullopt : std::optional<std::string>{found->first};
+}
+
 Rml::Element* RmlUiDocumentRegistry::element(const std::string& document_id,
                                              const std::string& element_id) const noexcept
 {

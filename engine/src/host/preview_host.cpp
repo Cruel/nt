@@ -342,6 +342,32 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
               },
           .bind_input_sink =
               [this](RuntimeUiInputSink* sink) { m_dependencies.runtime_ui.bind_input_sink(sink); },
+          .configure_cursors =
+              [this](const core::editor::TypedEditorPreviewCursorSettings& cursors) {
+                  m_dependencies.runtime_ui.configure_focused_preview_cursors(cursors);
+              },
+          .configure_cursor_resources =
+              [this](const std::vector<core::editor::FocusedEditorManifestProjection>& resources) {
+                  m_dependencies.runtime_ui.configure_focused_preview_cursor_resources(resources);
+              },
+          .clear_cursor_resources =
+              [this]() { m_dependencies.runtime_ui.clear_focused_preview_cursors(); },
+          .set_cursor =
+              [this](std::string name) {
+                  return m_dependencies.runtime_ui.set_gameplay_cursor(std::move(name));
+              },
+          .set_cursor_image =
+              [this](core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                     std::optional<std::uint32_t> hotspot_y) {
+                  return m_dependencies.runtime_ui.set_gameplay_cursor_image(std::move(asset),
+                                                                             hotspot_x, hotspot_y);
+              },
+          .clear_cursor =
+              [this]() {
+                  m_dependencies.runtime_ui.clear_gameplay_cursor();
+                  return core::Result<void, core::Diagnostics>::success();
+              },
+          .world_presentation_changed = m_dependencies.world_presentation_changed,
           .retire_legacy_preview =
               [this]() {
                   m_dependencies.layout_realizer.clear_authored_preview();
@@ -896,6 +922,7 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                     m_dependencies.renderer.set_shader_material_project(
                         &m_dependencies.shader_materials);
                 }
+                m_dependencies.runtime_ui.configure_focused_preview_cursors(request.cursors);
                 (void)ui::rmlui::RuntimeUiFacadeAccess::hide_document(m_dependencies.runtime_ui,
                                                                       kEditorPreviewDocumentId);
                 auto realized = m_dependencies.layout_realizer.realize_authored_preview(
@@ -904,6 +931,7 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                      .scale_policy = request.environment.scale_policy});
                 if (!realized) {
                     report_diagnostics(std::move(realized).error());
+                    m_dependencies.runtime_ui.clear_focused_preview_cursors();
                     if (m_dependencies.clear_authored_environment) {
                         auto restored = m_dependencies.clear_authored_environment();
                         if (!restored)
@@ -914,6 +942,7 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                 return true;
             } else if constexpr (std::is_same_v<T,
                                                 core::editor::TypedEditorShaderPreviewDocument>) {
+                m_dependencies.runtime_ui.clear_focused_preview_cursors();
                 if (shader_variant_name(request.active_shader_variant) !=
                     m_dependencies.renderer.active_shader_variant()) {
                     report_diagnostic(preview_error(
@@ -987,6 +1016,7 @@ void PreviewHost::update_focused_preview() { m_focused_presenter->update(); }
 void PreviewHost::clear_focused_preview() noexcept
 {
     m_focused_presenter->clear();
+    m_dependencies.runtime_ui.clear_focused_preview_cursors();
     m_dependencies.renderer.set_asset_lease_lookup_scope(assets::AssetLeaseLookupScope::Runtime);
 }
 

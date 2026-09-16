@@ -58,6 +58,236 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('compiles Project cursor defaults and globally reachable named cursor images', () => {
+    const project = validProject();
+    project.assets['tea-pointer'] = {
+      id: 'tea-pointer',
+      label: 'Tea Pointer',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/tea-pointer.png',
+        extension: '.png',
+        byteSize: 64,
+        contentHash: 'tea-pointer-hash',
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.settings.cursors = {
+      defaults: {
+        default: { kind: 'system', cursor: 'default' },
+        pointer: { kind: 'named', id: 'tea' },
+        hotspot: { kind: 'inherit', semantic: 'pointer' },
+      },
+      named: [
+        {
+          id: 'tea',
+          image: { $ref: { collection: 'assets', id: 'tea-pointer' } },
+          hotspotX: 2,
+          hotspotY: 3,
+        },
+      ],
+    };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok, result.ok ? '' : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.project.settings.cursors).toEqual({
+      defaults: {
+        default: { kind: 'system', cursor: 'default' },
+        pointer: { kind: 'named', id: 'tea' },
+        hotspot: { kind: 'inherit', semantic: 'pointer' },
+      },
+      named: [
+        {
+          id: 'tea',
+          image: { kind: 'asset', id: 'tea-pointer' },
+          hotspotX: 2,
+          hotspotY: 3,
+        },
+      ],
+    });
+    expect(result.project.resources.assets).toContainEqual(
+      expect.objectContaining({ id: 'tea-pointer', kind: 'image', width: 32, height: 32 }),
+    );
+  });
+  it('compiles Room and Interactable Hotspot cursor presentation', () => {
+    const project = validProject();
+    project.assets.pointer = {
+      id: 'pointer',
+      label: 'Pointer',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/pointer.png',
+        extension: '.png',
+        byteSize: 64,
+        contentHash: 'pointer-hash',
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.settings.cursors.named = [
+      {
+        id: 'inspect',
+        image: { $ref: { collection: 'assets', id: 'pointer' } },
+        hotspotX: 1,
+        hotspotY: 2,
+      },
+    ];
+
+    const room = project.rooms.foyer.data as ReturnType<typeof defaultRoomData>;
+    room.background.asset = { $ref: { collection: 'assets', id: 'pointer' } };
+    room.exits = [
+      {
+        id: 'east-exit',
+        direction: 'east',
+        target: { $ref: { collection: 'rooms', id: 'hall' } },
+        label: 'East',
+        condition: { kind: 'always' },
+        onRejected: [],
+      },
+    ];
+    room.hotspots = [
+      {
+        id: 'door',
+        label: 'Door',
+        condition: { kind: 'always' },
+        inputOrder: 0,
+        highlight: { kind: 'default' },
+        cursor: { kind: 'named', id: 'inspect' },
+        shape: { kind: 'rect', bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } },
+        target: { kind: 'exit', exitId: 'east-exit' },
+      },
+    ];
+
+    const key = defaultInteractableData('Key');
+    key.presentation.sprite = { $ref: { collection: 'assets', id: 'pointer' } };
+    key.presentation.cursor = { kind: 'system', cursor: 'crosshair' };
+    key.presentation.hotspots = {
+      kind: 'custom',
+      hotspots: [
+        {
+          ...defaultHotspotBehavior('Inspect key'),
+          cursor: { kind: 'none' },
+          shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 1, height: 1 } },
+        },
+      ],
+    };
+    project.interactables.key = { id: 'key', label: 'Key', data: key };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok, result.ok ? '' : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    if (!result.ok) return;
+
+    expect(
+      result.project.definitions.rooms.find((entry) => entry.id === 'foyer')?.hotspots,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'door', cursor: { kind: 'named', id: 'inspect' } }),
+      ]),
+    );
+    expect(
+      result.project.definitions.interactables.find((entry) => entry.id === 'key')?.presentation,
+    ).toMatchObject({
+      cursor: { kind: 'system', cursor: 'crosshair' },
+      hotspots: {
+        kind: 'custom',
+        hotspots: [expect.objectContaining({ cursor: { kind: 'none' } })],
+      },
+    });
+  });
+
+  it('rejects dangling named Hotspot cursor references', () => {
+    const project = validProject();
+    const room = project.rooms.foyer.data as ReturnType<typeof defaultRoomData>;
+    room.exits = [
+      {
+        id: 'east-exit',
+        direction: 'east',
+        target: { $ref: { collection: 'rooms', id: 'hall' } },
+        label: 'East',
+        condition: { kind: 'always' },
+        onRejected: [],
+      },
+    ];
+    room.hotspots = [
+      {
+        id: 'door',
+        label: 'Door',
+        condition: { kind: 'always' },
+        inputOrder: 0,
+        highlight: { kind: 'default' },
+        cursor: { kind: 'named', id: 'missing-cursor' },
+        shape: { kind: 'rect', bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } },
+        target: { kind: 'exit', exitId: 'east-exit' },
+      },
+    ];
+    const key = defaultInteractableData('Key');
+    key.presentation.cursor = { kind: 'named', id: 'missing-cursor' };
+    project.interactables.key = { id: 'key', label: 'Key', data: key };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          jsonPointer: '/rooms/foyer/data/hotspots/0/cursor',
+          message: expect.stringContaining('missing-cursor'),
+        }),
+        expect.objectContaining({
+          jsonPointer: '/interactables/key/data/presentation/cursor',
+          message: expect.stringContaining('missing-cursor'),
+        }),
+      ]),
+    );
+  });
+
+  it('requires direct RCSS cursor images to be explicit Layout image dependencies', () => {
+    const project = validProject();
+    project.assets['cursor-image'] = {
+      id: 'cursor-image',
+      label: 'Cursor Image',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/cursor-image.png',
+        extension: '.png',
+        byteSize: 64,
+        contentHash: 'cursor-image-hash',
+        sampling: 'nearest',
+        imageMetadata: { width: 256, height: 64, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    const layout = defaultLayoutData('Cursor UI');
+    layout.rcss.sourceText =
+      '#target { cursor: image("project:/assets/images/cursor-image.png"); }';
+    project.layouts.cursor = { id: 'cursor', label: 'Cursor UI', data: layout };
+
+    const missingDependency = compileAuthoringProject(project);
+    expect(missingDependency.ok).toBe(false);
+    if (!missingDependency.ok) {
+      expect(missingDependency.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            jsonPointer: '/layouts/cursor/data/rcss/sourceText',
+            message: expect.stringContaining('Layout image dependency'),
+          }),
+        ]),
+      );
+    }
+
+    layout.dependencies.images = [{ $ref: { collection: 'assets', id: 'cursor-image' } }];
+    const compiled = compileAuthoringProject(project);
+    expect(compiled.ok, compiled.ok ? '' : JSON.stringify(compiled.diagnostics, null, 2)).toBe(
+      true,
+    );
+    if (!compiled.ok) return;
+    expect(compiled.project.resources.layouts.find((entry) => entry.id === 'cursor')).toMatchObject(
+      {
+        dependencies: { images: [{ kind: 'asset', id: 'cursor-image' }] },
+      },
+    );
+  });
+
   it('compiles explicit JSON data Asset dependencies without analyzing Data.load calls', () => {
     const project = validProject();
     project.assets.catalog = {
@@ -2952,7 +3182,7 @@ describe('authoring compiler framework', () => {
         stackLimit: null,
         features: [],
         inventories: [],
-        presentation: { sprite: null, material: null, hotspots: { kind: 'none' } },
+        presentation: { sprite: null, material: null, cursor: null, hotspots: { kind: 'none' } },
         traits: [],
         propertyAssignments: [],
         properties: [

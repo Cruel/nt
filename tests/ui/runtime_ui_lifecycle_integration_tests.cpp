@@ -1,3 +1,6 @@
+#include "noveltea/assets/asset_request_orchestrator.hpp"
+#include "noveltea/core/compiled_project_codec.hpp"
+#include "noveltea/core/editor_preview_contracts.hpp"
 #include "noveltea/core/layout_policies.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
@@ -16,11 +19,13 @@
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Types.h>
+#include <SDL3/SDL.h>
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_mouse.h>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <lua.hpp>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -38,6 +43,107 @@
 namespace {
 
 using RuntimeUiFacadeAccess = noveltea::ui::rmlui::RuntimeUiFacadeAccess;
+
+noveltea::assets::AssetBytes one_pixel_cursor_png()
+{
+    return {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99,
+            0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+}
+
+noveltea::assets::AssetBytes solid_cursor_tga(std::uint16_t width, std::uint16_t height)
+{
+    noveltea::assets::AssetBytes bytes(18u + static_cast<std::size_t>(width) * height * 4u, 0);
+    bytes[2] = 2;
+    bytes[12] = static_cast<std::uint8_t>(width & 0xffu);
+    bytes[13] = static_cast<std::uint8_t>(width >> 8u);
+    bytes[14] = static_cast<std::uint8_t>(height & 0xffu);
+    bytes[15] = static_cast<std::uint8_t>(height >> 8u);
+    bytes[16] = 32;
+    bytes[17] = 0x28;
+    for (std::size_t index = 18; index < bytes.size(); index += 4) {
+        bytes[index + 0] = 0x20;
+        bytes[index + 1] = 0x40;
+        bytes[index + 2] = 0x80;
+        bytes[index + 3] = 0xff;
+    }
+    return bytes;
+}
+
+class CursorTexturePreparationTask final
+    : public noveltea::assets::AssetPreparationTask<noveltea::assets::TextureAsset> {
+public:
+    CursorTexturePreparationTask(noveltea::assets::TextureAssetRequest request, bool fail)
+        : m_request(std::move(request)), m_fail(fail)
+    {
+    }
+
+    [[nodiscard]] noveltea::assets::ResidencyCost estimated_cost_on_owner() const noexcept override
+    {
+        return {};
+    }
+
+    [[nodiscard]] noveltea::jobs::JobStepOutcome
+    step(noveltea::jobs::JobContext& context) noexcept override
+    {
+        if (context.cancellation_requested())
+            return {.status = noveltea::jobs::JobStepStatus::Completed, .diagnostics = {}};
+        m_ready = true;
+        return {.status = noveltea::jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+
+    [[nodiscard]] noveltea::core::Result<
+        noveltea::assets::PreparedAsset<noveltea::assets::TextureAsset>,
+        noveltea::core::Diagnostics>
+    finalize_on_owner() noexcept override
+    {
+        if (!m_ready || m_fail) {
+            return noveltea::core::Result<
+                noveltea::assets::PreparedAsset<noveltea::assets::TextureAsset>,
+                noveltea::core::Diagnostics>::failure({{.code = "test.cursor_texture_failed",
+                                                        .message = "cursor texture failed"}});
+        }
+        return noveltea::core::Result<
+            noveltea::assets::PreparedAsset<noveltea::assets::TextureAsset>,
+            noveltea::core::Diagnostics>::success({.asset = {.handle = 1,
+                                                             .path = m_request.path,
+                                                             .width = 1,
+                                                             .height = 1},
+                                                   .cost = {},
+                                                   .destroy_on_owner = {}});
+    }
+
+private:
+    noveltea::assets::TextureAssetRequest m_request;
+    bool m_fail = false;
+    bool m_ready = false;
+};
+
+class CursorTextureLoader final : public noveltea::assets::TextureAssetLoader {
+public:
+    [[nodiscard]] noveltea::assets::AssetLoadResult<noveltea::assets::TextureAsset>
+    load_texture(const noveltea::assets::TextureAssetRequest& request) override
+    {
+        if (fail)
+            return {std::nullopt, "cursor texture failed"};
+        return {noveltea::assets::TextureAsset{
+                    .handle = 1, .path = request.path, .width = 1, .height = 1},
+                {}};
+    }
+
+    [[nodiscard]] std::unique_ptr<
+        noveltea::assets::AssetPreparationTask<noveltea::assets::TextureAsset>>
+    create_texture_preparation_task(const noveltea::assets::TextureAssetRequest& request) override
+    {
+        ++requests;
+        return std::make_unique<CursorTexturePreparationTask>(request, fail);
+    }
+
+    std::size_t requests = 0;
+    bool fail = false;
+};
 
 void require_lua(lua_State* state, const char* script)
 {
@@ -2977,6 +3083,1095 @@ TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing 
     CHECK(ignored_context->GetFontRasterScale() == Catch::Approx(1.0f));
     CHECK(ui.active_text_render_snapshot().visible_text == stable_visible_text);
     CHECK(ui.active_text_presentation_phase() == stable_phase);
+}
+
+TEST_CASE("RuntimeUI accepts semantic cursor intent in headless pointerless composition")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    REQUIRE(ui.set_gameplay_cursor("pointer"));
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+    CHECK(inspection.source == "gameplay-lua");
+    CHECK(inspection.owner == "runtime-session");
+
+    REQUIRE(ui.set_gameplay_cursor("none"));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Hidden);
+    CHECK(inspection.source == "gameplay-lua");
+}
+
+TEST_CASE("RuntimeUI cursor requests resolve through one inspectable authority")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    constexpr const char* document = R"(
+<rml>
+  <head>
+    <style>
+      body { width: 640px; height: 360px; }
+      #cursor-target { display: block; width: 160px; height: 48px; cursor: text; }
+    </style>
+  </head>
+  <body><button id="cursor-target">Cursor target</button></body>
+</rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.load_document_from_memory_for_layout("cursor-text", document,
+                                                    "preview://cursor-text.rml", true, policy));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* loaded_document = driver->document("cursor-text");
+    REQUIRE(loaded_document);
+    auto* hover = loaded_document->GetContext()->GetHoverElement();
+    REQUIRE(hover);
+    CHECK(hover->GetId() == "cursor-target");
+    CHECK(hover->GetComputedValues().cursor() == "text");
+
+    const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(noveltea::host::cursor_shape_name(inspection.effective) == "text");
+    CHECK(inspection.source == "rmlui");
+    CHECK(inspection.owner == "cursor-text");
+
+    REQUIRE(ui.set_gameplay_cursor("wait"));
+    const auto gameplay = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(noveltea::host::cursor_shape_name(gameplay.effective) == "wait");
+    CHECK(gameplay.source == "gameplay-lua");
+    CHECK(gameplay.owner == "runtime-session");
+
+    ui.clear_gameplay_cursor();
+    const auto restored = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(noveltea::host::cursor_shape_name(restored.effective) == "text");
+    CHECK(restored.source == "rmlui");
+    CHECK(restored.owner == "cursor-text");
+}
+
+TEST_CASE("RuntimeUI composes Mount-owned Lua cursor intent by occurrence and presentation order")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    constexpr const char* document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  button { display: block; width: 200px; height: 80px; margin: 0; }
+</style></head><body><button id="action">Cursor action</button></body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy lower_policy;
+    lower_policy.plane = noveltea::core::PresentationPlane::GameUi;
+    lower_policy.input = noveltea::core::LayoutInputMode::Normal;
+    auto upper_policy = lower_policy;
+    upper_policy.plane = noveltea::core::PresentationPlane::MenuOverlay;
+
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "layout-cursor-lower", document, "preview://layout-cursor-lower.rml", true, lower_policy, 0,
+        noveltea::core::MountedLayoutOwner::Gameplay, {}, 0));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "layout-cursor-upper", document, "preview://layout-cursor-upper.rml", false, upper_policy,
+        0, noveltea::core::MountedLayoutOwner::Shell, {}, 1));
+
+    const auto lower_instance = noveltea::core::ScopedLayoutInstanceId::create("cursor-lower");
+    const auto upper_instance = noveltea::core::ScopedLayoutInstanceId::create("cursor-upper");
+    REQUIRE(lower_instance);
+    REQUIRE(upper_instance);
+    const auto lower_key = noveltea::core::MountedLayoutPresentationKey{
+        noveltea::core::ScopedLayoutMountKey{lower_instance.value()}};
+    const auto upper_key = noveltea::core::MountedLayoutPresentationKey{
+        noveltea::core::ScopedLayoutMountKey{upper_instance.value()}};
+    const auto session_owner =
+        noveltea::core::PresentationOwner{noveltea::core::SessionPresentationOwner{
+            noveltea::core::PresentationSessionId::from_number(1)}};
+    const auto shell_owner =
+        noveltea::core::PresentationOwner{noveltea::core::ShellPresentationOwner{
+            noveltea::core::ShellPresentationScopeId::from_number(1)}};
+    const auto lower_occurrence = noveltea::core::LayoutMountOccurrenceId::from_number(101);
+    const auto upper_occurrence = noveltea::core::LayoutMountOccurrenceId::from_number(202);
+    ui.set_layout_mount_context(
+        "layout-cursor-lower",
+        noveltea::RuntimeUiLayoutMountContext{session_owner, lower_key, lower_occurrence});
+    ui.set_layout_mount_context(
+        "layout-cursor-upper",
+        noveltea::RuntimeUiLayoutMountContext{shell_owner, upper_key, upper_occurrence});
+    REQUIRE(ui.apply_layout_order({"layout-cursor-lower", "layout-cursor-upper"}));
+
+    enum class UpperAction {
+        Set,
+        Clear
+    };
+    UpperAction upper_action = UpperAction::Set;
+    bool lower_command_ok = false;
+    bool upper_command_ok = false;
+    const auto lower_listener = RuntimeUiFacadeAccess::add_event_listener(
+        ui, "layout-cursor-lower", "action", "click",
+        [&]() { lower_command_ok = static_cast<bool>(ui.set_gameplay_cursor("wait")); });
+    const auto upper_listener = RuntimeUiFacadeAccess::add_event_listener(
+        ui, "layout-cursor-upper", "action", "click", [&]() {
+            if (upper_action == UpperAction::Set)
+                upper_command_ok = static_cast<bool>(ui.set_gameplay_cursor("crosshair"));
+            else {
+                ui.clear_gameplay_cursor();
+                upper_command_ok = true;
+            }
+        });
+    REQUIRE(lower_listener != 0);
+    REQUIRE(upper_listener != 0);
+    ui.begin_frame({});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    const auto click = [&](const char* document_id) {
+        auto* action = driver->element(document_id, "action");
+        REQUIRE(action);
+        const auto offset = action->GetAbsoluteOffset(Rml::BoxArea::Content);
+        const auto size = action->GetBox().GetSize(Rml::BoxArea::Content);
+        REQUIRE(size.x > 0.0f);
+        REQUIRE(size.y > 0.0f);
+        const float x = offset.x + size.x * 0.5f;
+        const float y = offset.y + size.y * 0.5f;
+        SDL_Event motion{};
+        motion.type = SDL_EVENT_MOUSE_MOTION;
+        motion.motion.x = x;
+        motion.motion.y = y;
+        (void)ui.process_event(motion);
+        SDL_Event down{};
+        down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+        down.button.button = SDL_BUTTON_LEFT;
+        down.button.x = x;
+        down.button.y = y;
+        (void)ui.process_event(down);
+        SDL_Event up{};
+        up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+        up.button.button = SDL_BUTTON_LEFT;
+        up.button.x = x;
+        up.button.y = y;
+        (void)ui.process_event(up);
+    };
+
+    click("layout-cursor-lower");
+    REQUIRE(lower_command_ok);
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.source == "layout-lua");
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+
+    REQUIRE(ui.hide_document("layout-cursor-lower"));
+    REQUIRE(ui.show_document("layout-cursor-upper"));
+    ui.begin_frame({});
+    click("layout-cursor-upper");
+    REQUIRE(upper_command_ok);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.owner == "layout-cursor-upper#202");
+
+    REQUIRE(ui.show_document("layout-cursor-lower"));
+    auto input_none = upper_policy;
+    input_none.input = noveltea::core::LayoutInputMode::None;
+    REQUIRE(ui.apply_layout_policy("layout-cursor-upper", input_none, 0,
+                                   noveltea::core::MountedLayoutOwner::Shell, {}, 1));
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.owner == "layout-cursor-upper#202");
+
+    REQUIRE(ui.hide_document("layout-cursor-upper"));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+    lower_command_ok = false;
+    click("layout-cursor-lower");
+    REQUIRE(lower_command_ok);
+    REQUIRE(ui.show_document("layout-cursor-upper"));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.owner == "layout-cursor-upper#202");
+
+    ui.set_layout_mount_context(
+        "layout-cursor-upper",
+        noveltea::RuntimeUiLayoutMountContext{shell_owner, upper_key, upper_occurrence});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+
+    REQUIRE(ui.apply_layout_policy("layout-cursor-upper", upper_policy, 0,
+                                   noveltea::core::MountedLayoutOwner::Shell, {}, 1));
+    upper_action = UpperAction::Clear;
+    upper_command_ok = false;
+    ui.begin_frame({});
+    click("layout-cursor-upper");
+    REQUIRE(upper_command_ok);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+
+    upper_action = UpperAction::Set;
+    upper_command_ok = false;
+    click("layout-cursor-upper");
+    REQUIRE(upper_command_ok);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    const auto replacement_occurrence = noveltea::core::LayoutMountOccurrenceId::from_number(203);
+    ui.set_layout_mount_context(
+        "layout-cursor-upper",
+        noveltea::RuntimeUiLayoutMountContext{shell_owner, upper_key, replacement_occurrence});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+
+    // A failed staged replacement restores the prior occurrence before the layout-order commit.
+    ui.set_layout_mount_context(
+        "layout-cursor-upper",
+        noveltea::RuntimeUiLayoutMountContext{shell_owner, upper_key, upper_occurrence});
+    REQUIRE(ui.apply_layout_order({"layout-cursor-lower", "layout-cursor-upper"}));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.owner == "layout-cursor-upper#202");
+
+    // A committed replacement retires the old occurrence's request.
+    ui.set_layout_mount_context(
+        "layout-cursor-upper",
+        noveltea::RuntimeUiLayoutMountContext{shell_owner, upper_key, replacement_occurrence});
+    REQUIRE(ui.apply_layout_order({"layout-cursor-lower", "layout-cursor-upper"}));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+
+    upper_command_ok = false;
+    click("layout-cursor-upper");
+    REQUIRE(upper_command_ok);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.owner == "layout-cursor-upper#203");
+    ui.set_layout_mount_context("layout-cursor-upper", std::nullopt);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.owner == "layout-cursor-lower#101");
+
+    REQUIRE(ui.hide_document("layout-cursor-lower"));
+    REQUIRE(ui.set_gameplay_cursor("progress"));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Progress);
+    CHECK(inspection.source == "gameplay-lua");
+    bool gameplay_admitted = false;
+    ui.bind_layout_gameplay_admission([&]() { return gameplay_admitted; });
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.source == "native-default");
+    gameplay_admitted = true;
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Progress);
+    CHECK(inspection.source == "gameplay-lua");
+
+    upper_command_ok = true;
+    click("layout-cursor-upper");
+    CHECK_FALSE(upper_command_ok);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Progress);
+    CHECK(inspection.source == "gameplay-lua");
+}
+
+TEST_CASE("RuntimeUI resolves Project named cursors from RCSS without Layout dependencies")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path =
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(document.is_discarded());
+    document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 24},
+        {"id", "cursor-image"},
+        {"kind", "image"},
+        {"path", "assets/images/cursor-image.png"},
+        {"sampling", "linear"},
+        {"width", 32},
+    });
+    document["settings"]["cursors"] = {
+        {"defaults",
+         {{"default", {{"cursor", "default"}, {"kind", "system"}}},
+          {"hotspot", {{"kind", "inherit"}, {"semantic", "pointer"}}},
+          {"pointer", {{"id", "tea-pointer"}, {"kind", "named"}}}}},
+        {"named",
+         nlohmann::json::array({{{"hotspotX", 1},
+                                 {"hotspotY", 2},
+                                 {"id", "tea-pointer"},
+                                 {"image", {{"id", "cursor-image"}, {"kind", "asset"}}}}})},
+    };
+    auto project = noveltea::core::decode_compiled_project(document, "cursor-project.json");
+    REQUIRE(project);
+    fixture.project_assets().add("assets/images/cursor-image.png", solid_cursor_tga(32, 24));
+    ui.configure_project_cursors(*project.value_if());
+
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+    constexpr const char* rml = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  button { display: block; width: 160px; height: 48px; margin: 0; padding: 0; }
+  #target { cursor: tea-pointer; }
+  #semantic-pointer { cursor: pointer; }
+</style></head><body>
+  <button id="target">Named cursor</button>
+  <button id="semantic-pointer">Semantic pointer</button>
+</body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.load_document_from_memory_for_layout("named-cursor", rml,
+                                                    "preview://named-cursor.rml", true, policy));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+
+    const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective_name == "tea-pointer");
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.source == "rmlui");
+    CHECK(inspection.owner == "named-cursor");
+
+    motion.motion.y = 64.0f;
+    (void)ui.process_event(motion);
+    const auto pointer_inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(pointer_inspection.effective_name == "tea-pointer");
+    CHECK(pointer_inspection.effective == noveltea::host::CursorShape::Pointer);
+    CHECK(pointer_inspection.source == "rmlui");
+    CHECK(pointer_inspection.owner == "named-cursor");
+}
+
+TEST_CASE("RuntimeUI Lua semantic cursors resolve through Project cursor defaults")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path =
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(document.is_discarded());
+    document["settings"]["cursors"] = {
+        {"defaults",
+         {{"default", {{"cursor", "crosshair"}, {"kind", "system"}}},
+          {"hotspot", {{"cursor", "wait"}, {"kind", "system"}}},
+          {"pointer", {{"cursor", "text"}, {"kind", "system"}}}}},
+        {"named", nlohmann::json::array()},
+    };
+    auto project = noveltea::core::decode_compiled_project(document, "cursor-project.json");
+    REQUIRE(project);
+    ui.configure_project_cursors(*project.value_if());
+
+    REQUIRE(ui.set_gameplay_cursor("default"));
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.source == "gameplay-lua");
+
+    REQUIRE(ui.set_gameplay_cursor("pointer"));
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Text);
+    CHECK(inspection.source == "gameplay-lua");
+}
+
+TEST_CASE("RuntimeUI resolves direct RCSS image cursors through the cursor authority")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path =
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto project_document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(project_document.is_discarded());
+    project_document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 64},
+        {"id", "cursor-image"},
+        {"kind", "image"},
+        {"path", "assets/images/cursor-image.png"},
+        {"sampling", "nearest"},
+        {"width", 256},
+    });
+    project_document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 24},
+        {"id", "small-cursor-image"},
+        {"kind", "image"},
+        {"path", "assets/images/small-cursor-image.png"},
+        {"sampling", "linear"},
+        {"width", 32},
+    });
+    auto project = noveltea::core::decode_compiled_project(project_document, "cursor-project.json");
+    REQUIRE(project);
+    fixture.project_assets().add("assets/images/cursor-image.png", solid_cursor_tga(256, 64));
+    fixture.project_assets().add("assets/images/small-cursor-image.png", solid_cursor_tga(32, 24));
+    ui.configure_project_cursors(*project.value_if());
+
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+    constexpr const char* rml = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  button { display: block; width: 160px; height: 48px; margin: 0; padding: 0; }
+  #target { cursor: image("project:/assets/images/cursor-image.png"); }
+  #small-target { cursor: image(project:/assets/images/small-cursor-image.png); }
+</style></head><body>
+  <button id="target">Direct image cursor</button>
+  <button id="small-target">Small direct image cursor</button>
+</body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    ui.set_layout_cursor_image_dependencies("direct-image-cursor",
+                                            {"project:/assets/images/cursor-image.png",
+                                             "project:/assets/images/small-cursor-image.png"});
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "direct-image-cursor", rml, "project:/ui/direct-image-cursor.rml", true, policy));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+
+    const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective_name == "image(project:/assets/images/cursor-image.png)");
+    CHECK(inspection.source == "rmlui");
+    CHECK(inspection.owner == "direct-image-cursor");
+    REQUIRE(inspection.custom);
+    CHECK(inspection.custom->width == 128);
+    CHECK(inspection.custom->height == 32);
+    CHECK(inspection.custom->hotspot_x == 0);
+    CHECK(inspection.custom->hotspot_y == 0);
+    CHECK(inspection.custom->sampling == noveltea::host::CursorImageSampling::Nearest);
+
+    motion.motion.y = 64.0f;
+    (void)ui.process_event(motion);
+    const auto small_inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    REQUIRE(small_inspection.custom);
+    CHECK(small_inspection.custom->width == 32);
+    CHECK(small_inspection.custom->height == 24);
+    CHECK(small_inspection.custom->hotspot_x == 0);
+    CHECK(small_inspection.custom->hotspot_y == 0);
+    CHECK(small_inspection.custom->sampling == noveltea::host::CursorImageSampling::Linear);
+}
+
+TEST_CASE("RuntimeUI rejects direct RCSS image cursors outside the Layout dependency closure")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path =
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto project_document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(project_document.is_discarded());
+    project_document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 32},
+        {"id", "cursor-image"},
+        {"kind", "image"},
+        {"path", "assets/images/cursor-image.png"},
+        {"sampling", "linear"},
+        {"width", 32},
+    });
+    auto project = noveltea::core::decode_compiled_project(project_document, "cursor-project.json");
+    REQUIRE(project);
+    ui.configure_project_cursors(*project.value_if());
+
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+    constexpr const char* rml = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  #target { display: block; width: 160px; height: 48px; cursor: image(project:/assets/images/cursor-image.png); }
+</style></head><body><button id="target">Undeclared direct cursor</button></body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    ui.set_layout_cursor_image_dependencies("undeclared-direct-image-cursor", {});
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "undeclared-direct-image-cursor", rml, "project:/ui/undeclared-cursor.rml", true, policy));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+
+    const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective_name == "default");
+    CHECK(inspection.source == "project-default");
+}
+
+TEST_CASE("RuntimeUI retains the effective cursor until a Lua image cursor becomes realizable")
+{
+    const bool video_already_initialized = (SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) != 0;
+    if (!video_already_initialized) {
+        SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+        REQUIRE(SDL_InitSubSystem(SDL_INIT_VIDEO));
+    }
+
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path =
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto project_document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(project_document.is_discarded());
+    project_document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 1},
+        {"id", "dynamic-cursor"},
+        {"kind", "image"},
+        {"path", "assets/images/dynamic-cursor.png"},
+        {"sampling", "nearest"},
+        {"width", 1},
+    });
+    auto project = noveltea::core::decode_compiled_project(project_document, "cursor-project.json");
+    REQUIRE(project);
+    ui.configure_project_cursors(*project.value_if());
+    fixture.project_assets().add("assets/images/dynamic-cursor.png", one_pixel_cursor_png());
+    CursorTextureLoader texture_loader;
+    fixture.assets().bind_texture_loader(&texture_loader);
+
+    REQUIRE(ui.set_gameplay_cursor("wait"));
+    REQUIRE(ui.set_gameplay_cursor_image(noveltea::core::AssetId::create("dynamic-cursor").value(),
+                                         std::nullopt, std::nullopt));
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.effective_name == "wait");
+    CHECK(inspection.source == "gameplay-lua");
+    CHECK(texture_loader.requests == 1);
+
+    REQUIRE(fixture.run_asset_jobs_until_idle());
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective_name == "asset:dynamic-cursor");
+    CHECK(inspection.source == "gameplay-lua");
+    CHECK(inspection.owner == "runtime-session");
+    REQUIRE(inspection.custom);
+    CHECK(inspection.custom->width == 0);
+    CHECK(inspection.custom->height == 0);
+    CHECK(inspection.custom->hotspot_x == 0);
+    CHECK(inspection.custom->hotspot_y == 0);
+    CHECK(inspection.custom->sampling == noveltea::host::CursorImageSampling::Nearest);
+    CHECK(inspection.custom->fit_to_portable_bound);
+    CHECK(texture_loader.requests == 1);
+
+    fixture.assets().bind_texture_loader(nullptr);
+    fixture.shutdown();
+    if (!video_already_initialized)
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+}
+
+TEST_CASE("RuntimeUI terminal Lua cursor image failures fall back without retrying")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    const std::string path =
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json";
+    std::ifstream stream(path);
+    REQUIRE(stream.good());
+    auto project_document = nlohmann::json::parse(stream, nullptr, false);
+    REQUIRE_FALSE(project_document.is_discarded());
+    project_document["resources"]["assets"].push_back({
+        {"aliases", nlohmann::json::array()},
+        {"height", 1},
+        {"id", "broken-cursor"},
+        {"kind", "image"},
+        {"path", "assets/images/broken-cursor.png"},
+        {"sampling", "nearest"},
+        {"width", 1},
+    });
+    auto project = noveltea::core::decode_compiled_project(project_document, "cursor-project.json");
+    REQUIRE(project);
+    ui.configure_project_cursors(*project.value_if());
+    fixture.project_assets().add("assets/images/broken-cursor.png", one_pixel_cursor_png());
+    CursorTextureLoader texture_loader;
+    texture_loader.fail = true;
+    fixture.assets().bind_texture_loader(&texture_loader);
+
+    REQUIRE(ui.set_gameplay_cursor("wait"));
+    REQUIRE(ui.set_gameplay_cursor_image(noveltea::core::AssetId::create("broken-cursor").value(),
+                                         std::nullopt, std::nullopt));
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(texture_loader.requests == 1);
+
+    REQUIRE(fixture.run_asset_jobs_until_idle());
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.effective_name == "default");
+    CHECK(inspection.source == "gameplay-lua");
+    CHECK(inspection.owner == "runtime-session");
+    CHECK_FALSE(inspection.custom);
+
+    ui.begin_frame({});
+    CHECK(texture_loader.requests == 1);
+    fixture.assets().bind_texture_loader(nullptr);
+}
+
+TEST_CASE("RuntimeUI focused Layout preview keeps direct cursor image sampling metadata")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    fixture.project_assets().add("assets/images/cursor-image.png", solid_cursor_tga(32, 24));
+    ui.configure_focused_preview_cursor_resources({
+        {.resource_id = "cursor-image",
+         .source_kind = "authoring-asset",
+         .logical_path = "project:/assets/images/cursor-image.png",
+         .kind = "image",
+         .sampling = "nearest"},
+    });
+
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+    constexpr const char* rml = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  #target { display: block; width: 160px; height: 48px; cursor: image(project:/assets/images/cursor-image.png); }
+</style></head><body><button id="target">Preview direct cursor</button></body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "editor_authored_layout_preview", rml, "project:/ui/focused-layout.rml", true, policy));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+
+    const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective_name == "image(project:/assets/images/cursor-image.png)");
+    CHECK(inspection.source == "rmlui");
+    REQUIRE(inspection.custom);
+    CHECK(inspection.custom->sampling == noveltea::host::CursorImageSampling::Nearest);
+    CHECK(inspection.custom->fit_to_portable_bound);
+}
+
+TEST_CASE("RuntimeUI cursor semantics distinguish auto hidden and native shapes")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    constexpr const char* document = R"(
+<rml>
+  <head>
+    <style>
+      body { width: 640px; height: 360px; margin: 0; padding: 0; }
+      button { display: block; width: 220px; height: 16px; margin: 0; padding: 0; }
+    </style>
+  </head>
+  <body>
+    <button style="cursor: default;">default</button>
+    <button style="cursor: pointer;">pointer</button>
+    <button style="cursor: text;">text</button>
+    <button style="cursor: wait;">wait</button>
+    <button style="cursor: progress;">progress</button>
+    <button style="cursor: crosshair;">crosshair</button>
+    <button style="cursor: move;">move</button>
+    <button style="cursor: not-allowed;">not-allowed</button>
+    <button style="cursor: ns-resize;">ns-resize</button>
+    <button style="cursor: ew-resize;">ew-resize</button>
+    <button style="cursor: nesw-resize;">nesw-resize</button>
+    <button style="cursor: nwse-resize;">nwse-resize</button>
+    <button style="cursor: none;">none</button>
+    <button style="cursor: auto;">auto</button>
+    <button style="cursor: arrow;">legacy arrow</button>
+    <button style="cursor: cross;">legacy cross</button>
+    <button style="cursor: unavailable;">legacy unavailable</button>
+    <button style="cursor: resize;">legacy resize</button>
+    <button style="cursor: rmlui-scroll-up;">private autoscroll</button>
+  </body>
+</rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "cursor-semantics", document, "preview://cursor-semantics.rml", true, policy));
+    ui.begin_frame({});
+
+    struct Case {
+        std::size_t row = 0;
+        noveltea::host::CursorShape expected = noveltea::host::CursorShape::Default;
+    };
+    const std::vector<Case> cases{
+        {0, noveltea::host::CursorShape::Default},
+        {1, noveltea::host::CursorShape::Pointer},
+        {2, noveltea::host::CursorShape::Text},
+        {3, noveltea::host::CursorShape::Wait},
+        {4, noveltea::host::CursorShape::Progress},
+        {5, noveltea::host::CursorShape::Crosshair},
+        {6, noveltea::host::CursorShape::Move},
+        {7, noveltea::host::CursorShape::NotAllowed},
+        {8, noveltea::host::CursorShape::NsResize},
+        {9, noveltea::host::CursorShape::EwResize},
+        {10, noveltea::host::CursorShape::NeswResize},
+        {11, noveltea::host::CursorShape::NwseResize},
+        {12, noveltea::host::CursorShape::Hidden},
+        {14, noveltea::host::CursorShape::Default},
+        {15, noveltea::host::CursorShape::Crosshair},
+        {16, noveltea::host::CursorShape::NotAllowed},
+        {17, noveltea::host::CursorShape::NwseResize},
+        {18, noveltea::host::CursorShape::Move},
+    };
+    for (const auto& value : cases) {
+        SDL_Event motion{};
+        motion.type = SDL_EVENT_MOUSE_MOTION;
+        motion.motion.x = 8.0f;
+        motion.motion.y = 8.0f + 16.0f * static_cast<float>(value.row);
+        (void)ui.process_event(motion);
+        const auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+        CAPTURE(value.row);
+        CHECK(inspection.effective == value.expected);
+        CHECK(inspection.source == "rmlui");
+        CHECK(inspection.owner == "cursor-semantics");
+    }
+
+    SDL_Event auto_motion{};
+    auto_motion.type = SDL_EVENT_MOUSE_MOTION;
+    auto_motion.motion.x = 8.0f;
+    auto_motion.motion.y = 8.0f + 16.0f * 13.0f;
+    (void)ui.process_event(auto_motion);
+    const auto auto_inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(auto_inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(auto_inspection.source == "native-default");
+    CHECK(auto_inspection.owner.empty());
+}
+
+TEST_CASE("RuntimeUI world Hotspot cursors share central arbitration with click-through Layouts")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+    ui.configure_focused_preview_cursors({.default_cursor = "default",
+                                          .pointer_cursor = "pointer",
+                                          .hotspot_cursor = "crosshair",
+                                          .named = {}});
+
+    ui.set_world_hotspot_cursor(std::nullopt, "room-hotspot:room:desk");
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.source == "world-hotspot");
+    CHECK(inspection.owner == "room-hotspot:room:desk");
+
+    constexpr const char* clickthrough_document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; pointer-events: none; }
+  #overlay { width: 200px; height: 80px; cursor: wait; pointer-events: none; }
+</style></head><body><div id="overlay">Overlay</div></body></rml>
+)";
+    constexpr const char* owning_document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  #target { display: block; width: 200px; height: 80px; margin: 0; cursor: text; }
+</style></head><body><button id="target">Target</button></body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::MenuOverlay;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.load_document_from_memory_for_layout("hotspot-clickthrough", clickthrough_document,
+                                                    "preview://hotspot-clickthrough.rml", true,
+                                                    policy));
+    ui.begin_frame({});
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.source == "world-hotspot");
+
+    REQUIRE(ui.load_document_from_memory_for_layout("hotspot-owner", owning_document,
+                                                    "preview://hotspot-owner.rml", true, policy));
+    ui.begin_frame({});
+    (void)ui.process_event(motion);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Text);
+    CHECK(inspection.source == "rmlui");
+    CHECK(inspection.owner == "hotspot-owner");
+
+    REQUIRE(ui.hide_document("hotspot-owner"));
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Crosshair);
+    CHECK(inspection.source == "world-hotspot");
+
+    ui.set_world_hotspot_cursor(
+        noveltea::core::compiled::CursorTarget{noveltea::core::compiled::CursorTargetKind::System,
+                                               noveltea::core::compiled::CursorSystemName::Wait,
+                                               {}},
+        "room-hotspot:room:desk");
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.source == "world-hotspot");
+
+    ui.clear_world_hotspot_cursor();
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.source == "project-default");
+}
+
+TEST_CASE(
+    "RuntimeUI cursor arbitration follows front-to-back input ownership under a stationary pointer")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 360, 640, 360),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    constexpr const char* lower_document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  #lower { display: block; width: 200px; height: 80px; margin: 0; cursor: pointer; }
+</style></head><body><button id="lower">Lower</button></body></rml>
+)";
+    constexpr const char* top_document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  #top { display: block; width: 200px; height: 80px; margin: 0; cursor: text; }
+</style></head><body><button id="top">Top</button></body></rml>
+)";
+    constexpr const char* clickthrough_document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; pointer-events: none; }
+  #overlay { width: 200px; height: 80px; cursor: wait; pointer-events: none; }
+</style></head><body><div id="overlay">Overlay</div></body></rml>
+)";
+    constexpr const char* modal_document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; cursor: auto; }
+</style></head><body>Modal shield</body></rml>
+)";
+
+    noveltea::core::MountedLayoutPolicy lower_policy;
+    lower_policy.plane = noveltea::core::PresentationPlane::GameUi;
+    lower_policy.input = noveltea::core::LayoutInputMode::Normal;
+    auto top_policy = lower_policy;
+    top_policy.plane = noveltea::core::PresentationPlane::MenuOverlay;
+    auto modal_policy = top_policy;
+    modal_policy.plane = noveltea::core::PresentationPlane::Modal;
+    modal_policy.input = noveltea::core::LayoutInputMode::Modal;
+
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "cursor-lower", lower_document, "preview://cursor-lower.rml", true, lower_policy, 0,
+        noveltea::core::MountedLayoutOwner::Gameplay, {}, 0));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "cursor-top", top_document, "preview://cursor-top.rml", true, top_policy, 0,
+        noveltea::core::MountedLayoutOwner::Gameplay, {}, 0));
+    ui.begin_frame({});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = 20.0f;
+    motion.motion.y = 20.0f;
+    (void)ui.process_event(motion);
+    auto inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Text);
+    CHECK(inspection.source == "rmlui");
+    CHECK(inspection.owner == "cursor-top");
+
+    REQUIRE(ui.hide_document("cursor-top"));
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+    CHECK(inspection.owner == "cursor-lower");
+
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "cursor-clickthrough", clickthrough_document, "preview://cursor-clickthrough.rml", true,
+        top_policy, 1, noveltea::core::MountedLayoutOwner::Gameplay, {}, 1));
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+    CHECK(inspection.owner == "cursor-lower");
+
+    REQUIRE(ui.hide_document("cursor-clickthrough"));
+    REQUIRE(ui.show_document("cursor-top"));
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Text);
+    CHECK(inspection.owner == "cursor-top");
+
+    REQUIRE(ui.hide_document("cursor-top"));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "cursor-modal", modal_document, "preview://cursor-modal.rml", true, modal_policy, 0,
+        noveltea::core::MountedLayoutOwner::Shell, {}, 2));
+    ui.begin_frame({});
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.source == "native-default");
+}
+
+TEST_CASE("RuntimeUI clears transient cursor eligibility across bars leave and focus loss")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation =
+        noveltea::make_presentation_metrics(noveltea::make_host_surface_metrics(640, 480, 640, 480),
+                                            {.reference = {.size = {640, 360}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    constexpr const char* document = R"(
+<rml><head><style>
+  body { width: 640px; height: 360px; margin: 0; padding: 0; }
+  #target { display: block; width: 200px; height: 120px; margin: 0; cursor: pointer; }
+</style></head><body><button id="target">Target</button></body></rml>
+)";
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::GameUi;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.load_document_from_memory_for_layout("cursor-leave", document,
+                                                    "preview://cursor-leave.rml", true, policy));
+    ui.begin_frame({});
+
+    const auto move = [&](float x, float y) {
+        SDL_Event motion{};
+        motion.type = SDL_EVENT_MOUSE_MOTION;
+        motion.motion.x = x;
+        motion.motion.y = y;
+        (void)ui.process_event(motion);
+        return RuntimeUiFacadeAccess::cursor_inspection(ui);
+    };
+
+    auto inspection = move(20.0f, 80.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+    CHECK(inspection.owner == "cursor-leave");
+
+    inspection = move(20.0f, 10.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.source == "native-default");
+
+    inspection = move(20.0f, 80.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+
+    SDL_Event leave{};
+    leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
+    (void)ui.process_event(leave);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.source == "native-default");
+
+    inspection = move(20.0f, 80.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Pointer);
+
+    SDL_Event focus_lost{};
+    focus_lost.type = SDL_EVENT_WINDOW_FOCUS_LOST;
+    (void)ui.process_event(focus_lost);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Default);
+    CHECK(inspection.source == "native-default");
+
+    REQUIRE(ui.set_gameplay_cursor("wait"));
+    inspection = move(20.0f, 80.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.source == "gameplay-lua");
+    CHECK(inspection.owner == "runtime-session");
+
+    inspection = move(20.0f, 10.0f);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.source == "gameplay-lua");
+
+    (void)ui.process_event(leave);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.source == "gameplay-lua");
+
+    (void)ui.process_event(focus_lost);
+    inspection = RuntimeUiFacadeAccess::cursor_inspection(ui);
+    CHECK(inspection.effective == noveltea::host::CursorShape::Wait);
+    CHECK(inspection.source == "gameplay-lua");
 }
 
 TEST_CASE("RuntimeUI preserves lifecycle document state across migration and reload")

@@ -231,7 +231,27 @@ RoomPresentationVisualCatalog visual_catalog(const CompiledProject& project, Ses
                                              const RoomPresentationResolution& resolution)
 {
     RuntimeWorld world(project, state);
-    return build_room_presentation_visual_catalog(world, resolution);
+    auto catalog = build_room_presentation_visual_catalog(world, resolution);
+    for (const auto& hotspot : resolution.presentation.hotspots) {
+        std::optional<AssetId> source;
+        if (std::holds_alternative<compiled::RoomHotspotRef>(hotspot.ref)) {
+            source = resolution.presentation.background.asset;
+        } else {
+            const auto& ref = std::get<compiled::InteractableHotspotRef>(hotspot.ref);
+            const auto visual = std::ranges::find_if(catalog.interactables, [&](const auto& value) {
+                return value.interactable == ref.interactable;
+            });
+            if (visual != catalog.interactables.end())
+                source = visual->sprite;
+        }
+        const auto* asset = source ? project.find_asset(*source) : nullptr;
+        if (source && asset && asset->width && asset->height && *asset->width <= UINT16_MAX &&
+            *asset->height <= UINT16_MAX)
+            catalog.hotspots.push_back({hotspot.ref, *source,
+                                        static_cast<std::uint16_t>(*asset->width),
+                                        static_cast<std::uint16_t>(*asset->height)});
+    }
+    return catalog;
 }
 
 SessionState representative_state(const CompiledProject& project)
@@ -582,8 +602,7 @@ TEST_CASE("shared Room snapshot projector matches the runtime Room baseline")
     CHECK(focused_baseline.value().environments == runtime.value().environments);
 }
 
-TEST_CASE(
-    "runtime hotspot projection preserves eligibility while focused Room preview stays passive")
+TEST_CASE("runtime and focused Room hotspot projection preserve semantic eligibility and geometry")
 {
     const auto project = hotspot_fixture();
     auto created = SessionState::create(project);
@@ -648,7 +667,15 @@ TEST_CASE(
     auto focused = RoomPresentationSnapshotProjector::project(
         resolution.value(), visual_catalog(project, state, resolution.value()));
     REQUIRE(focused);
-    CHECK(focused.value().hotspots.empty());
+    REQUIRE(focused.value().hotspots.size() == 3);
+    CHECK(std::count_if(focused.value().hotspots.begin(), focused.value().hotspots.end(),
+                        [](const auto& hotspot) {
+                            return hotspot.condition_eligible && !hotspot.target_available;
+                        }) == 1);
+    CHECK(std::any_of(focused.value().hotspots.begin(), focused.value().hotspots.end(),
+                      [](const auto& hotspot) {
+                          return std::holds_alternative<AlphaHotspotShape>(hotspot.shape);
+                      }));
 }
 
 TEST_CASE("presentation projector represents absent optional families explicitly")

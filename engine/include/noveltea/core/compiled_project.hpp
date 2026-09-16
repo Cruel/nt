@@ -413,6 +413,46 @@ struct InventorySettings {
 struct InteractionPresentationSettings {
     std::optional<LayoutId> default_verb_menu_layout;
 };
+enum class CursorSystemName : std::uint8_t {
+    Default,
+    Pointer,
+    Text,
+    Wait,
+    Progress,
+    Crosshair,
+    Move,
+    NotAllowed,
+    NsResize,
+    EwResize,
+    NeswResize,
+    NwseResize,
+    None,
+};
+enum class CursorTargetKind : std::uint8_t {
+    System,
+    Named,
+    None,
+    InheritPointer,
+};
+struct CursorTarget {
+    CursorTargetKind kind = CursorTargetKind::System;
+    CursorSystemName system = CursorSystemName::Default;
+    std::string named_id;
+    bool operator==(const CursorTarget&) const = default;
+};
+struct NamedCursorDefinition {
+    std::string id;
+    AssetId image;
+    std::uint32_t hotspot_x = 0;
+    std::uint32_t hotspot_y = 0;
+    bool operator==(const NamedCursorDefinition&) const = default;
+};
+struct CursorSettings {
+    CursorTarget default_cursor;
+    CursorTarget pointer_cursor;
+    CursorTarget hotspot_cursor;
+    std::vector<NamedCursorDefinition> named;
+};
 enum class TransitionKind : std::uint8_t {
     Fade,
     Cut,
@@ -434,6 +474,7 @@ struct RuntimeSettings {
     AudioMixSettings audio;
     InventorySettings inventory;
     InteractionPresentationSettings interaction;
+    CursorSettings cursors;
 };
 
 enum class BackgroundFit : std::uint8_t {
@@ -710,6 +751,7 @@ struct RoomHotspot {
     HotspotHighlight highlight;
     RectHotspotShape shape;
     RoomHotspotTarget target;
+    std::optional<CursorTarget> cursor;
 };
 struct InteractableHotspotBehavior {
     HotspotId id;
@@ -718,6 +760,7 @@ struct InteractableHotspotBehavior {
     std::int32_t input_order;
     HotspotHighlight highlight;
     InteractableHotspotTarget target;
+    std::optional<CursorTarget> cursor;
 };
 struct InteractableCustomHotspot : InteractableHotspotBehavior {
     RectHotspotShape shape;
@@ -903,6 +946,7 @@ struct InteractablePresentation {
     std::optional<MaterialId> material;
     std::optional<AssetId> sprite;
     InteractableHotspots hotspots;
+    std::optional<CursorTarget> cursor;
 };
 struct InteractableDefinition {
     PropertyBearingDefinition<InteractableDefinitionId> identity;
