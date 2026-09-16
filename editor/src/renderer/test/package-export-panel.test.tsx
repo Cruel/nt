@@ -52,10 +52,10 @@ describe('PackageExportPanel', () => {
         {
           shader: 'noise',
           stage: 'fragment',
-          variant: 'glsl-120',
+          variant: 'glsl-330',
           sourcePath: '/project/noise.fs.sc',
-          outputPath: '/project/.noveltea/build/shaders/bgfx/glsl-120/noise.fs.bin',
-          runtimePath: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
+          outputPath: '/project/.noveltea/build/shaders/bgfx/glsl-330/noise.fs.bin',
+          runtimePath: 'project:/shaders/bgfx/glsl-330/noise.fs.bin',
           cacheKey: 'key',
           byteHash: `sha256:${'a'.repeat(64)}`,
           byteSize: 4,
@@ -76,8 +76,8 @@ describe('PackageExportPanel', () => {
         projectVersion: '1.0',
         entryCount: 4,
         assetCount: 1,
-        shaderVariants: ['glsl-120'],
-        requiredShaderBinaryPaths: ['shaders/bgfx/glsl-120/noise.fs.bin'],
+        shaderVariants: ['glsl-330'],
+        requiredShaderBinaryPaths: ['shaders/bgfx/glsl-330/noise.fs.bin'],
         display: {
           reference_resolution: { width: 1920, height: 1080 },
           world_raster_policy: 'capped',
@@ -121,7 +121,7 @@ describe('PackageExportPanel', () => {
     expect(screen.getAllByText('textures/logo.png').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('game')).toBeInTheDocument();
     expect(screen.getByText('10 bytes')).toBeInTheDocument();
-    expect(screen.getByText('project:/shaders/bgfx/glsl-120/noise.fs.bin')).toBeInTheDocument();
+    expect(screen.getByText('project:/shaders/bgfx/glsl-330/noise.fs.bin')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Preview Package'));
     await waitFor(() =>

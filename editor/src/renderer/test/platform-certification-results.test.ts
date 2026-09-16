@@ -58,7 +58,7 @@ function setup() {
     buildFlavor: 'release',
     minimumPlatformVersion: 'test',
     graphicsBackends: ['webgl2'],
-    shaderVariants: ['essl-100'],
+    shaderVariants: ['essl-300'],
     compiledProjectFormatVersion: 1,
     playerRuntimeApiVersion: 1,
     capabilities: [],

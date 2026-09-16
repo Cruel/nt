@@ -88,8 +88,8 @@ TEST_CASE("project shader and material records parse")
             "fragment":{
               "source":"project:/shaders/ui/soft_noise.fs.sc",
               "compiled":{
-                "glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
-                "essl-100":{"runtimePath":"project:/shaders/bgfx/essl-100/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}
+                "glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+                "essl-300":{"runtimePath":"project:/shaders/bgfx/essl-300/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}
               }
             }
           },
@@ -291,7 +291,7 @@ TEST_CASE("parser reports schema and shader diagnostics")
       "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
-          "stages":{"fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/soft_noise.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
+          "stages":{"fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/soft_noise.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
           "roles":["engine-2d"],
           "role_bindings":{}
         }
@@ -332,7 +332,7 @@ TEST_CASE("runtime shader compiled outputs reject every noncanonical shape")
             {"shaders",
              {{"soft_noise",
                {
-                   {"stages", {{"fragment", {{"compiled", {{"glsl-120", std::move(output)}}}}}}},
+                   {"stages", {{"fragment", {{"compiled", {{"glsl-330", std::move(output)}}}}}}},
                    {"roles", {"engine-2d"}},
                    {"role_bindings", nlohmann::json::object()},
                }}}},
@@ -343,11 +343,11 @@ TEST_CASE("runtime shader compiled outputs reject every noncanonical shape")
     };
 
     const auto valid = nlohmann::json{
-        {"runtimePath", "project:/shaders/bgfx/glsl-120/soft_noise.fs.bin"},
+        {"runtimePath", "project:/shaders/bgfx/glsl-330/soft_noise.fs.bin"},
         {"byteHash", "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         {"byteSize", 1},
     };
-    CHECK(rejects("project:/shaders/bgfx/glsl-120/soft_noise.fs.bin"));
+    CHECK(rejects("project:/shaders/bgfx/glsl-330/soft_noise.fs.bin"));
     auto partial = valid;
     partial.erase("byteHash");
     CHECK(rejects(partial));
@@ -356,7 +356,7 @@ TEST_CASE("runtime shader compiled outputs reject every noncanonical shape")
         "sha256:0000000000000000000000000000000000000000000000000000000000000000";
     CHECK(rejects(extra));
     auto namespace_less = valid;
-    namespace_less["runtimePath"] = "shaders/bgfx/glsl-120/soft_noise.fs.bin";
+    namespace_less["runtimePath"] = "shaders/bgfx/glsl-330/soft_noise.fs.bin";
     CHECK(rejects(namespace_less));
     auto invalid_hash = valid;
     invalid_hash["byteHash"] = "sha256:not-a-hash";

@@ -1411,7 +1411,7 @@ Define one shared closed Shader variant contract and reuse it across Shader auth
 focused-preview protocol, manifests, and host capabilities:
 
 ```ts
-const shaderVariantValues = ['glsl-120', 'essl-100', 'essl-300'] as const;
+const shaderVariantValues = ['glsl-330', 'essl-300', 'metal'] as const;
 type ShaderVariant = (typeof shaderVariantValues)[number];
 
 const focusedBuiltinTemplateIdValues = [

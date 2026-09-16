@@ -48,8 +48,8 @@ async function projectWithShaderMaterial() {
           sourceMode: 'asset',
           sourceAsset: { $ref: { collection: 'assets', id: 'noise-fs' } },
           compiled: {
-            'glsl-120': {
-              path: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
+            'glsl-330': {
+              path: 'project:/shaders/bgfx/glsl-330/noise.fs.bin',
               byteHash: `sha256:${'a'.repeat(64)}`,
               byteSize: 4,
               compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
@@ -77,10 +77,10 @@ async function projectWithShaderMaterial() {
       ],
     },
   };
-  const fingerprint = await shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
+  const fingerprint = await shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-330');
   if (!fingerprint) throw new Error('Expected Shader compile fingerprint fixture.');
   const shader = project.shaders.noise.data as ReturnType<typeof defaultShaderData>;
-  shader.stages[1]!.compiled['glsl-120']!.compileInputFingerprint = fingerprint;
+  shader.stages[1]!.compiled['glsl-330']!.compileInputFingerprint = fingerprint;
   return project;
 }
 
@@ -152,7 +152,7 @@ describe('buildShaderMaterialProject', () => {
   it('converts authoring shader and material records into runtime helper shape', async () => {
     const project = await projectWithShaderMaterial();
     const authoredOutput = (project.shaders.noise.data as ReturnType<typeof defaultShaderData>)
-      .stages[1]!.compiled['glsl-120']!;
+      .stages[1]!.compiled['glsl-330']!;
     const result = await buildShaderMaterialProject(project);
     expect(result.diagnostics).toEqual([]);
     expect(result.project.schema).toBe('noveltea.shader-materials');
@@ -162,7 +162,7 @@ describe('buildShaderMaterialProject', () => {
         fragment: {
           source: 'project:/assets/shaders/noise.fs.sc',
           compiled: {
-            'glsl-120': {
+            'glsl-330': {
               runtimePath: authoredOutput.path,
               byteHash: authoredOutput.byteHash,
               byteSize: authoredOutput.byteSize,
@@ -175,7 +175,7 @@ describe('buildShaderMaterialProject', () => {
       roles: ['engine-2d'],
       role_bindings: {},
     });
-    expect(result.project.shaders.noise.stages.fragment?.compiled?.['glsl-120']).not.toHaveProperty(
+    expect(result.project.shaders.noise.stages.fragment?.compiled?.['glsl-330']).not.toHaveProperty(
       'compileInputFingerprint',
     );
     expect(result.project.materials.panel).toMatchObject({
@@ -208,9 +208,9 @@ describe('buildShaderMaterialProject', () => {
       ],
     };
     const shader = project.shaders.noise.data as ReturnType<typeof defaultShaderData>;
-    const fingerprint = await shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
+    const fingerprint = await shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-330');
     if (!fingerprint) throw new Error('Expected updated Shader compile fingerprint fixture.');
-    shader.stages[1]!.compiled['glsl-120']!.compileInputFingerprint = fingerprint;
+    shader.stages[1]!.compiled['glsl-330']!.compileInputFingerprint = fingerprint;
 
     const result = await buildShaderMaterialProject(project);
     expect(result.diagnostics).toEqual([]);
@@ -227,9 +227,9 @@ describe('buildShaderMaterialProject', () => {
       roles: ['postprocess'],
     };
     const shader = project.shaders.noise.data as ReturnType<typeof defaultShaderData>;
-    const fingerprint = await shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
+    const fingerprint = await shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-330');
     if (!fingerprint) throw new Error('Expected updated Shader compile fingerprint fixture.');
-    shader.stages[1]!.compiled['glsl-120']!.compileInputFingerprint = fingerprint;
+    shader.stages[1]!.compiled['glsl-330']!.compileInputFingerprint = fingerprint;
     project.materials.panel.data = {
       ...defaultMaterialData('Panel', 'noise'),
       role: 'postprocess',

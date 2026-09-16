@@ -332,7 +332,7 @@ describe('guarded editor IPC registrar', () => {
     await expect(
       ipcMain.invoke('compile-shaders', harness.event, sessionId, shaderProject, {
         forceRebuild: true,
-        shaderVariants: ['glsl-120'],
+        shaderVariants: ['glsl-330'],
       }),
     ).resolves.toBe(sessionId);
 

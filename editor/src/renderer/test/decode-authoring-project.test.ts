@@ -88,7 +88,7 @@ describe('decodeAuthoringProject', () => {
     >;
     const exportSettings = project.export as Record<string, unknown>;
     const runtime = exportSettings.runtime as Record<string, unknown>;
-    runtime.shaderVariants = ['glsl-120', 'essl-300', 'metal'];
+    runtime.shaderVariants = ['unsupported-desktop', 'essl-300', 'metal'];
 
     const decoded = decodeAuthoringProject(project);
 

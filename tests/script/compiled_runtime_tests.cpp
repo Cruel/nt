@@ -52,11 +52,11 @@ runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
         files.push_back({asset.path, 10, std::nullopt});
     }
     entries.push_back({{"path", "shader-materials.json"}, {"size", 10}});
-    entries.push_back({{"path", "shaders/bgfx/glsl-120/sprite.vs.bin"}, {"size", 10}});
-    entries.push_back({{"path", "shaders/bgfx/glsl-120/sprite.fs.bin"}, {"size", 10}});
+    entries.push_back({{"path", "shaders/bgfx/glsl-330/sprite.vs.bin"}, {"size", 10}});
+    entries.push_back({{"path", "shaders/bgfx/glsl-330/sprite.fs.bin"}, {"size", 10}});
     files.push_back({"shader-materials.json", 10, std::nullopt});
-    files.push_back({"shaders/bgfx/glsl-120/sprite.vs.bin", 10, std::nullopt});
-    files.push_back({"shaders/bgfx/glsl-120/sprite.fs.bin", 10, std::nullopt});
+    files.push_back({"shaders/bgfx/glsl-330/sprite.vs.bin", 10, std::nullopt});
+    files.push_back({"shaders/bgfx/glsl-330/sprite.fs.bin", 10, std::nullopt});
     nlohmann::json manifest = {
         {"format", "noveltea.runtime-package"},
         {"runtime_api_version", noveltea::core::player_runtime_api_version},
@@ -80,7 +80,7 @@ runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
            {{"enabled", decoded.value().settings().accessibility.text_scale.enabled},
             {"minimum", decoded.value().settings().accessibility.text_scale.minimum},
             {"maximum", decoded.value().settings().accessibility.text_scale.maximum}}}}},
-        {"shader_variants", nlohmann::json::array({"glsl-120"})},
+        {"shader_variants", nlohmann::json::array({"glsl-330"})},
         {"shader_materials",
          {{"entry", "shader-materials.json"},
           {"schema", "noveltea.shader-materials"},
@@ -90,8 +90,8 @@ runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
     auto shader_materials = nlohmann::json::parse(R"json({
       "schema":"noveltea.shader-materials",
       "shaders":{"sprite-shader":{"display_name":"Sprite","roles":["engine-2d"],"role_bindings":{},
-        "stages":{"vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
-                  "fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
+        "stages":{"vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
+                  "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
         "uniforms":{},"samplers":{}}},
       "materials":{"sprite-material":{"display_name":"Sprite","role":"engine-2d",
         "shader":"sprite-shader","uniforms":{},"textures":{},

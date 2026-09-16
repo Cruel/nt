@@ -181,14 +181,14 @@ describe('shared contracts characterization', () => {
       }),
     ).toBeTruthy();
     expect(shaderPreviewInputsSchema.parse({})).toEqual({});
-    expect(() => shaderPreviewInputsSchema.parse({ variant: 'glsl-120' })).toThrow();
+    expect(() => shaderPreviewInputsSchema.parse({ variant: 'invalid-variant' })).toThrow();
     expect(() =>
       roomPreviewInputsSchema.parse({ displayPreference: { mode: 'project' }, unknown: true }),
     ).toThrow();
   });
 
   it('requires complete canonical authoring Shader compiled-output metadata', () => {
-    const path = 'project:/shaders/bgfx/glsl-120/noise.fs.bin';
+    const path = 'project:/shaders/bgfx/glsl-330/noise.fs.bin';
     const fingerprint = `sha256:${'b'.repeat(64)}`;
     for (const invalid of [
       path,
@@ -196,7 +196,7 @@ describe('shared contracts characterization', () => {
       { path, byteHash: hash, compileInputFingerprint: fingerprint },
       { path, byteSize: 12, compileInputFingerprint: fingerprint },
       {
-        path: 'shaders/bgfx/glsl-120/noise.fs.bin',
+        path: 'shaders/bgfx/glsl-330/noise.fs.bin',
         byteHash: hash,
         byteSize: 12,
         compileInputFingerprint: fingerprint,
@@ -204,21 +204,21 @@ describe('shared contracts characterization', () => {
       { path, byteHash: 'sha256:not-a-hash', byteSize: 12, compileInputFingerprint: fingerprint },
     ]) {
       expect(() =>
-        shaderStageDataSchema.parse({ stage: 'fragment', compiled: { 'glsl-120': invalid } }),
+        shaderStageDataSchema.parse({ stage: 'fragment', compiled: { 'glsl-330': invalid } }),
       ).toThrow();
     }
     expect(
       shaderStageDataSchema.parse({
         stage: 'fragment',
         compiled: {
-          'glsl-120': {
+          'glsl-330': {
             path,
             byteHash: hash,
             byteSize: 12,
             compileInputFingerprint: fingerprint,
           },
         },
-      }).compiled['glsl-120'],
+      }).compiled['glsl-330'],
     ).toMatchObject({ byteHash: hash, byteSize: 12 });
   });
 
@@ -229,7 +229,7 @@ describe('shared contracts characterization', () => {
           {
             stage: 'fragment',
             compiled: {
-              'glsl-120': {
+              'glsl-330': {
                 path: 'project:/../outside.bin',
                 byteHash: hash,
                 byteSize: 12,
@@ -246,8 +246,8 @@ describe('shared contracts characterization', () => {
           {
             stage: 'vertex',
             compiled: {
-              'glsl-120': {
-                path: 'project:/shaders/bgfx/glsl-120/shared.bin',
+              'glsl-330': {
+                path: 'project:/shaders/bgfx/glsl-330/shared.bin',
                 byteHash: hash,
                 byteSize: 12,
                 compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
@@ -257,8 +257,8 @@ describe('shared contracts characterization', () => {
           {
             stage: 'fragment',
             compiled: {
-              'glsl-120': {
-                path: 'project:/shaders/bgfx/glsl-120/shared.bin',
+              'glsl-330': {
+                path: 'project:/shaders/bgfx/glsl-330/shared.bin',
                 byteHash: hash,
                 byteSize: 12,
                 compileInputFingerprint: `sha256:${'c'.repeat(64)}`,

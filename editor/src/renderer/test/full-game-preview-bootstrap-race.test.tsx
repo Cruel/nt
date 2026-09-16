@@ -61,7 +61,7 @@ vi.mock('@/components/engine-preview', async () => {
         capabilities: [],
         hostGeneration: 1,
         transportGeneration: 1,
-        activeShaderVariant: 'glsl-120',
+        activeShaderVariant: 'glsl-330',
       });
     }, [onPreviewMessage]);
 

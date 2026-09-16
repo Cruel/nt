@@ -15,21 +15,21 @@ noveltea::ShaderMaterialProject make_project()
       "shaders":{
         "engine_2d_default":{
           "stages":{
-            "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/engine_2d_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
+            "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/engine_2d_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "roles":["engine-2d"],
           "role_bindings":{}
         },
         "rmlui_decorator_default":{
           "stages":{
-            "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/rmlui_decorator_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
+            "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/rmlui_decorator_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "roles":["rmlui-decorator"],
           "role_bindings":{}
         },
         "soft_noise":{
           "stages":{
-            "fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
+            "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "uniforms":{"u_amount":{"type":"float","default":0.25}},
           "samplers":{"s_noise":{"type":"texture2d","binding":null}},
@@ -41,14 +41,14 @@ noveltea::ShaderMaterialProject make_project()
         },
         "active_text_wave_vs":{
           "stages":{
-            "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/active_text_wave.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
+            "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/active_text_wave.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "roles":["active-text"],
           "role_bindings":{}
         },
         "active_text_wave_fs":{
           "stages":{
-            "fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/active_text_wave.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
+            "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/active_text_wave.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "uniforms":{"u_time":{"type":"float","binding":"engine.time"}},
           "roles":["active-text"],
@@ -114,7 +114,7 @@ TEST_CASE("material shader programs resolve through role-specific stage bindings
     const auto project = make_project();
     const auto material_id = *noveltea::parse_material_id("world/water").id;
 
-    const auto result = noveltea::resolve_material_shader_program(project, material_id, "glsl-120");
+    const auto result = noveltea::resolve_material_shader_program(project, material_id, "glsl-330");
 
     REQUIRE(result.ok());
     REQUIRE(result.program);
@@ -123,8 +123,8 @@ TEST_CASE("material shader programs resolve through role-specific stage bindings
     CHECK(result.program->key.role == noveltea::ShaderRole::Engine2D);
     CHECK(result.program->vertex.shader.value() == "engine_2d_default");
     CHECK(result.program->fragment.shader.value() == "soft_noise");
-    CHECK(result.program->vertex.path == "project:/shaders/bgfx/glsl-120/engine_2d_default.vs.bin");
-    CHECK(result.program->fragment.path == "project:/shaders/bgfx/glsl-120/soft_noise.fs.bin");
+    CHECK(result.program->vertex.path == "project:/shaders/bgfx/glsl-330/engine_2d_default.vs.bin");
+    CHECK(result.program->fragment.path == "project:/shaders/bgfx/glsl-330/soft_noise.fs.bin");
     REQUIRE(find_uniform(*result.program, "u_amount") != nullptr);
     REQUIRE(find_sampler(*result.program, "s_noise") != nullptr);
 }
@@ -133,9 +133,9 @@ TEST_CASE("one fragment shader can resolve different material roles with differe
 {
     const auto project = make_project();
     const auto world = noveltea::resolve_material_shader_program(
-        project, *noveltea::parse_material_id("world/water").id, "glsl-120");
+        project, *noveltea::parse_material_id("world/water").id, "glsl-330");
     const auto ui = noveltea::resolve_material_shader_program(
-        project, *noveltea::parse_material_id("ui/noise_panel").id, "glsl-120");
+        project, *noveltea::parse_material_id("ui/noise_panel").id, "glsl-330");
 
     REQUIRE(world.ok());
     REQUIRE(ui.ok());
@@ -149,16 +149,16 @@ TEST_CASE("direct ActiveText shader pairs resolve without material records")
     const auto project = make_project();
     const auto result = noveltea::resolve_direct_shader_pair_program(
         project, *noveltea::parse_shader_id("active_text_wave_vs").id,
-        *noveltea::parse_shader_id("active_text_wave_fs").id, "glsl-120");
+        *noveltea::parse_shader_id("active_text_wave_fs").id, "glsl-330");
 
     REQUIRE(result.ok());
     REQUIRE(result.program);
     CHECK(result.program->key.kind == noveltea::ShaderProgramRequestKind::DirectShaderPair);
     CHECK(result.program->key.material_id.empty());
     CHECK(result.program->key.role == noveltea::ShaderRole::ActiveText);
-    CHECK(result.program->vertex.path == "project:/shaders/bgfx/glsl-120/active_text_wave.vs.bin");
+    CHECK(result.program->vertex.path == "project:/shaders/bgfx/glsl-330/active_text_wave.vs.bin");
     CHECK(result.program->fragment.path ==
-          "project:/shaders/bgfx/glsl-120/active_text_wave.fs.bin");
+          "project:/shaders/bgfx/glsl-330/active_text_wave.fs.bin");
     REQUIRE(find_uniform(*result.program, "u_time") != nullptr);
 }
 
@@ -166,14 +166,14 @@ TEST_CASE("missing material variants report material context and expected binary
 {
     const auto project = make_project();
     const auto result = noveltea::resolve_material_shader_program(
-        project, *noveltea::parse_material_id("world/water").id, "essl-100");
+        project, *noveltea::parse_material_id("world/water").id, "metal");
 
     REQUIRE_FALSE(result.ok());
     CHECK(has_code(result, noveltea::ShaderProgramDiagnosticCode::MissingCompiledVariant));
     CHECK(diagnostic_mentions(result, "world/water"));
     CHECK(diagnostic_mentions(result, "engine-2d"));
-    CHECK(diagnostic_mentions(result, "essl-100"));
-    CHECK(diagnostic_mentions(result, "shaders/bgfx/essl-100/engine_2d_default.vs.bin"));
+    CHECK(diagnostic_mentions(result, "metal"));
+    CHECK(diagnostic_mentions(result, "shaders/bgfx/metal/engine_2d_default.vs.bin"));
 }
 
 TEST_CASE("missing direct shader-pair variants report ActiveText shader ids")
@@ -181,14 +181,14 @@ TEST_CASE("missing direct shader-pair variants report ActiveText shader ids")
     const auto project = make_project();
     const auto result = noveltea::resolve_direct_shader_pair_program(
         project, *noveltea::parse_shader_id("active_text_wave_vs").id,
-        *noveltea::parse_shader_id("active_text_wave_fs").id, "essl-100");
+        *noveltea::parse_shader_id("active_text_wave_fs").id, "metal");
 
     REQUIRE_FALSE(result.ok());
     CHECK(has_code(result, noveltea::ShaderProgramDiagnosticCode::MissingCompiledVariant));
     CHECK(diagnostic_mentions(result, "active_text_wave_vs"));
     CHECK(diagnostic_mentions(result, "active_text_wave_fs"));
-    CHECK(diagnostic_mentions(result, "essl-100"));
-    CHECK(diagnostic_mentions(result, "shaders/bgfx/essl-100/active_text_wave_vs.vs.bin"));
+    CHECK(diagnostic_mentions(result, "metal"));
+    CHECK(diagnostic_mentions(result, "shaders/bgfx/metal/active_text_wave_vs.vs.bin"));
 }
 
 TEST_CASE("material resolution does not guess vertex stages when role binding is required")
@@ -197,7 +197,7 @@ TEST_CASE("material resolution does not guess vertex stages when role binding is
       "schema":"noveltea.shader-materials",
       "shaders":{
         "fragment_only":{
-          "stages":{"fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/fragment_only.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
+          "stages":{"fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/fragment_only.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
           "roles":["engine-2d"],
           "role_bindings":{}
         }
@@ -208,7 +208,7 @@ TEST_CASE("material resolution does not guess vertex stages when role binding is
     REQUIRE(parsed.project);
 
     const auto result = noveltea::resolve_material_shader_program(
-        *parsed.project, *noveltea::parse_material_id("bad").id, "glsl-120");
+        *parsed.project, *noveltea::parse_material_id("bad").id, "glsl-330");
 
     REQUIRE_FALSE(result.ok());
     CHECK(has_code(result, noveltea::ShaderProgramDiagnosticCode::MissingRoleBinding));
@@ -219,10 +219,10 @@ TEST_CASE("program cache keys distinguish material programs from direct shader p
 {
     const auto project = make_project();
     const auto material = noveltea::resolve_material_shader_program(
-        project, *noveltea::parse_material_id("world/water").id, "glsl-120");
+        project, *noveltea::parse_material_id("world/water").id, "glsl-330");
     const auto direct = noveltea::resolve_direct_shader_pair_program(
         project, *noveltea::parse_shader_id("engine_2d_default").id,
-        *noveltea::parse_shader_id("soft_noise").id, "glsl-120");
+        *noveltea::parse_shader_id("soft_noise").id, "glsl-330");
 
     REQUIRE(material.ok());
     REQUIRE(direct.ok());
