@@ -23,6 +23,7 @@ env:
   ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
   ANDROID_CMAKE_VERSION: "3.31.6"
   ANDROID_NDK_VERSION: "28.2.13676358"
+  NOVELTEA_SHADERC_TOOLCHAIN_TAG: r6
 
 permissions:
   contents: read
@@ -82,7 +83,7 @@ jobs:
           mkdir -p "$shaderc_root"
           curl -fL \
             -o "$shaderc_root/noveltea-bgfx-shaderc-linux-x64.tar.gz" \
-            https://github.com/Cruel/nt-tools/releases/download/r5/noveltea-bgfx-shaderc-linux-x64.tar.gz
+            "https://github.com/Cruel/nt-tools/releases/download/$NOVELTEA_SHADERC_TOOLCHAIN_TAG/noveltea-bgfx-shaderc-linux-x64.tar.gz"
           tar -xzf "$shaderc_root/noveltea-bgfx-shaderc-linux-x64.tar.gz" -C "$shaderc_root"
           test -x "$shaderc_root/bin/shaderc"
           test -f "$shaderc_root/resources/bgfx_shader.sh"
@@ -240,7 +241,7 @@ jobs:
             build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
             build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bimg_texturec_embedded.dir
             build/linux-release/tools/editor_tool/libnoveltea_bimg_texturec_embedded.a
-          key: ${{ runner.os }}-x64-embedded-bgfx-tools-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+          key: ${{ runner.os }}-x64-embedded-bgfx-tools-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
 
       - name: Set up compiler cache
         id: ccache
@@ -255,10 +256,9 @@ jobs:
           path: build/prebuilt-shader-assets
 
       - name: Download prebuilt embedded bgfx tool closure
-        if: vars.NOVELTEA_SHADERC_TOOLCHAIN_TAG != ''
+        if: env.NOVELTEA_SHADERC_TOOLCHAIN_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          NOVELTEA_SHADERC_TOOLCHAIN_TAG: ${{ vars.NOVELTEA_SHADERC_TOOLCHAIN_TAG }}
         run: |
           mkdir -p build/prebuilt-shaderc-download build/prebuilt-shaderc-toolchain
           gh release download "$NOVELTEA_SHADERC_TOOLCHAIN_TAG" \
@@ -352,8 +352,8 @@ jobs:
           name: noveltea-host-cli-linux-x64
           path: build/cli/linux
 
-      - name: Make NovelTea host CLI executable
-        run: chmod +x build/cli/linux/noveltea
+      - name: Make NovelTea host CLI executables executable
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
       - name: Certify NovelTea host CLI
         run: pnpm -C editor run noveltea:certify
@@ -467,7 +467,7 @@ jobs:
             build/linux-sanitize/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
             build/linux-sanitize/tools/editor_tool/CMakeFiles/noveltea_bimg_texturec_embedded.dir
             build/linux-sanitize/tools/editor_tool/libnoveltea_bimg_texturec_embedded.a
-          key: ${{ runner.os }}-x64-embedded-bgfx-tools-sanitize-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+          key: ${{ runner.os }}-x64-embedded-bgfx-tools-sanitize-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
 
       - name: Cache sanitizer RmlUi dependencies
         id: sanitizer-rmlui-cache
@@ -934,8 +934,8 @@ jobs:
           name: noveltea-host-cli-linux-x64
           path: build/cli/linux
 
-      - name: Make NovelTea host CLI executable
-        run: chmod +x build/cli/linux/noveltea
+      - name: Make NovelTea host CLI executables executable
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -1228,8 +1228,8 @@ jobs:
           name: noveltea-host-cli-linux-x64
           path: build/cli/linux
 
-      - name: Make NovelTea host CLI executable
-        run: chmod +x build/cli/linux/noveltea
+      - name: Make NovelTea host CLI executables executable
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
