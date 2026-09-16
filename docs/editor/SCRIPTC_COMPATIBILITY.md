@@ -6,7 +6,7 @@ NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.1.1. The r
 
 The shared authoring CLI is bundled as one private CommonJS package and executed inside scriptc's embedded QuickJS-ng island. This keeps the Node reference implementation and standalone CLI on the same TypeScript authoring/workspace semantics without requiring the shared codebase to conform to scriptc's current static TypeScript subset.
 
-The static host owns only narrow capabilities. `--version` and `--help` are resolved entirely in this static tier from shared canonical CLI constants, and raw `noveltea shaderc ...` dispatches from the static host directly into the embedded native shader compiler. The QuickJS island is imported lazily only for commands that need the authoring application. This keeps trivial CLI startup and raw shaderc forwarding near native process-launch cost.
+The static host owns only narrow capabilities. `--version` and `--help` are resolved entirely in this static tier from shared canonical CLI constants, raw `noveltea shaderc ...` dispatches from the static host directly into the embedded native shader compiler, and the `test` command family may execute directly when the Project-local canonical runtime cache is independently proven fresh. The QuickJS island is imported lazily whenever authoring/workspace semantics are required or cache admission cannot be established. This keeps trivial CLI startup, raw shaderc forwarding, and repeated cached test execution near native process-launch cost without making the static host a second Project parser.
 
 The static host owns:
 
@@ -16,10 +16,11 @@ The static host owns:
 - the C ABI bridge to `noveltea_tooling_native`;
 - raw bgfx-compatible `shaderc` argument/exit-code forwarding without QuickJS initialization;
 - direct child-process execution for the shared TypeScript platform exporter;
-- native file-mode, exact path metadata, and available-disk-space inspection used by workspace/cache and staging safety checks;
+- native file-mode, exact path metadata, available-disk-space inspection, and conservative canonical runtime-cache admission used by workspace/cache and staging safety checks;
+- cached `test run <id>`, bare `test run`, `test run-spec`, and `test run-ui-spec` dispatch when the current runtime artifact and lowered Test catalog are proven reusable;
 - `bimg`-backed raster inspection, contain-resizing, and PNG encoding for standalone icon output.
 
-The native tooling archive continues to own shader compilation, raw bgfx shaderc forwarding, runtime/UI playback, and package writing. `noveltea_tooling_scriptc_invoke_to_file` is an adapter for scriptc format-1 FFI: request JSON crosses as borrowed strings, the existing `noveltea_tooling_*_json` API produces the response, and the adapter materializes that response into a private temporary file for the static host to read. Native business logic is not duplicated in the adapter.
+The native tooling archive continues to own shader compilation, raw bgfx shaderc forwarding, runtime/UI playback, canonical cache probing, and package writing. `noveltea_tooling_scriptc_invoke_to_file` is an adapter for scriptc format-1 FFI: request JSON crosses as borrowed strings, the existing `noveltea_tooling_*_json` API produces the response, and the adapter materializes that response into a private temporary file for the static host to read. Native business logic is not duplicated in the adapter. Cache probing validates the current generation identity, exact source/input metadata, relevant source hashes, discovery contract, Test-source set, and artifact/catalog digests without decoding authored Project/Test schema.
 
 ## Build-time source embedding
 
@@ -74,4 +75,4 @@ A release is not admitted merely because scriptc can build it. The differential 
 
 ## Performance policy
 
-The current design deliberately favors compatibility over forcing shared TypeScript through scriptc's static compiler. If profiling later identifies sustained hot paths, they may be migrated selectively to scriptc-native code or C++ behind explicit data boundaries. The shared Node/TypeScript authored single-test path now persists and reuses the canonical runtime artifact plus independently fresh lowered Test catalog under the Project-local runtime cache; the ScriptC static host does not yet admit that cache before importing the QuickJS island. A later static-host optimization may consume the same cache contract without changing the public CLI command semantics or parsing authored Test schema.
+The current design deliberately favors compatibility over forcing shared TypeScript through scriptc's static compiler. The one intentional hot path is repeated test execution from a proven canonical cache generation: the static host performs only conservative root nomination and native cache admission, then dispatches the cached Compiled Project and lowered Test catalog directly to native runners. It never parses authored Project or Test schema. Missing, stale, malformed, incompatible, ambiguous, or otherwise unusable cache state imports the existing QuickJS island and follows canonical preparation/publication. If an admitted cached payload is rejected by native execution, the host invalidates the disposable current pointer and enters the canonical island path once, which rebuilds/retries without a host-level retry loop. Other authoring operations remain in the shared TypeScript island unless a similarly narrow measured boundary is justified later.

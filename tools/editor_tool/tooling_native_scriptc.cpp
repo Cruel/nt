@@ -46,6 +46,8 @@ NativeOperation operation_for(std::string_view operation)
         return &noveltea_tooling_disk_space_json;
     if (operation == "path-metadata")
         return &noveltea_tooling_path_metadata_json;
+    if (operation == "runtime-cache-probe")
+        return &noveltea_tooling_probe_runtime_cache_json;
     if (operation == "create-archive")
         return &noveltea_tooling_create_archive_json;
     return nullptr;
