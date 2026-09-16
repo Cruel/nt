@@ -30,22 +30,21 @@ Useful checks from the repository root:
 node tools/feature-lab/validate.mjs --project tests/projects/feature-lab
 pnpm -C editor noveltea -- --project ../tests/projects/feature-lab validate
 pnpm -C editor project:compile -- --project tests/projects/feature-lab --output /tmp/feature-lab-compiled.json --json
+build/cli/linux/noveltea --project tests/projects/feature-lab test run
 build/cli/linux/noveltea --project tests/projects/feature-lab test run rooms-interactions-flow
 build/cli/linux/noveltea --project tests/projects/feature-lab test run rooms-interactions-ui
 build/cli/linux/noveltea --project tests/projects/feature-lab test run dialogue-presentation-flow
 build/cli/linux/noveltea --project tests/projects/feature-lab test run dialogue-presentation-ui
 ```
 
-The four authored Test commands require a native NovelTea CLI/test runner build appropriate to the host. Inspect `--json` output's `native.report.passed`, not just the command exit status or top-level `success`: the current CLI can report command success for a failing playback report.
+The bare `test run` command is the normal automation/acceptance entry point. It executes the complete
+lowered authored suite through the shared native suite runner and returns nonzero when any executed
+Test is `failed` or `error`; `blocked` Tests remain visible but do not by themselves fail the suite.
+With `--json`, use `native.report.counts` and the ordered `native.report.entries` statuses as the
+aggregate contract. Individual `test run <id>` commands remain useful for diagnosis and retain the
+complete playback report for that Test.
 
-### Verification gaps
-
-After flattening the Project root and updating media identities, manifest validation (2 scenarios / 13 checks), all 35 CI tests, normal Project validation/compilation, and the editor check passed. The editor suite passed on rerun (1,938 passed / 5 skipped) after an unrelated ComfyUI menu-test failure. All four authored Tests were rerun with the existing native CLI; their playback reports still fail for the gaps below. Manual visual/audio acceptance was not repeated for this path/identity cleanup.
-
-The review fixes were exercised through a packaged Project in the Linux sandbox: navigator launch, locked-door rejection, button activation, successful navigation, and the destination notification. This does not certify the authored runners. Current follow-ups remain:
-
-- `tools/editor_tool/tooling_ui_test_runner.cpp` reconciles gameplay Layouts but does not mount the shell-owned Game HUD. Feature Lab UI Tests report `document is not loaded: runtime_game` before their click assertions can run. The runner needs ordinary shell/system-Layout lifecycle and restart support, not Lab-specific mounts.
-- The headless Rooms Test reaches the destination but its Fade never completes through the presentation driver, so the after-enter notification expectation fails; advancing authored time alone does not resolve it. The Dialogue semantic Test also reports `execution.dialogue_choice_without_blocker`. These are runner/runtime gaps, not passing automation coverage.
-- The sandbox can reject post-restart UI publications with `host.runtime_ui_publication_rejected` until the new session revision catches up with the previous one. Fresh re-entry requires a host/UI generation-reset fix; do not treat this transient failure as a scenario status change.
-
-Keep these failures visible rather than removing expectations or claiming that successful CLI invocation proves playback passed.
+Standalone release certification copies this Project to an isolated temporary workspace, runs the
+bare suite from a cold cache, verifies the aggregate result, then runs a targeted Test from the shared
+cache. Manual Feature Lab inspection remains complementary for visual/audio quality; it is not needed
+to infer whether the authored automation suite passed.

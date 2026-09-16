@@ -193,6 +193,40 @@ describe('persistent runtime build cache', () => {
     });
   });
 
+  it('rebuilds the runtime artifact when runtime-relevant Project source changes', async () => {
+    const root = await createProjectWorkspace();
+    const projects: unknown[] = [];
+    const tools = nativeTools(projects);
+    expect((await runCachedTest(root, tools)).exitCode).toBe(0);
+    const firstGeneration = await currentGeneration(root);
+    const firstArtifact = await readFile(
+      generationPath(root, firstGeneration, 'artifact.json'),
+      'utf8',
+    );
+
+    const projectJson = path.join(root, 'project.json');
+    const manifest = JSON.parse(await readFile(projectJson, 'utf8')) as {
+      project: { name: string };
+    };
+    manifest.project.name = 'Runtime Recompiled';
+    await writeFile(projectJson, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+    const rebuilt = await runCachedTest(root, tools);
+    expect(rebuilt.exitCode).toBe(0);
+    expect(cacheStatus(rebuilt)).toMatchObject({
+      status: 'stale',
+      reason: 'workspace-source-revision-changed',
+      published: true,
+    });
+    const secondGeneration = await currentGeneration(root);
+    expect(secondGeneration).not.toBe(firstGeneration);
+    expect(
+      await readFile(generationPath(root, secondGeneration, 'artifact.json'), 'utf8'),
+    ).not.toBe(firstArtifact);
+    expect(projects).toHaveLength(2);
+    expect(projects[1]).not.toEqual(projects[0]);
+  });
+
   it('publishes deterministic runnable and blocked catalog entries without executing a blocked test', async () => {
     const root = await createProjectWorkspace();
     const projects: unknown[] = [];
