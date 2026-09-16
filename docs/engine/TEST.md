@@ -367,11 +367,14 @@ It serializes:
 - named Interaction bindings;
 - typed autosave/manual save slots.
 
-The same adapter compiles the current authoring project through `prepareRuntimeArtifact` with the
-`test-playback` intent. Tests therefore execute against the same canonical compiled project used by
-Play preview rather than a second runtime-project shape. Semantic-only Tests select the `runtime`
-runner. Any enabled `ui-click` step selects `runtime-ui`, which initializes RuntimeUI/RmlUi and still
-uses the same typed semantic expectation/reporting protocol as the semantic runner.
+Test execution uses the same canonical runtime preparation contract as Play rather than a second
+runtime-project shape. For a clean active Project, the Electron main process admits/publishes the
+shared Project-local persistent generation and consumes its lowered Test catalog; this is the same
+cache generation used by the CLI. Unsaved/recovered Test content or pending Test input is compiled
+for that invocation only and is never published over the saved canonical catalog. Semantic-only Tests
+select the `runtime` runner. Any enabled `ui-click` step selects `runtime-ui`, which initializes
+RuntimeUI/RmlUi and still uses the same typed semantic expectation/reporting protocol as the semantic
+runner.
 
 ## Run Readiness
 

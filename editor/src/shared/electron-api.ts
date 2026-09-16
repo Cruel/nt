@@ -51,7 +51,17 @@ interface NovelTeaElectronApiContract {
   closeActiveProject(): Promise<void>;
   validateProject(projectSessionId: string, project: unknown): Promise<ValidationResponse>;
   listPlaybackTests(project: unknown): Promise<TestListResponse>;
-  runPlaybackTest(project: unknown, testId: string): Promise<PlaybackReportResponse>;
+  prepareEditorRuntime(
+    projectSessionId: string,
+    project: unknown,
+    recoveryFingerprint: unknown,
+  ): Promise<import('./editor-runtime-cache').EditorRuntimePreparationResult>;
+  runPlaybackTest(
+    projectSessionId: string | null,
+    project: unknown,
+    testId: string,
+    recoveryFingerprint?: unknown,
+  ): Promise<PlaybackReportResponse>;
   runPlaybackSpec(project: unknown, spec: unknown): Promise<PlaybackReportResponse>;
   runUiPlaybackSpec(
     projectSessionId: string | null,
