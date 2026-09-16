@@ -46,7 +46,6 @@ describe('TestSuiteEditor', () => {
       diagnostics: [],
       report: {
         schema: 'noveltea.test-suite-report',
-        version: 1,
         counts: { total: 4, passed: 1, failed: 1, blocked: 1, error: 1 },
         entries: [
           {
@@ -93,10 +92,10 @@ describe('TestSuiteEditor', () => {
     expect(
       await screen.findByText('1 passed · 1 failed · 1 blocked · 1 error'),
     ).toBeInTheDocument();
-    expect(within(screen.getByTestId('suite-test-alpha')).getByText('failed')).toBeInTheDocument();
-    expect(within(screen.getByTestId('suite-test-beta')).getByText('blocked')).toBeInTheDocument();
-    expect(within(screen.getByTestId('suite-test-delta')).getByText('error')).toBeInTheDocument();
-    expect(within(screen.getByTestId('suite-test-gamma')).getByText('passed')).toBeInTheDocument();
+    expect(within(screen.getByTestId('suite-test-alpha')).getByText('Failed')).toBeInTheDocument();
+    expect(within(screen.getByTestId('suite-test-beta')).getByText('Blocked')).toBeInTheDocument();
+    expect(within(screen.getByTestId('suite-test-delta')).getByText('Error')).toBeInTheDocument();
+    expect(within(screen.getByTestId('suite-test-gamma')).getByText('Passed')).toBeInTheDocument();
     expect(screen.getByText('Beta is not ready.')).toBeInTheDocument();
     expect(screen.getByText('Runtime unavailable.')).toBeInTheDocument();
   });
@@ -115,7 +114,6 @@ describe('TestSuiteEditor', () => {
       diagnostics: [],
       report: {
         schema: 'noveltea.test-suite-report',
-        version: 1,
         counts: { total: 4, passed: 4, failed: 0, blocked: 0, error: 0 },
         entries: ['alpha', 'beta', 'delta', 'gamma'].map((id) => ({
           id,

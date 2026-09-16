@@ -25,6 +25,7 @@ import { runtimeTestCatalogSchema, type RuntimeTestCatalog } from './runtime-tes
 export const RUNTIME_BUILD_CACHE_SCHEMA = 'noveltea.runtime-build-cache' as const;
 export const RUNTIME_BUILD_CACHE_ROOT = '.noveltea/cache/runtime' as const;
 export const RUNTIME_BUILD_CACHE_COMPILER_IDENTITY = `${NOVELTEA_VERSION}:${NOVELTEA_BUILD_IDENTITY}`;
+export const RUNTIME_BUILD_CACHE_CANONICAL_VARIANT = 'canonical-runtime' as const;
 
 export type RuntimeBuildCacheStatus = 'hit' | 'miss' | 'stale' | 'unusable';
 
@@ -50,12 +51,6 @@ interface RuntimeBuildCacheInputEntry {
 export interface RuntimeBuildCachePublicationHost {
   readonly pid: number;
   readonly processLiveness: ProjectWorkspaceProcessLiveness;
-}
-
-interface RuntimeBuildCacheSourceRevisionEntry {
-  readonly path: string;
-  readonly contentHash: string;
-  readonly byteSize: number;
 }
 
 interface RuntimeBuildCacheDiscoveryScope {
@@ -85,14 +80,6 @@ const inputEntrySchema = z
   })
   .strict();
 
-const sourceRevisionEntrySchema = z
-  .object({
-    path: z.string().min(1),
-    contentHash: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
-    byteSize: z.number().int().nonnegative(),
-  })
-  .strict();
-
 const discoveryScopeSchema = z
   .object({
     root: z.string().min(1),
@@ -104,7 +91,7 @@ const discoveryScopeSchema = z
 const runtimeBuildCacheManifestSchema = z
   .object({
     schema: z.literal(RUNTIME_BUILD_CACHE_SCHEMA),
-    variant: z.literal('canonical-runtime'),
+    variant: z.string().min(1),
     compilerIdentity: z.string().min(1),
     projectWorkspace: z
       .object({
@@ -120,13 +107,12 @@ const runtimeBuildCacheManifestSchema = z
       .strict(),
     preparedArtifactSchema: z.literal(PREPARED_RUNTIME_ARTIFACT_SCHEMA),
     discoveryScopes: z.array(discoveryScopeSchema),
-    sourceRevisions: z.array(sourceRevisionEntrySchema),
     inputs: z.array(inputEntrySchema),
     artifactFile: z.literal('artifact.json'),
     artifactSha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
     testCatalog: z
       .object({
-        sourceRevisions: z.array(sourceRevisionEntrySchema),
+        inputs: z.array(inputEntrySchema),
         catalogFile: z.literal('tests.json'),
         catalogSha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
       })
@@ -142,6 +128,7 @@ export type RuntimeBuildCacheLookup =
       readonly enabled: true;
       readonly observation: RuntimeBuildCacheObservation;
       readonly inputSnapshot?: RuntimeBuildCacheInputSnapshot;
+      readonly testInputSnapshot?: RuntimeBuildCacheInputSnapshot;
       readonly artifact?: PreparedRuntimeArtifact;
       readonly artifactText?: string;
       readonly testCatalog?: RuntimeTestCatalog;
@@ -161,30 +148,6 @@ function runtimeCanonicalSourcePaths(snapshot: LoadedProjectWorkspaceSnapshot): 
   return snapshot.canonicalSourceFiles.filter(
     (file) => file !== 'editor.json' && !file.startsWith('records/tests/'),
   );
-}
-
-function runtimeSourceRevisions(
-  snapshot: LoadedProjectWorkspaceSnapshot,
-): RuntimeBuildCacheSourceRevisionEntry[] {
-  return runtimeCanonicalSourcePaths(snapshot).map((file) => {
-    const revision = snapshot.fileRevisions[file];
-    if (!revision) throw new RuntimeBuildCacheInputError('workspace-source-revision-missing');
-    return { path: file, contentHash: revision.contentHash, byteSize: revision.byteSize };
-  });
-}
-
-function testCatalogSourceRevisions(
-  snapshot: LoadedProjectWorkspaceSnapshot,
-): RuntimeBuildCacheSourceRevisionEntry[] {
-  return snapshot.canonicalSourceFiles
-    .filter((file) => file.startsWith('records/tests/'))
-    .sort(compareProjectWorkspaceUnicodeCodePoints)
-    .map((file) => {
-      const revision = snapshot.fileRevisions[file];
-      if (!revision)
-        throw new RuntimeBuildCacheInputError('workspace-test-source-revision-missing');
-      return { path: file, contentHash: revision.contentHash, byteSize: revision.byteSize };
-    });
 }
 
 function runtimeAuthoritativePaths(snapshot: LoadedProjectWorkspaceSnapshot): string[] {
@@ -313,6 +276,32 @@ async function captureRuntimeInputs(
   return { entries };
 }
 
+async function captureTestInputs(
+  fileSystem: ProjectWorkspaceFileSystem,
+  snapshot: LoadedProjectWorkspaceSnapshot,
+): Promise<RuntimeBuildCacheInputSnapshot> {
+  if (!fileSystem.readPathMetadata) throw new RuntimeBuildCacheInputError('metadata-unavailable');
+  let projectRootRealPath: string;
+  try {
+    projectRootRealPath = await fileSystem.realpath(snapshot.projectRoot);
+  } catch {
+    throw new RuntimeBuildCacheInputError('project-root-realpath-unavailable');
+  }
+  const entries: RuntimeBuildCacheInputEntry[] = [];
+  for (const relative of snapshot.canonicalSourceFiles
+    .filter((file) => file.startsWith('records/tests/'))
+    .sort(compareProjectWorkspaceUnicodeCodePoints))
+    entries.push(
+      await assertContainedRegularFile(
+        fileSystem,
+        snapshot.projectRoot,
+        projectRootRealPath,
+        relative,
+      ),
+    );
+  return { entries };
+}
+
 function sameInputSnapshot(
   left: RuntimeBuildCacheInputSnapshot,
   right: RuntimeBuildCacheInputSnapshot,
@@ -322,13 +311,6 @@ function sameInputSnapshot(
 
 function sameDiscoveryScopes(value: readonly RuntimeBuildCacheDiscoveryScope[]): boolean {
   return JSON.stringify(value) === JSON.stringify(runtimeDiscoveryScopes);
-}
-
-function sameSourceRevisions(
-  left: readonly RuntimeBuildCacheSourceRevisionEntry[],
-  right: readonly RuntimeBuildCacheSourceRevisionEntry[],
-): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 async function readContainedCacheText(
@@ -346,8 +328,76 @@ async function readContainedCacheText(
   return fileSystem.readText(absolute);
 }
 
+const PREVIEW_INDEX_SCHEMA = 'noveltea.runtime-build-cache.preview-index';
+const MAX_PERSISTENT_PREVIEW_VARIANTS = 4;
+
+const previewIndexSchema = z
+  .object({
+    schema: z.literal(PREVIEW_INDEX_SCHEMA),
+    entries: z
+      .array(
+        z
+          .object({
+            variant: z.string().min(1),
+            generation: z.string().regex(cacheGenerationIdPattern),
+            lastUsedAtMs: z.number().int().nonnegative(),
+          })
+          .strict(),
+      )
+      .max(MAX_PERSISTENT_PREVIEW_VARIANTS),
+  })
+  .strict();
+
+type PreviewIndex = z.infer<typeof previewIndexSchema>;
+
 function currentPointerPath(fileSystem: ProjectWorkspaceFileSystem, projectRoot: string): string {
   return fileSystem.joinPath(projectRoot, RUNTIME_BUILD_CACHE_ROOT, 'current');
+}
+
+function previewIndexPath(fileSystem: ProjectWorkspaceFileSystem, projectRoot: string): string {
+  return fileSystem.joinPath(projectRoot, RUNTIME_BUILD_CACHE_ROOT, 'preview-index.json');
+}
+
+async function readPreviewIndex(
+  fileSystem: ProjectWorkspaceFileSystem,
+  projectRoot: string,
+): Promise<PreviewIndex> {
+  const path = previewIndexPath(fileSystem, projectRoot);
+  const metadata = await fileSystem.readPathMetadata!(path);
+  if (metadata.kind === 'missing') return { schema: PREVIEW_INDEX_SCHEMA, entries: [] };
+  if (metadata.kind !== 'file') throw new RuntimeBuildCacheInputError('preview-index-invalid');
+  const parsed = previewIndexSchema.safeParse(
+    JSON.parse(await readContainedCacheText(fileSystem, projectRoot, path)),
+  );
+  if (!parsed.success) throw new RuntimeBuildCacheInputError('preview-index-invalid');
+  return parsed.data;
+}
+
+async function writePreviewIndex(
+  fileSystem: ProjectWorkspaceFileSystem,
+  projectRoot: string,
+  index: PreviewIndex,
+): Promise<void> {
+  await fileSystem.writeTextAtomic(
+    previewIndexPath(fileSystem, projectRoot),
+    `${JSON.stringify(index)}\n`,
+  );
+}
+
+async function touchPreviewIndexVariant(
+  fileSystem: ProjectWorkspaceFileSystem,
+  projectRoot: string,
+  variant: string,
+  generation: string,
+): Promise<void> {
+  try {
+    const index = await readPreviewIndex(fileSystem, projectRoot);
+    const entries = index.entries.filter((entry) => entry.variant !== variant);
+    entries.push({ variant, generation, lastUsedAtMs: Date.now() });
+    await writePreviewIndex(fileSystem, projectRoot, { schema: PREVIEW_INDEX_SCHEMA, entries });
+  } catch {
+    // Preview LRU bookkeeping is disposable and must not invalidate a usable generation.
+  }
 }
 
 function generationsRoot(fileSystem: ProjectWorkspaceFileSystem, projectRoot: string): string {
@@ -368,14 +418,15 @@ function generationId(): string {
 
 function manifestFor(
   compilerIdentity: string,
-  snapshot: LoadedProjectWorkspaceSnapshot,
+  variant: string,
   inputSnapshot: RuntimeBuildCacheInputSnapshot,
+  testInputSnapshot: RuntimeBuildCacheInputSnapshot,
   artifactSha256: `sha256:${string}`,
   catalogSha256: `sha256:${string}`,
 ): RuntimeBuildCacheManifest {
   return {
     schema: RUNTIME_BUILD_CACHE_SCHEMA,
-    variant: 'canonical-runtime',
+    variant,
     compilerIdentity,
     projectWorkspace: {
       schema: PROJECT_WORKSPACE_SCHEMA,
@@ -391,21 +442,21 @@ function manifestFor(
       extensions: [...scope.extensions],
       excludedPrefixes: [...scope.excludedPrefixes],
     })),
-    sourceRevisions: runtimeSourceRevisions(snapshot),
     inputs: [...inputSnapshot.entries],
     artifactFile: 'artifact.json',
     artifactSha256,
     testCatalog: {
-      sourceRevisions: testCatalogSourceRevisions(snapshot),
+      inputs: [...testInputSnapshot.entries],
       catalogFile: 'tests.json',
       catalogSha256,
     },
   };
 }
 
-export async function lookupCanonicalRuntimeBuildCache(
+async function lookupRuntimeBuildCache(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: LoadedProjectWorkspaceSnapshot,
+  variant: string,
   compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
 ): Promise<RuntimeBuildCacheLookup> {
   if (!fileSystem.readPathMetadata) return { enabled: false };
@@ -424,45 +475,75 @@ export async function lookupCanonicalRuntimeBuildCache(
     };
   }
 
-  const pointer = currentPointerPath(fileSystem, snapshot.projectRoot);
-  let pointerMetadata;
+  let testInputs: RuntimeBuildCacheInputSnapshot | undefined;
   try {
-    pointerMetadata = await fileSystem.readPathMetadata(pointer);
+    testInputs = await captureTestInputs(fileSystem, snapshot);
   } catch {
-    return {
-      enabled: true,
-      observation: { status: 'unusable', reason: 'current-generation-unreadable' },
-      inputSnapshot: inputs,
-    };
+    testInputs = undefined;
   }
-  if (pointerMetadata.kind === 'missing')
-    return {
-      enabled: true,
-      observation: { status: 'miss', reason: 'current-generation-missing' },
-      inputSnapshot: inputs,
-    };
-  if (pointerMetadata.kind !== 'file')
-    return {
-      enabled: true,
-      observation: { status: 'unusable', reason: 'current-generation-not-regular' },
-      inputSnapshot: inputs,
-    };
 
   let generation: string;
-  try {
-    generation = (await readContainedCacheText(fileSystem, snapshot.projectRoot, pointer)).trim();
-  } catch (error) {
-    return {
-      enabled: true,
-      observation: {
-        status: 'unusable',
-        reason:
-          error instanceof RuntimeBuildCacheInputError
-            ? error.reason
-            : 'current-generation-unreadable',
-      },
-      inputSnapshot: inputs,
-    };
+  if (variant === RUNTIME_BUILD_CACHE_CANONICAL_VARIANT) {
+    const pointer = currentPointerPath(fileSystem, snapshot.projectRoot);
+    let pointerMetadata;
+    try {
+      pointerMetadata = await fileSystem.readPathMetadata(pointer);
+    } catch {
+      return {
+        enabled: true,
+        observation: { status: 'unusable', reason: 'current-generation-unreadable' },
+        inputSnapshot: inputs,
+      };
+    }
+    if (pointerMetadata.kind === 'missing')
+      return {
+        enabled: true,
+        observation: { status: 'miss', reason: 'current-generation-missing' },
+        inputSnapshot: inputs,
+      };
+    if (pointerMetadata.kind !== 'file')
+      return {
+        enabled: true,
+        observation: { status: 'unusable', reason: 'current-generation-not-regular' },
+        inputSnapshot: inputs,
+      };
+    try {
+      generation = (await readContainedCacheText(fileSystem, snapshot.projectRoot, pointer)).trim();
+    } catch (error) {
+      return {
+        enabled: true,
+        observation: {
+          status: 'unusable',
+          reason:
+            error instanceof RuntimeBuildCacheInputError
+              ? error.reason
+              : 'current-generation-unreadable',
+        },
+        inputSnapshot: inputs,
+      };
+    }
+  } else {
+    try {
+      const index = await readPreviewIndex(fileSystem, snapshot.projectRoot);
+      const entry = index.entries.find((candidate) => candidate.variant === variant);
+      if (!entry)
+        return {
+          enabled: true,
+          observation: { status: 'miss', reason: 'preview-variant-missing' },
+          inputSnapshot: inputs,
+        };
+      generation = entry.generation;
+    } catch (error) {
+      return {
+        enabled: true,
+        observation: {
+          status: 'unusable',
+          reason:
+            error instanceof RuntimeBuildCacheInputError ? error.reason : 'preview-index-invalid',
+        },
+        inputSnapshot: inputs,
+      };
+    }
   }
   if (!cacheGenerationIdPattern.test(generation))
     return {
@@ -508,6 +589,12 @@ export async function lookupCanonicalRuntimeBuildCache(
     };
   }
 
+  if (manifest.variant !== variant)
+    return {
+      enabled: true,
+      observation: { status: 'unusable', reason: 'manifest-variant-mismatch' },
+      inputSnapshot: inputs,
+    };
   if (manifest.compilerIdentity !== compilerIdentity)
     return {
       enabled: true,
@@ -518,22 +605,6 @@ export async function lookupCanonicalRuntimeBuildCache(
     return {
       enabled: true,
       observation: { status: 'stale', reason: 'discovery-contract-changed' },
-      inputSnapshot: inputs,
-    };
-  let currentSourceRevisions: RuntimeBuildCacheSourceRevisionEntry[];
-  try {
-    currentSourceRevisions = runtimeSourceRevisions(snapshot);
-  } catch {
-    return {
-      enabled: true,
-      observation: { status: 'unusable', reason: 'workspace-source-revision-missing' },
-      inputSnapshot: inputs,
-    };
-  }
-  if (!sameSourceRevisions(manifest.sourceRevisions, currentSourceRevisions))
-    return {
-      enabled: true,
-      observation: { status: 'stale', reason: 'workspace-source-revision-changed' },
       inputSnapshot: inputs,
     };
   if (!sameInputSnapshot({ entries: manifest.inputs }, inputs))
@@ -558,6 +629,8 @@ export async function lookupCanonicalRuntimeBuildCache(
         inputSnapshot: inputs,
       };
     artifact = preparedRuntimeArtifactSchema.parse(JSON.parse(artifactText));
+    if (variant !== RUNTIME_BUILD_CACHE_CANONICAL_VARIANT)
+      await touchPreviewIndexVariant(fileSystem, snapshot.projectRoot, variant, generation);
   } catch {
     return {
       enabled: true,
@@ -566,33 +639,30 @@ export async function lookupCanonicalRuntimeBuildCache(
     };
   }
 
-  let currentTestSourceRevisions: RuntimeBuildCacheSourceRevisionEntry[];
-  try {
-    currentTestSourceRevisions = testCatalogSourceRevisions(snapshot);
-  } catch {
+  if (!testInputs)
     return {
       enabled: true,
       observation: {
         status: 'hit',
         reason: 'current-runtime-generation-valid',
         testCatalogStatus: 'unusable',
-        testCatalogReason: 'workspace-test-source-revision-missing',
+        testCatalogReason: 'test-input-inspection-failed',
       },
       inputSnapshot: inputs,
       artifact,
       artifactText,
     };
-  }
-  if (!sameSourceRevisions(manifest.testCatalog.sourceRevisions, currentTestSourceRevisions))
+  if (!sameInputSnapshot({ entries: manifest.testCatalog.inputs }, testInputs))
     return {
       enabled: true,
       observation: {
         status: 'hit',
         reason: 'current-runtime-generation-valid',
         testCatalogStatus: 'stale',
-        testCatalogReason: 'test-source-revision-changed',
+        testCatalogReason: 'test-input-metadata-changed',
       },
       inputSnapshot: inputs,
+      testInputSnapshot: testInputs,
       artifact,
       artifactText,
     };
@@ -626,6 +696,7 @@ export async function lookupCanonicalRuntimeBuildCache(
         testCatalogReason: 'current-test-catalog-valid',
       },
       inputSnapshot: inputs,
+      ...(testInputs ? { testInputSnapshot: testInputs } : {}),
       artifact,
       artifactText,
       testCatalog,
@@ -644,6 +715,37 @@ export async function lookupCanonicalRuntimeBuildCache(
       artifactText,
     };
   }
+}
+
+export function captureRuntimeBuildCacheTestInputs(
+  fileSystem: ProjectWorkspaceFileSystem,
+  snapshot: LoadedProjectWorkspaceSnapshot,
+): Promise<RuntimeBuildCacheInputSnapshot> {
+  return captureTestInputs(fileSystem, snapshot);
+}
+
+export function lookupCanonicalRuntimeBuildCache(
+  fileSystem: ProjectWorkspaceFileSystem,
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
+): Promise<RuntimeBuildCacheLookup> {
+  return lookupRuntimeBuildCache(
+    fileSystem,
+    snapshot,
+    RUNTIME_BUILD_CACHE_CANONICAL_VARIANT,
+    compilerIdentity,
+  );
+}
+
+export function lookupRuntimeBuildCacheVariant(
+  fileSystem: ProjectWorkspaceFileSystem,
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  variant: string,
+  compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
+): Promise<RuntimeBuildCacheLookup> {
+  if (variant === RUNTIME_BUILD_CACHE_CANONICAL_VARIANT)
+    return lookupCanonicalRuntimeBuildCache(fileSystem, snapshot, compilerIdentity);
+  return lookupRuntimeBuildCache(fileSystem, snapshot, variant, compilerIdentity);
 }
 
 const CACHE_GENERATION_CLEANUP_GRACE_NANOSECONDS = 24n * 60n * 60n * 1_000_000_000n;
@@ -738,8 +840,7 @@ async function metadataIsOlderThan(
 async function cleanupOldGenerations(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: LoadedProjectWorkspaceSnapshot,
-  current: string,
-  previous: string | null,
+  retained: ReadonlySet<string>,
   host: RuntimeBuildCachePublicationHost,
 ): Promise<void> {
   const root = generationsRoot(fileSystem, snapshot.projectRoot);
@@ -752,7 +853,7 @@ async function cleanupOldGenerations(
   const cutoffNanoseconds =
     BigInt(Date.now()) * 1_000_000n - CACHE_GENERATION_CLEANUP_GRACE_NANOSECONDS;
   for (const name of names) {
-    if (name === current || name === previous || !cacheGenerationIdPattern.test(name)) continue;
+    if (retained.has(name) || !cacheGenerationIdPattern.test(name)) continue;
     const directory = fileSystem.joinPath(root, name);
     try {
       if (
@@ -809,44 +910,29 @@ async function cleanupOldGenerations(
   }
 }
 
-export async function publishCanonicalRuntimeBuildCache(
+async function publishRuntimeBuildCache(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: LoadedProjectWorkspaceSnapshot,
   currentSnapshot: LoadedProjectWorkspaceSnapshot,
   artifact: PreparedRuntimeArtifact,
   testCatalog: RuntimeTestCatalog,
   expectedInputs: RuntimeBuildCacheInputSnapshot,
+  expectedTestInputs: RuntimeBuildCacheInputSnapshot,
   reusedArtifactText: string | undefined,
   host: RuntimeBuildCachePublicationHost,
+  variant: string,
   compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
   if (!fileSystem.readPathMetadata) return { published: false, reason: 'metadata-unavailable' };
 
-  let originalSourceRevisions: RuntimeBuildCacheSourceRevisionEntry[];
-  let currentSourceRevisions: RuntimeBuildCacheSourceRevisionEntry[];
-  try {
-    originalSourceRevisions = runtimeSourceRevisions(snapshot);
-    currentSourceRevisions = runtimeSourceRevisions(currentSnapshot);
-  } catch {
-    return { published: false, reason: 'workspace-source-revision-missing' };
-  }
-  if (!sameSourceRevisions(originalSourceRevisions, currentSourceRevisions))
+  if (snapshot.sourceRevision !== currentSnapshot.sourceRevision)
     return { published: false, reason: 'workspace-source-changed-during-preparation' };
 
-  let originalTestSourceRevisions: RuntimeBuildCacheSourceRevisionEntry[];
-  let currentTestSourceRevisions: RuntimeBuildCacheSourceRevisionEntry[];
-  try {
-    originalTestSourceRevisions = testCatalogSourceRevisions(snapshot);
-    currentTestSourceRevisions = testCatalogSourceRevisions(currentSnapshot);
-  } catch {
-    return { published: false, reason: 'workspace-test-source-revision-missing' };
-  }
-  if (!sameSourceRevisions(originalTestSourceRevisions, currentTestSourceRevisions))
-    return { published: false, reason: 'workspace-test-source-changed-during-preparation' };
-
   let currentInputs: RuntimeBuildCacheInputSnapshot;
+  let currentTestInputs: RuntimeBuildCacheInputSnapshot;
   try {
-    currentInputs = await captureRuntimeInputs(fileSystem, snapshot);
+    currentInputs = await captureRuntimeInputs(fileSystem, currentSnapshot);
+    currentTestInputs = await captureTestInputs(fileSystem, currentSnapshot);
   } catch (error) {
     return {
       published: false,
@@ -856,14 +942,27 @@ export async function publishCanonicalRuntimeBuildCache(
   }
   if (!sameInputSnapshot(expectedInputs, currentInputs))
     return { published: false, reason: 'inputs-changed-during-preparation' };
+  if (!sameInputSnapshot(expectedTestInputs, currentTestInputs))
+    return { published: false, reason: 'test-inputs-changed-during-preparation' };
 
   let previous: string | null = null;
-  try {
-    const pointer = currentPointerPath(fileSystem, snapshot.projectRoot);
-    if ((await fileSystem.readPathMetadata(pointer)).kind === 'file')
-      previous = (await readContainedCacheText(fileSystem, snapshot.projectRoot, pointer)).trim();
-  } catch {
-    previous = null;
+  let previewIndex: PreviewIndex = { schema: PREVIEW_INDEX_SCHEMA, entries: [] };
+  if (variant === RUNTIME_BUILD_CACHE_CANONICAL_VARIANT) {
+    try {
+      const pointer = currentPointerPath(fileSystem, snapshot.projectRoot);
+      if ((await fileSystem.readPathMetadata(pointer)).kind === 'file')
+        previous = (await readContainedCacheText(fileSystem, snapshot.projectRoot, pointer)).trim();
+    } catch {
+      previous = null;
+    }
+  } else {
+    try {
+      previewIndex = await readPreviewIndex(fileSystem, snapshot.projectRoot);
+      previous =
+        previewIndex.entries.find((entry) => entry.variant === variant)?.generation ?? null;
+    } catch {
+      previewIndex = { schema: PREVIEW_INDEX_SCHEMA, entries: [] };
+    }
   }
 
   const id = generationId();
@@ -871,7 +970,14 @@ export async function publishCanonicalRuntimeBuildCache(
   const pointer = currentPointerPath(fileSystem, snapshot.projectRoot);
   try {
     await assertProjectWorkspacePathContained(fileSystem, snapshot.projectRoot, directory);
-    await assertProjectWorkspacePathContained(fileSystem, snapshot.projectRoot, pointer);
+    if (variant === RUNTIME_BUILD_CACHE_CANONICAL_VARIANT)
+      await assertProjectWorkspacePathContained(fileSystem, snapshot.projectRoot, pointer);
+    else
+      await assertProjectWorkspacePathContained(
+        fileSystem,
+        snapshot.projectRoot,
+        previewIndexPath(fileSystem, snapshot.projectRoot),
+      );
     await fileSystem.createDirectory(directory);
     await writeGenerationWriterLease(fileSystem, snapshot, id, host);
     const artifactText = reusedArtifactText ?? `${JSON.stringify(artifact)}\n`;
@@ -885,8 +991,9 @@ export async function publishCanonicalRuntimeBuildCache(
       `${JSON.stringify(
         manifestFor(
           compilerIdentity,
-          currentSnapshot,
+          variant,
           currentInputs,
+          currentTestInputs,
           artifactSha256,
           catalogSha256,
         ),
@@ -901,8 +1008,29 @@ export async function publishCanonicalRuntimeBuildCache(
     return { published: false, reason: 'cache-publication-failed' };
   }
 
+  const retired: string[] = [];
+  let activePreviewIndex = previewIndex;
   try {
-    await fileSystem.writeTextAtomic(pointer, `${id}\n`);
+    if (variant === RUNTIME_BUILD_CACHE_CANONICAL_VARIANT) {
+      await fileSystem.writeTextAtomic(pointer, `${id}\n`);
+      try {
+        activePreviewIndex = await readPreviewIndex(fileSystem, snapshot.projectRoot);
+      } catch {
+        activePreviewIndex = { schema: PREVIEW_INDEX_SCHEMA, entries: [] };
+      }
+    } else {
+      const nextEntries = previewIndex.entries
+        .filter((entry) => entry.variant !== variant)
+        .concat({ variant, generation: id, lastUsedAtMs: Date.now() })
+        .sort((left, right) => right.lastUsedAtMs - left.lastUsedAtMs);
+      for (const evicted of nextEntries.slice(MAX_PERSISTENT_PREVIEW_VARIANTS))
+        retired.push(evicted.generation);
+      activePreviewIndex = {
+        schema: PREVIEW_INDEX_SCHEMA,
+        entries: nextEntries.slice(0, MAX_PERSISTENT_PREVIEW_VARIANTS),
+      };
+      await writePreviewIndex(fileSystem, snapshot.projectRoot, activePreviewIndex);
+    }
   } catch {
     try {
       await fileSystem.removeDirectory(directory);
@@ -914,6 +1042,89 @@ export async function publishCanonicalRuntimeBuildCache(
 
   await markGenerationPublished(fileSystem, snapshot, id);
   await markGenerationRetired(fileSystem, snapshot, previous);
-  await cleanupOldGenerations(fileSystem, snapshot, id, previous, host);
+  if (variant !== RUNTIME_BUILD_CACHE_CANONICAL_VARIANT && previous) retired.push(previous);
+  for (const generation of new Set(retired)) {
+    if (!cacheGenerationIdPattern.test(generation) || generation === id) continue;
+    await markGenerationRetired(fileSystem, snapshot, generation);
+    try {
+      await fileSystem.removeDirectory(
+        generationDirectory(fileSystem, snapshot.projectRoot, generation),
+      );
+    } catch {
+      // Preview LRU cleanup is best-effort after the new index/generation is already published.
+    }
+  }
+
+  const retained = new Set(activePreviewIndex.entries.map((entry) => entry.generation));
+  retained.add(id);
+  if (variant !== RUNTIME_BUILD_CACHE_CANONICAL_VARIANT) {
+    try {
+      const canonicalPointer = currentPointerPath(fileSystem, snapshot.projectRoot);
+      if ((await fileSystem.readPathMetadata(canonicalPointer)).kind === 'file') {
+        const canonical = (
+          await readContainedCacheText(fileSystem, snapshot.projectRoot, canonicalPointer)
+        ).trim();
+        if (cacheGenerationIdPattern.test(canonical)) retained.add(canonical);
+      }
+    } catch {
+      // Cleanup is best-effort; inability to identify canonical retention must not fail publication.
+    }
+  }
+  await cleanupOldGenerations(fileSystem, snapshot, retained, host);
   return { published: true };
+}
+
+export function publishCanonicalRuntimeBuildCache(
+  fileSystem: ProjectWorkspaceFileSystem,
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  currentSnapshot: LoadedProjectWorkspaceSnapshot,
+  artifact: PreparedRuntimeArtifact,
+  testCatalog: RuntimeTestCatalog,
+  expectedInputs: RuntimeBuildCacheInputSnapshot,
+  expectedTestInputs: RuntimeBuildCacheInputSnapshot,
+  reusedArtifactText: string | undefined,
+  host: RuntimeBuildCachePublicationHost,
+  compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
+): Promise<Readonly<{ published: boolean; reason?: string }>> {
+  return publishRuntimeBuildCache(
+    fileSystem,
+    snapshot,
+    currentSnapshot,
+    artifact,
+    testCatalog,
+    expectedInputs,
+    expectedTestInputs,
+    reusedArtifactText,
+    host,
+    RUNTIME_BUILD_CACHE_CANONICAL_VARIANT,
+    compilerIdentity,
+  );
+}
+
+export function publishRuntimeBuildCacheVariant(
+  fileSystem: ProjectWorkspaceFileSystem,
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  currentSnapshot: LoadedProjectWorkspaceSnapshot,
+  artifact: PreparedRuntimeArtifact,
+  testCatalog: RuntimeTestCatalog,
+  expectedInputs: RuntimeBuildCacheInputSnapshot,
+  expectedTestInputs: RuntimeBuildCacheInputSnapshot,
+  reusedArtifactText: string | undefined,
+  host: RuntimeBuildCachePublicationHost,
+  variant: string,
+  compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
+): Promise<Readonly<{ published: boolean; reason?: string }>> {
+  return publishRuntimeBuildCache(
+    fileSystem,
+    snapshot,
+    currentSnapshot,
+    artifact,
+    testCatalog,
+    expectedInputs,
+    expectedTestInputs,
+    reusedArtifactText,
+    host,
+    variant,
+    compilerIdentity,
+  );
 }

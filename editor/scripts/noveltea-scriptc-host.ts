@@ -181,6 +181,7 @@ function staticNativeFailureDiagnostics(
 }
 
 function cachedPayloadAdmissionFailure(response: any, includeCatalog: boolean): boolean {
+  if (response?.compiledProjectAdmissionRejected === true) return true;
   const message = typeof response?.error === 'string' ? response.error : '';
   if (
     message.startsWith('Compiled project validation failed') ||
@@ -359,27 +360,46 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
         path: `/tests/${id}`,
         message: `Test '${id}' failed.`,
       });
-    else if (entry.status === 'blocked')
-      diagnostics.push({
-        code: 'native.test.blocked',
-        severity: 'warning',
-        path: `/tests/${id}`,
-        message: `Test '${id}' is blocked and was not executed.`,
-      });
-    else if (entry.status === 'error') {
+    else if (entry.status === 'blocked') {
       const nested: any[] = entry.diagnostics ?? [];
-      const messages: string[] = [];
+      let promoted = false;
       for (const item of nested) {
-        if (item && typeof item === 'object' && typeof item.message === 'string')
-          messages.push(item.message);
+        if (!item || typeof item !== 'object' || typeof item.message !== 'string') continue;
+        diagnostics.push({
+          code: 'native.test.blocked',
+          severity: 'warning',
+          path: typeof item.path === 'string' ? item.path : `/tests/${id}`,
+          message: item.message,
+        });
+        promoted = true;
       }
-      const message = messages.join('; ');
-      diagnostics.push({
-        code: 'native.test.error',
-        severity: 'error',
-        path: `/tests/${id}`,
-        message: message || `Test '${id}' could not execute.`,
-      });
+      if (!promoted)
+        diagnostics.push({
+          code: 'native.test.blocked',
+          severity: 'warning',
+          path: `/tests/${id}`,
+          message: `Test '${id}' is blocked and was not executed.`,
+        });
+    } else if (entry.status === 'error') {
+      const nested: any[] = entry.diagnostics ?? [];
+      let promoted = false;
+      for (const item of nested) {
+        if (!item || typeof item !== 'object' || typeof item.message !== 'string') continue;
+        diagnostics.push({
+          code: 'native.test.error',
+          severity: 'error',
+          path: typeof item.path === 'string' ? item.path : `/tests/${id}`,
+          message: item.message,
+        });
+        promoted = true;
+      }
+      if (!promoted)
+        diagnostics.push({
+          code: 'native.test.error',
+          severity: 'error',
+          path: `/tests/${id}`,
+          message: `Test '${id}' could not execute.`,
+        });
     }
   }
   const counts: any = report.counts && typeof report.counts === 'object' ? report.counts : {};

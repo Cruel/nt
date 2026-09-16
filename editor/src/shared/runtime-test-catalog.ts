@@ -8,7 +8,6 @@ import {
 import { buildRuntimePlaybackSpecFromTestData } from './project-schema/test-playback-project';
 
 export const RUNTIME_TEST_CATALOG_SCHEMA = 'noveltea.runtime-test-catalog' as const;
-export const RUNTIME_TEST_CATALOG_VERSION = 1 as const;
 
 const runtimeTestCatalogDiagnosticSchema = z
   .object({
@@ -39,7 +38,6 @@ const blockedRuntimeTestCatalogEntrySchema = z
 export const runtimeTestCatalogSchema = z
   .object({
     schema: z.literal(RUNTIME_TEST_CATALOG_SCHEMA),
-    version: z.literal(RUNTIME_TEST_CATALOG_VERSION),
     entries: z.array(
       z.discriminatedUnion('status', [
         runnableRuntimeTestCatalogEntrySchema,
@@ -130,7 +128,7 @@ export function buildRuntimeTestCatalog(project: AuthoringProject): RuntimeTestC
 
     entries.push({ id: testId, status: 'runnable', runner: playback.runner, spec: playback.spec });
   }
-  return { schema: RUNTIME_TEST_CATALOG_SCHEMA, version: RUNTIME_TEST_CATALOG_VERSION, entries };
+  return { schema: RUNTIME_TEST_CATALOG_SCHEMA, entries };
 }
 
 export function findRuntimeTestCatalogEntry(

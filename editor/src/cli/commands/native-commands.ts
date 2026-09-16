@@ -6,6 +6,7 @@ import {
   prepareRuntimeArtifact,
 } from '../../shared/runtime-artifact-preparation';
 import {
+  captureRuntimeBuildCacheTestInputs,
   lookupCanonicalRuntimeBuildCache,
   publishCanonicalRuntimeBuildCache,
   type RuntimeBuildCacheObservation,
@@ -24,6 +25,7 @@ import { cliDiagnostic } from '../contracts';
 import type { CliSemanticResult } from '../semantic-project';
 import type { CliCommandContext, CliCommandDefinition, CliCommandInvocation } from './types';
 import { CliCommandUsageError } from './types';
+import { executeCachedRuntimeArtifactWithRecovery } from '../../shared/runtime-cache-native-consumer';
 
 const shaderVariantIds = new Set(['glsl-330', 'essl-300', 'metal']);
 const runtimeBuildCacheProcessLiveness = new NodeProjectWorkspaceProcessLiveness();
@@ -59,18 +61,6 @@ function nativeSuccess(response: unknown): CliSemanticResult {
   if (record.ok !== true || record.success === false)
     return nativeFailure('native.operation', '/', response);
   return { ok: true, diagnostics: [], fields: { native: record } };
-}
-
-function publishedProject(context: CliCommandContext): unknown {
-  const published = context.workspace.publishCompiledArtifact(context.snapshot);
-  if (!published.ok)
-    return {
-      ok: false,
-      diagnostics: published.diagnostics.map((item) =>
-        cliDiagnostic(item.code, item.jsonPointer, item.message, item.severity),
-      ),
-    } satisfies CliSemanticResult;
-  return published.project.project;
 }
 
 function valueOption(arguments_: readonly string[], option: string): string | undefined {
@@ -166,34 +156,49 @@ function nativeSuiteResult(response: unknown): CliSemanticResult {
     const id = typeof entry.id === 'string' ? entry.id : 'unknown';
     if (entry.status === 'failed')
       return [cliDiagnostic('native.test.failed', `/tests/${id}`, `Test '${id}' failed.`)];
-    if (entry.status === 'blocked')
-      return [
-        cliDiagnostic(
-          'native.test.blocked',
-          `/tests/${id}`,
-          `Test '${id}' is blocked and was not executed.`,
-          'warning',
-        ),
-      ];
+    if (entry.status === 'blocked') {
+      const nested = Array.isArray(entry.diagnostics) ? entry.diagnostics : [];
+      const promoted = nested.flatMap((item) => {
+        if (!item || typeof item !== 'object') return [];
+        const diagnostic = item as Record<string, unknown>;
+        if (typeof diagnostic.message !== 'string') return [];
+        return [
+          cliDiagnostic(
+            'native.test.blocked',
+            typeof diagnostic.path === 'string' ? diagnostic.path : `/tests/${id}`,
+            diagnostic.message,
+            'warning',
+          ),
+        ];
+      });
+      return promoted.length > 0
+        ? promoted
+        : [
+            cliDiagnostic(
+              'native.test.blocked',
+              `/tests/${id}`,
+              `Test '${id}' is blocked and was not executed.`,
+              'warning',
+            ),
+          ];
+    }
     if (entry.status === 'error') {
       const nested = Array.isArray(entry.diagnostics) ? entry.diagnostics : [];
-      const message = nested
-        .map((item) =>
-          item &&
-          typeof item === 'object' &&
-          typeof (item as Record<string, unknown>).message === 'string'
-            ? ((item as Record<string, unknown>).message as string)
-            : '',
-        )
-        .filter(Boolean)
-        .join('; ');
-      return [
-        cliDiagnostic(
-          'native.test.error',
-          `/tests/${id}`,
-          message || `Test '${id}' could not execute.`,
-        ),
-      ];
+      const promoted = nested.flatMap((item) => {
+        if (!item || typeof item !== 'object') return [];
+        const diagnostic = item as Record<string, unknown>;
+        if (typeof diagnostic.message !== 'string') return [];
+        return [
+          cliDiagnostic(
+            'native.test.error',
+            typeof diagnostic.path === 'string' ? diagnostic.path : `/tests/${id}`,
+            diagnostic.message,
+          ),
+        ];
+      });
+      return promoted.length > 0
+        ? promoted
+        : [cliDiagnostic('native.test.error', `/tests/${id}`, `Test '${id}' could not execute.`)];
     }
     return [];
   });
@@ -216,6 +221,90 @@ function nativeSuiteResult(response: unknown): CliSemanticResult {
   };
 }
 
+async function prepareCachedTestRuntime(context: CliCommandContext, forceRebuild = false) {
+  const lookup = await lookupCanonicalRuntimeBuildCache(context.fileSystem, context.snapshot);
+  let artifact = forceRebuild ? undefined : lookup.enabled ? lookup.artifact : undefined;
+  let testCatalog = lookup.enabled ? lookup.testCatalog : undefined;
+  let cacheObservation: RuntimeBuildCacheObservation | null = lookup.enabled
+    ? lookup.observation
+    : null;
+  const cacheHit = !forceRebuild && lookup.enabled && !!lookup.artifact;
+  const needsArtifact = !artifact;
+  const needsCatalog = !testCatalog;
+  const expectedTestInputs =
+    lookup.enabled && lookup.inputSnapshot
+      ? (lookup.testInputSnapshot ??
+        (await captureRuntimeBuildCacheTestInputs(context.fileSystem, context.snapshot).catch(
+          () => undefined,
+        )))
+      : undefined;
+
+  if (!artifact) {
+    const prepared = await prepareRuntimeArtifact({
+      project: context.snapshot.project,
+      projectRoot: null,
+      profile: selectedExportProfile(context.snapshot.project),
+      intent: 'test-playback',
+      paths: logicalRuntimeArtifactPaths,
+    });
+    if (prepared.status !== 'prepared') {
+      const diagnostics =
+        prepared.status === 'cancelled' ? prepared.diagnostics : prepared.assessment.diagnostics;
+      return {
+        ok: false as const,
+        result: withRuntimeCacheObservation(
+          {
+            ok: false,
+            diagnostics: diagnostics.map((item) =>
+              cliDiagnostic('native.test.spec', item.path, item.message, item.severity),
+            ),
+          },
+          cacheObservation,
+        ),
+      };
+    }
+    artifact = prepared.artifact;
+  }
+  if (!testCatalog) testCatalog = buildRuntimeTestCatalog(context.snapshot.project);
+
+  if (
+    lookup.enabled &&
+    lookup.inputSnapshot &&
+    expectedTestInputs &&
+    (needsArtifact || needsCatalog)
+  ) {
+    const reopened = await context.workspace.open(context.snapshot.projectRoot, {
+      recoverTransactions: false,
+    });
+    const publication = reopened.ok
+      ? await publishCanonicalRuntimeBuildCache(
+          context.fileSystem,
+          context.snapshot,
+          reopened.snapshot,
+          artifact,
+          testCatalog,
+          lookup.inputSnapshot,
+          expectedTestInputs,
+          needsArtifact ? undefined : lookup.artifactText,
+          { pid: process.pid, processLiveness: runtimeBuildCacheProcessLiveness },
+        )
+      : { published: false, reason: 'workspace-revalidation-failed' };
+    cacheObservation = {
+      ...(cacheObservation ?? { status: 'unusable', reason: 'metadata-unavailable' }),
+      published: publication.published,
+      ...(publication.reason ? { publicationReason: publication.reason } : {}),
+    };
+  }
+
+  return {
+    ok: true as const,
+    artifact,
+    testCatalog,
+    cacheObservation,
+    cacheHit,
+  };
+}
+
 export const testRunCommand: CliCommandDefinition = {
   path: ['test', 'run'],
   parse(arguments_): CliCommandInvocation {
@@ -234,68 +323,9 @@ export const testRunCommand: CliCommandDefinition = {
             ],
           };
 
-        const lookup = await lookupCanonicalRuntimeBuildCache(context.fileSystem, context.snapshot);
-        let artifact = lookup.enabled ? lookup.artifact : undefined;
-        let testCatalog = lookup.enabled ? lookup.testCatalog : undefined;
-        let cacheObservation: RuntimeBuildCacheObservation | null = lookup.enabled
-          ? lookup.observation
-          : null;
-
-        if (!artifact) {
-          const prepared = await prepareRuntimeArtifact({
-            project: context.snapshot.project,
-            projectRoot: null,
-            profile: selectedExportProfile(context.snapshot.project),
-            intent: 'test-playback',
-            paths: logicalRuntimeArtifactPaths,
-          });
-          if (prepared.status !== 'prepared') {
-            const diagnostics =
-              prepared.status === 'cancelled'
-                ? prepared.diagnostics
-                : prepared.assessment.diagnostics;
-            return withRuntimeCacheObservation(
-              {
-                ok: false,
-                diagnostics: diagnostics.map((item) =>
-                  cliDiagnostic('native.test.spec', item.path, item.message, item.severity),
-                ),
-              },
-              cacheObservation,
-            );
-          }
-          artifact = prepared.artifact;
-        }
-
-        const catalogNeedsPublication = !testCatalog;
-        if (!testCatalog) testCatalog = buildRuntimeTestCatalog(context.snapshot.project);
-
-        if (
-          lookup.enabled &&
-          lookup.inputSnapshot &&
-          (catalogNeedsPublication || !lookup.artifact)
-        ) {
-          const reopened = await context.workspace.open(context.snapshot.projectRoot, {
-            recoverTransactions: false,
-          });
-          const publication = reopened.ok
-            ? await publishCanonicalRuntimeBuildCache(
-                context.fileSystem,
-                context.snapshot,
-                reopened.snapshot,
-                artifact,
-                testCatalog,
-                lookup.inputSnapshot,
-                lookup.enabled ? lookup.artifactText : undefined,
-                { pid: process.pid, processLiveness: runtimeBuildCacheProcessLiveness },
-              )
-            : { published: false, reason: 'workspace-revalidation-failed' };
-          cacheObservation = {
-            ...lookup.observation,
-            published: publication.published,
-            ...(publication.reason ? { publicationReason: publication.reason } : {}),
-          };
-        }
+        const prepared = await prepareCachedTestRuntime(context);
+        if (!prepared.ok) return prepared.result;
+        const { testCatalog, cacheObservation, cacheHit } = prepared;
 
         if (!testId) {
           if (!context.nativeTools.runTestSuite)
@@ -312,16 +342,31 @@ export const testRunCommand: CliCommandDefinition = {
               },
               cacheObservation,
             );
-          return withRuntimeCacheObservation(
-            nativeSuiteResult(
-              await context.nativeTools.runTestSuite({
-                project: artifact.compiledProject,
-                catalog: testCatalog,
-                projectRoot: context.snapshot.projectRoot,
-              }),
-            ),
-            cacheObservation,
-          );
+          let finalObservation = cacheObservation;
+          let rebuildFailure: CliSemanticResult | null = null;
+          const executeSuite = (runtime: typeof prepared) => {
+            if (!runtime.ok) return Promise.resolve({ ok: false });
+            return context.nativeTools.runTestSuite!({
+              project: runtime.artifact.compiledProject,
+              catalog: runtime.testCatalog,
+              projectRoot: context.snapshot.projectRoot,
+            });
+          };
+          const response = await executeCachedRuntimeArtifactWithRecovery({
+            cached: cacheHit,
+            execute: () => executeSuite(prepared),
+            rebuild: async () => {
+              const rebuilt = await prepareCachedTestRuntime(context, true);
+              if (!rebuilt.ok) {
+                rebuildFailure = rebuilt.result;
+                return null;
+              }
+              finalObservation = rebuilt.cacheObservation;
+              return () => executeSuite(rebuilt);
+            },
+          });
+          if (rebuildFailure) return rebuildFailure;
+          return withRuntimeCacheObservation(nativeSuiteResult(response), finalObservation);
         }
 
         const entry = findRuntimeTestCatalogEntry(testCatalog, testId);
@@ -350,18 +395,35 @@ export const testRunCommand: CliCommandDefinition = {
             cacheObservation,
           );
 
-        const request = { project: artifact.compiledProject, spec: entry.spec };
-        return withRuntimeCacheObservation(
-          nativeSuccess(
-            await (entry.runner === 'runtime-ui'
-              ? context.nativeTools.runUiTest({
-                  ...request,
-                  projectRoot: context.snapshot.projectRoot,
-                })
-              : context.nativeTools.runHeadlessTest(request)),
-          ),
-          cacheObservation,
-        );
+        let finalObservation = cacheObservation;
+        let rebuildFailure: CliSemanticResult | null = null;
+        const executeTest = async (runtime: typeof prepared) => {
+          if (!runtime.ok) return { ok: false };
+          const runtimeEntry = findRuntimeTestCatalogEntry(runtime.testCatalog, testId);
+          if (!runtimeEntry || runtimeEntry.status !== 'runnable') return { ok: false };
+          const request = { project: runtime.artifact.compiledProject, spec: runtimeEntry.spec };
+          return runtimeEntry.runner === 'runtime-ui'
+            ? context.nativeTools.runUiTest({
+                ...request,
+                projectRoot: context.snapshot.projectRoot,
+              })
+            : context.nativeTools.runHeadlessTest(request);
+        };
+        const response = await executeCachedRuntimeArtifactWithRecovery({
+          cached: cacheHit,
+          execute: () => executeTest(prepared),
+          rebuild: async () => {
+            const rebuilt = await prepareCachedTestRuntime(context, true);
+            if (!rebuilt.ok) {
+              rebuildFailure = rebuilt.result;
+              return null;
+            }
+            finalObservation = rebuilt.cacheObservation;
+            return () => executeTest(rebuilt);
+          },
+        });
+        if (rebuildFailure) return rebuildFailure;
+        return withRuntimeCacheObservation(nativeSuccess(response), finalObservation);
       },
     };
   },
@@ -389,18 +451,36 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
                 ),
               ],
             };
-          const project = publishedProject(context);
-          if (project && typeof project === 'object' && 'ok' in project)
-            return project as CliSemanticResult;
-          return nativeSuccess(
-            await (ui
+          const prepared = await prepareCachedTestRuntime(context);
+          if (!prepared.ok) return prepared.result;
+          let finalObservation = prepared.cacheObservation;
+          let rebuildFailure: CliSemanticResult | null = null;
+          const execute = (runtime: typeof prepared) =>
+            ui
               ? context.nativeTools.runUiTest({
-                  project,
+                  project: runtime.artifact.compiledProject,
                   spec,
                   projectRoot: context.snapshot.projectRoot,
                 })
-              : context.nativeTools.runHeadlessTest({ project, spec })),
-          );
+              : context.nativeTools.runHeadlessTest({
+                  project: runtime.artifact.compiledProject,
+                  spec,
+                });
+          const response = await executeCachedRuntimeArtifactWithRecovery({
+            cached: prepared.cacheHit,
+            execute: () => execute(prepared),
+            rebuild: async () => {
+              const rebuilt = await prepareCachedTestRuntime(context, true);
+              if (!rebuilt.ok) {
+                rebuildFailure = rebuilt.result;
+                return null;
+              }
+              finalObservation = rebuilt.cacheObservation;
+              return () => execute(rebuilt);
+            },
+          });
+          if (rebuildFailure) return rebuildFailure;
+          return withRuntimeCacheObservation(nativeSuccess(response), finalObservation);
         },
       };
     },

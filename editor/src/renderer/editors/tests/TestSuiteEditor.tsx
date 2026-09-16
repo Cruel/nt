@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useProjectStore } from '@/project/project-store';
@@ -38,7 +39,7 @@ type SuiteReport = {
 function parseSuiteReport(value: unknown): SuiteReport | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const report = value as Record<string, unknown>;
-  if (report.schema !== 'noveltea.test-suite-report' || report.version !== 1) return null;
+  if (report.schema !== 'noveltea.test-suite-report') return null;
   if (!report.counts || typeof report.counts !== 'object' || Array.isArray(report.counts))
     return null;
   if (!Array.isArray(report.entries)) return null;
@@ -94,6 +95,7 @@ function suiteBadgeVariant(status: SuiteStatus): 'default' | 'secondary' | 'dest
 }
 
 export function TestSuiteEditor(_props: WorkbenchEditorProps) {
+  const { t } = useTranslation('workspace');
   const projectDocument = useProjectStore((state) => state.document);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const openTab = useWorkbenchStore((state) => state.openTab);
@@ -149,11 +151,7 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   );
 
   if (!project)
-    return (
-      <div className="p-4 text-sm text-muted-foreground">
-        Open an authoring project to manage tests.
-      </div>
-    );
+    return <div className="p-4 text-sm text-muted-foreground">{t('tests.openProject')}</div>;
   const activeProject = project;
 
   async function runTest(testId: string) {
@@ -164,10 +162,13 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
       usePendingInputStore.getState().entriesBySaveUnitId,
     );
     setLastPlaybackReport(result.report ?? result);
-    setStatusMessage(result.ok ? `Ran test ${testId}` : (result.error ?? 'Test run failed'));
+    const message = result.ok
+      ? t('tests.ranTest', { testId })
+      : (result.error ?? t('tests.testRunFailed'));
+    setStatusMessage(message);
     addTimelineEntry({
       source: 'playback',
-      message: result.ok ? `Ran test ${testId}` : (result.error ?? 'Test run failed'),
+      message,
       detail: result,
     });
     setBottomPanel('test-playback');
@@ -185,9 +186,9 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
       setSuiteReport(report);
       const message = result.ok
         ? result.success === false
-          ? 'Test suite completed with failures'
-          : 'Test suite completed'
-        : (result.error ?? 'Test suite failed');
+          ? t('tests.suiteCompletedWithFailures')
+          : t('tests.suiteCompleted')
+        : (result.error ?? t('tests.suiteFailed'));
       setStatusMessage(message);
       addTimelineEntry({ source: 'playback', message, detail: result });
     } finally {
@@ -205,20 +206,16 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold">Tests</h2>
-          <p className="text-xs text-muted-foreground">
-            Global test suite. Open a test detail tab for step editing or run the complete suite
-            from here.
-          </p>
+          <h2 className="text-lg font-semibold">{t('tests.title')}</h2>
+          <p className="text-xs text-muted-foreground">{t('tests.description')}</p>
           {suiteReport ? (
             <div className="mt-1 text-xs text-muted-foreground">
-              {suiteReport.counts.passed} passed · {suiteReport.counts.failed} failed ·{' '}
-              {suiteReport.counts.blocked} blocked · {suiteReport.counts.error} error
+              {t('tests.summary', suiteReport.counts)}
             </div>
           ) : null}
         </div>
         <Button size="sm" onClick={() => void runAll()} disabled={runningSuite}>
-          {runningSuite ? 'Running…' : 'Run All'}
+          {runningSuite ? t('tests.running') : t('tests.runAll')}
         </Button>
       </div>
       <div className="mt-4 space-y-2">
@@ -237,11 +234,11 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
                   <span className="truncate font-medium">{test.label}</span>
                   {suiteEntry ? (
                     <Badge variant={suiteBadgeVariant(suiteEntry.status)}>
-                      {suiteEntry.status}
+                      {t(`tests.statuses.${suiteEntry.status}`)}
                     </Badge>
                   ) : (
                     <Badge variant={test.readiness.runnable ? 'default' : 'secondary'}>
-                      {test.readiness.runnable ? 'ready' : 'blocked'}
+                      {test.readiness.runnable ? t('tests.ready') : t('tests.statuses.blocked')}
                     </Badge>
                   )}
                 </div>
@@ -261,11 +258,11 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
                 variant="outline"
                 onClick={() => openTab(buildTestDetailTabForRecord(test.id, test.label))}
               >
-                Open
+                {t('tests.open')}
               </Button>
               {suiteEntry?.report !== undefined ? (
                 <Button size="sm" variant="outline" onClick={() => showReport(suiteEntry)}>
-                  Report
+                  {t('tests.report')}
                 </Button>
               ) : null}
               <Button
@@ -273,7 +270,7 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
                 onClick={() => void runTest(test.id)}
                 disabled={!test.readiness.runnable}
               >
-                Run
+                {t('tests.run')}
               </Button>
             </div>
           );
@@ -281,7 +278,7 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
       </div>
       {tests.length === 0 ? (
         <div className="mt-8 rounded border p-4 text-sm text-muted-foreground">
-          No tests exist yet.
+          {t('tests.empty')}
         </div>
       ) : null}
     </div>

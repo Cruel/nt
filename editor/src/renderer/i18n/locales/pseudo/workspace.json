@@ -1032,6 +1032,30 @@
       "missingMessage": "⟦Missing named Message: {{key}}⟧"
     }
   },
+  "tests": {
+    "openProject": "⟦Open an authoring project to manage tests.⟧",
+    "title": "⟦Tests⟧",
+    "description": "⟦Global test suite. Open a test detail tab for step editing or run the complete suite from here.⟧",
+    "summary": "⟦{{passed}} passed · {{failed}} failed · {{blocked}} blocked · {{error}} error⟧",
+    "runAll": "⟦Run All⟧",
+    "running": "⟦Running…⟧",
+    "open": "⟦Open⟧",
+    "report": "⟦Report⟧",
+    "run": "⟦Run⟧",
+    "ready": "⟦Ready⟧",
+    "empty": "⟦No tests exist yet.⟧",
+    "statuses": {
+      "passed": "⟦Passed⟧",
+      "failed": "⟦Failed⟧",
+      "blocked": "⟦Blocked⟧",
+      "error": "⟦Error⟧"
+    },
+    "ranTest": "⟦Ran test {{testId}}⟧",
+    "testRunFailed": "⟦Test run failed⟧",
+    "suiteCompleted": "⟦Test suite completed⟧",
+    "suiteCompletedWithFailures": "⟦Test suite completed with failures⟧",
+    "suiteFailed": "⟦Test suite failed⟧"
+  },
   "features": {
     "title": "⟦Features⟧",
     "subtitle": "⟦Stable semantic parts owned by this record. Features can carry Traits and Properties and participate in Interactions.⟧",

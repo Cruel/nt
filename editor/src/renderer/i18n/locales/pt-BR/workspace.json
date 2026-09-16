@@ -1068,6 +1068,30 @@
       "missingMessage": "Mensagem nomeada ausente: {{key}}"
     }
   },
+  "tests": {
+    "openProject": "Abra um projeto de autoria para gerenciar testes.",
+    "title": "Testes",
+    "description": "Suíte global de testes. Abra a guia de detalhes de um teste para editar etapas ou execute a suíte completa aqui.",
+    "summary": "{{passed}} aprovados · {{failed}} falharam · {{blocked}} bloqueados · {{error}} com erro",
+    "runAll": "Executar todos",
+    "running": "Executando…",
+    "open": "Abrir",
+    "report": "Relatório",
+    "run": "Executar",
+    "ready": "Pronto",
+    "empty": "Ainda não há testes.",
+    "statuses": {
+      "passed": "Aprovado",
+      "failed": "Falhou",
+      "blocked": "Bloqueado",
+      "error": "Erro"
+    },
+    "ranTest": "Teste {{testId}} executado",
+    "testRunFailed": "Falha ao executar o teste",
+    "suiteCompleted": "Suíte de testes concluída",
+    "suiteCompletedWithFailures": "Suíte de testes concluída com falhas",
+    "suiteFailed": "Falha na suíte de testes"
+  },
   "features": {
     "title": "Features",
     "subtitle": "Partes semânticas estáveis pertencentes a este registro. Features podem conter Traits e Properties e participar de Interactions.",

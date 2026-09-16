@@ -186,7 +186,6 @@ Object.defineProperty(window, 'noveltea', {
       success: true,
       report: {
         schema: 'noveltea.test-suite-report',
-        version: 1,
         counts: { total: 0, passed: 0, failed: 0, blocked: 0, error: 0 },
         entries: [],
       },

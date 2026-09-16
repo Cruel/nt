@@ -93,10 +93,12 @@ locale. Any declared locale, including work-in-progress/non-Supported locales, m
 preview; Play enables that locale only in its detached compilation input so the tracked Project locale
 policy remains unchanged. Full-game Play treats those detached inputs as explicit build-context
 variants: the Project Default uses the persistent canonical runtime/test generation, real preview
-locales use `preview-locale:<locale>` session variants, and the virtual QA locale uses a distinct
-pseudo-preview context. Preview-only variants are never written to the canonical persistent cache and
-are held in a main-process LRU capped at four entries, so the standalone CLI can never mistake one for
-the canonical artifact. A virtual **Pseudo-localized** QA choice is generated from the current Message
+locales use persistent `preview-locale:<locale>` variants, and the virtual QA locale uses a distinct
+persistent pseudo-preview context. Preview-only generations share the disposable runtime-cache
+namespace but are indexed separately from the canonical `current` pointer. Their persistent LRU is
+capped at four active variants and the standalone native CLI probe accepts only `canonical-runtime`,
+so a preview artifact can never masquerade as the canonical test/runtime artifact. A virtual
+**Pseudo-localized** QA choice is generated from the current Message
 source/structure: visible text is marked and expanded while placeholders, selector structure, semantic
 Dialogue Cue identities, and RML/rich-text markup remain intact. Play materializes the virtual target
 only in its detached compilation input, and focused previews derive the corresponding presentation

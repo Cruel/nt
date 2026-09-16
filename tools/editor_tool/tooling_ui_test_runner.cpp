@@ -373,6 +373,15 @@ nlohmann::json fail(std::string message, nlohmann::json diagnostics = nlohmann::
     return {{"ok", false}, {"error", std::move(message)}, {"diagnostics", std::move(diagnostics)}};
 }
 
+nlohmann::json
+compiled_project_admission_failure(std::string message,
+                                   nlohmann::json diagnostics = nlohmann::json::array())
+{
+    auto result = fail(std::move(message), std::move(diagnostics));
+    result["compiledProjectAdmissionRejected"] = true;
+    return result;
+}
+
 bool has_errors(const Diagnostics& diagnostics)
 {
     return ToolingUiInputSink::has_errors(diagnostics);
@@ -516,16 +525,17 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
 {
     const auto project_it = request.find("project");
     if (project_it == request.end())
-        return fail("Request requires compiled project.");
+        return compiled_project_admission_failure("Request requires compiled project.");
     nlohmann::json project_json = *project_it;
     if (project_json.is_string())
         project_json = nlohmann::json::parse(
             json_access::get_or<std::string>(project_json, {}), nullptr, false);
     if (project_json.is_discarded())
-        return fail("Compiled project JSON is malformed.");
+        return compiled_project_admission_failure("Compiled project JSON is malformed.");
     auto decoded_project = decode_compiled_project(project_json, "game");
     if (!decoded_project)
-        return fail("Compiled project validation failed.", diagnostics_json(decoded_project.error()));
+        return compiled_project_admission_failure("Compiled project validation failed.",
+                                                  diagnostics_json(decoded_project.error()));
 
     const auto spec_it = request.find("spec");
     if (spec_it == request.end())
@@ -567,11 +577,13 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
     HeadlessPresentationRuntime presentation;
     auto input = make_running_game_input(project_json, shader_materials, "en");
     if (!input)
-        return fail("Compiled runtime load failed.", diagnostics_json(input.error()));
+        return compiled_project_admission_failure("Compiled runtime load failed.",
+                                                  diagnostics_json(input.error()));
     auto running_game =
         load_running_game(std::move(*input.value_if()), gameplay_scripts, presentation, saves);
     if (!running_game)
-        return fail("Compiled runtime load failed.", diagnostics_json(running_game.error()));
+        return compiled_project_admission_failure("Compiled runtime load failed.",
+                                                  diagnostics_json(running_game.error()));
 
     auto project_assets = std::make_shared<noveltea::assets::MemoryAssetSource>();
     noveltea::jobs::InlineJobExecutor executor;
