@@ -80,6 +80,8 @@ public:
     [[nodiscard]] bool apply_order(const std::vector<std::string>& ordered_document_ids);
 
     [[nodiscard]] Rml::ElementDocument* document(const std::string& id) const noexcept;
+    [[nodiscard]] std::optional<std::string>
+    document_id(const Rml::ElementDocument* document) const;
     [[nodiscard]] Rml::Element* element(const std::string& document_id,
                                         const std::string& element_id) const noexcept;
     [[nodiscard]] Rml::Context* document_context(const std::string& id) const noexcept;

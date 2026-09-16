@@ -214,6 +214,7 @@ struct RuntimeSettings {
     AudioMixSettings audio;
     InventorySettings inventory;
     InteractionPresentationSettings interaction;
+    CursorSettings cursors;
 };
 
 struct SharedProject {

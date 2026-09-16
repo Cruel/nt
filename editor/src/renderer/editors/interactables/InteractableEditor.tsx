@@ -19,6 +19,7 @@ import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPan
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
@@ -40,6 +41,7 @@ import {
 } from '../../../shared/project-schema/authoring-interactables';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { entityIdSchema } from '../../../shared/project-schema/authoring-common';
+import { systemCursorNames } from '../../../shared/project-schema/authoring-cursor-vocabulary';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   captureScrollViewState,
@@ -218,6 +220,8 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
   const hotspotMode = data.presentation.hotspots;
+  const presentationNamedCursorId =
+    data.presentation.cursor?.kind === 'named' ? data.presentation.cursor.id : null;
   const hotspotItems =
     hotspotMode.kind === 'none'
       ? []
@@ -433,6 +437,61 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
               </Button>
             ) : null}
           </div>
+        </div>
+        <div data-workbench-anchor="interactable.cursor">
+          <Label>{t('hotspots.fields.cursor')}</Label>
+          <Select
+            value={
+              data.presentation.cursor?.kind === 'system'
+                ? `system:${data.presentation.cursor.cursor}`
+                : data.presentation.cursor?.kind === 'named'
+                  ? `named:${data.presentation.cursor.id}`
+                  : data.presentation.cursor?.kind === 'none'
+                    ? 'none'
+                    : 'fallback'
+            }
+            onValueChange={(value) => {
+              if (!value) return;
+              const cursor =
+                value === 'fallback'
+                  ? null
+                  : value === 'none'
+                    ? { kind: 'none' as const }
+                    : value.startsWith('system:')
+                      ? {
+                          kind: 'system' as const,
+                          cursor: value.slice(
+                            'system:'.length,
+                          ) as (typeof systemCursorNames)[number],
+                        }
+                      : { kind: 'named' as const, id: value.slice('named:'.length) };
+              commit(
+                { ...data, presentation: { ...data.presentation, cursor } },
+                'Update interactable cursor',
+              );
+            }}
+          >
+            <SelectItem value="fallback">{t('hotspots.cursor.projectDefault')}</SelectItem>
+            <SelectItem value="none">{t('hotspots.cursor.none')}</SelectItem>
+            {systemCursorNames.map((cursor) => (
+              <SelectItem key={cursor} value={`system:${cursor}`}>
+                {cursor}
+              </SelectItem>
+            ))}
+            {project.settings.cursors.named.map((cursor) => (
+              <SelectItem key={cursor.id} value={`named:${cursor.id}`}>
+                {cursor.id}
+              </SelectItem>
+            ))}
+            {presentationNamedCursorId &&
+            !project.settings.cursors.named.some(
+              (cursor) => cursor.id === presentationNamedCursorId,
+            ) ? (
+              <SelectItem value={`named:${presentationNamedCursorId}`}>
+                {t('hotspots.cursor.missingNamed', { id: presentationNamedCursorId })}
+              </SelectItem>
+            ) : null}
+          </Select>
         </div>
       </div>
       <div

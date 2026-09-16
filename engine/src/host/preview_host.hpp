@@ -85,6 +85,7 @@ public:
         std::function<core::Result<std::function<void()>, core::Diagnostics>(
             const core::editor::TypedFocusedRoomPreviewEnvironment&)>
             prepare_focused_environment;
+        std::function<void()> world_presentation_changed;
         bool& preview_running;
     };
 

@@ -27,6 +27,13 @@ namespace assets {
 class AssetManager;
 struct FontAssetConfig;
 } // namespace assets
+namespace core {
+class CompiledProject;
+namespace editor {
+struct FocusedEditorManifestProjection;
+struct TypedEditorPreviewCursorSettings;
+} // namespace editor
+} // namespace core
 namespace script {
 class ScriptRuntime;
 } // namespace script
@@ -55,6 +62,22 @@ public:
     [[nodiscard]] bool prepare_fonts(const assets::FontAssetConfig& config);
     [[nodiscard]] bool activate_font_fallbacks(const assets::FontAssetConfig& config);
     [[nodiscard]] bool configure_fonts(const assets::FontAssetConfig& config);
+    void configure_project_cursors(const core::CompiledProject& project);
+    void set_world_hotspot_cursor(const std::optional<core::compiled::CursorTarget>& cursor,
+                                  std::string owner_label);
+    void clear_world_hotspot_cursor() noexcept;
+    void clear_project_cursors() noexcept;
+    void configure_focused_preview_cursors(
+        const core::editor::TypedEditorPreviewCursorSettings& cursors);
+    void configure_focused_preview_cursor_resources(
+        const std::vector<core::editor::FocusedEditorManifestProjection>& resources);
+    void clear_focused_preview_cursors() noexcept;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor(std::string name) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                              std::optional<std::uint32_t> hotspot_y) override;
+    void clear_gameplay_cursor() noexcept override;
     [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event);
     void resize(const PresentationMetrics& presentation);
     void begin_frame(const core::RuntimeClockUpdate& clocks);
@@ -73,6 +96,10 @@ public:
     bool set_document_opacity(const std::string& id, float opacity);
     void set_layout_mount_context(const std::string& id,
                                   std::optional<RuntimeUiLayoutMountContext> context);
+    [[nodiscard]] bool with_layout_invocation(const std::string& id,
+                                              const std::function<bool()>& dispatch);
+    void set_layout_cursor_image_dependencies(const std::string& id,
+                                              std::vector<std::string> logical_paths);
     [[nodiscard]] std::optional<RuntimeUiLayoutMountContext>
     layout_mount_context(const std::string& id) const;
     bool load_document_for_layout(

@@ -284,6 +284,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/engine.cpp
     engine/src/host/audio_preview_adapter.cpp
     engine/src/host/audio_preview_adapter.hpp
+    engine/src/host/cursor_presentation.cpp
+    engine/src/host/cursor_presentation.hpp
     engine/src/host/debug_ui_command_executor.cpp
     engine/src/host/debug_ui_command_executor.hpp
     engine/src/host/debug_ui_contracts.hpp
@@ -316,6 +318,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/jobs/sdl_thread_pool_job_executor.cpp
     engine/src/jobs/scheduler_core.cpp
     engine/src/jobs/scheduler_core.hpp
+    engine/src/platform/sdl/sdl_cursor_realizer.cpp
+    engine/src/platform/sdl/sdl_cursor_realizer.hpp
     engine/src/platform/sdl/sdl_platform.cpp
     engine/src/platform/sdl/sdl_platform.hpp
     engine/src/preview/preview_bridge.cpp

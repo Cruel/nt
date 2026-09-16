@@ -84,6 +84,23 @@ const scriptModuleImportRecognizer: AuthoringSourceReferenceRecognizer = {
   },
 };
 
+const cursorNameRecognizer: AuthoringSourceReferenceRecognizer = {
+  id: 'noveltea.presentation.cursor.set',
+  recognize(input) {
+    const prefix = literalCallPrefix(input);
+    if (!/noveltea\s*\.\s*presentation\s*\.\s*cursor\s*\.\s*set\s*\(\s*$/u.test(prefix))
+      return null;
+    const cursorIndex = input.project.settings.cursors.named.findIndex(
+      (cursor) => cursor.id === input.occurrence.decodedValue,
+    );
+    if (cursorIndex < 0) return null;
+    return rewriteableLiteral(input, {
+      kind: 'project-field',
+      path: `/settings/cursors/named/${cursorIndex}/id`,
+    });
+  },
+};
+
 const gameplayIdentityRecognizer: AuthoringSourceReferenceRecognizer = {
   id: 'noveltea.gameplay-identity',
   recognize(input) {
@@ -102,7 +119,7 @@ const gameplayIdentityRecognizer: AuthoringSourceReferenceRecognizer = {
 
 /** Product recognizers are registered only after their Lua/RML API contract is designed. */
 export const AUTHORING_SOURCE_REFERENCE_RECOGNIZERS: readonly AuthoringSourceReferenceRecognizer[] =
-  Object.freeze([scriptModuleImportRecognizer, gameplayIdentityRecognizer]);
+  Object.freeze([scriptModuleImportRecognizer, gameplayIdentityRecognizer, cursorNameRecognizer]);
 
 export interface ClassifiedAuthoringSourceReference {
   classification: AuthoringSourceReferenceClassification;

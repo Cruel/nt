@@ -163,6 +163,7 @@ struct WorldHotspotHitTarget {
     Rect owner_uv{};
     std::variant<core::AlphaHotspotShape, core::compiled::NormalizedRect> shape;
     std::optional<assets::AssetLease<assets::TextureAsset>> source_texture_lease;
+    std::optional<core::compiled::CursorTarget> cursor;
 };
 
 struct HotspotInteractionVisualState {
@@ -220,6 +221,7 @@ public:
     explicit WorldHotspotController(WorldPresentationBackend& backend) : m_backend(backend) {}
 
     [[nodiscard]] WorldPointerEventResult handle(const WorldPointerEvent& event);
+    [[nodiscard]] const WorldHotspotHitTarget* hovered_target() const;
     void target_completed();
     void presentation_changed();
     void cancel() noexcept;

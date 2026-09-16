@@ -695,6 +695,46 @@
   "preview": {
     "show": "Mostrar prévia"
   },
+  "projectSettings": {
+    "cursors": {
+      "categoryLabel": "Cursores",
+      "categoryDescription": "Padrões semânticos de cursor e cursores nomeados globais do Projeto.",
+      "testPadReady": "Mova o ponteiro para cá para testar este cursor.",
+      "testPadUnavailable": "A prévia do cursor não está disponível.",
+      "defaultsTitle": "Padrões",
+      "defaultsDescription": "Escolha os cursores semânticos Padrão do Projeto, Ponteiro e Hotspot. Hotspot herda Ponteiro, a menos que seja substituído explicitamente.",
+      "semantic": {
+        "default": "Padrão",
+        "pointer": "Ponteiro",
+        "hotspot": "Hotspot"
+      },
+      "inheritPointer": "Herdar Ponteiro",
+      "noneHidden": "Nenhum (oculto)",
+      "systemOption": "Sistema: {{cursor}}",
+      "namedOption": "Nomeado: {{id}}",
+      "namedTitle": "Cursores nomeados",
+      "namedDescription": "Cursores personalizados globais do Projeto usam um Asset de imagem físico e um hotspot em pixels da origem. As imagens devem ter no máximo 128×128 pixels.",
+      "add": "Adicionar cursor",
+      "empty": "Nenhum cursor nomeado. Os padrões de cursor do sistema continuam disponíveis sem arte personalizada.",
+      "missingImage": "Imagem ausente",
+      "hotspotAria": "Hotspot {{x}}, {{y}}",
+      "id": "ID",
+      "imageAsset": "Asset de imagem",
+      "hotspotX": "Hotspot X",
+      "hotspotY": "Hotspot Y",
+      "sourcePixels": "{{width}}×{{height}} pixels da origem",
+      "dimensionsUnavailable": "Dimensões da imagem indisponíveis",
+      "deleteAria": "Excluir cursor {{id}}",
+      "test": "Testar cursor",
+      "renameCommand": "Renomear cursor {{id}}",
+      "deleteCommand": "Excluir cursor {{id}}",
+      "forceDeleteCommand": "Forçar exclusão do cursor {{id}}",
+      "forceDeleteTitle": "Forçar exclusão do cursor nomeado?",
+      "forceDeleteDescription": "Este cursor ainda possui referências conhecidas. Forçar Exclusão remove apenas a definição do cursor; padrões do Projeto, Hotspots, RCSS e fonte Lua não são redirecionados silenciosamente. A validação continuará relatando as referências pendentes até que sejam corrigidas.",
+      "cancel": "Cancelar",
+      "forceDelete": "Forçar exclusão"
+    }
+  },
   "hookRegistryResolution": {
     "summary": {
       "resolved": "Resolvido estaticamente: {{handler}}",
@@ -940,7 +980,14 @@
       "operator": "Operador",
       "value": "Valor",
       "luaPredicate": "Predicado Lua",
+      "cursor": "Cursor",
       "target": "Alvo"
+    },
+    "cursor": {
+      "projectDefault": "Padrão de hotspot do projeto",
+      "interactableDefault": "Fallback da apresentação do interagível",
+      "none": "Nenhum",
+      "missingNamed": "Cursor nomeado ausente: {{id}}"
     },
     "highlight": {
       "default": "Padrão",

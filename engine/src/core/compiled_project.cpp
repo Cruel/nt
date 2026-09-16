@@ -2,6 +2,7 @@
 
 #include "compiled_project_validation.hpp"
 
+#include <array>
 #include <cmath>
 #include <limits>
 #include <string_view>
@@ -406,6 +407,66 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
             }
         }
     }
+    const auto& cursor_settings = input.settings.cursors;
+    const auto valid_cursor_target = [](const compiled::CursorTarget& target, bool allow_inherit) {
+        switch (target.kind) {
+        case compiled::CursorTargetKind::System:
+            return enum_at_most(target.system, compiled::CursorSystemName::NwseResize) &&
+                   target.named_id.empty();
+        case compiled::CursorTargetKind::Named:
+            return valid_strong_id(target.named_id, StrongIdSyntax::KebabCase);
+        case compiled::CursorTargetKind::None:
+            return target.named_id.empty();
+        case compiled::CursorTargetKind::InheritPointer:
+            return allow_inherit && target.named_id.empty();
+        }
+        return false;
+    };
+    if (!valid_cursor_target(cursor_settings.default_cursor, false) ||
+        !valid_cursor_target(cursor_settings.pointer_cursor, false) ||
+        !valid_cursor_target(cursor_settings.hotspot_cursor, true)) {
+        diagnostics = invalid_model("Project cursor defaults are invalid");
+        return false;
+    }
+    std::unordered_set<std::string> cursor_ids;
+    const auto reserved_cursor_id = [](std::string_view id) {
+        static constexpr std::array<std::string_view, 14> reserved = {
+            "auto",      "default",     "pointer",     "text",        "wait",
+            "progress",  "crosshair",   "move",        "not-allowed", "ns-resize",
+            "ew-resize", "nesw-resize", "nwse-resize", "none"};
+        return id.starts_with("rmlui-") || std::ranges::find(reserved, id) != reserved.end();
+    };
+    for (const auto& cursor : cursor_settings.named) {
+        if (!valid_strong_id(cursor.id, StrongIdSyntax::KebabCase) ||
+            reserved_cursor_id(cursor.id) || !cursor_ids.insert(cursor.id).second) {
+            diagnostics = invalid_model("Named cursor ID is invalid or reserved");
+            return false;
+        }
+        const auto asset =
+            std::ranges::find_if(input.assets, [&](const compiled::AssetResource& candidate) {
+                return candidate.id == cursor.image;
+            });
+        if (asset == input.assets.end() || asset->kind != compiled::AssetKind::Image ||
+            !asset->width || !asset->height || *asset->width > 128 || *asset->height > 128 ||
+            cursor.hotspot_x >= *asset->width || cursor.hotspot_y >= *asset->height) {
+            diagnostics = invalid_model("Named cursor artwork or hotspot is invalid");
+            return false;
+        }
+    }
+    const auto target_named_exists = [&](const compiled::CursorTarget& target) {
+        return target.kind != compiled::CursorTargetKind::Named ||
+               cursor_ids.contains(target.named_id);
+    };
+    if (!target_named_exists(cursor_settings.default_cursor) ||
+        !target_named_exists(cursor_settings.pointer_cursor) ||
+        !target_named_exists(cursor_settings.hotspot_cursor)) {
+        diagnostics = invalid_model("Project cursor default references a missing named cursor");
+        return false;
+    }
+    const auto valid_hotspot_cursor = [&](const std::optional<compiled::CursorTarget>& target) {
+        return !target || (valid_cursor_target(*target, false) && target_named_exists(*target));
+    };
+
     for (const auto& layout : input.layouts) {
         if (layout.id.text() == compiled::builtin_inventory_layout_id ||
             layout.id.text() == compiled::builtin_verb_menu_layout_id ||
@@ -449,6 +510,10 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
     }
     for (const auto& room : input.rooms) {
         if (!valid_background(room.background) ||
+            std::ranges::any_of(room.hotspots,
+                                [&](const compiled::RoomHotspot& hotspot) {
+                                    return !valid_hotspot_cursor(hotspot.cursor);
+                                }) ||
             !valid_presentation_space(room.presentation_space) ||
             std::any_of(
                 room.anchors.begin(), room.anchors.end(),
@@ -469,6 +534,30 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
                                    mapping.handler.export_name.empty();
                         })) {
             diagnostics = invalid_model("Room definition is invalid");
+            return false;
+        }
+    }
+    for (const auto& interactable : input.interactables) {
+        if (!valid_hotspot_cursor(interactable.presentation.cursor)) {
+            diagnostics = invalid_model("Interactable presentation cursor is invalid");
+            return false;
+        }
+        const bool hotspots_valid = std::visit(
+            [&](const auto& hotspots) {
+                using Hotspots = std::decay_t<decltype(hotspots)>;
+                if constexpr (std::is_same_v<Hotspots, compiled::NoInteractableHotspots>) {
+                    return true;
+                } else if constexpr (std::is_same_v<Hotspots, compiled::SpriteAlphaHotspots>) {
+                    return valid_hotspot_cursor(hotspots.hotspot.cursor);
+                } else {
+                    return std::ranges::all_of(hotspots.hotspots, [&](const auto& hotspot) {
+                        return valid_hotspot_cursor(hotspot.cursor);
+                    });
+                }
+            },
+            interactable.presentation.hotspots);
+        if (!hotspots_valid) {
+            diagnostics = invalid_model("Interactable hotspot cursor is invalid");
             return false;
         }
     }

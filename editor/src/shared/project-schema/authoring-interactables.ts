@@ -7,6 +7,7 @@ import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots
 import { featureDataSchema, interactableHotspotTargetSchema } from './authoring-features';
 import { inventoryDefinitionSchema, inventoryReferenceSchema } from './authoring-inventories';
 import { authoredPropertyValueSchema, ownerLocalPropertiesSchema } from './authoring-properties';
+import { cursorTargetSchema } from './authoring-cursor-vocabulary';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const interactableAssetRefSchema = assetRefSchema;
@@ -23,6 +24,7 @@ export const interactableHotspotsSchema = z.discriminatedUnion('kind', [
     hotspots: z.array(
       strict({
         ...hotspotCommonShape,
+        cursor: cursorTargetSchema.nullable().optional(),
         target: interactableHotspotTargetSchema,
         shape: rectHotspotShapeSchema,
       }),
@@ -77,6 +79,7 @@ export const interactableDataSchema = strict({
   presentation: strict({
     sprite: interactableAssetRefSchema.nullable(),
     material: interactableMaterialRefSchema.nullable(),
+    cursor: cursorTargetSchema.nullable().optional(),
     hotspots: interactableHotspotsSchema,
   }),
   features: z.array(featureDataSchema),
@@ -119,6 +122,7 @@ export function defaultInteractableData(label = 'Interactable'): InteractableDat
     presentation: {
       sprite: null,
       material: null,
+      cursor: null,
       hotspots: { kind: 'none' },
     },
     features: [],
@@ -185,6 +189,21 @@ export function validateInteractableData(
         `${base}/presentation/material/$ref`,
         `Missing material '${data.presentation.material.$ref.id}'.`,
       ),
+    );
+  const namedCursorIds = new Set(project.settings.cursors.named.map((cursor) => cursor.id));
+  const validateCursor = (
+    cursor: { kind: string; id?: string } | null | undefined,
+    path: string,
+  ) => {
+    if (cursor?.kind === 'named' && cursor.id && !namedCursorIds.has(cursor.id))
+      diagnostics.push(
+        diagnostic(path, `Hotspot cursor references missing named cursor '${cursor.id}'.`),
+      );
+  };
+  validateCursor(data.presentation.cursor, `${base}/presentation/cursor`);
+  if (data.presentation.hotspots.kind === 'custom')
+    data.presentation.hotspots.hotspots.forEach((hotspot, index) =>
+      validateCursor(hotspot.cursor, `${base}/presentation/hotspots/hotspots/${index}/cursor`),
     );
   return diagnostics;
 }

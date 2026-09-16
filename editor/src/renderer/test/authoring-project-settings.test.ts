@@ -192,6 +192,71 @@ describe('authoring project settings', () => {
     );
   });
 
+  it('provides explicit cursor defaults and validates named cursor artwork', () => {
+    const project = createAuthoringProject();
+    addAssets(project);
+    project.assets.pointer = {
+      id: 'pointer',
+      label: 'Pointer',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/pointer.png' },
+        aliases: [],
+        extension: '.png',
+        imageMetadata: { width: 32, height: 24, hasAlpha: true, orientation: 1 },
+      },
+    };
+
+    expect(projectSettingsFromProject(project).cursors).toEqual({
+      defaults: {
+        default: { kind: 'system', cursor: 'default' },
+        pointer: { kind: 'system', cursor: 'pointer' },
+        hotspot: { kind: 'inherit', semantic: 'pointer' },
+      },
+      named: [],
+    });
+
+    project.settings.cursors = {
+      defaults: {
+        default: { kind: 'system', cursor: 'default' },
+        pointer: { kind: 'named', id: 'tea-pointer' },
+        hotspot: { kind: 'inherit', semantic: 'pointer' },
+      },
+      named: [{ id: 'tea-pointer', image: assetRef('pointer'), hotspotX: 3, hotspotY: 4 }],
+    };
+    expect(
+      validateTypedProjectSettings(project).filter((diagnostic) => diagnostic.severity === 'error'),
+    ).toEqual([]);
+
+    project.settings.cursors.named.push(
+      { id: 'pointer', image: assetRef('pointer'), hotspotX: 0, hotspotY: 0 },
+      { id: 'rmlui-private', image: assetRef('pointer'), hotspotX: 0, hotspotY: 0 },
+      { id: 'too-large', image: assetRef('logo'), hotspotX: 0, hotspotY: 0 },
+      { id: 'bad-hotspot', image: assetRef('pointer'), hotspotX: 32, hotspotY: 0 },
+    );
+
+    expect(validateTypedProjectSettings(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'authoring.settings.cursor.id.reserved',
+          path: '/settings/cursors/named/1/id',
+        }),
+        expect.objectContaining({
+          code: 'authoring.settings.cursor.id.reserved',
+          path: '/settings/cursors/named/2/id',
+        }),
+        expect.objectContaining({
+          code: 'authoring.settings.cursor.image.too-large',
+          path: '/settings/cursors/named/3/image/$ref',
+        }),
+        expect.objectContaining({
+          code: 'authoring.settings.cursor.hotspot.out-of-bounds',
+          path: '/settings/cursors/named/4/hotspotX',
+        }),
+      ]),
+    );
+  });
+
   it('validates project-level layout, font, image, and icon refs', () => {
     const project = createAuthoringProject();
     addAssets(project);

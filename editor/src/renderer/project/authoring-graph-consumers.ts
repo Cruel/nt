@@ -67,8 +67,25 @@ function nodeLabel(snapshot: AuthoringDependencyGraphSnapshot, key: AuthoringDep
 }
 
 function occurrenceLocation(edge: AuthoringDependencyEdge) {
-  const evidence = edge.evidence?.find((item) => item.kind === 'lua-occurrence');
-  if (!evidence || evidence.kind !== 'lua-occurrence') return undefined;
+  const evidence = edge.evidence?.find(
+    (item) => item.kind === 'lua-occurrence' || item.kind === 'source-occurrence',
+  );
+  if (!evidence) return undefined;
+  if (evidence.kind === 'source-occurrence') {
+    if (
+      evidence.line === undefined ||
+      evidence.column === undefined ||
+      evidence.endLine === undefined ||
+      evidence.endColumn === undefined
+    )
+      return undefined;
+    return {
+      line: evidence.line,
+      column: evidence.column,
+      endLine: evidence.endLine,
+      endColumn: evidence.endColumn,
+    };
+  }
   const occurrence = evidence.occurrence;
   return {
     line: occurrence.line,
@@ -79,8 +96,9 @@ function occurrenceLocation(edge: AuthoringDependencyEdge) {
 }
 
 function occurrenceEvidence(edge: AuthoringDependencyEdge) {
-  const evidence = edge.evidence?.find((item) => item.kind === 'lua-occurrence');
-  return evidence?.kind === 'lua-occurrence' ? evidence : undefined;
+  return edge.evidence?.find(
+    (item) => item.kind === 'lua-occurrence' || item.kind === 'source-occurrence',
+  );
 }
 
 export function semanticUsagesForTarget(
@@ -99,13 +117,28 @@ export function semanticUsagesForTarget(
         label: roleLabel(edge.role),
         sourceLabel: nodeLabel(snapshot, edge.source),
         targetLabel: nodeLabel(snapshot, edge.target),
-        sourcePath: occurrence?.occurrence.sourceUrl ?? edge.sourcePath,
-        ...(occurrence ? { sourceUrl: occurrence.occurrence.sourceUrl } : {}),
+        sourcePath:
+          occurrence?.kind === 'lua-occurrence'
+            ? occurrence.occurrence.sourceUrl
+            : occurrence?.kind === 'source-occurrence'
+              ? occurrence.sourceUrl
+              : edge.sourcePath,
+        ...(occurrence?.kind === 'lua-occurrence'
+          ? { sourceUrl: occurrence.occurrence.sourceUrl }
+          : occurrence?.kind === 'source-occurrence'
+            ? { sourceUrl: occurrence.sourceUrl }
+            : {}),
         ...(occurrence ? { sourceReferenceClassification: occurrence.classification } : {}),
         ...(sourceLocation ? { sourceLocation } : {}),
         ...(edge.role === 'lua-possible-reference'
           ? {
-              ambiguousGroup: `${occurrence?.occurrence.sourceUrl ?? edge.sourcePath}:${edge.targetPath}`,
+              ambiguousGroup: `${
+                occurrence?.kind === 'lua-occurrence'
+                  ? occurrence.occurrence.sourceUrl
+                  : occurrence?.kind === 'source-occurrence'
+                    ? occurrence.sourceUrl
+                    : edge.sourcePath
+              }:${edge.targetPath}`,
             }
           : {}),
         edge,
@@ -180,7 +213,7 @@ export function preflightGraphCommand(input: {
   ) {
     return {
       kind: 'blocked',
-      reason: 'Confirm rename without rewriting Lua before continuing.',
+      reason: 'Confirm rename without rewriting exact source references before continuing.',
       usages,
     };
   }

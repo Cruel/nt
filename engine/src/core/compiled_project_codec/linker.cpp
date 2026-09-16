@@ -835,7 +835,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         std::move(wire.settings.room_navigation_transition),
         std::move(wire.settings.audio),
         std::move(wire.settings.inventory),
-        std::move(wire.settings.interaction)};
+        std::move(wire.settings.interaction),
+        std::move(wire.settings.cursors)};
 
     auto result = CompiledProject::create(compiled::CompiledProjectInput{
         .identity = std::move(wire.identity),

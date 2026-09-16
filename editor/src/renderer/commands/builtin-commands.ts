@@ -68,6 +68,7 @@ import { replaceSceneDataPatches } from '@/project/scene-operations';
 import {
   preflightGraphCommand,
   preflightRoomPlacementDeletion,
+  semanticUsagesForTarget,
 } from '@/project/authoring-graph-consumers';
 import { replaceInteractionDataPatches } from '@/project/interaction-operations';
 import { replaceMapDataPatches } from '@/project/map-operations';
@@ -107,6 +108,10 @@ import {
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
 import { gameplayInstanceKindValues } from '../../shared/project-schema/authoring-archetypes';
+import {
+  cursorNamedIdSchema,
+  systemCursorNames,
+} from '../../shared/project-schema/authoring-cursor-vocabulary';
 import { imageAssetMetadataSchema } from '../../shared/project-schema/authoring-assets';
 import { roomHotspotDataSchema } from '../../shared/project-schema/authoring-rooms';
 import { roomNormalizedRectSchema } from '../../shared/project-schema/authoring-rooms';
@@ -556,6 +561,23 @@ export const entityDeleteRecordCommand: CommandHandler = ({
   };
 };
 
+function cursorDynamicRiskDiagnostics(
+  graphSnapshot: Parameters<typeof semanticUsagesForTarget>[0] | null | undefined,
+): CommandDiagnostic[] {
+  if (!graphSnapshot) return [];
+  const risks = semanticUsagesForTarget(graphSnapshot, {
+    kind: 'project-field',
+    path: '/settings/cursors',
+  }).filter((usage) => usage.edge.detail?.computedCursorName === 'true');
+  if (risks.length === 0) return [];
+  return [
+    {
+      severity: 'warning',
+      message: `${risks.length} computed Lua cursor-name usage${risks.length === 1 ? '' : 's'} may require manual review.`,
+    },
+  ];
+}
+
 function preflightWarningsResult(
   result: CommandHandlerResult,
   preflight: ReturnType<typeof preflightGraphCommand> | null,
@@ -618,6 +640,17 @@ const renameEntityIdSchema = z.object({
   toId: entityIdSchema,
   label: z.string().optional(),
   confirmRenameWithoutLuaRewrite: z.boolean().optional(),
+});
+
+const renameNamedCursorSchema = z.object({
+  fromId: cursorNamedIdSchema,
+  toId: cursorNamedIdSchema,
+  confirmUnsafeSourceReferences: z.boolean().optional(),
+});
+
+const deleteNamedCursorSchema = z.object({
+  cursorId: cursorNamedIdSchema,
+  force: z.boolean().optional(),
 });
 
 const duplicateEntityRecordSchema = z.object({
@@ -1020,6 +1053,149 @@ export const entityRenameIdCommand: CommandHandler = ({
       );
     })(),
   );
+
+export const projectRenameNamedCursorCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) =>
+  parseEntityCommand(renameNamedCursorSchema, payload, (parsed) => {
+    const project = authoringProjectSchema.safeParse(document);
+    if (!project.success)
+      return { patches: [], diagnostics: [error('Project document is invalid.')] };
+    if (parsed.fromId === parsed.toId)
+      return {
+        patches: [],
+        diagnostics: [error('New cursor ID must be different from the current ID.')],
+      };
+    if (
+      systemCursorNames.includes(parsed.toId as (typeof systemCursorNames)[number]) ||
+      parsed.toId === 'auto' ||
+      parsed.toId === 'none' ||
+      parsed.toId.startsWith('rmlui-')
+    )
+      return {
+        patches: [],
+        diagnostics: [error(`Cursor ID '${parsed.toId}' is reserved by NovelTea.`)],
+      };
+    const cursorIndex = project.data.settings.cursors.named.findIndex(
+      (cursor) => cursor.id === parsed.fromId,
+    );
+    if (cursorIndex < 0)
+      return {
+        patches: [],
+        diagnostics: [error(`Named cursor '${parsed.fromId}' does not exist.`)],
+      };
+    if (project.data.settings.cursors.named.some((cursor) => cursor.id === parsed.toId))
+      return {
+        patches: [],
+        diagnostics: [error(`Named cursor '${parsed.toId}' already exists.`)],
+      };
+    if (!projectInstanceId)
+      return {
+        patches: [],
+        diagnostics: [error('The dependency graph is not ready for the current project revision.')],
+      };
+    const targetPath = `/settings/cursors/named/${cursorIndex}/id` as const;
+    const preflight = preflightGraphCommand({
+      snapshot: graphSnapshot ?? null,
+      projectInstanceId,
+      projectRevision: projectRevision ?? 0,
+      target: { kind: 'project-field', path: targetPath },
+      operation: 'rename',
+      confirmRenameWithoutLuaRewrite: parsed.confirmUnsafeSourceReferences,
+    });
+    if (preflight.kind === 'blocked')
+      return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
+    const sourceRewrites = exactSourceRewritePatches(document, preflight, parsed.toId);
+    if (sourceRewrites.diagnostics?.some((diagnostic) => diagnostic.severity === 'error'))
+      return sourceRewrites;
+    const structuredPatches: JsonPatchOperation[] = preflight.usages
+      .filter((usage) => usage.role === 'cursor-reference')
+      .map((usage) => ({
+        op: 'replace' as const,
+        path: usage.edge.sourcePath,
+        value: parsed.toId,
+      }));
+    const idPatch: JsonPatchOperation = { op: 'replace', path: targetPath, value: parsed.toId };
+    const result: CommandHandlerResult = {
+      patches: [...sourceRewrites.patches, ...structuredPatches, idPatch],
+      affectedPaths: [
+        ...(sourceRewrites.affectedPaths ?? []),
+        ...structuredPatches.map((patch) => patch.path),
+        targetPath,
+      ],
+      diagnostics: cursorDynamicRiskDiagnostics(graphSnapshot),
+    };
+    return preflightWarningsResult(result, preflight);
+  });
+
+export const projectDeleteNamedCursorCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) =>
+  parseEntityCommand(deleteNamedCursorSchema, payload, (parsed) => {
+    const project = authoringProjectSchema.safeParse(document);
+    if (!project.success)
+      return { patches: [], diagnostics: [error('Project document is invalid.')] };
+    const cursorIndex = project.data.settings.cursors.named.findIndex(
+      (cursor) => cursor.id === parsed.cursorId,
+    );
+    if (cursorIndex < 0)
+      return {
+        patches: [],
+        diagnostics: [error(`Named cursor '${parsed.cursorId}' does not exist.`)],
+      };
+    if (!projectInstanceId)
+      return {
+        patches: [],
+        diagnostics: [error('The dependency graph is not ready for the current project revision.')],
+      };
+    const targetPath = `/settings/cursors/named/${cursorIndex}/id` as const;
+    const preflight = preflightGraphCommand({
+      snapshot: graphSnapshot ?? null,
+      projectInstanceId,
+      projectRevision: projectRevision ?? 0,
+      target: { kind: 'project-field', path: targetPath },
+      operation: 'delete',
+      force: parsed.force,
+    });
+    if (preflight.kind === 'blocked')
+      return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
+    const knownUsages = preflight.usages.filter((usage) => usage.role !== 'lua-possible-reference');
+    if (!parsed.force && knownUsages.length > 0)
+      return {
+        patches: [],
+        diagnostics: [
+          error(
+            `Named cursor '${parsed.cursorId}' is referenced by ${knownUsages.length} known usage${knownUsages.length === 1 ? '' : 's'}. Use Force Delete to continue.`,
+            targetPath,
+          ),
+        ],
+      };
+    const removePath = `/settings/cursors/named/${cursorIndex}` as const;
+    const result: CommandHandlerResult = {
+      patches: [{ op: 'remove', path: removePath }],
+      affectedPaths: [removePath],
+      diagnostics: [
+        ...(parsed.force && knownUsages.length > 0
+          ? [
+              {
+                severity: 'warning' as const,
+                message: `Force Delete left ${knownUsages.length} known named-cursor reference${knownUsages.length === 1 ? '' : 's'} for validation to report.`,
+              },
+            ]
+          : []),
+        ...cursorDynamicRiskDiagnostics(graphSnapshot),
+      ],
+    };
+    return preflightWarningsResult(result, preflight);
+  });
 
 export const entityDuplicateRecordCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(duplicateEntityRecordSchema, payload, (parsed) =>
@@ -1571,6 +1747,8 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.replaceAtPath': projectReplaceAtPathCommand,
     'project.addAtPath': projectAddAtPathCommand,
     'project.removeAtPath': projectRemoveAtPathCommand,
+    'project.renameNamedCursor': projectRenameNamedCursorCommand,
+    'project.deleteNamedCursor': projectDeleteNamedCursorCommand,
     'entity.replaceRecord': entityReplaceRecordCommand,
     'entity.createRecord': entityCreateRecordCommand,
     'entity.renameId': entityRenameIdCommand,
@@ -1663,6 +1841,10 @@ export function labelForCommand(type: string): string {
       return 'Add project value';
     case 'project.removeAtPath':
       return 'Remove project value';
+    case 'project.renameNamedCursor':
+      return 'Rename named cursor';
+    case 'project.deleteNamedCursor':
+      return 'Delete named cursor';
     case 'entity.replaceRecord':
       return 'Replace entity record';
     case 'entity.createRecord':

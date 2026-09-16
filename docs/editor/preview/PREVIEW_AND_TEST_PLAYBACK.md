@@ -83,9 +83,11 @@ Interaction subject plus label or a Room Exit plus label. A pointer Hotspot and 
 therefore converge on the same subject/navigation input. Hidden, disabled, absent, condition-false,
 and otherwise ineligible geometry does not produce enabled preview controls.
 
-Focused Room preview uses the current `noveltea.room-preview` document and is passive: its projected snapshot
-contains no hotspot values and it does not install world hotspot input. Play preview uses the normal
-runtime projection and world controller in the same preview executable.
+Focused Room preview uses the current `noveltea.room-preview` document and remains passive for
+activation. Its projected snapshot includes eligible Room and Interactable Hotspot geometry so mouse
+hover can exercise the same Project/Hotspot cursor arbitration as runtime, but focused preview does not
+route presses or releases into semantic Hotspot activation. Play preview uses the normal runtime
+projection and full world controller in the same preview executable.
 
 Localization owns one editor-local **Preview Locale** selection under local editor state. Focused
 previews and Play resolve against that selection instead of mutating the Project Source or Default

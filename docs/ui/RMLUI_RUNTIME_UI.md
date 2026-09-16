@@ -247,6 +247,61 @@ gameplay fallthrough through the mounted-policy admission result. Layout-origina
 paths do not. Escape unmounts the topmost dismissible instance through its recorded owner, while a
 higher non-dismissible modal shields lower Layouts.
 
+### Cursor arbitration
+
+RmlUi contexts do not mutate the native cursor. Their `cursor` callbacks publish transient desired
+cursor state into the engine-owned cursor authority, which keeps request state separate from current
+eligibility. RuntimeUI derives RmlUi eligibility from the same front-to-back pointer routing described
+above, so a consumed or modal context shields lower cursor requests while a click-through context with
+no cursor request leaves lower eligible requests available. Across request classes, the winning order
+is frontmost eligible Layout-Mount Lua, admitted Runtime Session gameplay Lua, frontmost pointer-owning
+RmlUi/RCSS, world Hotspot, Project Default, then native default. Native realization reports the
+presentation it actually accepted back to the authority, so private test/debug inspection exposes the
+true effective cursor and winning source/owner rather than a failed desired custom cursor.
+
+Layout Lua uses the same `noveltea.presentation.cursor` API as gameplay Lua, but RuntimeUI attributes a
+call made during Layout invocation to the exact live Mount occurrence rather than the Runtime Session.
+A Mount request is retained while that occurrence is hidden, becomes eligible whenever it is visible
+(regardless of `input: None`), and is discarded when the occurrence is replaced or unmounted. Visible
+Mount requests arbitrate in deterministic front-to-back presentation order; they therefore outrank a
+Runtime Session cursor without relying on call timing. Gameplay-owned cursor intent is itself eligible
+only while Layout policy admits gameplay input, so a blocking shell/modal Layout suspends it and closing
+the blocker reveals the same retained gameplay request again. `clear()` affects only the inferred owner.
+
+The current native semantic vocabulary is `default`, `pointer`, `text`, `wait`, `progress`,
+`crosshair`, `move`, `not-allowed`, `ns-resize`, `ew-resize`, `nesw-resize`, and `nwse-resize`.
+Project cursor settings may override the semantic `default` and `pointer` targets and register reusable
+named color cursors. A named RCSS value resolves through that Project registry; its source physical
+Image Asset is eagerly prepared with the active Project and remains globally reachable even when no
+Layout declares the image as a dependency. Focused Layout preview stages the same named registry and
+source artwork explicitly, so `cursor: <named-id>` has the same resolution there as at runtime. If a
+custom cursor cannot be decoded or realized, RuntimeUI records a typed diagnostic and the SDL realizer
+uses the semantic native fallback instead of failing gameplay. Lua `default` and `pointer` use the same
+Project semantic overrides as RCSS rather than bypassing customization.
+
+`none` means hidden cursor and `auto` contributes no RmlUi request; legacy/private RmlUi spellings are
+translated before publication. Pointer leave, focus loss, and movement into presentation bars clear
+only transient RmlUi eligibility. A retained pointer position is re-evaluated during frame settlement,
+so visibility, policy, or presentation changes can change the winning cursor without requiring fresh
+physical mouse movement.
+
+Native system-cursor creation, visibility, color-cursor creation, and `SDL_SetCursor` calls live only
+in the SDL cursor realizer under `engine/src/platform/sdl/`; RmlUi's SDL system interface is limited
+to translating the RmlUi callback into engine cursor intent alongside its clipboard/text-input
+responsibilities. Equivalent custom requests from named cursors, RCSS images, Hotspots, and Lua all
+reach this shared realization/cache path rather than source-specific native backends. Cache identity is
+normalized to the resolved logical image plus realized dimensions, sampling, and realized hotspot, so
+source-specific request metadata does not duplicate an equivalent native cursor. Cursor pixels and
+hotspots remain in native image-pixel space; Project reference resolution and UI/text scale do not
+rescale them, while downscaling maps and clamps a valid source hotspot inside the realized image and
+SDL/platform DPI behavior remains authoritative.
+
+Desktop and Web keep the same authored cursor contract and SDL-backed realization boundary. A platform
+that refuses a custom cursor falls back diagnostically instead of invalidating gameplay, and a
+pointerless/touch-only environment may effectively make native realization a no-op while semantic
+cursor requests remain valid. Cursor handles and effective/native realization state never enter
+gameplay, Runtime Session, save/checkpoint, recorder, or RmlUi document state.
+
 ## Lifecycle Domains
 
 `RuntimeLayoutManager` owns typed mounted-instance policy and deterministic plane/local ordering. The

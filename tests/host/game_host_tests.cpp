@@ -233,6 +233,33 @@ public:
         core::append_diagnostics(runtime_diagnostics, std::move(diagnostics));
     }
     void clear_typed_runtime_diagnostics() override { runtime_diagnostics.clear(); }
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor(std::string name) override
+    {
+        gameplay_cursor_name = std::move(name);
+        gameplay_cursor_asset.reset();
+        ++gameplay_cursor_set_count;
+        return core::Result<void, core::Diagnostics>::success();
+    }
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
+                              std::optional<std::uint32_t> hotspot_y) override
+    {
+        gameplay_cursor_name.reset();
+        gameplay_cursor_asset = std::move(asset);
+        gameplay_cursor_hotspot_x = hotspot_x;
+        gameplay_cursor_hotspot_y = hotspot_y;
+        ++gameplay_cursor_set_count;
+        return core::Result<void, core::Diagnostics>::success();
+    }
+    void clear_gameplay_cursor() noexcept override
+    {
+        gameplay_cursor_name.reset();
+        gameplay_cursor_asset.reset();
+        gameplay_cursor_hotspot_x.reset();
+        gameplay_cursor_hotspot_y.reset();
+        ++gameplay_cursor_clear_count;
+    }
     [[nodiscard]] core::ActiveTextPresentationPhase
     active_text_presentation_phase() const noexcept override
     {
@@ -255,6 +282,12 @@ public:
     std::string title_subtitle;
     std::string title_start_label;
     core::ActiveTextPresentationPhase active_text_phase = core::ActiveTextPresentationPhase::Stable;
+    std::optional<std::string> gameplay_cursor_name;
+    std::optional<core::AssetId> gameplay_cursor_asset;
+    std::optional<std::uint32_t> gameplay_cursor_hotspot_x;
+    std::optional<std::uint32_t> gameplay_cursor_hotspot_y;
+    std::size_t gameplay_cursor_set_count = 0;
+    std::size_t gameplay_cursor_clear_count = 0;
     std::size_t shell_clear_count = 0;
     bool accept_gameplay_values = true;
 };
@@ -2242,6 +2275,9 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     CHECK_FALSE(duplicate_start.publication);
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
 
+    REQUIRE(runtime_ui.set_gameplay_cursor("wait"));
+    REQUIRE(runtime_ui.gameplay_cursor_name);
+
     const auto preserved_settings = core::RuntimeUserSettings::create(1.25, 1.5);
     REQUIRE(preserved_settings);
     host.set_runtime_user_settings(*preserved_settings.value_if());
@@ -2280,6 +2316,7 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     CHECK(host.session_generation().number() == pre_reset_session.number() + 1);
     CHECK(host.backend_generation().number() == pre_reset_backend.number() + 1);
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
+    CHECK_FALSE(runtime_ui.gameplay_cursor_name);
     auto* reset_project_scripts = host.project_script_runtime();
     REQUIRE(reset_project_scripts);
     CHECK(reset_project_scripts != initial_project_scripts);
@@ -2316,12 +2353,16 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     REQUIRE(host.submit_runtime_input(
                     core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}})
                 .accepted());
+    REQUIRE(runtime_ui.set_gameplay_cursor("pointer"));
+    REQUIRE(runtime_ui.gameplay_cursor_name);
     REQUIRE(host.submit_runtime_input(core::RuntimeInputMessage{core::SaveRuntimeInput{
                                           core::TypedSaveSlotId::autosave()}})
                 .accepted());
     REQUIRE(host.submit_runtime_input(
                     core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::seconds{1}}})
                 .accepted());
+    REQUIRE(runtime_ui.set_gameplay_cursor("wait"));
+    REQUIRE(runtime_ui.gameplay_cursor_name);
     const auto pre_load_session = host.session_generation();
     const auto pre_load_backend = host.backend_generation();
     auto loaded_save = host.submit_runtime_input(
@@ -2330,6 +2371,7 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     CHECK(host.session_generation().number() == pre_load_session.number() + 1);
     CHECK(host.backend_generation().number() == pre_load_backend.number() + 1);
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
+    CHECK_FALSE(runtime_ui.gameplay_cursor_name);
     auto* restored_project_scripts = host.project_script_runtime();
     REQUIRE(restored_project_scripts);
     CHECK(restored_project_scripts != reset_project_scripts);
@@ -2376,6 +2418,20 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     CHECK(duplicate_stop.accepted());
     CHECK_FALSE(duplicate_stop.publication);
     CHECK(host.session_generation() == stopped_generation);
+
+    REQUIRE(runtime_ui.set_gameplay_cursor("crosshair"));
+    REQUIRE(runtime_ui.gameplay_cursor_name);
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = true},
+                                       hooks));
+    CHECK_FALSE(runtime_ui.gameplay_cursor_name);
+
+    REQUIRE(runtime_ui.set_gameplay_cursor("move"));
+    REQUIRE(runtime_ui.gameplay_cursor_name);
+    host.shutdown();
+    CHECK_FALSE(runtime_ui.gameplay_cursor_name);
 }
 
 TEST_CASE("GameHost suspend backend reset and shutdown ordering is idempotent")

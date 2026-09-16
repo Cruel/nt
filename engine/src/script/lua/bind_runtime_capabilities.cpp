@@ -1560,6 +1560,46 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
     noveltea["layouts"] = layouts;
 
     sol::table presentation = lua.create_table();
+    sol::table cursor = lua.create_table();
+    cursor.set_function("set", [api](std::string name, sol::this_state state) -> MutationResult {
+        sol::state_view view(state);
+        return mutation(view, api->set_gameplay_cursor(std::move(name)));
+    });
+    cursor.set_function(
+        "set_image",
+        [api](std::string asset_name, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto asset = parse_id<core::AssetId>(std::move(asset_name));
+            auto* asset_value = asset.value_if();
+            if (!asset_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(asset.error()));
+            std::optional<std::uint32_t> hotspot_x;
+            std::optional<std::uint32_t> hotspot_y;
+            if (options) {
+                if (const auto value = table_option<std::uint32_t>(*options, "hotspot_x"))
+                    hotspot_x = *value;
+                if (const auto value = table_option<std::uint32_t>(*options, "hotspot_y"))
+                    hotspot_y = *value;
+                if (hotspot_x.has_value() != hotspot_y.has_value())
+                    return mutation(
+                        view, core::Result<void, core::Diagnostics>::failure(invalid(
+                                  "runtime.invalid_cursor_hotspot",
+                                  "Cursor hotspot_x and hotspot_y must be provided together")));
+            }
+            return mutation(view, api->set_gameplay_cursor_image(std::move(*asset_value), hotspot_x,
+                                                                 hotspot_y));
+        });
+    cursor.set_function("hide", [api](sol::this_state state) -> MutationResult {
+        sol::state_view view(state);
+        return mutation(view, api->set_gameplay_cursor("none"));
+    });
+    cursor.set_function("clear", [api](sol::this_state state) -> MutationResult {
+        sol::state_view view(state);
+        return mutation(view, api->clear_gameplay_cursor());
+    });
+    presentation["cursor"] = cursor;
     presentation.set_function(
         "set_background",
         [api](sol::optional<sol::table> options, sol::this_state state) -> MutationResult {
