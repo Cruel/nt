@@ -173,6 +173,11 @@ Object.defineProperty(window, 'noveltea', {
     listPlaybackTests: vi
       .fn()
       .mockResolvedValue({ ok: true, tests: [{ id: 'smoke', steps: 1 }], diagnostics: [] }),
+    prepareEditorRuntime: vi.fn().mockResolvedValue({
+      status: 'session-local',
+      buildContext: { kind: 'canonical' },
+      reason: 'project-content-dirty',
+    }),
     runPlaybackTest: vi
       .fn()
       .mockResolvedValue({ ok: true, report: { id: 'smoke', passed: true }, diagnostics: [] }),

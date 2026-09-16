@@ -74,6 +74,7 @@ import { projectWithPreviewLocale } from '../../../shared/preview-locale';
 import { rendererRuntimeArtifactPaths } from '../../export/runtime-artifact-adapters';
 import {
   collectProjectValidationDiagnostics,
+  projectValidationBlocksBoundary,
   type ProjectValidationDiagnostic,
 } from '../../../shared/project-schema/project-validation';
 import { parseTestData } from '../../../shared/project-schema/authoring-tests';
@@ -449,6 +450,7 @@ function nextRecordedTestId(project: AuthoringProject | null) {
 async function compiledProjectDiagnosticEntries(
   project: AuthoringProject | null,
   recoveryFingerprint: unknown,
+  projectSessionId: string | null,
 ): Promise<{
   compiledProject: unknown;
   shaderMaterialMetadata: unknown;
@@ -475,6 +477,50 @@ async function compiledProjectDiagnosticEntries(
       ],
     };
   }
+  if (projectSessionId) {
+    const shared = await window.noveltea.prepareEditorRuntime(
+      projectSessionId,
+      project,
+      recoveryFingerprint,
+    );
+    if (shared.status === 'prepared') {
+      const diagnostics = collectProjectValidationDiagnostics(shared.artifact.diagnostics);
+      return {
+        ok: true,
+        compiledProject: shared.artifact.compiledProject,
+        shaderMaterialMetadata: shared.artifact.shaderMaterialMetadata ?? null,
+        previewAssets: shared.artifact.fileEntries.map((entry) => ({
+          sourcePath: entry.source,
+          runtimePath: entry.packagePath,
+        })),
+        sourceFingerprint: shared.artifact.sourceFingerprint,
+        blockers: diagnostics.filter((diagnostic) =>
+          projectValidationBlocksBoundary(diagnostic, 'runtime-package'),
+        ),
+        entries: diagnostics.slice(0, 6).map((diagnostic) => ({
+          label: diagnostic.message,
+          detail: diagnostic.path,
+          severity: diagnostic.severity,
+        })),
+      };
+    }
+    if (shared.status === 'blocked') {
+      return {
+        ok: false,
+        compiledProject: null,
+        shaderMaterialMetadata: null,
+        previewAssets: [],
+        sourceFingerprint: null,
+        blockers: shared.diagnostics,
+        entries: shared.diagnostics.slice(0, 6).map((diagnostic) => ({
+          label: diagnostic.message,
+          detail: diagnostic.path,
+          severity: diagnostic.severity,
+        })),
+      };
+    }
+  }
+
   const prepared = await prepareRuntimeArtifact({
     project: projectWithPreviewLocale(project),
     projectRoot: null,
@@ -2248,6 +2294,7 @@ export function FullGamePreviewEditor({
   tab = buildFullGamePreviewTab(),
 }: Partial<WorkbenchEditorProps> = {}) {
   const projectDocument = useProjectStore((state) => state.document);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
   const project = useMemo(
     () => (isAuthoringProject(projectDocument) ? projectDocument : null),
@@ -2354,16 +2401,18 @@ export function FullGamePreviewEditor({
   useEffect(() => {
     let current = true;
     setCompiledProjectPreparationPending(true);
-    void compiledProjectDiagnosticEntries(project, pendingInputEntries).then((result) => {
-      if (current) {
-        setExportedCompiledProject(result);
-        setCompiledProjectPreparationPending(false);
-      }
-    });
+    void compiledProjectDiagnosticEntries(project, pendingInputEntries, projectSessionId).then(
+      (result) => {
+        if (current) {
+          setExportedCompiledProject(result);
+          setCompiledProjectPreparationPending(false);
+        }
+      },
+    );
     return () => {
       current = false;
     };
-  }, [project, pendingInputEntries]);
+  }, [project, pendingInputEntries, projectSessionId]);
   const canReloadLatestProject =
     exportedCompiledProject.ok && !!exportedCompiledProject.compiledProject;
 

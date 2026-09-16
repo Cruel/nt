@@ -1755,17 +1755,19 @@ export function WorkspacePage() {
       setStatusMessage('No playback tests are available.');
       return;
     }
-    void window.noveltea.runPlaybackTest(latestProject, tests[0]!.id).then((result) => {
-      setLastPlaybackReport(result.report ?? result);
-      setStatusMessage(
-        result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
-      );
-      addTimelineEntry({
-        source: 'playback',
-        message: result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
-        detail: result,
+    void window.noveltea
+      .runPlaybackTest(projectSessionId, latestProject, tests[0]!.id, pendingInputEntries)
+      .then((result) => {
+        setLastPlaybackReport(result.report ?? result);
+        setStatusMessage(
+          result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
+        );
+        addTimelineEntry({
+          source: 'playback',
+          message: result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
+          detail: result,
+        });
       });
-    });
   }
 
   function exportRuntimePackage() {

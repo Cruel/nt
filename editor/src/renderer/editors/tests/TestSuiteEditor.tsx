@@ -4,11 +4,11 @@ import { Button } from '@/components/ui/button';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
-  buildRuntimePlaybackSpecFromAuthoringTest,
   getAuthoringTestRunReadiness,
   type TestRunReadiness,
 } from '../../../shared/project-schema/test-playback-project';
@@ -69,31 +69,12 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   const activeProject = project;
 
   async function runTest(testId: string) {
-    const spec = await buildRuntimePlaybackSpecFromAuthoringTest(activeProject, testId);
-    if (!spec.ok || !spec.spec) {
-      const report = {
-        id: testId,
-        passed: false,
-        failures: spec.diagnostics.map((item) => item.message),
-        diagnostics: spec.diagnostics,
-        observations: [],
-      };
-      setLastPlaybackReport(report);
-      setStatusMessage(spec.diagnostics[0]?.message ?? 'Test is not runnable yet.');
-      addTimelineEntry({ source: 'playback', message: 'Test is not runnable yet', detail: report });
-      setBottomPanel('test-playback');
-      return;
-    }
-    const runnerProject = spec.project ?? activeProject;
-    const result =
-      spec.runner === 'runtime-ui'
-        ? await window.noveltea.runUiPlaybackSpec(
-            projectSessionId,
-            runnerProject,
-            spec.spec,
-            spec.shaderMaterialMetadata ?? null,
-          )
-        : await window.noveltea.runPlaybackSpec(runnerProject, spec.spec);
+    const result = await window.noveltea.runPlaybackTest(
+      projectSessionId,
+      activeProject,
+      testId,
+      usePendingInputStore.getState().entriesBySaveUnitId,
+    );
     setLastPlaybackReport(result.report ?? result);
     setStatusMessage(result.ok ? `Ran test ${testId}` : (result.error ?? 'Test run failed'));
     addTimelineEntry({

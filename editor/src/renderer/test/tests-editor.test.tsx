@@ -208,19 +208,19 @@ describe('TestsEditor', () => {
       projectPath: '/mock',
       projectFilePath: '/mock/project.json',
     });
-    const runPlaybackSpec = vi.mocked(window.noveltea.runPlaybackSpec);
-    runPlaybackSpec.mockClear();
+    const runPlaybackTest = vi.mocked(window.noveltea.runPlaybackTest);
+    runPlaybackTest.mockClear();
 
     render(<TestsEditor tab={tab} />);
 
     await waitFor(() => expect(screen.getByText('runnable')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Run Test'));
 
-    await waitFor(() => expect(runPlaybackSpec).toHaveBeenCalledOnce());
-    expect(runPlaybackSpec.mock.calls[0]?.[0]).toMatchObject({
-      schema: 'noveltea.compiled.project',
-      schemaVersion: 1,
-    });
+    await waitFor(() => expect(runPlaybackTest).toHaveBeenCalledOnce());
+    expect(runPlaybackTest.mock.calls[0]?.[0]).toBeNull();
+    expect(runPlaybackTest.mock.calls[0]?.[1]).toEqual(project);
+    expect(runPlaybackTest.mock.calls[0]?.[2]).toBe('smoke');
+    expect(runPlaybackTest.mock.calls[0]?.[3]).toEqual({});
   });
 
   it('runs selector-click tests through the runtime UI runner', async () => {
@@ -244,26 +244,18 @@ describe('TestsEditor', () => {
       projectFilePath: '/mock/project.json',
       projectSessionId: 'project-session',
     });
-    const runPlaybackSpec = vi.mocked(window.noveltea.runPlaybackSpec);
-    const runUiPlaybackSpec = vi.mocked(window.noveltea.runUiPlaybackSpec);
-    runPlaybackSpec.mockClear();
-    runUiPlaybackSpec.mockClear();
+    const runPlaybackTest = vi.mocked(window.noveltea.runPlaybackTest);
+    runPlaybackTest.mockClear();
 
     render(<TestsEditor tab={tab} />);
 
     await waitFor(() => expect(screen.getByText('runnable')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Run Test'));
 
-    await waitFor(() => expect(runUiPlaybackSpec).toHaveBeenCalledOnce());
-    expect(runPlaybackSpec).not.toHaveBeenCalled();
-    expect(runUiPlaybackSpec.mock.calls[0]?.[0]).toBe('project-session');
-    expect(runUiPlaybackSpec.mock.calls[0]?.[2]).toMatchObject({
-      steps: [
-        {
-          input: { type: 'ui-click', documentId: 'runtime_game', selector: '#confirm' },
-        },
-      ],
-    });
+    await waitFor(() => expect(runPlaybackTest).toHaveBeenCalledOnce());
+    expect(runPlaybackTest.mock.calls[0]?.[0]).toBe('project-session');
+    expect(runPlaybackTest.mock.calls[0]?.[1]).toEqual(project);
+    expect(runPlaybackTest.mock.calls[0]?.[2]).toBe('smoke');
   });
 
   it('opens the playback panel and stores readiness reports when a test cannot run', async () => {
