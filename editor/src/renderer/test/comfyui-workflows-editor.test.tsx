@@ -259,7 +259,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Repair manifest' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Repair manifest' }));
     expect(await screen.findByText('Repair ComfyUI Workflow')).toBeInTheDocument();
   });
 
@@ -311,7 +311,7 @@ describe('ComfyUiWorkflowsEditor', () => {
 
     expect(await screen.findByText('Audio Bed')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Audio Bed' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Repair manifest' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Repair manifest' }));
     expect(await screen.findByText('Strict manifest JSON')).toBeInTheDocument();
     expect((screen.getByLabelText('Strict manifest JSON') as HTMLTextAreaElement).value).toContain(
       'audio.generate',
