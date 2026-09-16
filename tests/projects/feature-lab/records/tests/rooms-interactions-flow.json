@@ -1,0 +1,123 @@
+{
+  "id": "rooms-interactions-flow",
+  "label": "Rooms & Interactions semantic flow",
+  "data": {
+    "kind": "test",
+    "displayName": "Rooms & Interactions semantic flow",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh Lab home",
+        "expectations": [
+          {
+            "id": "home-room",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "feature-lab-home" }
+          },
+          {
+            "id": "gate-starts-locked",
+            "type": "property",
+            "operator": "eq",
+            "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": false }
+          }
+        ]
+      },
+      {
+        "id": "enter-pilot",
+        "input": "navigate",
+        "label": "Enter Rooms pilot",
+        "navigate": { "exitId": "rooms-interactions-test-entry" },
+        "expectations": [
+          {
+            "id": "workshop-room",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "rooms-interactions-workshop" }
+          }
+        ]
+      },
+      {
+        "id": "reject-locked-gate",
+        "input": "navigate",
+        "label": "Reject locked bedroom door",
+        "navigate": { "exitId": "east-gate" },
+        "expectations": [
+          {
+            "id": "still-in-workshop",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "rooms-interactions-workshop" }
+          },
+          {
+            "id": "locked-notification",
+            "type": "event",
+            "operator": "present",
+            "event": { "kind": "notification", "value": "The bedroom door is locked." }
+          }
+        ]
+      },
+      {
+        "id": "operate-lever",
+        "input": "run-interaction",
+        "label": "Press gate button",
+        "runInteraction": {
+          "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+          "bindings": [
+            {
+              "slotId": "target",
+              "subject": {
+                "kind": "interactable",
+                "interactable": { "$ref": { "registry": "interactableInstances", "id": "gate-lever-1" } }
+              }
+            }
+          ]
+        },
+        "expectations": [
+          {
+            "id": "gate-unlocked",
+            "type": "property",
+            "operator": "eq",
+            "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": true }
+          },
+          {
+            "id": "button-notification",
+            "type": "event",
+            "operator": "present",
+            "event": { "kind": "notification", "value": "The button clicks. The bedroom door unlocks." }
+          }
+        ]
+      },
+      {
+        "id": "navigate-through-gate",
+        "input": "navigate",
+        "label": "Navigate through unlocked bedroom door",
+        "navigate": { "exitId": "east-gate" },
+        "expectations": [
+          {
+            "id": "destination-room",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "rooms-interactions-destination" }
+          },
+          {
+            "id": "destination-lifecycle-notification",
+            "type": "event",
+            "operator": "present",
+            "event": { "kind": "notification", "value": "Destination Room after-enter lifecycle ran." }
+          }
+        ]
+      }
+    ],
+    "finalExpectations": [
+      {
+        "id": "gate-remains-unlocked",
+        "type": "property",
+        "operator": "eq",
+        "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": true }
+      }
+    ],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

@@ -70,6 +70,24 @@ describe('project compiler workspace command', () => {
     expect(await fs.readFile(outputPath, 'utf8')).not.toHaveLength(0);
   });
 
+  it('compiles the canonical in-tree Feature Lab project', async () => {
+    const outputDirectory = await fs.mkdtemp(path.join(tmpdir(), 'noveltea-feature-lab-'));
+    temporaryDirectories.push(outputDirectory);
+    const outputPath = path.join(outputDirectory, 'compiled-project.json');
+    const result = await runCompileProjectCommand([
+      '--project',
+      path.resolve('..', 'tests', 'projects', 'feature-lab'),
+      '--output',
+      outputPath,
+      '--json',
+    ]);
+    expect(result.exitCode, JSON.stringify(result.report.diagnostics)).toBe(
+      compileProjectExitCodes.success,
+    );
+    expect(result.report.diagnostics).toEqual([]);
+    expect(result.report.bytesWritten).toBeGreaterThan(0);
+  });
+
   it('rejects retired monolithic authoring-project input', async () => {
     const directory = await fs.mkdtemp(path.join(tmpdir(), 'noveltea-project-compile-monolith-'));
     temporaryDirectories.push(directory);

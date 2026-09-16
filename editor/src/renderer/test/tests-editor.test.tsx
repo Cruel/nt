@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TestsEditor } from '@/editors/tests/TestsEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
@@ -95,6 +95,55 @@ describe('TestsEditor', () => {
     });
   });
 
+  it('authors step and final semantic expectations through test.replaceData', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.entrypoint = { kind: 'room', id: 'foyer' };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<TestsEditor tab={tab} />);
+
+    const stepExpectationSection = document.querySelector(
+      '[data-workbench-anchor="test.step.expectations"]',
+    );
+    expect(stepExpectationSection).not.toBeNull();
+    fireEvent.click(within(stepExpectationSection as HTMLElement).getByText('Add expectation'));
+    await waitFor(() => {
+      const document = useProjectStore.getState().document as {
+        tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
+      };
+      expect(document.tests.smoke.data.steps[0]?.expectations).toHaveLength(1);
+      expect(document.tests.smoke.data.steps[0]?.expectations[0]).toMatchObject({
+        id: 'current-room',
+        type: 'current-room',
+        operator: 'present',
+      });
+    });
+
+    const finalExpectationSection = document.querySelector(
+      '[data-workbench-anchor="test.final-expectations"]',
+    );
+    expect(finalExpectationSection).not.toBeNull();
+    fireEvent.click(within(finalExpectationSection as HTMLElement).getByText('Add expectation'));
+    await waitFor(() => {
+      const document = useProjectStore.getState().document as {
+        tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
+      };
+      expect(document.tests.smoke.data.finalExpectations).toHaveLength(1);
+      expect(document.tests.smoke.data.finalExpectations[0]).toMatchObject({
+        id: 'current-room',
+        type: 'current-room',
+        operator: 'present',
+      });
+    });
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
+  });
+
   it('commits semantic identity edits through test.replaceData', async () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
@@ -115,6 +164,36 @@ describe('TestsEditor', () => {
         tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
       };
       expect(document.tests.smoke.data.steps[0]?.dialogueChoice.edgeId).toBe('accept');
+    });
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
+  });
+
+  it('authors stable UI click document ids and selectors', async () => {
+    const project = createAuthoringProject();
+    const data = defaultTestData('Smoke');
+    data.steps = [{ ...defaultTestStep('ui-click'), id: 'click', label: 'Click confirm' }];
+    data.preview.selectedStepId = 'click';
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<TestsEditor tab={tab} />);
+
+    fireEvent.change(screen.getByLabelText('Document ID'), {
+      target: { value: 'layout_inventory_instance_1_realization_1' },
+    });
+    fireEvent.change(screen.getByLabelText('Selector'), { target: { value: '#confirm' } });
+    await waitFor(() => {
+      const document = useProjectStore.getState().document as {
+        tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
+      };
+      expect(document.tests.smoke.data.steps[0]?.uiClick).toEqual({
+        documentId: 'layout_inventory_instance_1_realization_1',
+        selector: '#confirm',
+      });
     });
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
   });
@@ -141,6 +220,49 @@ describe('TestsEditor', () => {
     expect(runPlaybackSpec.mock.calls[0]?.[0]).toMatchObject({
       schema: 'noveltea.compiled.project',
       schemaVersion: 1,
+    });
+  });
+
+  it('runs selector-click tests through the runtime UI runner', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.entrypoint = { kind: 'room', id: 'foyer' };
+    const data = defaultTestData('Smoke');
+    data.steps = [
+      {
+        ...defaultTestStep('ui-click'),
+        id: 'click-confirm',
+        label: 'Click confirm',
+        uiClick: { documentId: 'runtime_game', selector: '#confirm' },
+      },
+    ];
+    data.preview.selectedStepId = 'click-confirm';
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+      projectSessionId: 'project-session',
+    });
+    const runPlaybackSpec = vi.mocked(window.noveltea.runPlaybackSpec);
+    const runUiPlaybackSpec = vi.mocked(window.noveltea.runUiPlaybackSpec);
+    runPlaybackSpec.mockClear();
+    runUiPlaybackSpec.mockClear();
+
+    render(<TestsEditor tab={tab} />);
+
+    await waitFor(() => expect(screen.getByText('runnable')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Run Test'));
+
+    await waitFor(() => expect(runUiPlaybackSpec).toHaveBeenCalledOnce());
+    expect(runPlaybackSpec).not.toHaveBeenCalled();
+    expect(runUiPlaybackSpec.mock.calls[0]?.[0]).toBe('project-session');
+    expect(runUiPlaybackSpec.mock.calls[0]?.[2]).toMatchObject({
+      steps: [
+        {
+          input: { type: 'ui-click', documentId: 'runtime_game', selector: '#confirm' },
+        },
+      ],
     });
   });
 

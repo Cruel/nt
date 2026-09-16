@@ -793,10 +793,8 @@ bool safe_project_logical_path(std::string_view value) noexcept
 std::string_view editor_shader_variant_name(EditorPreviewShaderVariant variant) noexcept
 {
     switch (variant) {
-    case EditorPreviewShaderVariant::Glsl120:
-        return "glsl-120";
-    case EditorPreviewShaderVariant::Essl100:
-        return "essl-100";
+    case EditorPreviewShaderVariant::Glsl330:
+        return "glsl-330";
     case EditorPreviewShaderVariant::Essl300:
         return "essl-300";
     case EditorPreviewShaderVariant::Metal:
@@ -2276,10 +2274,8 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
                                             "/templateId"));
         }
         if (auto value = string_field(document, "activeShaderVariant", diagnostics, "/", limits)) {
-            if (*value == "glsl-120")
-                result.active_shader_variant = EditorPreviewShaderVariant::Glsl120;
-            else if (*value == "essl-100")
-                result.active_shader_variant = EditorPreviewShaderVariant::Essl100;
+            if (*value == "glsl-330")
+                result.active_shader_variant = EditorPreviewShaderVariant::Glsl330;
             else if (*value == "essl-300")
                 result.active_shader_variant = EditorPreviewShaderVariant::Essl300;
             else if (*value == "metal")
@@ -2500,10 +2496,8 @@ decode_focused_editor_document_request_text(std::string_view request_text,
             optional_string("shaderStage", entry.shader_stage);
             if (item.contains("shaderVariant")) {
                 if (auto variant = entry_string("shaderVariant")) {
-                    if (*variant == "glsl-120")
-                        entry.shader_variant = EditorPreviewShaderVariant::Glsl120;
-                    else if (*variant == "essl-100")
-                        entry.shader_variant = EditorPreviewShaderVariant::Essl100;
+                    if (*variant == "glsl-330")
+                        entry.shader_variant = EditorPreviewShaderVariant::Glsl330;
                     else if (*variant == "essl-300")
                         entry.shader_variant = EditorPreviewShaderVariant::Essl300;
                     else if (*variant == "metal")
@@ -4143,11 +4137,289 @@ decode_editor_room_preview_document_text(std::string_view data_text,
     return Result<TypedEditorRoomPreviewDocument, Diagnostics>::success(std::move(result));
 }
 
+namespace {
+
+std::optional<TypedPlaybackExpectationKind> playback_expectation_kind(std::string_view value)
+{
+    if (value == "property")
+        return TypedPlaybackExpectationKind::Property;
+    if (value == "current-room")
+        return TypedPlaybackExpectationKind::CurrentRoom;
+    if (value == "location")
+        return TypedPlaybackExpectationKind::Location;
+    if (value == "quantity")
+        return TypedPlaybackExpectationKind::Quantity;
+    if (value == "trait")
+        return TypedPlaybackExpectationKind::Trait;
+    if (value == "entity-state")
+        return TypedPlaybackExpectationKind::EntityState;
+    if (value == "active-flow")
+        return TypedPlaybackExpectationKind::ActiveFlow;
+    if (value == "layout")
+        return TypedPlaybackExpectationKind::Layout;
+    if (value == "event")
+        return TypedPlaybackExpectationKind::Event;
+    if (value == "diagnostic")
+        return TypedPlaybackExpectationKind::Diagnostic;
+    return std::nullopt;
+}
+
+std::optional<TypedPlaybackExpectationOperator>
+playback_expectation_operator(std::string_view value)
+{
+    if (value == "eq")
+        return TypedPlaybackExpectationOperator::Equal;
+    if (value == "ne")
+        return TypedPlaybackExpectationOperator::NotEqual;
+    if (value == "present")
+        return TypedPlaybackExpectationOperator::Present;
+    if (value == "absent")
+        return TypedPlaybackExpectationOperator::Absent;
+    if (value == "gt")
+        return TypedPlaybackExpectationOperator::Greater;
+    if (value == "gte")
+        return TypedPlaybackExpectationOperator::GreaterEqual;
+    if (value == "lt")
+        return TypedPlaybackExpectationOperator::Less;
+    if (value == "lte")
+        return TypedPlaybackExpectationOperator::LessEqual;
+    return std::nullopt;
+}
+
+void decode_playback_expectations(const nlohmann::json& value, std::string_view path,
+                                  const EditorRuntimeProtocolLimits& limits,
+                                  std::vector<TypedPlaybackExpectation>& output,
+                                  Diagnostics& diagnostics)
+{
+    if (!value.is_array()) {
+        diagnostics.push_back(error("editor_protocol.wrong_type", "expectations must be an array.",
+                                    std::string(path)));
+        return;
+    }
+    if (value.size() > limits.max_steps) {
+        diagnostics.push_back(error("editor_protocol.size_limit", "Too many playback expectations.",
+                                    std::string(path)));
+        return;
+    }
+    std::set<std::string> ids;
+    for (std::size_t index = 0; index < value.size(); ++index) {
+        const auto expectation_path = std::string(path) + "/" + std::to_string(index);
+        const auto& item = value[index];
+        if (!item.is_object()) {
+            diagnostics.push_back(error("editor_protocol.wrong_type",
+                                        "Playback expectation must be an object.",
+                                        expectation_path));
+            continue;
+        }
+        auto id = string_field(item, "id", diagnostics, expectation_path, limits);
+        auto type = string_field(item, "type", diagnostics, expectation_path, limits);
+        auto op = string_field(item, "operator", diagnostics, expectation_path, limits);
+        if (id && !ids.insert(*id).second)
+            diagnostics.push_back(error("editor_protocol.duplicate_expectation_id",
+                                        "Expectation id must be unique in its expectation list.",
+                                        expectation_path + "/id"));
+        const auto kind = type ? playback_expectation_kind(*type) : std::nullopt;
+        const auto decoded_op = op ? playback_expectation_operator(*op) : std::nullopt;
+        if (type && !kind)
+            diagnostics.push_back(error("editor_protocol.invalid_expectation_type",
+                                        "Unsupported playback expectation type.",
+                                        expectation_path + "/type"));
+        if (op && !decoded_op)
+            diagnostics.push_back(error("editor_protocol.invalid_expectation_operator",
+                                        "Unsupported playback expectation operator.",
+                                        expectation_path + "/operator"));
+        if (!kind || !decoded_op)
+            continue;
+
+        const auto require_string = [&](std::string_view field) {
+            return string_field(item, field, diagnostics, expectation_path, limits);
+        };
+        const auto require_enum = [&](std::string_view field,
+                                      std::initializer_list<std::string_view> allowed) {
+            auto decoded = require_string(field);
+            if (!decoded)
+                return;
+            if (std::find(allowed.begin(), allowed.end(), *decoded) == allowed.end())
+                diagnostics.push_back(error("editor_protocol.invalid_expectation_field",
+                                            "Playback expectation field has an unsupported value.",
+                                            expectation_path + "/" + std::string(field)));
+        };
+        const auto equality = *decoded_op == TypedPlaybackExpectationOperator::Equal ||
+                              *decoded_op == TypedPlaybackExpectationOperator::NotEqual;
+        const auto presence = *decoded_op == TypedPlaybackExpectationOperator::Present ||
+                              *decoded_op == TypedPlaybackExpectationOperator::Absent;
+        const auto numeric = *decoded_op == TypedPlaybackExpectationOperator::Greater ||
+                             *decoded_op == TypedPlaybackExpectationOperator::GreaterEqual ||
+                             *decoded_op == TypedPlaybackExpectationOperator::Less ||
+                             *decoded_op == TypedPlaybackExpectationOperator::LessEqual;
+        const auto invalid_operator = [&](std::string_view message) {
+            diagnostics.push_back(error("editor_protocol.invalid_expectation_operator",
+                                        std::string(message), expectation_path + "/operator"));
+        };
+
+        switch (*kind) {
+        case TypedPlaybackExpectationKind::Property:
+            exact_fields(item,
+                         {"id", "type", "operator", "scope", "ownerId", "propertyId", "value"},
+                         diagnostics, expectation_path);
+            require_enum("scope", {"global", "room", "character", "interactable"});
+            require_string("ownerId");
+            require_string("propertyId");
+            if (!equality && !presence && !numeric)
+                invalid_operator(
+                    "Property expectations require equality, presence, or numeric operators.");
+            break;
+        case TypedPlaybackExpectationKind::CurrentRoom:
+            exact_fields(item, {"id", "type", "operator", "roomId"}, diagnostics, expectation_path);
+            require_string("roomId");
+            if (!equality && !presence)
+                invalid_operator(
+                    "Current Room expectations require equality or presence operators.");
+            break;
+        case TypedPlaybackExpectationKind::Location:
+            exact_fields(item,
+                         {"id", "type", "operator", "entityKind", "entityId", "locationKind",
+                          "roomId", "inventoryOwnerKind", "inventoryOwnerId", "inventoryId"},
+                         diagnostics, expectation_path);
+            require_enum("entityKind", {"character", "interactable"});
+            require_string("entityId");
+            require_enum("locationKind", {"unplaced", "room", "inventory"});
+            require_string("roomId");
+            require_enum("inventoryOwnerKind", {"project", "character", "interactable"});
+            require_string("inventoryOwnerId");
+            require_string("inventoryId");
+            if (!equality && !presence)
+                invalid_operator("Location expectations require equality or presence operators.");
+            break;
+        case TypedPlaybackExpectationKind::Quantity:
+            exact_fields(item, {"id", "type", "operator", "interactableId", "value"}, diagnostics,
+                         expectation_path);
+            require_string("interactableId");
+            if (!equality && !numeric)
+                invalid_operator("Quantity expectations require equality or numeric operators.");
+            break;
+        case TypedPlaybackExpectationKind::Trait:
+            exact_fields(item, {"id", "type", "operator", "ownerKind", "ownerId", "traitId"},
+                         diagnostics, expectation_path);
+            require_enum("ownerKind", {"room", "character", "interactable"});
+            require_string("ownerId");
+            require_string("traitId");
+            if (!presence)
+                invalid_operator("Trait expectations require presence operators.");
+            break;
+        case TypedPlaybackExpectationKind::EntityState:
+            exact_fields(item,
+                         {"id", "type", "operator", "entityKind", "entityId", "field", "value"},
+                         diagnostics, expectation_path);
+            require_enum("entityKind", {"character", "interactable"});
+            require_string("entityId");
+            require_enum("field", {"enabled", "visible"});
+            if (!equality)
+                invalid_operator("Entity-state expectations require equality operators.");
+            break;
+        case TypedPlaybackExpectationKind::ActiveFlow:
+            exact_fields(item, {"id", "type", "operator", "kind", "flowId"}, diagnostics,
+                         expectation_path);
+            require_enum("kind", {"scene", "dialogue"});
+            require_string("flowId");
+            if (!equality && !presence)
+                invalid_operator(
+                    "Active-flow expectations require equality or presence operators.");
+            break;
+        case TypedPlaybackExpectationKind::Layout: {
+            exact_fields(item, {"id", "type", "operator", "layoutId", "field", "value"},
+                         diagnostics, expectation_path);
+            require_string("layoutId");
+            auto field = require_string("field");
+            if (field && *field != "mounted" && *field != "state")
+                diagnostics.push_back(error("editor_protocol.invalid_expectation_field",
+                                            "Layout expectation field must be mounted or state.",
+                                            expectation_path + "/field"));
+            if (field && *field == "mounted" && !presence)
+                invalid_operator("Mounted Layout expectations require presence operators.");
+            if (field && *field == "state" && !equality && !numeric)
+                invalid_operator(
+                    "Layout-state expectations require equality or numeric operators.");
+            break;
+        }
+        case TypedPlaybackExpectationKind::Event:
+            exact_fields(item, {"id", "type", "operator", "kind", "value"}, diagnostics,
+                         expectation_path);
+            require_enum("kind", {"notification", "save-outcome"});
+            require_string("value");
+            if (!presence)
+                invalid_operator("Event expectations require presence operators.");
+            break;
+        case TypedPlaybackExpectationKind::Diagnostic:
+            exact_fields(item, {"id", "type", "operator", "code"}, diagnostics, expectation_path);
+            require_string("code");
+            if (!presence)
+                invalid_operator("Diagnostic expectations require presence operators.");
+            break;
+        }
+
+        if (*kind == TypedPlaybackExpectationKind::Property) {
+            const auto field = item.find("value");
+            if (field == item.end())
+                diagnostics.push_back(error("editor_protocol.missing_field", "Missing value.",
+                                            expectation_path + "/value"));
+            else {
+                Diagnostics value_diagnostics;
+                (void)runtime_value(*field, value_diagnostics, expectation_path + "/value", limits);
+                diagnostics.insert(diagnostics.end(), value_diagnostics.begin(),
+                                   value_diagnostics.end());
+                if (numeric && !field->is_number())
+                    diagnostics.push_back(
+                        error("editor_protocol.wrong_type",
+                              "Numeric Property comparisons require a numeric expected value.",
+                              expectation_path + "/value"));
+            }
+        }
+        if (*kind == TypedPlaybackExpectationKind::Quantity) {
+            const auto field = item.find("value");
+            if (field == item.end() || !field->is_number())
+                diagnostics.push_back(error("editor_protocol.wrong_type",
+                                            "Quantity expectation value must be numeric.",
+                                            expectation_path + "/value"));
+        }
+        if (*kind == TypedPlaybackExpectationKind::EntityState) {
+            const auto field = item.find("value");
+            if (field == item.end() || !field->is_boolean())
+                diagnostics.push_back(error("editor_protocol.wrong_type",
+                                            "Entity-state expectation value must be boolean.",
+                                            expectation_path + "/value"));
+        }
+        if (*kind == TypedPlaybackExpectationKind::Layout) {
+            const auto field = item.find("value");
+            if (field == item.end())
+                diagnostics.push_back(error("editor_protocol.missing_field", "Missing value.",
+                                            expectation_path + "/value"));
+            else {
+                Diagnostics value_diagnostics;
+                (void)preview_persistable_value(*field, value_diagnostics,
+                                                expectation_path + "/value", limits);
+                diagnostics.insert(diagnostics.end(), value_diagnostics.begin(),
+                                   value_diagnostics.end());
+                if (numeric && !field->is_number())
+                    diagnostics.push_back(
+                        error("editor_protocol.wrong_type",
+                              "Numeric Layout-state comparisons require a numeric expected value.",
+                              expectation_path + "/value"));
+            }
+        }
+        if (id)
+            output.push_back(TypedPlaybackExpectation{*id, *kind, *decoded_op, item});
+    }
+}
+
+} // namespace
+
 Result<TypedPlaybackSpec, Diagnostics>
 decode_editor_playback(const nlohmann::json& document, const EditorRuntimeProtocolLimits& limits)
 {
     Diagnostics diagnostics;
-    exact_fields(document, {"schema", "version", "id", "steps"}, diagnostics, "/");
+    exact_fields(document, {"schema", "version", "id", "steps", "finalExpectations"}, diagnostics,
+                 "/");
     const auto schema = document.find("schema");
     const auto version = document.find("version");
     if (schema == document.end() || !schema->is_string() ||
@@ -4170,13 +4442,20 @@ decode_editor_playback(const nlohmann::json& document, const EditorRuntimeProtoc
     TypedPlaybackSpec spec;
     if (id)
         spec.id = std::move(*id);
+    const auto final_expectations = document.find("finalExpectations");
+    if (final_expectations == document.end())
+        diagnostics.push_back(error("editor_protocol.missing_field", "Missing finalExpectations.",
+                                    "/finalExpectations"));
+    else
+        decode_playback_expectations(*final_expectations, "/finalExpectations", limits,
+                                     spec.final_expectations, diagnostics);
     if (steps != document.end() && steps->is_array() && steps->size() <= limits.max_steps) {
         std::set<std::uint64_t> indexes;
         for (std::size_t position = 0; position < steps->size(); ++position) {
             const auto path = "/steps/" + std::to_string(position);
             const auto& step = (*steps)[position];
             Diagnostics step_diagnostics;
-            exact_fields(step, {"index", "input"}, step_diagnostics, path);
+            exact_fields(step, {"index", "input", "expectations"}, step_diagnostics, path);
             const auto index = step.find("index");
             const auto decoded_index =
                 index == step.end() ? std::optional<std::uint64_t>{} : nonnegative_integer(*index);
@@ -4189,12 +4468,53 @@ decode_editor_playback(const nlohmann::json& document, const EditorRuntimeProtoc
                 step_diagnostics.push_back(
                     error("editor_protocol.missing_field", "Missing input.", path + "/input"));
             else {
-                auto decoded = decode_input_object(*input, limits, path + "/input", false);
-                if (decoded && decoded_index)
-                    spec.steps.push_back({*decoded_index, std::move(*decoded.value_if())});
-                else if (!decoded)
-                    step_diagnostics.insert(step_diagnostics.end(), decoded.error().begin(),
-                                            decoded.error().end());
+                std::optional<TypedPlaybackInput> decoded_input;
+                bool recognized_ui_click = false;
+                if (input->is_object()) {
+                    const auto type = input->find("type");
+                    if (type != input->end() && type->is_string() &&
+                        type->get<std::string>() == "ui-click") {
+                        recognized_ui_click = true;
+                        exact_fields(*input, {"type", "documentId", "selector"}, step_diagnostics,
+                                     path + "/input");
+                        auto document_id = string_field(*input, "documentId", step_diagnostics,
+                                                        path + "/input", limits);
+                        auto selector = string_field(*input, "selector", step_diagnostics,
+                                                     path + "/input", limits);
+                        if (document_id && document_id->empty())
+                            step_diagnostics.push_back(
+                                error("editor_protocol.invalid_value",
+                                      "UI click documentId must not be empty.",
+                                      path + "/input/documentId"));
+                        if (selector && selector->empty())
+                            step_diagnostics.push_back(error("editor_protocol.invalid_value",
+                                                             "UI click selector must not be empty.",
+                                                             path + "/input/selector"));
+                        if (document_id && selector && !document_id->empty() && !selector->empty())
+                            decoded_input = TypedPlaybackUiClickInput{std::move(*document_id),
+                                                                      std::move(*selector)};
+                    }
+                }
+                if (!decoded_input && !recognized_ui_click) {
+                    auto decoded = decode_input_object(*input, limits, path + "/input", false);
+                    if (decoded)
+                        decoded_input = std::move(*decoded.value_if());
+                    else
+                        step_diagnostics.insert(step_diagnostics.end(), decoded.error().begin(),
+                                                decoded.error().end());
+                }
+                if (decoded_input && decoded_index) {
+                    TypedPlaybackStep typed_step{*decoded_index, std::move(*decoded_input), {}};
+                    const auto expectations = step.find("expectations");
+                    if (expectations == step.end())
+                        step_diagnostics.push_back(error("editor_protocol.missing_field",
+                                                         "Missing expectations.",
+                                                         path + "/expectations"));
+                    else
+                        decode_playback_expectations(*expectations, path + "/expectations", limits,
+                                                     typed_step.expectations, step_diagnostics);
+                    spec.steps.push_back(std::move(typed_step));
+                }
             }
             diagnostics.insert(diagnostics.end(), step_diagnostics.begin(), step_diagnostics.end());
         }
@@ -4213,37 +4533,49 @@ decode_editor_playback_text(std::string_view text, const EditorRuntimeProtocolLi
     return decode_editor_playback(*document.value_if(), limits);
 }
 
-nlohmann::json encode_editor_playback_report(std::string_view id,
-                                             const std::vector<TypedPlaybackStepReport>& steps,
-                                             const runtime::RuntimePublication& final_publication,
-                                             bool passed)
+nlohmann::json
+encode_editor_playback_report(std::string_view id,
+                              const std::vector<TypedPlaybackStepReport>& steps,
+                              const std::vector<TypedPlaybackExpectationReport>& final_expectations,
+                              const runtime::RuntimePublication& final_publication, bool passed)
 {
     nlohmann::json result = {{"schema", playback_report_schema},
                              {"version", editor_runtime_protocol_version},
                              {"id", id},
                              {"passed", passed},
                              {"steps", nlohmann::json::array()},
+                             {"finalExpectations", nlohmann::json::array()},
                              {"finalPublication", encode_publication(final_publication)}};
     for (const auto& step : steps) {
         nlohmann::json encoded = {{"index", step.index},
                                   {"handled", step.handled},
                                   {"events", nlohmann::json::array()},
-                                  {"diagnostics", nlohmann::json::array()}};
+                                  {"diagnostics", nlohmann::json::array()},
+                                  {"expectations", nlohmann::json::array()}};
         for (const auto& event : step.events)
             encoded["events"].push_back(encode_event(event));
         for (const auto& diagnostic : step.diagnostics)
             encoded["diagnostics"].push_back(encode_diagnostic(diagnostic));
+        for (const auto& expectation : step.expectations)
+            encoded["expectations"].push_back({{"id", expectation.id},
+                                               {"passed", expectation.passed},
+                                               {"message", expectation.message}});
         result["steps"].push_back(std::move(encoded));
     }
+    for (const auto& expectation : final_expectations)
+        result["finalExpectations"].push_back({{"id", expectation.id},
+                                               {"passed", expectation.passed},
+                                               {"message", expectation.message}});
     return result;
 }
 
-std::string encode_editor_playback_report_text(std::string_view id,
-                                               const std::vector<TypedPlaybackStepReport>& steps,
-                                               const runtime::RuntimePublication& final_publication,
-                                               bool passed)
+std::string encode_editor_playback_report_text(
+    std::string_view id, const std::vector<TypedPlaybackStepReport>& steps,
+    const std::vector<TypedPlaybackExpectationReport>& final_expectations,
+    const runtime::RuntimePublication& final_publication, bool passed)
 {
-    return encode_editor_playback_report(id, steps, final_publication, passed).dump();
+    return encode_editor_playback_report(id, steps, final_expectations, final_publication, passed)
+        .dump();
 }
 
 nlohmann::json encode_editor_debug_snapshot(const runtime::RuntimePublication& publication,

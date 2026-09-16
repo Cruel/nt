@@ -396,7 +396,7 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
 
   async function compile() {
     const built = await buildShaderMaterialProject(activeProject);
-    const variants = ['glsl-120', 'essl-100', 'essl-300', 'metal'] as const;
+    const variants = ['glsl-330', 'essl-300', 'metal'] as const;
     const fingerprints = await captureShaderCompileInputFingerprints(activeProject, variants);
     await runCompile(
       built.project,

@@ -251,7 +251,7 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
                              uint32_t(bytes.value->bytes.size()), bimg::TextureFormat::RGBA8);
         if (!image || image->m_width <= 0 || image->m_height <= 0 || !image->m_data ||
             image->m_format != bimg::TextureFormat::RGBA8 || image->m_numLayers != 1 ||
-            image->m_depth != 1 || image->m_numMips != 1 ||
+            bimg::imageGetNumSlices(*image) != 1 || image->m_numMips != 1 ||
             image->m_size != image->m_width * image->m_height * 4u) {
             if (image)
                 bimg::imageFree(image);

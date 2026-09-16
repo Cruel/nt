@@ -1,0 +1,26 @@
+{
+  "id": "feature-lab-hud",
+  "label": "Feature Lab HUD",
+  "data": {
+    "kind": "layout",
+    "layoutKind": "document",
+    "displayName": "Feature Lab HUD",
+    "target": "default-ui",
+    "contract": { "inputs": {}, "signals": {} },
+    "rml": { "sourceMode": "file" },
+    "rcss": { "sourceMode": "file" },
+    "lua": { "sourceMode": "file" },
+    "script": { "enabled": true, "namespace": "feature_lab", "additionalDependencies": { "targets": [] } },
+    "mount": { "defaultParent": "nt-layout-preview-mount", "scopedStyles": true },
+    "dependencies": {
+      "images": [],
+      "fonts": [],
+      "stylesheets": [],
+      "materials": [],
+      "scripts": [],
+      "data": [{ "$ref": { "collection": "assets", "id": "feature-lab-catalog" } }]
+    },
+    "sampleState": {},
+    "preview": { "background": "dark" }
+  }
+}

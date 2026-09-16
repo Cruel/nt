@@ -46,26 +46,26 @@ Authoring/project data:
   optional source assets: project:/shaders/ui/noise_panel.fs.sc
 
 Build/cache/export output:
-  cache:/compiled-shaders/<hash>/glsl-120/noise_panel.fs.bin
-  cache:/compiled-shaders/<hash>/essl-100/noise_panel.fs.bin
+  cache:/compiled-shaders/<hash>/glsl-330/noise_panel.fs.bin
   cache:/compiled-shaders/<hash>/essl-300/noise_panel.fs.bin
+  cache:/compiled-shaders/<hash>/metal/noise_panel.fs.bin
 
 Runtime/package input:
   game schema records for shaders/materials needed at runtime
   project:/shaders/bgfx/<variant>/<shader-id>.<stage>.bin
 ```
 
-The active compiled shader variant is inferred by engine policy from the current build/runtime renderer/export target. Individual shader or material records should not manually choose `glsl-120`, `essl-100`, `essl-300`, or equivalent future variants.
+The active compiled shader variant is inferred by engine policy from the current build/runtime renderer/export target. Individual shader or material records should not manually choose `glsl-330`, `essl-300`, `metal`, or equivalent future variants.
 
 Current variants in code and staged assets:
 
 ```text
-glsl-120  desktop OpenGL
-essl-100  Web/WebGL
-essl-300  Android/OpenGLES
+glsl-330  desktop OpenGL
+essl-300  Web/WebGL 2 and Android/OpenGLES 3
+metal     macOS/iOS Metal
 ```
 
-Debug/profile/release build type is not itself the shader variant. For example, Linux debug and Linux release both normally use `glsl-120`; Web debug and Web profile both normally use `essl-100`.
+Debug/profile/release build type is not itself the shader variant. For example, Linux debug and Linux release both normally use `glsl-330`; Web and Android both use the shared `essl-300` variant.
 
 ## Project Schema Model
 
@@ -96,8 +96,8 @@ Example shape:
         "fragment": {
           "source": "project:/shaders/ui/soft_noise.fs.sc",
           "compiled": {
-            "glsl-120": {
-              "runtimePath": "project:/shaders/bgfx/glsl-120/soft_noise.fs.bin",
+            "glsl-330": {
+              "runtimePath": "project:/shaders/bgfx/glsl-330/soft_noise.fs.bin",
               "byteHash": "sha256:<64 lowercase hexadecimal digits>",
               "byteSize": 1234
             }
@@ -526,7 +526,7 @@ Acceptance:
 Implemented model:
 
 - `ShaderCompilerService` routes project-authored shader stages through the unified `noveltea` host tooling and its embedded shaderc implementation; no external shaderc executable is required.
-- Current compile variants are mapped to existing bgfx shaderc conventions: `glsl-120`, `essl-100`, and `essl-300`.
+- Current compile variants are mapped to current bgfx shaderc conventions: `glsl-330`, `essl-300`, and `metal`.
 - Stage source can come from `source` refs resolved under the project root or from `source_text` written to a generated cache source file.
 - Compiled outputs are written to runtime-compatible paths under `shaders/bgfx/<variant>/<shader-id>.<vs|fs>.bin`.
 - The returned shader project metadata is updated with compiled refs for successful stage outputs; project files are not mutated implicitly.
@@ -545,7 +545,7 @@ Still intentionally not implemented:
 
 Acceptance:
 
-- Project-schema shader stages can compile for Linux/Web/Android variant names, currently `glsl-120`, `essl-100`, and `essl-300`.
+- Project-schema shader stages can compile for the canonical `glsl-330`, `essl-300`, and `metal` variants; Web and Android share `essl-300`.
 - Failed shader compilation produces readable diagnostics.
 - Re-running without source changes hits the cache.
 

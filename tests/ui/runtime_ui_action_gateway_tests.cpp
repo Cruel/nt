@@ -111,6 +111,21 @@ TEST_CASE("RuntimeUiActionGateway emits typed inputs and capabilities through th
     REQUIRE(sink.last_gameplay_input);
     CHECK(std::holds_alternative<noveltea::core::ContinueInput>(*sink.last_gameplay_input));
 
+    const noveltea::core::PersistableValue restart_context{noveltea::core::PersistableValue::Object{
+        {"scenario", noveltea::core::PersistableValue{std::string("dialogue")}}}};
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.startup_context = restart_context;
+    REQUIRE(binder.apply(values));
+    CHECK(binder.startup_context() == restart_context);
+    REQUIRE(binder.action_restart(restart_context, true));
+    REQUIRE(sink.last_gameplay_input);
+    const auto* restart =
+        std::get_if<noveltea::core::ResetRuntimeInput>(&*sink.last_gameplay_input);
+    REQUIRE(restart != nullptr);
+    CHECK(restart->startup_context == restart_context);
+    CHECK(restart->show_title);
+
     bool dispatched = false;
     CHECK(binder.dispatch_layout_event(noveltea::core::MountedLayoutOwner::Shell, [&dispatched]() {
         dispatched = true;

@@ -26,6 +26,13 @@ so overlapping Linux, Web, Android, sanitizer, or policy builds can still create
 processes to exhaust RAM and swap. Run build presets and validation builds sequentially unless the
 user explicitly requests concurrent execution.
 
+CMake link job pools (`CMAKE_JOB_POOLS` / `CMAKE_JOB_POOL_LINK`) only constrain Ninja builds. Check
+`CMAKE_GENERATOR` in the build directory's `CMakeCache.txt` before relying on them: Unix Makefiles
+ignores those pools and can launch several memory-heavy executable links within the compile-job
+limit. On memory-constrained Makefiles builds, build one executable target at a time with
+`cmake --build --preset <preset> --target <target>`, waiting for each command to finish before the
+next. Do not retry an unrestricted aggregate build after a link-memory failure.
+
 Build and test helper scripts should preserve an inherited value and may provide only a conservative
 fallback when it is absent, for example:
 
@@ -309,8 +316,8 @@ template. Successful master Build runs publish the same-run Linux CLI and Web te
 [development toolchain snapshots](DEVELOPMENT_SNAPSHOTS.md), without a second release build.
 
 Release CI builds and certifies one `noveltea` host CLI on Linux x64 and one on Windows x64. The
-Linux CLI also produces the canonical `glsl-120`, `essl-100`, and `essl-300` shader trees consumed by
-the player jobs. Android and Web reuse the certified Linux CLI for host-side export acceptance;
+Linux CLI also produces the canonical `glsl-330`, `essl-300`, and `metal` shader trees consumed by
+the player jobs; Web and Android share the `essl-300` tree. Android and Web reuse the certified Linux CLI for host-side export acceptance;
 each Electron editor job embeds the exact certified CLI from its own host. Tagged releases publish
 both standalone executables and the editor packages. Manual dispatch accepts a proposed tag and
 commit for a non-publishing full-matrix qualification run; create the immutable tag only after that

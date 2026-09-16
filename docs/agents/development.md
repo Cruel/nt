@@ -24,8 +24,8 @@ or conflicts with a documented repository rule; do not fork upstream skills to e
 
 ## Feature Lab applicability
 
-Feature Lab is the in-tree authored Project for runtime acceptance and working reference examples,
-not a replacement for focused automated tests. For authorable/runtime-observable changes, explicitly
+Feature Lab is the in-tree authored Project at `tests/projects/feature-lab/` for runtime
+acceptance and working reference examples, not a replacement for focused automated tests. For authorable/runtime-observable changes, explicitly
 choose **added/updated**, **already covered**, or **not applicable**, with a brief reason or coverage
 pointer. This is a judgment call, not a requirement to modify the Lab for every change.
 

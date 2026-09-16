@@ -20,6 +20,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CTest)
 include(NovelTeaCompilerPolicy)
 include(NovelTeaSanitizers)
+include(NovelTeaBgfxVersion)
 
 add_library(noveltea_compiler_policy_probe OBJECT EXCLUDE_FROM_ALL
     cmake/compiler_policy_probe.cpp)
@@ -146,7 +147,7 @@ option(NOVELTEA_BUILD_EDITOR_PREVIEW "Build the Web-only editor preview applicat
 option(NOVELTEA_BUILD_PLAYER "Build the release-facing player application" ON)
 option(NOVELTEA_BUILD_HOST_TOOLS "Build native editor and host-tool targets" ON)
 option(NOVELTEA_BUILD_BENCHMARKS "Build reproducible release benchmark executables" OFF)
-option(NOVELTEA_FETCH_BGFX "Fetch/build bgfx via FetchContent (required for Web/Android)" ON)
+option(NOVELTEA_FETCH_BGFX "Fetch/build the pinned bgfx/bx/bimg source bundle via FetchContent" ON)
 option(NOVELTEA_FETCH_RMLUI "Fetch/build the pinned patched RmlUi source via FetchContent" ON)
 option(NOVELTEA_FETCH_RMLUI_BGFX "Fetch rmlui-bgfx via FetchContent when it is not installed" ON)
 option(NOVELTEA_USE_LOCAL_RMLUI_BGFX "Use a local rmlui-bgfx checkout instead of an installed package or remote FetchContent" OFF)
@@ -291,10 +292,22 @@ endif()
 
 # --- bgfx: mandatory for the engine ---
 
-if(NOVELTEA_FETCH_BGFX AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
+if(NOVELTEA_FETCH_BGFX)
     include(FetchContent)
+    unset(BGFX_DIR CACHE)
+    unset(BX_DIR CACHE)
+    unset(BIMG_DIR CACHE)
+
     set(BGFX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    if(NOVELTEA_BUILD_HOST_TOOLS AND NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+        set(BGFX_BUILD_TOOLS ON CACHE BOOL "" FORCE)
+        set(BGFX_BUILD_TOOLS_BIN2C OFF CACHE BOOL "" FORCE)
+        set(BGFX_BUILD_TOOLS_GEOMETRY OFF CACHE BOOL "" FORCE)
+        set(BGFX_BUILD_TOOLS_SHADER ON CACHE BOOL "" FORCE)
+        set(BGFX_BUILD_TOOLS_TEXTURE OFF CACHE BOOL "" FORCE)
+    else()
+        set(BGFX_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    endif()
     set(BGFX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
     set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
@@ -322,25 +335,33 @@ if(NOVELTEA_FETCH_BGFX AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
             BIMG_CONFIG_PARSE_GIF=0   BIMG_CONFIG_PARSE_HDR=0
             BIMG_CONFIG_PARSE_PIC=0   BIMG_CONFIG_PARSE_PNM=0
             BIMG_CONFIG_PARSE_PSD=0   BIMG_CONFIG_PARSE_TGA=0
-            BIMG_CONFIG_PARSE_WEBP=0
         )
 
         FetchContent_Declare(
             bgfx.cmake
-            URL https://github.com/bkaradzic/bgfx.cmake/releases/download/v1.143.9262-545/bgfx.cmake.v1.143.9262-545.tar.gz
+            URL https://github.com/bkaradzic/bgfx.cmake/releases/download/v${NOVELTEA_BGFX_VERSION}/bgfx.cmake.v${NOVELTEA_BGFX_VERSION}.tar.gz
+            URL_HASH SHA256=${NOVELTEA_BGFX_ARCHIVE_SHA256}
             SOURCE_SUBDIR .
             PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bgfx-emscripten.cmake
+            COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bimg-texturec-entry.cmake
         )
     else()
         FetchContent_Declare(
             bgfx.cmake
-            URL https://github.com/bkaradzic/bgfx.cmake/releases/download/v1.143.9262-545/bgfx.cmake.v1.143.9262-545.tar.gz
+            URL https://github.com/bkaradzic/bgfx.cmake/releases/download/v${NOVELTEA_BGFX_VERSION}/bgfx.cmake.v${NOVELTEA_BGFX_VERSION}.tar.gz
+            URL_HASH SHA256=${NOVELTEA_BGFX_ARCHIVE_SHA256}
             SOURCE_SUBDIR .
             PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bgfx-miniz.cmake
+            COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bimg-texturec-entry.cmake
         )
     endif()
 
     FetchContent_MakeAvailable(bgfx.cmake)
+    FetchContent_GetProperties(bgfx.cmake SOURCE_DIR NOVELTEA_BGFX_SOURCE_DIR)
+    if(NOVELTEA_BUILD_HOST_TOOLS AND NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android" AND
+       NOT TARGET texturec)
+        include("${NOVELTEA_BGFX_SOURCE_DIR}/cmake/bimg/texturec.cmake")
+    endif()
     target_compile_definitions(bgfx PRIVATE
         BGFX_GL_CONFIG_BLIT_EMULATION=1
         BGFX_GL_CONFIG_TEXTURE_READ_BACK_EMULATION=1
@@ -360,7 +381,7 @@ endif()
 
 if(NOT TARGET bgfx::bgfx)
     message(FATAL_ERROR "bgfx is required for the NovelTea engine. "
-        "Install via vcpkg (desktop) or enable NOVELTEA_FETCH_BGFX (Web/Android).")
+        "Install via vcpkg or enable NOVELTEA_FETCH_BGFX.")
 endif()
 
 # --- Dependency helpers ---

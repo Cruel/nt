@@ -240,6 +240,14 @@ TEST_CASE("RmlUi pointer events are projected separately for each context")
     CHECK(scaled_event.motion.y == 432.0f);
 }
 
+TEST_CASE("headless SDL system interface avoids native window input resources")
+{
+    noveltea::ui::rmlui::SdlSystemInterface system(nullptr);
+    system.SetMouseCursor("pointer");
+    system.ActivateKeyboard({12.0f, 34.0f}, 18.0f);
+    system.DeactivateKeyboard();
+}
+
 TEST_CASE("SDL text input area projects context caret coordinates into host logical space")
 {
     const auto presentation = noveltea::make_presentation_metrics(

@@ -1,0 +1,293 @@
+{
+  "schema": "noveltea.feature-lab.catalog",
+  "categories": [
+    {
+      "id": "world-interaction",
+      "title": "World & Interaction",
+      "description": "Rooms, navigation, world subjects, Interactions, and related authored state."
+    },
+    {
+      "id": "dialogue-presentation",
+      "title": "Dialogue & Presentation",
+      "description": "Dialogue flow, Character presentation, timed cues, audio, and authored choice UI."
+    }
+  ],
+  "launches": [
+    {
+      "id": "home",
+      "roomId": "feature-lab-home"
+    },
+    {
+      "id": "rooms-interactions",
+      "roomId": "rooms-interactions-workshop"
+    },
+    {
+      "id": "dialogue-presentation",
+      "roomId": "dialogue-presentation-stage"
+    }
+  ],
+  "visualCheckpoints": [],
+  "assetRequirements": [
+    {
+      "id": "pilot-room-backdrop",
+      "purpose": "Reusable bedroom background with clear visual landmarks for Room, navigation, placement, and hotspot checks.",
+      "source": "curated",
+      "properties": {
+        "kind": "image",
+        "alpha": false,
+        "role": "room-background"
+      },
+      "realizations": [
+        {
+          "assetId": "pilot-room-backdrop",
+          "quality": "reference"
+        }
+      ]
+    },
+    {
+      "id": "pilot-button-sprite",
+      "purpose": "Reusable transparent button sprite for Interactable placement, activation, and hotspot alignment checks.",
+      "source": "curated",
+      "properties": {
+        "kind": "image",
+        "alpha": true,
+        "role": "interactable-sprite"
+      },
+      "realizations": [
+        {
+          "assetId": "pilot-button-sprite",
+          "quality": "reference"
+        }
+      ]
+    },
+    {
+      "id": "pilot-character-neutral",
+      "purpose": "Reusable baseline Character art used to exercise ordinary Dialogue stage presentation.",
+      "source": "curated",
+      "properties": { "kind": "image", "alpha": true, "role": "character-presentation" },
+      "realizations": [{ "assetId": "pilot-character-neutral", "quality": "reference" }]
+    },
+    {
+      "id": "pilot-character-smile",
+      "purpose": "Reusable smiling Character variant that makes an authored expression change visually obvious.",
+      "source": "curated",
+      "properties": { "kind": "image", "alpha": true, "role": "character-presentation" },
+      "realizations": [{ "assetId": "pilot-character-smile", "quality": "reference" }]
+    },
+    {
+      "id": "pilot-dialogue-sfx",
+      "purpose": "Reusable notification sound for exercising a causal Dialogue sound-effect cue.",
+      "source": "curated",
+      "properties": { "kind": "audio", "role": "sound-effect" },
+      "realizations": [{ "assetId": "pilot-cue-audio", "quality": "reference" }]
+    },
+    {
+      "id": "pilot-dialogue-voice",
+      "purpose": "Reusable spoken voice line for exercising the Dialogue voice playback path.",
+      "source": "curated",
+      "properties": { "kind": "audio", "role": "voice" },
+      "realizations": [{ "assetId": "pilot-voice-audio", "quality": "reference" }]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "rooms-interactions",
+      "categoryId": "world-interaction",
+      "title": "Rooms & Interactions",
+      "description": "A reusable bedroom scene proving rejected navigation, normal Interactable/Feature interaction, state mutation, successful navigation, a Fade transition, and destination lifecycle behavior.",
+      "status": "ready",
+      "created": "2026-09-15T00:45:00Z",
+      "modified": "2026-09-15T09:54:47Z",
+      "launch": {
+        "entry": "rooms-interactions"
+      },
+      "checks": [
+        {
+          "id": "initial-world-state",
+          "title": "Initial Room and world state",
+          "action": "Launch the scenario and inspect the bedroom, door Feature, and wall-button Interactable.",
+          "expected": "The bedroom is current, the wall button is present and enabled, and the door begins locked.",
+          "status": "ready",
+          "verification": "semantic",
+          "created": "2026-09-15T00:45:00Z",
+          "modified": "2026-09-15T09:54:47Z",
+          "assetRequirements": ["pilot-room-backdrop", "pilot-button-sprite"],
+          "automation": [
+            { "kind": "semantic-test", "id": "rooms-interactions-flow" }
+          ]
+        },
+        {
+          "id": "rejected-exit",
+          "title": "Locked exit rejects navigation",
+          "action": "Click Try Bedroom Door in the HUD before pressing the wall button.",
+          "expected": "Navigation is rejected, the bedroom remains current, and the HUD displays the locked-door notification.",
+          "status": "ready",
+          "verification": "ui",
+          "created": "2026-09-15T00:45:00Z",
+          "modified": "2026-09-15T09:54:47Z",
+          "assetRequirements": [],
+          "automation": [
+            { "kind": "semantic-test", "id": "rooms-interactions-flow" },
+            { "kind": "ui-test", "id": "rooms-interactions-ui" }
+          ]
+        },
+        {
+          "id": "interaction-mutation",
+          "title": "Interaction mutates authored state",
+          "action": "Activate the wall button using its normal Use Verb/Interaction.",
+          "expected": "The Interaction handles the command, sets gate-unlocked true, and emits the button notification.",
+          "status": "ready",
+          "verification": "ui",
+          "created": "2026-09-15T00:45:00Z",
+          "modified": "2026-09-15T09:54:47Z",
+          "assetRequirements": ["pilot-button-sprite"],
+          "automation": [
+            { "kind": "semantic-test", "id": "rooms-interactions-flow" },
+            { "kind": "ui-test", "id": "rooms-interactions-ui" }
+          ]
+        },
+        {
+          "id": "successful-exit",
+          "title": "Unlocked exit navigates",
+          "action": "Click Try Bedroom Door in the HUD after pressing the wall button.",
+          "expected": "Navigation succeeds and the destination Room becomes current.",
+          "status": "ready",
+          "verification": "ui",
+          "created": "2026-09-15T00:45:00Z",
+          "modified": "2026-09-15T09:54:47Z",
+          "assetRequirements": ["pilot-room-backdrop"],
+          "automation": [
+            { "kind": "semantic-test", "id": "rooms-interactions-flow" },
+            { "kind": "ui-test", "id": "rooms-interactions-ui" }
+          ]
+        },
+        {
+          "id": "fade-transition",
+          "title": "Non-Cut Room transition",
+          "action": "Observe the successful bedroom-door navigation.",
+          "expected": "The destination is presented through a skippable 300 ms Fade rather than an immediate Cut.",
+          "status": "ready",
+          "verification": "manual",
+          "created": "2026-09-15T00:45:00Z",
+          "modified": "2026-09-15T09:54:47Z",
+          "assetRequirements": ["pilot-room-backdrop"],
+          "automation": []
+        },
+        {
+          "id": "destination-lifecycle",
+          "title": "Destination lifecycle executes",
+          "action": "Complete the unlocked navigation and read the HUD notification.",
+          "expected": "The destination after-enter lifecycle emits its arrival notification after the Room becomes current.",
+          "status": "ready",
+          "verification": "ui",
+          "created": "2026-09-15T00:45:00Z",
+          "modified": "2026-09-15T02:55:07Z",
+          "assetRequirements": [],
+          "automation": [
+            { "kind": "semantic-test", "id": "rooms-interactions-flow" },
+            { "kind": "ui-test", "id": "rooms-interactions-ui" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dialogue-presentation",
+      "categoryId": "dialogue-presentation",
+      "title": "Dialogue & Presentation",
+      "description": "A compact authored Dialogue station proving normal line continuation, Character presentation changes, timed cues, audio, real choice UI, and a semantic branch consequence.",
+      "status": "ready",
+      "created": "2026-09-15T01:55:00Z",
+      "modified": "2026-09-15T01:55:00Z",
+      "launch": { "entry": "dialogue-presentation" },
+      "checks": [
+        {
+          "id": "dialogue-open-continue",
+          "title": "Dialogue opens and continues normally",
+          "action": "Launch the scenario, reveal the opening line, then continue to the choice.",
+          "expected": "The authored Dialogue becomes active, the line reveals through normal continue behavior, and advancing reaches the choice without replacing the flow.",
+          "status": "ready",
+          "verification": "semantic",
+          "created": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-15T01:55:00Z",
+          "assetRequirements": [],
+          "automation": [{ "kind": "semantic-test", "id": "dialogue-presentation-flow" }]
+        },
+        {
+          "id": "character-presentation-change",
+          "title": "Character presentation changes mid-line",
+          "action": "Watch the Guide while the opening line reveals past the expression cue.",
+          "expected": "The Guide changes from the neutral presentation to the visibly distinct smile expression through the Dialogue cue.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-15T09:54:47Z",
+          "assetRequirements": ["pilot-character-neutral", "pilot-character-smile"],
+          "automation": []
+        },
+        {
+          "id": "timed-presentation-cue",
+          "title": "Timed presentation cue fires during reveal",
+          "action": "Observe the opening line as it reaches the synchronized attention point.",
+          "expected": "A brief skippable flash occurs at the authored text offset without blocking normal Dialogue continuation.",
+          "status": "ready",
+          "verification": "manual",
+          "created": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-15T01:55:00Z",
+          "assetRequirements": [],
+          "automation": []
+        },
+        {
+          "id": "dialogue-sfx",
+          "title": "Dialogue sound-effect cue plays",
+          "action": "Listen as the opening line reaches its attention cue.",
+          "expected": "The causal sound-effect cue is submitted through the normal Dialogue audio path.",
+          "status": "ready",
+          "verification": "audio",
+          "created": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-15T01:55:00Z",
+          "assetRequirements": ["pilot-dialogue-sfx"],
+          "automation": []
+        },
+        {
+          "id": "dialogue-voice",
+          "title": "Dialogue voice cue plays",
+          "action": "Listen when the opening line starts.",
+          "expected": "The spoken line plays through the normal Dialogue voice path.",
+          "status": "ready",
+          "verification": "audio",
+          "created": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-15T09:54:47Z",
+          "assetRequirements": ["pilot-dialogue-voice"],
+          "automation": []
+        },
+        {
+          "id": "clickable-dialogue-choice",
+          "title": "Real Dialogue choice is clickable",
+          "action": "Advance to the choice and click Accept the signal in the runtime Dialogue UI.",
+          "expected": "The real RmlUi choice dispatches the authored Dialogue edge rather than a Lab-specific shortcut.",
+          "status": "ready",
+          "verification": "ui",
+          "created": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-15T01:55:00Z",
+          "assetRequirements": [],
+          "automation": [{ "kind": "ui-test", "id": "dialogue-presentation-ui" }]
+        },
+        {
+          "id": "choice-state-consequence",
+          "title": "Choice branch mutates authoritative state",
+          "action": "Choose Accept the signal and inspect the scenario state.",
+          "expected": "The choice edge sets presentation-accepted to true and the accepted Dialogue branch becomes active.",
+          "status": "ready",
+          "verification": "semantic",
+          "created": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-15T01:55:00Z",
+          "assetRequirements": [],
+          "automation": [
+            { "kind": "semantic-test", "id": "dialogue-presentation-flow" },
+            { "kind": "ui-test", "id": "dialogue-presentation-ui" }
+          ]
+        }
+      ]
+    }
+  ]
+}

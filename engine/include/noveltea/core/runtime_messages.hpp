@@ -30,7 +30,9 @@ struct StopRuntimeInput {
     auto operator<=>(const StopRuntimeInput&) const = default;
 };
 struct ResetRuntimeInput {
-    auto operator<=>(const ResetRuntimeInput&) const = default;
+    PersistableValue startup_context{PersistableValue::Object{}};
+    bool show_title = false;
+    bool operator==(const ResetRuntimeInput&) const = default;
 };
 struct AdvanceTimeInput {
     std::chrono::microseconds elapsed{0};

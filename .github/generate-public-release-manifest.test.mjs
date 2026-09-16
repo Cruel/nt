@@ -16,8 +16,8 @@ test("public release manifest names exact public editor and CLI downloads", () =
       `noveltea-editor-${tag}-linux-x64-release.AppImage`,
       `noveltea-editor-${tag}-linux-x64-release.deb`,
       `noveltea-editor-${tag}-linux-x64-release.rpm`,
-      `noveltea-${tag}-windows-x64.exe`,
-      `noveltea-${tag}-linux-x64`,
+      `noveltea-${tag}-windows-x64.zip`,
+      `noveltea-${tag}-linux-x64.tar.gz`,
     ];
     for (const name of names) writeFileSync(path.join(root, name), name);
     writeFileSync(path.join(root, `noveltea-examples-${tag}.zip`), "examples");

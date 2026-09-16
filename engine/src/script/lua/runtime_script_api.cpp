@@ -94,6 +94,7 @@ resolve_material_occurrence(const MaterialOccurrenceCommand& occurrence,
 struct RuntimeScriptApi::State {
     mutable std::mutex mutex;
     std::optional<runtime::RuntimeCapabilitySet> capabilities;
+    core::PersistableValue startup_context{core::PersistableValue::Object{}};
 };
 
 RuntimeScriptApi::RuntimeScriptApi() : m_state(std::make_shared<State>()) {}
@@ -119,6 +120,18 @@ bool RuntimeScriptApi::available() const noexcept
     const auto* provider =
         m_state->capabilities->query_provider(runtime::RuntimeCapabilityGroup::Definitions);
     return provider != nullptr && provider->active(m_state->capabilities->generation());
+}
+
+void RuntimeScriptApi::set_startup_context(core::PersistableValue context)
+{
+    std::scoped_lock lock(m_state->mutex);
+    m_state->startup_context = std::move(context);
+}
+
+core::PersistableValue RuntimeScriptApi::startup_context() const
+{
+    std::scoped_lock lock(m_state->mutex);
+    return m_state->startup_context;
 }
 
 #define NOVELTEA_WITH_PROVIDER(group, operation, expression)                                       \
@@ -1086,6 +1099,13 @@ core::Result<void, core::Diagnostics> RuntimeScriptApi::set_gameplay_paused(bool
 {
     NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Game, "gameplay pause mutation",
                           gateway->set_gameplay_paused(paused));
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::restart(core::PersistableValue startup_context, bool show_title)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Game, "Game.restart",
+                          gateway->restart(std::move(startup_context), show_title));
 }
 core::Result<void, core::Diagnostics> RuntimeScriptApi::request_audio(
     core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,

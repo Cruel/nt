@@ -111,7 +111,7 @@ bool decode_image(const std::filesystem::path& path, DecodedImage& decoded, std:
                                          static_cast<std::uint32_t>(bytes->size()),
                                          bimg::TextureFormat::RGBA8);
     if (decoded.container == nullptr || decoded.container->m_numLayers != 1 ||
-        decoded.container->m_depth != 1 || decoded.container->m_width == 0 ||
+        bimg::imageGetNumSlices(*decoded.container) != 1 || decoded.container->m_width == 0 ||
         decoded.container->m_height == 0 ||
         !bimg::imageGetRawData(*decoded.container, 0, 0, decoded.container->m_data,
                                decoded.container->m_size, decoded.mip) ||

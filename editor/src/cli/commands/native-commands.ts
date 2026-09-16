@@ -13,7 +13,7 @@ import type { CliSemanticResult } from '../semantic-project';
 import type { CliCommandContext, CliCommandDefinition, CliCommandInvocation } from './types';
 import { CliCommandUsageError } from './types';
 
-const shaderVariantIds = new Set(['glsl-120', 'essl-100', 'essl-300', 'metal']);
+const shaderVariantIds = new Set(['glsl-330', 'essl-300', 'metal']);
 
 function nativeFailure(code: string, pathValue: string, response: unknown): CliSemanticResult {
   const record =
@@ -108,9 +108,7 @@ export const shadersCompileCommand: CliCommandDefinition = {
           outputRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'build'),
           cacheRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'cache'),
           shaderVariants:
-            variants.length > 0
-              ? [...new Set(variants)]
-              : ['glsl-120', 'essl-100', 'essl-300', 'metal'],
+            variants.length > 0 ? [...new Set(variants)] : ['glsl-330', 'essl-300', 'metal'],
           forceRebuild,
         });
         const result = nativeSuccess(response);
@@ -141,8 +139,14 @@ export const testRunCommand: CliCommandDefinition = {
               cliDiagnostic('native.test.spec', item.path, item.message, item.severity),
             ),
           };
+        const request = { project: built.project, spec: built.spec };
         return nativeSuccess(
-          await context.nativeTools.runHeadlessTest({ project: built.project, spec: built.spec }),
+          await (built.runner === 'runtime-ui'
+            ? context.nativeTools.runUiTest({
+                ...request,
+                projectRoot: context.snapshot.projectRoot,
+              })
+            : context.nativeTools.runHeadlessTest(request)),
         );
       },
     };
@@ -176,7 +180,11 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
             return project as CliSemanticResult;
           return nativeSuccess(
             await (ui
-              ? context.nativeTools.runUiTest({ project, spec })
+              ? context.nativeTools.runUiTest({
+                  project,
+                  spec,
+                  projectRoot: context.snapshot.projectRoot,
+                })
               : context.nativeTools.runHeadlessTest({ project, spec })),
           );
         },

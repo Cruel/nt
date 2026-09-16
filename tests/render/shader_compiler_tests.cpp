@@ -34,7 +34,7 @@ noveltea::ShaderCompileOptions make_options(const std::filesystem::path& temp)
     options.project_root = temp / "project";
     options.output_root = temp / "generated";
     options.cache_root = temp / "cache";
-    options.variants = noveltea::shader_compile_variants_from_names({"glsl-120", "essl-100"});
+    options.variants = noveltea::shader_compile_variants_from_names({"glsl-330", "essl-300"});
     return options;
 }
 
@@ -113,20 +113,15 @@ bool diagnostic_mentions(const noveltea::ShaderCompileResult& result, std::strin
 
 TEST_CASE("shader compiler maps supported NovelTea shader variants")
 {
-    const auto gl = noveltea::shader_compile_variant_from_name("glsl-120");
+    const auto gl = noveltea::shader_compile_variant_from_name("glsl-330");
     REQUIRE(gl);
     CHECK(gl->platform == "linux");
-    CHECK(gl->profile == "120");
+    CHECK(gl->profile == "330");
 
-    const auto web = noveltea::shader_compile_variant_from_name("essl-100");
-    REQUIRE(web);
-    CHECK(web->platform == "asm.js");
-    CHECK(web->profile == "100_es");
-
-    const auto android = noveltea::shader_compile_variant_from_name("essl-300");
-    REQUIRE(android);
-    CHECK(android->platform == "android");
-    CHECK(android->profile == "300_es");
+    const auto essl = noveltea::shader_compile_variant_from_name("essl-300");
+    REQUIRE(essl);
+    CHECK(essl->platform == "android");
+    CHECK(essl->profile == "300_es");
 
     const auto metal = noveltea::shader_compile_variant_from_name("metal");
     REQUIRE(metal);
@@ -166,10 +161,10 @@ TEST_CASE("shader compiler compiles project shader sources and updates compiled 
     const auto* fragment = find_stage(*shader, noveltea::ShaderStage::Fragment);
     REQUIRE(vertex != nullptr);
     REQUIRE(fragment != nullptr);
-    CHECK(has_compiled_ref(*vertex, "glsl-120",
-                           "project:/shaders/bgfx/glsl-120/sample_effect.vs.bin"));
-    CHECK(has_compiled_ref(*fragment, "essl-100",
-                           "project:/shaders/bgfx/essl-100/sample_effect.fs.bin"));
+    CHECK(has_compiled_ref(*vertex, "glsl-330",
+                           "project:/shaders/bgfx/glsl-330/sample_effect.vs.bin"));
+    CHECK(has_compiled_ref(*fragment, "essl-300",
+                           "project:/shaders/bgfx/essl-300/sample_effect.fs.bin"));
 
     std::filesystem::remove_all(temp);
 }
@@ -224,7 +219,7 @@ TEST_CASE("shader compiler compiles source_text through generated temporary sour
     REQUIRE(result.outputs.size() == 2);
     CHECK(result.outputs.front().source_path.string().find("source-text") != std::string::npos);
     CHECK(std::filesystem::exists(options.output_root /
-                                  "shaders/bgfx/glsl-120/inline_effect.fs.bin"));
+                                  "shaders/bgfx/glsl-330/inline_effect.fs.bin"));
 
     std::filesystem::remove_all(temp);
 }
@@ -233,7 +228,7 @@ TEST_CASE("shader compiler failure diagnostics include command context and compi
 {
     const auto temp = unique_temp_dir("failure");
     auto options = make_options(temp);
-    options.variants = noveltea::shader_compile_variants_from_names({"glsl-120"});
+    options.variants = noveltea::shader_compile_variants_from_names({"glsl-330"});
     const auto project = make_source_project(options.project_root);
     write_text(options.project_root / "shaders" / "sample.fs.sc",
                "this is not valid shader code\n");
@@ -245,7 +240,7 @@ TEST_CASE("shader compiler failure diagnostics include command context and compi
     REQUIRE_FALSE(result.diagnostics.empty());
     CHECK(result.diagnostics.front().code == noveltea::ShaderCompileDiagnosticCode::CompilerFailed);
     CHECK(diagnostic_mentions(result, "sample_effect"));
-    CHECK(diagnostic_mentions(result, "glsl-120"));
+    CHECK(diagnostic_mentions(result, "glsl-330"));
     CHECK(diagnostic_mentions(result, "sample.fs.sc"));
     CHECK(diagnostic_mentions(result, "--platform"));
 

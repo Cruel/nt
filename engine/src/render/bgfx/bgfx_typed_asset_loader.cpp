@@ -534,7 +534,8 @@ public:
             bimg::ImageMip base_mip;
             const bool valid_base =
                 image->m_width > 0 && image->m_height > 0 && image->m_width <= UINT16_MAX &&
-                image->m_height <= UINT16_MAX && image->m_numLayers == 1 && image->m_depth == 1 &&
+                image->m_height <= UINT16_MAX && image->m_numLayers == 1 &&
+                bimg::imageGetNumSlices(*image) == 1 &&
                 bimg::imageGetRawData(*image, 0, 0, image->m_data, image->m_size, base_mip) &&
                 base_mip.m_format == bimg::TextureFormat::RGBA8;
             if (!valid_base) {
@@ -774,7 +775,8 @@ jobs::JobStepOutcome TexturePreparationTask::step(jobs::JobContext& context) noe
         bimg::ImageMip base_mip;
         const bool valid_base =
             image->m_width > 0 && image->m_height > 0 && image->m_width <= UINT16_MAX &&
-            image->m_height <= UINT16_MAX && image->m_numLayers == 1 && image->m_depth == 1 &&
+            image->m_height <= UINT16_MAX && image->m_numLayers == 1 &&
+            bimg::imageGetNumSlices(*image) == 1 &&
             bimg::imageGetRawData(*image, 0, 0, image->m_data, image->m_size, base_mip) &&
             base_mip.m_format == bimg::TextureFormat::RGBA8;
         if (!valid_base) {
@@ -1242,7 +1244,8 @@ BgfxTypedAssetLoader::load_decoded_texture(const assets::TextureAssetRequest& re
     bimg::ImageMip base_mip;
     const bool valid_base =
         image->m_width > 0 && image->m_height > 0 && image->m_width <= UINT16_MAX &&
-        image->m_height <= UINT16_MAX && image->m_numLayers == 1 && image->m_depth == 1 &&
+        image->m_height <= UINT16_MAX && image->m_numLayers == 1 &&
+        bimg::imageGetNumSlices(*image) == 1 &&
         bimg::imageGetRawData(*image, 0, 0, image->m_data, image->m_size, base_mip) &&
         base_mip.m_format == bimg::TextureFormat::RGBA8;
     if (!valid_base) {

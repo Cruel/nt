@@ -66,8 +66,19 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.RUN_PLAYBACK_TEST, project, testId),
   runPlaybackSpec: (project: unknown, spec: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.RUN_PLAYBACK_SPEC, project, spec),
-  runUiPlaybackSpec: (project: unknown, spec: unknown) =>
-    ipcRenderer.invoke(IPC_CHANNELS.RUN_UI_PLAYBACK_SPEC, project, spec),
+  runUiPlaybackSpec: (
+    projectSessionId: string | null,
+    project: unknown,
+    spec: unknown,
+    shaderMaterialMetadata: unknown,
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.RUN_UI_PLAYBACK_SPEC,
+      projectSessionId,
+      project,
+      spec,
+      shaderMaterialMetadata,
+    ),
   exportPackage: (projectSessionId: string, project: unknown, outputPath: string, options) =>
     ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PACKAGE, projectSessionId, project, outputPath, options),
   stagePlatformExport: (projectSessionId: string, request) =>

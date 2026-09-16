@@ -36,6 +36,7 @@ public:
     PresentationLayoutReconciler& operator=(PresentationLayoutReconciler&&) = delete;
 
     void bind_project(const core::CompiledProject& project) noexcept;
+    void replace_runtime_session() noexcept;
     void clear_session() noexcept;
 
     [[nodiscard]] core::Result<void, core::Diagnostics>

@@ -132,6 +132,7 @@ public:
     ActiveTextLayout active_text_render_snapshot() const;
     bool active_text_direct_render_enabled() const;
     void bind_input_sink(RuntimeUiInputSink* sink) noexcept override;
+    void set_startup_context(core::PersistableValue context) noexcept override;
     [[nodiscard]] bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values) override;
     [[nodiscard]] core::Result<RuntimeUiGameplayValues, core::Diagnostics>
     prepare_gameplay_ui_values(RuntimeUiGameplayValues values);

@@ -1,0 +1,51 @@
+{
+  "id": "use-gate-lever",
+  "label": "Press Gate Button",
+  "data": {
+    "kind": "interaction",
+    "rules": [
+      {
+        "id": "unlock-gate",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [
+          {
+            "slotId": "target",
+            "selectors": [
+              {
+                "kind": "exact",
+                "subject": {
+                  "kind": "interactable",
+                  "interactable": { "$ref": { "registry": "interactableInstances", "id": "gate-lever-1" } }
+                }
+              }
+            ]
+          }
+        ],
+        "offer": { "slotId": "target", "rank": 10, "primary": true },
+        "guard": {
+          "kind": "variable-comparison",
+          "variable": { "$ref": { "collection": "variables", "id": "gate-unlocked" } },
+          "operator": "falsy"
+        },
+        "priority": 10,
+        "program": {
+          "instructions": [
+            {
+              "id": "unlock",
+              "kind": "set-global-property",
+              "variable": { "$ref": { "collection": "variables", "id": "gate-unlocked" } },
+              "value": true
+            },
+            {
+              "id": "announce-unlock",
+              "kind": "notify",
+              "message": { "source": { "kind": "inline", "text": "The button clicks. The bedroom door unlocks." }, "markup": "plain" }
+            }
+          ],
+          "completion": { "kind": "return" },
+          "outcome": "handled"
+        }
+      }
+    ]
+  }
+}

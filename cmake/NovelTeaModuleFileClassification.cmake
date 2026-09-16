@@ -183,6 +183,10 @@ set(NOVELTEA_MODULE_FILES_noveltea_script_lua
     engine/include/noveltea/script/script_result.hpp
     engine/include/noveltea/script/script_runtime.hpp
     engine/include/noveltea/script/script_value.hpp
+    engine/include/noveltea/script/wall_clock.hpp
+    engine/src/script/lua/bind_wall_clock.cpp
+    engine/src/script/lua/bind_wall_clock.hpp
+    engine/src/script/lua/wall_clock.cpp
     engine/src/script/lua/bind_noveltea.cpp
     engine/src/script/lua/bind_runtime_capabilities.cpp
     engine/src/script/lua/bind_typed_script_host.cpp
@@ -215,6 +219,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/audio/audio_types.hpp
     engine/include/noveltea/boundary/running_game_loader.hpp
     engine/include/noveltea/core/asset_telemetry.hpp
+    engine/include/noveltea/core/editor_playback_expectations.hpp
     engine/include/noveltea/core/editor_runtime_protocol.hpp
     engine/include/noveltea/engine.hpp
     engine/include/noveltea/engine_tooling.hpp
@@ -272,6 +277,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/core/editor_asset_profiler_service.hpp
     engine/src/core/editor_asset_profiler_json.cpp
     engine/src/core/editor_asset_profiler_json.hpp
+    engine/src/core/editor_playback_expectations.cpp
     engine/src/core/editor_runtime_protocol.cpp
     engine/src/devtools/imgui_bgfx.cpp
     engine/src/devtools/imgui_bgfx.hpp

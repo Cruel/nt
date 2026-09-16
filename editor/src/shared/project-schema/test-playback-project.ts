@@ -5,7 +5,12 @@ import {
   logicalRuntimeArtifactPaths,
   prepareRuntimeArtifact,
 } from '../runtime-artifact-preparation';
-import { parseTestData, type TestData, type TestStepData } from './authoring-tests';
+import {
+  parseTestData,
+  type TestData,
+  type TestExpectationData,
+  type TestStepData,
+} from './authoring-tests';
 
 export type TestRunReadinessReason =
   | 'runnable'
@@ -24,6 +29,7 @@ export interface RuntimePlaybackSpecBuildResult {
   runner?: 'runtime' | 'runtime-ui';
   spec?: unknown;
   project?: unknown;
+  shaderMaterialMetadata?: unknown;
   diagnostics: ToolDiagnostic[];
 }
 
@@ -61,6 +67,20 @@ function typedSubject(
       };
 }
 
+function buildTypedExpectation(expectation: TestExpectationData): Record<string, unknown> {
+  const base = { id: expectation.id, type: expectation.type, operator: expectation.operator };
+  if (expectation.type === 'property') return { ...base, ...expectation.property };
+  if (expectation.type === 'current-room') return { ...base, ...expectation.currentRoom };
+  if (expectation.type === 'location') return { ...base, ...expectation.location };
+  if (expectation.type === 'quantity') return { ...base, ...expectation.quantity };
+  if (expectation.type === 'trait') return { ...base, ...expectation.trait };
+  if (expectation.type === 'entity-state') return { ...base, ...expectation.entityState };
+  if (expectation.type === 'active-flow') return { ...base, ...expectation.activeFlow };
+  if (expectation.type === 'layout') return { ...base, ...expectation.layout };
+  if (expectation.type === 'event') return { ...base, ...expectation.event };
+  return { ...base, ...expectation.diagnostic };
+}
+
 function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
   if (step.input === 'tick')
     return { type: 'advance-time', microseconds: Math.round(step.tick.deltaSeconds * 1_000_000) };
@@ -94,11 +114,22 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
     if (Number.isInteger(number) && number >= 0)
       return { type: step.input, slot: { kind: 'manual', number } };
   }
+  if (step.input === 'ui-click')
+    return {
+      type: 'ui-click',
+      documentId: step.uiClick.documentId,
+      selector: step.uiClick.selector,
+    };
   return null;
+}
+
+function usesRuntimeUi(data: TestData) {
+  return data.steps.some((step) => step.enabled && step.input === 'ui-click');
 }
 
 async function compiledProjectForAuthoring(project: AuthoringProject): Promise<{
   project?: unknown;
+  shaderMaterialMetadata?: unknown;
   diagnostics: ToolDiagnostic[];
   ok: boolean;
 }> {
@@ -112,6 +143,7 @@ async function compiledProjectForAuthoring(project: AuthoringProject): Promise<{
   if (prepared.status === 'cancelled') return { diagnostics: prepared.diagnostics, ok: false };
   return {
     project: prepared.assessment.compiledProject,
+    shaderMaterialMetadata: prepared.assessment.shaderMaterialMetadata,
     diagnostics: prepared.assessment.diagnostics,
     ok: prepared.status === 'prepared',
   };
@@ -122,7 +154,11 @@ export function buildRuntimePlaybackSpecFromTestData(
   data: TestData,
 ): RuntimePlaybackSpecBuildResult {
   const diagnostics: ToolDiagnostic[] = [];
-  const steps: Array<{ index: number; input: Record<string, unknown> }> = [];
+  const steps: Array<{
+    index: number;
+    input: Record<string, unknown>;
+    expectations: Record<string, unknown>[];
+  }> = [];
   data.steps
     .filter((step) => step.enabled)
     .forEach((step, index) => {
@@ -137,17 +173,22 @@ export function buildRuntimePlaybackSpecFromTestData(
         );
         return;
       }
-      steps.push({ index, input });
+      steps.push({
+        index,
+        input,
+        expectations: step.expectations.map(buildTypedExpectation),
+      });
     });
   const spec: Record<string, unknown> = {
     schema: 'noveltea.editor.playback',
     version: 1,
     id: testId,
     steps,
+    finalExpectations: data.finalExpectations.map(buildTypedExpectation),
   };
   return {
     ok: !diagnostics.some((item) => item.severity === 'error'),
-    runner: 'runtime',
+    runner: usesRuntimeUi(data) ? 'runtime-ui' : 'runtime',
     spec,
     diagnostics,
   };
@@ -177,6 +218,7 @@ export async function buildRuntimePlaybackSpecFromAuthoringTest(
     ...built,
     ok: built.ok && compiledProject.ok,
     project: compiledProject.project,
+    shaderMaterialMetadata: compiledProject.shaderMaterialMetadata,
     diagnostics: [...built.diagnostics, ...compiledProject.diagnostics],
   };
 }

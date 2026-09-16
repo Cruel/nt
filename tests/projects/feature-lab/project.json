@@ -1,0 +1,98 @@
+{
+  "schema": "noveltea.project.workspace",
+  "schemaVersion": 1,
+  "project": {
+    "id": "feature-lab",
+    "name": "Feature Lab",
+    "version": "0.1.0",
+    "author": "NovelTea",
+    "description": "Canonical in-tree authored acceptance and reference Project."
+  },
+  "settings": {
+    "ui": {
+      "systemLayouts": {
+        "game-hud": { "$ref": { "collection": "layouts", "id": "feature-lab-hud" } }
+      }
+    },
+    "inventory": { "defaultLayout": null },
+    "interaction": { "defaultVerbMenuLayout": null },
+    "text": { "defaultFont": null, "fontStack": [] },
+    "titleScreen": {
+      "titleImage": null,
+      "showProjectTitle": true,
+      "showAuthor": false,
+      "subtitle": "Runtime acceptance and working reference",
+      "startLabel": "Open Feature Lab"
+    },
+    "app": {
+      "displayName": "Feature Lab",
+      "localized": {},
+      "applicationId": "org.noveltea.featurelab",
+      "saveNamespace": "org.noveltea.featurelab",
+      "versionName": "0.1.0",
+      "icon": null,
+      "launchImage": null,
+      "desktop": {},
+      "web": {},
+      "android": {}
+    },
+    "display": {
+      "referenceResolution": { "width": 1920, "height": 1080 },
+      "worldRasterPolicy": "capped",
+      "barColor": "#071018"
+    },
+    "accessibility": {
+      "uiScale": { "enabled": true, "minimum": 1, "maximum": 2 },
+      "textScale": { "enabled": true, "minimum": 1, "maximum": 2 }
+    },
+    "audio": {
+      "purposes": {
+        "music": { "volume": 1, "muted": false },
+        "ambience": { "volume": 1, "muted": false },
+        "voice": { "volume": 1, "muted": false },
+        "sound-effect": { "volume": 1, "muted": false },
+        "ui-sound": { "volume": 1, "muted": false }
+      },
+      "voiceDucking": { "enabled": false, "musicGain": 0.5, "ambienceGain": 0.5 }
+    },
+    "presentation": {
+      "roomNavigationTransition": { "kind": "cut", "durationMs": 0, "color": null, "skippable": true }
+    }
+  },
+  "export": {
+    "runtime": {
+      "id": "runtime-default",
+      "label": "Runtime Package",
+      "kind": "runtime",
+      "outputPath": "",
+      "includeChecksums": true,
+      "stripEditorData": true,
+      "stripShaderSources": true,
+      "compileShadersBeforeExport": true,
+      "shaderVariants": ["glsl-330", "essl-300"],
+      "excludeUnusedAssets": true,
+      "includeShaderSources": false,
+      "includeTests": true,
+      "previewAfterExport": false,
+      "localization": { "locales": ["en"], "defaultLocale": "en", "quality": "development" }
+    },
+    "profiles": [],
+    "assetMemoryPolicies": []
+  },
+  "bootstrapModule": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } },
+  "entrypoint": { "kind": "room", "id": "feature-lab-home" },
+  "inventories": [{ "id": "inventory", "label": "Inventory" }],
+  "interactableInstances": {
+    "gate-lever-1": {
+      "id": "gate-lever-1",
+      "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "rooms-interactions-workshop" } } },
+      "enabled": true,
+      "visible": true,
+      "quantity": 1,
+      "traits": { "add": [], "remove": [] },
+      "localProperties": [],
+      "featureOverrides": []
+    }
+  }
+}

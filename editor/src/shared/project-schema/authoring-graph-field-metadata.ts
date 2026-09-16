@@ -426,6 +426,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^\/tests\/\*\/data\/steps\/\*\/(?:dialogueChoice\/edgeId|sceneChoice\/optionId|navigate\/exitId|saveSlot\/slotId)$/,
     NONE,
   ],
+  // #243 adds typed semantic expectations to Tests. Expectations observe the already-compiled live
+  // runtime and therefore do not contribute new Authoring dependency-graph edges or projections.
+  [/^\/tests\/\*\/data\/(?:steps\/\*\/expectations|finalExpectations)(?:\/|$)/, NONE],
   [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
   // #136 introduces ordered owner-local Property declarations on migrated Room/Character owners.
   // Every declaration field contributes directly to that exact owner's compiled/runtime state.
@@ -886,8 +889,8 @@ const legacySchemaLeafPaths = [
   '/scenes/*/data/steps/*/options/*/effects/*/variable/$ref/id' as JsonPointer,
   // #102 removes provisional Test-local setup/assertion/UI-gesture forms and replaces the executable
   // step vocabulary with semantic runtime identities. Retain the removed same-version leaves only
-  // for alignment with the reviewed pre-#102 graph-effect sequence; the four replacement semantic
-  // identity leaves are explicitly `none` above because Tests are editor-only runtime inputs.
+  // for alignment with the reviewed pre-#102 graph-effect sequence; #244 restores the stable
+  // uiClick documentId/selector leaves, so only the retired positional target remains here.
   '/tests/*/data/checkScript' as JsonPointer,
   '/tests/*/data/entrypoint/$ref/collection' as JsonPointer,
   '/tests/*/data/entrypoint/$ref/id' as JsonPointer,
@@ -919,8 +922,6 @@ const legacySchemaLeafPaths = [
   '/tests/*/data/steps/*/navigate/target/$ref/id' as JsonPointer,
   '/tests/*/data/steps/*/setEntrypoint/entrypoint/$ref/collection' as JsonPointer,
   '/tests/*/data/steps/*/setEntrypoint/entrypoint/$ref/id' as JsonPointer,
-  '/tests/*/data/steps/*/uiClick/documentId' as JsonPointer,
-  '/tests/*/data/steps/*/uiClick/selector' as JsonPointer,
   '/tests/*/data/steps/*/uiClick/target' as JsonPointer,
 ].sort();
 const legacyReviewedPaths = legacySchemaLeafPaths.filter((path) => !explicitFieldEffect(path));
@@ -1024,7 +1025,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     scripts: 'f3482815',
     settings: '7ffea374',
     shaders: '94d3aa6e',
-    tests: '99f1bf10',
+    tests: '67506190',
     traits: '371bbceb',
     undefinedInteractionProgram: 'da7c64b8',
     variables: 'c5d1f73c',

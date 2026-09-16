@@ -309,6 +309,26 @@ target_compile_definitions(noveltea_host_tests PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 catch_discover_tests(noveltea_host_tests)
 
+if(TARGET noveltea_tooling_native)
+    add_executable(noveltea_tooling_tests
+        tooling/playback_expectation_tests.cpp
+    )
+    target_include_directories(noveltea_tooling_tests PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/editor_tool"
+    )
+    target_compile_definitions(noveltea_tooling_tests PRIVATE
+        NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+        ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+    )
+    target_link_libraries(noveltea_tooling_tests PRIVATE
+        noveltea_tooling_native
+        nlohmann_json::nlohmann_json
+        Catch2::Catch2WithMain
+    )
+    noveltea_apply_policy_warnings(noveltea_tooling_tests)
+    catch_discover_tests(noveltea_tooling_tests)
+endif()
+
 # --- Text tests (text stack is mandatory) ---
 
 add_executable(noveltea_text_tests
@@ -352,6 +372,7 @@ target_compile_definitions(noveltea_asset_tests PRIVATE
 )
 target_link_libraries(noveltea_asset_tests PRIVATE
     noveltea_engine
+    bgfx::bgfx
     miniz::miniz
     Catch2::Catch2WithMain
 )
@@ -407,6 +428,7 @@ target_compile_definitions(noveltea_asset_telemetry_tests PRIVATE
 )
 target_link_libraries(noveltea_asset_telemetry_tests PRIVATE
     noveltea_engine
+    bgfx::bgfx
     miniz::miniz
     Catch2::Catch2WithMain
 )
@@ -474,6 +496,7 @@ add_executable(noveltea_render_backend_tests
     render/material_binder_tests.cpp
     render/screenshot_capture_tests.cpp
     render/shader_variant_tests.cpp
+    render/webp_decode_tests.cpp
     render/world_presentation_tests.cpp
     render/world_transition_tests.cpp
 )
@@ -485,6 +508,11 @@ target_link_libraries(noveltea_render_backend_tests PRIVATE
     bgfx::bgfx
     Catch2::Catch2WithMain
 )
+if(TARGET bgfx::bimg_decode)
+    target_link_libraries(noveltea_render_backend_tests PRIVATE bgfx::bimg_decode)
+elseif(TARGET bimg_decode)
+    target_link_libraries(noveltea_render_backend_tests PRIVATE bimg_decode)
+endif()
 noveltea_attach_generated_shaders(noveltea_render_backend_tests)
 catch_discover_tests(noveltea_render_backend_tests)
 
@@ -888,6 +916,7 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_presentation_tests
         noveltea_script_lua_tests
         noveltea_host_tests
+        noveltea_tooling_tests
         noveltea_text_tests
         noveltea_asset_tests
         noveltea_asset_telemetry_tests

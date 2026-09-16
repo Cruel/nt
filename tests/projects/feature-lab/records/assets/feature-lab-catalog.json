@@ -1,0 +1,12 @@
+{
+  "id": "feature-lab-catalog",
+  "label": "Feature Lab Catalog",
+  "data": {
+    "kind": "data",
+    "source": { "type": "project-file", "path": "assets/data/feature-lab.json" },
+    "aliases": [],
+    "mimeType": "application/json",
+    "extension": ".json",
+    "imageMetadata": null
+  }
+}

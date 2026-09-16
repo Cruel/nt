@@ -1,0 +1,98 @@
+{
+  "id": "dialogue-presentation-flow",
+  "label": "Dialogue & Presentation semantic flow",
+  "data": {
+    "kind": "test",
+    "displayName": "Dialogue & Presentation semantic flow",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh Lab home",
+        "expectations": [
+          {
+            "id": "choice-consequence-starts-false",
+            "type": "property",
+            "operator": "eq",
+            "property": { "scope": "global", "ownerId": "", "propertyId": "presentation-accepted", "value": false }
+          }
+        ]
+      },
+      {
+        "id": "enter-dialogue-pilot",
+        "input": "navigate",
+        "label": "Enter Dialogue pilot",
+        "navigate": { "exitId": "dialogue-presentation-test-entry" },
+        "expectations": [
+          {
+            "id": "dialogue-stage-room",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "dialogue-presentation-stage" }
+          },
+          {
+            "id": "dialogue-open",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": { "kind": "dialogue", "flowId": "dialogue-presentation-pilot" }
+          }
+        ]
+      },
+      {
+        "id": "reveal-line",
+        "input": "continue",
+        "label": "Reveal the current Dialogue line",
+        "expectations": [
+          {
+            "id": "dialogue-still-active-after-reveal",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": { "kind": "dialogue", "flowId": "dialogue-presentation-pilot" }
+          }
+        ]
+      },
+      {
+        "id": "advance-to-choice",
+        "input": "continue",
+        "label": "Advance from the completed line to the Dialogue choice",
+        "expectations": [
+          {
+            "id": "dialogue-still-active-at-choice",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": { "kind": "dialogue", "flowId": "dialogue-presentation-pilot" }
+          }
+        ]
+      },
+      {
+        "id": "accept-choice",
+        "input": "dialogue-choice",
+        "label": "Accept the presented signal",
+        "dialogueChoice": { "edgeId": "accept-signal" },
+        "expectations": [
+          {
+            "id": "choice-records-authoritative-state",
+            "type": "property",
+            "operator": "eq",
+            "property": { "scope": "global", "ownerId": "", "propertyId": "presentation-accepted", "value": true }
+          },
+          {
+            "id": "dialogue-continues-on-accepted-branch",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": { "kind": "dialogue", "flowId": "dialogue-presentation-pilot" }
+          }
+        ]
+      }
+    ],
+    "finalExpectations": [
+      {
+        "id": "accepted-state-persists",
+        "type": "property",
+        "operator": "eq",
+        "property": { "scope": "global", "ownerId": "", "propertyId": "presentation-accepted", "value": true }
+      }
+    ],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

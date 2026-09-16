@@ -8,6 +8,7 @@
 #include "noveltea/script/script_runtime.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 #include "fake_script_source.hpp"
+#include "frozen_wall_clock.hpp"
 
 #include <lua.hpp>
 #include <nlohmann/json.hpp>
@@ -114,6 +115,142 @@ struct RuntimeFixture {
     test_support::MemoryScriptSource sources;
     script::ScriptRuntime runtime;
 };
+
+TEST_CASE("startup context is available before bootstrap and returned as immutable copies",
+          "[script][startup-context]")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    fixture.runtime.set_startup_context(core::PersistableValue{core::PersistableValue::Object{
+        {"scenario", core::PersistableValue{std::string("rooms")}},
+        {"nested", core::PersistableValue{
+                       core::PersistableValue::Array{core::PersistableValue{std::int64_t{7}},
+                                                     core::PersistableValue{std::monostate{}}}}}}});
+
+    REQUIRE(fixture.runtime.execute(R"(
+        local first = Game.startup_context()
+        assert(first.scenario == 'rooms')
+        assert(first.nested[1] == 7 and first.nested[2] == Data.null)
+        first.scenario = 'mutated'
+        first.nested[1] = 99
+        local second = Game.startup_context()
+        assert(second.scenario == 'rooms' and second.nested[1] == 7)
+    )"));
+
+    auto project = load_script_project_with_modules({{"bootstrap", R"(
+            local context = Game.startup_context()
+            assert(context.scenario == 'rooms')
+            assert(context.nested[2] == Data.null)
+            return {}
+        )"}});
+    REQUIRE(fixture.runtime.prepare_project_modules(project));
+    REQUIRE(fixture.runtime.run_project_bootstrap());
+}
+
+TEST_CASE("Lua wall time is injectable and does not grant OS access", "[script][wall-clock]")
+{
+    test_support::FrozenWallClock clock;
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources, &clock}));
+    REQUIRE(fixture.runtime.execute(R"(
+        assert(os.time() == 1709164800 and os.time(nil) == 1709164800)
+        assert(os.difftime(90000, 3600) == 86400)
+        for _, name in ipairs({'execute', 'exit', 'getenv', 'remove', 'rename',
+                               'setlocale', 'tmpname', 'clock'}) do
+            assert(os[name] == nil)
+        end
+        assert(io == nil and package == nil)
+    )"));
+    clock.epoch = -1;
+    REQUIRE(fixture.runtime.execute(R"(
+        assert(not pcall(os.time))
+        assert(not pcall(os.time, {year=1970, month=1, day=1, hour=5, min=29, sec=59}))
+    )"));
+}
+
+TEST_CASE("Lua calendars normalize dates with a frozen timezone", "[script][wall-clock]")
+{
+    test_support::FrozenWallClock clock;
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources, &clock}));
+    const std::string checks = R"(
+        assert(os.date('!%Y-%m-%d %H:%M:%S') == '2024-02-29 00:00:00')
+        assert(os.date('%Y-%m-%d %H:%M:%S', os.time()) == '2024-02-29 05:30:00')
+        local t = os.date('*t')
+        assert(t.year == 2024 and t.month == 2 and t.day == 29)
+        assert(t.hour == 5 and t.min == 30 and t.sec == 0)
+        assert(t.wday == 5 and t.yday == 60 and t.isdst == false)
+        assert(os.time(t) == os.time())
+        local utc = os.date('!*t', 0)
+        assert(utc.year == 1970 and utc.month == 1 and utc.day == 1 and utc.hour == 0)
+        assert(utc.wday == 5 and utc.yday == 1)
+        local overflow = {year=2024, month=2, day=30, hour=0, min=-30}
+        assert(os.time(overflow) == 1709229600)
+        assert(overflow.month == 2 and overflow.day == 29 and overflow.hour == 23)
+        assert(overflow.min == 30 and overflow.sec == 0 and overflow.yday == 60)
+        local noon = {year=2024, month=2, day=29}
+        assert(os.time(noon) == 1709188200 and noon.hour == 12)
+        assert(os.date('literal %%') == 'literal %')
+        assert(os.date() == os.date('%c', os.time()))
+        assert(os.difftime(math.maxinteger, math.maxinteger-1) == 1)
+        assert(os.difftime(-1, 0) == -1)
+    )";
+    auto result = fixture.runtime.execute(checks);
+    INFO((result ? "" : result.error().message));
+    REQUIRE(result);
+    auto environment = fixture.runtime.create_environment();
+    REQUIRE(environment);
+    REQUIRE(fixture.runtime.execute_in_environment(environment.value(), checks));
+    REQUIRE(fixture.runtime.execute_in_environment(environment.value(), "os.time = nil"));
+    REQUIRE(fixture.runtime.execute("assert(os.time() == 1709164800)"));
+    fixture.runtime.destroy_environment(environment.value());
+    clock.offset_seconds = -8 * 3600;
+    REQUIRE(fixture.runtime.execute(R"(
+        assert(os.date('%Y-%m-%d %H:%M') == '2024-02-28 16:00')
+        assert(os.time(os.date('*t')) == 1709164800)
+        assert(os.date('!%Y-%m-%d') == '2024-02-29')
+    )"));
+}
+
+TEST_CASE("Lua wall-clock rejects invalid calendars without weakening the sandbox",
+          "[script][wall-clock]")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    const auto before = script::system_wall_clock().now();
+    REQUIRE(fixture.runtime.execute(R"(
+        sampled_epoch = os.time()
+        assert(os.date('!%Y-%m-%d %H:%M:%S', 1709164800) == '2024-02-29 00:00:00')
+        assert(os.time(os.date('*t', 1709164800)) == 1709164800)
+        for _, bad in ipairs({{}, {year=2024, month=2},
+                              {year='oops', month=2, day=1},
+                              {year=2024, month=2, day=1.5},
+                              {year=math.maxinteger, month=1, day=1},
+                              {year=10000, month=1, day=1}}) do
+            assert(not pcall(os.time, bad))
+        end
+        for _, format in ipairs({'%', '%Q', '%Ec', '%z', '%Z'}) do
+            assert(not pcall(os.date, format, 1709164800))
+        end
+        assert(not pcall(os.date, '*t', math.maxinteger))
+        assert(not pcall(os.date, '*t', math.mininteger))
+        assert(not pcall(os.date, {}, 0))
+        assert(not pcall(os.date, '*t', 0.5))
+        assert(not pcall(os.time, false))
+        assert(not pcall(os.difftime, 1.5, 0))
+        assert(not pcall(os.difftime, 1))
+        assert(os.date('', 0) == '')
+        assert(os.date('a\0b', 0) == 'a\0b')
+        assert(os.difftime(math.mininteger, math.mininteger+1) == -1)
+        assert(os.difftime(math.maxinteger, math.mininteger) > 1e19)
+        assert(os.date('!%Y-%m-%d', 0) == '1970-01-01')
+    )"));
+    const auto after = script::system_wall_clock().now();
+    auto bounded = fixture.runtime.evaluate_bool("sampled_epoch >= " + std::to_string(before) +
+                                                 " and sampled_epoch <= " + std::to_string(after));
+    REQUIRE(bounded);
+    CHECK(bounded.value());
+}
 
 TEST_CASE("Data Assets load fresh Lua trees in gameplay and Layout environments", "[script][data]")
 {
@@ -1245,8 +1382,8 @@ TEST_CASE("Project Bootstrap and module initialization cannot yield or use gamep
     SECTION("unrestricted loaders remain unavailable")
     {
         auto project = load_script_project_with_modules({
-            {"bootstrap",
-             "assert(package == nil and require == nil and io == nil and os == nil)\nreturn {}"},
+            {"bootstrap", "assert(package == nil and require == nil and io == nil and os.execute "
+                          "== nil)\nreturn {}"},
         });
         REQUIRE(fixture.runtime.prepare_project_modules(project));
         REQUIRE(fixture.runtime.run_project_bootstrap());
@@ -1454,6 +1591,10 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
     auto executed = invoker.execute(R"(
         assert(type(Game) == "table" and Save == nil and Script == nil)
         assert(type(Game.continue) == "function" and type(Game.save) == "function")
+        assert(type(Game.restart) == "function" and type(Game.startup_context) == "function")
+        local cyclic = {}; cyclic.self = cyclic
+        local restart_ok, restart_error = Game.restart(cyclic)
+        assert(not restart_ok and type(restart_error) == "string")
         assert(prop == nil and set_prop == nil and thisEntity == nil)
 
         local scene, scene_error = noveltea.project.scene("opening")
@@ -1762,7 +1903,8 @@ TEST_CASE("ScriptRuntime does not expose unsafe standard libraries by default")
 {
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.sources}));
-    for (const auto* name : {"os", "io", "debug", "package", "require", "dofile", "loadfile"}) {
+    for (const auto* name :
+         {"os.execute", "io", "debug", "package", "require", "dofile", "loadfile"}) {
         auto result = fixture.runtime.evaluate_bool(std::string(name) + " == nil", name);
         REQUIRE(result);
         CHECK(result.value());

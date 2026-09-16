@@ -463,7 +463,7 @@ void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
 {
     std::ostringstream out;
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
-    out << "shaderc=embedded-bgfx-1.129.8940-496\n";
+    out << "shaderc=embedded-bgfx-" NOVELTEA_BGFX_VERSION_STRING "\n";
     out << "bgfx_resources=" << embedded_toolchain_hash() << '\n';
 #else
     out << "shaderc=unavailable\n";
@@ -646,10 +646,8 @@ bool ShaderCompileResult::has_errors() const noexcept
 
 std::optional<ShaderCompileVariant> shader_compile_variant_from_name(std::string_view name)
 {
-    if (name == "glsl-120")
-        return ShaderCompileVariant{.name = "glsl-120", .platform = "linux", .profile = "120"};
-    if (name == "essl-100")
-        return ShaderCompileVariant{.name = "essl-100", .platform = "asm.js", .profile = "100_es"};
+    if (name == "glsl-330")
+        return ShaderCompileVariant{.name = "glsl-330", .platform = "linux", .profile = "330"};
     if (name == "essl-300")
         return ShaderCompileVariant{.name = "essl-300", .platform = "android", .profile = "300_es"};
     if (name == "metal")

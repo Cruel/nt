@@ -26,53 +26,7 @@ Rml::Element* find_ancestor_tag(Rml::Element* element, const char* tag)
 
 Rml::Element* resolve_target(Rml::ElementDocument& document, const std::string& selector)
 {
-    if (selector.empty())
-        return nullptr;
-    if (selector.front() == '#')
-        return selector.size() > 1 ? document.GetElementById(selector.substr(1)) : nullptr;
-
-    const auto attribute_start = selector.find('[');
-    const auto attribute_end =
-        selector.find(']', attribute_start == std::string::npos ? 0 : attribute_start);
-    if (attribute_start != std::string::npos && attribute_end != std::string::npos &&
-        attribute_end > attribute_start + 1) {
-        const auto tag =
-            attribute_start == 0 ? std::string("*") : selector.substr(0, attribute_start);
-        auto attribute = selector.substr(attribute_start + 1, attribute_end - attribute_start - 1);
-        std::string expected;
-        if (const auto equals = attribute.find('='); equals != std::string::npos) {
-            expected = attribute.substr(equals + 1);
-            attribute = attribute.substr(0, equals);
-            if (expected.size() >= 2 && ((expected.front() == '"' && expected.back() == '"') ||
-                                         (expected.front() == '\'' && expected.back() == '\''))) {
-                expected = expected.substr(1, expected.size() - 2);
-            }
-        }
-
-        Rml::ElementList elements;
-        if (tag == "*")
-            document.GetElementsByTagName(elements, "button");
-        else
-            document.GetElementsByTagName(elements, tag);
-        for (auto* element : elements) {
-            if (!element || !element->HasAttribute(attribute))
-                continue;
-            if (expected.empty() || element->GetAttribute<Rml::String>(attribute, "") == expected) {
-                return element;
-            }
-        }
-        return nullptr;
-    }
-
-    Rml::ElementList elements;
-    if (selector.front() == '.') {
-        if (selector.size() <= 1)
-            return nullptr;
-        document.GetElementsByClassName(elements, selector.substr(1));
-    } else {
-        document.GetElementsByTagName(elements, selector);
-    }
-    return elements.empty() ? nullptr : elements.front();
+    return selector.empty() ? nullptr : document.QuerySelector(selector);
 }
 
 bool has_disabled_ancestor(Rml::Element* element)
@@ -201,15 +155,18 @@ RuntimeUiPlaybackDriver::click(const RuntimeUiPlaybackClickRequest& request)
         transform.native_ui_raster_to_context_logical(native_click, *context_metrics);
 
     auto* hit = context->GetElementAtPoint({context_click.x, context_click.y});
-    if (!has_runtime_activation_attribute(*target) && hit && !is_descendant_or_self(hit, target) &&
-        !is_descendant_or_self(target, hit)) {
+    if (!hit || !is_descendant_or_self(hit, target)) {
         result.status = RuntimeUiPlaybackClickStatus::TargetBlocked;
         result.message = "target is not hittable at click point: " + request.selector;
-        result.message += " hit=";
-        result.message += hit->GetTagName();
-        if (!hit->GetId().empty()) {
-            result.message += "#";
-            result.message += hit->GetId();
+        if (hit) {
+            result.message += " hit=";
+            result.message += hit->GetTagName();
+            if (!hit->GetId().empty()) {
+                result.message += "#";
+                result.message += hit->GetId();
+            }
+        } else {
+            result.message += " hit=<none>";
         }
         return result;
     }
@@ -227,7 +184,7 @@ RuntimeUiPlaybackDriver::click(const RuntimeUiPlaybackClickRequest& request)
     const auto context_key = m_documents.context_key_or_default(request.document_id);
     bool dispatched = false;
     if (m_dispatch_layout_event) {
-        (void)m_dispatch_layout_event(context_key.owner, [&]() {
+        (void)m_dispatch_layout_event(request.document_id, context_key.owner, [&]() {
             dispatched = true;
             m_host.set_context_clock(context_key);
             const bool moved = context->ProcessMouseMove(x, y, 0);

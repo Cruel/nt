@@ -24,7 +24,30 @@ project_text_input_area_to_host_logical(const PresentationMetrics& presentation,
     };
 }
 
-SdlSystemInterface::SdlSystemInterface(SDL_Window* window) : m_window(window) {}
+SdlSystemInterface::SdlSystemInterface(SDL_Window* window) : m_window(window)
+{
+    if (!m_window)
+        return;
+
+    m_default_cursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT);
+    m_move_cursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_MOVE);
+    m_pointer_cursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER);
+    m_resize_cursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NWSE_RESIZE);
+    m_cross_cursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
+    m_text_cursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT);
+    m_unavailable_cursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NOT_ALLOWED);
+}
+
+SdlSystemInterface::~SdlSystemInterface()
+{
+    SDL_DestroyCursor(m_default_cursor);
+    SDL_DestroyCursor(m_move_cursor);
+    SDL_DestroyCursor(m_pointer_cursor);
+    SDL_DestroyCursor(m_resize_cursor);
+    SDL_DestroyCursor(m_cross_cursor);
+    SDL_DestroyCursor(m_text_cursor);
+    SDL_DestroyCursor(m_unavailable_cursor);
+}
 
 double SdlSystemInterface::GetElapsedTime()
 {
