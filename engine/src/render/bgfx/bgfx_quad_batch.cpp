@@ -379,8 +379,9 @@ bool Renderer::prepare_postprocess_surface(bool full_world_transition)
         m_postprocess_scene_width = width;
         m_postprocess_scene_height = height;
         ++m_postprocess_surface_diagnostics.allocations;
-        SDL_Log("[renderer] allocated postprocess stack targets %ux%u world=%zu full=%zu", width,
-                height, world_count, full_count);
+        SDL_Log("[renderer] allocated postprocess stack targets %ux%u world=%llu full=%llu", width,
+                height, static_cast<unsigned long long>(world_count),
+                static_cast<unsigned long long>(full_count));
     } else {
         ++m_postprocess_surface_diagnostics.reuses;
     }

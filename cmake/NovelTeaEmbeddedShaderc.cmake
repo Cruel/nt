@@ -153,7 +153,7 @@ function(noveltea_configure_embedded_shaderc)
         target_compile_options(noveltea_bimg_texturec_embedded PRIVATE ${_texturec_options})
     endif()
     target_compile_definitions(noveltea_bimg_texturec_embedded PRIVATE
-        main=noveltea_bimg_texturec_main)
+        NOVELTEA_BIMG_TEXTUREC_EMBEDDED=1)
     target_link_libraries(noveltea_bimg_texturec_embedded PRIVATE ${_texturec_links})
 
     foreach(_link IN LISTS _shaderc_links _texturec_links)

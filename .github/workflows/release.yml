@@ -107,7 +107,7 @@ jobs:
             build/linux-release/_deps/bgfx.cmake-build
             build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
             build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-          key: ${{ runner.os }}-x64-release-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
+          key: ${{ runner.os }}-x64-release-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
           restore-keys: |
             ${{ runner.os }}-x64-release-shader-host-
 
