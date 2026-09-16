@@ -148,6 +148,7 @@ export async function invokeNovelTeaNativeOperation(
           );
           return;
         }
+        if (stderr) process.stderr.write(stderr);
         resolve(parsed);
       });
     });

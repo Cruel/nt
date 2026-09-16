@@ -2928,6 +2928,10 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                                result.diagnostics, elapsed);
                     }
                 } else if constexpr (std::is_same_v<T, core::ContinueInput>) {
+                    if (m_kernel->state().active_choice()) {
+                        result.disposition = runtime::RuntimeInputDisposition::Unhandled;
+                        return;
+                    }
                     const auto* blocker = active_blocker<core::InputFlowBlocker>(*m_kernel);
                     const auto* scene_frame =
                         !m_kernel->state().flow_stack().empty()

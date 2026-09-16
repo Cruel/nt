@@ -42,6 +42,7 @@ export interface RunNovelTeaCliOptions {
   readonly agentKitPayload?: NovelTeaAgentKitPayload;
   readonly stdinText?: string;
   readonly readStdinText?: () => string;
+  readonly forceRuntimeCacheRebuild?: boolean;
   readonly comfyUiWorkflowLibraryOptions?: WorkflowLibraryServiceOptions;
   readonly comfyUiAbortSignal?: AbortSignal;
   readonly onComfyUiProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
@@ -78,7 +79,7 @@ function failure(
   fields: Readonly<Record<string, unknown>> = {},
 ): NovelTeaCliCommandResult {
   return formatCliResult({ success: false, exitCode, diagnostics, ...fields }, json, {
-    failure: diagnostics[0]?.message ?? 'NovelTea command failed.',
+    failure: diagnostics[0]?.message ?? 'Command failed.',
   });
 }
 
@@ -307,6 +308,7 @@ export async function runNovelTeaCli(
       nativeTools,
       platformTools,
       onPlatformProgress: options.onPlatformProgress,
+      forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
     });
 
     const diagnostics = [...opened.diagnostics, ...semantic.diagnostics];

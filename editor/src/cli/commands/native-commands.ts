@@ -111,9 +111,7 @@ export const shadersCompileCommand: CliCommandDefinition = {
           outputRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'build'),
           cacheRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'cache'),
           shaderVariants:
-            variants.length > 0
-              ? [...new Set(variants)]
-              : ['glsl-330', 'essl-300', 'metal'],
+            variants.length > 0 ? [...new Set(variants)] : ['glsl-330', 'essl-300', 'metal'],
           forceRebuild,
         });
         const result = nativeSuccess(response);
@@ -223,12 +221,14 @@ function nativeSuiteResult(response: unknown): CliSemanticResult {
 
 async function prepareCachedTestRuntime(context: CliCommandContext, forceRebuild = false) {
   const lookup = await lookupCanonicalRuntimeBuildCache(context.fileSystem, context.snapshot);
-  let artifact = forceRebuild ? undefined : lookup.enabled ? lookup.artifact : undefined;
-  let testCatalog = lookup.enabled ? lookup.testCatalog : undefined;
-  let cacheObservation: RuntimeBuildCacheObservation | null = lookup.enabled
-    ? lookup.observation
-    : null;
-  const cacheHit = !forceRebuild && lookup.enabled && !!lookup.artifact;
+  const rebuild = forceRebuild || context.forceRuntimeCacheRebuild;
+  let artifact = rebuild ? undefined : lookup.enabled ? lookup.artifact : undefined;
+  let testCatalog = rebuild ? undefined : lookup.enabled ? lookup.testCatalog : undefined;
+  let cacheObservation: RuntimeBuildCacheObservation | null = null;
+  if (rebuild)
+    cacheObservation = { status: 'unusable', reason: 'cached-native-admission-rejected' };
+  else if (lookup.enabled) cacheObservation = lookup.observation;
+  const cacheHit = !rebuild && lookup.enabled && !!lookup.artifact;
   const needsArtifact = !artifact;
   const needsCatalog = !testCatalog;
   const expectedTestInputs =
@@ -350,6 +350,7 @@ export const testRunCommand: CliCommandDefinition = {
               project: runtime.artifact.compiledProject,
               catalog: runtime.testCatalog,
               projectRoot: context.snapshot.projectRoot,
+              shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
             });
           };
           const response = await executeCachedRuntimeArtifactWithRecovery({
@@ -406,6 +407,7 @@ export const testRunCommand: CliCommandDefinition = {
             ? context.nativeTools.runUiTest({
                 ...request,
                 projectRoot: context.snapshot.projectRoot,
+                shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
               })
             : context.nativeTools.runHeadlessTest(request);
         };
@@ -461,6 +463,7 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
                   project: runtime.artifact.compiledProject,
                   spec,
                   projectRoot: context.snapshot.projectRoot,
+                  shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
                 })
               : context.nativeTools.runHeadlessTest({
                   project: runtime.artifact.compiledProject,

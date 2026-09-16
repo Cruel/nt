@@ -131,6 +131,7 @@ void create_cache(const std::filesystem::path& root)
         {"compiledProject", {{"schema", "noveltea.compiled.project"}, {"formatVersion", 1}}},
         {"preparedArtifactSchema", "noveltea.prepared-runtime-artifact"},
         {"discoveryScopes", canonical_scopes()},
+        {"authoringDiagnostics", Json::array()},
         {"inputs", Json::array({input_entry(root, "project.json")})},
         {"artifactFile", "artifact.json"},
         {"artifactSha256", sha256_prefixed(artifact)},
@@ -155,6 +156,8 @@ TEST_CASE("native runtime cache probe admits a fresh canonical generation")
     REQUIRE(result["ok"] == true);
     CHECK(result["status"] == "hit");
     CHECK(result["reason"] == "current-generation-valid");
+    CHECK(result["testCatalogStatus"] == "hit");
+    CHECK(result["testCatalogReason"] == "current-test-catalog-valid");
     CHECK(result["catalog"]["entries"][0]["id"] == "smoke");
     CHECK(result["artifact"]["compiledProject"]["schema"] == "noveltea.compiled.project");
 }
@@ -176,8 +179,7 @@ TEST_CASE(
     CHECK(result["status"] == "hit");
 }
 
-TEST_CASE(
-    "native runtime cache probe rejects stale test content without parsing authored Test data")
+TEST_CASE("native runtime cache probe preserves a runtime hit when authored Test content is stale")
 {
     auto root = temp_root();
     create_cache(root.path);
@@ -186,8 +188,36 @@ TEST_CASE(
         noveltea_tooling_probe_runtime_cache_json,
         {{"projectRoot", root.path.generic_string()}, {"compilerIdentity", "test-compiler"}});
     REQUIRE(result["ok"] == true);
-    CHECK(result["status"] == "stale");
-    CHECK(result["reason"] == "test-input-metadata-changed");
+    CHECK(result["status"] == "hit");
+    CHECK(result["reason"] == "current-runtime-generation-valid");
+    CHECK(result["testCatalogStatus"] == "stale");
+    CHECK(result["testCatalogReason"] == "test-input-metadata-changed");
+    CHECK(result["artifact"]["compiledProject"]["schema"] == "noveltea.compiled.project");
+    CHECK_FALSE(result.contains("catalog"));
+}
+
+TEST_CASE("native runtime cache probe preserves a runtime hit when the test catalog is corrupt")
+{
+    auto root = temp_root();
+    create_cache(root.path);
+    const auto generation =
+        read_text(root.path / ".noveltea/cache/runtime/current").value_or(std::string{});
+    auto trimmed = generation;
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back())))
+        trimmed.pop_back();
+    write_text(root.path / ".noveltea/cache/runtime/generations" / trimmed / "tests.json",
+               "{broken");
+
+    const auto result = invoke(
+        noveltea_tooling_probe_runtime_cache_json,
+        {{"projectRoot", root.path.generic_string()}, {"compilerIdentity", "test-compiler"}});
+    REQUIRE(result["ok"] == true);
+    CHECK(result["status"] == "hit");
+    CHECK(result["reason"] == "current-runtime-generation-valid");
+    CHECK(result["testCatalogStatus"] == "unusable");
+    CHECK(result["testCatalogReason"] == "test-catalog-digest-mismatch");
+    CHECK(result["artifact"]["compiledProject"]["schema"] == "noveltea.compiled.project");
+    CHECK_FALSE(result.contains("catalog"));
 }
 
 TEST_CASE("native runtime cache probe treats malformed typed manifest fields as unusable")

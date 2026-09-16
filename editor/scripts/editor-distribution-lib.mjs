@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   novelTeaDevelopmentVersion,
+  readNovelTeaBuildIdentity,
   readNovelTeaVersion,
 } from '../../scripts/noveltea-version.mjs';
 import { resolvePnpmInvocation } from './pnpm-invocation.mjs';
@@ -840,6 +841,7 @@ function stageId(identity) {
 export async function createStage(options = {}) {
   const { build = true, keepStage = false, releaseTag } = options;
   const identity = await resolveBuildIdentity(releaseTag);
+  const compilerIdentity = readNovelTeaBuildIdentity(repositoryRoot);
   await mkdir(distributionRoot, { recursive: true });
   const transactionRoot = await mkdtemp(path.join(distributionRoot, '.stage-'));
   const transactionStage = path.join(transactionRoot, 'stage');
@@ -847,15 +849,21 @@ export async function createStage(options = {}) {
   let publishedStage = false;
   try {
     if (build) {
+      const buildEnvironment = {
+        ...process.env,
+        NODE_ENV: 'production',
+        NOVELTEA_BUILD_IDENTITY: compilerIdentity,
+      };
       await runPnpmCommand(['run', 'build'], {
         cwd: editorRoot,
         label: 'build',
-        env: { ...process.env, NODE_ENV: 'production' },
+        env: buildEnvironment,
       });
       if (!process.env.NOVELTEA_CLI_PATH?.trim()) {
         await runPnpmCommand(['run', 'noveltea:build'], {
           cwd: editorRoot,
           label: 'noveltea-cli',
+          env: buildEnvironment,
         });
       }
     }

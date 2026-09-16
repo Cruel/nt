@@ -158,7 +158,11 @@ if (versionCheck.status !== 0 || versionCheck.stdout.trim() !== scriptcVersion)
   );
 await ensureScriptcNativeHelperExecutable();
 
-const buildEnv = { ...process.env, NODE_ENV: 'production' };
+const buildEnv = {
+  ...process.env,
+  NODE_ENV: 'production',
+  NOVELTEA_BUILD_IDENTITY: buildIdentity,
+};
 const scriptcBuildEnv = isWindows
   ? {
       ...buildEnv,

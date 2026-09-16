@@ -46,6 +46,7 @@ extern int noveltea_bimg_texturec_main(int argc, const char** argv);
 #else
 #include <spawn.h>
 #include <sys/wait.h>
+#include <unistd.h>
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #endif
@@ -96,8 +97,20 @@ public:
     }
 
     [[nodiscard]] Result<noveltea::runtime::PresentationAcceptance, Diagnostics>
-    accept(const PresentationOperation&) override
+    accept(const PresentationOperation& operation) override
     {
+        std::visit(
+            [this](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, RoomNavigationTransitionOperation>) {
+                    m_completions.push_back(CompletePresentationInput{
+                        value.common.id, value.completion.owner, value.completion.blocker});
+                } else if (value.completion) {
+                    m_completions.push_back(CompletePresentationInput{
+                        value.common.id, value.completion->owner, value.completion->blocker});
+                }
+            },
+            operation);
         return Result<noveltea::runtime::PresentationAcceptance, Diagnostics>::success({true});
     }
 
@@ -112,10 +125,20 @@ public:
         return status;
     }
 
-    void terminate(PresentationCancellationReason) override {}
+    void terminate(PresentationCancellationReason) override { m_completions.clear(); }
+
+    [[nodiscard]] std::optional<CompletePresentationInput> take_completion()
+    {
+        if (m_completions.empty())
+            return std::nullopt;
+        auto completion = m_completions.front();
+        m_completions.erase(m_completions.begin());
+        return completion;
+    }
 
 private:
     PresentationCheckpointStatus status{CheckpointStatusRevision::from_number(1), {}, std::nullopt};
+    std::vector<CompletePresentationInput> m_completions;
 };
 
 std::string read_all(std::istream& stream)
@@ -550,7 +573,23 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     if (!typed_spec)
         return fail("Playback spec parse failed.");
     auto& session = runtime.value_if()->get()->session();
+    const auto settle_headless_presentation = [&](noveltea::runtime::RuntimeDispatchResult& result) {
+        while (auto completion = presentation.take_completion()) {
+            auto completed = session.dispatch(RuntimeInputMessage{std::move(*completion)});
+            result.events.insert(result.events.end(),
+                                 std::make_move_iterator(completed.events.begin()),
+                                 std::make_move_iterator(completed.events.end()));
+            result.diagnostics.insert(result.diagnostics.end(),
+                                      std::make_move_iterator(completed.diagnostics.begin()),
+                                      std::make_move_iterator(completed.diagnostics.end()));
+            if (completed.publication)
+                result.publication = std::move(completed.publication);
+            if (completed.disposition == noveltea::runtime::RuntimeInputDisposition::Failed)
+                result.disposition = noveltea::runtime::RuntimeInputDisposition::Failed;
+        }
+    };
     auto startup = session.dispatch(RuntimeInputMessage{StartRuntimeInput{}});
+    settle_headless_presentation(startup);
     std::optional<noveltea::runtime::RuntimePublication> final_publication;
     if (startup.publication)
         final_publication = std::move(startup.publication);
@@ -565,6 +604,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         if (!std::holds_alternative<RuntimeInputMessage>(step.input))
             return fail("UI click playback input requires run-ui-test.");
         auto result = session.dispatch(std::get<RuntimeInputMessage>(step.input));
+        settle_headless_presentation(result);
         editor::TypedPlaybackStepReport report;
         report.index = step.index;
         report.handled = result.disposition == noveltea::runtime::RuntimeInputDisposition::Handled;
@@ -577,6 +617,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         // drains deterministic runtime work without introducing wall-clock sleeps or elapsed time.
         if (!step.expectations.empty()) {
             auto settled = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+            settle_headless_presentation(settled);
             if (settled.publication)
                 final_publication = std::move(settled.publication);
             report.events.insert(report.events.end(),
@@ -608,6 +649,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     }
 
     auto settled = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+    settle_headless_presentation(settled);
     if (settled.publication)
         final_publication = std::move(settled.publication);
     all_events.insert(all_events.end(), settled.events.begin(), settled.events.end());
@@ -864,8 +906,18 @@ int run_ui_test_runner_process(const std::filesystem::path& runner,
     auto input_text = filesystem_path_to_utf8(input_path);
     auto response_text = filesystem_path_to_utf8(response_path);
     char* arguments[] = {runner_text.data(), input_text.data(), response_text.data(), nullptr};
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0)
+        return -1;
+    const int redirected = posix_spawn_file_actions_adddup2(&actions, STDERR_FILENO, STDOUT_FILENO);
+    if (redirected != 0) {
+        posix_spawn_file_actions_destroy(&actions);
+        return -1;
+    }
     pid_t process = 0;
-    const int spawned = posix_spawn(&process, runner_text.c_str(), nullptr, nullptr, arguments, environ);
+    const int spawned =
+        posix_spawn(&process, runner_text.c_str(), &actions, nullptr, arguments, environ);
+    posix_spawn_file_actions_destroy(&actions);
     if (spawned != 0)
         return -1;
     int status = 0;
@@ -933,7 +985,7 @@ bool playback_report_has_execution_error(const nlohmann::json& report)
     if (steps == report.end() || !steps->is_array())
         return true;
     for (const auto& step : *steps) {
-        if (!step.is_object() || !json_access::value_or(step, "handled", false))
+        if (!step.is_object())
             return true;
         const auto diagnostics = step.find("diagnostics");
         if (diagnostics == step.end() || !diagnostics->is_array())

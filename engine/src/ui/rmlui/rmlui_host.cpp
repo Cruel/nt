@@ -142,8 +142,8 @@ bool RmlUiHost::initialize(const Config& config)
         }
     }
 
-    std::printf("[runtime_ui] RmlUi initialized %s\n",
-                format_resolved_context_metrics(m_default_context_metrics).c_str());
+    std::fprintf(stderr, "[runtime_ui] RmlUi initialized %s\n",
+                 format_resolved_context_metrics(m_default_context_metrics).c_str());
     return true;
 }
 

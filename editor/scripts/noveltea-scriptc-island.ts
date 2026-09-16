@@ -152,7 +152,11 @@ async function runInternalCommand(
   if (operation === 'compile-shaders')
     response = await nativeTools.compileShaders(input.shaderProject, input.options ?? {});
   else if (operation === 'run-test') response = await nativeTools.runHeadlessTest(input);
-  else if (operation === 'run-ui-test') response = await nativeTools.runUiTest(input);
+  else if (operation === 'run-test-suite') {
+    if (!nativeTools.runTestSuite)
+      return result(1, '', 'Native test-suite operation is unavailable.\n');
+    response = await nativeTools.runTestSuite(input);
+  } else if (operation === 'run-ui-test') response = await nativeTools.runUiTest(input);
   else if (operation === 'export-package') response = await nativeTools.exportPackage(input);
   else if (operation === 'font-coverage') {
     if (nativeTools.validateFontCoverage === undefined)
@@ -170,6 +174,7 @@ async function runInternalCommand(
 export async function runNovelTeaScriptcIsland(
   argvText: string,
   invokeHost: ScriptcHostInvoke,
+  forceRuntimeCacheRebuild = false,
 ): Promise<string> {
   const argv = JSON.parse(argvText) as string[];
   const cancellationCertification =
@@ -224,6 +229,7 @@ export async function runNovelTeaScriptcIsland(
           }
         : {}),
       readStdinText: () => invokeHost('read-stdin', ''),
+      forceRuntimeCacheRebuild,
     });
     return result(commandResult.exitCode, commandResult.stdout, commandResult.stderr);
   } finally {

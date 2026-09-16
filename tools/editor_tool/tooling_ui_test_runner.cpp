@@ -13,6 +13,7 @@
 #include <noveltea/core/typed_save_slot_store.hpp>
 #include <noveltea/jobs/inline_job_executor.hpp>
 #include <noveltea/presentation/runtime_presentation_model.hpp>
+#include <noveltea/presentation/runtime_system_layouts.hpp>
 #include <noveltea/render/material_codec.hpp>
 #include <noveltea/runtime/running_game.hpp>
 #include <noveltea/runtime/runtime_capabilities.hpp>
@@ -61,8 +62,20 @@ public:
     }
 
     [[nodiscard]] Result<noveltea::runtime::PresentationAcceptance, Diagnostics>
-    accept(const PresentationOperation&) override
+    accept(const PresentationOperation& operation) override
     {
+        std::visit(
+            [this](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, RoomNavigationTransitionOperation>) {
+                    m_completions.push_back(CompletePresentationInput{
+                        value.common.id, value.completion.owner, value.completion.blocker});
+                } else if (value.completion) {
+                    m_completions.push_back(CompletePresentationInput{
+                        value.common.id, value.completion->owner, value.completion->blocker});
+                }
+            },
+            operation);
         return Result<noveltea::runtime::PresentationAcceptance, Diagnostics>::success({true});
     }
 
@@ -77,10 +90,20 @@ public:
         return status;
     }
 
-    void terminate(PresentationCancellationReason) override {}
+    void terminate(PresentationCancellationReason) override { m_completions.clear(); }
+
+    [[nodiscard]] std::optional<CompletePresentationInput> take_completion()
+    {
+        if (m_completions.empty())
+            return std::nullopt;
+        auto completion = m_completions.front();
+        m_completions.erase(m_completions.begin());
+        return completion;
+    }
 
 private:
     PresentationCheckpointStatus status{CheckpointStatusRevision::from_number(1), {}, std::nullopt};
+    std::vector<CompletePresentationInput> m_completions;
 };
 
 class ToolingScriptSource final : public noveltea::runtime::ScriptSourcePort {
@@ -134,19 +157,95 @@ public:
     using PresentationPreparation = std::function<
         Result<void, Diagnostics>(const RuntimePresentationSnapshot&)>;
 
-    ToolingUiInputSink(noveltea::runtime::RuntimeSession& session,
+    ToolingUiInputSink(std::unique_ptr<noveltea::runtime::RunningGame>& running_game,
+                       std::unique_ptr<noveltea::script::ScriptRuntime>& gameplay_scripts,
+                       noveltea::runtime::ScriptSourcePort& gameplay_sources,
+                       HeadlessPresentationRuntime& presentation,
                        noveltea::script::ScriptRuntime& frontend_scripts,
                        noveltea::RuntimeUI& runtime_ui,
                        noveltea::host::PresentationLayoutReconciler& layouts,
                        PresentationPreparation prepare_presentation) noexcept
-        : m_session(session), m_frontend_scripts(frontend_scripts), m_runtime_ui(runtime_ui),
-          m_layouts(layouts), m_prepare_presentation(std::move(prepare_presentation))
+        : m_running_game(running_game), m_gameplay_scripts(gameplay_scripts),
+          m_gameplay_sources(gameplay_sources), m_presentation(presentation),
+          m_frontend_scripts(frontend_scripts), m_runtime_ui(runtime_ui), m_layouts(layouts),
+          m_prepare_presentation(std::move(prepare_presentation))
     {
     }
 
     [[nodiscard]] bool submit_gameplay_input(RuntimeInputMessage input) override
     {
-        auto result = m_session.dispatch(std::move(input));
+        auto result = m_running_game->session().dispatch(std::move(input));
+        if (result.session_replacement_request && result.diagnostics.empty()) {
+            const auto* reset =
+                std::get_if<noveltea::core::ResetRuntimeInput>(&*result.session_replacement_request);
+            if (reset == nullptr) {
+                m_diagnostics.push_back(
+                    {.code = "tooling.ui_test_session_replacement_unsupported",
+                     .message = "Runtime UI Test only supports reset session replacement requests."});
+                return false;
+            }
+
+            auto candidate_scripts = std::make_unique<noveltea::script::ScriptRuntime>();
+            auto initialized = candidate_scripts->initialize({&m_gameplay_sources});
+            if (!initialized) {
+                m_diagnostics.push_back(
+                    {.code = "tooling.ui_test_reset_script_initialization_failed",
+                     .message = "Runtime UI Test reset Lua initialization failed."});
+                return false;
+            }
+            candidate_scripts->synchronize_project_data_assets(m_running_game->package().project());
+            candidate_scripts->set_startup_context(reset->startup_context);
+            auto prepared = candidate_scripts->prepare_project_modules(m_running_game->package().project());
+            if (!prepared) {
+                m_diagnostics.push_back({.code = "tooling.ui_test_reset_script_modules_failed",
+                                         .message = prepared.error().message,
+                                         .source_path = prepared.error().chunk});
+                return false;
+            }
+            auto bootstrapped = candidate_scripts->run_project_bootstrap();
+            if (!bootstrapped) {
+                m_diagnostics.push_back({.code = "tooling.ui_test_reset_bootstrap_failed",
+                                         .message = bootstrapped.error().message,
+                                         .source_path = bootstrapped.error().chunk});
+                return false;
+            }
+            auto frozen = candidate_scripts->freeze_project_hooks();
+            if (!frozen) {
+                m_diagnostics.push_back({.code = "tooling.ui_test_reset_hooks_failed",
+                                         .message = frozen.error().message,
+                                         .source_path = frozen.error().chunk});
+                return false;
+            }
+            auto candidate =
+                m_running_game->prepare_reset_candidate(*reset, *candidate_scripts, m_presentation);
+            if (!candidate) {
+                const auto& diagnostics = candidate.error();
+                m_diagnostics.insert(m_diagnostics.end(), diagnostics.begin(), diagnostics.end());
+                return false;
+            }
+            auto prepared_candidate = std::move(*candidate.value_if());
+            result = prepared_candidate->take_initial_result();
+            auto previous = m_running_game->commit_candidate(std::move(prepared_candidate));
+            previous.reset();
+            m_gameplay_scripts = std::move(candidate_scripts);
+            m_layouts.replace_runtime_session();
+            m_runtime_ui.clear_gameplay_ui_values();
+            m_runtime_ui.set_startup_context(m_running_game->startup_context());
+        }
+        while (auto completion = m_presentation.take_completion()) {
+            auto completed = m_running_game->session().dispatch(
+                RuntimeInputMessage{std::move(*completion)});
+            result.events.insert(result.events.end(),
+                                 std::make_move_iterator(completed.events.begin()),
+                                 std::make_move_iterator(completed.events.end()));
+            result.diagnostics.insert(result.diagnostics.end(),
+                                      std::make_move_iterator(completed.diagnostics.begin()),
+                                      std::make_move_iterator(completed.diagnostics.end()));
+            if (completed.publication)
+                result.publication = std::move(completed.publication);
+            if (completed.disposition == noveltea::runtime::RuntimeInputDisposition::Failed)
+                result.disposition = noveltea::runtime::RuntimeInputDisposition::Failed;
+        }
         m_events.insert(m_events.end(), result.events.begin(), result.events.end());
         m_diagnostics.insert(m_diagnostics.end(), result.diagnostics.begin(), result.diagnostics.end());
         if (result.publication) {
@@ -190,7 +289,7 @@ public:
     dispatch_layout_event(noveltea::core::MountedLayoutOwner owner,
                           const std::function<bool()>& dispatch) override
     {
-        auto& gateway = m_session.gateway();
+        auto& gateway = m_running_game->session().gateway();
         noveltea::runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
         const auto profile = owner == noveltea::core::MountedLayoutOwner::Shell
                                  ? noveltea::runtime::RuntimeCapabilityProfile::ShellLayoutEvent
@@ -230,7 +329,10 @@ public:
     }
 
 private:
-    noveltea::runtime::RuntimeSession& m_session;
+    std::unique_ptr<noveltea::runtime::RunningGame>& m_running_game;
+    std::unique_ptr<noveltea::script::ScriptRuntime>& m_gameplay_scripts;
+    noveltea::runtime::ScriptSourcePort& m_gameplay_sources;
+    HeadlessPresentationRuntime& m_presentation;
     noveltea::script::ScriptRuntime& m_frontend_scripts;
     noveltea::RuntimeUI& m_runtime_ui;
     noveltea::host::PresentationLayoutReconciler& m_layouts;
@@ -569,8 +671,8 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         gameplay_assets.mount_directory("project", *project_root, false);
         gameplay_sources = &gameplay_assets;
     }
-    noveltea::script::ScriptRuntime gameplay_scripts;
-    auto gameplay_initialized = gameplay_scripts.initialize({gameplay_sources});
+    auto gameplay_scripts = std::make_unique<noveltea::script::ScriptRuntime>();
+    auto gameplay_initialized = gameplay_scripts->initialize({gameplay_sources});
     if (!gameplay_initialized)
         return fail("Lua runtime initialization failed.");
     TypedMemorySaveSlotStore saves;
@@ -580,7 +682,7 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         return compiled_project_admission_failure("Compiled runtime load failed.",
                                                   diagnostics_json(input.error()));
     auto running_game =
-        load_running_game(std::move(*input.value_if()), gameplay_scripts, presentation, saves);
+        load_running_game(std::move(*input.value_if()), *gameplay_scripts, presentation, saves);
     if (!running_game)
         return compiled_project_admission_failure("Compiled runtime load failed.",
                                                   diagnostics_json(running_game.error()));
@@ -612,6 +714,7 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
     auto frontend_initialized = frontend_scripts.initialize({&frontend_assets});
     if (!frontend_initialized)
         return fail("RuntimeUI Lua initialization failed.");
+    frontend_scripts.synchronize_project_data_assets(runtime_project);
 
     noveltea::RuntimeUI runtime_ui;
     const auto& loaded_shader_materials = running_game.value_if()->get()->package().shader_materials();
@@ -640,15 +743,52 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
     layout_manager.bind_document_host(&realizer);
     noveltea::host::PresentationLayoutReconciler layouts(layout_manager, realizer);
     layouts.bind_project(*decoded_project.value_if());
+    const auto game_hud_setting = std::find_if(
+        runtime_project.settings().system_layouts.begin(), runtime_project.settings().system_layouts.end(),
+        [](const auto& item) { return item.role == noveltea::core::compiled::SystemLayoutRole::GameHud; });
+    auto game_hud = [&]() -> noveltea::presentation::RuntimeLayoutManager::MountResult {
+        if (game_hud_setting == runtime_project.settings().system_layouts.end() ||
+            !game_hud_setting->layout)
+            return layout_manager.mount_builtin_game_hud(true);
+        noveltea::presentation::RuntimeLayoutMountRequest request;
+        request.layout_id = game_hud_setting->layout->text();
+        request.source = noveltea::presentation::RuntimeLayoutProjectSource{};
+        request.system_role = noveltea::core::compiled::SystemLayoutRole::GameHud;
+        request.policy = noveltea::presentation::runtime_system_layout_policy(
+            noveltea::core::compiled::SystemLayoutRole::GameHud, true);
+        request.composition_group = noveltea::core::PresentationCompositionGroup::Interface;
+        return layout_manager.mount(std::move(request));
+    }();
+    if (!game_hud)
+        return fail("RuntimeUI Game HUD initialization failed.", diagnostics_json(game_hud.error()));
+    const auto game_hud_instance = *game_hud.value_if();
 
     auto prepare_presentation = [&](const RuntimePresentationSnapshot& snapshot) {
         return prepare_layout_font_leases(snapshot, runtime_project, frontend_assets, executor);
     };
 
-    auto& session = running_game.value_if()->get()->session();
-    ToolingUiInputSink ui_sink(session, frontend_scripts, runtime_ui, layouts,
+    auto running_game_instance = std::move(*running_game.value_if());
+    ToolingUiInputSink ui_sink(running_game_instance, gameplay_scripts, *gameplay_sources,
+                               presentation, frontend_scripts, runtime_ui, layouts,
                                prepare_presentation);
     runtime_ui.bind_input_sink(&ui_sink);
+    const auto settle_headless_presentation =
+        [&](noveltea::runtime::RuntimeDispatchResult& result) {
+            while (auto completion = presentation.take_completion()) {
+                auto completed = running_game_instance->session().dispatch(
+                    RuntimeInputMessage{std::move(*completion)});
+                result.events.insert(result.events.end(),
+                                     std::make_move_iterator(completed.events.begin()),
+                                     std::make_move_iterator(completed.events.end()));
+                result.diagnostics.insert(result.diagnostics.end(),
+                                          std::make_move_iterator(completed.diagnostics.begin()),
+                                          std::make_move_iterator(completed.diagnostics.end()));
+                if (completed.publication)
+                    result.publication = std::move(completed.publication);
+                if (completed.disposition == noveltea::runtime::RuntimeInputDisposition::Failed)
+                    result.disposition = noveltea::runtime::RuntimeInputDisposition::Failed;
+            }
+        };
 
     std::vector<TypedPlaybackStepReport> steps;
     std::vector<TypedPlaybackExpectationReport> final_expectations;
@@ -689,7 +829,8 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         runtime_ui.begin_frame({});
     };
 
-    auto startup = session.dispatch(RuntimeInputMessage{StartRuntimeInput{}});
+    auto startup = running_game_instance->session().dispatch(RuntimeInputMessage{StartRuntimeInput{}});
+    settle_headless_presentation(startup);
     apply_result(startup);
     all_events.insert(all_events.end(), startup.events.begin(), startup.events.end());
     all_diagnostics.insert(all_diagnostics.end(), startup.diagnostics.begin(), startup.diagnostics.end());
@@ -708,7 +849,8 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         report.index = step.index;
         ui_sink.clear_step_outputs();
         if (std::holds_alternative<RuntimeInputMessage>(step.input)) {
-            auto result = session.dispatch(std::get<RuntimeInputMessage>(step.input));
+            auto result = running_game_instance->session().dispatch(std::get<RuntimeInputMessage>(step.input));
+            settle_headless_presentation(result);
             report.handled = result.disposition == noveltea::runtime::RuntimeInputDisposition::Handled;
             apply_result(result);
             report.events = std::move(result.events);
@@ -717,8 +859,12 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
                 passed = false;
         } else {
             const auto& click = std::get<TypedPlaybackUiClickInput>(step.input);
-            const auto clicked =
-                driver->click({.document_id = click.document_id, .selector = click.selector});
+            std::string document_id = click.document_id;
+            if (document_id == "runtime_game")
+                document_id = realizer.document_id(game_hud_instance).value_or(document_id);
+            const auto clicked = driver->click({.document_id = document_id,
+                                                .selector = click.selector});
+            runtime_ui.begin_frame({});
             report.handled =
                 clicked.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::Dispatched;
             report.events.assign(ui_sink.events().begin(), ui_sink.events().end());
@@ -735,7 +881,8 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         }
 
         if (!step.expectations.empty()) {
-            auto settled = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+            auto settled = running_game_instance->session().dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+            settle_headless_presentation(settled);
             apply_result(settled);
             report.events.insert(report.events.end(),
                                  std::make_move_iterator(settled.events.begin()),
@@ -752,7 +899,8 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
             passed = false;
         for (const auto& expectation : step.expectations) {
             auto expectation_report = evaluate_playback_expectation(
-                expectation, session, *final_publication, report.events, report.diagnostics);
+                expectation, running_game_instance->session(), *final_publication, report.events,
+                report.diagnostics);
             if (!expectation_report.passed)
                 passed = false;
             report.expectations.push_back(std::move(expectation_report));
@@ -763,7 +911,8 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         steps.push_back(std::move(report));
     }
 
-    auto settled = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+    auto settled = running_game_instance->session().dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+    settle_headless_presentation(settled);
     apply_result(settled);
     all_events.insert(all_events.end(), settled.events.begin(), settled.events.end());
     all_diagnostics.insert(all_diagnostics.end(), settled.diagnostics.begin(), settled.diagnostics.end());
@@ -774,7 +923,8 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         return fail("Playback completed without a final runtime publication.");
     for (const auto& expectation : decoded_spec.value().final_expectations) {
         auto expectation_report = evaluate_playback_expectation(
-            expectation, session, *final_publication, all_events, all_diagnostics);
+            expectation, running_game_instance->session(), *final_publication, all_events,
+            all_diagnostics);
         if (!expectation_report.passed)
             passed = false;
         final_expectations.push_back(std::move(expectation_report));

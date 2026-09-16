@@ -27,6 +27,7 @@ export interface CliCommandContext {
   readonly nativeTools: NovelTeaCliNativeToolService;
   readonly platformTools: NovelTeaCliPlatformToolService;
   readonly onPlatformProgress?: (stage: string, message: string) => void;
+  readonly forceRuntimeCacheRebuild: boolean;
 }
 
 export interface CliCommandInvocation {

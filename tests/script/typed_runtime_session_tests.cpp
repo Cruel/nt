@@ -1254,6 +1254,36 @@ TEST_CASE("locale commit uses captured Lua Message identity for translated Dialo
           core::compiled::AudioPurpose::SoundEffect);
 }
 
+TEST_CASE("Continue does not consume an active Scene choice blocker")
+{
+    auto project = make_localized_lua_scene_choice_project();
+    test_support::MemoryScriptSource sources;
+    ScriptRuntime runtime;
+    REQUIRE(runtime.initialize({&sources}));
+    prepare_project_scripts(runtime, project);
+    FakePresentationRuntime presentation;
+    core::TypedMemorySaveSlotStore saves;
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto started = dispatch_settled(*session, core::StartRuntimeInput{});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(published_view(started).scene);
+    REQUIRE(published_view(started).scene->choice);
+
+    auto continued = session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(continued.disposition == runtime::RuntimeInputDisposition::Unhandled);
+    CHECK(continued.diagnostics.empty());
+
+    auto publication = session->publish_initial_state();
+    REQUIRE(publication.diagnostics.empty());
+    REQUIRE(publication.publication);
+    REQUIRE(publication.publication->gameplay_ui.scene);
+    REQUIRE(publication.publication->gameplay_ui.scene->choice);
+}
+
 TEST_CASE("locale commit re-realizes an active Scene choice without re-executing Lua")
 {
     auto project = make_localized_lua_scene_choice_project();
@@ -1338,6 +1368,36 @@ TEST_CASE("locale commit re-realizes an active Scene choice without re-executing
         runtime.evaluate_bool("lua_scene_choice_runs == 1", "localized-scene-choice-run-count");
     REQUIRE(restored_runs);
     CHECK(restored_runs.value());
+}
+
+TEST_CASE("Continue does not consume an active Dialogue choice blocker")
+{
+    auto project = make_localized_lua_dialogue_choice_project();
+    test_support::MemoryScriptSource sources;
+    ScriptRuntime runtime;
+    REQUIRE(runtime.initialize({&sources}));
+    prepare_project_scripts(runtime, project);
+    FakePresentationRuntime presentation;
+    core::TypedMemorySaveSlotStore saves;
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(published_view(started).dialogue);
+    REQUIRE(published_view(started).dialogue->choice);
+
+    auto continued = session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(continued.disposition == runtime::RuntimeInputDisposition::Unhandled);
+    CHECK(continued.diagnostics.empty());
+
+    auto publication = session->publish_initial_state();
+    REQUIRE(publication.diagnostics.empty());
+    REQUIRE(publication.publication);
+    REQUIRE(publication.publication->gameplay_ui.dialogue);
+    REQUIRE(publication.publication->gameplay_ui.dialogue->choice);
 }
 
 TEST_CASE(

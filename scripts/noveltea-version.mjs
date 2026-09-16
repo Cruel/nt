@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -35,6 +35,8 @@ export function novelTeaDevelopmentVersion(version, revision) {
 }
 
 export function readNovelTeaBuildIdentity(root = repositoryRoot) {
+  const override = process.env.NOVELTEA_BUILD_IDENTITY?.trim();
+  if (override) return override;
   try {
     const revision = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], {
       encoding: 'utf8',
@@ -58,16 +60,24 @@ export function readNovelTeaBuildIdentity(root = repositoryRoot) {
       .sort();
     const hash = createHash('sha256');
     hash.update(diff);
+    let dirty = diff.length > 0;
     for (const relative of untracked) {
+      const absolute = path.join(root, relative);
+      const metadata = lstatSync(absolute);
+      if (metadata.isDirectory()) continue;
+      dirty = true;
       hash.update('\0');
       hash.update(relative);
       hash.update('\0');
-      hash.update(readFileSync(path.join(root, relative)));
+      if (metadata.isSymbolicLink()) {
+        hash.update('symlink\0');
+        hash.update(readlinkSync(absolute));
+      } else {
+        hash.update(readFileSync(absolute));
+      }
     }
     const dirtyIdentity = hash.digest('hex');
-    return diff.length === 0 && untracked.length === 0
-      ? `git:${revision}`
-      : `git:${revision}:dirty:${dirtyIdentity}`;
+    return dirty ? `git:${revision}:dirty:${dirtyIdentity}` : `git:${revision}`;
   } catch {
     return `build:unknown:${randomUUID()}`;
   }

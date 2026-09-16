@@ -189,7 +189,7 @@ bool RmlUiDocumentRegistry::load_builtin(RuntimeLayoutBuiltinDocument document,
             : (document == RuntimeLayoutBuiltinDocument::GameHud ? "runtime document"
                                                                  : "system document");
     if (loaded)
-        std::printf("[runtime_ui] loaded %s: %s\n", kind, path.c_str());
+        std::fprintf(stderr, "[runtime_ui] loaded %s: %s\n", kind, path.c_str());
     else
         std::fprintf(stderr, "[runtime_ui] failed to load %s: %s\n", kind, path.c_str());
     return loaded;
