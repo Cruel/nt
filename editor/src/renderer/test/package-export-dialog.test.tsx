@@ -62,7 +62,7 @@ function installedLinuxTemplate() {
       architecture: 'x64' as const,
       minimumPlatformVersion: 'test',
       graphicsBackends: ['opengl' as const],
-      shaderVariants: ['glsl-120' as const],
+      shaderVariants: ['glsl-330' as const],
       compiledProjectFormatVersion: 1,
       playerRuntimeApiVersion: 1,
       compiledFeatures: [],

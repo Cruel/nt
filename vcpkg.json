@@ -1,7 +1,6 @@
 {
   "name": "noveltea",
   "dependencies": [
-    "bgfx",
     {
       "name": "lua",
       "version>=": "5.5.0"

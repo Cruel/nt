@@ -92,7 +92,7 @@ exercise the `NOVELTEA_FETCH_RMLUI=OFF` revision and extension probe.
 | `NOVELTEA_BGFX_SHADER_INCLUDE_DIR` | `""` | Directory containing `bgfx_shader.sh`. |
 | `NOVELTEA_PREBUILT_SHADERC_ROOT` | `""` | Extracted `nt-tools` static shaderc closure. When set, host tooling imports its pinned shaderc archive, link closure, headers, and shader resources instead of fetching and compiling shaderc source. |
 | `NOVELTEA_PREBUILT_SHADER_ASSET_ROOT` | `""` | Root directory for prebuilt shader binaries. Expected structure: `shaders/bgfx/<variant>/`. |
-| `NOVELTEA_SHADER_VARIANTS` | `""` | Semicolon-separated shader variants to build/stage. Default varies by platform (e.g., `glsl-120` for desktop). |
+| `NOVELTEA_SHADER_VARIANTS` | `""` | Semicolon-separated shader variants to build/stage. Default varies by platform (e.g., `glsl-330` for desktop). |
 
 ### Runtime Asset Paths
 

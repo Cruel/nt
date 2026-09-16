@@ -103,11 +103,11 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            build/linux-release/_deps/noveltea_bgfx_shaderc_source-src
-            build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
+            build/linux-release/_deps/bgfx.cmake-src
+            build/linux-release/_deps/bgfx.cmake-build
             build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
             build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-          key: ${{ runner.os }}-x64-release-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
+          key: ${{ runner.os }}-x64-release-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
           restore-keys: |
             ${{ runner.os }}-x64-release-shader-host-
 
@@ -119,8 +119,8 @@ jobs:
 
       - name: Compile and verify shader assets
         run: |
-          cmake -DNOVELTEA_CLI_EXECUTABLE="${{ github.workspace }}/build/cli/linux/noveltea" -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300;metal' -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-release/vcpkg_installed/x64-linux-noveltea/include/bgfx" -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
-          cmake -DNOVELTEA_VERIFY_ONLY=ON -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300;metal' -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
+          cmake -DNOVELTEA_CLI_EXECUTABLE="${{ github.workspace }}/build/cli/linux/noveltea" -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-release/_deps/bgfx.cmake-src/bgfx/src" -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
+          cmake -DNOVELTEA_VERIFY_ONLY=ON -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
 
       - name: Upload shader assets
         uses: actions/upload-artifact@v7

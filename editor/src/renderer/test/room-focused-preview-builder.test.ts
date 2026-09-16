@@ -88,7 +88,7 @@ async function build(project = fixture()) {
       graph,
     },
     sourceAnalysis: [],
-    activeShaderVariant: 'glsl-120',
+    activeShaderVariant: 'glsl-330',
   });
 }
 
@@ -97,15 +97,15 @@ async function fixtureWithRoomMaterial() {
   const shader = defaultShaderData('Room Shader');
   project.shaders.room = { id: 'room', label: 'Room Shader', data: shader };
   for (const [stageIndex, stage] of shader.stages.entries()) {
-    stage.compiled['glsl-120'] = {
-      path: `project:/shaders/bgfx/glsl-120/room.${stage.stage}.bin`,
+    stage.compiled['glsl-330'] = {
+      path: `project:/shaders/bgfx/glsl-330/room.${stage.stage}.bin`,
       byteHash: `sha256:${String(stageIndex + 1).repeat(64)}` as `sha256:${string}`,
       byteSize: 16 + stageIndex,
       compileInputFingerprint: (await shaderCompileInputFingerprint(
         project,
         'room',
         stageIndex,
-        'glsl-120',
+        'glsl-330',
       ))!,
     };
   }
@@ -480,7 +480,7 @@ describe('graph-driven Room builder', () => {
           graph: { ...graph, nodesByKey },
         },
         sourceAnalysis: [],
-        activeShaderVariant: 'glsl-120',
+        activeShaderVariant: 'glsl-330',
       }),
     ).rejects.toThrow(/absent from the current dependency graph snapshot/);
   });
@@ -497,12 +497,12 @@ describe('graph-driven Room builder', () => {
         })),
     ).toEqual([
       {
-        fetchProjectRelativePath: '.noveltea/build/shaders/bgfx/glsl-120/room.fragment.bin',
-        logicalPath: 'project:/shaders/bgfx/glsl-120/room.fragment.bin',
+        fetchProjectRelativePath: '.noveltea/build/shaders/bgfx/glsl-330/room.fragment.bin',
+        logicalPath: 'project:/shaders/bgfx/glsl-330/room.fragment.bin',
       },
       {
-        fetchProjectRelativePath: '.noveltea/build/shaders/bgfx/glsl-120/room.vertex.bin',
-        logicalPath: 'project:/shaders/bgfx/glsl-120/room.vertex.bin',
+        fetchProjectRelativePath: '.noveltea/build/shaders/bgfx/glsl-330/room.vertex.bin',
+        logicalPath: 'project:/shaders/bgfx/glsl-330/room.vertex.bin',
       },
     ]);
 
@@ -511,7 +511,7 @@ describe('graph-driven Room builder', () => {
     expect(stale.diagnostics).toContainEqual(
       expect.objectContaining({
         severity: 'error',
-        message: expect.stringContaining("fragment output for 'glsl-120' is stale"),
+        message: expect.stringContaining("fragment output for 'glsl-330' is stale"),
       }),
     );
   });

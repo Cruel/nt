@@ -1156,7 +1156,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                 backend.calls.push_back("bind-input");
             },
         .retire_legacy_preview = [&]() { ++legacy_preview_retirements; },
-        .active_shader_variant = []() -> std::string_view { return "glsl-120"; },
+        .active_shader_variant = []() -> std::string_view { return "glsl-330"; },
         .standalone_layout_style_prefix =
             [](bool) { return std::string{"/* standalone-preview-defaults */"}; },
         .complete =
@@ -1431,7 +1431,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         {"schema", "noveltea.shader-preview"},
         {"contentMode", "shader"},
         {"templateId", "shader-square-v1"},
-        {"activeShaderVariant", "glsl-120"},
+        {"activeShaderVariant", "glsl-330"},
         {"shaderMaterials",
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
@@ -1624,11 +1624,11 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         {.resource_id = "shader:glsl",
          .source_kind = "shader-compiled-output",
          .logical_path = "project:/shaders/glsl.bin",
-         .shader_variant = core::editor::EditorPreviewShaderVariant::Glsl120},
+         .shader_variant = core::editor::EditorPreviewShaderVariant::Glsl330},
         {.resource_id = "shader:essl",
          .source_kind = "shader-compiled-output",
          .logical_path = "project:/shaders/essl.bin",
-         .shader_variant = core::editor::EditorPreviewShaderVariant::Essl100},
+         .shader_variant = core::editor::EditorPreviewShaderVariant::Essl300},
     };
     const auto environments_before_resource_conflict =
         script::detail::ScriptRuntimeAccess::environment_count(scripts);

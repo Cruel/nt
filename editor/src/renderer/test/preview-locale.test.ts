@@ -127,7 +127,7 @@ describe('Preview Locale', () => {
       inputRevision: `sha256:${'0'.repeat(64)}`,
       graph: null,
       sourceAnalysis: [],
-      hostCapabilities: { activeShaderVariant: 'glsl-120' },
+      hostCapabilities: { activeShaderVariant: 'glsl-330' },
     });
 
     expect(document.kind).toBe('layout-preview');

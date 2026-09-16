@@ -221,6 +221,28 @@ describe('ProjectWorkspaceService', () => {
     ]);
   });
 
+  it('rejects retired shader variants in segmented project workspaces', async () => {
+    const files = filesFor();
+    const manifestPath = '/projects/headless/project.json';
+    const manifest = JSON.parse(files[manifestPath]!) as {
+      export: { runtime: { shaderVariants: string[] } };
+    };
+    manifest.export.runtime.shaderVariants = ['glsl-120', 'essl-300'];
+    files[manifestPath] = `${JSON.stringify(manifest, null, 2)}\n`;
+
+    const opened = await new ProjectWorkspaceService(
+      new InMemoryProjectWorkspaceFileSystem(files),
+    ).open('/projects/headless');
+
+    expect(opened.ok).toBe(false);
+    if (opened.ok) return;
+    expect(opened.diagnostics).toContainEqual(
+      expect.objectContaining({
+        path: '/export/runtime/shaderVariants/0',
+      }),
+    );
+  });
+
   it('reports precise authoring schema diagnostics when workspace fragments assemble invalid data', async () => {
     const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };

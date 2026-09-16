@@ -3,8 +3,8 @@ import { chmod, cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:f
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const [rootArg, stageArg, releaseTag, abi, flavor, bundletoolArg] = process.argv.slice(2);
-if (!rootArg || !stageArg || !releaseTag || !abi || !flavor || !bundletoolArg) throw new Error('Expected root, stage, release tag, ABI, flavor, and bundletool JAR.');
+const [rootArg, stageArg, releaseTag, abi, flavor, bundletoolArg, bgfxVersion] = process.argv.slice(2);
+if (!rootArg || !stageArg || !releaseTag || !abi || !flavor || !bundletoolArg || !bgfxVersion) throw new Error('Expected root, stage, release tag, ABI, flavor, bundletool JAR, and bgfx version.');
 const root = path.resolve(rootArg); const stage = path.resolve(stageArg); const source = path.join(stage, 'source');
 const architecture = abi === 'arm64-v8a' ? 'arm64' : abi === 'x86_64' ? 'x86_64' : (() => { throw new Error(`Unsupported ABI ${abi}`); })();
 await rm(stage, { recursive: true, force: true }); await mkdir(source, { recursive: true });
@@ -75,7 +75,7 @@ await chmod(path.join(source, 'android', 'gradlew'), 0o755);
 await mkdir(path.join(stage, 'licenses'), { recursive: true });
 const dependencies = [
   ['SDL', '3.4.10'], ['Android Gradle Plugin', '8.7.3'], ['Gradle', '8.9'], ['bundletool', '1.18.1'],
-  ['Android NDK', '28.2.13676358'], ['bgfx.cmake', '1.143.9262-545'], ['RmlUi', '6.3-dev-feature-calc-c6744d15'], ['Lua', '5.5.0'],
+  ['Android NDK', '28.2.13676358'], ['bgfx.cmake', bgfxVersion], ['RmlUi', '6.3-dev-feature-calc-c6744d15'], ['Lua', '5.5.0'],
   ['sol2', '3.5.0'], ['FreeType', '2.13.3'], ['HarfBuzz', '11.2.1'], ['SheenBidi', '2.6'],
   ['libunibreak', '6.1'], ['miniaudio', '0.11.23'], ['nlohmann-json', '3.12.0'], ['libpng', '1.6.58'], ['zlib', '1.3.2'], ['twink', 'ea488b2'],
 ];
