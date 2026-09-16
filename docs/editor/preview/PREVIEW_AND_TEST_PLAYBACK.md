@@ -24,9 +24,11 @@ or `blocked`, with deterministic readiness diagnostics. Cached consumers never n
 schema/Zod parsing. A blocked Test does not invalidate the runtime artifact or prevent cache
 publication, but explicitly running that Test returns its readiness diagnostics without invoking the
 native runner. A malformed cache generation or failed publication remains disposable and falls back
-to ordinary preparation. Static-host cache admission and QuickJS bypass are separate work; the
-current standalone test command may still enter the shared TypeScript application before this cache
-is consulted.
+to ordinary preparation. The standalone ScriptC host now probes this same cache contract before
+importing its QuickJS island for the test command family. A proven hit executes from the cached
+Compiled Project/lowered catalog in the static/native tier; any miss, stale/unusable generation, or
+conservative Project-root uncertainty imports the shared TypeScript application and uses the normal
+preparation/publication path instead.
 
 Only diagnostics classified for the `runtime-package` boundary block Play or `.ntpkg`. Platform-only
 application identity, locale, signing, and deployment diagnostics remain visible at their owning
