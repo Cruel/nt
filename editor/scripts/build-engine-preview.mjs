@@ -58,7 +58,6 @@ const buildArgs = [
   'web-editor-preview',
   '--target',
   'noveltea-editor-preview',
-  '--parallel',
 ];
 
 const build = await run('cmake', buildArgs);
