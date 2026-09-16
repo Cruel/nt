@@ -11,6 +11,7 @@ import {
   readlink,
   rm,
   stat,
+  utimes,
   writeFile,
 } from 'node:fs/promises';
 import os from 'node:os';
@@ -455,10 +456,10 @@ async function readComfyUiRequests(logPath) {
   }
 }
 
-function runNativeWithStdinFile(args, stdinPath, options = {}) {
+function runWithStdinFile(command, args, stdinPath, options = {}) {
   const stdin = openSync(stdinPath, 'r');
   try {
-    const result = spawnSync(nativeCli, args, {
+    const result = spawnSync(command, args, {
       cwd: options.cwd ?? repositoryRoot,
       env: options.env ?? process.env,
       stdio: [stdin, 'pipe', 'pipe'],
@@ -474,6 +475,38 @@ function runNativeWithStdinFile(args, stdinPath, options = {}) {
   } finally {
     closeSync(stdin);
   }
+}
+
+function runNativeWithStdinFile(args, stdinPath, options = {}) {
+  return runWithStdinFile(nativeCli, args, stdinPath, options);
+}
+
+function runNodeWithStdinFile(args, stdinPath, options = {}) {
+  return runWithStdinFile(process.execPath, [nodeCli, ...args], stdinPath, {
+    ...options,
+    env: { ...process.env, ...options.env, NOVELTEA_CLI: nativeCli },
+  });
+}
+
+function assertPublicCommandParity(label, nodeResult, scriptcResult) {
+  if (
+    nodeResult.status !== scriptcResult.status ||
+    nodeResult.stdout !== scriptcResult.stdout ||
+    nodeResult.stderr !== scriptcResult.stderr
+  )
+    fail(
+      `Node/scriptc test parity '${label}' differs.\n` +
+        `Node: status=${nodeResult.status}\nstdout:\n${nodeResult.stdout}\nstderr:\n${nodeResult.stderr}\n` +
+        `scriptc: status=${scriptcResult.status}\nstdout:\n${scriptcResult.stdout}\nstderr:\n${scriptcResult.stderr}`,
+    );
+}
+
+function assertIslandTrace(label, result, expected) {
+  const imported = result.stderr.includes('[scriptc-host] dynamic island import starting');
+  if (imported !== expected)
+    fail(
+      `${label} ${expected ? 'did not enter' : 'unexpectedly entered'} the dynamic island.\nstderr:\n${result.stderr}`,
+    );
 }
 
 async function prepareWritingRecovery(root) {
@@ -852,9 +885,352 @@ async function certifyRawShaderc(tempRoot) {
     fail('Raw shaderc invalid-option certification unexpectedly succeeded.');
 }
 
+async function certifyTestCommandParity(tempRoot, pristine) {
+  const playbackPath = path.join(tempRoot, 'parity-empty-playback.json');
+  await writeFile(
+    playbackPath,
+    `${JSON.stringify({
+      schema: 'noveltea.editor.playback',
+      version: 1,
+      id: 'parity-empty',
+      steps: [],
+      finalExpectations: [],
+    })}\n`,
+  );
+
+  const cases = [
+    { name: 'targeted-test', command: ['test', 'run', 'cache-certification'], authored: true },
+    { name: 'suite', command: ['test', 'run'], authored: true },
+    { name: 'run-spec', command: ['test', 'run-spec'], stdinPath: playbackPath },
+    { name: 'run-ui-spec', command: ['test', 'run-ui-spec'], stdinPath: playbackPath },
+    {
+      name: 'blocked-targeted-test',
+      command: ['test', 'run', 'cache-certification'],
+      authored: true,
+      blocked: true,
+    },
+    { name: 'blocked-suite', command: ['test', 'run'], authored: true, blocked: true },
+  ];
+
+  for (const test of cases) {
+    const baseline = path.join(tempRoot, `test-parity-${test.name}-baseline`);
+    const root = path.join(tempRoot, `test-parity-${test.name}`);
+    await resetCase(pristine, baseline);
+    if (test.authored) {
+      requireSuccess(
+        `${test.name} authored Test setup`,
+        runNode(
+          ['--project', baseline, '--json', 'entity', 'create', 'tests', 'cache-certification'],
+          { cwd: baseline },
+        ),
+      );
+      if (test.blocked) {
+        const testRecordPath = path.join(baseline, 'records', 'tests', 'cache-certification.json');
+        const testRecord = JSON.parse(await readFile(testRecordPath, 'utf8'));
+        testRecord.data.steps = [];
+        await writeJson(testRecordPath, testRecord);
+      }
+    }
+
+    const args = ['--project', root, '--json', ...test.command];
+    const invokeNode = () =>
+      test.stdinPath
+        ? runNodeWithStdinFile(args, test.stdinPath, { cwd: root })
+        : runNode(args, { cwd: root });
+    const invokeNative = () =>
+      test.stdinPath
+        ? runNativeWithStdinFile(args, test.stdinPath, { cwd: root })
+        : runNative(args, { cwd: root });
+
+    await resetCase(baseline, root);
+    const nodeFallback = invokeNode();
+    await resetCase(baseline, root);
+    const scriptcFallback = invokeNative();
+    assertPublicCommandParity(`${test.name} fallback`, nodeFallback, scriptcFallback);
+
+    const nodeHit = invokeNode();
+    const scriptcHit = invokeNative();
+    assertPublicCommandParity(`${test.name} cache hit`, nodeHit, scriptcHit);
+
+    const humanArgs = ['--project', root, ...test.command];
+    const nodeHuman = test.stdinPath
+      ? runNodeWithStdinFile(humanArgs, test.stdinPath, { cwd: root })
+      : runNode(humanArgs, { cwd: root });
+    const scriptcHuman = test.stdinPath
+      ? runNativeWithStdinFile(humanArgs, test.stdinPath, { cwd: root })
+      : runNative(humanArgs, { cwd: root });
+    assertPublicCommandParity(`${test.name} human cache hit`, nodeHuman, scriptcHuman);
+    process.stdout.write(`[test-parity] ${test.name}: PASS\n`);
+  }
+}
+
+async function certifyRuntimeCacheInvalidation(tempRoot, pristine) {
+  const root = path.join(tempRoot, 'runtime-cache-invalidation');
+  await resetCase(pristine, root);
+  requireSuccess(
+    'runtime-cache invalidation authored Test setup',
+    runNative(['--project', root, '--json', 'entity', 'create', 'tests', 'cache-certification'], {
+      cwd: root,
+    }),
+  );
+  const tracedEnvironment = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  const cacheRoot = path.join(root, '.noveltea', 'cache', 'runtime');
+  const runCached = (label, expectedIsland, expectedStatus) => {
+    const result = requireSuccess(
+      label,
+      runNative(['--project', root, '--json', 'test', 'run', 'cache-certification'], {
+        cwd: root,
+        env: tracedEnvironment,
+      }),
+    );
+    assertIslandTrace(label, result, expectedIsland);
+    const payload = JSON.parse(result.stdout);
+    if (expectedStatus && payload.runtimeCache?.status !== expectedStatus)
+      fail(`${label} reported unexpected cache state: ${result.stdout}`);
+    return { result, payload };
+  };
+  const currentManifestPath = async () => {
+    const generation = (await readFile(path.join(cacheRoot, 'current'), 'utf8')).trim();
+    return path.join(cacheRoot, 'generations', generation, 'manifest.json');
+  };
+
+  const cold = runCached('runtime-cache invalidation cold publish', true, 'miss');
+  if (cold.payload.runtimeCache?.published !== true)
+    fail(`Runtime-cache invalidation baseline was not published: ${cold.result.stdout}`);
+  runCached('runtime-cache invalidation baseline hit', false, 'hit');
+
+  await writeFile(path.join(root, 'scripts', 'README.md'), '# ignored cache notes\n', 'utf8');
+  runCached('runtime-cache ignored README change', false, 'hit');
+
+  const candidate = path.join(root, 'scripts', 'cache-certification-extra.lua');
+  await writeFile(candidate, 'return {}\n', 'utf8');
+  const candidateAdded = runCached('runtime-cache candidate source addition', true, 'stale');
+  if (candidateAdded.payload.runtimeCache?.published !== true)
+    fail(`Candidate-source addition did not republish: ${candidateAdded.result.stdout}`);
+  await rm(candidate);
+  const candidateDeleted = runCached('runtime-cache candidate source deletion', true, 'stale');
+  if (candidateDeleted.payload.runtimeCache?.published !== true)
+    fail(`Candidate-source deletion did not republish: ${candidateDeleted.result.stdout}`);
+
+  const projectJson = path.join(root, 'project.json');
+  const projectMetadata = await stat(projectJson);
+  const moved = new Date(projectMetadata.mtimeMs + 5000);
+  await utimes(projectJson, moved, moved);
+  const mtimeChanged = runCached('runtime-cache tracked mtime change', true, 'stale');
+  if (mtimeChanged.payload.runtimeCache?.published !== true)
+    fail(`Tracked mtime change did not republish: ${mtimeChanged.result.stdout}`);
+
+  await writeFile(projectJson, `${await readFile(projectJson, 'utf8')} `, 'utf8');
+  const sizeChanged = runCached('runtime-cache tracked size change', true, 'stale');
+  if (sizeChanged.payload.runtimeCache?.published !== true)
+    fail(`Tracked size change did not republish: ${sizeChanged.result.stdout}`);
+
+  const declaredAsset = path.join(root, 'assets', 'scripts', 'startup.lua');
+  await writeFile(
+    declaredAsset,
+    `${await readFile(declaredAsset, 'utf8')}\n-- cache certification\n`,
+  );
+  const assetChanged = runCached('runtime-cache declared Asset source change', true, 'stale');
+  if (assetChanged.payload.runtimeCache?.published !== true)
+    fail(`Declared Asset change did not republish: ${assetChanged.result.stdout}`);
+
+  let manifestPath = await currentManifestPath();
+  let manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  manifest.compilerIdentity = 'noveltea-certification-incompatible-compiler';
+  await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
+  const compilerChanged = runCached('runtime-cache compiler incompatibility', true, 'stale');
+  if (compilerChanged.payload.runtimeCache?.published !== true)
+    fail(`Compiler incompatibility did not self-heal: ${compilerChanged.result.stdout}`);
+
+  manifestPath = await currentManifestPath();
+  manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  manifest.schema = 17;
+  await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
+  const schemaChanged = runCached('runtime-cache malformed typed schema', true, 'unusable');
+  if (schemaChanged.payload.runtimeCache?.published !== true)
+    fail(`Cache-schema incompatibility did not self-heal: ${schemaChanged.result.stdout}`);
+
+  manifestPath = await currentManifestPath();
+  manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  manifest.compiledProject.formatVersion = 999;
+  await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
+  const runtimeSchemaChanged = runCached(
+    'runtime-cache compiled schema incompatibility',
+    true,
+    'unusable',
+  );
+  if (runtimeSchemaChanged.payload.runtimeCache?.published !== true)
+    fail(
+      `Compiled-schema incompatibility did not self-heal: ${runtimeSchemaChanged.result.stdout}`,
+    );
+
+  const corruptGeneration = (await readFile(path.join(cacheRoot, 'current'), 'utf8')).trim();
+  await writeFile(
+    path.join(cacheRoot, 'generations', corruptGeneration, 'artifact.json'),
+    '{broken',
+  );
+  const corrupt = runCached('runtime-cache malformed artifact recovery', true, 'unusable');
+  if (corrupt.payload.runtimeCache?.published !== true)
+    fail(`Malformed cache artifact did not self-heal: ${corrupt.result.stdout}`);
+
+  const currentPointer = path.join(cacheRoot, 'current');
+  await rm(currentPointer, { force: true });
+  await mkdir(currentPointer);
+  const publicationFailure = runCached('runtime-cache publication failure', true, 'unusable');
+  if (publicationFailure.payload.runtimeCache?.published !== false)
+    fail(
+      `Cache publication failure did not preserve execution: ${publicationFailure.result.stdout}`,
+    );
+
+  const deletionRoot = path.join(tempRoot, 'runtime-cache-tracked-deletion');
+  await resetCase(pristine, deletionRoot);
+  requireSuccess(
+    'runtime-cache deletion authored Test setup',
+    runNative(
+      ['--project', deletionRoot, '--json', 'entity', 'create', 'tests', 'cache-certification'],
+      { cwd: deletionRoot },
+    ),
+  );
+  requireSuccess(
+    'runtime-cache deletion baseline publish',
+    runNative(['--project', deletionRoot, '--json', 'test', 'run', 'cache-certification'], {
+      cwd: deletionRoot,
+    }),
+  );
+  await rm(path.join(deletionRoot, 'records', 'rooms', 'gallery.json'));
+  const deleted = runNative(
+    ['--project', deletionRoot, '--json', 'test', 'run', 'cache-certification'],
+    { cwd: deletionRoot, env: tracedEnvironment },
+  );
+  assertIslandTrace('runtime-cache tracked source deletion', deleted, true);
+  if (deleted.stderr.includes('[scriptc-host] runtime cache hit: static/native test path admitted'))
+    fail(`Tracked-source deletion incorrectly admitted stale cache state: ${deleted.stderr}`);
+}
+
+async function certifyFeatureLabAuthoredTests(tempRoot) {
+  const source = path.join(repositoryRoot, 'tests', 'projects', 'feature-lab');
+  const root = path.join(tempRoot, 'feature-lab');
+  await rm(root, { recursive: true, force: true });
+  await cp(source, root, { recursive: true });
+  await rm(path.join(root, '.noveltea', 'cache', 'runtime'), { recursive: true, force: true });
+  const tracedEnvironment = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+
+  const suite = requireSuccess(
+    'Feature Lab authored suite',
+    runNative(['--project', root, '--json', 'test', 'run'], {
+      cwd: root,
+      env: tracedEnvironment,
+    }),
+  );
+  assertIslandTrace('Feature Lab cold authored suite', suite, true);
+  const suitePayload = JSON.parse(suite.stdout);
+  const counts = suitePayload.native?.report?.counts;
+  if (
+    counts?.total !== 4 ||
+    counts?.passed !== 4 ||
+    counts?.failed !== 0 ||
+    counts?.blocked !== 0 ||
+    counts?.error !== 0
+  )
+    fail(`Feature Lab suite returned unexpected aggregate results: ${suite.stdout}`);
+
+  const targeted = requireSuccess(
+    'Feature Lab targeted authored Test',
+    runNative(['--project', root, '--json', 'test', 'run', 'rooms-interactions-flow'], {
+      cwd: root,
+      env: tracedEnvironment,
+    }),
+  );
+  assertIslandTrace('Feature Lab cached targeted authored Test', targeted, false);
+  const targetedPayload = JSON.parse(targeted.stdout);
+  if (targetedPayload.native?.report?.passed !== true)
+    fail(
+      `Feature Lab targeted Test did not retain single-test report semantics: ${targeted.stdout}`,
+    );
+
+  const humanSuite = requireSuccess(
+    'Feature Lab human authored suite',
+    runNative(['--project', root, 'test', 'run'], { cwd: root }),
+  );
+  if (!humanSuite.stdout.includes('Test suite: 4 passed, 0 failed, 0 blocked, 0 errors.'))
+    fail(`Feature Lab human suite summary is not aggregate-driven: ${humanSuite.stdout}`);
+}
+
 async function certifyNativeOperations(tempRoot, pristine) {
   const root = path.join(tempRoot, 'native-operations');
+  const cacheRoot = path.join(root, '.noveltea', 'cache', 'runtime');
   await resetCase(pristine, root);
+
+  requireSuccess(
+    'runtime-cache authored test creation',
+    runNative(['--project', root, '--json', 'entity', 'create', 'tests', 'cache-certification'], {
+      cwd: root,
+    }),
+  );
+  const tracedEnvironment = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  const firstCachedTest = requireSuccess(
+    'runtime-cache first authored test',
+    runNative(['--project', root, '--json', 'test', 'run', 'cache-certification'], {
+      cwd: root,
+      env: tracedEnvironment,
+    }),
+  );
+  assertIslandTrace('runtime-cache first authored test', firstCachedTest, true);
+  const firstCachedPayload = JSON.parse(firstCachedTest.stdout);
+  if (
+    firstCachedPayload.runtimeCache?.status !== 'miss' ||
+    firstCachedPayload.runtimeCache?.published !== true
+  )
+    fail(
+      `Standalone runtime cache did not publish on first authored test: ${firstCachedTest.stdout}`,
+    );
+  const secondCachedTest = requireSuccess(
+    'runtime-cache second authored test',
+    runNative(['--project', root, '--json', 'test', 'run', 'cache-certification'], {
+      cwd: root,
+      env: tracedEnvironment,
+    }),
+  );
+  assertIslandTrace('runtime-cache second authored test', secondCachedTest, false);
+  const secondCachedPayload = JSON.parse(secondCachedTest.stdout);
+  if (secondCachedPayload.runtimeCache?.status !== 'hit')
+    fail(
+      `Standalone runtime cache did not hit on second authored test: ${secondCachedTest.stdout}`,
+    );
+  if (
+    !secondCachedTest.stderr.includes(
+      '[scriptc-host] runtime cache hit: static/native test path admitted',
+    )
+  )
+    fail(
+      `Standalone runtime cache hit was not visible in trace output: ${secondCachedTest.stderr}`,
+    );
+
+  await rm(cacheRoot, { recursive: true, force: true });
+  const coldSuite = requireSuccess(
+    'runtime-cache cold authored test suite',
+    runNative(['--project', root, '--json', 'test', 'run'], {
+      cwd: root,
+      env: tracedEnvironment,
+    }),
+  );
+  assertIslandTrace('runtime-cache cold authored test suite', coldSuite, true);
+  const coldSuitePayload = JSON.parse(coldSuite.stdout);
+  if (
+    coldSuitePayload.runtimeCache?.status !== 'miss' ||
+    coldSuitePayload.runtimeCache?.published !== true ||
+    coldSuitePayload.native?.report?.counts?.total !== 1
+  )
+    fail(`Cold authored test suite did not publish the canonical cache: ${coldSuite.stdout}`);
+  const warmSuite = requireSuccess(
+    'runtime-cache warm authored test suite',
+    runNative(['--project', root, '--json', 'test', 'run'], {
+      cwd: root,
+      env: tracedEnvironment,
+    }),
+  );
+  assertIslandTrace('runtime-cache warm authored test suite', warmSuite, false);
+
   const playback = `${JSON.stringify({
     schema: 'noveltea.editor.playback',
     version: 1,
@@ -864,18 +1240,149 @@ async function certifyNativeOperations(tempRoot, pristine) {
   })}\n`;
   const playbackPath = path.join(tempRoot, 'empty-playback.json');
   await writeFile(playbackPath, playback);
-  requireSuccess(
-    'headless playback',
-    runNativeWithStdinFile(['--project', root, '--json', 'test', 'run-spec'], playbackPath, {
+  for (const [label, operation] of [
+    ['headless playback', 'run-spec'],
+    ['UI playback', 'run-ui-spec'],
+  ]) {
+    await rm(cacheRoot, { recursive: true, force: true });
+    const cold = requireSuccess(
+      `runtime-cache cold ${label}`,
+      runNativeWithStdinFile(['--project', root, '--json', 'test', operation], playbackPath, {
+        cwd: root,
+        env: tracedEnvironment,
+      }),
+    );
+    assertIslandTrace(`runtime-cache cold ${label}`, cold, true);
+    const coldPayload = JSON.parse(cold.stdout);
+    if (coldPayload.runtimeCache?.status !== 'miss' || coldPayload.runtimeCache?.published !== true)
+      fail(`Cold ${label} did not publish the canonical cache: ${cold.stdout}`);
+    const warm = requireSuccess(
+      `runtime-cache warm ${label}`,
+      runNativeWithStdinFile(['--project', root, '--json', 'test', operation], playbackPath, {
+        cwd: root,
+        env: tracedEnvironment,
+      }),
+    );
+    assertIslandTrace(`runtime-cache warm ${label}`, warm, false);
+  }
+
+  const admittedGeneration = (await readFile(path.join(cacheRoot, 'current'), 'utf8')).trim();
+  const admittedGenerationRoot = path.join(cacheRoot, 'generations', admittedGeneration);
+  const admittedArtifactPath = path.join(admittedGenerationRoot, 'artifact.json');
+  const admittedManifestPath = path.join(admittedGenerationRoot, 'manifest.json');
+  const admittedArtifact = JSON.parse(await readFile(admittedArtifactPath, 'utf8'));
+  admittedArtifact.compiledProject = {
+    schema: 'noveltea.compiled.project',
+    schemaVersion: 1,
+  };
+  const rejectedArtifactText = `${JSON.stringify(admittedArtifact)}\n`;
+  await writeFile(admittedArtifactPath, rejectedArtifactText);
+  const admittedManifest = JSON.parse(await readFile(admittedManifestPath, 'utf8'));
+  admittedManifest.artifactSha256 = `sha256:${sha256(Buffer.from(rejectedArtifactText))}`;
+  await writeFile(admittedManifestPath, `${JSON.stringify(admittedManifest)}\n`);
+
+  const admissionRetry = requireSuccess(
+    'runtime-cache native admission retry',
+    runNative(['--project', root, '--json', 'test', 'run', 'cache-certification'], {
       cwd: root,
+      env: tracedEnvironment,
     }),
   );
-  requireSuccess(
-    'UI playback',
-    runNativeWithStdinFile(['--project', root, '--json', 'test', 'run-ui-spec'], playbackPath, {
+  assertIslandTrace('runtime-cache native admission retry', admissionRetry, true);
+  if (
+    !admissionRetry.stderr.includes(
+      '[scriptc-host] runtime cache hit: static/native test path admitted',
+    ) ||
+    !admissionRetry.stderr.includes('invalidated current generation before canonical retry')
+  )
+    fail(
+      `Standalone native admission retry did not invalidate the cached payload: ${admissionRetry.stderr}`,
+    );
+  const admissionRetryPayload = JSON.parse(admissionRetry.stdout);
+  if (
+    admissionRetryPayload.runtimeCache?.status !== 'miss' ||
+    admissionRetryPayload.runtimeCache?.published !== true
+  )
+    fail(`Standalone native admission retry did not rebuild canonically: ${admissionRetry.stdout}`);
+
+  const suite = requireSuccess(
+    'cached authored test suite',
+    runNative(['--project', root, '--json', 'test', 'run'], {
       cwd: root,
+      env: tracedEnvironment,
     }),
   );
+  assertIslandTrace('cached authored test suite', suite, false);
+  const suitePayload = JSON.parse(suite.stdout);
+  if (suitePayload.native?.report?.counts?.total !== 1)
+    fail(`Cached authored test suite returned an unexpected report: ${suite.stdout}`);
+
+  const testRecordPath = path.join(root, 'records', 'tests', 'cache-certification.json');
+  const testRecord = JSON.parse(await readFile(testRecordPath, 'utf8'));
+  testRecord.label = 'Cache certification refreshed';
+  await writeFile(testRecordPath, `${JSON.stringify(testRecord, null, 2)}\n`);
+  const staleFallback = requireSuccess(
+    'runtime-cache stale fallback',
+    runNative(['--project', root, '--json', 'test', 'run', 'cache-certification'], {
+      cwd: root,
+      env: tracedEnvironment,
+    }),
+  );
+  assertIslandTrace('runtime-cache stale fallback', staleFallback, true);
+  const stalePayload = JSON.parse(staleFallback.stdout);
+  if (
+    stalePayload.runtimeCache?.testCatalogStatus !== 'stale' ||
+    stalePayload.runtimeCache?.published !== true
+  )
+    fail(`Standalone stale cache fallback did not refresh the catalog: ${staleFallback.stdout}`);
+
+  testRecord.data.steps = [];
+  await writeFile(testRecordPath, `${JSON.stringify(testRecord, null, 2)}\n`);
+  const blockedRefresh = runNative(
+    ['--project', root, '--json', 'test', 'run', 'cache-certification'],
+    { cwd: root, env: tracedEnvironment },
+  );
+  if (blockedRefresh.status === 0)
+    fail('Blocked authored Test unexpectedly succeeded while refreshing the cache.');
+  assertIslandTrace('blocked authored Test cache refresh', blockedRefresh, true);
+  const blockedRefreshPayload = JSON.parse(blockedRefresh.stdout);
+  if (blockedRefreshPayload.runtimeCache?.published !== true)
+    fail(`Blocked authored Test did not publish its refreshed catalog: ${blockedRefresh.stdout}`);
+
+  const blockedHit = runNative(
+    ['--project', root, '--json', 'test', 'run', 'cache-certification'],
+    { cwd: root, env: tracedEnvironment },
+  );
+  if (blockedHit.status === 0)
+    fail('Blocked authored Test unexpectedly succeeded from the static cache path.');
+  assertIslandTrace('blocked authored Test cache hit', blockedHit, false);
+  const blockedHitPayload = JSON.parse(blockedHit.stdout);
+  if (!blockedHitPayload.diagnostics?.some((item) => item.code === 'native.test.spec'))
+    fail(`Blocked static cache hit lost readiness diagnostics: ${blockedHit.stdout}`);
+
+  const blockedSuite = requireSuccess(
+    'blocked-only cached authored test suite',
+    runNative(['--project', root, '--json', 'test', 'run'], {
+      cwd: root,
+      env: tracedEnvironment,
+    }),
+  );
+  assertIslandTrace('blocked-only cached authored test suite', blockedSuite, false);
+  const blockedSuitePayload = JSON.parse(blockedSuite.stdout);
+  if (
+    blockedSuitePayload.native?.report?.counts?.blocked !== 1 ||
+    blockedSuitePayload.native?.report?.counts?.failed !== 0 ||
+    blockedSuitePayload.native?.report?.counts?.error !== 0
+  )
+    fail(`Blocked-only cached suite returned unexpected counts: ${blockedSuite.stdout}`);
+  const blockedSuiteReadiness =
+    blockedSuitePayload.native?.report?.entries?.[0]?.diagnostics?.[0]?.message;
+  if (
+    typeof blockedSuiteReadiness !== 'string' ||
+    !blockedSuitePayload.diagnostics?.some((item) => item.message === blockedSuiteReadiness)
+  )
+    fail(`Blocked cached suite did not promote readiness diagnostics: ${blockedSuite.stdout}`);
+
   const output = path.join(tempRoot, 'certification.ntpkg');
   requireSuccess(
     'package export',
@@ -1645,7 +2152,10 @@ async function main() {
     const { pristine } = await runDifferential(tempRoot);
     await certifyTypedShaders(tempRoot);
     await certifyRawShaderc(tempRoot);
+    await certifyTestCommandParity(tempRoot, pristine);
+    await certifyRuntimeCacheInvalidation(tempRoot, pristine);
     await certifyNativeOperations(tempRoot, pristine);
+    await certifyFeatureLabAuthoredTests(tempRoot);
     await certifyPlatformHost(tempRoot, pristine);
     const comfyUiDifferentialCases = await certifyComfyUiStandalone(tempRoot, pristine);
     const closure = await certifyRelocation(tempRoot);
@@ -1668,6 +2178,9 @@ async function main() {
           'platform-config',
           'platform-export',
         ],
+        testCommandParity: true,
+        runtimeCacheCertification: true,
+        featureLabSuite: true,
         relocation: true,
         sourceLeakageAudit: true,
         binarySize,

@@ -1,12 +1,12 @@
 # scriptc CLI Compatibility
 
-NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.0.34. The release architecture intentionally uses scriptc's dynamic tier for the shared TypeScript authoring implementation and a very small statically compiled host for capabilities that require exact host/native behavior.
+NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.1.1. The release architecture intentionally uses scriptc's dynamic tier for the shared TypeScript authoring implementation and a very small statically compiled host for capabilities that require exact host/native behavior.
 
 ## Release architecture
 
 The shared authoring CLI is bundled as one private CommonJS package and executed inside scriptc's embedded QuickJS-ng island. This keeps the Node reference implementation and standalone CLI on the same TypeScript authoring/workspace semantics without requiring the shared codebase to conform to scriptc's current static TypeScript subset.
 
-The static host owns only narrow capabilities. `--version` and `--help` are resolved entirely in this static tier from shared canonical CLI constants, and raw `noveltea shaderc ...` dispatches from the static host directly into the embedded native shader compiler. The QuickJS island is imported lazily only for commands that need the authoring application. This keeps trivial CLI startup and raw shaderc forwarding near native process-launch cost.
+The static host owns only narrow capabilities. `--version` and `--help` are resolved entirely in this static tier from shared canonical CLI constants, raw `noveltea shaderc ...` dispatches from the static host directly into the embedded native shader compiler, and the `test` command family may execute directly when the Project-local canonical runtime cache is independently proven fresh. The QuickJS island is imported lazily whenever authoring/workspace semantics are required or cache admission cannot be established. This keeps trivial CLI startup, raw shaderc forwarding, and repeated cached test execution near native process-launch cost without making the static host a second Project parser.
 
 The static host owns:
 
@@ -16,10 +16,11 @@ The static host owns:
 - the C ABI bridge to `noveltea_tooling_native`;
 - raw bgfx-compatible `shaderc` argument/exit-code forwarding without QuickJS initialization;
 - direct child-process execution for the shared TypeScript platform exporter;
-- native file-mode and available-disk-space inspection used by staging safety checks;
+- native file-mode, exact path metadata, available-disk-space inspection, and conservative canonical runtime-cache admission used by workspace/cache and staging safety checks;
+- cached `test run <id>`, bare `test run`, `test run-spec`, and `test run-ui-spec` dispatch when the current runtime artifact and lowered Test catalog are proven reusable;
 - `bimg`-backed raster inspection, contain-resizing, and PNG encoding for standalone icon output.
 
-The native tooling archive continues to own shader compilation, raw bgfx shaderc forwarding, runtime/UI playback, and package writing. `noveltea_tooling_scriptc_invoke_to_file` is an adapter for scriptc format-1 FFI: request JSON crosses as borrowed strings, the existing `noveltea_tooling_*_json` API produces the response, and the adapter materializes that response into a private temporary file for the static host to read. Native business logic is not duplicated in the adapter.
+The native tooling archive continues to own shader compilation, raw bgfx shaderc forwarding, runtime/UI playback, canonical cache probing, and package writing. `noveltea_tooling_scriptc_invoke_to_file` is an adapter for scriptc format-1 FFI: request JSON crosses as borrowed strings, the existing `noveltea_tooling_*_json` API produces the response, and the adapter materializes that response into a private temporary file for the static host to read. Native business logic is not duplicated in the adapter. Cache probing validates the current generation identity, exact source/input metadata, relevant source hashes, discovery contract, Test-source set, and artifact/catalog digests without decoding authored Project/Test schema.
 
 ## Build-time source embedding
 
@@ -29,8 +30,8 @@ Built-in ComfyUI packages are handled the same way. The checked-in manifests and
 
 ## Build pin and admitted host
 
-- scriptc: exact `0.0.34`
-- pnpm's 24-hour minimum-release-age policy exempts only `scriptc@0.0.34`, `@scriptc/compiler@0.0.34`, and `@scriptc/runtime@0.0.34`; future scriptc versions must either age normally or receive a new explicit reviewed exemption
+- scriptc: exact `0.1.1`
+- pnpm's 24-hour minimum-release-age policy exempts only `scriptc@0.1.1`, `@scriptc/compiler@0.1.1`, and `@scriptc/runtime@0.1.1`; future scriptc versions must either age normally or receive a new explicit reviewed exemption
 - Node used to drive release builds/reference certification: exact `24.18.0`
 - Linux release builds require host `clang`; Windows release builds require MinGW `gcc`/`g++` plus Zig 0.16.0 and target ScriptC as `x86_64-windows-gnu`
 - admitted standalone targets: Linux x64 and Windows x64
@@ -66,7 +67,9 @@ assemble any compatible installed target template regardless of its host platfor
 
 ## Certification gate
 
-`editor/scripts/certify-noveltea-cli.mjs` treats the Node bundle as the semantic reference and requires the standalone scriptc executable to match it on exit code, stdout, stderr, and project-tree state across discovery, validation, agent sync, usages, structural mutations, transaction/recovery cases, and failure paths. It separately certifies typed shader output, raw shaderc goldens, runtime/UI playback, package export, template registry/configuration, a real Web platform export, and relocation.
+`editor/scripts/certify-noveltea-cli.mjs` treats the Node bundle as the semantic reference and requires the standalone scriptc executable to match it on exit code, stdout, stderr, and project-tree state across discovery, validation, agent sync, usages, structural mutations, transaction/recovery cases, and failure paths. Test-command certification additionally compares Node and ScriptC public behavior for targeted `test run <id>`, bare `test run`, `test run-spec`, `test run-ui-spec`, and blocked-Test outcomes on both canonical TypeScript fallback and persistent-cache-hit paths. Trace assertions prove that a cold standalone invocation imports the dynamic island and publishes a canonical generation, while a subsequent proven hit stays entirely in the static/native tier.
+
+The release gate also exercises runtime-cache freshness and recovery through the standalone executable: exact tracked-file mtime/size changes, tracked deletion, conservative source addition/removal, declared Asset source mutation, ignored README changes (including their directory-metadata side effects), compiler/cache-schema incompatibility, malformed payload recovery, native-admission invalidation with one canonical retry, and best-effort publication failure. Feature Lab is copied to an isolated temporary Project, executed once through bare `test run` from a cold cache, and then exercised through a targeted cached Test. It separately certifies typed shader output, raw shaderc goldens, runtime/UI playback, package export, template registry/configuration, a real Web platform export, and relocation.
 
 ComfyUI certification uses `editor/scripts/comfyui-certification-server.mjs`, a deterministic local HTTP server requiring neither a GPU nor a ComfyUI installation. Node and ScriptC are compared for status, built-in listing/inspection, verification, scalar filesystem generation, secure local-image editing, classification-default selection, Project Asset publication, named mixed publication, upload/execution/output failures, and request timeout behavior. Certification compares normalized machine output, stderr/exit status, publication state, and externally observable request sequences; successful history deliberately completes on a later poll. The cancellation checks require prompt-specific queue deletion and reject `/interrupt`.
 
@@ -74,4 +77,4 @@ A release is not admitted merely because scriptc can build it. The differential 
 
 ## Performance policy
 
-The current design deliberately favors compatibility over forcing shared TypeScript through scriptc's static compiler. If profiling later identifies sustained hot paths, they may be migrated selectively to scriptc-native code or C++ behind explicit data boundaries. Project/workspace caching may also be introduced later. Neither optimization should change the public CLI contract.
+The current design deliberately favors compatibility over forcing shared TypeScript through scriptc's static compiler. The shared TypeScript CLI and Electron main process publish the same canonical runtime artifact and lowered Test catalog; editor preview-locale and pseudo-locale Play builds are separate persistent variants in the same disposable cache namespace and never replace the canonical `current` generation. At most four preview variants remain actively indexed by the editor. The one intentional static-host hot path is repeated test execution from a proven canonical cache generation: the host performs only conservative root nomination and native cache admission, then dispatches the cached Compiled Project and lowered Test catalog directly to native runners. It never parses authored Project or Test schema, and its native probe accepts only the `canonical-runtime` variant, never editor preview variants. Ordinary native admission compares the exact tracked/candidate inventory plus exact byte size and nanosecond mtime metadata; it does not reread and hash authored source bytes. Missing, stale, malformed, incompatible, ambiguous, or otherwise unusable cache state imports the existing QuickJS island and follows canonical preparation/publication. If an admitted cached payload is rejected by native execution, the host invalidates the disposable current pointer and enters the canonical island path once, which rebuilds/retries without a host-level retry loop. The shared TypeScript cache consumers apply the same one-rebuild/one-retry policy for editor and fallback CLI execution. Other authoring operations remain in the shared TypeScript island unless a similarly narrow measured boundary is justified later.

@@ -24,6 +24,8 @@ NativeOperation operation_for(std::string_view operation)
         return &noveltea_tooling_compile_shaders_json;
     if (operation == "run-test")
         return &noveltea_tooling_run_headless_test_json;
+    if (operation == "run-test-suite")
+        return &noveltea_tooling_run_test_suite_json;
     if (operation == "run-ui-test")
         return &noveltea_tooling_run_ui_test_json;
     if (operation == "export-package")
@@ -42,6 +44,10 @@ NativeOperation operation_for(std::string_view operation)
         return &noveltea_tooling_file_mode_json;
     if (operation == "disk-space")
         return &noveltea_tooling_disk_space_json;
+    if (operation == "path-metadata")
+        return &noveltea_tooling_path_metadata_json;
+    if (operation == "runtime-cache-probe")
+        return &noveltea_tooling_probe_runtime_cache_json;
     if (operation == "create-archive")
         return &noveltea_tooling_create_archive_json;
     return nullptr;

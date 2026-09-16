@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import {
   chmod,
   cp,
@@ -11,15 +11,17 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
+import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
-const scriptcVersion = '0.0.34';
+const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
+const scriptcVersion = '0.1.1';
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
 const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-release';
@@ -128,6 +130,23 @@ if (isWindows) {
   if (clangCheck.error) throw clangCheck.error;
 }
 
+async function ensureScriptcNativeHelperExecutable() {
+  if (isWindows) return;
+  const scriptcRequire = createRequire(realpathSync(scriptcEntrypoint));
+  const compilerEntrypoint = scriptcRequire.resolve('@scriptc/compiler');
+  const compilerRequire = createRequire(compilerEntrypoint);
+  let helperPackageJson;
+  try {
+    helperPackageJson = compilerRequire.resolve('@scriptc/llvm-linux-x64-gnu/package.json');
+  } catch {
+    throw new Error(
+      'Pinned scriptc LLVM helper is not installed. Run pnpm install with optional dependencies enabled.',
+    );
+  }
+  const helperBinary = path.join(path.dirname(helperPackageJson), 'bin', 'scriptc-llvm-codegen');
+  await chmod(helperBinary, 0o755);
+}
+
 const versionCheck = spawnSync(process.execPath, [scriptcEntrypoint, '--version'], {
   cwd: editorRoot,
   encoding: 'utf8',
@@ -137,6 +156,7 @@ if (versionCheck.status !== 0 || versionCheck.stdout.trim() !== scriptcVersion)
   throw new Error(
     `NovelTea CLI requires scriptc ${scriptcVersion}; received '${versionCheck.stdout.trim() || 'unknown'}'.`,
   );
+await ensureScriptcNativeHelperExecutable();
 
 const buildEnv = { ...process.env, NODE_ENV: 'production' };
 const scriptcBuildEnv = isWindows
@@ -422,10 +442,9 @@ try {
     '../shared/product-version',
     './product-version',
   );
-  const stagedProductVersionSource = (await readFile(productVersionSource, 'utf8')).replace(
-    '__NOVELTEA_VERSION__',
-    JSON.stringify(productVersion),
-  );
+  const stagedProductVersionSource = (await readFile(productVersionSource, 'utf8'))
+    .replace('__NOVELTEA_VERSION__', JSON.stringify(productVersion))
+    .replace('__NOVELTEA_BUILD_IDENTITY__', JSON.stringify(buildIdentity));
   await writeFile(stagedStaticContracts, stagedStaticContractsSource);
   await writeFile(stagedProductVersion, stagedProductVersionSource);
   await cp(hostProcessSource, stagedHostProcess);

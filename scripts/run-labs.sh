@@ -58,6 +58,9 @@ echo "[run] validating Feature Lab..."
 "$NOVELTEA_CLI" --project "$FEATURE_LAB_ROOT" validate
 node tools/feature-lab/validate.mjs --project "$FEATURE_LAB_ROOT"
 
+echo "[run] running Feature Lab authored test suite..."
+"$NOVELTEA_CLI" --project "$FEATURE_LAB_ROOT" test run
+
 mkdir -p "$RUN_ROOT"
 echo "[run] exporting Feature Lab runtime package..."
 "$NOVELTEA_CLI" --project "$FEATURE_LAB_ROOT" package export \

@@ -54,6 +54,9 @@ const unavailableNativeTools: NovelTeaCliNativeToolService = {
   runHeadlessTest() {
     return Promise.reject(new Error('Native NovelTea tooling is unavailable in this CLI host.'));
   },
+  runTestSuite() {
+    return Promise.reject(new Error('Native NovelTea tooling is unavailable in this CLI host.'));
+  },
   runUiTest() {
     return Promise.reject(new Error('Native NovelTea tooling is unavailable in this CLI host.'));
   },

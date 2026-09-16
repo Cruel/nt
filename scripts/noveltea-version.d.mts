@@ -7,3 +7,4 @@ export interface NovelTeaVersionIdentity {
 export declare function parseNovelTeaVersion(value: string): NovelTeaVersionIdentity;
 export declare function readNovelTeaVersion(root?: string): NovelTeaVersionIdentity;
 export declare function novelTeaDevelopmentVersion(version: string, revision: string): string;
+export declare function readNovelTeaBuildIdentity(root?: string): string;

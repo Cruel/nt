@@ -12,6 +12,7 @@ struct NativeOperationResult {
 
 [[nodiscard]] NativeOperationResult compile_shaders(std::string_view request_json);
 [[nodiscard]] NativeOperationResult run_headless_test(std::string_view request_json);
+[[nodiscard]] NativeOperationResult run_test_suite(std::string_view request_json);
 [[nodiscard]] NativeOperationResult run_ui_test(std::string_view request_json);
 [[nodiscard]] NativeOperationResult export_package(std::string_view request_json);
 [[nodiscard]] NativeOperationResult validate_font_coverage(std::string_view request_json);

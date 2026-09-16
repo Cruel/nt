@@ -6,6 +6,10 @@ declare function noveltea_tooling_run_headless_test_json(
   request: Uint8Array,
   response: Uint8Array,
 ): number;
+declare function noveltea_tooling_run_test_suite_json(
+  request: Uint8Array,
+  response: Uint8Array,
+): number;
 declare function noveltea_tooling_run_ui_test_json(
   request: Uint8Array,
   response: Uint8Array,
@@ -70,6 +74,12 @@ export function runHeadlessTestNative<T>(request: unknown): T {
   const bytes = requestBytes(request);
   const response = new Uint8Array(structuredResponseCapacity);
   return decodeJsonResponse<T>(noveltea_tooling_run_headless_test_json(bytes, response), response);
+}
+
+export function runTestSuiteNative<T>(request: unknown): T {
+  const bytes = requestBytes(request);
+  const response = new Uint8Array(structuredResponseCapacity);
+  return decodeJsonResponse<T>(noveltea_tooling_run_test_suite_json(bytes, response), response);
 }
 
 export function runUiTestNative<T>(request: unknown): T {

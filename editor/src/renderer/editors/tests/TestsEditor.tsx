@@ -12,6 +12,7 @@ import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -40,7 +41,6 @@ import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
 import {
-  buildRuntimePlaybackSpecFromAuthoringTest,
   getAuthoringTestRunReadiness,
   type TestRunReadiness,
 } from '../../../shared/project-schema/test-playback-project';
@@ -934,27 +934,12 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
       addTimelineEntry({ source: 'playback', message: 'Test is not runnable yet', detail: report });
       return;
     }
-    const spec = await buildRuntimePlaybackSpecFromAuthoringTest(activeProject, activeTestId);
-    if (!spec.ok || !spec.spec) {
-      setLastPlaybackReport({
-        id: activeTestId,
-        passed: false,
-        failures: spec.diagnostics.map((item) => item.message),
-        diagnostics: spec.diagnostics,
-        observations: [],
-      });
-      return;
-    }
-    const runnerProject = spec.project ?? activeProject;
-    const result =
-      spec.runner === 'runtime-ui'
-        ? await window.noveltea.runUiPlaybackSpec(
-            projectSessionId,
-            runnerProject,
-            spec.spec,
-            spec.shaderMaterialMetadata ?? null,
-          )
-        : await window.noveltea.runPlaybackSpec(runnerProject, spec.spec);
+    const result = await window.noveltea.runPlaybackTest(
+      projectSessionId,
+      activeProject,
+      activeTestId,
+      usePendingInputStore.getState().entriesBySaveUnitId,
+    );
     setLastPlaybackReport(result.report ?? result);
     setStatusMessage(result.ok ? `Ran test ${activeTestId}` : (result.error ?? 'Test run failed'));
     addTimelineEntry({

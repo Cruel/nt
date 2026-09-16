@@ -55,4 +55,32 @@ describe.each(implementations)('%s workspace filesystem contract', (_name, creat
     await fileSystem.removeDirectory(nested);
     expect(await fileSystem.inspect(nested)).toBe('missing');
   });
+
+  it('reports exact nanosecond metadata for regular Node filesystem paths', async () => {
+    const fileSystem = createFileSystem();
+    const root = await temporaryRoot();
+    const target = fileSystem.joinPath(root, 'metadata.bin');
+    await fileSystem.writeBytesAtomic(target, new Uint8Array([1, 2, 3]));
+
+    const metadata = await fileSystem.readPathMetadata?.(target);
+    expect(metadata).toMatchObject({ kind: 'file', byteSize: 3 });
+    expect(metadata?.mtimeNanoseconds).toMatch(/^\d+$/u);
+  });
+});
+
+describe('workspace filesystem host metadata override', () => {
+  it('uses an injected exact metadata reader without changing the remaining filesystem adapter', async () => {
+    const observed: string[] = [];
+    const fileSystem = createNodeProjectWorkspaceFileSystem(async (value) => {
+      observed.push(value);
+      return { kind: 'file', byteSize: 7, mtimeNanoseconds: '1234567890123456789' };
+    });
+
+    await expect(fileSystem.readPathMetadata('/native/bridge')).resolves.toEqual({
+      kind: 'file',
+      byteSize: 7,
+      mtimeNanoseconds: '1234567890123456789',
+    });
+    expect(observed).toEqual(['/native/bridge']);
+  });
 });

@@ -173,9 +173,24 @@ Object.defineProperty(window, 'noveltea', {
     listPlaybackTests: vi
       .fn()
       .mockResolvedValue({ ok: true, tests: [{ id: 'smoke', steps: 1 }], diagnostics: [] }),
+    prepareEditorRuntime: vi.fn().mockResolvedValue({
+      status: 'session-local',
+      buildContext: { kind: 'canonical' },
+      reason: 'project-content-dirty',
+    }),
     runPlaybackTest: vi
       .fn()
       .mockResolvedValue({ ok: true, report: { id: 'smoke', passed: true }, diagnostics: [] }),
+    runPlaybackSuite: vi.fn().mockResolvedValue({
+      ok: true,
+      success: true,
+      report: {
+        schema: 'noveltea.test-suite-report',
+        counts: { total: 0, passed: 0, failed: 0, blocked: 0, error: 0 },
+        entries: [],
+      },
+      diagnostics: [],
+    }),
     runPlaybackSpec: vi.fn().mockResolvedValue({
       ok: true,
       report: { id: 'smoke', passed: true, observations: [] },

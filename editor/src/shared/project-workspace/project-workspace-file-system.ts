@@ -1,3 +1,10 @@
+export interface ProjectWorkspacePathMetadata {
+  readonly kind: 'missing' | 'file' | 'directory' | 'symlink' | 'other';
+  readonly byteSize?: number;
+  /** Exact nanoseconds since Unix epoch, serialized as decimal text to avoid JS precision loss. */
+  readonly mtimeNanoseconds?: string;
+}
+
 /** Narrow filesystem port shared by workspace assembly and transaction recovery. */
 export interface ProjectWorkspaceFileSystem {
   resolvePath(path: string): string;
@@ -5,6 +12,8 @@ export interface ProjectWorkspaceFileSystem {
   dirname(path: string): string;
   relativePath(from: string, to: string): string;
   inspect(path: string): Promise<'missing' | 'file' | 'directory'>;
+  /** Optional high-resolution metadata used by disposable build-cache admission. */
+  readPathMetadata?(path: string): Promise<ProjectWorkspacePathMetadata>;
   listDirectory(path: string): Promise<readonly string[]>;
   readText(path: string): Promise<string>;
   /** Exact on-disk bytes; revisions must never be derived from decoded text. */

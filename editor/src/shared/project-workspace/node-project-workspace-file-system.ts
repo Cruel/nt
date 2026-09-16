@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, promises as fs } from 'node:fs';
 import path from 'node:path';
+import type { ProjectWorkspacePathMetadata } from './project-workspace-file-system';
 import {
   ProjectWorkspaceFileSystemAdapter,
   type ProjectWorkspaceFileSystemOperations,
@@ -43,9 +44,36 @@ const nodeProjectWorkspaceFileSystemOperations: ProjectWorkspaceFileSystemOperat
   },
 };
 
+export type ProjectWorkspacePathMetadataReader = (
+  path: string,
+) => Promise<ProjectWorkspacePathMetadata>;
+
+async function readNodePathMetadata(value: string): Promise<ProjectWorkspacePathMetadata> {
+  try {
+    const info = await fs.lstat(value, { bigint: true });
+    const byteSize = Number(info.size);
+    if (!Number.isSafeInteger(byteSize) || byteSize < 0) return { kind: 'other' };
+    const metadata = { byteSize, mtimeNanoseconds: info.mtimeNs.toString() };
+    if (info.isSymbolicLink()) return { kind: 'symlink', ...metadata };
+    if (info.isFile()) return { kind: 'file', ...metadata };
+    if (info.isDirectory()) return { kind: 'directory', ...metadata };
+    return { kind: 'other', ...metadata };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return { kind: 'missing' };
+    throw error;
+  }
+}
+
 export class NodeProjectWorkspaceFileSystem extends ProjectWorkspaceFileSystemAdapter {
-  constructor() {
+  constructor(
+    private readonly pathMetadataReader: ProjectWorkspacePathMetadataReader = readNodePathMetadata,
+  ) {
     super(nodeProjectWorkspaceFileSystemOperations);
+  }
+
+  readPathMetadata(value: string): Promise<ProjectWorkspacePathMetadata> {
+    return this.pathMetadataReader(value);
   }
 
   override async readFileRevision(
@@ -61,8 +89,10 @@ export class NodeProjectWorkspaceFileSystem extends ProjectWorkspaceFileSystemAd
   }
 }
 
-export function createNodeProjectWorkspaceFileSystem(): NodeProjectWorkspaceFileSystem {
-  return new NodeProjectWorkspaceFileSystem();
+export function createNodeProjectWorkspaceFileSystem(
+  pathMetadataReader?: ProjectWorkspacePathMetadataReader,
+): NodeProjectWorkspaceFileSystem {
+  return new NodeProjectWorkspaceFileSystem(pathMetadataReader);
 }
 
 export class NodeProjectWorkspaceProcessLiveness {
