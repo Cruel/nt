@@ -1980,6 +1980,70 @@ packages:
   '@scriptc/compiler@0.1.1':
     resolution: {integrity: sha512-lBT/9bZXmJqkSbTqjIwlWzs+yhCaRVU4MYRQpJqjt581t0zDobXipwBs8dFIRPDqqnwpQSE2xGQKGMMAwI3kcg==}
 
+  '@scriptc/llvm-darwin-arm64@0.1.1':
+    resolution: {integrity: sha512-2TErC2UMSwfewU5psrtA78bcHSuqIBx4HtvXaIOP262HL3klagRkJhxUqU00nHsrHpOjGijroxK8pqU+wUI+Eg==}
+    cpu: [arm64]
+    os: [darwin]
+    hasBin: true
+
+  '@scriptc/llvm-linux-arm64-gnu@0.1.1':
+    resolution: {integrity: sha512-W/irEvgDVOqfpijEMBiWgWFDxUENLapIvoYXw/kmwGBWeUDw/dOgOqd39WuBZZI6D8TwMREz4Y2k/pE3lGHn8Q==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@scriptc/llvm-linux-arm64-musl@0.1.1':
+    resolution: {integrity: sha512-amK3nAeHKjeBfv2u1q7+Kf4qI/gWlUhsu9ZCf44M0vChdidD//sCfIwxn9mpkWpKxW+FmhFrWKX9TYj2HTdh5A==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@scriptc/llvm-linux-x64-gnu@0.1.1':
+    resolution: {integrity: sha512-wfCaRGNRAiyo6LP2VtFBNLfNFUZtXgbEZSh+OYboXoUvptE4DE3D8F9o6u8NfojtnpRxM5TXaW6kgncSwWdxSw==}
+    cpu: [x64]
+    os: [linux]
+
+  '@scriptc/llvm-linux-x64-musl@0.1.1':
+    resolution: {integrity: sha512-bFTt4XCvLeTxuP+a4Y92hes3M2CFOtitlpAYHk8E2HlYJ4GS44rLPgk47yc0vQP3bv5ODn1gCFk9jc8V/rlrgA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@scriptc/llvm-win32-x64-msvc@0.1.1':
+    resolution: {integrity: sha512-BgfwWYFrejKv3TIGz2MBjKktoTJ7EM9XCCzond3NXbXQITPYqyuGG47Ay3vzodjZWzxZgUJVWvc6RB0+vHxeRw==}
+    cpu: [x64]
+    os: [win32]
+
+  '@scriptc/runtime-darwin-arm64@0.1.1':
+    resolution: {integrity: sha512-LdKQqqr5aYI2ULqV6nFkNWKQsDDU72ct02f/Zepe+tjKvtuxoiKmARCRzZTBlJ/vBxVsYbT4LIoUyRLkMV1QIw==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@scriptc/runtime-linux-arm64-gnu@0.1.1':
+    resolution: {integrity: sha512-T71AGAxaVvtiCnvRz3LBsproeDOo53w5WK+LcRC0Ht2LeOg2FNBEEM8gFgGFfjUDjSkX4R1r+hIJZqrYxcDOJA==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@scriptc/runtime-linux-arm64-musl@0.1.1':
+    resolution: {integrity: sha512-kW0oyNVylZ3SsQmxZqztx2Zv6KjCb9fkBt++tIq/QokJEy5OHLZY2z1I37YZxlV2RuP1n7E28oFIg2DrAfk0FQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@scriptc/runtime-linux-x64-gnu@0.1.1':
+    resolution: {integrity: sha512-brqxlmuX6FpFjZmCEWUb9pz21kiYXFHKsMfhe6QrPHKaHeJ7slSLnjZ2oBobWltEC9kOKlM92ZZlsgvHbYt0MQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@scriptc/runtime-linux-x64-musl@0.1.1':
+    resolution: {integrity: sha512-gKrwfEKz2GO7idm95tnaVpfbrjXHhybadyWgODhH8HrCr5gX9extHhY2y3O2BKfJ5icQpNdyGmYzSLvgxiZT3w==}
+    cpu: [x64]
+    os: [linux]
+
+  '@scriptc/runtime-wasm32-wasi@0.1.1':
+    resolution: {integrity: sha512-5MKRQkkdidwDcWtSveAbJn9rR14I9dHdLyMOjZv7agRy5g+IfDR8PwMSsQ2tdvN0SajVYy3JaZgRlCiyfMcvTg==}
+
+  '@scriptc/runtime-win32-x64-msvc@0.1.1':
+    resolution: {integrity: sha512-wpngmmryv5xU+W3Mogg2jc8B6khMR5Prg93YDwZ46guWSYHYtU7ABYhVSPf4sLyaeCHNuOHqozhE7P3ZyHMSeA==}
+    cpu: [x64]
+    os: [win32]
+
   '@scriptc/runtime@0.1.1':
     resolution: {integrity: sha512-3+RozH15SAexpKqkV+MShdV1AjSrVDjnuK7zeA6/qyMdYz3eonJTEKZ9ZbTIt0/UXMzwS/m/wD/NR3mD7UCOUQ==}
 
@@ -6860,6 +6924,59 @@ snapshots:
       '@scriptc/runtime': 0.1.1
       typescript: 7.0.2
       typescript5: typescript@5.9.3
+    optionalDependencies:
+      '@scriptc/llvm-darwin-arm64': 0.1.1
+      '@scriptc/llvm-linux-arm64-gnu': 0.1.1
+      '@scriptc/llvm-linux-arm64-musl': 0.1.1
+      '@scriptc/llvm-linux-x64-gnu': 0.1.1
+      '@scriptc/llvm-linux-x64-musl': 0.1.1
+      '@scriptc/llvm-win32-x64-msvc': 0.1.1
+      '@scriptc/runtime-darwin-arm64': 0.1.1
+      '@scriptc/runtime-linux-arm64-gnu': 0.1.1
+      '@scriptc/runtime-linux-arm64-musl': 0.1.1
+      '@scriptc/runtime-linux-x64-gnu': 0.1.1
+      '@scriptc/runtime-linux-x64-musl': 0.1.1
+      '@scriptc/runtime-wasm32-wasi': 0.1.1
+      '@scriptc/runtime-win32-x64-msvc': 0.1.1
+
+  '@scriptc/llvm-darwin-arm64@0.1.1':
+    optional: true
+
+  '@scriptc/llvm-linux-arm64-gnu@0.1.1':
+    optional: true
+
+  '@scriptc/llvm-linux-arm64-musl@0.1.1':
+    optional: true
+
+  '@scriptc/llvm-linux-x64-gnu@0.1.1':
+    optional: true
+
+  '@scriptc/llvm-linux-x64-musl@0.1.1':
+    optional: true
+
+  '@scriptc/llvm-win32-x64-msvc@0.1.1':
+    optional: true
+
+  '@scriptc/runtime-darwin-arm64@0.1.1':
+    optional: true
+
+  '@scriptc/runtime-linux-arm64-gnu@0.1.1':
+    optional: true
+
+  '@scriptc/runtime-linux-arm64-musl@0.1.1':
+    optional: true
+
+  '@scriptc/runtime-linux-x64-gnu@0.1.1':
+    optional: true
+
+  '@scriptc/runtime-linux-x64-musl@0.1.1':
+    optional: true
+
+  '@scriptc/runtime-wasm32-wasi@0.1.1':
+    optional: true
+
+  '@scriptc/runtime-win32-x64-msvc@0.1.1':
+    optional: true
 
   '@scriptc/runtime@0.1.1': {}
 
