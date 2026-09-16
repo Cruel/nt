@@ -1313,7 +1313,7 @@ TEST_CASE("Visual asset cache-key builders include options and source generation
 
     assets::ShaderProgramAssetRequest shader;
     shader.resolution.key.material_id = "demo/material";
-    shader.resolution.key.variant = "glsl-120";
+    shader.resolution.key.variant = "glsl-330";
     CHECK(assets::make_shader_program_cache_key(shader, first).source_generation == first);
     CHECK(assets::make_material_cache_key({.id = "demo/material"}, first).valid());
 }

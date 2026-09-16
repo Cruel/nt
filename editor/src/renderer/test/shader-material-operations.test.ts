@@ -54,9 +54,9 @@ describe('shader/material command operations', () => {
             {
               shader: 'noise',
               stage: 'fragment',
-              variant: 'glsl-120',
+              variant: 'glsl-330',
               metadata: {
-                path: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
+                path: 'project:/shaders/bgfx/glsl-330/noise.fs.bin',
                 byteHash: `sha256:${'a'.repeat(64)}`,
                 byteSize: 42,
                 compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
@@ -91,8 +91,8 @@ describe('shader/material command operations', () => {
         }
       ).shaders.noise?.data.stages[0]?.compiled,
     ).toEqual({
-      'glsl-120': {
-        path: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
+      'glsl-330': {
+        path: 'project:/shaders/bgfx/glsl-330/noise.fs.bin',
         byteHash: `sha256:${'a'.repeat(64)}`,
         byteSize: 42,
         compileInputFingerprint: `sha256:${'b'.repeat(64)}`,

@@ -227,7 +227,7 @@ describe('ProjectWorkspaceService', () => {
     const manifest = JSON.parse(files[manifestPath]!) as {
       export: { runtime: { shaderVariants: string[] } };
     };
-    manifest.export.runtime.shaderVariants = ['glsl-120', 'essl-300'];
+    manifest.export.runtime.shaderVariants = ['unsupported-desktop', 'essl-300'];
     files[manifestPath] = `${JSON.stringify(manifest, null, 2)}\n`;
 
     const opened = await new ProjectWorkspaceService(

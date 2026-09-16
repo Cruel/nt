@@ -314,8 +314,8 @@ nlohmann::json shader_material_manifest()
           "roles":["engine-2d","postprocess"],
           "role_bindings":{},
           "stages":{
-            "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
-            "fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
+            "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
+            "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "uniforms":{},
           "samplers":{
@@ -355,8 +355,8 @@ nlohmann::json package_manifest_for(const core::CompiledProject& project)
     for (const auto& asset : project.assets())
         entries.push_back({{"path", asset.path}, {"size", 10}});
     entries.push_back({{"path", "shader-materials.json"}, {"size", 10}});
-    entries.push_back({{"path", "shaders/bgfx/glsl-120/sprite.vs.bin"}, {"size", 10}});
-    entries.push_back({{"path", "shaders/bgfx/glsl-120/sprite.fs.bin"}, {"size", 10}});
+    entries.push_back({{"path", "shaders/bgfx/glsl-330/sprite.vs.bin"}, {"size", 10}});
+    entries.push_back({{"path", "shaders/bgfx/glsl-330/sprite.fs.bin"}, {"size", 10}});
     return {
         {"format", "noveltea.runtime-package"},
         {"runtime_api_version", noveltea::core::player_runtime_api_version},
@@ -370,7 +370,7 @@ nlohmann::json package_manifest_for(const core::CompiledProject& project)
         {"accessibility",
          {{"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
           {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}}},
-        {"shader_variants", nlohmann::json::array({"glsl-120"})},
+        {"shader_variants", nlohmann::json::array({"glsl-330"})},
         {"shader_materials",
          {{"entry", "shader-materials.json"},
           {"schema", "noveltea.shader-materials"},
@@ -821,7 +821,7 @@ assets::ShaderProgramAssetRequest shader_request(std::string material)
 {
     assets::ShaderProgramAssetRequest request;
     request.resolution.key.material_id = std::move(material);
-    request.resolution.key.variant = "glsl-120";
+    request.resolution.key.variant = "glsl-330";
     request.resolution.key.vertex_path = "project:/shaders/test.vs.bin";
     request.resolution.key.fragment_path = "project:/shaders/test.fs.bin";
     return request;
@@ -835,7 +835,7 @@ TEST_CASE("mandatory collector builds typed publication closure without speculat
     auto package = collector_package();
     const assets::AssetSourceGeneration generation{41};
     const auto index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation);
     CHECK_FALSE(has_code(index.diagnostics(), "assets.prefetch_shader_resolution_failed"));
 
     core::RuntimePresentationSnapshot snapshot;
@@ -879,7 +879,7 @@ TEST_CASE("mandatory collector resolves localized physical Assets before residen
     auto package = collector_package();
     const assets::AssetSourceGeneration generation{42};
     const auto index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation, "fr");
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation, "fr");
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-current"),
@@ -907,7 +907,7 @@ TEST_CASE("structured texture dependencies carry alpha coverage into mandatory a
     auto package = collector_package();
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation);
     const assets::MandatoryAssetDependencyCollector collector(index);
 
     core::RuntimePresentationSnapshot snapshot;
@@ -1027,7 +1027,7 @@ TEST_CASE("built-in contextual Layouts do not block mandatory publication",
     auto package = collector_package();
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation);
     const assets::MandatoryAssetDependencyCollector collector(index);
 
     core::RuntimePresentationSnapshot snapshot;
@@ -1051,7 +1051,7 @@ TEST_CASE("built-in contextual Layouts do not block mandatory publication",
     CHECK_FALSE(has_code(collected.diagnostics, "assets.prefetch_missing_layout"));
 
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
     const auto begun = gate.begin_on_owner(snapshot);
     CHECK(begun.disposition != assets::MandatoryAssetGateDisposition::Failed);
     gate.clear_package_on_owner();
@@ -1065,9 +1065,9 @@ TEST_CASE("mandatory package rebinding reuses self-describing texture dependenci
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
 
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
     gate.clear_package_on_owner();
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 }
 
 TEST_CASE("mandatory package binding submits compiled Scene-entry prediction through real prefetch",
@@ -1081,7 +1081,7 @@ TEST_CASE("mandatory package binding submits compiled Scene-entry prediction thr
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
 
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
     CHECK(fixture.recorder.calls.empty());
 
     core::RuntimePresentationSnapshot snapshot;
@@ -1112,7 +1112,7 @@ TEST_CASE(
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
 
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(151);
     snapshot.mode = core::PresentationRuntimeMode::Room;
@@ -1212,7 +1212,7 @@ TEST_CASE("resident Room actions are excluded prospectively and admitted only af
 
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto dependency_index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation);
     const auto resident_plan = assets::resolve_flow_prediction(dependency_index, resident);
     const auto resident_candidate =
         std::ranges::find_if(resident_plan.candidates, [](const auto& candidate) {
@@ -1224,7 +1224,7 @@ TEST_CASE("resident Room actions are excluded prospectively and admitted only af
     CHECK(resident_candidate->prediction == assets::PrefetchPredictionKind::PossibleNext);
 
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(155);
     snapshot.mode = core::PresentationRuntimeMode::Room;
@@ -1274,7 +1274,7 @@ TEST_CASE("mandatory publication remains correct when Flow Prediction metadata i
     auto package = package_from_document(std::move(document), "scene-program-no-prediction.json");
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
     CHECK(fixture.recorder.calls.empty());
 
     core::RuntimePresentationSnapshot snapshot;
@@ -1307,7 +1307,7 @@ TEST_CASE("mandatory package binding rejects a stale source generation",
     REQUIRE(fixture.manager.source_generation_on_owner() != stale_generation);
 
     assets::MandatoryAssetGate gate(fixture.manager);
-    const auto bound = gate.bind_package_on_owner(package, "glsl-120", stale_generation);
+    const auto bound = gate.bind_package_on_owner(package, "glsl-330", stale_generation);
     REQUIRE_FALSE(bound);
     CHECK(bound.error().code == "assets.mandatory_gate_stale_source_generation");
 }
@@ -1319,7 +1319,7 @@ TEST_CASE("mandatory gate rebuilds generation-scoped dependency keys after proje
     auto package = collector_package();
     const auto bound_generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", bound_generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", bound_generation));
 
     fixture.manager.mount("project", std::make_shared<assets::MemoryAssetSource>());
     const auto refreshed_generation = fixture.manager.source_generation_on_owner();
@@ -1364,9 +1364,9 @@ TEST_CASE("Flow prediction resolves semantic dependencies against the current so
     const assets::AssetSourceGeneration first_generation{41};
     const assets::AssetSourceGeneration second_generation{42};
     const auto first_index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", first_generation);
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", first_generation);
     const auto second_index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", second_generation);
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", second_generation);
     const auto first_plan = assets::resolve_flow_prediction(first_index, projection);
     const auto second_plan = assets::resolve_flow_prediction(second_index, projection);
     REQUIRE(first_plan.diagnostics.empty());
@@ -1399,7 +1399,7 @@ TEST_CASE("mandatory gate restarts pending requests after a project source refre
     const auto initial_generation = fixture.manager.source_generation_on_owner();
 
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", initial_generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", initial_generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(31);
@@ -1444,7 +1444,7 @@ TEST_CASE(
     auto package = collector_package();
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(41);
@@ -1527,7 +1527,7 @@ TEST_CASE("Flow-predicted Room hotspot mask is ready for later mandatory Demand"
     auto package = collector_package();
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation);
     runtime::FlowPredictionProjection projection;
     projection.entries.push_back(
         {.dependency =
@@ -1585,7 +1585,7 @@ TEST_CASE("mandatory gate advances speculative Scene prediction from the live ex
     auto package = package_from_document(std::move(document), "scene-prediction-test.json");
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(152);
@@ -1652,7 +1652,7 @@ TEST_CASE("mandatory gate includes live detached Flow positions in the speculati
     auto package = package_from_document(std::move(document), "detached-live-prediction.json");
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(154);
@@ -1772,7 +1772,7 @@ TEST_CASE(
     auto package = package_from_document(std::move(document), "active-room-gate.json");
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(155);
@@ -1852,7 +1852,7 @@ TEST_CASE(
         package_from_document(std::move(document), "committed-room-transition-gate.json");
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(156);
@@ -1927,7 +1927,7 @@ TEST_CASE(
     auto package = package_from_document(std::move(document), "suspended-room-gate.json");
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(155);
@@ -2030,7 +2030,7 @@ TEST_CASE("mandatory gate refreshes the same live prediction root when typed sta
     auto package = package_from_document(std::move(document), "prediction-context-gate.json");
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(153);
@@ -2092,7 +2092,7 @@ TEST_CASE("mandatory gate ignores Dialogue reveal microstate when reconciling pr
     auto package = package_from_document(std::move(document), "dialogue-prediction-gate.json");
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(153);
@@ -2128,7 +2128,7 @@ TEST_CASE("mandatory gate publishes bucket-aware prefetch generation reports",
     auto package = collector_package();
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(23);
@@ -2220,7 +2220,7 @@ TEST_CASE("mandatory gate profiler advances logical Flow generations while retai
     auto package = package_from_document(std::move(document), "profiler-reconcile.json");
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(154);
@@ -2296,7 +2296,7 @@ TEST_CASE("mandatory gate profiler reports planner Warm admission rejection",
     auto package = package_from_document(std::move(document), "profiler-budget.json");
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(155);
@@ -2345,7 +2345,7 @@ TEST_CASE("mandatory wait ownership closes once across rollback replacement and 
 
     {
         assets::MandatoryAssetGate gate(fixture.manager);
-        REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+        REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
         REQUIRE(gate.begin_on_owner(snapshot_for(31)).disposition ==
                 assets::MandatoryAssetGateDisposition::Pending);
@@ -2359,7 +2359,7 @@ TEST_CASE("mandatory wait ownership closes once across rollback replacement and 
         REQUIRE(gate.begin_on_owner(snapshot_for(32)).disposition ==
                 assets::MandatoryAssetGateDisposition::Pending);
         REQUIRE(sink.wait_starts.size() == 2);
-        REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+        REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
         REQUIRE(sink.wait_finishes.size() == 2);
         CHECK(sink.wait_finishes.back().operation == sink.wait_starts[1].operation);
         CHECK(sink.wait_finishes.back().result == core::AssetWaitResult::Canceled);
@@ -2476,7 +2476,7 @@ TEST_CASE("compiled Flow Prediction Index drives semantic prediction into real p
 
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto dependency_index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation);
     const auto plan = assets::resolve_flow_prediction(dependency_index, projection);
     REQUIRE(plan.diagnostics.empty());
     const auto planned_main = std::ranges::find_if(plan.candidates, [](const auto& candidate) {
@@ -2551,7 +2551,7 @@ TEST_CASE(
     CHECK_FALSE(semantic->provenance.points.empty());
 
     const auto dependency_index = assets::StructuredAssetDependencyIndex::build(
-        package, "glsl-120", fixture.manager.source_generation_on_owner());
+        package, "glsl-330", fixture.manager.source_generation_on_owner());
     const auto plan = assets::resolve_flow_prediction(dependency_index, projection);
     REQUIRE(plan.diagnostics.empty());
     const auto merged = std::ranges::find_if(plan.candidates, [](const auto& candidate) {
@@ -2607,7 +2607,7 @@ TEST_CASE("explicit Asset hints remain speculative and obey Warm admission",
     REQUIRE(hinted != projection.entries.end());
 
     const auto dependency_index = assets::StructuredAssetDependencyIndex::build(
-        package, "glsl-120", fixture.manager.source_generation_on_owner());
+        package, "glsl-330", fixture.manager.source_generation_on_owner());
     const auto plan = assets::resolve_flow_prediction(dependency_index, projection);
     REQUIRE(plan.diagnostics.empty());
     CHECK(std::ranges::any_of(plan.candidates, [](const auto& candidate) {
@@ -2624,7 +2624,7 @@ TEST_CASE("explicit Asset hints remain speculative and obey Warm admission",
 
     PlannerFixture admitted_fixture;
     const auto admitted_index = assets::StructuredAssetDependencyIndex::build(
-        package, "glsl-120", admitted_fixture.manager.source_generation_on_owner());
+        package, "glsl-330", admitted_fixture.manager.source_generation_on_owner());
     const auto admitted_plan = assets::resolve_flow_prediction(admitted_index, projection);
     assets::PrefetchPlanner admitted_planner(admitted_fixture.manager);
     const auto admitted_report = admitted_planner.replace_generation_on_owner(admitted_plan);
@@ -2874,7 +2874,7 @@ TEST_CASE("prospective Room entry predicts successful lifecycle Flow and widens 
 
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto dependency_index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation);
     const auto plan = assets::resolve_flow_prediction(dependency_index, projection);
     REQUIRE(plan.diagnostics.empty());
     const auto dialogue_prefetch = std::ranges::find_if(plan.candidates, [](const auto& candidate) {
@@ -4578,7 +4578,7 @@ TEST_CASE("Flow prefetch planner uses conservative prediction cost without prepa
         package_from_document(scene_prediction_test_document(), "unknown-prediction-cost.json");
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto dependency_index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation);
     runtime::FlowPredictionProjection projection;
     projection.entries.push_back({.dependency =
                                       core::compiled::FlowPredictionMaterialDependency{
@@ -4690,7 +4690,7 @@ TEST_CASE("mandatory gate expands Flow prediction in Warm-budget-aware waves",
         auto package = package_from_document(make_document(), "prediction-wave-budget.json");
         const auto generation = fixture.manager.source_generation_on_owner();
         assets::MandatoryAssetGate gate(fixture.manager);
-        REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+        REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
         core::RuntimePresentationSnapshot snapshot;
         snapshot.revision = core::PresentationSnapshotRevision::from_number(154);
@@ -4820,7 +4820,7 @@ TEST_CASE("mandatory gate deepens ordinary Room exits through Warm-budget-aware 
         auto package = package_from_document(make_document(), "room-topology-waves.json");
         const auto generation = fixture.manager.source_generation_on_owner();
         assets::MandatoryAssetGate gate(fixture.manager);
-        REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+        REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
 
         core::RuntimePresentationSnapshot snapshot;
         snapshot.revision = core::PresentationSnapshotRevision::from_number(157);
@@ -5073,7 +5073,7 @@ TEST_CASE("rapid Room actions rank against multi-hop presentation on execution d
     PlannerFixture fixture;
     const auto generation = fixture.manager.source_generation_on_owner();
     const auto dependency_index =
-        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation);
     runtime::FlowPredictionProjection duplicate_paths;
     duplicate_paths.entries.push_back(
         {.dependency =
@@ -5395,7 +5395,7 @@ TEST_CASE("mandatory gate includes transient audio in publication leases",
     PlannerFixture fixture;
     auto package = collector_package();
     assets::MandatoryAssetGate gate(fixture.manager);
-    REQUIRE(gate.bind_package_on_owner(package, "glsl-120",
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330",
                                        fixture.manager.source_generation_on_owner()));
 
     core::RuntimePresentationSnapshot snapshot;

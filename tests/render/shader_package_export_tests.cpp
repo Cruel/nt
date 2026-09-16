@@ -60,7 +60,7 @@ nlohmann::json make_material_metadata()
               "source":"shaders/source/noise.vs.sc",
               "source_text":"void main() {}",
               "compiled":{
-                "glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/ui/noise_panel.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+                "glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/ui/noise_panel.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
                 "essl-300":{"runtimePath":"project:/shaders/bgfx/essl-300/ui/noise_panel.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}
               }
             },
@@ -68,7 +68,7 @@ nlohmann::json make_material_metadata()
               "source":"shaders/source/noise.fs.sc",
               "source_text":"void main() {}",
               "compiled":{
-                "glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/ui/noise_panel.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+                "glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/ui/noise_panel.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
                 "essl-300":{"runtimePath":"project:/shaders/bgfx/essl-300/ui/noise_panel.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}
               }
             }
@@ -152,7 +152,7 @@ TEST_CASE("ProjectPackageWriter exports runtime shader material metadata and req
     REQUIRE_FALSE(parsed.has_errors());
 
     const auto temp = unique_temp_dir("material-package-export");
-    const auto required = required_paths_for(*parsed.project, {"glsl-120", "essl-300"});
+    const auto required = required_paths_for(*parsed.project, {"glsl-330", "essl-300"});
     write_required_shader_bins(temp / "shaders", required);
 
     PackageExportOptions options;
@@ -166,7 +166,7 @@ TEST_CASE("ProjectPackageWriter exports runtime shader material metadata and req
         nlohmann::json{{"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
                        {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}};
     options.shader_asset_root = temp / "shaders";
-    options.shader_variants = {"glsl-120", "essl-300"};
+    options.shader_variants = {"glsl-330", "essl-300"};
     options.shader_material_metadata = metadata;
     options.required_shader_binary_paths = required;
 
@@ -211,7 +211,7 @@ TEST_CASE("ProjectPackageWriter fails when required material shader binaries are
     REQUIRE(parsed.project.has_value());
 
     const auto temp = unique_temp_dir("material-package-missing");
-    const auto required = required_paths_for(*parsed.project, {"glsl-120", "essl-300"});
+    const auto required = required_paths_for(*parsed.project, {"glsl-330", "essl-300"});
     for (const std::string& path : required) {
         if (path != "shaders/bgfx/essl-300/ui/noise_panel.fs.bin") {
             write_file(temp / "shaders" / path, "shader-bytes:" + path);
@@ -228,7 +228,7 @@ TEST_CASE("ProjectPackageWriter fails when required material shader binaries are
         nlohmann::json{{"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
                        {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}};
     options.shader_asset_root = temp / "shaders";
-    options.shader_variants = {"glsl-120", "essl-300"};
+    options.shader_variants = {"glsl-330", "essl-300"};
     options.shader_material_metadata = metadata;
     options.required_shader_binary_paths = required;
 

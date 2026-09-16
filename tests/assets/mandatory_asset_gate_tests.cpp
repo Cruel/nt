@@ -314,7 +314,7 @@ assets::ShaderProgramAssetRequest matrix_shader(std::size_t index)
 {
     assets::ShaderProgramAssetRequest request;
     request.resolution.key.material_id = "matrix-" + std::to_string(index);
-    request.resolution.key.variant = "glsl-120";
+    request.resolution.key.variant = "glsl-330";
     request.resolution.key.vertex_path =
         "project:/shaders/matrix-" + std::to_string(index) + ".vs.bin";
     request.resolution.key.fragment_path =

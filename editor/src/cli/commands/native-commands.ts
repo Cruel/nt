@@ -113,7 +113,7 @@ export const shadersCompileCommand: CliCommandDefinition = {
           shaderVariants:
             variants.length > 0
               ? [...new Set(variants)]
-              : ['glsl-120', 'essl-100', 'essl-300', 'metal'],
+              : ['glsl-330', 'essl-300', 'metal'],
           forceRebuild,
         });
         const result = nativeSuccess(response);

@@ -55,8 +55,8 @@ and also supports verification-only mode without `shaderc`.
 
 The bgfx loader selects variants from the active renderer:
 
-- OpenGL -> `glsl-120`
-- OpenGLES on Web -> `essl-100`
+- OpenGL -> `glsl-330`
+- OpenGLES on Web -> `essl-300`
 - OpenGLES on Android -> `essl-300`
 
 Metal, Direct3D11, and Vulkan currently return unsupported-renderer errors
@@ -70,7 +70,7 @@ the active platform variant.
 
 GitHub Actions now has a dedicated `shader-assets` job. It installs
 `bgfx[tools]:x64-linux`, locates host `shaderc` and `bgfx_shader.sh`, compiles
-`glsl-120`, `essl-100`, and `essl-300`, verifies the tree through CMake
+`glsl-330`, `essl-300`, and `metal`, verifies the tree through CMake
 script-mode verification, and uploads the uncommitted shader tree as an artifact.
 Linux, web, Android, and editor jobs consume that artifact with
 `NOVELTEA_COMPILE_SHADERS=OFF`.

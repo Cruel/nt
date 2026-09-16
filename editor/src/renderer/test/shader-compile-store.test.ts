@@ -15,9 +15,9 @@ describe('shader compile store', () => {
         {
           shader: 'old-shader',
           stage: 'fragment',
-          variant: 'glsl-120',
+          variant: 'glsl-330',
           metadata: {
-            path: 'project:/shaders/bgfx/glsl-120/old-shader.fs.bin',
+            path: 'project:/shaders/bgfx/glsl-330/old-shader.fs.bin',
             byteHash: `sha256:${'a'.repeat(64)}`,
             byteSize: 4,
             compileInputFingerprint: `sha256:${'b'.repeat(64)}`,

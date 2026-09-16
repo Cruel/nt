@@ -52,8 +52,8 @@ nlohmann::json shader_manifest()
           "roles":["engine-2d"],
           "role_bindings":{},
           "stages":{
-            "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
-            "fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
+            "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
+            "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "uniforms":{},
           "samplers":{}
@@ -79,8 +79,8 @@ nlohmann::json package_manifest_for(const CompiledProject& project, bool with_ma
         entries.push_back({{"path", asset.path}, {"size", 10}});
     if (with_materials) {
         entries.push_back({{"path", "shader-materials.json"}, {"size", 10}});
-        entries.push_back({{"path", "shaders/bgfx/glsl-120/sprite.vs.bin"}, {"size", 10}});
-        entries.push_back({{"path", "shaders/bgfx/glsl-120/sprite.fs.bin"}, {"size", 10}});
+        entries.push_back({{"path", "shaders/bgfx/glsl-330/sprite.vs.bin"}, {"size", 10}});
+        entries.push_back({{"path", "shaders/bgfx/glsl-330/sprite.fs.bin"}, {"size", 10}});
     }
     nlohmann::json manifest = {
         {"format", "noveltea.runtime-package"},
@@ -96,7 +96,7 @@ nlohmann::json package_manifest_for(const CompiledProject& project, bool with_ma
          {{"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
           {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}}},
         {"shader_variants",
-         with_materials ? nlohmann::json::array({"glsl-120"}) : nlohmann::json::array()},
+         with_materials ? nlohmann::json::array({"glsl-330"}) : nlohmann::json::array()},
         {"entries", std::move(entries)},
     };
     if (with_materials) {

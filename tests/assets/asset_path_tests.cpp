@@ -6,11 +6,11 @@ using noveltea::assets::AssetPath;
 
 TEST_CASE("AssetPath parses namespaces and defaults")
 {
-    auto explicit_path = AssetPath::parse("system:/shaders/bgfx/glsl-120/triangle.vs.bin");
+    auto explicit_path = AssetPath::parse("system:/shaders/bgfx/glsl-330/triangle.vs.bin");
     REQUIRE(explicit_path);
     CHECK(explicit_path->namespace_name() == "system");
-    CHECK(explicit_path->relative_path() == "shaders/bgfx/glsl-120/triangle.vs.bin");
-    CHECK(explicit_path->logical_path() == "system:/shaders/bgfx/glsl-120/triangle.vs.bin");
+    CHECK(explicit_path->relative_path() == "shaders/bgfx/glsl-330/triangle.vs.bin");
+    CHECK(explicit_path->logical_path() == "system:/shaders/bgfx/glsl-330/triangle.vs.bin");
 
     auto defaulted = AssetPath::parse_with_default_namespace("rmlui/demo.rml");
     REQUIRE(defaulted);
