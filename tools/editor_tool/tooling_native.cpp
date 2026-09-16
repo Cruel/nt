@@ -633,8 +633,9 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     return ok({{"report", std::move(report)}});
 }
 
-noveltea::ShaderCompileOptions shader_compile_options_from_json(const nlohmann::json& json,
-                                                                nlohmann::json& diagnostics)
+noveltea::ShaderCompileOptions
+shader_compile_options_from_json(const nlohmann::json& json,
+                                 std::vector<noveltea::ShaderCompileDiagnostic>& diagnostics)
 {
     noveltea::ShaderCompileOptions options;
     if (!json.is_object())
@@ -657,10 +658,7 @@ noveltea::ShaderCompileOptions shader_compile_options_from_json(const nlohmann::
         }
     }
 
-    std::vector<noveltea::ShaderCompileDiagnostic> variant_diagnostics;
-    options.variants =
-        noveltea::shader_compile_variants_from_names(variant_names, &variant_diagnostics);
-    diagnostics = shader_compile_diagnostics_to_json(variant_diagnostics);
+    options.variants = noveltea::shader_compile_variants_from_names(variant_names, &diagnostics);
     return options;
 }
 
@@ -1128,18 +1126,17 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
         if (!shader_project)
             return error_response;
 
-        nlohmann::json variant_diagnostics = nlohmann::json::array();
+        std::vector<noveltea::ShaderCompileDiagnostic> variant_diagnostics;
         auto options = shader_compile_options_from_json(
             json_access::value_or(request, "options", nlohmann::json::object()),
             variant_diagnostics);
         noveltea::ShaderCompilerService compiler;
         auto result = compiler.compile_shader_project(*shader_project, options);
-        auto diagnostics = shader_compile_diagnostics_to_json(result.diagnostics);
-        for (const auto& diagnostic : variant_diagnostics)
-            diagnostics.push_back(diagnostic);
+        result.diagnostics.insert(result.diagnostics.end(), variant_diagnostics.begin(),
+                                  variant_diagnostics.end());
         return ok({{"success", result.success()},
                    {"outputs", shader_compile_outputs_to_json(result.outputs)},
-                   {"diagnostics", std::move(diagnostics)}});
+                   {"diagnostics", shader_compile_diagnostics_to_json(result.diagnostics)}});
     }
 
     if (command == "export-package") {
