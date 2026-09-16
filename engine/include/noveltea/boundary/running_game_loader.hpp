@@ -12,6 +12,7 @@ namespace noveltea::runtime {
 struct RunningGameLoadInput {
     core::LoadedCompiledPackage package;
     std::string runtime_locale;
+    core::PersistableValue startup_context{core::PersistableValue::Object{}};
 };
 
 struct ResolvedRunningGameSource {

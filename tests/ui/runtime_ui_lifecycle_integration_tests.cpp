@@ -10,6 +10,7 @@
 #include "ui/rmlui/rmlui_host.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
 #include "ui/runtime_ui_lifecycle_fixture.hpp"
+#include "frozen_wall_clock.hpp"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -174,6 +175,9 @@ constexpr const char* kBaselineDocument = R"(
 <rml>
   <head></head>
   <body id="baseline-body">
+    <main id="baseline-main">
+      <section id="baseline-section">Baseline section</section>
+    </main>
     <p id="baseline-paragraph">Baseline paragraph</p>
     <button id="baseline-button">Baseline button</button>
     <div id="baseline-disabled" style="pointer-events: none;">
@@ -842,6 +846,12 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
 
     noveltea::RuntimeUiGameplayValues values;
     values.revision = 1;
+    values.startup_context =
+        noveltea::core::PersistableValue{noveltea::core::PersistableValue::Object{
+            {"scenario", noveltea::core::PersistableValue{std::string("rooms")}},
+            {"nested", noveltea::core::PersistableValue{noveltea::core::PersistableValue::Array{
+                           noveltea::core::PersistableValue{std::int64_t{7}},
+                           noveltea::core::PersistableValue{std::monostate{}}}}}}};
     values.view.can_continue = true;
     values.view.scene =
         noveltea::core::SceneView{.scene = scene.value(),
@@ -940,6 +950,30 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
     expect_shell_parity("shell-set-text-scale", "assert(Game.shell.set_text_scale(1.5))");
     expect_shell_parity("shell-confirm", "assert(Game.shell.confirm())");
     expect_shell_parity("shell-cancel", "assert(Game.shell.cancel())");
+
+    REQUIRE(luaL_dostring(fixture.lua_state(),
+                          "local c=Game.startup_context(); assert(c.scenario == 'rooms' and "
+                          "c.nested[1] == 7 and c.nested[2] == Data.null); c.scenario='changed'; "
+                          "assert(Game.startup_context().scenario == 'rooms')") == LUA_OK);
+    const auto gameplay_before_restart = input_sink.gameplay_inputs;
+    input_sink.last_gameplay_input.reset();
+    REQUIRE(
+        luaL_dostring(fixture.lua_state(),
+                      "assert(Game.restart({scenario='dialogue', nested={1, Data.null}}, true))") ==
+        LUA_OK);
+    CHECK(input_sink.gameplay_inputs == gameplay_before_restart + 1);
+    REQUIRE(input_sink.last_gameplay_input);
+    const auto* restart =
+        std::get_if<noveltea::core::ResetRuntimeInput>(&*input_sink.last_gameplay_input);
+    REQUIRE(restart != nullptr);
+    CHECK(restart->show_title);
+    const noveltea::core::PersistableValue expected_restart_context{
+        noveltea::core::PersistableValue::Object{
+            {"nested", noveltea::core::PersistableValue{noveltea::core::PersistableValue::Array{
+                           noveltea::core::PersistableValue{std::int64_t{1}},
+                           noveltea::core::PersistableValue{std::monostate{}}}}},
+            {"scenario", noveltea::core::PersistableValue{std::string("dialogue")}}}};
+    CHECK(restart->startup_context == expected_restart_context);
 
     const auto shell_commands_before_invalid = input_sink.shell_commands;
     dispatch("shell-save-missing");
@@ -1421,12 +1455,20 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
   <head>
     <style>
       body { width: 640px; height: 360px; }
-      button, #passive { display: block; width: 160px; height: 48px; }
+      button, #attribute-action, #passive { display: block; width: 160px; height: 48px; }
+      #hidden-action { display: none; }
+      #empty-action { width: 0; height: 0; }
+      #blocked-action, #blocker { position: absolute; left: 240px; top: 0; width: 160px; height: 48px; }
     </style>
   </head>
   <body>
     <button id="action" tabindex="0">Action</button>
+    <div id="attribute-action" data-test="confirm" tabindex="0">Attribute Action</div>
     <div id="passive">Passive</div>
+    <button id="hidden-action" tabindex="0">Hidden Action</button>
+    <button id="empty-action" tabindex="0">Empty Action</button>
+    <button id="blocked-action" nt-action="blocked" tabindex="0">Blocked Action</button>
+    <div id="blocker">Blocker</div>
   </body>
 </rml>
 )";
@@ -1437,6 +1479,9 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     const auto listener = RuntimeUiFacadeAccess::add_event_listener(
         ui, "gameplay", "action", "click", [&activations]() { ++activations; });
     REQUIRE(listener != 0);
+    const auto attribute_listener = RuntimeUiFacadeAccess::add_event_listener(
+        ui, "gameplay", "attribute-action", "click", [&activations]() { ++activations; });
+    REQUIRE(attribute_listener != 0);
     ui.begin_frame({});
 
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
@@ -1473,9 +1518,31 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     CHECK(input_sink.last_layout_owner == noveltea::core::MountedLayoutOwner::Gameplay);
     CHECK(std::string(noveltea::ui::rmlui::to_string(click.status)) == "dispatched");
 
+    const auto attribute_click =
+        driver->click({.document_id = "gameplay", .selector = "[data-test='confirm']"});
+    CHECK(attribute_click.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::Dispatched);
+    CHECK(attribute_click.target_id == "attribute-action");
+    CHECK(activations == 3);
+    CHECK(input_sink.layout_events == 2);
+
     const auto missing = driver->click({.document_id = "gameplay", .selector = "#missing"});
     CHECK(missing.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetNotFound);
     CHECK_FALSE(missing.dispatched);
+
+    const auto hidden_target =
+        driver->click({.document_id = "gameplay", .selector = "#hidden-action"});
+    CHECK(hidden_target.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetHidden);
+    CHECK_FALSE(hidden_target.dispatched);
+
+    const auto empty_target =
+        driver->click({.document_id = "gameplay", .selector = "#empty-action"});
+    CHECK(empty_target.status ==
+          noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetEmptyBounds);
+    CHECK_FALSE(empty_target.dispatched);
+
+    const auto blocked = driver->click({.document_id = "gameplay", .selector = "#blocked-action"});
+    CHECK(blocked.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetBlocked);
+    CHECK_FALSE(blocked.dispatched);
 
     auto* action = driver->element("gameplay", "action");
     REQUIRE(action);
@@ -1489,8 +1556,8 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     CHECK(passive.status ==
           noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::TargetNotInteractive);
     CHECK_FALSE(passive.dispatched);
-    CHECK(activations == 2);
-    CHECK(input_sink.layout_events == 1);
+    CHECK(activations == 3);
+    CHECK(input_sink.layout_events == 2);
 
     REQUIRE(ui.hide_document("gameplay"));
     const auto hidden =
@@ -1650,6 +1717,44 @@ TEST_CASE("RuntimeUI input sink rebinding preserves gameplay revision and shell 
     values.view.mode = "stale";
     CHECK_FALSE(ui.apply_gameplay_ui_values(values));
     CHECK(notification->GetInnerRML() == "after-rebind");
+}
+
+TEST_CASE(
+    "RuntimeUI baseline preserves content width when the Load menu enables a vertical scrollbar")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_builtin_system_document(ui, "runtime_load_menu",
+                                                                "system:/ui/menu/load-menu.rml"));
+    noveltea::core::RuntimeShellViewState view;
+    view.checkpoint = noveltea::core::CheckpointRuntimeObservation{
+        .readiness = {noveltea::core::CheckpointReadinessRevision::from_number(8), {}},
+        .presentation = {noveltea::core::CheckpointStatusRevision::from_number(4),
+                         {},
+                         std::nullopt},
+        .retained_revision = noveltea::core::SaveCheckpointRevision::from_number(2),
+        .replay_distance = {0, 0, std::chrono::milliseconds{0}},
+        .thumbnail_available = false,
+        .thumbnail_capture_pending = false};
+    view.slots.push_back({.slot = noveltea::core::TypedSaveSlotId::autosave(), .occupied = false});
+    for (int slot = 1; slot <= 20; ++slot)
+        view.slots.push_back(
+            {.slot = noveltea::core::TypedSaveSlotId::manual(slot), .occupied = false});
+    ui.apply_runtime_shell_view(view);
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
+
+    auto* playback_driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(playback_driver);
+    auto* document = playback_driver->document("runtime_load_menu");
+    REQUIRE(document);
+    auto* panel = document->QuerySelector(".nt-shell-panel");
+    auto* summary = document->GetElementById("nt-checkpoint-summary");
+    REQUIRE(panel);
+    REQUIRE(summary);
+    CHECK(panel->GetBox().GetSize(Rml::BoxArea::Content).x == Catch::Approx(720.0f));
+    CHECK(summary->GetBox().GetSize(Rml::BoxArea::Border).x > 500.0f);
+    CHECK(summary->GetBox().GetSize(Rml::BoxArea::Border).y < 40.0f);
 }
 
 TEST_CASE("RuntimeUI built-in settings controls follow loaded project accessibility policy")
@@ -2362,10 +2467,24 @@ TEST_CASE("RuntimeUI authored system Layouts opt into model state without role-s
     CHECK(driver->element("authored-modal", "nt-shell-status")->GetInnerRML().empty());
 }
 
-TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to its presenter")
+TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to its presenter",
+          "[wall-clock]")
 {
-    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    noveltea::test_support::FrozenWallClock clock;
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.wall_clock = &clock});
     REQUIRE(fixture.initialize());
+    const char* calendar_checks = R"(
+        assert(os.time() == 1709164800)
+        assert(os.date('%Y-%m-%d %H:%M:%S') == '2024-02-29 05:30:00')
+        assert(os.date('!%Y-%m-%d %H:%M:%S') == '2024-02-29 00:00:00')
+        assert(os.time(os.date('*t')) == os.time())
+        assert(os.difftime(os.time(), 1709078400) == 86400)
+        for _, name in ipairs({'execute', 'exit', 'getenv', 'remove', 'rename',
+                               'setlocale', 'tmpname', 'clock'}) do
+            assert(os[name] == nil)
+        end
+    )";
+    require_lua(fixture.lua_state(), calendar_checks);
     auto& ui = fixture.runtime_ui();
     REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
     RecordingRuntimeUiInputSink input_sink;
@@ -2402,6 +2521,10 @@ TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to it
     ui.begin_frame(
         noveltea::core::RuntimeClockUpdate{.gameplay_delta = std::chrono::milliseconds(10),
                                            .gameplay_time = std::chrono::milliseconds(2010)});
+    CHECK(ui.active_text_presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Fade);
+    require_lua(fixture.lua_state(), calendar_checks);
+    clock.epoch += 86400;
+    require_lua(fixture.lua_state(), "assert(os.date('!%Y-%m-%d') == '2024-03-01')");
     CHECK(ui.active_text_presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Fade);
 }
 
@@ -4453,16 +4576,22 @@ TEST_CASE("RuntimeUI applies universal RmlUi baselines below path and memory doc
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
     REQUIRE(driver);
 
+    auto* main = driver->element("baseline-path", "baseline-main");
+    auto* section = driver->element("baseline-path", "baseline-section");
     auto* paragraph = driver->element("baseline-path", "baseline-paragraph");
     auto* body = driver->element("baseline-path", "baseline-body");
     auto* button = driver->element("baseline-path", "baseline-button");
     auto* disabled = driver->element("baseline-path", "baseline-disabled");
     auto* disabled_child = driver->element("baseline-path", "baseline-disabled-child");
+    REQUIRE(main);
+    REQUIRE(section);
     REQUIRE(paragraph);
     REQUIRE(body);
     REQUIRE(button);
     REQUIRE(disabled);
     REQUIRE(disabled_child);
+    CHECK(main->GetComputedValues().display() == Rml::Style::Display::Block);
+    CHECK(section->GetComputedValues().display() == Rml::Style::Display::Block);
     CHECK(paragraph->GetComputedValues().display() == Rml::Style::Display::Block);
     CHECK(body->GetComputedValues().color() == Rml::Colourb(248, 250, 252, 255));
     CHECK(body->GetComputedValues().pointer_events() == Rml::Style::PointerEvents::None);

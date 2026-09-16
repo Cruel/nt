@@ -133,7 +133,7 @@ const authoringManifestEntrySchema = z
       });
   });
 
-const shaderResourceIdPattern = /^shader:.+:(vertex|fragment):(glsl-120|essl-100|essl-300|metal)$/;
+const shaderResourceIdPattern = /^shader:.+:(vertex|fragment):(glsl-330|essl-300|metal)$/;
 
 const shaderManifestEntrySchema = strict({
   ...manifestBase,

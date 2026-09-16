@@ -1,0 +1,49 @@
+{
+  "id": "use",
+  "label": "Use",
+  "data": {
+    "kind": "verb",
+    "slots": [
+      {
+        "id": "target",
+        "label": { "source": { "kind": "inline", "text": "target" }, "markup": "plain" },
+        "prompt": { "source": { "kind": "inline", "text": "Choose a target" }, "markup": "plain" },
+        "selectors": [
+          {
+            "kind": "interactable-definition",
+            "interactableDefinition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }
+          }
+        ]
+      }
+    ],
+    "bindingOrder": ["target"],
+    "actionText": { "source": { "kind": "inline", "text": "Use" }, "markup": "plain" },
+    "completedCommandText": { "source": { "kind": "inline", "text": "Use target" }, "markup": "plain" },
+    "offers": [
+      {
+        "id": "use-gate-lever",
+        "slotId": "target",
+        "selectors": [
+          {
+            "kind": "interactable-definition",
+            "interactableDefinition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }
+          }
+        ],
+        "rank": 0,
+        "primary": true
+      }
+    ],
+    "availability": { "kind": "always" },
+    "defaultProgram": {
+      "instructions": [
+        {
+          "id": "nothing-to-use",
+          "kind": "notify",
+          "message": { "source": { "kind": "inline", "text": "There is nothing useful to operate." }, "markup": "plain" }
+        }
+      ],
+      "completion": { "kind": "return" },
+      "outcome": "handled"
+    }
+  }
+}

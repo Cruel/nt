@@ -186,6 +186,8 @@ Engine::Impl::Impl()
           .system_layout_host = *this,
           .world_transitions = &m_world_transitions,
           .script_certifier = m_scripts,
+          .runtime_session_replaced =
+              [this]() { m_presentation_layouts.replace_runtime_session(); },
           .diagnostic_sink =
               [](host::HostFrameStage stage, const core::Diagnostic& diagnostic) {
                   const auto stage_name = host::to_string(stage);
@@ -425,8 +427,7 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition vertex;
     vertex.stage = ShaderStage::Vertex;
     vertex.compiled = {
-        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/quad.vs.bin"),
-        system_binary("essl-100", "system:/shaders/bgfx/essl-100/quad.vs.bin"),
+        system_binary("glsl-330", "system:/shaders/bgfx/glsl-330/quad.vs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/quad.vs.bin"),
         system_binary("metal", "system:/shaders/bgfx/metal/quad.vs.bin"),
     };
@@ -434,8 +435,7 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition fragment;
     fragment.stage = ShaderStage::Fragment;
     fragment.compiled = {
-        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/quad.fs.bin"),
-        system_binary("essl-100", "system:/shaders/bgfx/essl-100/quad.fs.bin"),
+        system_binary("glsl-330", "system:/shaders/bgfx/glsl-330/quad.fs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/quad.fs.bin"),
         system_binary("metal", "system:/shaders/bgfx/metal/quad.fs.bin"),
     };
@@ -467,8 +467,7 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition postprocess_vertex;
     postprocess_vertex.stage = ShaderStage::Vertex;
     postprocess_vertex.compiled = {
-        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/postprocess_tint.vs.bin"),
-        system_binary("essl-100", "system:/shaders/bgfx/essl-100/postprocess_tint.vs.bin"),
+        system_binary("glsl-330", "system:/shaders/bgfx/glsl-330/postprocess_tint.vs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/postprocess_tint.vs.bin"),
         system_binary("metal", "system:/shaders/bgfx/metal/postprocess_tint.vs.bin"),
     };
@@ -476,8 +475,7 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition postprocess_fragment;
     postprocess_fragment.stage = ShaderStage::Fragment;
     postprocess_fragment.compiled = {
-        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/postprocess_tint.fs.bin"),
-        system_binary("essl-100", "system:/shaders/bgfx/essl-100/postprocess_tint.fs.bin"),
+        system_binary("glsl-330", "system:/shaders/bgfx/glsl-330/postprocess_tint.fs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/postprocess_tint.fs.bin"),
         system_binary("metal", "system:/shaders/bgfx/metal/postprocess_tint.fs.bin"),
     };
@@ -521,8 +519,7 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition rmlui_vertex;
     rmlui_vertex.stage = ShaderStage::Vertex;
     rmlui_vertex.compiled = {
-        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/rmlui_noise_panel.vs.bin"),
-        system_binary("essl-100", "system:/shaders/bgfx/essl-100/rmlui_noise_panel.vs.bin"),
+        system_binary("glsl-330", "system:/shaders/bgfx/glsl-330/rmlui_noise_panel.vs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/rmlui_noise_panel.vs.bin"),
         system_binary("metal", "system:/shaders/bgfx/metal/rmlui_noise_panel.vs.bin"),
     };
@@ -530,8 +527,7 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition noise_fragment;
     noise_fragment.stage = ShaderStage::Fragment;
     noise_fragment.compiled = {
-        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/rmlui_noise_panel.fs.bin"),
-        system_binary("essl-100", "system:/shaders/bgfx/essl-100/rmlui_noise_panel.fs.bin"),
+        system_binary("glsl-330", "system:/shaders/bgfx/glsl-330/rmlui_noise_panel.fs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/rmlui_noise_panel.fs.bin"),
         system_binary("metal", "system:/shaders/bgfx/metal/rmlui_noise_panel.fs.bin"),
     };
@@ -557,8 +553,7 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition text_vertex;
     text_vertex.stage = ShaderStage::Vertex;
     text_vertex.compiled = {
-        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/text.vs.bin"),
-        system_binary("essl-100", "system:/shaders/bgfx/essl-100/text.vs.bin"),
+        system_binary("glsl-330", "system:/shaders/bgfx/glsl-330/text.vs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/text.vs.bin"),
         system_binary("metal", "system:/shaders/bgfx/metal/text.vs.bin"),
     };
@@ -566,8 +561,7 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition text_fragment;
     text_fragment.stage = ShaderStage::Fragment;
     text_fragment.compiled = {
-        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/text.fs.bin"),
-        system_binary("essl-100", "system:/shaders/bgfx/essl-100/text.fs.bin"),
+        system_binary("glsl-330", "system:/shaders/bgfx/glsl-330/text.fs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/text.fs.bin"),
         system_binary("metal", "system:/shaders/bgfx/metal/text.fs.bin"),
     };
@@ -575,8 +569,7 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition glow_fragment;
     glow_fragment.stage = ShaderStage::Fragment;
     glow_fragment.compiled = {
-        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/active_text_glow.fs.bin"),
-        system_binary("essl-100", "system:/shaders/bgfx/essl-100/active_text_glow.fs.bin"),
+        system_binary("glsl-330", "system:/shaders/bgfx/glsl-330/active_text_glow.fs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/active_text_glow.fs.bin"),
         system_binary("metal", "system:/shaders/bgfx/metal/active_text_glow.fs.bin"),
     };

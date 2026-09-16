@@ -23,12 +23,13 @@ env:
   ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
   ANDROID_CMAKE_VERSION: "3.31.6"
   ANDROID_NDK_VERSION: "28.2.13676358"
+  NOVELTEA_SHADERC_TOOLCHAIN_TAG: r6
 
 permissions:
   contents: read
 
 # CI coverage split:
-# - shader-assets compiles the shared glsl-120, essl-100, essl-300, and metal shader tree.
+# - shader-assets compiles the shared glsl-330, essl-300, and metal shader tree.
 # - Platform jobs consume the artifact with local shader compilation disabled.
 # - Linux desktop, host CLI, and cooperative/no-thread coverage run independently.
 # - Web player and editor-preview builds run independently so Electron can start from the preview artifact early.
@@ -81,13 +82,14 @@ jobs:
           shaderc_root="${{ github.workspace }}/.cache/shaderc"
           mkdir -p "$shaderc_root"
           curl -fL \
-            -o "$shaderc_root/bgfx-shaderc-linux-x64.tar.gz" \
-            https://github.com/Cruel/nt-tools/releases/download/r1/bgfx-shaderc-linux-x64.tar.gz
-          tar -xzf "$shaderc_root/bgfx-shaderc-linux-x64.tar.gz" -C "$shaderc_root"
+            -o "$shaderc_root/noveltea-bgfx-shaderc-linux-x64.tar.gz" \
+            "https://github.com/Cruel/nt-tools/releases/download/$NOVELTEA_SHADERC_TOOLCHAIN_TAG/noveltea-bgfx-shaderc-linux-x64.tar.gz"
+          tar -xzf "$shaderc_root/noveltea-bgfx-shaderc-linux-x64.tar.gz" -C "$shaderc_root"
           test -x "$shaderc_root/bin/shaderc"
-          test -f "$shaderc_root/include/bgfx/bgfx_shader.sh"
+          test -f "$shaderc_root/resources/bgfx_shader.sh"
+          test -f "$shaderc_root/resources/bgfx_compute.sh"
           echo "SHADERC=$shaderc_root/bin/shaderc" >> "$GITHUB_ENV"
-          echo "BGFX_SHADER_INCLUDE=$shaderc_root/include/bgfx" >> "$GITHUB_ENV"
+          echo "BGFX_SHADER_INCLUDE=$shaderc_root/resources" >> "$GITHUB_ENV"
 
       - name: Compile and verify shader assets
         run: |
@@ -95,13 +97,13 @@ jobs:
             -DNOVELTEA_SHADERC_EXECUTABLE="$SHADERC" \
             -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" \
             -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" \
-            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300;metal' \
+            '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' \
             -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="$BGFX_SHADER_INCLUDE" \
             -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
           cmake \
             -DNOVELTEA_VERIFY_ONLY=ON \
             -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" \
-            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300;metal' \
+            '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' \
             -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
 
       - name: Upload shader assets
@@ -233,13 +235,13 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            build/linux-release/_deps/noveltea_bgfx_shaderc_source-src
-            build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
+            build/linux-release/_deps/bgfx.cmake-src
+            build/linux-release/_deps/bgfx.cmake-build
             build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
             build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
             build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bimg_texturec_embedded.dir
             build/linux-release/tools/editor_tool/libnoveltea_bimg_texturec_embedded.a
-          key: ${{ runner.os }}-x64-embedded-bgfx-tools-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+          key: ${{ runner.os }}-x64-embedded-bgfx-tools-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
 
       - name: Set up compiler cache
         id: ccache
@@ -254,10 +256,9 @@ jobs:
           path: build/prebuilt-shader-assets
 
       - name: Download prebuilt embedded bgfx tool closure
-        if: vars.NOVELTEA_SHADERC_TOOLCHAIN_TAG != ''
+        if: env.NOVELTEA_SHADERC_TOOLCHAIN_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          NOVELTEA_SHADERC_TOOLCHAIN_TAG: ${{ vars.NOVELTEA_SHADERC_TOOLCHAIN_TAG }}
         run: |
           mkdir -p build/prebuilt-shaderc-download build/prebuilt-shaderc-toolchain
           gh release download "$NOVELTEA_SHADERC_TOOLCHAIN_TAG" \
@@ -288,8 +289,8 @@ jobs:
             -DNOVELTEA_CLI_EXECUTABLE="${{ github.workspace }}/build/cli/linux/noveltea" \
             -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" \
             -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/cli-shader-assets" \
-            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300;metal' \
-            -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-release/vcpkg_installed/x64-linux-noveltea/include/bgfx" \
+            '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' \
+            -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-release/_deps/bgfx.cmake-src/bgfx/src" \
             -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
           diff --recursive --brief \
             build/prebuilt-shader-assets/shaders \
@@ -299,7 +300,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-cli-certification-shader-headers
-          path: build/linux-release/vcpkg_installed/x64-linux-noveltea/include/bgfx
+          path: build/linux-release/_deps/bgfx.cmake-src/bgfx/src
           if-no-files-found: error
 
       - name: Upload NovelTea host CLI
@@ -343,7 +344,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: noveltea-cli-certification-shader-headers
-          path: build/linux-release/vcpkg_installed/x64-linux-noveltea/include/bgfx
+          path: build/linux-release/_deps/bgfx.cmake-src/bgfx/src
 
       - name: Download NovelTea host CLI
         uses: actions/download-artifact@v7
@@ -351,8 +352,8 @@ jobs:
           name: noveltea-host-cli-linux-x64
           path: build/cli/linux
 
-      - name: Make NovelTea host CLI executable
-        run: chmod +x build/cli/linux/noveltea
+      - name: Make NovelTea host CLI executables executable
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
       - name: Certify NovelTea host CLI
         run: pnpm -C editor run noveltea:certify
@@ -460,13 +461,13 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            build/linux-sanitize/_deps/noveltea_bgfx_shaderc_source-src
-            build/linux-sanitize/_deps/noveltea_bgfx_shaderc_source-build
+            build/linux-sanitize/_deps/bgfx.cmake-src
+            build/linux-sanitize/_deps/bgfx.cmake-build
             build/linux-sanitize/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
             build/linux-sanitize/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
             build/linux-sanitize/tools/editor_tool/CMakeFiles/noveltea_bimg_texturec_embedded.dir
             build/linux-sanitize/tools/editor_tool/libnoveltea_bimg_texturec_embedded.a
-          key: ${{ runner.os }}-x64-embedded-bgfx-tools-sanitize-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+          key: ${{ runner.os }}-x64-embedded-bgfx-tools-sanitize-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
 
       - name: Cache sanitizer RmlUi dependencies
         id: sanitizer-rmlui-cache
@@ -933,8 +934,8 @@ jobs:
           name: noveltea-host-cli-linux-x64
           path: build/cli/linux
 
-      - name: Make NovelTea host CLI executable
-        run: chmod +x build/cli/linux/noveltea
+      - name: Make NovelTea host CLI executables executable
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -1227,8 +1228,8 @@ jobs:
           name: noveltea-host-cli-linux-x64
           path: build/cli/linux
 
-      - name: Make NovelTea host CLI executable
-        run: chmod +x build/cli/linux/noveltea
+      - name: Make NovelTea host CLI executables executable
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6

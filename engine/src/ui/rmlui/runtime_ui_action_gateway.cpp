@@ -216,6 +216,11 @@ void RuntimeUiActionGateway::bind_layout_gameplay_admission(std::function<bool()
     m_layout_gameplay_admission = std::move(admission);
 }
 
+void RuntimeUiActionGateway::set_startup_context(core::PersistableValue context) noexcept
+{
+    m_startup_context = std::move(context);
+}
+
 bool RuntimeUiActionGateway::apply(const RuntimeUiGameplayValues& values)
 {
     if (!can_apply(values)) {
@@ -267,12 +272,14 @@ void RuntimeUiActionGateway::commit(RuntimeUiGameplayValues values) noexcept
             }
         }
     }
+    m_startup_context = values.startup_context;
     m_values = std::move(values);
 }
 
 void RuntimeUiActionGateway::clear_gameplay_values()
 {
     m_values.reset();
+    m_startup_context = core::PersistableValue{core::PersistableValue::Object{}};
     m_command_builder_draft.reset();
     m_command_builder_watch_dirty = false;
 }
@@ -308,6 +315,11 @@ void RuntimeUiActionGateway::clear_shell_slots() noexcept { m_shell_slots.clear(
 const core::TypedRuntimeUIViewState* RuntimeUiActionGateway::view() const noexcept
 {
     return m_values ? &m_values->view : nullptr;
+}
+
+const core::PersistableValue& RuntimeUiActionGateway::startup_context() const noexcept
+{
+    return m_startup_context;
 }
 
 std::uint64_t RuntimeUiActionGateway::revision() const noexcept
@@ -398,6 +410,12 @@ RuntimeUiActionGateway::shell_slot(core::TypedSaveSlotId slot) const noexcept
         std::find_if(m_shell_slots.begin(), m_shell_slots.end(),
                      [slot](const ShellSlotState& state) { return state.slot == slot; });
     return found == m_shell_slots.end() ? nullptr : &*found;
+}
+
+bool RuntimeUiActionGateway::action_restart(core::PersistableValue startup_context, bool show_title)
+{
+    return dispatch_input(
+        core::RuntimeInputMessage{core::ResetRuntimeInput{std::move(startup_context), show_title}});
 }
 
 bool RuntimeUiActionGateway::action_continue()

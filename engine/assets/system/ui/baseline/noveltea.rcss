@@ -7,12 +7,52 @@ body > * {
   pointer-events: auto;
 }
 
+main,
+section,
+article,
+aside,
+header,
+footer,
+nav {
+  display: block;
+}
+
 body {
   width: 100%;
   height: 100%;
   color: #f8fafc;
   font-family: Liberation Sans;
   pointer-events: none;
+}
+
+scrollbarvertical {
+  width: 16dp;
+}
+
+scrollbarhorizontal {
+  height: 16dp;
+}
+
+scrollbarvertical slidertrack,
+scrollbarhorizontal slidertrack {
+  background-color: #1e293b;
+  border-color: #475569;
+}
+
+scrollbarvertical sliderbar,
+scrollbarhorizontal sliderbar {
+  background-color: #64748b;
+  border-color: #94a3b8;
+}
+
+scrollbarvertical sliderbar:hover,
+scrollbarhorizontal sliderbar:hover {
+  background-color: #94a3b8;
+  border-color: #cbd5e1;
+}
+
+scrollbarcorner {
+  background-color: #1e293b;
 }
 
 button {

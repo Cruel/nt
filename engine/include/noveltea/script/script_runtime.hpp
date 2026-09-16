@@ -21,6 +21,7 @@ namespace detail {
 struct ScriptRuntimeAccess;
 }
 class RuntimeScriptApi;
+class WallClock;
 
 struct ScriptEnvironmentHandle {
     std::uint64_t value = 0;
@@ -35,6 +36,8 @@ struct DataAssetBinding {
 
 struct ScriptRuntimeConfig {
     const runtime::ScriptSourcePort* sources = nullptr;
+    // Borrowed through shutdown; null selects the host's system wall clock/timezone.
+    const WallClock* wall_clock = nullptr;
 };
 
 class ScriptRuntime final : public runtime::ScriptRuntimePort {
@@ -94,6 +97,8 @@ public:
     [[nodiscard]] core::Result<void, ScriptError> initialize(ScriptRuntimeConfig config);
     void shutdown();
     [[nodiscard]] bool is_initialized() const;
+    void set_startup_context(core::PersistableValue context) override;
+    [[nodiscard]] core::PersistableValue startup_context() const;
     [[nodiscard]] ScopedSourceOverride
     override_sources(const runtime::ScriptSourcePort& sources) noexcept;
 

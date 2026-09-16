@@ -235,8 +235,8 @@ closed instead of changing journal state. Non-dry-run semantic mutations persist
 workspace transaction service used by editor structural writes.
 
 `noveltea validate` uses the shared authoring compiler/validation and dependency/source-analysis
-pipeline. Projects with authored Shaders or Materials also run shader readiness for `glsl-120`,
-`essl-100`, and `essl-300` through the standalone `noveltea` native tooling boundary. The retired
+pipeline. Projects with authored Shaders or Materials also run shader readiness for `glsl-330`,
+`essl-300`, and `metal` through the standalone `noveltea` native tooling boundary. The retired
 `noveltea-editor-tool` executable and standalone released shaderc process are not part of the current
 workspace/toolchain contract.
 

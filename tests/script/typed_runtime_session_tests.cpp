@@ -3797,12 +3797,25 @@ TEST_CASE(
     CHECK(fixture.saves.has_slot(slot).value());
     CHECK_FALSE(fixture.session->take_checkpoint_save_outcomes().empty());
 
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = Game.restart({scenario='rooms', nested={7, Data.null}}); "
+        "assert(ok and err == nil)",
+        "script-api-queued-restart"));
     auto reset_request =
-        fixture.session->dispatch(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(reset_request.diagnostics.empty());
     REQUIRE(reset_request.session_replacement_request);
-    CHECK(std::holds_alternative<core::ResetRuntimeInput>(
-        *reset_request.session_replacement_request));
+    const auto* requested_reset =
+        std::get_if<core::ResetRuntimeInput>(&*reset_request.session_replacement_request);
+    REQUIRE(requested_reset);
+    CHECK_FALSE(requested_reset->show_title);
+    const core::PersistableValue expected_context{core::PersistableValue::Object{
+        {"nested",
+         core::PersistableValue{core::PersistableValue::Array{
+             core::PersistableValue{std::int64_t{7}}, core::PersistableValue{std::monostate{}}}}},
+        {"scenario", core::PersistableValue{std::string("rooms")}}}};
+    CHECK(requested_reset->startup_context == expected_context);
     commit_reset_candidate(fixture);
     REQUIRE(execute_session_lua(
         fixture, "local ok, err = Game.set_prop('count', 21); assert(ok and err == nil)",

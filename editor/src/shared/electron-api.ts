@@ -53,7 +53,12 @@ interface NovelTeaElectronApiContract {
   listPlaybackTests(project: unknown): Promise<TestListResponse>;
   runPlaybackTest(project: unknown, testId: string): Promise<PlaybackReportResponse>;
   runPlaybackSpec(project: unknown, spec: unknown): Promise<PlaybackReportResponse>;
-  runUiPlaybackSpec(project: unknown, spec: unknown): Promise<PlaybackReportResponse>;
+  runUiPlaybackSpec(
+    projectSessionId: string | null,
+    project: unknown,
+    spec: unknown,
+    shaderMaterialMetadata: unknown,
+  ): Promise<PlaybackReportResponse>;
   exportPackage(
     projectSessionId: string,
     project: unknown,

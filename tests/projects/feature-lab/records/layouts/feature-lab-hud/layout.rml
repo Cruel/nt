@@ -1,0 +1,26 @@
+<rml>
+<head><title>Feature Lab</title></head>
+<body onshow="feature_lab.on_show(event, element, document)">
+  <div id="feature-lab-toolbar" data-model="noveltea">
+    <button id="feature-lab-open" onclick="feature_lab.open(event, element, document)">Feature Lab</button>
+    <div class="feature-lab-room-controls" data-for="exit : gameplay.room.exits" data-if="exit.id == 'east-gate'">
+      <button id="feature-lab-use-lever" onclick="feature_lab.use_lever(event, element, document)">Press wall button</button>
+      <button id="feature-lab-east-gate" onclick="feature_lab.try_gate(event, element, document)">Try Bedroom Door</button>
+    </div>
+  </div>
+  <div id="feature-lab-notification" data-model="noveltea" data-if="gameplay.notification != ''">{{ gameplay.notification }}</div>
+  <div id="feature-lab-panel" class="feature-lab-panel hidden">
+    <div class="feature-lab-header">
+      <h1>Feature Lab</h1>
+      <button id="feature-lab-close" onclick="feature_lab.close(event, element, document)">Close</button>
+    </div>
+    <div class="feature-lab-controls">
+      <input id="feature-lab-search" type="text" value=""/>
+      <button id="feature-lab-search-apply" onclick="feature_lab.apply_search(event, element, document)">Search</button>
+      <button id="feature-lab-recent" onclick="feature_lab.toggle_recent(event, element, document)">Last 24 Hours</button>
+      <button id="feature-lab-home" onclick="feature_lab.fresh_home(event, element, document)">Fresh Home</button>
+    </div>
+    <div id="feature-lab-results"></div>
+  </div>
+</body>
+</rml>

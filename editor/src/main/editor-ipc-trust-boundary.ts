@@ -511,6 +511,12 @@ export const runPlaybackSpecArgumentsSchema = z.tuple([
   compiledProjectWireSchema,
   playbackSpecSchema,
 ]);
+export const runUiPlaybackSpecArgumentsSchema = z.tuple([
+  projectSessionIdSchema.nullable(),
+  compiledProjectWireSchema,
+  playbackSpecSchema,
+  shaderMaterialProjectWireSchema.nullable(),
+]);
 export const previewSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
 export const previewExportedPackageArgumentsSchema = z.tuple([
   projectSessionIdSchema,

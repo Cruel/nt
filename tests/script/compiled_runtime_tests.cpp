@@ -720,6 +720,42 @@ TEST_CASE("exploration state mutates saves and restores through the canonical Ru
           start_visits_before_rejection);
     CHECK(game.session().presentation_state().room_visits(core::RoomId::create("hall").value()) ==
           hall_visits_before_rejection);
+
+    const core::PersistableValue restart_context{core::PersistableValue::Object{
+        {"scenario", core::PersistableValue{std::string("fresh-exploration")}}}};
+    auto reset_candidate = game.prepare_reset_candidate(
+        core::ResetRuntimeInput{restart_context, false}, runtime.scripts, runtime.presentation);
+    REQUIRE(reset_candidate);
+    CHECK(reset_candidate.value()->startup_context() == restart_context);
+    REQUIRE(reset_candidate.value()->initial_result().publication);
+    const auto& fresh_publication = *reset_candidate.value()->initial_result().publication;
+    REQUIRE(fresh_publication.gameplay_ui.room);
+    CHECK(fresh_publication.gameplay_ui.room->room.text() == "start");
+    CHECK(std::none_of(fresh_publication.gameplay_instances.begin(),
+                       fresh_publication.gameplay_instances.end(),
+                       [](const auto& instance) { return !instance.declared; }));
+    const auto fresh_layout =
+        std::find_if(fresh_publication.presentation.layouts.begin(),
+                     fresh_publication.presentation.layouts.end(), [](const auto& candidate) {
+                         return candidate.layout.text() == "stateful-overlay";
+                     });
+    if (fresh_layout != fresh_publication.presentation.layouts.end()) {
+        CHECK(std::none_of(fresh_layout->state_values.begin(), fresh_layout->state_values.end(),
+                           [](const auto& state) {
+                               return state.scope == core::LayoutStateScope::Session && state.value;
+                           }));
+    }
+    auto dirty_session = game.commit_candidate(std::move(reset_candidate).value());
+    REQUIRE(dirty_session);
+    auto fresh_wallet = game.session().gateway().interactable_state(wallet);
+    REQUIRE(fresh_wallet);
+    CHECK(fresh_wallet.value().quantity == 4);
+    CHECK(std::get<core::compiled::InventoryLocation>(fresh_wallet.value().location).inventory ==
+          player_inventory);
+    auto fresh_flag =
+        game.session().gateway().global_property(core::PropertyId::create("flag").value());
+    REQUIRE(fresh_flag);
+    CHECK(fresh_flag.value() == core::RuntimeValue{true});
 }
 
 TEST_CASE("compiled running game preserves declared Gameplay Instance lookup and mutation")

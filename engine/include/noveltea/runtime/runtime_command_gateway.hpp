@@ -78,6 +78,8 @@ public:
     unset_global_property(const core::PropertyId& id);
     [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
     property(const core::PropertyOwnerRef& owner, const core::PropertyId& property) const override;
+    [[nodiscard]] core::Result<bool, core::Diagnostics>
+    has_trait(const core::PropertyOwnerRef& owner, const core::TraitId& trait) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     set_property(core::PropertyOwnerRef owner, core::PropertyId property, core::RuntimeValue value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
@@ -244,6 +246,8 @@ public:
     [[nodiscard]] core::Result<std::optional<core::DesiredMountedLayout>, core::Diagnostics>
     mounted_layout(const core::MountedLayoutPresentationKey& key,
                    const core::PresentationOwner& owner) const;
+    [[nodiscard]] std::vector<core::PersistableValue>
+    layout_states(const core::LayoutId& layout) const;
 
     [[nodiscard]] core::Result<std::optional<core::LayoutId>, core::Diagnostics>
     layout(core::compiled::LayoutSlot slot) const;
@@ -268,6 +272,7 @@ public:
     set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
                               std::optional<std::uint32_t> hotspot_y) override;
     [[nodiscard]] core::Result<void, core::Diagnostics> clear_gameplay_cursor() override;
+    restart(core::PersistableValue startup_context, bool show_title = false);
 
     [[nodiscard]] core::Result<void, core::Diagnostics> request_audio(
         core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,

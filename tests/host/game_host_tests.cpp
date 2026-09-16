@@ -132,6 +132,8 @@ public:
     [[nodiscard]] core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
     mount_system_layout(core::compiled::SystemLayoutRole, core::MountedLayoutPolicy) override
     {
+        if (on_mount)
+            on_mount();
         if (fail_next_mount) {
             fail_next_mount = false;
             return core::Result<core::MountedLayoutInstanceId, core::Diagnostics>::failure(
@@ -197,20 +199,30 @@ public:
     void request_shell_quit() override {}
 
     bool fail_next_mount = false;
+    std::function<void()> on_mount;
     std::function<bool(core::RuntimeInputMessage)> dispatch_runtime_input;
 };
 
 class FakeRuntimeUiHost final : public RuntimeUiHost {
 public:
     void bind_input_sink(RuntimeUiInputSink* sink) noexcept override { input_sink = sink; }
+    void set_startup_context(core::PersistableValue context) noexcept override
+    {
+        startup_context = std::move(context);
+    }
 
     [[nodiscard]] bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values) override
     {
         gameplay_values = values;
+        startup_context = values.startup_context;
         return accept_gameplay_values;
     }
 
-    void clear_gameplay_ui_values() override { gameplay_values.reset(); }
+    void clear_gameplay_ui_values() override
+    {
+        gameplay_values.reset();
+        startup_context = core::PersistableValue{core::PersistableValue::Object{}};
+    }
     void clear_runtime_shell_view() override { ++shell_clear_count; }
     void set_runtime_notification(std::string notification) override
     {
@@ -263,6 +275,7 @@ public:
 
     RuntimeUiInputSink* input_sink = nullptr;
     std::optional<RuntimeUiGameplayValues> gameplay_values;
+    core::PersistableValue startup_context{core::PersistableValue::Object{}};
     core::Diagnostics runtime_diagnostics;
     std::string runtime_notification;
     std::string title;
@@ -2225,14 +2238,22 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
                                  const assets::AssetManager&) {
         return core::Result<void, core::Diagnostics>::success();
     };
+    const core::PersistableValue initial_context{
+        core::PersistableValue::Object{{"launch", core::PersistableValue{std::string("initial")}}}};
     REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
                                         .runtime_locale = "en",
+                                        .startup_context = initial_context,
                                         .load_title_screen = false,
                                         .stop_runtime_after_load = true},
                                        hooks));
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
     auto* initial_project_scripts = host.project_script_runtime();
     REQUIRE(initial_project_scripts);
+    CHECK(host.running_game()->startup_context() == initial_context);
+    auto initial_lua_context = initial_project_scripts->evaluate_bool(
+        "Game.startup_context().launch == 'initial'", "initial-startup-context");
+    REQUIRE(initial_lua_context);
+    CHECK(*initial_lua_context.value_if());
     const auto hook_count = core::PropertyId::create("hook-count").value();
     REQUIRE(host.running_game()->session().gateway().global_property(hook_count));
     CHECK(host.running_game()->session().gateway().global_property(hook_count).value() ==
@@ -2256,9 +2277,41 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
 
     REQUIRE(runtime_ui.set_gameplay_cursor("wait"));
     REQUIRE(runtime_ui.gameplay_cursor_name);
+
+    const auto preserved_settings = core::RuntimeUserSettings::create(1.25, 1.5);
+    REQUIRE(preserved_settings);
+    host.set_runtime_user_settings(*preserved_settings.value_if());
+    REQUIRE(saves.write_slot(core::TypedSaveSlotId::manual(9), "preserved-save"));
+    const core::PersistableValue restart_context{core::PersistableValue::Object{
+        {"scenario", core::PersistableValue{std::string("rooms")}},
+        {"nested",
+         core::PersistableValue{core::PersistableValue::Array{
+             core::PersistableValue{std::int64_t{7}}, core::PersistableValue{std::monostate{}}}}}}};
+
+    const auto failed_reset_session = host.session_generation();
+    const auto failed_reset_backend = host.backend_generation();
+    CHECK(runtime_ui.startup_context == initial_context);
+    std::vector<core::PersistableValue> remount_contexts;
+    system_layout_host.on_mount = [&]() { remount_contexts.push_back(runtime_ui.startup_context); };
+    system_layout_host.fail_next_mount = true;
+    auto failed_remount = host.submit_runtime_input(
+        core::RuntimeInputMessage{core::ResetRuntimeInput{restart_context, false}});
+    REQUIRE_FALSE(failed_remount.accepted());
+    CHECK(host.session_generation() == failed_reset_session);
+    CHECK(host.backend_generation() == failed_reset_backend);
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
+    CHECK(host.system_layouts().game_active());
+    CHECK(host.project_script_runtime() == initial_project_scripts);
+    REQUIRE_FALSE(remount_contexts.empty());
+    CHECK(remount_contexts.front() == restart_context);
+    CHECK(remount_contexts.back() == initial_context);
+    CHECK(runtime_ui.startup_context == initial_context);
+    system_layout_host.on_mount = {};
+
     const auto pre_reset_session = host.session_generation();
     const auto pre_reset_backend = host.backend_generation();
-    auto reset = host.submit_runtime_input(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
+    auto reset = host.submit_runtime_input(
+        core::RuntimeInputMessage{core::ResetRuntimeInput{restart_context, false}});
     REQUIRE(reset.accepted());
     CHECK(host.session_generation().number() == pre_reset_session.number() + 1);
     CHECK(host.backend_generation().number() == pre_reset_backend.number() + 1);
@@ -2270,6 +2323,18 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     REQUIRE(host.running_game()->session().gateway().global_property(hook_count));
     CHECK(host.running_game()->session().gateway().global_property(hook_count).value() ==
           core::RuntimeValue{std::int64_t{1}});
+    CHECK(host.running_game()->startup_context() == restart_context);
+    REQUIRE(runtime_ui.gameplay_values);
+    CHECK(runtime_ui.gameplay_values->startup_context == restart_context);
+    auto lua_context = reset_project_scripts->evaluate_bool(
+        "(function() local c=Game.startup_context(); return c.scenario == 'rooms' and "
+        "c.nested[1] == 7 and c.nested[2] == Data.null end)()",
+        "restart-startup-context");
+    REQUIRE(lua_context);
+    CHECK(*lua_context.value_if());
+    CHECK(host.runtime_user_settings() == *preserved_settings.value_if());
+    REQUIRE(saves.has_slot(core::TypedSaveSlotId::manual(9)));
+    CHECK(saves.has_slot(core::TypedSaveSlotId::manual(9)).value());
 
     auto stale = host.submit_runtime_input(pre_reset_session,
                                            core::RuntimeInputMessage{core::ContinueInput{}});
@@ -2310,13 +2375,44 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     auto* restored_project_scripts = host.project_script_runtime();
     REQUIRE(restored_project_scripts);
     CHECK(restored_project_scripts != reset_project_scripts);
+    CHECK(host.running_game()->startup_context() == restart_context);
+    auto restored_lua_context = restored_project_scripts->evaluate_bool(
+        "Game.startup_context().scenario == 'rooms'", "restored-startup-context");
+    REQUIRE(restored_lua_context);
+    CHECK(*restored_lua_context.value_if());
     REQUIRE(host.running_game()->session().gateway().global_property(hook_count));
     CHECK(host.running_game()->session().gateway().global_property(hook_count).value() ==
           core::RuntimeValue{std::int64_t{1}});
 
-    auto stopped = host.submit_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    const core::PersistableValue title_context{core::PersistableValue::Object{
+        {"destination", core::PersistableValue{std::string("title")}}}};
+    auto& restored_gateway = host.running_game()->session().gateway();
+    runtime::RuntimeCapabilityIssuer restart_issuer(restored_gateway,
+                                                    restored_gateway.generation());
+    auto restart_capabilities =
+        restart_issuer.issue(runtime::RuntimeCapabilityProfile::GameplayScript);
+    REQUIRE(restart_capabilities);
+    auto requested_restart = restored_project_scripts->invoke(
+        runtime::ScriptInvocationRequest{
+            .source = "local ok, err = Game.restart({ destination = 'title' }, true); "
+                      "assert(ok and err == nil)",
+            .chunk_name = "host-lua-title-restart",
+            .source_context = restored_gateway.current_source_context(),
+            .result_kind = runtime::ScriptInvocationResultKind::None},
+        *restart_capabilities);
+    REQUIRE(requested_restart);
+    REQUIRE(
+        std::holds_alternative<runtime::ScriptInvocationCompleted>(*requested_restart.value_if()));
+    const auto before_title_reset = host.session_generation();
+    auto stopped = host.submit_runtime_input(core::RuntimeInputMessage{core::ContinueInput{}});
+    INFO((stopped.diagnostics.empty()
+              ? std::string{}
+              : stopped.diagnostics.front().code + ": " + stopped.diagnostics.front().message));
     REQUIRE(stopped.accepted());
+    CHECK(host.session_generation().number() == before_title_reset.number() + 1);
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
+    CHECK(host.running_game()->startup_context() == title_context);
+    CHECK_FALSE(host.system_layouts().game_active());
     const auto stopped_generation = host.session_generation();
     duplicate_stop = host.submit_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(duplicate_stop.accepted());

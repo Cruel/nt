@@ -595,8 +595,8 @@ The editor-facing manifest carries semantic usage roles plus one source-owned fe
 Authoring Assets require the main-owned `noveltea-asset://source/` URL in `fetchUrl`; compiled Shader
 outputs require `fetchProjectRelativePath`. These fields are used only by the web staging layer and
 are omitted from the native projection.
-Compiled Shader entries identify the stage and one closed renderer variant (`glsl-120`, `essl-100`,
-or `essl-300`) and carry verified binary hash, byte size, and compile-input fingerprint metadata in
+Compiled Shader entries identify the stage and one closed renderer variant (`glsl-330`, `essl-300`,
+or `metal`) and carry verified binary hash, byte size, and compile-input fingerprint metadata in
 the authoring record/cache output. Metadata-bearing outputs are admitted only when their fingerprint
 matches the current normalized authoring input. Runtime paths are canonicalized once: the native
 logical path remains `project:/shaders/...`, while the web fetch path is

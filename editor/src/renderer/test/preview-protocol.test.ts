@@ -130,7 +130,7 @@ describe('preview protocol validation', () => {
         capabilities: [],
         hostGeneration: 1,
         transportGeneration: 1,
-        activeShaderVariant: 'glsl-120',
+        activeShaderVariant: 'glsl-330',
       }),
     ).toBe(false);
     expect(isPreviewToEditorMessage({ version: 1, type: 'object-clicked', objectId: 42 })).toBe(
@@ -146,7 +146,7 @@ describe('preview protocol validation', () => {
         capabilities: ['demo-click'],
         hostGeneration: 1,
         transportGeneration: 1,
-        activeShaderVariant: 'glsl-120',
+        activeShaderVariant: 'glsl-330',
       }),
     ).toBe(true);
     expect(

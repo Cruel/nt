@@ -22,7 +22,6 @@ utf8
 The following normal Lua facilities are deliberately unavailable:
 
 ```text
-os
 io
 debug
 package
@@ -30,6 +29,8 @@ require
 dofile
 loadfile
 ```
+
+NovelTea provides only the restricted calendar subset `os.time`, `os.date`, and `os.difftime`. It does not expose environment access, process control, filesystem mutation, temporary files, locale mutation, `os.clock`, or other standard OS facilities. These calendar functions use NovelTea's injectable wall-clock provider, so gameplay and Layout Lua observe the same host/frozen clock without changing process-global timezone state.
 
 There is no filesystem/module-loader escape hatch through NovelTea APIs. `print(...)` is replaced by NovelTea's host logger and writes a `[lua]` diagnostic line rather than targeting a browser console or terminal abstraction owned by the game.
 
@@ -675,6 +676,8 @@ Accepted entries enter the normal typed Text Log/save path. There is no arbitrar
 These helpers operate on current gameplay state and use typed validation:
 
 ```text
+Game.startup_context() -> persistable_value
+Game.restart(startup_context?, show_title?) -> ok, error
 Game.continue() -> ok, error
 Game.choose(index) -> ok, error
 Game.navigate(index) -> ok, error
@@ -689,6 +692,8 @@ Game.resume() -> ok, error
 Game.paused() -> boolean, error
 Game.locale() -> locale_tag, error
 ```
+
+`Game.startup_context()` returns the persistable context supplied when the current fresh session was created. `Game.restart(context, show_title)` requests a fresh Project session with that context; it does not preserve gameplay state from the replaced session. Use it for explicit fresh-run routing such as authored test/reference scenario launch rather than as ordinary Room navigation.
 
 `Game.locale()` is a read-only query for the active runtime locale. Locale selection belongs to player/shell preference surfaces rather than gameplay mutation APIs, and loading a save does not restore a saved locale.
 
@@ -814,7 +819,7 @@ Focused preview also admits only the query/mutation subset the editor can safely
 
 ## Do not assume
 
-- No `os`, `io`, `debug`, `package`, `require`, `dofile`, or `loadfile`.
+- No unrestricted `os`, `io`, `debug`, `package`, `require`, `dofile`, or `loadfile`; only `os.time`, `os.date`, and `os.difftime` are exposed from the OS library.
 - No arbitrary filesystem paths, renderer/audio backend handles, generic project JSON, or save JSON.
 - No implicit Script Module autorun.
 - No arbitrary yielding just because `coroutine` exists.

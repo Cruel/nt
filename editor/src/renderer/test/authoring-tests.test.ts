@@ -3,6 +3,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
   defaultTestData,
+  defaultTestExpectation,
   defaultTestStep,
   parseTestData,
   testCharacterSubject,
@@ -33,10 +34,30 @@ describe('authoring tests schema', () => {
     expect(defaultTestStep('save')).toMatchObject({
       input: 'save',
       saveSlot: { slotId: 'autosave' },
+      expectations: [],
     });
+    expect(defaultTestStep('ui-click')).toMatchObject({
+      input: 'ui-click',
+      uiClick: { documentId: 'runtime_game', selector: '#target' },
+    });
+    expect(defaultTestData('Smoke').finalExpectations).toEqual([]);
+    expect(defaultTestExpectation('trait')).toMatchObject({
+      type: 'trait',
+      operator: 'present',
+      trait: { ownerKind: 'interactable', ownerId: '', traitId: 'trait' },
+    });
+    const structuredLayout = defaultTestExpectation('layout', 'eq');
+    structuredLayout.layout = {
+      layoutId: 'hud',
+      field: 'state',
+      value: { page: 2, flags: [true, false] },
+    };
+    expect(
+      parseTestData({ ...defaultTestData('Smoke'), finalExpectations: [structuredLayout] }),
+    ).not.toBeNull();
   });
 
-  it('strictly rejects obsolete positional and UI-driven test forms', () => {
+  it('strictly rejects obsolete positional test forms while admitting selector clicks', () => {
     const data = defaultTestData('Smoke');
     expect(
       parseTestData({
@@ -77,13 +98,12 @@ describe('authoring tests schema', () => {
         ...data,
         steps: [
           {
-            ...defaultTestStep('tick'),
-            input: 'ui-click',
+            ...defaultTestStep('ui-click'),
             uiClick: { documentId: 'runtime_title', selector: '#start' },
           },
         ],
       }),
-    ).toBeNull();
+    ).not.toBeNull();
   });
 
   it('validates referenced semantic subjects and duplicate step IDs', () => {
@@ -123,6 +143,62 @@ describe('authoring tests schema', () => {
         }),
       ]),
     );
+  });
+
+  it('validates typed expectation operators, targets, and duplicate IDs', () => {
+    const project = createAuthoringProject();
+    const data = defaultTestData('Smoke');
+    const invalidRoom = defaultTestExpectation('current-room', 'eq');
+    invalidRoom.id = 'same';
+    invalidRoom.currentRoom.roomId = 'missing-room';
+    const invalidTrait = defaultTestExpectation('trait', 'eq');
+    invalidTrait.id = 'same';
+    invalidTrait.trait.ownerId = 'missing-instance';
+    invalidTrait.trait.traitId = 'missing-trait';
+    data.steps[0]!.expectations = [invalidRoom, invalidTrait];
+    data.finalExpectations = [
+      {
+        ...defaultTestExpectation('property', 'gt'),
+        property: {
+          scope: 'global',
+          ownerId: '',
+          propertyId: 'missing-property',
+          value: 'not-a-number',
+        },
+      },
+    ];
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
+
+    expect(validateTestData(project, 'smoke', project.tests.smoke)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: '/tests/smoke/data/steps/0/expectations/1/id' }),
+        expect.objectContaining({
+          path: '/tests/smoke/data/steps/0/expectations/0/currentRoom/roomId',
+        }),
+        expect.objectContaining({ path: '/tests/smoke/data/steps/0/expectations/1/operator' }),
+        expect.objectContaining({ path: '/tests/smoke/data/steps/0/expectations/1/trait/ownerId' }),
+        expect.objectContaining({ path: '/tests/smoke/data/steps/0/expectations/1/trait/traitId' }),
+        expect.objectContaining({ path: '/tests/smoke/data/finalExpectations/0/property/value' }),
+        expect.objectContaining({
+          path: '/tests/smoke/data/finalExpectations/0/property/propertyId',
+        }),
+      ]),
+    );
+  });
+
+  it('strictly rejects retired generic assertion payloads', () => {
+    const data = defaultTestData('Smoke');
+    expect(
+      parseTestData({
+        ...data,
+        steps: [
+          {
+            ...defaultTestStep('tick'),
+            assertions: [{ type: 'lua', value: 'return true' }],
+          },
+        ],
+      }),
+    ).toBeNull();
   });
 
   it('reports invalid current test data through project validation', () => {

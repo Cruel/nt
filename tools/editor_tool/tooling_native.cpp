@@ -3,6 +3,7 @@
 #include <noveltea/core/compiled_package_codec.hpp>
 #include <noveltea/core/package_export.hpp>
 #include <noveltea/core/player_bootstrap.hpp>
+#include <noveltea/core/editor_playback_expectations.hpp>
 #include <noveltea/core/editor_runtime_protocol.hpp>
 #include <noveltea/core/save_state_codec.hpp>
 #include <noveltea/core/typed_save_slot_store.hpp>
@@ -18,9 +19,15 @@
 #include "tooling_native_c.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <chrono>
+#include <cstdlib>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <system_error>
 #include <cstdio>
 #include <optional>
 #include <unordered_map>
@@ -36,6 +43,13 @@ extern int noveltea_bimg_texturec_main(int argc, const char** argv);
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#else
+#include <spawn.h>
+#include <sys/wait.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+extern char** environ;
 #endif
 
 namespace bgfx {
@@ -506,7 +520,8 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     auto input = make_headless_running_game_input(*project, std::nullopt, "en");
     if (!input)
         return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(input.error()));
-    auto runtime = load_headless_running_game(std::move(*input.value_if()), scripts, presentation, saves);
+    auto runtime =
+        load_headless_running_game(std::move(*input.value_if()), scripts, presentation, saves);
     if (!runtime)
         return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(runtime.error()));
 
@@ -516,6 +531,9 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
                     compiled_diagnostics_to_json(decoded_spec.error()));
 
     std::vector<editor::TypedPlaybackStepReport> steps;
+    std::vector<editor::TypedPlaybackExpectationReport> final_expectations;
+    std::vector<noveltea::runtime::RuntimeEvent> all_events;
+    Diagnostics all_diagnostics;
     bool passed = true;
     const auto* typed_spec = decoded_spec.value_if();
     if (!typed_spec)
@@ -525,8 +543,17 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     std::optional<noveltea::runtime::RuntimePublication> final_publication;
     if (startup.publication)
         final_publication = std::move(startup.publication);
+    all_events.insert(all_events.end(), startup.events.begin(), startup.events.end());
+    all_diagnostics.insert(all_diagnostics.end(), startup.diagnostics.begin(),
+                           startup.diagnostics.end());
+    if (startup.disposition == noveltea::runtime::RuntimeInputDisposition::Failed ||
+        diagnostics_have_errors(startup.diagnostics))
+        passed = false;
+
     for (const auto& step : typed_spec->steps) {
-        auto result = session.dispatch(step.input);
+        if (!std::holds_alternative<RuntimeInputMessage>(step.input))
+            return fail("UI click playback input requires run-ui-test.");
+        auto result = session.dispatch(std::get<RuntimeInputMessage>(step.input));
         editor::TypedPlaybackStepReport report;
         report.index = step.index;
         report.handled = result.disposition == noveltea::runtime::RuntimeInputDisposition::Handled;
@@ -534,20 +561,61 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
             final_publication = std::move(result.publication);
         report.events = std::move(result.events);
         report.diagnostics = std::move(result.diagnostics);
+
+        // Expectations observe a settled semantic boundary. A zero-duration engine-time advance
+        // drains deterministic runtime work without introducing wall-clock sleeps or elapsed time.
+        if (!step.expectations.empty()) {
+            auto settled = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+            if (settled.publication)
+                final_publication = std::move(settled.publication);
+            report.events.insert(report.events.end(),
+                                 std::make_move_iterator(settled.events.begin()),
+                                 std::make_move_iterator(settled.events.end()));
+            report.diagnostics.insert(report.diagnostics.end(),
+                                      std::make_move_iterator(settled.diagnostics.begin()),
+                                      std::make_move_iterator(settled.diagnostics.end()));
+            if (settled.disposition == noveltea::runtime::RuntimeInputDisposition::Failed)
+                passed = false;
+        }
+        if (!final_publication)
+            return fail("Playback step completed without a runtime publication.");
+
         if (result.disposition == noveltea::runtime::RuntimeInputDisposition::Failed ||
             diagnostics_have_errors(report.diagnostics))
             passed = false;
+        for (const auto& expectation : step.expectations) {
+            auto expectation_report = noveltea::core::editor::evaluate_playback_expectation(
+                expectation, session, *final_publication, report.events, report.diagnostics);
+            if (!expectation_report.passed)
+                passed = false;
+            report.expectations.push_back(std::move(expectation_report));
+        }
+        all_events.insert(all_events.end(), report.events.begin(), report.events.end());
+        all_diagnostics.insert(all_diagnostics.end(), report.diagnostics.begin(),
+                               report.diagnostics.end());
         steps.push_back(std::move(report));
     }
-    if (!steps.empty()) {
-        auto observed = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
-        if (observed.publication)
-            final_publication = std::move(observed.publication);
-    }
+
+    auto settled = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+    if (settled.publication)
+        final_publication = std::move(settled.publication);
+    all_events.insert(all_events.end(), settled.events.begin(), settled.events.end());
+    all_diagnostics.insert(all_diagnostics.end(), settled.diagnostics.begin(),
+                           settled.diagnostics.end());
+    if (settled.disposition == noveltea::runtime::RuntimeInputDisposition::Failed ||
+        diagnostics_have_errors(settled.diagnostics))
+        passed = false;
     if (!final_publication)
         return fail("Playback completed without a final runtime publication.");
-    const auto report_text = editor::encode_editor_playback_report_text(typed_spec->id, steps,
-                                                                        *final_publication, passed);
+    for (const auto& expectation : typed_spec->final_expectations) {
+        auto expectation_report = noveltea::core::editor::evaluate_playback_expectation(
+            expectation, session, *final_publication, all_events, all_diagnostics);
+        if (!expectation_report.passed)
+            passed = false;
+        final_expectations.push_back(std::move(expectation_report));
+    }
+    const auto report_text = editor::encode_editor_playback_report_text(
+        typed_spec->id, steps, final_expectations, *final_publication, passed);
     auto report = nlohmann::json::parse(report_text, nullptr, false);
     if (report.is_discarded())
         return fail("Playback report encoding failed.");
@@ -705,6 +773,151 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
     return options;
 }
 
+std::optional<std::filesystem::path> current_executable_directory()
+{
+#if defined(_WIN32)
+    std::wstring buffer(32768, L'\0');
+    const auto size = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (size == 0 || size >= buffer.size())
+        return std::nullopt;
+    buffer.resize(size);
+    return std::filesystem::path(std::move(buffer)).parent_path();
+#elif defined(__APPLE__)
+    std::uint32_t size = 0;
+    (void)_NSGetExecutablePath(nullptr, &size);
+    if (size == 0)
+        return std::nullopt;
+    std::string buffer(size, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+        return std::nullopt;
+    buffer.resize(std::strlen(buffer.c_str()));
+    std::error_code error;
+    const auto executable = std::filesystem::weakly_canonical(std::filesystem::path(buffer), error);
+    if (error)
+        return std::nullopt;
+    return executable.parent_path();
+#else
+    std::error_code error;
+    const auto executable = std::filesystem::read_symlink("/proc/self/exe", error);
+    if (error)
+        return std::nullopt;
+    return executable.parent_path();
+#endif
+}
+
+std::optional<std::filesystem::path> ui_test_runner_path()
+{
+    if (const char* override_path = std::getenv("NOVELTEA_UI_TEST_RUNNER");
+        override_path != nullptr && *override_path != '\0') {
+        const std::filesystem::path candidate(override_path);
+        if (std::filesystem::exists(candidate))
+            return candidate;
+    }
+    if (const auto directory = current_executable_directory()) {
+#if defined(_WIN32)
+        const auto candidate = *directory / "noveltea-ui-test-runner.exe";
+#else
+        const auto candidate = *directory / "noveltea-ui-test-runner";
+#endif
+        if (std::filesystem::exists(candidate))
+            return candidate;
+    }
+#ifdef NOVELTEA_UI_TEST_RUNNER_PATH
+    const std::filesystem::path configured(NOVELTEA_UI_TEST_RUNNER_PATH);
+    if (std::filesystem::exists(configured))
+        return configured;
+#endif
+    return std::nullopt;
+}
+
+int run_ui_test_runner_process(const std::filesystem::path& runner,
+                               const std::filesystem::path& input_path,
+                               const std::filesystem::path& response_path)
+{
+#if defined(_WIN32)
+    const auto quote = [](const std::wstring& value) { return L"\"" + value + L"\""; };
+    std::wstring command = quote(runner.native()) + L" " + quote(input_path.native()) + L" " +
+                           quote(response_path.native());
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(runner.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                        nullptr, nullptr, &startup, &process))
+        return -1;
+    const auto wait = WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exit_code = 0;
+    const bool exited = wait == WAIT_OBJECT_0 && GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return exited ? static_cast<int>(exit_code) : -1;
+#else
+    auto runner_text = filesystem_path_to_utf8(runner);
+    auto input_text = filesystem_path_to_utf8(input_path);
+    auto response_text = filesystem_path_to_utf8(response_path);
+    char* arguments[] = {runner_text.data(), input_text.data(), response_text.data(), nullptr};
+    pid_t process = 0;
+    const int spawned = posix_spawn(&process, runner_text.c_str(), nullptr, nullptr, arguments, environ);
+    if (spawned != 0)
+        return -1;
+    int status = 0;
+    while (waitpid(process, &status, 0) < 0) {
+        if (errno != EINTR)
+            return -1;
+    }
+    if (WIFEXITED(status))
+        return WEXITSTATUS(status);
+    if (WIFSIGNALED(status))
+        return 128 + WTERMSIG(status);
+    return -1;
+#endif
+}
+
+nlohmann::json run_external_ui_playback(const nlohmann::json& request)
+{
+    const auto runner = ui_test_runner_path();
+    if (!runner)
+        return fail("Runtime UI Test runner is unavailable.");
+
+    static std::atomic_uint64_t sequence{0};
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("noveltea-ui-test-" + std::to_string(nonce) + "-" +
+                       std::to_string(sequence.fetch_add(1, std::memory_order_relaxed)));
+    std::error_code error;
+    if (!std::filesystem::create_directories(root, error) || error)
+        return fail("Could not create Runtime UI Test request directory.");
+    const auto input_path = root / "request.json";
+    const auto response_path = root / "response.json";
+    {
+        std::ofstream input(input_path, std::ios::binary | std::ios::trunc);
+        if (!input) {
+            std::filesystem::remove_all(root, error);
+            return fail("Could not write Runtime UI Test request.");
+        }
+        input << request.dump();
+    }
+#if !defined(_WIN32)
+    std::filesystem::permissions(
+        root, std::filesystem::perms::owner_all, std::filesystem::perm_options::replace, error);
+    error.clear();
+    std::filesystem::permissions(input_path,
+                                 std::filesystem::perms::owner_read |
+                                     std::filesystem::perms::owner_write,
+                                 std::filesystem::perm_options::replace, error);
+    error.clear();
+#endif
+    const int status = run_ui_test_runner_process(*runner, input_path, response_path);
+    const auto response_text = read_file(response_path);
+    std::filesystem::remove_all(root, error);
+    if (!response_text)
+        return fail("Runtime UI Test runner did not produce a response (status " +
+                    std::to_string(status) + ").");
+    auto response = nlohmann::json::parse(*response_text, nullptr, false);
+    if (response.is_discarded())
+        return fail("Runtime UI Test runner returned malformed JSON.");
+    return response;
+}
+
 nlohmann::json run_command(std::string_view command, const nlohmann::json& request)
 {
     if (command == "run-test") {
@@ -712,7 +925,7 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
     }
 
     if (command == "run-ui-test") {
-        return run_compiled_playback(request);
+        return run_external_ui_playback(request);
     }
 
     if (command == "compile-shaders") {

@@ -1,0 +1,13 @@
+{
+  "id": "pilot-button-sprite",
+  "label": "Reference Button",
+  "data": {
+    "kind": "image",
+    "source": { "type": "project-file", "path": "assets/images/button.webp" },
+    "aliases": [],
+    "sampling": "linear",
+    "mimeType": "image/webp",
+    "extension": ".webp",
+    "imageMetadata": { "width": 96, "height": 96, "hasAlpha": true, "orientation": 1 }
+  }
+}

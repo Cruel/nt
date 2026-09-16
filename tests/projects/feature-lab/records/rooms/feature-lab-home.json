@@ -1,0 +1,71 @@
+{
+  "id": "feature-lab-home",
+  "label": "Feature Lab Home",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Feature Lab",
+    "background": { "asset": null, "material": null, "fit": "cover", "color": "#071018" },
+    "description": {
+      "source": { "kind": "inline", "text": "Use the Feature Lab HUD to search checks and launch a scenario. Scenario launch always begins a fresh gameplay session." },
+      "markup": "active-text"
+    },
+    "presentationSpace": {
+      "size": { "width": 1920, "height": 1080 },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "scriptHooks": [
+      {
+        "hook": "after-enter",
+        "handler": {
+          "module": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } },
+          "export": "route_startup"
+        }
+      }
+    ],
+    "lifecycle": {
+      "canEnter": { "kind": "always" },
+      "canLeave": { "kind": "always" },
+      "beforeEnter": [],
+      "afterEnter": [],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [
+      {
+        "id": "rooms-interactions-test-entry",
+        "label": "Rooms & Interactions (automation entry)",
+        "direction": "east",
+        "target": { "$ref": { "collection": "rooms", "id": "rooms-interactions-workshop" } },
+        "condition": { "kind": "always" },
+        "onRejected": []
+      },
+      {
+        "id": "dialogue-presentation-test-entry",
+        "label": "Dialogue & Presentation (automation entry)",
+        "direction": "south",
+        "target": { "$ref": { "collection": "rooms", "id": "dialogue-presentation-stage" } },
+        "condition": { "kind": "always" },
+        "onRejected": []
+      }
+    ],
+    "placements": [],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

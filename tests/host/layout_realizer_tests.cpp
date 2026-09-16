@@ -468,6 +468,46 @@ TEST_CASE("PresentationLayoutReconciler re-primes an exact retained contextual L
     CHECK(layouts.mounted_layouts().front().mounted.instance == original_instance);
 }
 
+TEST_CASE("PresentationLayoutReconciler remounts authored Layouts across runtime sessions")
+{
+    assets::AssetManager assets;
+    FakeLayoutBackend backend;
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
+    auto project = load_project("minimal.json");
+    REQUIRE(realizer.bind_session(project, *HostGeneration::from_number(7)));
+
+    presentation::RuntimeLayoutManager layouts;
+    layouts.bind_document_host(&realizer);
+    PresentationLayoutReconciler reconciler(layouts, realizer);
+    reconciler.bind_project(project);
+
+    const auto layout =
+        core::LayoutId::create(std::string(core::compiled::builtin_verb_menu_layout_id));
+    const auto instance = core::ScopedLayoutInstanceId::create("session-local-ui");
+    REQUIRE(layout);
+    REQUIRE(instance);
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(1);
+    snapshot.layouts = {core::PresentationMountedLayout{
+        .key = core::ScopedLayoutMountKey{*instance.value_if()},
+        .owner = core::SessionPresentationOwner{core::PresentationSessionId::from_number(1)},
+        .layout = *layout.value_if(),
+        .policy = policy(0, core::LayoutVisibility::Visible),
+        .composition_group = core::PresentationCompositionGroup::Interface,
+    }};
+
+    REQUIRE(reconciler.reconcile(snapshot));
+    REQUIRE(layouts.mounted_layouts().size() == 1);
+    const auto old_instance = layouts.mounted_layouts().front().mounted.instance;
+    reconciler.replace_runtime_session();
+    CHECK(layouts.mounted_layouts().empty());
+    CHECK(realizer.realized_count() == 0);
+
+    REQUIRE(reconciler.reconcile(snapshot));
+    REQUIRE(layouts.mounted_layouts().size() == 1);
+    CHECK(layouts.mounted_layouts().front().mounted.instance != old_instance);
+}
+
 TEST_CASE("LayoutRealizer deterministically reconciles logical mounted Layout state")
 {
     assets::AssetManager assets;
@@ -1157,7 +1197,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         .clear_cursor = []() { return core::Result<void, core::Diagnostics>::success(); },
         .world_presentation_changed = [&]() { ++world_presentation_changes; },
         .retire_legacy_preview = [&]() { ++legacy_preview_retirements; },
-        .active_shader_variant = []() -> std::string_view { return "glsl-120"; },
+        .active_shader_variant = []() -> std::string_view { return "glsl-330"; },
         .standalone_layout_style_prefix =
             [](bool) { return std::string{"/* standalone-preview-defaults */"}; },
         .complete =
@@ -1456,7 +1496,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         {"schema", "noveltea.shader-preview"},
         {"contentMode", "shader"},
         {"templateId", "shader-square-v1"},
-        {"activeShaderVariant", "glsl-120"},
+        {"activeShaderVariant", "glsl-330"},
         {"shaderMaterials",
          {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
@@ -1650,11 +1690,11 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         {.resource_id = "shader:glsl",
          .source_kind = "shader-compiled-output",
          .logical_path = "project:/shaders/glsl.bin",
-         .shader_variant = core::editor::EditorPreviewShaderVariant::Glsl120},
+         .shader_variant = core::editor::EditorPreviewShaderVariant::Glsl330},
         {.resource_id = "shader:essl",
          .source_kind = "shader-compiled-output",
          .logical_path = "project:/shaders/essl.bin",
-         .shader_variant = core::editor::EditorPreviewShaderVariant::Essl100},
+         .shader_variant = core::editor::EditorPreviewShaderVariant::Essl300},
     };
     const auto environments_before_resource_conflict =
         script::detail::ScriptRuntimeAccess::environment_count(scripts);

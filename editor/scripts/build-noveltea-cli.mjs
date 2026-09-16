@@ -1,5 +1,15 @@
 import { existsSync } from 'node:fs';
-import { cp, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  cp,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +25,7 @@ const releasePlatform = isWindows ? 'windows' : 'linux';
 const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-release';
 const releaseTriplet = isWindows ? 'x64-mingw-static-noveltea' : 'x64-linux-noveltea';
 const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
+const uiTestRunnerName = isWindows ? 'noveltea-ui-test-runner.exe' : 'noveltea-ui-test-runner';
 const scriptcEntrypoint = path.join(editorRoot, 'node_modules', 'scriptc', 'dist', 'main.js');
 const vitePlusEntrypoint = path.join(editorRoot, 'node_modules', 'vite-plus', 'bin', 'vp');
 const scriptcRoot = path.join(
@@ -153,11 +164,10 @@ async function stagePrebuiltShadercLinkClosure() {
   const archives = [
     'libnoveltea_bgfx_shaderc_embedded.a',
     'libnoveltea_bimg_texturec_embedded.a',
-    'libfcpp.a',
     'libglslang.a',
-    'libglsl-optimizer.a',
     'libspirv-opt.a',
     'libspirv-cross.a',
+    'libtint.a',
     'libbimg.a',
     'libbimg_decode.a',
     'libbimg_encode.a',
@@ -209,27 +219,10 @@ const buildRoot = path.join(repositoryRoot, 'build', releasePreset);
 const editorToolRoot = path.join(buildRoot, 'tools', 'editor_tool');
 const engineRoot = path.join(buildRoot, 'engine');
 const vcpkgLibRoot = path.join(buildRoot, 'vcpkg_installed', releaseTriplet, 'lib');
-const shadercBgfxRoot = path.join(
-  buildRoot,
-  '_deps',
-  'noveltea_bgfx_shaderc_source-build',
-  'cmake',
-  'bgfx',
-);
-const shadercBimgRoot = path.join(
-  buildRoot,
-  '_deps',
-  'noveltea_bgfx_shaderc_source-build',
-  'cmake',
-  'bimg',
-);
-const shadercBxRoot = path.join(
-  buildRoot,
-  '_deps',
-  'noveltea_bgfx_shaderc_source-build',
-  'cmake',
-  'bx',
-);
+const bgfxBuildRoot = path.join(buildRoot, '_deps', 'bgfx.cmake-build', 'cmake');
+const shadercBgfxRoot = path.join(bgfxBuildRoot, 'bgfx');
+const shadercBimgRoot = path.join(bgfxBuildRoot, 'bimg');
+const shadercBxRoot = path.join(bgfxBuildRoot, 'bx');
 
 function archive(...candidates) {
   const found = candidates.find((candidate) => existsSync(candidate));
@@ -274,21 +267,9 @@ const libraries = [
   staticArchive(editorToolRoot, 'noveltea_bgfx_shaderc_embedded'),
   archive(
     ...[editorToolRoot, shadercBgfxRoot].flatMap((root) => [
-      path.join(root, 'fcpp.lib'),
-      path.join(root, 'libfcpp.a'),
-    ]),
-  ),
-  archive(
-    ...[editorToolRoot, shadercBgfxRoot].flatMap((root) => [
       path.join(root, 'glslang.lib'),
       path.join(root, 'libglslang.a'),
     ]),
-  ),
-  archive(
-    path.join(editorToolRoot, 'glsl-optimizer.lib'),
-    path.join(editorToolRoot, 'libglsl-optimizer.a'),
-    path.join(shadercBgfxRoot, 'glsl-optimizer.lib'),
-    path.join(shadercBgfxRoot, 'libglsl-optimizer.a'),
   ),
   archive(
     path.join(editorToolRoot, 'spirv-opt.lib'),
@@ -303,6 +284,12 @@ const libraries = [
     path.join(shadercBgfxRoot, 'libspirv-cross.a'),
   ),
   archive(
+    path.join(editorToolRoot, 'tint.lib'),
+    path.join(editorToolRoot, 'libtint.a'),
+    path.join(shadercBgfxRoot, 'tint.lib'),
+    path.join(shadercBgfxRoot, 'libtint.a'),
+  ),
+  archive(
     ...[editorToolRoot, shadercBimgRoot, vcpkgLibRoot].flatMap((root) => [
       path.join(root, 'bimg_decode.lib'),
       path.join(root, 'libbimg_decode.a'),
@@ -314,8 +301,6 @@ const libraries = [
       path.join(root, 'libbimg_encode.a'),
     ]),
   ),
-  staticArchive(vcpkgLibRoot, 'lodepng'),
-  staticArchive(vcpkgLibRoot, 'tinyexr'),
   staticArchive(vcpkgLibRoot, 'harfbuzz'),
   staticArchive(vcpkgLibRoot, 'freetype'),
   staticArchive(vcpkgLibRoot, 'SheenBidi'),
@@ -326,7 +311,6 @@ const libraries = [
   staticArchive(vcpkgLibRoot, 'brotlicommon'),
   isWindows ? archive(path.join(vcpkgLibRoot, 'libzs.a')) : staticArchive(vcpkgLibRoot, 'z'),
   staticArchive(vcpkgLibRoot, 'miniz'),
-  archive(path.join(vcpkgLibRoot, 'libsquish.a'), path.join(vcpkgLibRoot, 'libsquish.lib')),
   archive(
     ...[editorToolRoot, shadercBimgRoot].flatMap((root) => [
       path.join(root, 'bimg.lib'),
@@ -486,17 +470,19 @@ try {
     { cwd: stageRoot, env: scriptcBuildEnv },
   );
   run(isWindows ? 'llvm-strip' : 'strip', ['--strip-all', outputPath], { env: buildEnv });
-  const systemFontOutput = path.join(
-    outputDirectory,
-    'assets',
-    'system',
-    'fonts',
-    'LiberationSans.ttf',
-  );
-  await mkdir(path.dirname(systemFontOutput), { recursive: true });
+
+  const uiTestRunnerSource = path.join(buildRoot, 'tools', 'editor_tool', uiTestRunnerName);
+  if (!existsSync(uiTestRunnerSource))
+    throw new Error(`NovelTea UI Test runner is missing: ${uiTestRunnerSource}`);
+  const uiTestRunnerOutput = path.join(outputDirectory, uiTestRunnerName);
+  await cp(uiTestRunnerSource, uiTestRunnerOutput);
+  run(isWindows ? 'llvm-strip' : 'strip', ['--strip-all', uiTestRunnerOutput], { env: buildEnv });
+  if (!isWindows) await chmod(uiTestRunnerOutput, 0o755);
+
   await cp(
-    path.join(repositoryRoot, 'engine', 'assets', 'system', 'fonts', 'LiberationSans.ttf'),
-    systemFontOutput,
+    path.join(repositoryRoot, 'engine', 'assets', 'system'),
+    path.join(outputDirectory, 'assets', 'system'),
+    { recursive: true, dereference: true },
   );
 } finally {
   await rm(stageRoot, { recursive: true, force: true });

@@ -25,6 +25,10 @@ public:
     {
         return m_initial_result;
     }
+    [[nodiscard]] const core::PersistableValue& startup_context() const noexcept
+    {
+        return m_startup_context;
+    }
     [[nodiscard]] RuntimeDispatchResult take_initial_result() noexcept
     {
         return std::move(m_initial_result);
@@ -34,11 +38,13 @@ private:
     friend class RunningGame;
     RuntimeSessionCandidate(std::unique_ptr<SessionScriptInvocationPort> scripts,
                             std::unique_ptr<RuntimeSession> session,
-                            RuntimeDispatchResult initial_result) noexcept;
+                            RuntimeDispatchResult initial_result,
+                            core::PersistableValue startup_context) noexcept;
 
     std::unique_ptr<SessionScriptInvocationPort> m_scripts;
     std::unique_ptr<RuntimeSession> m_session;
     RuntimeDispatchResult m_initial_result;
+    core::PersistableValue m_startup_context{core::PersistableValue::Object{}};
 };
 
 class RunningGame final {
@@ -52,10 +58,16 @@ public:
     create(core::LoadedCompiledPackage package, ScriptCertificationPort& script_certifier,
            ScriptInvocationPort& scripts, PresentationModelPort& presentation_model,
            PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
-           const core::SaveStateCodecPort& save_codec, std::string runtime_locale = {});
+           const core::SaveStateCodecPort& save_codec, std::string runtime_locale = {},
+           core::PersistableValue startup_context = core::PersistableValue{
+               core::PersistableValue::Object{}});
 
     [[nodiscard]] const core::LoadedCompiledPackage& package() const noexcept { return m_package; }
     [[nodiscard]] std::string_view runtime_locale() const noexcept { return m_runtime_locale; }
+    [[nodiscard]] const core::PersistableValue& startup_context() const noexcept
+    {
+        return m_startup_context;
+    }
     [[nodiscard]] core::Result<void, core::Diagnostics>
     install_locale_catalog(core::compiled::LocalizationCatalog catalog);
     void retain_locale_catalogs(std::string_view active_locale);
@@ -64,7 +76,8 @@ public:
     [[nodiscard]] RuntimeSession& session() noexcept { return *m_session; }
     [[nodiscard]] const RuntimeSession& session() const noexcept { return *m_session; }
     [[nodiscard]] core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>
-    prepare_reset_candidate(ScriptInvocationPort& scripts, PresentationRuntimePort& presentation);
+    prepare_reset_candidate(const core::ResetRuntimeInput& reset, ScriptInvocationPort& scripts,
+                            PresentationRuntimePort& presentation);
     [[nodiscard]] core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>
     prepare_load_candidate(core::TypedSaveSlotId slot, ScriptInvocationPort& scripts,
                            PresentationRuntimePort& presentation);
@@ -81,6 +94,7 @@ private:
     core::TypedSaveSlotStore* m_saves = nullptr;
     const core::SaveStateCodecPort* m_save_codec = nullptr;
     std::string m_runtime_locale;
+    core::PersistableValue m_startup_context{core::PersistableValue::Object{}};
 };
 
 } // namespace noveltea::runtime

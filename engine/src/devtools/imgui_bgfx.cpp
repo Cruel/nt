@@ -1,7 +1,6 @@
 #include "imgui_bgfx.hpp"
 
 #include <bgfx/bgfx.h>
-#include <bgfx/platform.h>
 
 #include <imgui.h>
 

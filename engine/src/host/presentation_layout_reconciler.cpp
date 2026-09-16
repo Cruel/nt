@@ -65,12 +65,22 @@ void PresentationLayoutReconciler::bind_project(const core::CompiledProject& pro
     m_project = &project;
 }
 
-void PresentationLayoutReconciler::clear_session() noexcept
+void PresentationLayoutReconciler::replace_runtime_session() noexcept
 {
-    m_project = nullptr;
+    for (const auto& [_, layout] : m_current)
+        (void)m_layouts.unmount(layout.instance);
+    for (const auto& [_, layouts] : m_retained)
+        for (const auto& layout : layouts)
+            (void)m_layouts.unmount(layout.instance);
     m_current.clear();
     m_retained.clear();
     m_current_revision.reset();
+}
+
+void PresentationLayoutReconciler::clear_session() noexcept
+{
+    replace_runtime_session();
+    m_project = nullptr;
 }
 
 core::Result<void, core::Diagnostics>

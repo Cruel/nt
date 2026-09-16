@@ -1,0 +1,12 @@
+{
+  "id": "feature-lab-bootstrap",
+  "label": "Feature Lab Bootstrap",
+  "description": "Routes fresh Feature Lab sessions from typed startup context.",
+  "data": {
+    "kind": "script-module",
+    "source": {
+      "kind": "file",
+      "path": "scripts/feature-lab-bootstrap.lua"
+    }
+  }
+}

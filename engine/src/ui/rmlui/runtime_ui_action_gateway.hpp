@@ -34,6 +34,7 @@ public:
     void bind_input_sink(RuntimeUiInputSink* sink) noexcept;
     void bind_layout_gameplay_admission(std::function<bool()> admission);
 
+    void set_startup_context(core::PersistableValue context) noexcept;
     [[nodiscard]] bool apply(const RuntimeUiGameplayValues& values);
     [[nodiscard]] bool can_apply(const RuntimeUiGameplayValues& values) const noexcept;
     void commit(RuntimeUiGameplayValues values) noexcept;
@@ -42,6 +43,7 @@ public:
     void clear_shell_slots() noexcept;
 
     [[nodiscard]] const core::TypedRuntimeUIViewState* view() const noexcept;
+    [[nodiscard]] const core::PersistableValue& startup_context() const noexcept;
     [[nodiscard]] std::uint64_t revision() const noexcept;
     [[nodiscard]] bool has_input_sink() const noexcept { return m_input_sink != nullptr; }
 
@@ -51,6 +53,8 @@ public:
     [[nodiscard]] bool dispatch_layout_event(core::MountedLayoutOwner owner,
                                              const std::function<bool()>& dispatch);
 
+    [[nodiscard]] bool action_restart(core::PersistableValue startup_context,
+                                      bool show_title = false);
     [[nodiscard]] bool action_continue();
     [[nodiscard]] bool action_choose(std::string kind, std::string id);
     [[nodiscard]] bool action_navigate_room(std::string id);
@@ -119,6 +123,7 @@ private:
     RuntimeUiInputSink* m_input_sink = nullptr;
     std::function<bool()> m_layout_gameplay_admission;
     std::optional<RuntimeUiGameplayValues> m_values;
+    core::PersistableValue m_startup_context{core::PersistableValue::Object{}};
     std::optional<CommandBuilderDraft> m_command_builder_draft;
     bool m_command_builder_watch_dirty = false;
     std::vector<ShellSlotState> m_shell_slots;

@@ -48,7 +48,7 @@ vi.mock('@/hooks/use-engine-preview', () => ({
         capabilities: [],
         hostGeneration: 1,
         transportGeneration: 1,
-        activeShaderVariant: 'glsl-120',
+        activeShaderVariant: 'glsl-330',
       });
     });
     return {

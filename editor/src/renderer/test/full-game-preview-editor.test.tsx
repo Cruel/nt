@@ -108,7 +108,7 @@ async function renderConnectedPreview(capabilities: string[] = []) {
       capabilities,
       hostGeneration: 1,
       transportGeneration: 1,
-      activeShaderVariant: 'glsl-120',
+      activeShaderVariant: 'glsl-330',
     });
   });
   await waitFor(() => expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready'));
@@ -146,7 +146,7 @@ async function renderConnectedPreviewInPane(hidden = false) {
       capabilities: [],
       hostGeneration: 1,
       transportGeneration: 1,
-      activeShaderVariant: 'glsl-120',
+      activeShaderVariant: 'glsl-330',
     });
   });
   await waitFor(() => expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready'));

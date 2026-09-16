@@ -17,6 +17,7 @@ namespace noveltea {
 struct RuntimeUiGameplayValues {
     std::uint64_t revision = 0;
     core::TypedRuntimeUIViewState view;
+    core::PersistableValue startup_context{core::PersistableValue::Object{}};
 };
 
 struct RuntimeUiLayoutMountContext {

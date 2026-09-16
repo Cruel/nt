@@ -1,0 +1,14 @@
+{
+  "id": "pilot-cue-audio",
+  "label": "Reference Notification SFX",
+  "data": {
+    "kind": "audio",
+    "source": { "type": "project-file", "path": "assets/audio/notification.mp3" },
+    "aliases": [],
+    "mimeType": "audio/mpeg",
+    "extension": ".mp3",
+    "byteSize": 9474,
+    "imageMetadata": null,
+    "preview": { "durationSeconds": 1.541224 }
+  }
+}
