@@ -2,6 +2,8 @@
 
 #include "host/cursor_presentation.hpp"
 
+#include <SDL3/SDL_mouse.h>
+
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -17,7 +19,17 @@ namespace noveltea::sdl_platform {
 
 class SdlCursorRealizer final : public host::CursorRealizer {
 public:
-    explicit SdlCursorRealizer(const assets::AssetManager* assets = nullptr);
+    struct NativeApi {
+        decltype(&SDL_CreateSystemCursor) create_system_cursor = &SDL_CreateSystemCursor;
+        decltype(&SDL_CreateColorCursor) create_color_cursor = &SDL_CreateColorCursor;
+        decltype(&SDL_DestroyCursor) destroy_cursor = &SDL_DestroyCursor;
+        decltype(&SDL_SetCursor) set_cursor = &SDL_SetCursor;
+        decltype(&SDL_ShowCursor) show_cursor = &SDL_ShowCursor;
+        decltype(&SDL_HideCursor) hide_cursor = &SDL_HideCursor;
+    };
+
+    explicit SdlCursorRealizer(const assets::AssetManager* assets = nullptr,
+                               const NativeApi* native_api = nullptr);
     ~SdlCursorRealizer() override;
 
     SdlCursorRealizer(const SdlCursorRealizer&) = delete;
@@ -40,6 +52,7 @@ private:
     [[nodiscard]] DecodedCursorImage* decoded_image(std::string_view logical_path) noexcept;
 
     const assets::AssetManager* m_assets = nullptr;
+    NativeApi m_native_api;
     SDL_Cursor* m_default = nullptr;
     SDL_Cursor* m_pointer = nullptr;
     SDL_Cursor* m_text = nullptr;

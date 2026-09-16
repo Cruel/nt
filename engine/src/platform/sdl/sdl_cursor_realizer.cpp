@@ -36,37 +36,39 @@ std::uint32_t scaled_hotspot(std::uint32_t source_coordinate, std::uint32_t sour
 
 } // namespace
 
-SdlCursorRealizer::SdlCursorRealizer(const assets::AssetManager* assets)
-    : m_assets(assets), m_default(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT)),
-      m_pointer(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER)),
-      m_text(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT)),
-      m_wait(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_WAIT)),
-      m_progress(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_PROGRESS)),
-      m_crosshair(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR)),
-      m_move(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_MOVE)),
-      m_not_allowed(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NOT_ALLOWED)),
-      m_ns_resize(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NS_RESIZE)),
-      m_ew_resize(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_EW_RESIZE)),
-      m_nesw_resize(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NESW_RESIZE)),
-      m_nwse_resize(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NWSE_RESIZE))
+SdlCursorRealizer::SdlCursorRealizer(const assets::AssetManager* assets,
+                                     const NativeApi* native_api)
+    : m_assets(assets), m_native_api(native_api ? *native_api : NativeApi{}),
+      m_default(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_DEFAULT)),
+      m_pointer(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_POINTER)),
+      m_text(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_TEXT)),
+      m_wait(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_WAIT)),
+      m_progress(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_PROGRESS)),
+      m_crosshair(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_CROSSHAIR)),
+      m_move(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_MOVE)),
+      m_not_allowed(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_NOT_ALLOWED)),
+      m_ns_resize(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_NS_RESIZE)),
+      m_ew_resize(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_EW_RESIZE)),
+      m_nesw_resize(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_NESW_RESIZE)),
+      m_nwse_resize(m_native_api.create_system_cursor(SDL_SYSTEM_CURSOR_NWSE_RESIZE))
 {
 }
 
 SdlCursorRealizer::~SdlCursorRealizer()
 {
     clear_custom();
-    SDL_DestroyCursor(m_default);
-    SDL_DestroyCursor(m_pointer);
-    SDL_DestroyCursor(m_text);
-    SDL_DestroyCursor(m_wait);
-    SDL_DestroyCursor(m_progress);
-    SDL_DestroyCursor(m_crosshair);
-    SDL_DestroyCursor(m_move);
-    SDL_DestroyCursor(m_not_allowed);
-    SDL_DestroyCursor(m_ns_resize);
-    SDL_DestroyCursor(m_ew_resize);
-    SDL_DestroyCursor(m_nesw_resize);
-    SDL_DestroyCursor(m_nwse_resize);
+    m_native_api.destroy_cursor(m_default);
+    m_native_api.destroy_cursor(m_pointer);
+    m_native_api.destroy_cursor(m_text);
+    m_native_api.destroy_cursor(m_wait);
+    m_native_api.destroy_cursor(m_progress);
+    m_native_api.destroy_cursor(m_crosshair);
+    m_native_api.destroy_cursor(m_move);
+    m_native_api.destroy_cursor(m_not_allowed);
+    m_native_api.destroy_cursor(m_ns_resize);
+    m_native_api.destroy_cursor(m_ew_resize);
+    m_native_api.destroy_cursor(m_nesw_resize);
+    m_native_api.destroy_cursor(m_nwse_resize);
 }
 
 bool SdlCursorRealizer::prepare(const host::CustomCursorPresentation& cursor) noexcept
@@ -77,7 +79,7 @@ bool SdlCursorRealizer::prepare(const host::CustomCursorPresentation& cursor) no
 void SdlCursorRealizer::clear_custom() noexcept
 {
     for (const auto& [_, cursor] : m_custom)
-        SDL_DestroyCursor(cursor);
+        m_native_api.destroy_cursor(cursor);
     m_custom.clear();
     m_decoded_images.clear();
 }
@@ -86,9 +88,9 @@ host::CursorPresentation
 SdlCursorRealizer::realize(const host::CursorPresentation& presentation) noexcept
 {
     if (presentation.custom) {
-        SDL_ShowCursor();
+        (void)m_native_api.show_cursor();
         if (SDL_Cursor* value = custom_cursor(*presentation.custom)) {
-            SDL_SetCursor(value);
+            (void)m_native_api.set_cursor(value);
             return presentation;
         }
         std::fprintf(stderr,
@@ -98,13 +100,13 @@ SdlCursorRealizer::realize(const host::CursorPresentation& presentation) noexcep
 
     const host::CursorPresentation fallback{.shape = presentation.shape, .custom = std::nullopt};
     if (presentation.shape == host::CursorShape::Hidden) {
-        SDL_HideCursor();
+        (void)m_native_api.hide_cursor();
         return fallback;
     }
 
-    SDL_ShowCursor();
+    (void)m_native_api.show_cursor();
     if (SDL_Cursor* value = cursor(presentation.shape))
-        SDL_SetCursor(value);
+        (void)m_native_api.set_cursor(value);
     return fallback;
 }
 
@@ -126,7 +128,7 @@ SdlCursorRealizer::decoded_image(std::string_view logical_path) noexcept
         &allocator, bytes.value->bytes.data(),
         static_cast<std::uint32_t>(bytes.value->bytes.size()), bimg::TextureFormat::RGBA8);
     if (!image || !image->m_data || image->m_format != bimg::TextureFormat::RGBA8 ||
-        image->m_numLayers != 1 || image->m_depth != 1 || image->m_numMips != 1 ||
+        image->m_numLayers != 1 || image->m_depth > 1 || image->m_numMips != 1 ||
         image->m_size != image->m_width * image->m_height * 4u) {
         if (image)
             bimg::imageFree(image);
@@ -188,10 +190,11 @@ SDL_Cursor* SdlCursorRealizer::custom_cursor(const host::CustomCursorPresentatio
                                                                   : SDL_SCALEMODE_LINEAR);
         cursor_surface = scaled_surface;
     }
-    SDL_Cursor* realized = cursor_surface
-                               ? SDL_CreateColorCursor(cursor_surface, static_cast<int>(hotspot_x),
-                                                       static_cast<int>(hotspot_y))
-                               : nullptr;
+    SDL_Cursor* realized =
+        cursor_surface
+            ? m_native_api.create_color_cursor(cursor_surface, static_cast<int>(hotspot_x),
+                                               static_cast<int>(hotspot_y))
+            : nullptr;
     if (scaled_surface)
         SDL_DestroySurface(scaled_surface);
     if (source_surface)

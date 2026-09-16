@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,6 +40,62 @@ noveltea::assets::AssetBytes solid_tga(std::uint16_t width, std::uint16_t height
     return bytes;
 }
 
+struct NativeCursorProbe {
+    int create_color_calls = 0;
+    int last_hotspot_x = -1;
+    int last_hotspot_y = -1;
+    int last_width = 0;
+    int last_height = 0;
+    int show_calls = 0;
+    int hide_calls = 0;
+};
+
+NativeCursorProbe* g_native_cursor_probe = nullptr;
+
+SDL_Cursor* fake_create_system_cursor(SDL_SystemCursor shape)
+{
+    return reinterpret_cast<SDL_Cursor*>(static_cast<std::uintptr_t>(shape) + 1u);
+}
+
+SDL_Cursor* fake_create_color_cursor(SDL_Surface* surface, int hotspot_x, int hotspot_y)
+{
+    if (g_native_cursor_probe) {
+        ++g_native_cursor_probe->create_color_calls;
+        g_native_cursor_probe->last_hotspot_x = hotspot_x;
+        g_native_cursor_probe->last_hotspot_y = hotspot_y;
+        g_native_cursor_probe->last_width = surface ? surface->w : 0;
+        g_native_cursor_probe->last_height = surface ? surface->h : 0;
+    }
+    return reinterpret_cast<SDL_Cursor*>(
+        0x1000u + static_cast<std::uintptr_t>(
+                      g_native_cursor_probe ? g_native_cursor_probe->create_color_calls : 1));
+}
+
+void fake_destroy_cursor(SDL_Cursor*) {}
+bool fake_set_cursor(SDL_Cursor*) { return true; }
+bool fake_show_cursor()
+{
+    if (g_native_cursor_probe)
+        ++g_native_cursor_probe->show_calls;
+    return true;
+}
+bool fake_hide_cursor()
+{
+    if (g_native_cursor_probe)
+        ++g_native_cursor_probe->hide_calls;
+    return true;
+}
+
+noveltea::sdl_platform::SdlCursorRealizer::NativeApi fake_native_cursor_api()
+{
+    return {.create_system_cursor = &fake_create_system_cursor,
+            .create_color_cursor = &fake_create_color_cursor,
+            .destroy_cursor = &fake_destroy_cursor,
+            .set_cursor = &fake_set_cursor,
+            .show_cursor = &fake_show_cursor,
+            .hide_cursor = &fake_hide_cursor};
+}
+
 struct SdlVideoScope {
     SdlVideoScope()
     {
@@ -59,15 +116,16 @@ struct SdlVideoScope {
 
 TEST_CASE("SDL cursor realizer handles native custom hidden restoration and graceful failure")
 {
-    SdlVideoScope sdl;
-    REQUIRE(sdl.initialized);
+    NativeCursorProbe probe;
+    g_native_cursor_probe = &probe;
+    const auto native_api = fake_native_cursor_api();
 
     auto source = std::make_shared<noveltea::assets::MemoryAssetSource>();
     source->add("cursor.png", one_pixel_png());
     noveltea::assets::AssetManager assets;
     assets.mount("project", source);
 
-    noveltea::sdl_platform::SdlCursorRealizer realizer(&assets);
+    noveltea::sdl_platform::SdlCursorRealizer realizer(&assets, &native_api);
     const std::vector<noveltea::host::CursorShape> system_shapes{
         noveltea::host::CursorShape::Default,    noveltea::host::CursorShape::Pointer,
         noveltea::host::CursorShape::Text,       noveltea::host::CursorShape::Wait,
@@ -93,7 +151,9 @@ TEST_CASE("SDL cursor realizer handles native custom hidden restoration and grac
     (void)realizer.realize({.shape = noveltea::host::CursorShape::Pointer, .custom = custom});
 
     (void)realizer.realize({.shape = noveltea::host::CursorShape::Hidden});
+    CHECK(probe.hide_calls == 1);
     (void)realizer.realize({.shape = noveltea::host::CursorShape::Default});
+    CHECK(probe.show_calls > 0);
 
     auto missing = custom;
     missing.id = "missing";
@@ -104,18 +164,20 @@ TEST_CASE("SDL cursor realizer handles native custom hidden restoration and grac
     CHECK(fallback.shape == noveltea::host::CursorShape::Pointer);
     CHECK_FALSE(fallback.custom);
     (void)realizer.realize({.shape = noveltea::host::CursorShape::Default});
+    g_native_cursor_probe = nullptr;
 }
 
 TEST_CASE("SDL cursor realizer preserves edge hotspots and reuses equivalent realizations")
 {
-    SdlVideoScope sdl;
-    REQUIRE(sdl.initialized);
+    NativeCursorProbe probe;
+    g_native_cursor_probe = &probe;
+    const auto native_api = fake_native_cursor_api();
 
     auto source = std::make_shared<noveltea::assets::MemoryAssetSource>();
     source->add("wide.tga", solid_tga(256, 1));
     noveltea::assets::AssetManager assets;
     assets.mount("project", source);
-    noveltea::sdl_platform::SdlCursorRealizer realizer(&assets);
+    noveltea::sdl_platform::SdlCursorRealizer realizer(&assets, &native_api);
 
     const noveltea::host::CustomCursorPresentation fitted{
         .id = "lua-wide",
@@ -128,6 +190,11 @@ TEST_CASE("SDL cursor realizer preserves edge hotspots and reuses equivalent rea
         .fit_to_portable_bound = true,
     };
     REQUIRE(realizer.prepare(fitted));
+    CHECK(probe.create_color_calls == 1);
+    CHECK(probe.last_width == 128);
+    CHECK(probe.last_height == 1);
+    CHECK(probe.last_hotspot_x == 127);
+    CHECK(probe.last_hotspot_y == 0);
 
     source->add("wide.tga", {0x00, 0x01, 0x02});
     auto equivalent = fitted;
@@ -135,6 +202,8 @@ TEST_CASE("SDL cursor realizer preserves edge hotspots and reuses equivalent rea
     equivalent.width = 128;
     equivalent.height = 1;
     REQUIRE(realizer.prepare(equivalent));
+    CHECK(probe.create_color_calls == 1);
+    g_native_cursor_probe = nullptr;
 }
 
 TEST_CASE("Cursor authority inspection reports the realized native fallback")

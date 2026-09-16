@@ -682,6 +682,15 @@ void for_each_component(Rml::ElementDocument& document, const char* selector, Fu
 }
 } // namespace
 
+class HeadlessCursorRealizer final : public host::CursorRealizer {
+public:
+    [[nodiscard]] host::CursorPresentation
+    realize(const host::CursorPresentation& presentation) noexcept override
+    {
+        return presentation;
+    }
+};
+
 struct RuntimeUI::State {
     using ContextKey = ui::rmlui::LifecycleContextKey;
     void refresh_game_hud_map();
@@ -736,7 +745,7 @@ struct RuntimeUI::State {
         State& owner;
     };
     assets::AssetManager* assets = nullptr;
-    std::unique_ptr<sdl_platform::SdlCursorRealizer> cursor_realizer;
+    std::unique_ptr<host::CursorRealizer> cursor_realizer;
     std::unique_ptr<host::CursorAuthority> cursor_authority;
     std::optional<core::compiled::CursorSettings> cursor_settings;
     std::unordered_map<std::string, host::CursorPresentation> named_cursors;
@@ -1609,8 +1618,12 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     if (!m_state)
         m_state = new State;
     m_state->assets = assets;
-    if (!m_state->cursor_realizer)
-        m_state->cursor_realizer = std::make_unique<sdl_platform::SdlCursorRealizer>(assets);
+    if (!m_state->cursor_realizer) {
+        if (headless_render || !window)
+            m_state->cursor_realizer = std::make_unique<HeadlessCursorRealizer>();
+        else
+            m_state->cursor_realizer = std::make_unique<sdl_platform::SdlCursorRealizer>(assets);
+    }
     if (!m_state->cursor_authority) {
         m_state->cursor_authority =
             std::make_unique<host::CursorAuthority>(m_state->cursor_realizer.get());
