@@ -272,6 +272,7 @@ public:
     set_gameplay_cursor_image(core::AssetId asset, std::optional<std::uint32_t> hotspot_x,
                               std::optional<std::uint32_t> hotspot_y) override;
     [[nodiscard]] core::Result<void, core::Diagnostics> clear_gameplay_cursor() override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     restart(core::PersistableValue startup_context, bool show_title = false);
 
     [[nodiscard]] core::Result<void, core::Diagnostics> request_audio(
