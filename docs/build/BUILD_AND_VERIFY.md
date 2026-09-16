@@ -321,7 +321,9 @@ the player jobs; Web and Android share the `essl-300` tree. Android and Web reus
 each Electron editor job embeds the exact certified CLI from its own host. Tagged releases publish
 both standalone executables and the editor packages. Manual dispatch accepts a proposed tag and
 commit for a non-publishing full-matrix qualification run; create the immutable tag only after that
-run succeeds.
+run succeeds. A separate manual `Windows CLI Diagnostics` workflow
+(`.github/workflows/windows-cli-diagnostics.yml`) reproduces CLI UI-runner failures under the
+release GNU toolchain with page heap and debugger capture, without publishing anything.
 
 The checked-in Android project is the immutable player-template source. It builds
 `noveltea-player`, not the sandbox, and requires one ABI per invocation:
