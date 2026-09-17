@@ -5,7 +5,7 @@ if(NOT DEFINED NOVELTEA_SOURCE_DIR)
     message(FATAL_ERROR "NOVELTEA_SOURCE_DIR is required")
 endif()
 if(NOT DEFINED NOVELTEA_FAKE_RMLUI_PATCH_REVISION)
-    set(NOVELTEA_FAKE_RMLUI_PATCH_REVISION "6d-dynamic-fallback-fonts-1")
+    set(NOVELTEA_FAKE_RMLUI_PATCH_REVISION "6e-lua-pointer-ownership-1")
 endif()
 
 configure_file(
