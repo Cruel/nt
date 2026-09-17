@@ -687,7 +687,7 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
 
     if (layout.prompt.visible && layout.prompt.alpha > 0.0f) {
         ActiveTextGlyphVisual prompt_visual;
-        prompt_visual.text = layout.prompt.page_break ? "v" : ">";
+        prompt_visual.text = std::string(1, layout.prompt.page_break ? 'v' : '>');
         prompt_visual.bounds = layout.prompt.bounds;
         prompt_visual.color = Color::from_rgba8(255, 228, 128);
         prompt_visual.alpha = std::clamp(layout.prompt.alpha, 0.0f, 1.0f);

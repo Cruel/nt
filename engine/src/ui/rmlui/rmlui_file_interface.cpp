@@ -83,8 +83,9 @@ std::string rmlui_document_source_url(std::string_view path)
     const auto scheme = path.find(":/");
     if (scheme == std::string_view::npos || scheme + 2 >= path.size() || path[scheme + 2] == '/')
         return std::string(path);
-    std::string result(path);
-    result.insert(scheme + 2, "/");
+    std::string result(path.substr(0, scheme + 2));
+    result += '/';
+    result += path.substr(scheme + 2);
     return result;
 }
 

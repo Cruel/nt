@@ -282,8 +282,12 @@ struct GameplayCommand {
     Value value;
 };
 
-struct ReturnFlow {};
-struct EndFlow {};
+struct ReturnFlow {
+    bool operator==(const ReturnFlow&) const = default;
+};
+struct EndFlow {
+    bool operator==(const EndFlow&) const = default;
+};
 using FlowTarget = std::variant<SceneId, DialogueId, RoomId, ReturnFlow, EndFlow>;
 
 } // namespace noveltea::core
