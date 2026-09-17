@@ -26,7 +26,10 @@ std::string object_to_string(const sol::object& object)
     case sol::type::string:
         return object.as<std::string>();
     default:
-        return "<" + std::string(sol::type_name(object.lua_state(), object.get_type())) + ">";
+        std::string result{"<"};
+        result += sol::type_name(object.lua_state(), object.get_type());
+        result += '>';
+        return result;
     }
 }
 

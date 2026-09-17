@@ -1146,6 +1146,8 @@ struct ActorCueInstruction {
 struct SceneInputBinding {
     SceneInputId input_id;
     RuntimeValue value;
+
+    bool operator==(const SceneInputBinding&) const = default;
 };
 struct CallSceneSceneInstruction {
     SceneStepId id;

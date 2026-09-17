@@ -10,10 +10,15 @@ export function resolvePnpmInvocation(
 ) {
   const pnpmEntrypoint = environment.npm_execpath;
   if (pnpmEntrypoint) {
-    return {
-      command: nodeExecutable,
-      args: [pnpmEntrypoint, ...args],
-    };
+    // @pnpm/exe exposes npm_execpath as a native launcher, not JavaScript.
+    // Passing that ELF file to Node makes Node parse its binary bytes as source.
+    const isJavaScriptEntrypoint = /\.(?:cjs|mjs|js)$/i.test(pnpmEntrypoint);
+    return isJavaScriptEntrypoint
+      ? {
+          command: nodeExecutable,
+          args: [pnpmEntrypoint, ...args],
+        }
+      : { command: pnpmEntrypoint, args };
   }
   if (platform === 'win32') {
     return {

@@ -16,6 +16,16 @@ describe('pnpm process invocation', () => {
     });
   });
 
+  it('executes native pnpm entrypoints directly', () => {
+    expect(
+      resolvePnpmInvocation(['run', 'build'], {
+        environment: { npm_execpath: '/opt/pnpm/pnpm' },
+        platform: 'linux',
+        nodeExecutable: '/usr/bin/node',
+      }),
+    ).toEqual({ command: '/opt/pnpm/pnpm', args: ['run', 'build'] });
+  });
+
   it('falls back to the platform-specific pnpm launcher', () => {
     expect(
       resolvePnpmInvocation(['run', 'build'], {
