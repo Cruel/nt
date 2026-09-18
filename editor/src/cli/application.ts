@@ -1,9 +1,6 @@
 import path from 'node:path';
 import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
-import {
-  projectSourceInventoriesEqual,
-  type ProjectSourceInventory,
-} from '../shared/project-source-inventory';
+import type { ProjectSourceInventory } from '../shared/project-source-inventory';
 import type { ProjectWorkspaceService } from '../shared/project-workspace/project-workspace-service';
 import { bootstrapNovelTeaCli, novelTeaCliUsageFailure } from './bootstrap';
 import {
@@ -206,7 +203,8 @@ export async function runNovelTeaCli(
     (globals.command[1] === 'template' || globals.command[1] === 'config')
   ) {
     try {
-      const { runProjectIndependentPlatformCommand } = await import('./platform-commands');
+      const { runProjectIndependentPlatformCommand } =
+        await import('./platform-independent-commands');
       const independent = await runProjectIndependentPlatformCommand({
         command: globals.command,
         projectOption: globals.project,
@@ -495,12 +493,13 @@ export async function runNovelTeaCli(
         activeOpened.opened.sourceContributions,
       );
     }
-    if (
-      options.expectedAuthoringValidationInputs &&
-      (!validationInputs ||
-        !projectSourceInventoriesEqual(options.expectedAuthoringValidationInputs, validationInputs))
-    ) {
-      throw new AuthoringValidationAuthorityMismatchError();
+    if (options.expectedAuthoringValidationInputs) {
+      const { projectSourceInventoriesEqual } = await import('../shared/project-source-inventory');
+      if (
+        !validationInputs ||
+        !projectSourceInventoriesEqual(options.expectedAuthoringValidationInputs, validationInputs)
+      )
+        throw new AuthoringValidationAuthorityMismatchError();
     }
     const semantic = await command.run({
       cwd,

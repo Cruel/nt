@@ -1,5 +1,5 @@
 import type { CliCommandDefinition, CliParsedCommand } from './types';
-import { CliCommandUsageError } from './types';
+import { CliCommandUsageError } from './errors';
 
 function matchesPath(command: readonly string[], path: readonly string[]): boolean {
   return path.every((segment, index) => command[index] === segment);
@@ -10,11 +10,15 @@ async function commandDefinitions(
 ): Promise<readonly CliCommandDefinition[]> {
   switch (command[0]) {
     case 'asset': {
-      const [{ assetAuditCommand }, { assetImportCommand }] = await Promise.all([
-        import('./asset-audit-command'),
-        import('./asset-import-command'),
-      ]);
-      return [assetAuditCommand, assetImportCommand];
+      if (command[1] === 'audit') {
+        const { assetAuditCommand } = await import('./asset-audit-command');
+        return [assetAuditCommand];
+      }
+      if (command[1] === 'import') {
+        const { assetImportCommand } = await import('./asset-import-command');
+        return [assetImportCommand];
+      }
+      return [];
     }
     case 'entity': {
       const [{ entityCreateCommand }, { entityRenameCommand }, { entityDeleteCommand }] =
@@ -75,4 +79,4 @@ export async function parseCliCommand(command: readonly string[]): Promise<CliPa
   return definition.parse(command.slice(definition.path.length));
 }
 
-export { CliCommandUsageError } from './types';
+export { CliCommandUsageError } from './errors';

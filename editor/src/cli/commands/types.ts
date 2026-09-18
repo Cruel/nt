@@ -14,13 +14,9 @@ import type {
   ProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
 } from '../../shared/project-workspace';
+import { CliCommandUsageError } from './errors';
 
-export class CliCommandUsageError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CliCommandUsageError';
-  }
-}
+export { CliCommandUsageError } from './errors';
 
 interface CliCommandContextBase {
   readonly cwd: string;

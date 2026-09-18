@@ -1359,6 +1359,25 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
   return report;
 }
 
+function certifyScopedPreparationLazyBoundaries(projectRoot) {
+  const env = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  for (const test of [
+    {
+      label: 'standalone scoped asset audit',
+      args: ['--project', projectRoot, '--json', 'asset', 'audit'],
+    },
+    {
+      label: 'standalone scoped platform profiles',
+      args: ['--project', projectRoot, '--json', 'platform', 'profiles'],
+    },
+  ]) {
+    const result = requireSuccess(test.label, runNative(test.args, { cwd: projectRoot, env }));
+    assertIslandTrace(test.label, result, true);
+    assertIslandBoundaryTrace(test.label, result, 'workspace services import starting', false);
+  }
+  process.stdout.write('[scoped-lazy-boundaries] asset audit and platform profiles: PASS\n');
+}
+
 async function certifyRuntimeCacheInvalidation(tempRoot, pristine) {
   const root = path.join(tempRoot, 'runtime-cache-invalidation');
   await resetCase(pristine, root);
@@ -2693,6 +2712,7 @@ async function main() {
     await certifyAuthoringCache(tempRoot, pristine);
     certifyEditorAuthoringCacheSharing();
     const performance = await certifyPerformanceEnvelope(tempRoot, pristine);
+    certifyScopedPreparationLazyBoundaries(pristine);
     await certifyTestCommandParity(tempRoot, pristine);
     await certifyRuntimeCacheInvalidation(tempRoot, pristine);
     await certifyNativeOperations(tempRoot, pristine);

@@ -1,4 +1,3 @@
-import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import type { CliSemanticResult } from '../semantic-project';
 import { assetAuditProjectPreparationIntent } from '../project-preparation';
 import type { CliCommandDefinition, CliScopedCommandContext } from './types';
@@ -6,10 +5,9 @@ import { CliCommandUsageError } from './types';
 
 function auditAssetDirectory(context: CliScopedCommandContext): CliSemanticResult {
   const tracked = new Set(
-    Object.values(context.preparation.assets).flatMap((record) => {
-      const data = parseAssetData(record.data);
-      return data?.source.type === 'project-file' ? [data.source.path] : [];
-    }),
+    Object.values(context.preparation.assets).flatMap((record) =>
+      record.data.source.type === 'project-file' ? [record.data.source.path] : [],
+    ),
   );
   const untrackedFiles = context.preparation.assetFilesystemInventory.filter(
     ({ projectRelativePath }) => !tracked.has(projectRelativePath),
