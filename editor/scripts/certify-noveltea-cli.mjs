@@ -509,6 +509,14 @@ function assertIslandTrace(label, result, expected) {
     );
 }
 
+function assertIslandBoundaryTrace(label, result, marker, expected) {
+  const observed = result.stderr.includes(`[scriptc-island] ${marker}`);
+  if (observed !== expected)
+    fail(
+      `${label} ${expected ? 'did not reach' : 'unexpectedly reached'} island boundary '${marker}'.\nstderr:\n${result.stderr}`,
+    );
+}
+
 async function prepareWritingRecovery(root) {
   const target = 'records/rooms/gallery.json';
   const absolute = path.join(root, target);
@@ -1570,25 +1578,68 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
     'platform template archive creation',
     run('cmake', ['-E', 'tar', 'czf', archive, '.'], { cwd: source }),
   );
-  const env = { ...process.env, NOVELTEA_TEMPLATE_REGISTRY_ROOT: registry };
-  requireSuccess(
+  const env = {
+    ...process.env,
+    NOVELTEA_TEMPLATE_REGISTRY_ROOT: registry,
+    NOVELTEA_CLI_TRACE: '1',
+  };
+  const installed = requireSuccess(
     'standalone template install',
     runNative(['--json', 'platform', 'template', 'install', archive, '--force'], {
       cwd: tempRoot,
       env,
     }),
   );
+  assertIslandTrace('standalone template install', installed, true);
+  assertIslandBoundaryTrace(
+    'standalone template install',
+    installed,
+    'platform host configuration starting',
+    true,
+  );
+  assertIslandBoundaryTrace(
+    'standalone template install',
+    installed,
+    'workspace services import starting',
+    false,
+  );
   const listed = requireSuccess(
     'standalone template list',
     runNative(['--json', 'platform', 'template', 'list'], { cwd: tempRoot, env }),
+  );
+  assertIslandTrace('standalone template list', listed, true);
+  assertIslandBoundaryTrace(
+    'standalone template list',
+    listed,
+    'platform host configuration starting',
+    false,
+  );
+  assertIslandBoundaryTrace(
+    'standalone template list',
+    listed,
+    'workspace services import starting',
+    false,
   );
   const templates = JSON.parse(listed.stdout).templates;
   if (!Array.isArray(templates) || templates[0]?.id !== 'certification-web-template@build-1')
     fail('Standalone template registry did not return the installed template identity.');
   const config = path.join(tempRoot, 'platform-export-config.json');
-  requireSuccess(
+  const configured = requireSuccess(
     'standalone platform config',
     runNative(['--json', 'platform', 'config', 'init', config], { cwd: tempRoot, env }),
+  );
+  assertIslandTrace('standalone platform config', configured, true);
+  assertIslandBoundaryTrace(
+    'standalone platform config',
+    configured,
+    'platform host configuration starting',
+    false,
+  );
+  assertIslandBoundaryTrace(
+    'standalone platform config',
+    configured,
+    'workspace services import starting',
+    false,
   );
   if (!(await stat(config)).isFile()) fail('Standalone platform config was not created.');
   const output = path.join(tempRoot, 'standalone-web-export');
@@ -1609,6 +1660,19 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
       ],
       { cwd: projectRoot, env },
     ),
+  );
+  assertIslandTrace('standalone platform export', exported, true);
+  assertIslandBoundaryTrace(
+    'standalone platform export',
+    exported,
+    'platform host configuration starting',
+    true,
+  );
+  assertIslandBoundaryTrace(
+    'standalone platform export',
+    exported,
+    'workspace services import starting',
+    true,
   );
   const exportPayload = JSON.parse(exported.stdout);
   if (exportPayload.signingRequested !== false || exportPayload.signingApplied !== false)
