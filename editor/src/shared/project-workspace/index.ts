@@ -48,12 +48,15 @@ export {
   projectWorkspaceLocalStateFile,
   publishProjectWorkspaceSnapshot,
   ProjectWorkspaceService,
+  type ProjectWorkspaceDependencyAnalysis,
   type ProjectWorkspaceFileRevision,
   type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceOpenResult,
   type ProjectWorkspaceOpenOptions,
   type ProjectWorkspaceSaveUnitFileOwnership,
   type ProjectWorkspaceSnapshot,
+  type ProjectWorkspaceSourceContribution,
+  type ProjectWorkspaceSourceContributions,
   type ProjectWorkspaceWriteOptions,
 } from './project-workspace-service';
 export {

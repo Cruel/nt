@@ -235,8 +235,23 @@ closed instead of changing journal state. Non-dry-run semantic mutations persist
 workspace transaction service used by editor structural writes.
 
 `noveltea validate` uses the shared authoring compiler/validation and dependency/source-analysis
-pipeline. Projects with authored Shaders or Materials also run shader readiness for `glsl-330`,
-`essl-300`, and `metal` through the standalone `noveltea` native tooling boundary. The retired
+pipeline. Clean disk validation may publish an immutable Project-local authoring-cache generation
+containing the exact source inventory, canonical diagnostics, and a digest-protected per-source
+contribution artifact. Each canonical authoring source contribution is keyed by its Project-relative
+path and exact content hash and retains its normalized parsed JSON fragment or source text, schema
+admission, precise semantic owner paths, and locally attributable validation diagnostics. The same
+artifact retains dependency-graph contributions and source-analysis products with the exact source
+revisions they depend on, so unchanged semantic work remains admissible for later dependency-aware
+validation. A stale whole-validation result may therefore reuse unchanged source assembly
+contributions without rereading or reparsing them, while changed-source semantic contributions are
+filtered out. If only metadata changed, the affected source is reread and hashed; exact byte identity
+re-admits the prior contribution. Added, deleted, structurally reclassified, or otherwise uncertain
+candidate-source inventory disables contribution reuse conservatively. This layer currently reuses
+source assembly contributions while complete Project-wide semantic validation still runs after a
+partial reassembly; dependency-aware validation consumes the retained semantic products separately.
+
+Projects with authored Shaders or Materials also run shader readiness for `glsl-330`, `essl-300`, and
+`metal` through the standalone `noveltea` native tooling boundary. The retired
 `noveltea-editor-tool` executable and standalone released shaderc process are not part of the current
 workspace/toolchain contract.
 

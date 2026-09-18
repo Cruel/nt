@@ -668,7 +668,7 @@ Json probe_authoring(const Json& request)
     if (!text || sha256_prefixed(*text) != *digest)
         return response("unusable", "manifest-digest-mismatch");
     const auto manifest = Json::parse(*text, nullptr, false);
-    if (!manifest.is_object() || manifest.size() != 7 ||
+    if (!manifest.is_object() || manifest.size() != 8 ||
         string_field(manifest, "projectRoot") != root_text ||
         string_field(manifest, "schema") != "noveltea.authoring-cache" ||
         string_field(manifest, "buildIdentity") != identity ||
@@ -676,7 +676,11 @@ Json probe_authoring(const Json& request)
         manifest["projectWorkspace"] !=
             Json{{"schema", kWorkspaceSchema}, {"formatVersion", kWorkspaceVersion}} ||
         !manifest.contains("inputs") || !manifest["inputs"].is_array() ||
-        !manifest.contains("discoveryScopes") || !manifest.contains("result") ||
+        !manifest.contains("discoveryScopes") || !manifest.contains("contributions") ||
+        !manifest["contributions"].is_object() || manifest["contributions"].size() != 2 ||
+        string_field(manifest["contributions"], "schema") !=
+            "noveltea.authoring-cache.contributions" ||
+        !string_field(manifest["contributions"], "sha256") || !manifest.contains("result") ||
         !validation_result_shape_valid(manifest["result"]))
         return response("unusable", "cache-contract-changed");
 
@@ -703,7 +707,8 @@ Json probe_authoring(const Json& request)
         previous = relative;
         inputs.insert(relative);
     }
-    if (!inputs.contains("project.json") || !inputs.contains("editor.json"))
+    if (!inputs.contains("project.json") || !inputs.contains("editor.json") ||
+        !inputs.contains("traits.json"))
         return response("unusable", "manifest-inputs-invalid");
     if (!discovery_matches(root, scopes, inputs) || !authoring_workspace_settled(root))
         return response("stale", "discovery-inputs-changed");
