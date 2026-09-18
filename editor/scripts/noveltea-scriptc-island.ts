@@ -170,7 +170,9 @@ export async function runNovelTeaScriptcIsland(
   const internal = await runInternalCommand(effectiveArgv, nativeTools, invokeHost);
   if (internal !== null) return internal;
 
+  trace('bootstrap import starting');
   const { bootstrapNovelTeaCli } = await import('../src/cli/bootstrap');
+  trace('bootstrap import completed');
   const bootstrap = bootstrapNovelTeaCli(effectiveArgv);
   if (bootstrap.complete)
     return result(bootstrap.result.exitCode, bootstrap.result.stdout, bootstrap.result.stderr);
@@ -180,8 +182,10 @@ export async function runNovelTeaScriptcIsland(
 
   let platformTools: NovelTeaCliPlatformToolService | undefined;
   if (family === 'platform') {
+    trace('platform tools import starting');
     const { createNovelTeaCliPlatformToolService } =
       await import('../src/cli/platform-tool-service-node');
+    trace('platform tools import completed');
     platformTools = createNovelTeaCliPlatformToolService(nativeTools);
   }
 
@@ -201,6 +205,9 @@ export async function runNovelTeaScriptcIsland(
 
   const projectIndependentPlatform =
     family === 'platform' && (operation === 'template' || operation === 'config');
+  const scopedProjectPreparation =
+    (family === 'asset' && operation === 'audit') ||
+    (family === 'platform' && operation === 'profiles');
   let fileSystem:
     | import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem
     | undefined;
@@ -208,35 +215,40 @@ export async function runNovelTeaScriptcIsland(
     | import('../src/shared/project-workspace/project-workspace-service').ProjectWorkspaceService
     | undefined;
   if (!projectIndependentPlatform) {
-    trace('workspace services import starting');
-    const [fileSystemModule, serviceModule, transactionModule, metadataModule, cryptoModule] =
-      await Promise.all([
-        import('../src/shared/project-workspace/node-project-workspace-file-system'),
-        import('../src/shared/project-workspace/project-workspace-service'),
-        import('../src/shared/project-workspace/project-workspace-transaction'),
-        import('./noveltea-scriptc-path-metadata'),
-        import('../src/shared/web-crypto'),
-      ]);
-    cryptoModule.configureSha256BytesImplementation(async (bytes) =>
-      createHash('sha256').update(bytes).digest('hex'),
-    );
+    trace('scoped filesystem import starting');
+    const [fileSystemModule, metadataModule] = await Promise.all([
+      import('../src/shared/project-workspace/node-project-workspace-file-system'),
+      import('./noveltea-scriptc-path-metadata'),
+    ]);
+    trace('scoped filesystem import completed');
     fileSystem = fileSystemModule.createNodeProjectWorkspaceFileSystem(
       metadataModule.createScriptcPathMetadataReader(invokeHost),
     );
-    workspace = new serviceModule.ProjectWorkspaceService(
-      fileSystem,
-      new transactionModule.ProjectWorkspaceTransactionService(
+    if (!scopedProjectPreparation) {
+      trace('workspace services import starting');
+      const [serviceModule, transactionModule, cryptoModule] = await Promise.all([
+        import('../src/shared/project-workspace/project-workspace-service'),
+        import('../src/shared/project-workspace/project-workspace-transaction'),
+        import('../src/shared/web-crypto'),
+      ]);
+      cryptoModule.configureSha256BytesImplementation(async (bytes) =>
+        createHash('sha256').update(bytes).digest('hex'),
+      );
+      workspace = new serviceModule.ProjectWorkspaceService(
         fileSystem,
-        {
-          async isProcessAlive(pid) {
-            const value = invokeHost('process-alive', String(pid));
-            return value === 'true' ? true : value === 'false' ? false : null;
+        new transactionModule.ProjectWorkspaceTransactionService(
+          fileSystem,
+          {
+            async isProcessAlive(pid) {
+              const value = invokeHost('process-alive', String(pid));
+              return value === 'true' ? true : value === 'false' ? false : null;
+            },
           },
-        },
-        process.pid,
-        randomUUID,
-      ),
-    );
+          process.pid,
+          randomUUID,
+        ),
+      );
+    }
   }
 
   let agentKitPayload: import('../src/cli/agent-kit').NovelTeaAgentKitPayload | undefined;
@@ -263,7 +275,10 @@ export async function runNovelTeaScriptcIsland(
     ? setTimeout(() => cancellationController.abort(), 500)
     : null;
   try {
+    trace('application import starting');
     const { runNovelTeaCli } = await import('../src/cli/application');
+    trace('application import completed');
+    trace('application invocation starting');
     const commandResult = await runNovelTeaCli(effectiveArgv, {
       ...(fileSystem ? { fileSystem } : {}),
       ...(workspace ? { workspace } : {}),
@@ -277,6 +292,7 @@ export async function runNovelTeaScriptcIsland(
       // An island validate is the canonical fallback, not a second chance to trust a rejected cache.
       forceAuthoringCacheRebuild: true,
     });
+    trace('application invocation completed');
     return result(commandResult.exitCode, commandResult.stdout, commandResult.stderr);
   } finally {
     if (cancellationTimer) clearTimeout(cancellationTimer);
