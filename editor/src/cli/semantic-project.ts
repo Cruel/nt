@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { AuthoringValidationContribution } from '../shared/project-schema/authoring-validation-contributions';
 import type { AuthoringDependencyGraphSnapshot } from '../shared/authoring-dependency-contracts';
 import { exactSourceRewritePatches } from '../shared/authoring-source-rewrite';
 import {
@@ -38,6 +39,7 @@ export interface CliOpenedProject {
   readonly snapshot: LoadedProjectWorkspaceSnapshot;
   readonly editorState: LoadedProjectWorkspaceSnapshot['project']['editor'];
   readonly sourceContributions: ProjectWorkspaceSourceContributions;
+  readonly validationContributions: readonly AuthoringValidationContribution[];
 }
 
 export interface CliMutationPlan {
@@ -75,6 +77,7 @@ export async function openCliProject(
   options: Readonly<{
     readOnly?: boolean;
     reusableSourceContributions?: ProjectWorkspaceSourceContributions;
+    reusableValidationContributions?: readonly AuthoringValidationContribution[];
   }> = {},
 ): Promise<
   | Readonly<{ ok: true; opened: CliOpenedProject; diagnostics: readonly NovelTeaCliDiagnostic[] }>
@@ -83,6 +86,7 @@ export async function openCliProject(
   const opened = await workspace.open(projectRoot, {
     recoverTransactions: options.readOnly ? false : true,
     reusableSourceContributions: options.reusableSourceContributions,
+    reusableValidationContributions: options.reusableValidationContributions,
   });
   if (!opened.ok) {
     return {
@@ -103,6 +107,7 @@ export async function openCliProject(
       snapshot: opened.snapshot,
       editorState: opened.snapshot.project.editor,
       sourceContributions: opened.sourceContributions,
+      validationContributions: opened.validationContributions,
     },
     diagnostics: opened.diagnostics.map((item) =>
       cliDiagnostic(item.code, item.path, item.message, item.severity),

@@ -248,12 +248,15 @@ Asset-backed text sources participate through their exact external source-file r
 whole-validation result may therefore rebuild from cached normalized fragments without rereading or
 reparsing unrelated unchanged JSON sources: fresh fragments are normalized by their owning schemas,
 and malformed or otherwise uncertain input falls back to the canonical full-Project parser.
-Changed-source semantic contributions are filtered out. If only metadata changed, the affected source
-is reread and hashed; exact byte identity re-admits the prior contribution. Added, deleted,
-structurally reclassified, or otherwise uncertain candidate-source inventory disables contribution
-reuse conservatively. This layer currently reuses source assembly contributions while complete
-Project-wide semantic validation still runs after a partial reassembly; dependency-aware validation
-consumes the retained semantic products separately.
+Changed-source semantic contributions are filtered out. Semantic validation is also retained as
+per-check contributions: each check records the Project input paths it actually reads and binds those
+inputs to the exact owning source revisions. A partial reassembly reruns checks whose recorded inputs
+intersect changed source revisions while reusing unaffected findings, then applies the same canonical
+diagnostic classification, ordering, and deduplication as fresh whole-Project validation. If only
+metadata changed, the affected source is reread and hashed; exact byte identity re-admits the prior
+source and semantic contributions. Added, deleted, structurally reclassified, or otherwise uncertain
+candidate-source inventory disables contribution reuse conservatively and falls back to fresh
+validation.
 
 Projects with authored Shaders or Materials also run shader readiness for `glsl-330`, `essl-300`, and
 `metal` through the standalone `noveltea` native tooling boundary. The retired

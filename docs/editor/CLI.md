@@ -234,11 +234,15 @@ and other uncertainty use normal TypeScript validation. Publication is best-effo
 state never changes freshly computed diagnostics. Native tooling failures are not memoized.
 
 Cached semantic errors, warnings, informational findings, locations, ordering, exit status, and human
-or JSON formatting retain ordinary validation semantics. `NOVELTEA_CLI_TRACE=1` exposes standalone
+or JSON formatting retain ordinary validation semantics. When the whole-result static/native hit is
+not available but the prior generation is otherwise reusable, TypeScript validation reuses exact
+per-source assembly contributions and per-check semantic contributions whose recorded Project input
+paths still resolve to the same source revisions. Checks affected by changed sources rerun; unaffected
+findings are reused. Added, deleted, reclassified, or otherwise uncertain source inventory falls back
+to fresh validation rather than risking stale semantics. `NOVELTEA_CLI_TRACE=1` exposes standalone
 admission/fallback and island-import traces without adding routine cache fields to validation output.
-This initial cache stores whole-validation results only. Clean editor-session publication and
-per-source incremental reuse are separate follow-ups; unsaved editor drafts never publish through
-this CLI disk-validation path. The cache is disposable and excluded from portable Project bundles.
+Unsaved editor drafts never publish through this CLI disk-validation path. The cache is disposable
+and excluded from portable Project bundles.
 
 ## Machine-readable protocol
 

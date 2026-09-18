@@ -91,6 +91,45 @@ afterEach(async () => {
 });
 
 describe('persistent CLI validation', () => {
+  it('reuses unaffected validation checks after a one-Room edit with fresh-equivalent output', async () => {
+    const root = await fixture(false, (project) => {
+      for (let index = 0; index < 30; index++) {
+        const id = `room-${index}`;
+        project.rooms[id] = createDefaultAuthoringRecord('rooms', id) as typeof project.rooms.start;
+      }
+      project.rooms['room-0']!.label = ' ';
+    });
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    const work: Array<{ executed: number; reused: number }> = [];
+    class ObservedWorkspace extends ProjectWorkspaceService {
+      override async open(...args: Parameters<ProjectWorkspaceService['open']>) {
+        const opened = await super.open(...args);
+        if (opened.ok) work.push(opened.validationWork);
+        return opened;
+      }
+    }
+    const options = {
+      cwd: root,
+      nativeTools: tools(),
+      fileSystem,
+      workspace: new ObservedWorkspace(fileSystem),
+    };
+    await runNovelTeaCli(['--json', 'validate'], options);
+    const file = path.join(root, 'records/rooms/start.json');
+    const room = JSON.parse(await readFile(file, 'utf8'));
+    room.label = 'Changed';
+    await writeFile(file, JSON.stringify(room));
+    const incremental = await runNovelTeaCli(['--json', 'validate'], options);
+    const fresh = await runNovelTeaCli(['--json', 'validate'], {
+      ...options,
+      forceAuthoringCacheRebuild: true,
+    });
+    expect(incremental).toEqual(fresh);
+    expect(work[0]!.executed).toBeGreaterThan(60);
+    expect(work[1]!.reused).toBeGreaterThan(50);
+    expect(work[1]!.executed).toBeLessThan(work[0]!.executed / 2);
+    expect(work[2]!.reused).toBe(0);
+  });
   it('does not certify a source addition that happened after workspace assembly', async () => {
     const root = await fixture();
     const fileSystem = new NodeProjectWorkspaceFileSystem();
@@ -386,14 +425,27 @@ describe('persistent CLI validation', () => {
     );
   });
 
-  it('does not retain cross-source validation findings as source-local diagnostics', async () => {
+  it('invalidates cross-source semantic checks when a referenced Trait changes', async () => {
     const root = await fixture(false, (project) => {
       project.rooms.start!.traits = ['shared'];
     });
     const nativeTools = tools();
-    expect(
-      (await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools })).exitCode,
-    ).toBe(4);
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    const work: Array<{ executed: number; reused: number }> = [];
+    class ObservedWorkspace extends ProjectWorkspaceService {
+      override async open(...args: Parameters<ProjectWorkspaceService['open']>) {
+        const opened = await super.open(...args);
+        if (opened.ok) work.push(opened.validationWork);
+        return opened;
+      }
+    }
+    const options = {
+      cwd: root,
+      nativeTools,
+      fileSystem,
+      workspace: new ObservedWorkspace(fileSystem),
+    };
+    expect((await runNovelTeaCli(['--json', 'validate'], options)).exitCode).toBe(4);
 
     const traitsPath = path.join(root, 'traits.json');
     const traits = JSON.parse(await readFile(traitsPath, 'utf8')) as Record<string, unknown>;
@@ -404,9 +456,17 @@ describe('persistent CLI validation', () => {
       properties: [],
     };
     await writeFile(traitsPath, JSON.stringify(traits));
-    expect(
-      (await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools })).exitCode,
-    ).toBe(0);
+    const incremental = await runNovelTeaCli(['--json', 'validate'], options);
+    const fresh = await runNovelTeaCli(['--json', 'validate'], {
+      ...options,
+      forceAuthoringCacheRebuild: true,
+    });
+    expect(incremental).toEqual(fresh);
+    expect(incremental.exitCode).toBe(0);
+    expect(work[1]!.executed).toBeGreaterThan(0);
+    expect(work[1]!.reused).toBeGreaterThan(0);
+    expect(work[1]!.executed).toBeLessThan(work[0]!.executed);
+    expect(work[2]!.reused).toBe(0);
 
     const currentGeneration = await generation(root);
     const artifact = JSON.parse(
@@ -717,18 +777,38 @@ describe('persistent CLI validation', () => {
       }
     }
 
+    const work: Array<{ executed: number; reused: number }> = [];
+    class ObservedWorkspace extends ProjectWorkspaceService {
+      override async open(...args: Parameters<ProjectWorkspaceService['open']>) {
+        const opened = await super.open(...args);
+        if (opened.ok) work.push(opened.validationWork);
+        return opened;
+      }
+    }
     const metadataMissFileSystem = new MetadataMissReads();
-    const result = await runNovelTeaCli(['--json', 'validate'], {
+    const options = {
       cwd: root,
       nativeTools,
       fileSystem: metadataMissFileSystem,
-      workspace: new ProjectWorkspaceService(metadataMissFileSystem),
+      workspace: new ObservedWorkspace(metadataMissFileSystem),
+    };
+    const incremental = await runNovelTeaCli(['--json', 'validate'], options);
+    const freshFileSystem = new NodeProjectWorkspaceFileSystem();
+    const fresh = await runNovelTeaCli(['--json', 'validate'], {
+      cwd: root,
+      nativeTools,
+      fileSystem: freshFileSystem,
+      workspace: new ObservedWorkspace(freshFileSystem),
+      forceAuthoringCacheRebuild: true,
     });
-    expect(result.exitCode).toBe(0);
+    expect(incremental).toEqual(fresh);
+    expect(incremental.exitCode).toBe(0);
     expect(hashedTouchedSource).toBe(true);
+    expect(work[0]!.reused).toBeGreaterThan(0);
+    expect(work[1]!.reused).toBe(0);
   });
 
-  it('invalidates contributions when candidate source inventory changes', async () => {
+  it('falls back to full validation when candidate source inventory changes', async () => {
     const root = await fixture();
     const other = createDefaultAuthoringRecord('rooms', 'other');
     const otherPath = path.join(root, 'records/rooms/other.json');
@@ -741,20 +821,73 @@ describe('persistent CLI validation', () => {
     const added = createDefaultAuthoringRecord('rooms', 'added');
     await writeFile(path.join(root, 'records/rooms/added.json'), JSON.stringify(added));
     let rereadUnchangedSource = false;
+    const work: Array<{ executed: number; reused: number }> = [];
     class StructuralChangeReads extends NodeProjectWorkspaceFileSystem {
       override async readText(file: string) {
         if (file === otherPath) rereadUnchangedSource = true;
         return super.readText(file);
       }
     }
+    class ObservedWorkspace extends ProjectWorkspaceService {
+      override async open(...args: Parameters<ProjectWorkspaceService['open']>) {
+        const opened = await super.open(...args);
+        if (opened.ok) work.push(opened.validationWork);
+        return opened;
+      }
+    }
     const structuralChangeFileSystem = new StructuralChangeReads();
-    const result = await runNovelTeaCli(['--json', 'validate'], {
+    const options = {
       cwd: root,
       nativeTools,
       fileSystem: structuralChangeFileSystem,
-      workspace: new ProjectWorkspaceService(structuralChangeFileSystem),
+      workspace: new ObservedWorkspace(structuralChangeFileSystem),
+    };
+    const incremental = await runNovelTeaCli(['--json', 'validate'], options);
+    const fresh = await runNovelTeaCli(['--json', 'validate'], {
+      ...options,
+      forceAuthoringCacheRebuild: true,
     });
-    expect(result.exitCode).toBe(0);
+    expect(incremental).toEqual(fresh);
+    expect(incremental.exitCode).toBe(0);
     expect(rereadUnchangedSource).toBe(true);
+    expect(work[0]!.reused).toBe(0);
+    expect(work[1]!.reused).toBe(0);
+  });
+
+  it('falls back to full validation when an authoritative source is deleted', async () => {
+    const root = await fixture(false, (project) => {
+      project.rooms.other = createDefaultAuthoringRecord(
+        'rooms',
+        'other',
+      ) as typeof project.rooms.start;
+    });
+    const nativeTools = tools();
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    const work: Array<{ executed: number; reused: number }> = [];
+    class ObservedWorkspace extends ProjectWorkspaceService {
+      override async open(...args: Parameters<ProjectWorkspaceService['open']>) {
+        const opened = await super.open(...args);
+        if (opened.ok) work.push(opened.validationWork);
+        return opened;
+      }
+    }
+    const options = {
+      cwd: root,
+      nativeTools,
+      fileSystem,
+      workspace: new ObservedWorkspace(fileSystem),
+    };
+    expect((await runNovelTeaCli(['--json', 'validate'], options)).exitCode).toBe(0);
+    await rm(path.join(root, 'records/rooms/other.json'));
+
+    const incremental = await runNovelTeaCli(['--json', 'validate'], options);
+    const fresh = await runNovelTeaCli(['--json', 'validate'], {
+      ...options,
+      forceAuthoringCacheRebuild: true,
+    });
+    expect(incremental).toEqual(fresh);
+    expect(incremental.exitCode).toBe(0);
+    expect(work[1]!.reused).toBe(0);
+    expect(work[2]!.reused).toBe(0);
   });
 });

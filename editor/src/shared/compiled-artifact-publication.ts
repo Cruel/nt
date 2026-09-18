@@ -13,8 +13,11 @@ export type CompiledArtifactPublicationResult = CompileResult<CompiledArtifactPu
  * authoring compiler and publishes the validated compiled value together with
  * its canonical gameplay bytes.
  */
-export function publishCompiledArtifact(project: unknown): CompiledArtifactPublicationResult {
-  const compiled = compileAuthoringProject(project);
+export function publishCompiledArtifact(
+  project: unknown,
+  validate?: Parameters<typeof compileAuthoringProject>[1],
+): CompiledArtifactPublicationResult {
+  const compiled = compileAuthoringProject(project, validate);
   if (!compiled.ok) return compiled;
   return {
     ok: true,

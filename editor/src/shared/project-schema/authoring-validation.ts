@@ -81,6 +81,10 @@ import {
   type ProjectValidationDiagnosticLike,
 } from './project-validation';
 import { resolveAssetMemoryPolicy } from './platform-export-contracts';
+import {
+  authoringValidationChecks,
+  type AuthoringValidationReuse,
+} from './authoring-validation-contributions';
 
 function diagnostic(
   severity: ToolSeverity,
@@ -1791,301 +1795,346 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
     );
   }
 
-  const project = parsed.data;
-  validateLocalizationReferences(project, diagnostics);
-  for (const source of collectAuthoringLuaSources(project)) {
-    if ((source.explicitDependencies?.length ?? 0) === 0 || source.supportsExplicitFallback)
-      continue;
-    diagnostics.push(
-      diagnostic(
-        'warning',
-        source.explicitDependenciesPath ?? source.sourcePath,
-        'Additional Lua dependencies are not supported for this authoring location.',
-        'Lua analysis',
-        'authoring.lua.unsupported_explicit_fallback_owner',
-      ),
-    );
-  }
-  if (!project.entrypoint) {
-    diagnostics.push(
-      diagnostic(
-        'warning',
-        '/entrypoint',
-        'No project entrypoint is configured yet.',
-        'Project validation',
-        'authoring.entrypoint.missing',
-      ),
-    );
-  } else {
-    const collection = `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
-    if (!project[collection][project.entrypoint.id])
+  return validateAdmittedAuthoringProject(parsed.data).diagnostics;
+}
+
+/** Workspace assembly has already admitted every fragment through its owning schema. */
+export function validateAdmittedAuthoringProject(
+  project: AuthoringProject,
+  reuse?: AuthoringValidationReuse,
+  scope = 'workspace',
+) {
+  const diagnostics: ProjectValidationDiagnosticLike[] = [];
+  const checks = authoringValidationChecks(reuse, scope);
+  const run = (
+    key: string,
+    validate: (project: AuthoringProject, diagnostics: ProjectValidationDiagnosticLike[]) => void,
+  ) => diagnostics.push(...checks.run(key, project, validate));
+  run('localization', validateLocalizationReferences);
+  run('lua-fallback-owners', (project, diagnostics) => {
+    for (const source of collectAuthoringLuaSources(project)) {
+      if ((source.explicitDependencies?.length ?? 0) === 0 || source.supportsExplicitFallback)
+        continue;
       diagnostics.push(
         diagnostic(
-          'error',
+          'warning',
+          source.explicitDependenciesPath ?? source.sourcePath,
+          'Additional Lua dependencies are not supported for this authoring location.',
+          'Lua analysis',
+          'authoring.lua.unsupported_explicit_fallback_owner',
+        ),
+      );
+    }
+  });
+  run('entrypoint', (project, diagnostics) => {
+    if (!project.entrypoint) {
+      diagnostics.push(
+        diagnostic(
+          'warning',
           '/entrypoint',
-          `Missing ${project.entrypoint.kind} '${project.entrypoint.id}'.`,
+          'No project entrypoint is configured yet.',
           'Project validation',
-          'authoring.entrypoint.target-missing',
+          'authoring.entrypoint.missing',
         ),
       );
-  }
-
+    } else {
+      const collection = `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
+      if (!project[collection][project.entrypoint.id])
+        diagnostics.push(
+          diagnostic(
+            'error',
+            '/entrypoint',
+            `Missing ${project.entrypoint.kind} '${project.entrypoint.id}'.`,
+            'Project validation',
+            'authoring.entrypoint.target-missing',
+          ),
+        );
+    }
+  });
   for (const collection of authoringCollectionKeys) {
-    const records = recordsFor(project, collection);
-    for (const [id, record] of Object.entries(records)) {
-      const basePath = `/${collection}/${escapePathSegment(id)}`;
-      if (!isValidEntityId(id))
-        diagnostics.push(
-          diagnostic(
-            'error',
-            basePath,
-            `Invalid record id '${id}'.`,
-            'Project validation',
-            'authoring.record.id.invalid',
-          ),
-        );
-      if (record.id !== id)
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${basePath}/id`,
-            `Record id '${record.id}' must match map key '${id}'.`,
-            'Project validation',
-            'authoring.record.id.key-mismatch',
-          ),
-        );
-      if (!record.label.trim())
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${basePath}/label`,
-            'Record label is required.',
-            'Project validation',
-            'authoring.record.label.required',
-          ),
-        );
-    }
-  }
-
-  for (const [collection, records] of Object.entries(project.editor.recordMetadata ?? {})) {
-    if (collection === 'traits') {
-      for (const id of Object.keys(records)) {
-        if (!project.traits[id])
+    for (const id of Object.keys(recordsFor(project, collection))) {
+      run(`identity:${collection}:${id}`, (project, diagnostics) => {
+        const record = recordsFor(project, collection)[id]!;
+        const basePath = `/${collection}/${escapePathSegment(id)}`;
+        if (!isValidEntityId(id))
           diagnostics.push(
             diagnostic(
               'error',
-              `/editor/recordMetadata/traits/${escapePathSegment(id)}`,
-              'Trait editor metadata target does not exist.',
+              basePath,
+              `Invalid record id '${id}'.`,
+              'Project validation',
+              'authoring.record.id.invalid',
             ),
           );
-      }
-      continue;
-    }
-    if (!isAuthoringCollectionKey(collection)) {
-      diagnostics.push(
-        diagnostic(
-          'error',
-          `/editor/recordMetadata/${escapePathSegment(collection)}`,
-          `Unknown metadata collection '${collection}'.`,
-        ),
-      );
-      continue;
-    }
-    for (const id of Object.keys(records)) {
-      if (!project[collection][id])
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `/editor/recordMetadata/${collection}/${escapePathSegment(id)}`,
-            'Editor metadata target does not exist.',
-          ),
-        );
-    }
-  }
-
-  validateArchetypes(project, diagnostics);
-  const effectiveProject = effectiveGameplayProject(project);
-  validateTraits(effectiveProject, diagnostics);
-  validateInteractableProperties(effectiveProject, diagnostics);
-  validateFeatures(effectiveProject, diagnostics);
-  diagnostics.push(...validateAuthoringInventories(project));
-  validateAssets(effectiveProject, diagnostics);
-  validatePrefetchHints(project, diagnostics);
-  validateAssetMemoryPolicies(project, diagnostics);
-  diagnostics.push(...validateTypedProjectSettings(effectiveProject));
-  diagnostics.push(...validateSystemLayoutSettings(effectiveProject));
-  for (const [id, record] of Object.entries(effectiveProject.layouts))
-    diagnostics.push(...validateLayoutData(effectiveProject, id, record));
-  for (const [id, record] of Object.entries(effectiveProject.variables))
-    diagnostics.push(...validateVariableData(effectiveProject, id, record));
-  for (const [id, record] of Object.entries(effectiveProject.shaders))
-    diagnostics.push(...validateShaderData(effectiveProject, id, record));
-  for (const [id, record] of Object.entries(effectiveProject.materials))
-    diagnostics.push(...validateMaterialData(effectiveProject, id, record));
-  for (const [id, record] of Object.entries(effectiveProject.characters))
-    diagnostics.push(...validateCharacterData(effectiveProject, id, record));
-  for (const [id, record] of Object.entries(effectiveProject.rooms))
-    diagnostics.push(...validateRoomData(effectiveProject, id, record));
-  for (const [id, record] of Object.entries(effectiveProject.interactables))
-    diagnostics.push(...validateInteractableData(effectiveProject, id, record));
-  for (const [id, instance] of Object.entries(effectiveProject.interactableInstances)) {
-    const base = `/interactableInstances/${escapePathSegment(id)}`;
-    if (instance.id !== id)
-      diagnostics.push(
-        diagnostic(
-          'error',
-          `${base}/id`,
-          `Interactable Instance ID must match registry key '${id}'.`,
-        ),
-      );
-    if (!effectiveProject.interactables[instance.definition.$ref.id])
-      diagnostics.push(
-        diagnostic(
-          'error',
-          `${base}/definition/$ref`,
-          `Missing Interactable definition '${instance.definition.$ref.id}'.`,
-        ),
-      );
-    if (
-      instance.location.kind === 'room' &&
-      !effectiveProject.rooms[instance.location.room.$ref.id]
-    )
-      diagnostics.push(
-        diagnostic(
-          'error',
-          `${base}/location/room/$ref`,
-          `Missing Room '${instance.location.room.$ref.id}'.`,
-        ),
-      );
-    const added = new Set(instance.traits.add);
-    for (const traitId of instance.traits.remove) {
-      if (added.has(traitId))
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${base}/traits`,
-            `Trait '${traitId}' cannot be both added and removed on the same Interactable Instance.`,
-          ),
-        );
-    }
-    validateArchetypePropertyConfiguration(
-      effectiveProject,
-      'interactable',
-      instance.traits.add,
-      base,
-      diagnostics,
-    );
-  }
-  diagnostics.push(...validateHotspotAuthoringSemantics(effectiveProject));
-  for (const [id, record] of Object.entries(project.verbs)) {
-    const data = parseVerbData(record.data);
-    if (!data)
-      diagnostics.push(
-        diagnostic(
-          'error',
-          `/verbs/${escapePathSegment(id)}/data`,
-          'Verb record data must contain a valid Verb definition.',
-          'Verbs',
-        ),
-      );
-    else {
-      const slotIds = new Set(data.slots.map((slot) => slot.id));
-      const localizedTemplates = [
-        data.completedCommandText.source.kind === 'localized'
-          ? {
-              key: data.completedCommandText.source.key,
-              validate: validateCompletedCommandTemplate,
-            }
-          : null,
-        ...data.slots.flatMap((slot) => [
-          slot.label.source.kind === 'localized'
-            ? {
-                key: slot.label.source.key,
-                validate: (text: string, ids: ReadonlySet<string>) =>
-                  validateVerbNamedTemplate(text, ids, 'Slot label'),
-              }
-            : null,
-          slot.prompt.source.kind === 'localized'
-            ? {
-                key: slot.prompt.source.key,
-                validate: (text: string, ids: ReadonlySet<string>) =>
-                  validateVerbNamedTemplate(text, ids, 'Slot prompt'),
-              }
-            : null,
-        ]),
-      ].filter((template): template is NonNullable<typeof template> => template !== null);
-      for (const template of localizedTemplates) {
-        const namedMessage = Object.entries(project.localization.messages).find(
-          ([, candidate]) => candidate.kind === 'named' && candidate.key === template.key,
-        );
-        if (!namedMessage) continue;
-        const [messageId, sourceMessage] = namedMessage;
-        const sourceDiagnostic = template.validate(sourceMessage.source, slotIds);
-        if (sourceDiagnostic)
+        if (record.id !== id)
           diagnostics.push(
             diagnostic(
               'error',
-              `/localization/messages/${escapePathSegment(messageId)}/source`,
-              sourceDiagnostic,
-              'Verbs',
+              `${basePath}/id`,
+              `Record id '${record.id}' must match map key '${id}'.`,
+              'Project validation',
+              'authoring.record.id.key-mismatch',
             ),
           );
-        for (const [locale, translations] of Object.entries(project.localization.translations)) {
-          const translation = translations[messageId];
-          if (translation === undefined || translation.useSource) continue;
-          const message = template.validate(translation.text, slotIds);
-          if (message)
+        if (!record.label.trim())
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${basePath}/label`,
+              'Record label is required.',
+              'Project validation',
+              'authoring.record.label.required',
+            ),
+          );
+      });
+    }
+  }
+
+  run('editor-metadata', (project, diagnostics) => {
+    for (const [collection, records] of Object.entries(project.editor.recordMetadata ?? {})) {
+      if (collection === 'traits') {
+        for (const id of Object.keys(records)) {
+          if (!project.traits[id])
             diagnostics.push(
               diagnostic(
                 'error',
-                `/localization/translations/${escapePathSegment(locale)}/${escapePathSegment(messageId)}`,
-                message,
-                'Verbs',
+                `/editor/recordMetadata/traits/${escapePathSegment(id)}`,
+                'Trait editor metadata target does not exist.',
               ),
             );
         }
+        continue;
       }
-      diagnostics.push(
-        ...validateCondition(
-          project,
-          data.availability,
-          `/verbs/${escapePathSegment(id)}/data/availability`,
-        ),
+      if (!isAuthoringCollectionKey(collection)) {
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `/editor/recordMetadata/${escapePathSegment(collection)}`,
+            `Unknown metadata collection '${collection}'.`,
+          ),
+        );
+        continue;
+      }
+      for (const id of Object.keys(records)) {
+        if (!project[collection][id])
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `/editor/recordMetadata/${collection}/${escapePathSegment(id)}`,
+              'Editor metadata target does not exist.',
+            ),
+          );
+      }
+    }
+  });
+  run('archetypes', validateArchetypes);
+  const effectiveProject = effectiveGameplayProject(project);
+  const runEffective = (
+    key: string,
+    validate: (project: AuthoringProject, diagnostics: ProjectValidationDiagnosticLike[]) => void,
+  ) => diagnostics.push(...checks.run(key, effectiveProject, validate, ['/archetypes', '/traits']));
+  runEffective('traits', validateTraits);
+  runEffective('interactable-properties', validateInteractableProperties);
+  runEffective('features', validateFeatures);
+  run('inventories', (project, diagnostics) =>
+    diagnostics.push(...validateAuthoringInventories(project)),
+  );
+  runEffective('assets', validateAssets);
+  run('prefetch-hints', validatePrefetchHints);
+  run('asset-memory', validateAssetMemoryPolicies);
+  runEffective('settings', (project, diagnostics) =>
+    diagnostics.push(...validateTypedProjectSettings(project)),
+  );
+  runEffective('system-layouts', (project, diagnostics) =>
+    diagnostics.push(...validateSystemLayoutSettings(project)),
+  );
+  for (const [collection, validate] of [
+    ['layouts', validateLayoutData],
+    ['variables', validateVariableData],
+    ['shaders', validateShaderData],
+    ['materials', validateMaterialData],
+    ['characters', validateCharacterData],
+    ['rooms', validateRoomData],
+    ['interactables', validateInteractableData],
+  ] as const)
+    for (const id of Object.keys(effectiveProject[collection]))
+      runEffective(`record:${collection}:${id}`, (project, diagnostics) => {
+        diagnostics.push(...validate(project, id, project[collection][id]!));
+      });
+  runEffective('interactable-instances', (effectiveProject, diagnostics) => {
+    for (const [id, instance] of Object.entries(effectiveProject.interactableInstances)) {
+      const base = `/interactableInstances/${escapePathSegment(id)}`;
+      if (instance.id !== id)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/id`,
+            `Interactable Instance ID must match registry key '${id}'.`,
+          ),
+        );
+      if (!effectiveProject.interactables[instance.definition.$ref.id])
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/definition/$ref`,
+            `Missing Interactable definition '${instance.definition.$ref.id}'.`,
+          ),
+        );
+      if (
+        instance.location.kind === 'room' &&
+        !effectiveProject.rooms[instance.location.room.$ref.id]
+      )
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/location/room/$ref`,
+            `Missing Room '${instance.location.room.$ref.id}'.`,
+          ),
+        );
+      const added = new Set(instance.traits.add);
+      for (const traitId of instance.traits.remove) {
+        if (added.has(traitId))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${base}/traits`,
+              `Trait '${traitId}' cannot be both added and removed on the same Interactable Instance.`,
+            ),
+          );
+      }
+      validateArchetypePropertyConfiguration(
+        effectiveProject,
+        'interactable',
+        instance.traits.add,
+        base,
+        diagnostics,
       );
+    }
+  });
+  runEffective('hotspots', (project, diagnostics) =>
+    diagnostics.push(...validateHotspotAuthoringSemantics(project)),
+  );
+  for (const id of Object.keys(project.verbs)) {
+    run(`record:verbs:${id}`, (project, diagnostics) => {
+      const data = parseVerbData(project.verbs[id]!.data);
+      if (!data)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `/verbs/${escapePathSegment(id)}/data`,
+            'Verb record data must contain a valid Verb definition.',
+            'Verbs',
+          ),
+        );
+      else {
+        const slotIds = new Set(data.slots.map((slot) => slot.id));
+        const localizedTemplates = [
+          data.completedCommandText.source.kind === 'localized'
+            ? {
+                key: data.completedCommandText.source.key,
+                validate: validateCompletedCommandTemplate,
+              }
+            : null,
+          ...data.slots.flatMap((slot) => [
+            slot.label.source.kind === 'localized'
+              ? {
+                  key: slot.label.source.key,
+                  validate: (text: string, ids: ReadonlySet<string>) =>
+                    validateVerbNamedTemplate(text, ids, 'Slot label'),
+                }
+              : null,
+            slot.prompt.source.kind === 'localized'
+              ? {
+                  key: slot.prompt.source.key,
+                  validate: (text: string, ids: ReadonlySet<string>) =>
+                    validateVerbNamedTemplate(text, ids, 'Slot prompt'),
+                }
+              : null,
+          ]),
+        ].filter((template): template is NonNullable<typeof template> => template !== null);
+        for (const template of localizedTemplates) {
+          const namedMessage = Object.entries(project.localization.messages).find(
+            ([, candidate]) => candidate.kind === 'named' && candidate.key === template.key,
+          );
+          if (!namedMessage) continue;
+          const [messageId, sourceMessage] = namedMessage;
+          const sourceDiagnostic = template.validate(sourceMessage.source, slotIds);
+          if (sourceDiagnostic)
+            diagnostics.push(
+              diagnostic(
+                'error',
+                `/localization/messages/${escapePathSegment(messageId)}/source`,
+                sourceDiagnostic,
+                'Verbs',
+              ),
+            );
+          for (const [locale, translations] of Object.entries(project.localization.translations)) {
+            const translation = translations[messageId];
+            if (translation === undefined || translation.useSource) continue;
+            const message = template.validate(translation.text, slotIds);
+            if (message)
+              diagnostics.push(
+                diagnostic(
+                  'error',
+                  `/localization/translations/${escapePathSegment(locale)}/${escapePathSegment(messageId)}`,
+                  message,
+                  'Verbs',
+                ),
+              );
+          }
+        }
+        diagnostics.push(
+          ...validateCondition(
+            project,
+            data.availability,
+            `/verbs/${escapePathSegment(id)}/data/availability`,
+          ),
+        );
+        diagnostics.push(
+          ...validateInteractionProgram(
+            project,
+            data.defaultProgram,
+            `/verbs/${escapePathSegment(id)}/data/defaultProgram`,
+          ),
+        );
+      }
+    });
+  }
+  run('undefined-interaction', (project, diagnostics) => {
+    if (project.undefinedInteractionProgram)
       diagnostics.push(
         ...validateInteractionProgram(
           project,
-          data.defaultProgram,
-          `/verbs/${escapePathSegment(id)}/data/defaultProgram`,
+          project.undefinedInteractionProgram,
+          '/undefinedInteractionProgram',
         ),
       );
-    }
-  }
-  if (project.undefinedInteractionProgram)
-    diagnostics.push(
-      ...validateInteractionProgram(
-        project,
-        project.undefinedInteractionProgram,
-        '/undefinedInteractionProgram',
-      ),
-    );
-  for (const [id, record] of Object.entries(project.interactions))
-    diagnostics.push(...validateInteractionData(project, id, record));
-  diagnostics.push(...validateInteractionResolverProject(project));
-  for (const [id, record] of Object.entries(project.dialogues))
-    diagnostics.push(...validateDialogueData(project, id, record));
-  for (const [id, record] of Object.entries(project.scenes))
-    diagnostics.push(...validateSceneData(project, id, record));
-  for (const [id, record] of Object.entries(project.maps))
-    diagnostics.push(...validateMapData(project, id, record));
-  for (const [id, record] of Object.entries(project.scripts))
-    diagnostics.push(...validateScriptModuleData(project, id, record));
-  diagnostics.push(...analyzeHookRegistry(effectiveProject).diagnostics);
-  for (const [id, record] of Object.entries(project.tests))
-    diagnostics.push(...validateTestData(project, id, record));
-  return collectProjectValidationDiagnostics(
-    classifyProjectValidationDiagnostics(diagnostics, { producer: 'authoring' }),
+  });
+  for (const [collection, validate] of [
+    ['interactions', validateInteractionData],
+    ['dialogues', validateDialogueData],
+    ['scenes', validateSceneData],
+    ['maps', validateMapData],
+    ['scripts', validateScriptModuleData],
+    ['tests', validateTestData],
+  ] as const)
+    for (const id of Object.keys(project[collection]))
+      run(`record:${collection}:${id}`, (project, diagnostics) => {
+        diagnostics.push(...validate(project, id, project[collection][id]!));
+      });
+  run('interaction-resolver', (project, diagnostics) =>
+    diagnostics.push(...validateInteractionResolverProject(project)),
   );
+  runEffective('hook-registry', (project, diagnostics) =>
+    diagnostics.push(...analyzeHookRegistry(project).diagnostics),
+  );
+  return {
+    diagnostics: collectProjectValidationDiagnostics(
+      classifyProjectValidationDiagnostics(diagnostics, { producer: 'authoring' }),
+    ),
+    contributions: checks.contributions,
+    work: checks.work,
+  };
 }
 
 export function authoringValidationSucceeded(diagnostics: ToolDiagnostic[]): boolean {

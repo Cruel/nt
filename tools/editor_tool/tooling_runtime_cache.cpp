@@ -677,9 +677,10 @@ Json probe_authoring(const Json& request)
             Json{{"schema", kWorkspaceSchema}, {"formatVersion", kWorkspaceVersion}} ||
         !manifest.contains("inputs") || !manifest["inputs"].is_array() ||
         !manifest.contains("discoveryScopes") || !manifest.contains("contributions") ||
-        !manifest["contributions"].is_object() || manifest["contributions"].size() != 2 ||
+        !manifest["contributions"].is_object() || manifest["contributions"].size() != 3 ||
         string_field(manifest["contributions"], "schema") !=
             "noveltea.authoring-cache.contributions" ||
+        string_field(manifest["contributions"], "validationInputs") != "source-revisions" ||
         !string_field(manifest["contributions"], "sha256") || !manifest.contains("result") ||
         !validation_result_shape_valid(manifest["result"]))
         return response("unusable", "cache-contract-changed");

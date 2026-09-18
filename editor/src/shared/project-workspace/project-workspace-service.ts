@@ -50,7 +50,15 @@ import {
 } from '../project-schema/authoring-localization';
 import { traitDefinitionSchema } from '../project-schema/authoring-properties';
 import { authoringRecordSchemas } from '../project-schema/authoring-records';
-import { validateAuthoringProject } from '../project-schema/authoring-validation';
+import {
+  validateAdmittedAuthoringProject,
+  validateAuthoringProject,
+} from '../project-schema/authoring-validation';
+import type {
+  AuthoringValidationContribution,
+  AuthoringValidationReuse,
+  AuthoringValidationWork,
+} from '../project-schema/authoring-validation-contributions';
 import {
   editorChaptersStateSchema,
   emptyEditorProjectState,
@@ -244,6 +252,8 @@ export type ProjectWorkspaceOpenResult =
       readonly contentProject: unknown;
       readonly savedContentProject: unknown;
       readonly sourceContributions: ProjectWorkspaceSourceContributions;
+      readonly validationContributions: readonly AuthoringValidationContribution[];
+      readonly validationWork: AuthoringValidationWork;
     }
   | {
       readonly ok: false;
@@ -255,6 +265,7 @@ export type ProjectWorkspaceOpenResult =
 export interface ProjectWorkspaceOpenOptions {
   readonly recoverTransactions?: boolean;
   readonly reusableSourceContributions?: ProjectWorkspaceSourceContributions;
+  readonly reusableValidationContributions?: readonly AuthoringValidationContribution[];
 }
 
 export function compareProjectWorkspaceUnicodeCodePoints(left: string, right: string): number {
@@ -1022,6 +1033,10 @@ export interface ProjectWorkspaceWriteOptions {
 }
 
 export class ProjectWorkspaceService {
+  private readonly snapshotValidators = new WeakMap<
+    ProjectWorkspaceSnapshot,
+    (project: AuthoringProject) => readonly ProjectValidationDiagnostic[]
+  >();
   private readonly transactions: ProjectWorkspaceTransactionService;
 
   constructor(
@@ -1598,7 +1613,49 @@ export class ProjectWorkspaceService {
                 ),
               ),
             );
-          const validationDiagnostics = validateAuthoringProject(decodedProject);
+          const validationReuse: AuthoringValidationReuse = {
+            contributions: options.reusableValidationContributions ?? [],
+            resolveInputs: (paths) => {
+              // Local editor state is intentionally outside disk-authoritative cache generations.
+              if (
+                paths.some(
+                  (path) => path === '/' || path === '/editor' || path.startsWith('/editor/'),
+                )
+              )
+                return null;
+              const files = new Set<string>();
+              for (const path of paths) {
+                let matched = false;
+                for (const [file, owners] of ownerPathsByFile) {
+                  if (owners.some((owner) => jsonPointersOverlap(path, owner))) {
+                    files.add(file);
+                    matched = true;
+                  }
+                }
+                const collection = path.split('/')[1] ?? '';
+                if (!matched && isAuthoringCollectionKey(collection)) {
+                  const collectionRoot = `/${collection}`;
+                  for (const [file, owners] of ownerPathsByFile) {
+                    if (
+                      owners.some(
+                        (owner) =>
+                          owner === collectionRoot || owner.startsWith(`${collectionRoot}/`),
+                      )
+                    )
+                      files.add(file);
+                  }
+                } else if (!matched) {
+                  files.add('project.json');
+                }
+              }
+              return [...files].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
+                path,
+                contentHash: fileRevisions[path]!.contentHash,
+              }));
+            },
+          };
+          const validation = validateAdmittedAuthoringProject(decodedProject, validationReuse);
+          const validationDiagnostics = validation.diagnostics;
           const localDiagnosticsByFile = sourceLocalDiagnostics(
             validationDiagnostics,
             ownerPathsByFile,
@@ -1660,6 +1717,21 @@ export class ProjectWorkspaceService {
             externalSourceDescriptors: externalDescriptors(decodedProject, scriptSourcePaths),
             scriptSourcePaths: Object.freeze(sortKeys(scriptSourcePaths)),
           });
+          let compilerDiagnostics: readonly ProjectValidationDiagnostic[] | undefined;
+          this.snapshotValidators.set(snapshot, (project) => {
+            if (compilerDiagnostics) return compilerDiagnostics;
+            // Compiler settings normalization has its own check namespace, not workspace findings.
+            const compiledValidation = validateAdmittedAuthoringProject(
+              project,
+              validationReuse,
+              'compiler',
+            );
+            validation.contributions.push(...compiledValidation.contributions);
+            validation.work.executed += compiledValidation.work.executed;
+            validation.work.reused += compiledValidation.work.reused;
+            compilerDiagnostics = compiledValidation.diagnostics;
+            return compilerDiagnostics;
+          });
           const result: ProjectWorkspaceOpenResult = {
             ok: true,
             snapshot,
@@ -1669,6 +1741,8 @@ export class ProjectWorkspaceService {
             contentProject,
             savedContentProject: contentProject,
             sourceContributions: Object.freeze(sortKeys(sourceContributions)),
+            validationContributions: validation.contributions,
+            validationWork: validation.work,
           };
           return complete(result);
         } catch (error) {
@@ -1809,7 +1883,7 @@ export class ProjectWorkspaceService {
       await this.fileSystem.writeTextAtomic(localPath, localText);
   }
   publishCompiledArtifact(snapshot: ProjectWorkspaceSnapshot): CompiledArtifactPublicationResult {
-    return publishCompiledArtifact(snapshot.project);
+    return publishCompiledArtifact(snapshot.project, this.snapshotValidators.get(snapshot));
   }
   buildDependencyGraph(snapshot: ProjectWorkspaceSnapshot): Promise<AuthoringDependencyGraph> {
     return buildAuthoringDependencyGraph(snapshot.project);

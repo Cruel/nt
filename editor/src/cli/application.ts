@@ -363,6 +363,7 @@ export async function runNovelTeaCli(
   const opened = await openCliProject(services.workspace, discovery.projectRoot, {
     readOnly: command.dryRun,
     reusableSourceContributions: reusableAuthoring?.sourceContributions,
+    reusableValidationContributions: reusableAuthoring?.validationContributions,
   });
   if (!opened.ok)
     return failure(workspaceOpenExitCode(opened.diagnostics), opened.diagnostics, globals.json, {
@@ -422,6 +423,7 @@ export async function runNovelTeaCli(
           exitCode: semantic.ok ? 0 : (semantic.exitCode ?? semanticExitCode(diagnostics)),
           diagnostics,
         },
+        activeOpened.opened.validationContributions,
       );
     if (!semantic.ok)
       return failure(
