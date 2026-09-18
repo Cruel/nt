@@ -3,6 +3,47 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { useShaderCompileStore } from './shader-compile-store';
+import { useProjectStore } from '@/project/project-store';
+import {
+  isAuthoringProject,
+  type AuthoringProject,
+} from '../../shared/project-schema/authoring-project';
+import { resolveMaterialData } from '../../shared/project-schema/authoring-materials';
+import { buildDefaultRecordTab } from '@/workbench/editor-registry';
+import type { ShaderCompileDiagnostic } from '../../shared/editor-tooling';
+import type { WorkbenchNavigationRequest } from '@/workbench/workbench-navigation';
+
+function shaderDiagnosticTarget(
+  project: AuthoringProject,
+  diagnostic: ShaderCompileDiagnostic,
+): WorkbenchNavigationRequest | null {
+  const materialPath = diagnostic.path?.match(/^\/materials\/([^/]+)/u)?.[1];
+  const normalizedSource = diagnostic.sourcePath?.replaceAll('\\', '/');
+  const materialId =
+    materialPath ??
+    Object.keys(project.materials).find((id) => {
+      if (!normalizedSource) return false;
+      const resolved = resolveMaterialData(project, id).data;
+      if (!resolved) return false;
+      return [resolved.vertexSource, resolved.fragmentSource, resolved.varyingDefinition].some(
+        (identity) => {
+          if (!identity.startsWith('project:/')) return false;
+          const relative = identity.slice('project:/'.length);
+          return normalizedSource === relative || normalizedSource.endsWith(`/${relative}`);
+        },
+      );
+    });
+  if (!materialId) return null;
+  const record = project.materials[materialId];
+  const tab = buildDefaultRecordTab({
+    id: `materials:${materialId}`,
+    label: record?.label ?? materialId,
+    type: 'material',
+    collection: 'materials',
+    entityId: materialId,
+  });
+  return tab ? { tab, target: { id: 'material.shader', flash: true } } : null;
+}
 
 export function ShaderCompilePanel() {
   const compiling = useShaderCompileStore((state) => state.compiling);
@@ -10,6 +51,8 @@ export function ShaderCompilePanel() {
   const outputs = useShaderCompileStore((state) => state.outputs);
   const error = useShaderCompileStore((state) => state.error);
   const clear = useShaderCompileStore((state) => state.clear);
+  const projectDocument = useProjectStore((state) => state.document);
+  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const diagnosticItems = useMemo(
     () =>
       diagnostics.map((diagnostic) => ({
@@ -20,9 +63,9 @@ export function ShaderCompilePanel() {
             .filter(Boolean)
             .join(' / ') || undefined,
         category: diagnostic.code,
-        target: null,
+        target: project ? shaderDiagnosticTarget(project, diagnostic) : null,
       })),
-    [diagnostics],
+    [diagnostics, project],
   );
 
   if (!compiling && diagnostics.length === 0 && outputs.length === 0 && !error) {

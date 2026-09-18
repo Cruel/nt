@@ -2,99 +2,113 @@
 
 ## Purpose
 
-Material records bind shader definitions to concrete uniform values, texture sources, blend policy, preview settings, and role-specific usage. Materials are the authoring layer that lets characters, rooms, layouts, text, and runtime UI reuse shader programs safely without duplicating shader interface data.
-
-This document covers the new material authoring component. Legacy shader/material behavior is reference material only.
+Materials are NovelTea's sole semantic rendering records. A Material describes authored rendering values, inheritance, texture assignments, optional project-owned shader-stage overrides, and preview metadata. Shader programs themselves are derived from built-in Material Presets plus source files; there is no authored Shader-record collection.
 
 ## Current Status
 
-Materials are implemented as a typed authoring collection in the editor. The Material editor supports shader selection, role selection, inheritance, uniform overrides, texture slots, preview geometry/background, and a live engine preview.
+Materials are a typed authoring collection under `/materials/{materialId}`. Every Material resolves through exactly one built-in Material Preset, either directly or through a single chain of base Materials. Presets are engine-provided contracts rather than Project records.
 
-The engine has runtime material metadata parsing under `noveltea.shader-materials`, fallback material definitions, bgfx material binding, and typed material asset loading. Export builds shader/material metadata from authoring shader and material records.
+The runtime continues to use internal shader/program metadata under `noveltea.shader-materials`. Those shader objects and compiled binaries are derived build/runtime artifacts and are not canonical authoring state.
 
-Occurrence-local runtime Material Parameters support typed mutation and query, Property or standard
-engine-facet binding, Scene assignment/tweening, and Lua presentation APIs without mutating compiled
-Material definitions.
+Occurrence-local runtime Material Parameters support typed mutation and query, Property or standard engine-facet binding, Scene assignment/tweening, and Lua presentation APIs without mutating compiled Material definitions.
 
-## Collection
+## Authoring Data Model
 
-Material records live at:
-
-```json
-/materials/{materialId}
-```
-
-The record uses the standard authoring record wrapper. Material-specific data lives in `record.data`.
+The canonical Material shape is:
 
 ```ts
 interface MaterialData {
   kind: 'material';
+  base:
+    | { kind: 'preset'; preset: MaterialPresetId }
+    | { kind: 'material'; material: { $ref: { collection: 'materials'; id: string } } };
   displayName?: string;
-  shader: { $ref: { collection: 'shaders'; id: string } } | null;
-  role: ShaderRole;
-  blend: 'premultiplied-alpha';
-  uniforms: MaterialUniformOverride[];
-  textures: MaterialTextureData[];
-  preview: {
-    geometry: 'quad' | 'rounded-rect' | 'sprite' | 'glyphs';
-    background: 'transparent' | 'checker' | 'dark' | 'light';
+  shader?: {
+    vertex?: MaterialShaderSource;
+    fragment?: MaterialShaderSource;
+    varying?: MaterialShaderSource;
+  };
+  blend?: 'premultiplied-alpha';
+  postprocessScope?: 'world' | 'full-game-viewport';
+  parameters: Record<string, MaterialParameterOverride>;
+  textures: Record<string, MaterialTextureOverride>;
+  preview?: {
+    geometry?: 'quad' | 'rounded-rect' | 'sprite' | 'glyphs';
+    background?: 'transparent' | 'checker' | 'dark' | 'light';
   };
 }
 ```
 
-## Identity Rules
-
-Material IDs use the project entity ID format:
-
-```text
-lowercase kebab-case, starts with a letter, contains only letters, numbers, and hyphens
-```
-
-Examples:
-
-```text
-ui-panel
-iris-sprite
-room-background-glow
-```
-
-Uniform override names must match uniforms declared by the referenced shader. Texture sampler names must match samplers declared by the referenced shader.
-
-## High-Level Model
-
-A material selects one shader and one role, then supplies values for the shader interface. Uniform overrides provide concrete values. Texture assignments bind shader samplers to asset refs, aliases, or URIs. The blend mode is currently fixed to premultiplied alpha.
-
-Materials can inherit from another material through the explicit material-domain field `data.baseMaterialId`. This is resource composition, not gameplay-definition `extends` and not a generic record relationship. Resolved material data merges base and child material data, with child uniform/texture entries overriding entries with the same uniform or sampler name.
-
-## Data Model
-
-`kind` is always `material`.
-
-`displayName` is an optional authoring/runtime display name.
-
-`shader` is required for a valid material. It may be null while authoring an incomplete material, but validation treats missing shader as an error.
-
-`role` must be one of the shader roles defined by the shader component.
-
-`blend` currently supports only `premultiplied-alpha`.
-
-`uniforms` is a list of `{ name, value }` overrides.
-
-`textures` is a list of sampler assignments:
+Shader sources are source identities, not Asset or Shader references:
 
 ```ts
-interface MaterialTextureData {
-  sampler: string;
-  source: MaterialTextureSource;
-  filtering: 'clamp-nearest' | 'clamp-linear' | 'repeat-nearest' | 'repeat-linear';
+type MaterialShaderSource =
+  | { kind: 'project'; path: 'shaders/...' }
+  | { kind: 'engine'; path: 'engine:/...' };
+```
+
+Project shader files live beneath `shaders/`. Engine shader sources and varying definitions use the explicit read-only `engine:/` namespace. Canonical Material data never stores compiled binary paths, compiler fingerprints, or authored Shader IDs.
+
+## Material Presets
+
+Built-in Material Presets are stable engine contracts. Current preset IDs include `engine-2d`, `active-text`, `rmlui-decorator`, `postprocess-tint`, `hotspot-overlay-alpha`, and `hotspot-overlay-custom`.
+
+A preset defines:
+
+- rendering role;
+- default engine vertex/fragment implementation;
+- varying/interface definition;
+- engine-owned versus author-settable parameter/sampler metadata;
+- default blend/postprocess behavior;
+- preview harness metadata.
+
+Role is therefore derived from the terminal preset and is not an independently editable Material field. A preset-backed Material requires no project shader source files.
+
+## Inheritance and Overrides
+
+Material inheritance is single-parent. A Material's immediate base may be a preset or another Material, but every valid chain must terminate at a built-in preset. Cycles and missing bases are errors.
+
+Inheritance uses sparse overrides. Parameter and texture slots are keyed by stable semantic names rather than array position. Shader-stage, blend, postprocess, and preview overrides are likewise sparse. Effective resolution records provenance so the editor can distinguish preset, inherited Material, and current-Material values. Resetting an override reveals the inherited value again.
+
+A representative parameter override is:
+
+```ts
+parameters: {
+  u_tint: {
+    value: [1, 0.5, 0.5, 1],
+    editor: { label: 'Tint' }
+  }
 }
 ```
 
-`preview` controls editor preview geometry and background.
+Texture overrides may contain a source, filtering policy, binding metadata, and editor metadata. A missing `source` means the current Material does not override the inherited source; an empty URI is not a valid way to clear a texture.
+
+## Shader Interface and Reflection
+
+For custom-source Materials, shader compiler reflection is the structural source of truth for uniforms and sampled images. Material authoring data stores values, bindings, editor metadata, inheritance, and preview configuration; it does not redundantly declare the GPU interface.
+
+Preset metadata decorates reflected inputs when semantic names match. Engine-bound reflected inputs remain runtime-owned and are not author-settable occurrence parameters. Reflected author-settable inputs are published into the compiled Material interface used by Scene/Lua/save-state validation.
+
+If authored parameter or texture configuration no longer exists in the reflected interface, NovelTea retains that configuration and reports it as orphaned. It is not destructively removed during shader edits.
+
+## Shader Compilation and Derived Identity
+
+`buildShaderMaterialProject()` produces two derived contracts:
+
+- `noveltea.shader-source-programs`: source-program compilation requests keyed by deterministic internal program identity;
+- `noveltea.shader-materials`: runtime shader/material metadata using compiled program outputs.
+
+Program identity derives from effective source inputs, interface/preset contract, target variant, compiler identity, and transitive source content. Compile outputs include exact dependency revisions. Runtime artifact preparation revalidates project shader dependency hashes before publishing binaries, so outputs compiled from a stale physical source generation are rejected.
+
+Derived shader outputs never write into Material records and do not dirty canonical Project data.
+
+## ActiveText Direct Programs
+
+ActiveText retains its advanced low-level direct stage-pair path. Authored ActiveText shader markup names project shader files and/or engine stages rather than Shader records. Runtime preparation compiles those pairs through the same source-program seam and rewrites only the derived compiled artifact to an internal source-program token. The renderer resolves that token through the source-program resolver and program cache. No authored Shader ID is introduced.
 
 ## Texture Sources
 
-A material texture source may be:
+Author-settable texture slots may use:
 
 ```ts
 { $ref: { collection: 'assets', id: 'image-asset' } }
@@ -102,273 +116,85 @@ A material texture source may be:
 { uri: 'project:/textures/panel.png' }
 ```
 
-Asset refs participate in editor reference validation. Aliases and URIs are looser runtime-style sources.
-
-## References
-
-Materials reference shaders with:
-
-```ts
-{ $ref: { collection: 'shaders', id: 'shader-id' } }
-```
-
-Texture asset references use:
-
-```ts
-{ $ref: { collection: 'assets', id: 'texture-asset-id' } }
-```
-
-Materials may inherit from another material through `MaterialData.baseMaterialId`:
-
-```ts
-{ collection: 'materials', id: 'base-material' }
-```
-
-Characters, rooms, layouts, text/active-text systems, and UI components may reference materials where they need custom rendering.
-
-## Defaults
-
-`defaultMaterialData()` creates a material with:
-
-- kind `material`;
-- display name from the record label;
-- optional shader ref if a shader ID is provided;
-- role `engine-2d`;
-- blend `premultiplied-alpha`;
-- no uniform overrides;
-- no texture assignments;
-- preview geometry `quad`;
-- preview background `checker`.
+Asset references participate in Project reference validation. Engine-bound sampler slots cannot be overridden by Material authoring.
 
 ## Validation
 
-Material validation checks:
+Material validation and resolution cover:
 
-- `record.data` parses as `MaterialData`;
-- material references a shader;
-- referenced shader exists;
-- referenced shader data is valid;
-- selected material role is supported by the shader;
-- material inheritance targets another material;
-- inherited material exists;
-- duplicate uniform override names;
-- uniform overrides target declared shader uniforms;
-- uniform override values match declared shader uniform types;
-- duplicate texture sampler assignments;
-- texture assignments target declared shader samplers;
-- texture asset refs exist;
-- texture asset data is valid;
-- non-image texture assets produce warnings.
+- canonical Material schema;
+- known preset IDs;
+- valid single-parent Material inheritance and preset termination;
+- inheritance cycles/missing bases;
+- safe contained project shader paths and explicit engine shader identities;
+- preset/engine binding ownership;
+- parameter value compatibility;
+- texture Asset existence/type compatibility;
+- orphaned configuration diagnostics;
+- reflected custom shader interface compatibility during build/export.
 
-Inheritance cycle detection is handled by generic project validation and by material resolution diagnostics.
-
-## Command Behavior
-
-Material-specific commands include:
-
-- `material.replaceData` for validated full data replacement;
-- `material.setBase` for setting or clearing the explicit base material.
-
-Generic entity commands handle creation, rename, deletion, metadata updates, and duplication. Material inheritance remains a material-specific command and schema field; it is unrelated to the retired universal gameplay-definition `extends` relationship.
-
-`resolveMaterialData()` follows `data.baseMaterialId` and merges inherited material data before preview/export. Uniforms and textures are keyed by `name` and `sampler` respectively during merge.
+Old `shader` references, independently editable role fields, `baseMaterialId`, positional uniform/texture arrays, Shader records, and script/shader-source Assets are not compatibility shapes and are rejected by canonical readers.
 
 ## Editor Behavior
 
-The Material editor shows the selected material, inherited data diagnostics, shader/role controls, uniforms, textures, preview options, and an embedded engine preview.
+The Material editor edits effective values with sparse overrides and provenance. It exposes the base preset/Material, effective contract, optional shader-source overrides, parameters, textures, and preview metadata. Renderer-owned inputs are displayed as runtime supplied. Orphaned configuration remains visible until explicitly removed.
 
-Material inheritance is edited through a material-only inheritance selector. Invalid inheritance targets are rejected by operation-level diagnostics.
+Custom-source Material previews compile the browser shader variant as derived state. Successful compiled outputs are staged into the preview filesystem; compilation failure retains the previous successful preview rather than pretending current invalid source rendered successfully.
 
-The editor uses `material.replaceData` for data edits and updates preview data through the shader/material project builder.
+Shader compiler diagnostics attempt to navigate to the affected Material/source context. Richer physical source-file tabs and Files-mode navigation are implemented by the source-authoring work under the parent Material/Files specification.
 
-## Editor Preview
+## Runtime and Package Behavior
 
-Material preview uses `buildMaterialPreviewDocumentData()` and the shared `noveltea.shader-materials` metadata. The preview payload includes:
+Runtime artifact preparation:
 
-- generated shader/material metadata;
-- diagnostics from shader/material conversion;
-- target material ID;
-- preview geometry/background settings.
+- resolves effective Materials;
+- compiles required custom source programs for requested target variants;
+- validates compiler dependency revisions against current project bytes;
+- publishes reflected Material interfaces into the compiled gameplay artifact;
+- emits derived `noveltea.shader-materials` runtime metadata;
+- stages required compiled binaries;
+- normally strips project shader source;
+- includes referenced shader entrypoints and transitive project shader dependencies when the developer `--include-shader-sources`/non-stripping option is selected.
 
-The revision includes material data, referenced shader data, and texture dependency revisions so the preview can refresh when dependencies change.
+Preset-backed Materials use trusted system shader binaries and do not require project shader source files.
 
-## Runtime Status
+## Commands
 
-Native runtime material types include:
+`material.replaceData` is the canonical full-data mutation used by the current editor. Generic record operations continue to handle record label/tags/color and deletion/duplication where applicable. Material base relationships participate in usage/dependency analysis so deletion of a referenced base cannot silently change descendants.
 
-- `MaterialId`;
-- `MaterialTextureSampler`;
-- `MaterialBlendMode`;
-- `MaterialUniformAssignment`;
-- `MaterialTextureAssignment`;
-- `MaterialDefinition`;
-- `ShaderMaterialProject`;
-- parser diagnostics and fallback material factories.
+## Implementation Files
 
-The bgfx renderer has a material binder and typed asset loader for material definitions. Runtime
-material loading depends on shader program loading and texture resolution. Hotspot-overlay materials
-use engine-bound image and optional binary-mask samplers plus the standard bounds, hover, pressed,
-image-dimension, and mask-dimension uniforms. Material records cannot assign static textures to those
-bound samplers; additional unbound sampler assignments remain ordinary mandatory material texture
-dependencies. Native package assembly validates alpha and custom hotspot interfaces separately.
-
-The engine also supplies `system/fallback/hotspot_alpha` and
-`system/fallback/hotspot_custom` built-in materials backed by renderer-owned, renderer-variant system
-shader programs. The alpha built-in derives a moving border/sheen from neighboring source-alpha
-samples. The custom built-in samples the source image and binary owner mask, clips the effect to the
-active bounds, and derives the same border/sheen from neighboring mask samples. The material binder
-has a system-material path that uses these owned program handles without requiring package material
-or shader-program leases.
-
-### Occurrence-local Material Parameters
-
-Compiled Material resources remain immutable. Runtime mutation is represented separately as typed
-Desired Presentation State attached to one concrete presentation occurrence: background, actor
-pose/expression, presentation prop, environment, mounted Layout Material dependency, or postprocess
-effect. Two occurrences using the same Material therefore do not share mutable uniform state.
-
-The authoring compiler publishes a compact Material interface for runtime validation. Each exposed
-parameter records its uniform name, declared type, and optional renderer binding. Occurrence-local
-writes must name a declared uniform, match its exact type and compatible Material role, belong to a
-live owner/occurrence, and target a uniform that is not renderer-bound. Renderer-owned bindings remain
-authoritative and cannot be overwritten by occurrence state.
-
-A parameter contains either a concrete typed value or one explicit binding, never both. Bindings can
-reference a compatible Property or one standard engine facet (`occurrence-time`, paint width/height,
-viewport width/height, or camera zoom). Once bound, the binding is the sole authority until it is
-explicitly removed or replaced; a direct assignment does not silently break the binding. Material
-time uses either gameplay or unscaled-presentation clock policy.
-
-Scene `material-parameter` steps support immediate assignment and finite tween operations. A tween
-requires an existing occurrence-local concrete source value, commits its desired target before
-realization begins, carries typed easing/clock/skip/completion metadata, and never exposes backend
-tween progress as authoritative state. Boolean and integer parameters are not interpolated.
-
-Mounted RmlUi Layout occurrences receive their own Material parameter set. The currently admitted
-custom Material shader integration realizes occurrence-local `rmlui-decorator` parameters per RmlUi
-context. `rmlui-filter` remains a valid Material resource role, but occurrence-local filter-parameter
-control is intentionally not admitted until the RmlUi backend has a corresponding custom filter
-Material provider.
-
-### Postprocess Effects
-
-Postprocess effects are stable owner-scoped Desired Presentation State, not an arbitrary render graph.
-Each instance selects a `postprocess` Material, a `world` or `full-game-viewport` scope, deterministic
-integer order, Material clock policy, visibility, and occurrence-local typed parameters. A scope is
-bounded to four active effects. World effects run after world composition and before Game UI;
-full-game effects run after Game UI. Multiple passes use bounded ping-pong render targets and preserve
-the deterministic desired-state order.
-
-Postprocess identity is semantic and survives renderer reconstruction. Removing an effect also
-removes Material Parameters owned by that postprocess occurrence. Runtime package/resource residency
-includes visible postprocess Materials as mandatory dependencies.
-
-## Export / Package Status
-
-`buildShaderMaterialProject()` converts resolved authoring material records into `noveltea.shader-materials` material metadata. It emits:
-
-- display name;
-- selected role;
-- shader ID;
-- uniform override map;
-- texture assignment map;
-- blend policy.
-
-Texture sources are converted to runtime strings. Asset refs become `project:/...` paths. Alias sources remain aliases. URI sources remain URI strings.
-
-Runtime package export includes shader/material metadata when shader or material records exist. Referenced material texture assets can be included by asset reference discovery.
-
-## Scripting Status
-
-Lua exposes semantic presentation APIs for occurrence-local Material state:
-
-- `noveltea.presentation.set_material_parameter`, `bind_material_parameter`,
-  `clear_material_parameter`, and `material_parameter`;
-- `noveltea.presentation.set_postprocess`, `clear_postprocess`, and `postprocess`.
-
-Targets use semantic IDs and owner scopes only. Shader programs, bgfx uniforms, textures,
-framebuffers, render targets, and tween handles are never exposed to Lua. Standard shader input
-bindings remain preferred for values intrinsically owned by the renderer; explicit standard-facet
-bindings are preferred when an occurrence-local semantic parameter should follow engine state.
-
-Occurrence-local Material Parameters and postprocess desired instances are saved and reconstructed.
-Finite Material operation progress, renderer epochs, ping-pong targets, shader handles, and other GPU
-realization are not save state.
-
-## Relationship To Other Entity Types
-
-Materials depend on shaders. Material textures may depend on image assets or resource aliases. Layouts can declare material dependencies. Characters use material overrides on poses and expressions. Rooms use a material override for backgrounds. Future text/active-text and RmlUi components may use materials for effects and decorators.
-
-## Legacy Reference Notes
-
-The legacy editor shader widget and bundled shader resources provide workflow and visual-effect reference. They do not define a new engine material schema.
-
-The new engine separates shader declarations from material instances and uses explicit runtime metadata. Old SFML-era assumptions should not leak into this component.
-
-## Recommended Authoring Patterns
-
-Create reusable base materials for common shader settings, then inherit and override uniforms/textures for specific characters, rooms, or UI elements.
-
-Keep material roles aligned with where the material will be used. A character sprite material should normally use an `engine-2d`-compatible shader; an RmlUi decorator material should use the appropriate RmlUi role.
-
-Use direct asset refs for texture sources that should participate in reference validation and package inclusion. Use aliases only when runtime indirection is intentional.
-
-## Current Implementation Files
-
-Primary editor files:
+Primary editor/shared files:
 
 ```text
+editor/src/shared/project-schema/authoring-material-presets.ts
 editor/src/shared/project-schema/authoring-materials.ts
 editor/src/shared/project-schema/shader-material-project.ts
+editor/src/shared/runtime-artifact-preparation.ts
 editor/src/renderer/editors/materials/MaterialEditor.tsx
-editor/src/renderer/project/shader-material-operations.ts
-editor/src/renderer/commands/builtin-commands.ts
+editor/src/renderer/shaders/shader-compile-store.ts
 ```
 
-Primary engine files:
+Primary native files:
 
 ```text
 engine/include/noveltea/render/material.hpp
 engine/include/noveltea/render/shader.hpp
+engine/include/noveltea/render/shader_manifest.hpp
 engine/src/render/material.cpp
-engine/src/render/bgfx/bgfx_material_binder.cpp
-engine/src/render/bgfx/bgfx_typed_asset_loader.cpp
-engine/src/render/bgfx/bgfx_shader_loader.cpp
-engine/src/render/bgfx/bgfx_shader_program_cache.cpp
+engine/src/render/material_codec.cpp
+engine/src/render/shader_manifest.cpp
+engine/src/render/bgfx/
+tools/editor_tool/shader_compiler.cpp
 ```
 
-Related docs:
+Related current documentation:
 
 ```text
-docs/rendering/plans/SHADER_MATERIAL_PLAN.md
-docs/rendering/RENDERING_STACK.md
 docs/engine/SHADER.md
+docs/engine/ASSET.md
+docs/engine/SCRIPT_MODULE.md
+docs/editor/export/EXPORT_AND_PACKAGING.md
 ```
 
-Useful legacy references:
-
-```text
-refs/NovelTea/src/editor/Widgets/ShaderWidget.cpp
-refs/NovelTea/res/pixelate.frag
-refs/NovelTea/res/wave.vert
-```
-
-## Known Gaps
-
-- Blend policy is currently limited to premultiplied alpha.
-- Material inheritance exists, but advanced inheritance UI and conflict visualization can improve.
-- Runtime Material Parameter mutation/query/binding covers typed uniform parameters; runtime texture
-  reassignment is not part of that parameter contract.
-- Preview coverage is strongest for simple material swatches and should expand for role-specific use cases.
-
-## Future Work
-
-- Add more blend/render-state policies when the renderer needs them.
-- Add richer material thumbnails and role-specific preview fixtures.
-- Expand Material Parameter realization to additional backend-specific roles when those providers
-  expose typed parameters.
-- Expand package validation around missing compiled shaders, missing textures, and alias resolution.
-
-## Verification
-
-This doc was written from the current material authoring schema, material validation/resolution helpers, shader/material project builder, Material editor, material operation helpers, and native material/render headers. No build is required for this documentation-only change.
+`docs/rendering/plans/SHADER_MATERIAL_PLAN.md` is historical planning context where it conflicts with this current component contract.

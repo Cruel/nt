@@ -88,10 +88,18 @@ ID. Unknown `records/` collection directories and noncanonical record paths are 
 Missing known collection directories mean empty collections.
 
 File-backed Layout channels are `layout.rml`, `layout.rcss`, and `layout.lua` beside `layout.json`.
-The JSON selectors use `file`, `asset`, or (only for Lua) `none`; source text is not duplicated in
-the Layout record. Script Module file sources use `{ "kind": "file", "path": "scripts/...lua" }`.
-Their paths are safe project-relative `scripts/` paths. Assembly presents both as the existing
-internal inline Lua/Layout model, so file presence never grants autorun behavior. `bootstrapModule` names the one Script Module imported synchronously in each fresh Project VM.
+The persisted Layout JSON selectors use `sourceMode: "file"`, `sourceMode: "asset"` for RML/RCSS only,
+or `sourceMode: "none"` for Lua; source text is not duplicated in `layout.json`. Layout Lua Asset
+sources are obsolete. Workspace assembly reads a `file` Layout companion into the semantic inline
+Layout source used by compiler/editor consumers while retaining the companion file as the authoritative
+physical source.
+
+Script Module file sources use `{ "kind": "project-file", "path": "scripts/...lua" }`. Their paths
+are safe project-relative `scripts/` paths and remain `project-file` sources after workspace assembly;
+the file bytes are read through the Project source authority when analysis, compilation, preview, or
+localization requires them. Persisted `inline-lua` Script Module JSON is rejected. File presence never
+grants autorun behavior. `bootstrapModule` names the one Script Module imported synchronously in each
+fresh Project VM.
 
 Assets remain complete Asset records in `records/assets/`; their project source bytes remain at the
 explicit Asset source path, normally under `assets/`. Project-local `workflows/` is owned by the

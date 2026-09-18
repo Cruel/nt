@@ -84,6 +84,11 @@ resolve_source_shader_pair_program(std::string program_identity, ShaderRole role
                                    std::vector<ShaderUniformDeclaration> uniforms = {},
                                    std::vector<ShaderSamplerDeclaration> samplers = {});
 
+[[nodiscard]] ShaderProgramResolutionResult
+resolve_source_shader_program(const ShaderMaterialProject& project,
+                              std::string_view program_identity, ShaderRole role,
+                              std::string_view active_variant);
+
 [[nodiscard]] std::string shader_program_cache_key(const ShaderProgramKey& key);
 [[nodiscard]] std::string expected_shader_binary_path(const ShaderId& shader_id, ShaderStage stage,
                                                       std::string_view variant);

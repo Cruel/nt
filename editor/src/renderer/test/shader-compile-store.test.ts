@@ -19,6 +19,7 @@ describe('shader compile store', () => {
           variant: 'glsl-330',
           sourceIdentity: 'project:/shaders/old.fs.sc',
           dependencies: [],
+          dependencyRevisions: [],
           outputPath: '/tmp/old.fs.bin',
           runtimePath: 'project:/shaders/derived/glsl-330/old.fs.bin',
           cacheKey: 'old-cache',

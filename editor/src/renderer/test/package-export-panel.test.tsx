@@ -56,6 +56,9 @@ describe('PackageExportPanel', () => {
           variant: 'glsl-330',
           sourceIdentity: 'project:/shaders/noise.fs.sc',
           dependencies: ['project:/shaders/noise.fs.sc'],
+          dependencyRevisions: [
+            { identity: 'project:/shaders/noise.fs.sc', contentHash: `sha256:${'d'.repeat(64)}` },
+          ],
           outputPath: '/project/.noveltea/build/shaders/derived/glsl-330/program-identity.fs.bin',
           runtimePath: 'project:/shaders/derived/glsl-330/program-identity.fs.bin',
           cacheKey: 'key',

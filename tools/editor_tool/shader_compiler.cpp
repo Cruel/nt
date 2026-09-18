@@ -1152,15 +1152,23 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                     return false;
                 }
                 std::vector<std::string> dependencies;
+                std::vector<ShaderSourceDependencyRevision> dependency_revisions;
                 dependencies.reserve(stage.dependencies.size() + 1);
-                for (const auto& dependency : stage.dependencies)
+                dependency_revisions.reserve(stage.dependencies.size() + 1);
+                for (const auto& dependency : stage.dependencies) {
                     dependencies.push_back(dependency.first);
+                    dependency_revisions.push_back(
+                        {.identity = dependency.first, .content_hash = hash_hex(dependency.second)});
+                }
                 dependencies.push_back(varying->identity);
+                dependency_revisions.push_back(
+                    {.identity = varying->identity, .content_hash = hash_hex(*varying_text)});
                 result.outputs.push_back(ShaderSourceCompileOutput{
                     .stage = stage.stage,
                     .variant = variant.name,
                     .source_identity = stage.source.identity,
                     .dependencies = std::move(dependencies),
+                    .dependency_revisions = std::move(dependency_revisions),
                     .output_path = output_path,
                     .runtime_path = runtime_path,
                     .cache_key = cache_key,

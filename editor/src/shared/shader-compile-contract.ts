@@ -29,6 +29,14 @@ const shaderCompileOutputSchema = z
     variant: z.enum(shaderVariantValues),
     sourceIdentity: z.string().min(1),
     dependencies: z.array(z.string().min(1)),
+    dependencyRevisions: z.array(
+      z
+        .object({
+          identity: z.string().min(1),
+          contentHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+        })
+        .strict(),
+    ),
     outputPath: z.string().min(1),
     runtimePath: z.string().min(1),
     cacheKey: z.string().min(1),

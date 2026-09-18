@@ -78,11 +78,17 @@ struct ShaderReflectedInput {
     std::uint16_t array_size = 1;
 };
 
+struct ShaderSourceDependencyRevision {
+    std::string identity;
+    std::string content_hash;
+};
+
 struct ShaderSourceCompileOutput {
     ShaderStage stage = ShaderStage::Fragment;
     std::string variant;
     std::string source_identity;
     std::vector<std::string> dependencies;
+    std::vector<ShaderSourceDependencyRevision> dependency_revisions;
     std::filesystem::path output_path;
     std::string runtime_path;
     std::string cache_key;

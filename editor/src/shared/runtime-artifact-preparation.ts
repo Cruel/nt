@@ -34,7 +34,10 @@ import {
   canonicalProjectContentJson,
   emptyEditorProjectState,
 } from './project-schema/editor-project-state';
-import { buildShaderMaterialProject } from './project-schema/shader-material-project';
+import {
+  buildShaderMaterialProject,
+  rewriteActiveTextSourcePrograms,
+} from './project-schema/shader-material-project';
 import {
   PREPARED_RUNTIME_ARTIFACT_SCHEMA,
   preparedRuntimeArtifactSchema,
@@ -445,6 +448,23 @@ async function referencedRuntimeAssetIds(
   );
 }
 
+function rewriteCompiledActiveTextSourcePrograms<T>(
+  value: T,
+  programs: ReadonlyMap<string, string>,
+): T {
+  if (typeof value === 'string') return rewriteActiveTextSourcePrograms(value, programs) as T;
+  if (Array.isArray(value))
+    return value.map((item) => rewriteCompiledActiveTextSourcePrograms(item, programs)) as T;
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        rewriteCompiledActiveTextSourcePrograms(item, programs),
+      ]),
+    ) as T;
+  return value;
+}
+
 async function assembleRuntimeArtifact(
   project: AuthoringProject,
   options: RuntimeArtifactAssemblyOptions,
@@ -529,9 +549,9 @@ async function assembleRuntimeArtifact(
   const partitioned = unpartitionedCompiledProject
     ? partitionRuntimeLocalizationCatalogs(unpartitionedCompiledProject)
     : null;
-  const compiledProject = partitioned?.project;
+  let compiledProject = partitioned?.project;
   const localizationTextEntries = partitioned?.textEntries ?? [];
-  const gameplayJson = compiledProject ? serializeCompiledProjectWire(compiledProject) : undefined;
+  let gameplayJson = compiledProject ? serializeCompiledProjectWire(compiledProject) : undefined;
   const fileEntries = includedCompiledAssets.flatMap((asset): ExportFileEntry[] => {
     if (localizationClosure && !localizationClosure.payloadAssetIds.has(asset.id)) return [];
     const authored = parseAssetData(project.assets[asset.id]?.data);
@@ -549,17 +569,11 @@ async function assembleRuntimeArtifact(
       },
     ];
   });
+  const packagedSourcePaths = new Set<string>();
   for (const [scriptId, record] of Object.entries(project.scripts)) {
-    const source = record.data?.source;
-    if (
-      !source ||
-      typeof source !== 'object' ||
-      !('kind' in source) ||
-      source.kind !== 'project-file' ||
-      !('path' in source) ||
-      typeof source.path !== 'string'
-    )
-      continue;
+    const source = parseScriptModuleData(record.data)?.source;
+    if (source?.kind !== 'project-file') continue;
+    packagedSourcePaths.add(source.path);
     fileEntries.push({
       source: options.paths.resolveProjectSource(options.projectRoot ?? null, source.path),
       packagePath: source.path,
@@ -568,8 +582,76 @@ async function assembleRuntimeArtifact(
       kind: 'script-source',
     });
   }
+  for (const record of Object.values(project.layouts)) {
+    const layout = parseLayoutData(record.data);
+    for (const scriptPath of layout?.dependencies.scripts ?? []) {
+      if (packagedSourcePaths.has(scriptPath)) continue;
+      packagedSourcePaths.add(scriptPath);
+      fileEntries.push({
+        source: options.paths.resolveProjectSource(options.projectRoot ?? null, scriptPath),
+        packagePath: scriptPath,
+        storage: 'auto',
+        assetId: `source:${scriptPath}`,
+        kind: 'script-source',
+      });
+    }
+  }
 
   const shaderBuild = await buildShaderMaterialProject(project, options.shaderOutputs ?? []);
+  if (compiledProject && shaderBuild.activeTextSourcePrograms.size > 0)
+    compiledProject = rewriteCompiledActiveTextSourcePrograms(
+      compiledProject,
+      shaderBuild.activeTextSourcePrograms,
+    );
+  if (!options.profile.stripShaderSources) {
+    const shaderSourcePaths = new Set<string>();
+    const addShaderIdentity = (identity: string) => {
+      if (!identity.startsWith('project:/shaders/')) return;
+      shaderSourcePaths.add(identity.slice('project:/'.length));
+    };
+    for (const request of Object.values(shaderBuild.compilation.programs)) {
+      addShaderIdentity(request.vertexSource);
+      addShaderIdentity(request.fragmentSource);
+      addShaderIdentity(request.varyingDefinition);
+    }
+    for (const output of options.shaderOutputs ?? [])
+      for (const dependency of output.dependencies) addShaderIdentity(dependency);
+    for (const sourcePath of [...shaderSourcePaths].sort()) {
+      if (packagedSourcePaths.has(sourcePath)) continue;
+      packagedSourcePaths.add(sourcePath);
+      fileEntries.push({
+        source: options.paths.resolveProjectSource(options.projectRoot ?? null, sourcePath),
+        packagePath: sourcePath,
+        storage: 'auto',
+        assetId: `source:${sourcePath}`,
+        kind: 'shader-source',
+      });
+    }
+  }
+  if (compiledProject) {
+    const materialInterfaces = Object.entries(shaderBuild.project.materials)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, material]) => {
+        const shader = shaderBuild.project.shaders[material.shader];
+        return {
+          id,
+          role: material.role,
+          postprocessScope: material.postprocess_scope ?? 'world',
+          parameters: Object.entries(shader?.uniforms ?? {})
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([name, uniform]) => ({
+              name,
+              type: uniform.type,
+              rendererBinding: uniform.binding ?? null,
+            })),
+        };
+      });
+    compiledProject = {
+      ...compiledProject,
+      resources: { ...compiledProject.resources, materialInterfaces },
+    };
+    gameplayJson = serializeCompiledProjectWire(compiledProject);
+  }
   const shaderDiagnostics = classifyProjectValidationDiagnostics(
     shaderBuild.diagnostics.map((item) => ({
       ...item,
@@ -707,11 +789,13 @@ function shaderExecutionDiagnostics(
   );
 }
 
-function validateShaderOutputs(
+async function validateShaderOutputs(
   programs: Readonly<Record<string, { vertexSource: string; fragmentSource: string }>>,
   variants: readonly string[],
   outputs: readonly ShaderCompileOutput[],
-): { outputs: ShaderCompileOutput[]; diagnostics: ProjectValidationDiagnostic[] } {
+  projectRoot: string | null,
+  paths: RuntimeArtifactPathAdapter,
+): Promise<{ outputs: ShaderCompileOutput[]; diagnostics: ProjectValidationDiagnostic[] }> {
   const accepted: ShaderCompileOutput[] = [];
   const diagnostics: ProjectValidationDiagnostic[] = [];
   const seen = new Set<string>();
@@ -725,6 +809,10 @@ function validateShaderOutputs(
       request !== undefined &&
       variants.includes(output.variant) &&
       output.sourceIdentity === expectedSource &&
+      output.dependencyRevisions.length === output.dependencies.length &&
+      output.dependencyRevisions.every(
+        (revision, index) => revision.identity === output.dependencies[index],
+      ) &&
       output.runtimePath.startsWith(`project:/shaders/derived/${output.variant}/`) &&
       /^sha256:[0-9a-f]{64}$/.test(output.byteHash) &&
       Number.isSafeInteger(output.byteSize) &&
@@ -764,6 +852,67 @@ function validateShaderOutputs(
     identityByProgram.set(output.program, output.programIdentity);
     seen.add(key);
     accepted.push(output);
+  }
+  const projectDependencies = new Map<string, Sha256Digest>();
+  for (const output of accepted)
+    for (const dependency of output.dependencyRevisions) {
+      if (!dependency.identity.startsWith('project:/')) continue;
+      const relativePath = dependency.identity.slice('project:/'.length);
+      const current = projectDependencies.get(relativePath);
+      if (current && current !== dependency.contentHash) {
+        diagnostics.push(
+          createProjectValidationDiagnostic({
+            code: 'runtime-artifact.shader-source-revision-inconsistent',
+            severity: 'error',
+            path: '/materials',
+            message: `Shader compiler returned inconsistent source revisions for '${relativePath}'.`,
+            category: 'shader',
+            boundaries: ['runtime-package'],
+            ownerPaths: ['/materials'],
+          }),
+        );
+      } else projectDependencies.set(relativePath, dependency.contentHash);
+    }
+  if (projectDependencies.size > 0) {
+    if (!paths.readProjectTextSources) {
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.shader-source-revision-unverifiable',
+          severity: 'error',
+          path: '/materials',
+          message: 'Shader source revisions cannot be verified in this host.',
+          category: 'shader',
+          boundaries: ['runtime-package'],
+          ownerPaths: ['/materials'],
+        }),
+      );
+    } else {
+      const entries = [...projectDependencies.entries()].map(
+        ([projectRelativePath, contentHash], index) => ({
+          assetId: `shader-source:${index}`,
+          projectRelativePath,
+          expectedContentHash: contentHash,
+        }),
+      );
+      const observed = await paths.readProjectTextSources(projectRoot, entries);
+      const byId = new Map(observed.map((entry) => [entry.assetId, entry]));
+      for (const entry of entries) {
+        const result = byId.get(entry.assetId);
+        if (result?.status === 'ready' && result.contentHash === entry.expectedContentHash)
+          continue;
+        diagnostics.push(
+          createProjectValidationDiagnostic({
+            code: 'runtime-artifact.shader-source-revision-stale',
+            severity: 'error',
+            path: `/materials`,
+            message: `Shader source '${entry.projectRelativePath}' changed while compilation was in progress.`,
+            category: 'shader',
+            boundaries: ['runtime-package'],
+            ownerPaths: ['/materials'],
+          }),
+        );
+      }
+    }
   }
   for (const program of Object.keys(programs).sort())
     for (const stage of ['vertex', 'fragment'] as const)
@@ -832,10 +981,12 @@ export async function prepareRuntimeArtifact(
         shaderVariants: options.profile.shaderVariants,
       });
       if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
-      const verified = validateShaderOutputs(
+      const verified = await validateShaderOutputs(
         shaderProject.compilation.programs,
         options.profile.shaderVariants,
         response.outputs ?? [],
+        options.projectRoot,
+        options.paths,
       );
       shaderOutputs = verified.outputs;
       shaderDiagnostics = collectProjectValidationDiagnostics(

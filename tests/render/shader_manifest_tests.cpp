@@ -53,6 +53,15 @@ noveltea::ShaderMaterialProject make_project()
           "uniforms":{"u_time":{"type":"float","binding":"engine.time"}},
           "roles":["active-text"],
           "role_bindings":{}
+        },
+        "active-text-program-abc":{
+          "stages":{
+            "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/derived/glsl-330/program-abc.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
+            "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/derived/glsl-330/program-abc.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
+          },
+          "uniforms":{"u_time":{"type":"float","binding":"engine.time"}},
+          "roles":["active-text"],
+          "role_bindings":{}
         }
       },
       "materials":{
@@ -159,6 +168,21 @@ TEST_CASE("direct ActiveText shader pairs resolve without material records")
     CHECK(result.program->vertex.path == "project:/shaders/bgfx/glsl-330/active_text_wave.vs.bin");
     CHECK(result.program->fragment.path ==
           "project:/shaders/bgfx/glsl-330/active_text_wave.fs.bin");
+    REQUIRE(find_uniform(*result.program, "u_time") != nullptr);
+}
+
+TEST_CASE("derived ActiveText source programs resolve from runtime metadata")
+{
+    const auto project = make_project();
+    const auto result = noveltea::resolve_source_shader_program(
+        project, "active-text-program-abc", noveltea::ShaderRole::ActiveText, "glsl-330");
+
+    REQUIRE(result.ok());
+    REQUIRE(result.program);
+    CHECK(result.program->key.kind == noveltea::ShaderProgramRequestKind::SourceProgram);
+    CHECK(result.program->key.program_identity == "active-text-program-abc");
+    CHECK(result.program->vertex.path == "project:/shaders/derived/glsl-330/program-abc.vs.bin");
+    CHECK(result.program->fragment.path == "project:/shaders/derived/glsl-330/program-abc.fs.bin");
     REQUIRE(find_uniform(*result.program, "u_time") != nullptr);
 }
 

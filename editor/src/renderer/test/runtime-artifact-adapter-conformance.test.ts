@@ -53,6 +53,7 @@ async function successfulResponse(
       variant: 'glsl-330',
       sourceIdentity: stage === 'vertex' ? request.vertexSource : request.fragmentSource,
       dependencies: [],
+      dependencyRevisions: [],
       outputPath: `/project/.noveltea/build/shaders/derived/glsl-330/program-identity.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
       runtimePath: `project:/shaders/derived/glsl-330/program-identity.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
       cacheKey: `${stage}-cache`,
