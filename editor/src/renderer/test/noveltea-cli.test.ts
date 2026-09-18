@@ -846,6 +846,71 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
+  it('audits Assets without requiring unrelated authoring domains to parse', async () => {
+    const value = fixture();
+    await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.json`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/records/scenes/broken.json`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/records/layouts/broken/layout.json`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/i18n/project.json`, '{"sourceLocale":');
+    await value.fileSystem.writeTextAtomic(`${root}/traits.json`, '{"broken":');
+    await value.fileSystem.writeTextAtomic(`${root}/assets/text/untracked.txt`, 'untracked');
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).toBe(0);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      untrackedFiles: [{ projectRelativePath: 'assets/text/untracked.txt', kind: 'text' }],
+    });
+  });
+
+  it('keeps malformed Asset records inside the asset-audit validation boundary', async () => {
+    const value = fixture();
+    await value.fileSystem.writeTextAtomic(`${root}/records/assets/broken.json`, '{}');
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).not.toBe(0);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'WORKSPACE_RECORD_ID_PATH_MISMATCH',
+          path: '/records/assets/broken.json',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
+  it('rejects invalid declared Asset source routing inside the scoped boundary', async () => {
+    const value = fixture();
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/assets/broken.json`,
+      JSON.stringify({
+        id: 'broken',
+        label: 'Broken',
+        data: {
+          kind: 'text',
+          source: { type: 'project-file', path: '../outside.txt' },
+          aliases: [],
+          imageMetadata: null,
+        },
+      }),
+    );
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).not.toBe(0);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'WORKSPACE_PATH_INVALID',
+          path: '/assets/broken/data/source/path',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
   it('reports an Asset-directory symlink escape as a semantic audit failure', async () => {
     const value = fixture();
     const escapedPath = `${root}/assets/text/escape.txt`;
@@ -855,8 +920,9 @@ describe('NovelTea headless CLI', () => {
       pathValue === escapedPath ? '/outside/escape.txt' : realpath(pathValue);
 
     const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
-    expect(audit.exitCode).not.toBe(0);
+    expect(audit.exitCode).toBe(4);
     expect(JSON.parse(audit.stdout)).toMatchObject({
+      exitCode: 4,
       diagnostics: expect.arrayContaining([
         expect.objectContaining({
           code: 'asset.audit.path_escape',

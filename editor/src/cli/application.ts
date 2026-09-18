@@ -104,6 +104,14 @@ function workspaceOpenExitCode(diagnostics: readonly NovelTeaCliDiagnostic[]): N
     : NOVELTEA_CLI_EXIT_CODES.workspace;
 }
 
+function projectPreparationExitCode(
+  diagnostics: readonly NovelTeaCliDiagnostic[],
+): NovelTeaCliExitCode {
+  return diagnostics.every((item) => item.code.startsWith('WORKSPACE_'))
+    ? workspaceOpenExitCode(diagnostics)
+    : semanticExitCode(diagnostics);
+}
+
 export async function runNovelTeaCli(
   argv: readonly string[],
   options: RunNovelTeaCliOptions = {},
@@ -117,18 +125,22 @@ export async function runNovelTeaCli(
   const nativeTools = options.nativeTools ?? unavailableNativeTools;
   let fileSystem = options.fileSystem;
   let workspace = options.workspace;
-  const workspaceServices = async () => {
+  const projectFileSystem = async () => {
     if (!fileSystem) {
       const { createNodeProjectWorkspaceFileSystem } =
         await import('../shared/project-workspace/node-project-workspace-file-system');
       fileSystem = createNodeProjectWorkspaceFileSystem();
     }
+    return fileSystem;
+  };
+  const workspaceServices = async () => {
+    const resolvedFileSystem = await projectFileSystem();
     if (!workspace) {
       const { createNodeProjectWorkspaceService } =
         await import('../shared/project-workspace/node-project-workspace-service');
       workspace = createNodeProjectWorkspaceService();
     }
-    return { fileSystem, workspace };
+    return { fileSystem: resolvedFileSystem, workspace };
   };
 
   if (globals.command[0] === 'project' && globals.command[1] === 'create') {
@@ -331,12 +343,12 @@ export async function runNovelTeaCli(
     }
   }
 
-  const services = await workspaceServices();
+  const fileSystemService = await projectFileSystem();
   const { discoverProjectRoot, validateExplicitProjectRoot } =
     await import('../shared/project-workspace/project-workspace-discovery');
   const discovery = globals.project
-    ? await validateExplicitProjectRoot(services.fileSystem, path.resolve(cwd, globals.project))
-    : await discoverProjectRoot(services.fileSystem, cwd);
+    ? await validateExplicitProjectRoot(fileSystemService, path.resolve(cwd, globals.project))
+    : await discoverProjectRoot(fileSystemService, cwd);
   if (!discovery.ok)
     return failure(
       NOVELTEA_CLI_EXIT_CODES.workspace,
@@ -345,6 +357,67 @@ export async function runNovelTeaCli(
       discovery.projectRoot ? { projectRoot: discovery.projectRoot } : {},
     );
 
+  if (command.projectPreparation) {
+    try {
+      const { prepareCliProject } = await import('./project-preparation');
+      const prepared = await prepareCliProject(
+        fileSystemService,
+        discovery.projectRoot,
+        command.projectPreparation,
+      );
+      if (!prepared.ok)
+        return failure(
+          projectPreparationExitCode(prepared.diagnostics),
+          prepared.diagnostics,
+          globals.json,
+          { projectRoot: discovery.projectRoot },
+        );
+      const semantic = await command.run({
+        cwd,
+        stdinJson,
+        fileSystem: fileSystemService,
+        preparation: prepared.preparation,
+        nativeTools,
+        platformTools,
+        onPlatformProgress: options.onPlatformProgress,
+        forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
+      });
+      const diagnostics = [...prepared.diagnostics, ...semantic.diagnostics];
+      if (!semantic.ok)
+        return failure(
+          semantic.exitCode ?? semanticExitCode(diagnostics),
+          diagnostics,
+          globals.json,
+          {
+            projectRoot: discovery.projectRoot,
+            ...semantic.fields,
+          },
+        );
+      return formatCliResult(
+        {
+          success: true,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+          diagnostics,
+          projectRoot: discovery.projectRoot,
+          ...semantic.fields,
+        },
+        globals.json,
+        { success: semantic.humanSuccess ?? `NovelTea ${globals.command.join(' ')} succeeded.` },
+      );
+    } catch (error) {
+      if (error instanceof CliCommandUsageError)
+        return novelTeaCliUsageFailure(error.message, globals.json);
+      const message = error instanceof Error ? error.message : String(error);
+      return failure(
+        NOVELTEA_CLI_EXIT_CODES.internal,
+        [cliDiagnostic('CLI_INTERNAL', '/', message)],
+        globals.json,
+        { projectRoot: discovery.projectRoot },
+      );
+    }
+  }
+
+  const services = await workspaceServices();
   const validationCache =
     globals.command[0] === 'validate' && nativeTools.validateFontCoverage
       ? await import('../shared/authoring-cache')
