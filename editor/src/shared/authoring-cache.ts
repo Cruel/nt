@@ -76,6 +76,7 @@ const resultSchema = z
     success: z.boolean(),
     exitCode: z.union([z.literal(0), z.literal(4), z.literal(6)]),
     diagnostics: z.array(diagnosticSchema),
+    editorDiagnostics: z.array(projectValidationDiagnosticSchema),
   })
   .strict()
   .refine(
@@ -253,6 +254,7 @@ async function readCurrentGeneration(fileSystem: ProjectWorkspaceFileSystem, roo
 export async function readAuthoringCache(
   fileSystem: ProjectWorkspaceFileSystem,
   root: string,
+  expectedInputs: ProjectSourceInventory | null = null,
 ): Promise<CachedValidationResult | null> {
   if (!fileSystem.readPathMetadata) return null;
   try {
@@ -262,8 +264,10 @@ export async function readAuthoringCache(
       authoritativePaths: generation.manifest.inputs.map((input) => input.path),
       discoveryScopes,
     });
+    const cachedInputs = { entries: generation.manifest.inputs };
     if (
-      !projectSourceInventoriesEqual({ entries: generation.manifest.inputs }, current) ||
+      !projectSourceInventoriesEqual(cachedInputs, current) ||
+      (expectedInputs && !projectSourceInventoriesEqual(cachedInputs, expectedInputs)) ||
       !(await settled(fileSystem, root))
     )
       return null;
@@ -425,6 +429,38 @@ export async function readReusableAuthoringContributions(
           ),
       inventory: current,
     };
+  } catch {
+    return null;
+  }
+}
+
+export async function captureAuthoringValidationAuthorityInputs(
+  fileSystem: ProjectWorkspaceFileSystem,
+  snapshot: LoadedProjectWorkspaceSnapshot,
+): Promise<ProjectSourceInventory | null> {
+  if (!fileSystem.readPathMetadata) return null;
+  try {
+    if (!(await settled(fileSystem, snapshot.projectRoot))) return null;
+    const inputs = await captureProjectSourceInventory(fileSystem, snapshot.projectRoot, {
+      authoritativePaths: [
+        ...snapshot.canonicalSourceFiles,
+        'project.json',
+        'editor.json',
+        ...assetSourcePaths(snapshot.project),
+      ],
+      discoveryScopes,
+    });
+    const inputByPath = new Map(inputs.entries.map((entry) => [entry.path, entry]));
+    for (const relative of snapshot.canonicalSourceFiles) {
+      const captured = snapshot.fileRevisions[relative];
+      const input = inputByPath.get(relative);
+      if (!captured || !input || input.byteSize !== captured.byteSize) return null;
+      const absolute = fileSystem.joinPath(snapshot.projectRoot, relative);
+      const current = await fileSystem.readFileRevision(absolute);
+      if (current.contentHash !== captured.contentHash || current.byteSize !== captured.byteSize)
+        return null;
+    }
+    return (await settled(fileSystem, snapshot.projectRoot)) ? inputs : null;
   } catch {
     return null;
   }
@@ -615,6 +651,7 @@ export async function publishAuthoringCache(
     success: boolean;
     exitCode: number;
     diagnostics: readonly z.infer<typeof diagnosticSchema>[];
+    editorDiagnostics: readonly z.infer<typeof projectValidationDiagnosticSchema>[];
   }>,
   validationContributions: readonly AuthoringValidationContribution[],
 ): Promise<void> {
