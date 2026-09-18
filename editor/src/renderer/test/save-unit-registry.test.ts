@@ -26,7 +26,6 @@ const representativeResources: Record<string, WorkbenchResource> = {
   'asset-detail': recordResource('assets', 'logo'),
   'image-generation': { kind: 'tool', stableId: 'utility:image-generation' },
   'comfyui-workflows': { kind: 'tool', stableId: 'utility:comfyui-workflows' },
-  'shader-detail': recordResource('shaders', 'basic'),
   'material-detail': recordResource('materials', 'panel'),
   'layout-detail': recordResource('layouts', 'hud'),
   'archetype-detail': recordResource('archetypes', 'room-base'),

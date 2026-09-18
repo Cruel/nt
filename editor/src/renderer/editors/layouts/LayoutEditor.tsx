@@ -59,7 +59,8 @@ import {
   isAuthoringProject,
   type AuthoringProject,
 } from '../../../shared/project-schema/authoring-project';
-import { parseMaterialData } from '../../../shared/project-schema/authoring-materials';
+import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
+import { parseScriptModuleData } from '../../../shared/project-schema/authoring-script-modules';
 
 function assetRef(assetId: string): LayoutAssetRef {
   return { $ref: { collection: 'assets', id: assetId } };
@@ -318,7 +319,6 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
             (kind, extension) =>
               kind === 'text' ||
               kind === 'data' ||
-              kind === 'script' ||
               ['.rml', 'rml', '.rcss', 'rcss', '.css', 'css', '.lua', 'lua'].includes(
                 extension ?? '',
               ),
@@ -343,16 +343,19 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
         : [],
     [project],
   );
-  const scriptAssets = useMemo(
-    () =>
-      project
-        ? selectableAssets(
-            project,
-            (kind, extension) => kind === 'script' || ['.lua', 'lua'].includes(extension ?? ''),
-          )
-        : [],
-    [project],
-  );
+  const scriptFiles = useMemo(() => {
+    if (!project) return [];
+    const byPath = new Map<string, { id: string; label: string; detail: string }>();
+    for (const [scriptId, script] of Object.entries(project.scripts)) {
+      const source = parseScriptModuleData(script.data)?.source;
+      if (source?.kind !== 'project-file') continue;
+      byPath.set(source.path, { id: source.path, label: script.label, detail: scriptId });
+    }
+    for (const path of data.dependencies.scripts)
+      if (!byPath.has(path))
+        byPath.set(path, { id: path, label: path, detail: 'Project Lua file' });
+    return [...byPath.values()].sort((left, right) => left.id.localeCompare(right.id));
+  }, [data.dependencies.scripts, project]);
   const dataAssets = useMemo(
     () =>
       project
@@ -366,10 +369,11 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const materialOptions = useMemo(
     () =>
       project
-        ? Object.entries(project.materials).map(([id, material]) => {
-            const materialData = parseMaterialData(material.data);
-            return { id, label: material.label, detail: materialData?.role ?? null };
-          })
+        ? Object.entries(project.materials).map(([id, material]) => ({
+            id,
+            label: material.label,
+            detail: resolveMaterialData(project, id).data?.role ?? null,
+          }))
         : [],
     [project],
   );
@@ -388,17 +392,14 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     setMessage(failure?.message ?? null);
   }
 
-  function setSourceMode(
-    which: 'rml' | 'rcss' | 'lua',
-    sourceMode: LayoutSourceData['sourceMode'],
-  ) {
+  function setSourceMode(which: 'rml' | 'rcss', sourceMode: LayoutSourceData['sourceMode']) {
     commit(
       { ...data, [which]: { ...data[which], sourceMode } },
       `Set ${which.toUpperCase()} source mode`,
     );
   }
 
-  function setSourceAsset(which: 'rml' | 'rcss' | 'lua', assetId: string) {
+  function setSourceAsset(which: 'rml' | 'rcss', assetId: string) {
     commit(
       {
         ...data,
@@ -449,7 +450,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   function setDependency(kind: keyof LayoutData['dependencies'], ids: string[]) {
     const dependencies = {
       ...data.dependencies,
-      [kind]: kind === 'materials' ? ids.map(materialRef) : ids.map(assetRef),
+      [kind]:
+        kind === 'materials' ? ids.map(materialRef) : kind === 'scripts' ? ids : ids.map(assetRef),
     } as LayoutData['dependencies'];
     commit({ ...data, dependencies }, 'Update layout dependencies');
   }
@@ -794,31 +796,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
             >
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-medium">Lua Source</h3>
-                <Select
-                  value={data.lua.sourceMode}
-                  onValueChange={(value) =>
-                    setSourceMode('lua', value as LayoutSourceData['sourceMode'])
-                  }
-                >
-                  {layoutSourceModeValues.map((mode) => (
-                    <SelectItem key={mode} value={mode}>
-                      {mode}
-                    </SelectItem>
-                  ))}
-                </Select>
-                {data.lua.sourceMode === 'asset' ? (
-                  <Select
-                    value={data.lua.sourceAsset?.$ref.id ?? '__none__'}
-                    onValueChange={(value) => setSourceAsset('lua', String(value))}
-                  >
-                    <SelectItem value="__none__">No Lua asset</SelectItem>
-                    {scriptAssets.map((asset) => (
-                      <SelectItem key={asset.id} value={asset.id}>
-                        {asset.label} ({asset.id})
-                      </SelectItem>
-                    ))}
-                  </Select>
-                ) : null}
+                <Badge variant="outline">project file</Badge>
                 <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
                   Script enabled
                   <Switch
@@ -881,21 +859,14 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                   )
                 }
               />
-              {data.lua.sourceMode === 'inline' ? (
-                <SourceEditor
-                  ref={sourceEditors.refFor('lua')}
-                  language="lua"
-                  value={data.lua.sourceText}
-                  onChange={(value) => setInlineSource('lua', value)}
-                  diagnostics={luaDiagnostics}
-                  className="h-56"
-                />
-              ) : (
-                <p className="rounded border p-3 text-xs text-muted-foreground">
-                  Lua source is loaded from the selected asset. Inline source is preserved for
-                  switching back.
-                </p>
-              )}
+              <SourceEditor
+                ref={sourceEditors.refFor('lua')}
+                language="lua"
+                value={data.lua.sourceText}
+                onChange={(value) => setInlineSource('lua', value)}
+                diagnostics={luaDiagnostics}
+                className="h-56"
+              />
             </section>
 
             <section
@@ -974,13 +945,15 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
               }
             />
             <DependencySelector
-              title="Script Assets"
-              options={scriptAssets}
-              selectedIds={refIds(data.dependencies.scripts)}
+              title="Lua Source Files"
+              options={scriptFiles}
+              selectedIds={data.dependencies.scripts}
               onToggle={(id) =>
                 setDependency(
                   'scripts',
-                  toggleRef(data.dependencies.scripts, assetRef(id)).map((ref) => ref.$ref.id),
+                  data.dependencies.scripts.includes(id)
+                    ? data.dependencies.scripts.filter((path) => path !== id)
+                    : [...data.dependencies.scripts, id],
                 )
               }
             />

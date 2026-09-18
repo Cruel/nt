@@ -38,7 +38,10 @@ import {
   templateCompatibilityRequirementsSchema,
   templateDownloadRequestSchema,
 } from '../shared/project-schema/platform-export-contracts';
-import { shaderMaterialProjectWireSchema } from '../shared/project-schema/shader-material-project';
+import {
+  shaderMaterialProjectWireSchema,
+  shaderSourceProgramsSchema,
+} from '../shared/project-schema/shader-material-project';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
 import { userExportConfigSchema } from '../shared/project-schema/platform-export-contracts';
 import { novelTeaUserPreferencesSchema } from '../shared/user-config';
@@ -288,7 +291,7 @@ export const readProjectTextSourcesArgumentsSchema = z.tuple([
             .object({
               readKey: z.string().min(1).max(MAX_TEXT_SOURCE_READ_KEY_LENGTH),
               projectRelativePath: z.string().min(1).max(MAX_PROJECT_PATH_LENGTH),
-              expectedContentHash: sha256DigestSchema,
+              expectedContentHash: sha256DigestSchema.nullable(),
             })
             .strict(),
         )
@@ -543,7 +546,7 @@ export const previewExportedPackageArgumentsSchema = z.tuple([
 ]);
 export const compileShadersArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  shaderMaterialProjectWireSchema,
+  shaderSourceProgramsSchema,
   z
     .object({
       forceRebuild: z.boolean().optional(),

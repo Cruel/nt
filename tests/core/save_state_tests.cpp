@@ -1567,8 +1567,7 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
                                              compiled::BackgroundFit::Cover, sprite_material}}));
     const MaterialOccurrence background = BackgroundMaterialOccurrence{};
     REQUIRE(state.upsert_material_parameter(
-        project, DesiredMaterialParameter{owner, background, sprite_material, "u_tint",
-                                          compiled::MaterialColorValue{0.2, 0.4, 0.6, 1.0},
+        project, DesiredMaterialParameter{owner, background, sprite_material, "u_useTexture", 0.2,
                                           std::nullopt, MaterialClockPolicy::Gameplay}));
 
     const auto effect_id = id<PostprocessEffectInstanceId>("saved-grade");
@@ -1579,8 +1578,9 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
     const MaterialOccurrence effect = PostprocessMaterialOccurrence{effect_id};
     REQUIRE(state.upsert_material_parameter(
         project,
-        DesiredMaterialParameter{owner, effect, postprocess_material, "u_strength", 0.65,
-                                 std::nullopt, MaterialClockPolicy::UnscaledPresentation}));
+        DesiredMaterialParameter{owner, effect, postprocess_material, "u_tint",
+                                 compiled::MaterialColorValue{0.65, 0.65, 0.65, 1.0}, std::nullopt,
+                                 MaterialClockPolicy::UnscaledPresentation}));
 
     auto saved = make_save_state(project, state);
     REQUIRE(saved);
@@ -1603,14 +1603,14 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
     CHECK(restored_effect.order == 4);
     CHECK(restored_effect.clock == MaterialClockPolicy::UnscaledPresentation);
 
-    const auto restored_parameter =
-        std::find_if(restored.value().material_parameters().begin(),
-                     restored.value().material_parameters().end(), [&](const auto& parameter) {
-                         return parameter.material == postprocess_material &&
-                                parameter.parameter == "u_strength";
-                     });
+    const auto restored_parameter = std::find_if(
+        restored.value().material_parameters().begin(),
+        restored.value().material_parameters().end(), [&](const auto& parameter) {
+            return parameter.material == postprocess_material && parameter.parameter == "u_tint";
+        });
     REQUIRE(restored_parameter != restored.value().material_parameters().end());
     REQUIRE(restored_parameter->value.has_value());
-    CHECK(std::get<double>(*restored_parameter->value) == Catch::Approx(0.65));
+    CHECK(std::get<compiled::MaterialColorValue>(*restored_parameter->value) ==
+          compiled::MaterialColorValue{0.65, 0.65, 0.65, 1.0});
     CHECK(restored_parameter->clock == MaterialClockPolicy::UnscaledPresentation);
 }

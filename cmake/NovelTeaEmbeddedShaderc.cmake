@@ -9,10 +9,33 @@ set(NOVELTEA_BGFX_SHADERC_ARCHIVE_SHA256 "${NOVELTEA_BGFX_ARCHIVE_SHA256}")
 set(NOVELTEA_PREBUILT_SHADERC_ROOT "" CACHE PATH
     "Extracted nt-tools static shaderc closure; empty builds the pinned source locally")
 
+function(noveltea_prepare_embedded_engine_shader_resources)
+    file(GLOB _noveltea_engine_shader_files CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/engine/shaders/bgfx/*.sc")
+    list(SORT _noveltea_engine_shader_files)
+    set(_declarations "")
+    set(_entries "")
+    foreach(_shader_path IN LISTS _noveltea_engine_shader_files)
+        get_filename_component(_shader_name "${_shader_path}" NAME)
+        string(REGEX REPLACE "[^A-Za-z0-9_]" "_" _shader_symbol "${_shader_name}")
+        file(SHA256 "${_shader_path}" _shader_sha256)
+        file(READ "${_shader_path}" _shader_hex HEX)
+        string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _shader_bytes "${_shader_hex}")
+        string(APPEND _declarations
+            "inline constexpr std::uint8_t engine_shader_${_shader_symbol}_bytes[] = {${_shader_bytes}};\n")
+        string(APPEND _entries
+            "    {\"${_shader_name}\", \"${_shader_sha256}\", engine_shader_${_shader_symbol}_bytes},\n")
+    endforeach()
+    set(NOVELTEA_ENGINE_SHADER_RESOURCE_DECLARATIONS "${_declarations}" PARENT_SCOPE)
+    set(NOVELTEA_ENGINE_SHADER_RESOURCE_ENTRIES "${_entries}" PARENT_SCOPE)
+endfunction()
+
 function(noveltea_configure_embedded_shaderc)
     if(TARGET noveltea_bgfx_shaderc_embedded)
         return()
     endif()
+
+    noveltea_prepare_embedded_engine_shader_resources()
 
     if(NOVELTEA_PREBUILT_SHADERC_ROOT)
         get_filename_component(_noveltea_shaderc_root "${NOVELTEA_PREBUILT_SHADERC_ROOT}" ABSOLUTE)

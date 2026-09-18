@@ -28,6 +28,7 @@ import type { NovelTeaCliNativeToolService } from '../../cli/native-tool-service
 import type { NovelTeaCliPlatformToolService } from '../../cli/platform-tool-service';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 import {
@@ -1410,10 +1411,14 @@ describe('NovelTea headless CLI', () => {
 
   it('uses the shared authoring pipeline and exact shader variants through the native service abstraction', async () => {
     const project = validProject();
-    project.shaders.basic = createDefaultAuthoringRecord(
-      'shaders',
-      'basic',
-    ) as typeof project.shaders.basic;
+    project.materials.basic = {
+      id: 'basic',
+      label: 'Basic',
+      data: {
+        ...defaultMaterialData('Basic', 'engine-2d'),
+        shader: { fragment: { kind: 'project', path: 'shaders/basic.fs.sc' } },
+      },
+    };
     const value = fixture(project);
     let receivedOptions: unknown;
     let receivedFontCoverage: unknown;
@@ -2114,9 +2119,10 @@ describe('NovelTea headless CLI', () => {
     );
     expect(first.files['schemas/records/layouts.schema.json']).toContain('sourceMode');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('file');
-    const scriptSchema = JSON.parse(first.files['schemas/records/scripts.schema.json']!);
-    expect(scriptSchema.properties.data.properties.source.oneOf[0].properties.path.pattern).toBe(
-      '^scripts\\/(?:[^/]+\\/)*[^/]+\\.lua$',
+    const scriptSchemaText = first.files['schemas/records/scripts.schema.json']!;
+    expect(scriptSchemaText).toContain('project-file');
+    expect(scriptSchemaText).toContain(
+      '^scripts\\\\/(?!.*(?:^|\\\\/)\\\\.\\\\.(?:\\\\/|$))(?!.*\\\\\\\\)(?!.*\\\\/\\\\/)[^/].*\\\\.lua$',
     );
   });
 

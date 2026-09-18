@@ -1,37 +1,43 @@
 import { z } from 'zod';
+import type { ShaderCompileOutput } from '../editor-tooling';
+import { sha256HexUtf8 } from '../web-crypto';
 import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject } from './authoring-project';
 import {
   materialBlendValues,
   materialTextureFilteringValues,
   postprocessScopeValues,
-  parseMaterialData,
   resolveMaterialData,
-  type MaterialData,
   type MaterialTextureSource,
+  type ResolvedMaterialData,
 } from './authoring-materials';
 import {
   shaderInputBindingValues,
-  parseShaderData,
-  shaderCompiledOutputIsFresh,
   shaderRoleValues,
   shaderSamplerBindingValues,
   shaderUniformTypeValues,
   shaderUniformValueSchema,
-  type ShaderData,
-  type ShaderStageData,
-  type ShaderUniformData,
+  type ShaderUniformType,
+  type ShaderUniformValue,
 } from './authoring-shaders';
 
 export const SHADER_MATERIAL_SCHEMA = 'noveltea.shader-materials' as const;
+export const SHADER_SOURCE_PROGRAMS_SCHEMA = 'noveltea.shader-source-programs' as const;
 export const SHADER_PREVIEW_SCHEMA = 'noveltea.shader-preview' as const;
-
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
-export const runtimeShaderCompiledOutputSchema = strict({
-  runtimePath: z.string().regex(/^(?:project|system):\/.+/),
+
+const runtimeTrustedSystemShaderOutputSchema = strict({
+  runtimePath: z.string().regex(/^system:\/.+/),
+});
+const runtimeProjectShaderOutputSchema = strict({
+  runtimePath: z.string().regex(/^project:\/.+/),
   byteHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
   byteSize: z.number().int().nonnegative(),
 });
+export const runtimeShaderCompiledOutputSchema = z.union([
+  runtimeTrustedSystemShaderOutputSchema,
+  runtimeProjectShaderOutputSchema,
+]);
 const runtimeShaderStageSchema = strict({
   source: z.string().min(1).optional(),
   source_text: z.string().optional(),
@@ -106,10 +112,7 @@ export const runtimeMaterialDefinitionSchema = strict({
   uniforms: z.record(z.string().min(1), shaderUniformValueSchema),
   textures: z.record(
     z.string().min(1),
-    strict({
-      source: z.string().min(1),
-      sampler: z.enum(materialTextureFilteringValues),
-    }),
+    strict({ source: z.string().min(1), sampler: z.enum(materialTextureFilteringValues) }),
   ),
   blend: z.enum(materialBlendValues),
 }).superRefine((material, context) => {
@@ -132,21 +135,31 @@ export const shaderMaterialProjectWireSchema = strict({
   materials: z.record(z.string().min(1), runtimeMaterialDefinitionSchema),
 });
 
+export const shaderSourceProgramRequestSchema = strict({
+  vertexSource: z.string().min(1),
+  fragmentSource: z.string().min(1),
+  varyingDefinition: z.string().min(1),
+  interfaceContract: z.string().min(1),
+});
+export const shaderSourceProgramsSchema = strict({
+  schema: z.literal(SHADER_SOURCE_PROGRAMS_SCHEMA),
+  programs: z.record(z.string().min(1), shaderSourceProgramRequestSchema),
+});
+export type ShaderSourcePrograms = z.infer<typeof shaderSourceProgramsSchema>;
+
 export interface ShaderMaterialProjectDiagnostic {
   severity: 'error' | 'warning' | 'info';
   path: string;
   message: string;
   category?: string;
 }
-
 export interface ShaderMaterialProjectBuildResult {
   project: z.infer<typeof shaderMaterialProjectWireSchema>;
+  compilation: ShaderSourcePrograms;
   diagnostics: ShaderMaterialProjectDiagnostic[];
 }
-
 type RuntimeShaderDefinition = z.infer<typeof runtimeShaderDefinitionSchema>;
 type RuntimeMaterialDefinition = z.infer<typeof runtimeMaterialDefinitionSchema>;
-
 function diagnostic(
   path: string,
   message: string,
@@ -155,297 +168,295 @@ function diagnostic(
   return { severity, path, message, category: 'shader-material-project' };
 }
 
+const variants = ['glsl-330', 'essl-300', 'metal'] as const;
+function systemStage(program: string, stage: 'vertex' | 'fragment') {
+  const suffix = stage === 'vertex' ? 'vs' : 'fs';
+  return {
+    compiled: Object.fromEntries(
+      variants.map((variant) => [
+        variant,
+        { runtimePath: `system:/shaders/bgfx/${variant}/${program}.${suffix}.bin` },
+      ]),
+    ) as Record<string, { runtimePath: string }>,
+  };
+}
+function customProgramRequest(resolved: ResolvedMaterialData) {
+  return {
+    vertexSource: resolved.vertexSource,
+    fragmentSource: resolved.fragmentSource,
+    varyingDefinition: resolved.varyingDefinition,
+    interfaceContract: resolved.interfaceContract,
+  };
+}
+async function programKey(resolved: ResolvedMaterialData): Promise<string> {
+  return `program-${(await sha256HexUtf8(JSON.stringify(customProgramRequest(resolved)))).slice(0, 24)}`;
+}
+function isCustomProgram(resolved: ResolvedMaterialData): boolean {
+  return (
+    resolved.vertexSource.startsWith('project:/') ||
+    resolved.fragmentSource.startsWith('project:/') ||
+    resolved.varyingDefinition.startsWith('project:/')
+  );
+}
+function runtimeTextureSource(
+  project: AuthoringProject,
+  source: MaterialTextureSource,
+): string | null {
+  if ('$ref' in source) {
+    const asset = parseAssetData(project.assets[source.$ref.id]?.data);
+    return asset ? `project:/${asset.source.path}` : null;
+  }
+  if ('alias' in source) return `alias:${source.alias}`;
+  return source.uri;
+}
+function runtimeUniformValue(
+  value: ShaderUniformValue | undefined,
+): ShaderUniformValue | undefined {
+  return value === undefined || value === null ? undefined : value;
+}
+function reflectedType(type: string): ShaderUniformType | null {
+  if (type === 'vec4') return 'vec4';
+  return null;
+}
+
 export async function buildShaderMaterialProject(
   project: AuthoringProject,
+  compiledOutputs: readonly ShaderCompileOutput[] = [],
 ): Promise<ShaderMaterialProjectBuildResult> {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const shaders: Record<string, RuntimeShaderDefinition> = {};
   const materials: Record<string, RuntimeMaterialDefinition> = {};
-
-  for (const shaderId of Object.keys(project.shaders)) {
-    const shader = await buildShaderDefinition(project, shaderId);
-    diagnostics.push(...shader.diagnostics);
-    if (shader.value) shaders[shaderId] = shader.value;
+  const programs: ShaderSourcePrograms['programs'] = {};
+  const compiledByProgram = new Map<string, ShaderCompileOutput[]>();
+  for (const output of compiledOutputs) {
+    const bucket = compiledByProgram.get(output.program) ?? [];
+    bucket.push(output);
+    compiledByProgram.set(output.program, bucket);
   }
 
-  for (const [materialId] of Object.entries(project.materials)) {
-    const material = buildMaterialDefinition(project, materialId);
-    diagnostics.push(...material.diagnostics);
-    if (material.value) materials[materialId] = material.value;
+  for (const [materialId, record] of Object.entries(project.materials)) {
+    const resolution = resolveMaterialData(project, materialId);
+    diagnostics.push(...resolution.diagnostics);
+    const resolved = resolution.data;
+    if (!resolved) continue;
+    const key = isCustomProgram(resolved)
+      ? await programKey(resolved)
+      : `preset-${resolved.preset.id}`;
+    if (isCustomProgram(resolved)) programs[key] = customProgramRequest(resolved);
+    if (!shaders[key]) {
+      const built = buildRuntimeShader(
+        materialId,
+        resolved,
+        key,
+        compiledByProgram.get(key) ?? [],
+        diagnostics,
+      );
+      if (built) shaders[key] = built;
+    }
+    const uniforms: Record<string, ShaderUniformValue> = {};
+    for (const [name, parameter] of Object.entries(resolved.parameters)) {
+      const value = runtimeUniformValue(parameter.value);
+      if (value !== undefined && parameter.binding == null) uniforms[name] = value;
+    }
+    const textures: RuntimeMaterialDefinition['textures'] = {};
+    for (const [name, texture] of Object.entries(resolved.textures)) {
+      if (!texture.source || texture.binding != null) continue;
+      const source = runtimeTextureSource(project, texture.source);
+      if (source) textures[name] = { source, sampler: texture.filtering };
+      else
+        diagnostics.push(
+          diagnostic(
+            `/materials/${materialId}/data/textures/${name}/source`,
+            'Material texture source could not be lowered.',
+          ),
+        );
+    }
+    const parsedMaterial = runtimeMaterialDefinitionSchema.safeParse({
+      display_name: record.label,
+      role: resolved.role,
+      ...(resolved.role === 'postprocess' ? { postprocess_scope: resolved.postprocessScope } : {}),
+      shader: key,
+      uniforms,
+      textures,
+      blend: resolved.blend,
+    });
+    if (!parsedMaterial.success) {
+      diagnostics.push(
+        diagnostic(`/materials/${materialId}/data`, 'Generated Material wire data is invalid.'),
+      );
+      continue;
+    }
+    materials[materialId] = parsedMaterial.data;
   }
-
-  return { project: { schema: SHADER_MATERIAL_SCHEMA, shaders, materials }, diagnostics };
+  return {
+    project: { schema: SHADER_MATERIAL_SCHEMA, shaders, materials },
+    compilation: { schema: SHADER_SOURCE_PROGRAMS_SCHEMA, programs },
+    diagnostics,
+  };
 }
 
-export async function buildShaderDefinition(
-  project: AuthoringProject,
-  shaderId: string,
-): Promise<{
-  value: RuntimeShaderDefinition | null;
-  diagnostics: ShaderMaterialProjectDiagnostic[];
-}> {
-  const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
-  const record = project.shaders[shaderId];
-  const data = parseShaderData(record?.data);
-  if (!record || !data)
-    return {
-      value: null,
-      diagnostics: [diagnostic(`/shaders/${shaderId}/data`, 'Invalid shader data.')],
+function buildRuntimeShader(
+  materialId: string,
+  resolved: ResolvedMaterialData,
+  key: string,
+  outputs: readonly ShaderCompileOutput[],
+  diagnostics: ShaderMaterialProjectDiagnostic[],
+): RuntimeShaderDefinition | null {
+  const custom = isCustomProgram(resolved);
+  const stages: RuntimeShaderDefinition['stages'] = custom
+    ? {
+        vertex: { source: resolved.vertexSource, compiled: {} },
+        fragment: { source: resolved.fragmentSource, compiled: {} },
+      }
+    : {
+        vertex: systemStage(resolved.preset.programName, 'vertex'),
+        fragment: systemStage(resolved.preset.programName, 'fragment'),
+      };
+  for (const output of outputs) {
+    const stage = output.stage === 'vertex' ? stages.vertex : stages.fragment;
+    if (!stage) continue;
+    stage.compiled ??= {};
+    stage.compiled[output.variant] = {
+      runtimePath: output.runtimePath,
+      byteHash: output.byteHash,
+      byteSize: output.byteSize,
     };
-
-  const stages: Record<string, unknown> = {};
-  for (const [index, stage] of data.stages.entries()) {
-    const converted = await shaderStageToRuntime(project, shaderId, stage, index);
-    diagnostics.push(...converted.diagnostics);
-    if (converted.value) stages[stage.stage] = converted.value;
   }
+  const reflected = new Map<string, { kind: 'uniform' | 'sampled-image'; type: string }>();
+  for (const output of outputs)
+    for (const input of output.reflectedInputs ?? [])
+      reflected.set(input.name, { kind: input.kind, type: input.type });
 
-  const uniforms: Record<string, unknown> = {};
-  for (const uniform of data.uniforms) uniforms[uniform.name] = uniformToRuntime(uniform);
-
-  const samplers: Record<string, unknown> = {};
-  for (const sampler of data.samplers)
-    samplers[sampler.name] = { type: sampler.type, binding: sampler.binding };
-
-  const roleBindings = Object.fromEntries(
-    data.roleBindings.map((binding) => [
-      binding.role,
-      {
-        ...(binding.vertexShader ? { vertex: binding.vertexShader.$ref.id } : {}),
-        ...(binding.fragmentShader ? { fragment: binding.fragmentShader.$ref.id } : {}),
-      },
-    ]),
-  );
-
-  const runtime = runtimeShaderDefinitionSchema.safeParse({
-    display_name: data.displayName ?? record.label,
+  const uniforms: RuntimeShaderDefinition['uniforms'] = {};
+  const samplers: RuntimeShaderDefinition['samplers'] = {};
+  if (custom && outputs.length > 0) {
+    for (const [name, input] of reflected) {
+      if (input.kind === 'sampled-image') {
+        samplers[name] = { type: 'texture2d', binding: resolved.textures[name]?.binding ?? null };
+        continue;
+      }
+      const preset = resolved.preset.uniforms[name];
+      const type = preset?.type ?? reflectedType(input.type);
+      if (!type) {
+        diagnostics.push(
+          diagnostic(
+            `/materials/${materialId}/data/parameters/${name}`,
+            `Reflected uniform '${name}' has unsupported runtime type '${input.type}'.`,
+          ),
+        );
+        continue;
+      }
+      const parameter = resolved.parameters[name];
+      uniforms[name] = {
+        type,
+        ...(parameter?.value !== undefined
+          ? { default: parameter.value }
+          : preset?.default !== undefined
+            ? { default: preset.default }
+            : {}),
+        ...(preset?.range ? { range: [...preset.range] as [number, number] } : {}),
+        binding: parameter?.binding ?? preset?.binding ?? null,
+        ...(parameter?.editor?.label || preset?.label
+          ? { editor: { label: parameter?.editor?.label ?? preset?.label ?? name } }
+          : {}),
+      };
+    }
+    for (const name of Object.keys(resolved.parameters))
+      if (!reflected.has(name))
+        diagnostics.push(
+          diagnostic(
+            `/materials/${materialId}/data/parameters/${name}`,
+            `Material parameter '${name}' is not present in the reflected shader interface and remains orphaned.`,
+            'warning',
+          ),
+        );
+    for (const name of Object.keys(resolved.textures))
+      if (!reflected.has(name))
+        diagnostics.push(
+          diagnostic(
+            `/materials/${materialId}/data/textures/${name}`,
+            `Material texture '${name}' is not present in the reflected shader interface and remains orphaned.`,
+            'warning',
+          ),
+        );
+  } else {
+    for (const [name, value] of Object.entries(resolved.preset.uniforms))
+      uniforms[name] = {
+        type: value.type,
+        ...(value.default !== undefined ? { default: value.default } : {}),
+        ...(value.range ? { range: [...value.range] as [number, number] } : {}),
+        binding: value.binding ?? null,
+        ...(value.label ? { editor: { label: value.label } } : {}),
+      };
+    for (const [name, value] of Object.entries(resolved.preset.samplers))
+      samplers[name] = { type: 'texture2d', binding: value.binding ?? null };
+  }
+  const candidate = {
+    display_name: custom ? `Derived ${resolved.preset.label}` : resolved.preset.label,
     stages,
     uniforms,
     samplers,
-    roles: data.roles,
-    role_bindings: roleBindings,
-  });
-  if (!runtime.success)
-    diagnostics.push(
-      diagnostic(`/shaders/${shaderId}/data`, 'Generated Shader wire data is invalid.'),
-    );
-  return { value: runtime.success ? runtime.data : null, diagnostics };
-}
-
-async function shaderStageToRuntime(
-  project: AuthoringProject,
-  shaderId: string,
-  stage: ShaderStageData,
-  index: number,
-): Promise<{
-  value: Record<string, unknown> | null;
-  diagnostics: ShaderMaterialProjectDiagnostic[];
-}> {
-  const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
-  const base = `/shaders/${shaderId}/data/stages/${index}`;
-  const value: Record<string, unknown> = {};
-  if (stage.sourceMode === 'asset') {
-    const assetId = stage.sourceAsset?.$ref.id;
-    if (!assetId) {
-      diagnostics.push(diagnostic(`${base}/sourceAsset`, 'Shader stage source asset is missing.'));
-    } else {
-      const source = assetSourcePath(project, assetId);
-      if (!source)
-        diagnostics.push(
-          diagnostic(
-            `${base}/sourceAsset/$ref`,
-            `Cannot resolve shader source asset '${assetId}'.`,
-          ),
-        );
-      else value.source = source;
-    }
-  } else if (stage.sourceText !== undefined) {
-    value.source_text = stage.sourceText;
-  }
-  const compiledEntries: [string, unknown][] = [];
-  for (const [variant, output] of Object.entries(stage.compiled ?? {})) {
-    const fresh = await shaderCompiledOutputIsFresh(project, shaderId, index, variant, output);
-    if (!fresh)
-      diagnostics.push(
-        diagnostic(
-          `${base}/compiled/${variant}`,
-          `Compiled Shader output for '${variant}' is stale. Recompile the Shader.`,
-        ),
-      );
-    if (fresh)
-      compiledEntries.push([
-        variant,
-        {
-          runtimePath: output.path,
-          byteHash: output.byteHash,
-          byteSize: output.byteSize,
-        },
-      ]);
-  }
-  const compiled = Object.fromEntries(compiledEntries);
-  if (Object.keys(compiled).length > 0) value.compiled = compiled;
-  return { value, diagnostics };
-}
-
-function assetSourcePath(project: AuthoringProject, assetId: string): string | null {
-  const record = project.assets[assetId];
-  const data = parseAssetData(record?.data);
-  if (!data) return null;
-  return `project:/${data.source.path}`;
-}
-
-function uniformToRuntime(uniform: ShaderUniformData): Record<string, unknown> {
-  return {
-    type: uniform.type,
-    ...(uniform.default !== undefined ? { default: uniform.default } : {}),
-    ...(uniform.range ? { range: uniform.range } : {}),
-    ...(uniform.binding ? { binding: uniform.binding } : {}),
-    ...(uniform.label ? { editor: { label: uniform.label } } : {}),
+    roles: [resolved.role],
+    role_bindings: { [resolved.role]: { vertex: key, fragment: key } },
   };
+  const parsed = runtimeShaderDefinitionSchema.safeParse(candidate);
+  if (!parsed.success) {
+    diagnostics.push(
+      diagnostic(`/materials/${materialId}/data`, 'Generated runtime shader metadata is invalid.'),
+    );
+    return null;
+  }
+  return parsed.data;
 }
 
 export function buildMaterialDefinition(
   project: AuthoringProject,
   materialId: string,
 ): { value: RuntimeMaterialDefinition | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
-  const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const record = project.materials[materialId];
-  if (!record)
-    return {
-      value: null,
-      diagnostics: [diagnostic(`/materials/${materialId}`, 'Missing material.')],
-    };
-  const resolved = resolveMaterialData(project, materialId);
-  diagnostics.push(...resolved.diagnostics);
-  const data = resolved.data ?? parseMaterialData(record.data);
-  if (!data)
-    return {
-      value: null,
-      diagnostics: [
-        ...diagnostics,
-        diagnostic(`/materials/${materialId}/data`, 'Invalid material data.'),
-      ],
-    };
-  if (!data.shader)
-    return {
-      value: null,
-      diagnostics: [
-        ...diagnostics,
-        diagnostic(`/materials/${materialId}/data/shader`, 'Material shader is missing.'),
-      ],
-    };
-
-  const uniforms: Record<string, unknown> = {};
-  for (const uniform of data.uniforms) uniforms[uniform.name] = uniform.value;
-  const textures: Record<string, unknown> = {};
-  data.textures.forEach((texture, index) => {
-    const source = materialTextureSourceToRuntime(project, texture.source);
-    if (!source) {
-      diagnostics.push(
-        diagnostic(
-          `/materials/${materialId}/data/textures/${index}/source`,
-          'Cannot resolve material texture source.',
-        ),
-      );
-      return;
-    }
-    textures[texture.sampler] = { source, sampler: texture.filtering };
-  });
-
-  const runtime = runtimeMaterialDefinitionSchema.safeParse({
-    display_name: data.displayName ?? record.label,
-    role: data.role,
-    ...(data.role === 'postprocess' ? { postprocess_scope: data.postprocessScope } : {}),
-    shader: data.shader.$ref.id,
-    uniforms,
-    textures,
-    blend: data.blend,
-  });
-  if (!runtime.success)
-    diagnostics.push(
-      diagnostic(`/materials/${materialId}/data`, 'Generated Material wire data is invalid.'),
-    );
-  return { value: runtime.success ? runtime.data : null, diagnostics };
-}
-
-function materialTextureSourceToRuntime(
-  project: AuthoringProject,
-  source: MaterialTextureSource,
-): string | null {
-  if ('$ref' in source) return assetSourcePath(project, source.$ref.id);
-  if ('alias' in source) return source.alias;
-  return source.uri;
+  const resolution = resolveMaterialData(project, materialId);
+  if (!record || !resolution.data) return { value: null, diagnostics: resolution.diagnostics };
+  const resolved = resolution.data;
+  const uniforms: Record<string, ShaderUniformValue> = {};
+  for (const [name, parameter] of Object.entries(resolved.parameters))
+    if (parameter.value !== undefined && parameter.binding == null)
+      uniforms[name] = parameter.value;
+  const textures: RuntimeMaterialDefinition['textures'] = {};
+  for (const [name, texture] of Object.entries(resolved.textures)) {
+    if (!texture.source || texture.binding != null) continue;
+    const source = runtimeTextureSource(project, texture.source);
+    if (source) textures[name] = { source, sampler: texture.filtering };
+  }
+  return {
+    value: runtimeMaterialDefinitionSchema.parse({
+      display_name: record.label,
+      role: resolved.role,
+      ...(resolved.role === 'postprocess' ? { postprocess_scope: resolved.postprocessScope } : {}),
+      shader: isCustomProgram(resolved) ? `material-${materialId}` : `preset-${resolved.preset.id}`,
+      uniforms,
+      textures,
+      blend: resolved.blend,
+    }),
+    diagnostics: resolution.diagnostics,
+  };
 }
 
 export function materialPreviewRevision(project: AuthoringProject, materialId: string): string {
-  const material = project.materials[materialId];
-  if (!material) return `${materialId}:missing`;
-  const materialData = parseMaterialData(material.data);
-  const shaderId = materialData?.shader?.$ref.id ?? 'no-shader';
-  const shader = shaderId ? project.shaders[shaderId] : null;
-  const dependencies =
-    materialData?.textures.map((texture) => {
-      if ('$ref' in texture.source) {
-        const asset = project.assets[texture.source.$ref.id];
-        const data = parseAssetData(asset?.data);
-        return `${texture.sampler}:${texture.source.$ref.id}:${data?.contentHash ?? data?.source.path ?? 'missing'}`;
-      }
-      if ('alias' in texture.source) return `${texture.sampler}:alias:${texture.source.alias}`;
-      return `${texture.sampler}:uri:${texture.source.uri}`;
-    }) ?? [];
-  return JSON.stringify({
-    materialId,
-    material: material.data,
-    shaderId,
-    shader: shader?.data,
-    dependencies,
-  });
+  const resolved = resolveMaterialData(project, materialId);
+  return JSON.stringify({ record: project.materials[materialId] ?? null, resolved: resolved.data });
 }
-
 export async function buildMaterialPreviewDocumentData(
   project: AuthoringProject,
   materialId: string,
-): Promise<Record<string, unknown>> {
-  const runtime = await buildShaderMaterialProject(project);
-  const material = parseMaterialData(project.materials[materialId]?.data);
-  return {
-    shaderMaterials: runtime.project,
-    diagnostics: runtime.diagnostics,
-    materialId,
-    preview: material?.preview ?? { geometry: 'quad', background: 'checker' },
-  };
-}
-
-export function shaderPreviewRevision(project: AuthoringProject, shaderId: string): string {
-  const shader = project.shaders[shaderId];
-  if (!shader) return `${shaderId}:missing`;
-  return JSON.stringify({ shaderId, shader: shader.data });
-}
-
-export async function buildShaderPreviewDocumentData(
-  project: AuthoringProject,
-  shaderId: string,
-): Promise<Record<string, unknown>> {
-  const runtime = await buildShaderMaterialProject(project);
+) {
+  const built = await buildShaderMaterialProject(project);
   return {
     schema: SHADER_PREVIEW_SCHEMA,
-    shaderMaterials: runtime.project,
-    diagnostics: runtime.diagnostics,
-    shaderId,
-    previewMaterialId: `editor/preview/shader/${shaderId}`,
-    template: {
-      rml: '/editor-assets/internal-preview/shader-square-preview.rml',
-      rcss: '/editor-assets/internal-preview/shader-square-preview.rcss',
-      materialPlaceholder: '__NT_PREVIEW_MATERIAL_ID__',
-    },
-    preview: { geometry: 'square', background: 'dark' },
+    material: materialId,
+    shaderMaterials: built.project,
+    diagnostics: built.diagnostics,
   };
 }
-
-export function shaderForMaterial(
-  project: AuthoringProject,
-  data: MaterialData | null,
-): ShaderData | null {
-  const shaderId = data?.shader?.$ref.id;
-  return shaderId ? parseShaderData(project.shaders[shaderId]?.data) : null;
+export function shaderForMaterial(project: AuthoringProject, materialId: string) {
+  return resolveMaterialData(project, materialId).data;
 }

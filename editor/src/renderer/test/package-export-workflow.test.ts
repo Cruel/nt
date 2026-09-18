@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { runPackageExportWorkflow } from '@/export/package-export-workflow';
 import { runProjectPlatformExportWorkflow } from '@/export/platform-export-workflow';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
@@ -134,10 +134,16 @@ describe('package export workflow', () => {
 
   it('prepares shader publication outputs without mutating authoring state or command history', async () => {
     const project = validProject();
-    project.shaders.basic = {
+    project.materials.basic = {
       id: 'basic',
       label: 'Basic',
-      data: defaultShaderData('Basic'),
+      data: {
+        ...defaultMaterialData('Basic', 'engine-2d'),
+        shader: {
+          vertex: { kind: 'project', path: 'shaders/basic.vs.sc' },
+          fragment: { kind: 'project', path: 'shaders/basic.fs.sc' },
+        },
+      },
     };
     const authored = structuredClone(project);
     useProjectStore.getState().loadProjectDocument({
@@ -146,36 +152,32 @@ describe('package export workflow', () => {
       projectFilePath: '/project/game.json',
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
-    vi.mocked(window.noveltea.compileShaders).mockResolvedValue({
-      ok: true,
-      success: true,
-      diagnostics: [],
-      outputs: [
-        {
-          shader: 'basic',
-          stage: 'vertex',
+    vi.mocked(window.noveltea.compileShaders).mockImplementation(async (_session, request) => {
+      const programs = (
+        request as { programs: Record<string, { vertexSource: string; fragmentSource: string }> }
+      ).programs;
+      const program = Object.keys(programs)[0]!;
+      return {
+        ok: true,
+        success: true,
+        diagnostics: [],
+        outputs: (['vertex', 'fragment'] as const).map((stage) => ({
+          program,
+          programIdentity: 'basic-program-identity',
+          stage,
           variant: 'glsl-330',
-          sourcePath: '/project/.noveltea/build/basic.vs.sc',
-          runtimePath: 'project:/shaders/bgfx/glsl-330/basic.vs.bin',
-          outputPath: '/project/shaders/bgfx/glsl-330/basic.vs.bin',
-          cacheKey: 'basic-vertex-glsl-330',
-          byteHash: `sha256:${'b'.repeat(64)}`,
+          sourceIdentity:
+            programs[program]![stage === 'vertex' ? 'vertexSource' : 'fragmentSource'],
+          dependencies: [],
+          runtimePath: `project:/shaders/derived/glsl-330/basic-program-identity.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
+          outputPath: `/project/.noveltea/build/shaders/derived/glsl-330/basic-program-identity.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
+          cacheKey: `basic-${stage}-glsl-330`,
+          byteHash: `sha256:${(stage === 'vertex' ? 'b' : 'a').repeat(64)}` as `sha256:${string}`,
           byteSize: 4,
+          reflectedInputs: [],
           cacheHit: false,
-        },
-        {
-          shader: 'basic',
-          stage: 'fragment',
-          variant: 'glsl-330',
-          sourcePath: '/project/.noveltea/build/basic.fs.sc',
-          runtimePath: 'project:/shaders/bgfx/glsl-330/basic.fs.bin',
-          outputPath: '/project/shaders/bgfx/glsl-330/basic.fs.bin',
-          cacheKey: 'basic-fragment-glsl-330',
-          byteHash: `sha256:${'a'.repeat(64)}`,
-          byteSize: 4,
-          cacheHit: false,
-        },
-      ],
+        })),
+      };
     });
 
     const result = await runPackageExportWorkflow({
@@ -193,35 +195,33 @@ describe('package export workflow', () => {
     expect(project).toEqual(authored);
     expect(useProjectStore.getState().document).toEqual(authored);
     expect(useCommandStore.getState().history.entries).toEqual([]);
-    expect(window.noveltea.exportPackage).toHaveBeenCalledWith(
-      '11111111-1111-4111-8111-111111111111',
-      expect.anything(),
-      '/project/out.ntpkg',
-      expect.objectContaining({
-        shaderVariants: ['glsl-330'],
-        requiredShaderBinaryPaths: [
-          'shaders/bgfx/glsl-330/basic.fs.bin',
-          'shaders/bgfx/glsl-330/basic.vs.bin',
-        ],
-        shaderMaterialMetadata: expect.objectContaining({
-          shaders: expect.objectContaining({
-            basic: expect.objectContaining({
-              stages: expect.objectContaining({
-                fragment: expect.objectContaining({
-                  compiled: {
-                    'glsl-330': expect.objectContaining({
-                      runtimePath: 'project:/shaders/bgfx/glsl-330/basic.fs.bin',
-                      byteHash: `sha256:${'a'.repeat(64)}`,
-                      byteSize: 4,
-                    }),
-                  },
-                }),
-              }),
-            }),
-          }),
-        }),
-      }),
-    );
+    expect(window.noveltea.exportPackage).toHaveBeenCalledTimes(1);
+    const [sessionId, , outputPath, exportOptions] = vi.mocked(window.noveltea.exportPackage).mock
+      .calls[0]!;
+    expect(sessionId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(outputPath).toBe('/project/out.ntpkg');
+    expect(exportOptions).toMatchObject({
+      shaderVariants: ['glsl-330'],
+      requiredShaderBinaryPaths: [
+        'shaders/derived/glsl-330/basic-program-identity.fs.bin',
+        'shaders/derived/glsl-330/basic-program-identity.vs.bin',
+      ],
+    });
+    const shaders = Object.values(exportOptions.shaderMaterialMetadata?.shaders ?? {});
+    expect(shaders).toHaveLength(1);
+    expect(shaders[0]).toMatchObject({
+      stages: {
+        fragment: {
+          compiled: {
+            'glsl-330': {
+              runtimePath: 'project:/shaders/derived/glsl-330/basic-program-identity.fs.bin',
+              byteHash: `sha256:${'a'.repeat(64)}`,
+              byteSize: 4,
+            },
+          },
+        },
+      },
+    });
   });
 
   it('applies streamed platform export progress for the active operation', async () => {

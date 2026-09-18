@@ -58,7 +58,6 @@ describe('editor registry', () => {
 
   it('marks derived embedded preview editors as dedicated while keeping editors active-only', () => {
     const pooledDerivedEditorTypes = [
-      'shader-detail',
       'material-detail',
       'layout-detail',
       'character-detail',

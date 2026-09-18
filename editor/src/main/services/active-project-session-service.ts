@@ -248,7 +248,10 @@ export class ActiveProjectSessionService {
     const results: ProjectTextSourceReadEntry[] = [];
     for (const entry of entries) {
       if (this.active !== active) return staleSessionResponse(entries);
-      if (!entry.readKey || !isSha256Digest(entry.expectedContentHash)) {
+      if (
+        !entry.readKey ||
+        (entry.expectedContentHash !== null && !isSha256Digest(entry.expectedContentHash))
+      ) {
         results.push(unavailable(entry, 'invalid-request', 'Text source request is malformed.'));
         continue;
       }
@@ -327,7 +330,7 @@ export class ActiveProjectSessionService {
         }
         aggregateBytes += bytes.byteLength;
         const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const;
-        if (digest !== entry.expectedContentHash) {
+        if (entry.expectedContentHash !== null && digest !== entry.expectedContentHash) {
           results.push(
             unavailable(
               entry,

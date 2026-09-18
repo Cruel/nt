@@ -26,11 +26,13 @@ import {
   roomRoomRef,
 } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { assetRef } from '../../shared/project-schema/authoring-project-settings';
 import { rendererRuntimeArtifactPaths } from '../export/runtime-artifact-adapters';
+import type { ShaderCompileOutput } from '../../shared/editor-tooling';
 
 function roomProject() {
   const project = createAuthoringProject({
@@ -68,6 +70,42 @@ function roomProject() {
   project.entrypoint = { kind: 'room', id: 'foyer' };
   project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
   return project;
+}
+
+async function addCustomShaderMaterial(project: ReturnType<typeof roomProject>) {
+  const material = defaultMaterialData('Basic', 'engine-2d');
+  material.shader = {
+    fragment: { kind: 'project', path: 'shaders/basic.fs.sc' },
+  };
+  project.materials.basic = { id: 'basic', label: 'Basic', data: material };
+  const built = await buildShaderMaterialProject(project);
+  const [program, request] = Object.entries(built.compilation.programs)[0] ?? [];
+  if (!program || !request) throw new Error('Expected one custom shader program fixture.');
+  return { program, request };
+}
+
+function compiledShaderOutput(
+  program: string,
+  sourceIdentity: string,
+  stage: 'vertex' | 'fragment',
+  byte: string,
+): ShaderCompileOutput {
+  const programIdentity = `program-${'c'.repeat(64)}`;
+  return {
+    program,
+    programIdentity,
+    stage,
+    variant: 'glsl-330',
+    sourceIdentity,
+    dependencies: [sourceIdentity],
+    outputPath: `/project/.noveltea/build/shaders/derived/glsl-330/${programIdentity}.${stage}.bin`,
+    runtimePath: `project:/shaders/derived/glsl-330/${programIdentity}.${stage}.bin`,
+    cacheKey: `${program}-${stage}-glsl-330`,
+    byteHash: `sha256:${byte.repeat(64)}` as `sha256:${string}`,
+    byteSize: 4,
+    reflectedInputs: [],
+    cacheHit: false,
+  };
 }
 
 describe('Prepared Runtime Artifact module', () => {
@@ -633,18 +671,6 @@ describe('Prepared Runtime Artifact module', () => {
 
   it('retains assets referenced only from file-backed Lua source', async () => {
     const project = roomProject();
-    const sourceHash = `sha256:${'a'.repeat(64)}` as const;
-    project.assets['script-file'] = {
-      id: 'script-file',
-      label: 'Script File',
-      data: assetDataFromImportMetadata({
-        kind: 'script',
-        projectRelativePath: 'assets/scripts/main.lua',
-        extension: '.lua',
-        contentHash: sourceHash,
-        imageMetadata: null,
-      }),
-    };
     project.assets['lua-only-file'] = {
       id: 'lua-only-file',
       label: 'Lua Only File',
@@ -660,7 +686,7 @@ describe('Prepared Runtime Artifact module', () => {
       label: 'Main',
       data: {
         kind: 'script-module',
-        source: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'script-file' } } },
+        source: { kind: 'project-file', path: 'scripts/main.lua' },
       },
     };
 
@@ -679,7 +705,7 @@ describe('Prepared Runtime Artifact module', () => {
             status: 'ready' as const,
             assetId: entry.assetId,
             projectRelativePath: entry.projectRelativePath,
-            contentHash: entry.expectedContentHash,
+            contentHash: `sha256:${'a'.repeat(64)}` as const,
             text: "local image = 'lua-only-file'",
           }));
         },
@@ -747,7 +773,7 @@ describe('Prepared Runtime Artifact module', () => {
             status: 'ready' as const,
             assetId: entry.assetId,
             projectRelativePath: entry.projectRelativePath,
-            contentHash: entry.expectedContentHash,
+            contentHash: entry.expectedContentHash ?? (`sha256:${'b'.repeat(64)}` as const),
             text: '#target { cursor: poitner; }',
           }));
         },
@@ -1027,12 +1053,12 @@ describe('Prepared Runtime Artifact module', () => {
     expect(result.compiledArtifactAvailable).toBe(true);
     expect(result.runtimeBlockers).toEqual([]);
     expect(result.runtimeDiagnostics).not.toContainEqual(
-      expect.objectContaining({ path: '/editor/recordMetadata/shaders/removed' }),
+      expect.objectContaining({ path: '/editor/recordMetadata/shaders' }),
     );
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({
         severity: 'error',
-        path: '/editor/recordMetadata/shaders/removed',
+        path: '/editor/recordMetadata/shaders',
         boundaries: ['authoring'],
       }),
     );
@@ -1061,11 +1087,7 @@ describe('Prepared Runtime Artifact module', () => {
 
   it('prepares shader outputs ephemerally without changing authoring content or its fingerprint', async () => {
     const project = roomProject();
-    project.shaders.basic = {
-      id: 'basic',
-      label: 'Basic',
-      data: defaultShaderData('Basic'),
-    };
+    const { program, request } = await addCustomShaderMaterial(project);
     const authored = structuredClone(project);
     const options: RuntimeArtifactTestOptions = {
       projectRoot: '/project',
@@ -1075,42 +1097,20 @@ describe('Prepared Runtime Artifact module', () => {
     const prepared = await prepareRuntimeAssessmentForTest(project, {
       ...options,
       shaderOutputs: [
-        {
-          shader: 'basic',
-          stage: 'vertex',
-          variant: 'glsl-330',
-          sourcePath: '/project/.noveltea/build/basic.vs.sc',
-          runtimePath: 'project:/shaders/bgfx/glsl-330/basic.vs.bin',
-          outputPath: '/project/shaders/bgfx/glsl-330/basic.vs.bin',
-          cacheKey: 'basic-vertex-glsl-330',
-          byteHash: `sha256:${'b'.repeat(64)}`,
-          byteSize: 4,
-          cacheHit: false,
-        },
-        {
-          shader: 'basic',
-          stage: 'fragment',
-          variant: 'glsl-330',
-          sourcePath: '/project/.noveltea/build/basic.fs.sc',
-          runtimePath: 'project:/shaders/bgfx/glsl-330/basic.fs.bin',
-          outputPath: '/project/shaders/bgfx/glsl-330/basic.fs.bin',
-          cacheKey: 'basic-fragment-glsl-330',
-          byteHash: `sha256:${'a'.repeat(64)}`,
-          byteSize: 4,
-          cacheHit: false,
-        },
+        compiledShaderOutput(program, request.vertexSource, 'vertex', 'b'),
+        compiledShaderOutput(program, request.fragmentSource, 'fragment', 'a'),
       ],
     });
 
     expect(prepared.sourceFingerprint).toBe(before.sourceFingerprint);
     expect(prepared.shaderMaterialMetadata).toMatchObject({
       shaders: {
-        basic: {
+        [program]: {
           stages: {
             fragment: {
               compiled: {
                 'glsl-330': {
-                  runtimePath: 'project:/shaders/bgfx/glsl-330/basic.fs.bin',
+                  runtimePath: expect.stringContaining('project:/shaders/derived/glsl-330/'),
                   byteHash: `sha256:${'a'.repeat(64)}`,
                   byteSize: 4,
                 },
@@ -1121,8 +1121,8 @@ describe('Prepared Runtime Artifact module', () => {
       },
     });
     expect(prepared.packageOptions.shaderVariants).toEqual(['glsl-330']);
-    expect(prepared.packageOptions.requiredShaderBinaryPaths).toContain(
-      'shaders/bgfx/glsl-330/basic.fs.bin',
+    expect(prepared.packageOptions.requiredShaderBinaryPaths).toEqual(
+      expect.arrayContaining([expect.stringContaining('shaders/derived/glsl-330/')]),
     );
     expect(JSON.stringify(prepared.shaderMaterialMetadata)).not.toContain(
       'compileInputFingerprint',
@@ -1301,17 +1301,6 @@ describe('Prepared Runtime Artifact module', () => {
 
   it('rejects pruned prepared evidence when source references cannot be independently rederived', async () => {
     const project = roomProject();
-    const sourceHash = `sha256:${'a'.repeat(64)}` as const;
-    project.assets['script-file'] = {
-      id: 'script-file',
-      label: 'Script File',
-      data: assetDataFromImportMetadata({
-        kind: 'script',
-        projectRelativePath: 'assets/scripts/main.lua',
-        contentHash: sourceHash,
-        imageMetadata: null,
-      }),
-    };
     project.assets['lua-only-file'] = {
       id: 'lua-only-file',
       label: 'Lua Only File',
@@ -1327,7 +1316,7 @@ describe('Prepared Runtime Artifact module', () => {
       label: 'Main',
       data: {
         kind: 'script-module',
-        source: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'script-file' } } },
+        source: { kind: 'project-file', path: 'scripts/main.lua' },
       },
     };
     const profile = { ...defaultExportProfile(project), compileShadersBeforeExport: false };
@@ -1343,7 +1332,7 @@ describe('Prepared Runtime Artifact module', () => {
           status: 'ready' as const,
           assetId: entry.assetId,
           projectRelativePath: entry.projectRelativePath,
-          contentHash: entry.expectedContentHash,
+          contentHash: `sha256:${'a'.repeat(64)}` as const,
           text: "local image = 'lua-only-file'",
         }));
       },
@@ -1380,11 +1369,7 @@ describe('Prepared Runtime Artifact module', () => {
 
   it('rejects preflight shader evidence when an export profile requires compiled outputs', async () => {
     const project = roomProject();
-    project.shaders.basic = {
-      id: 'basic',
-      label: 'Basic',
-      data: defaultShaderData('Basic'),
-    };
+    await addCustomShaderMaterial(project);
     const profile: ExportProfileData = {
       ...defaultExportProfile(project),
       shaderVariants: ['glsl-330'],

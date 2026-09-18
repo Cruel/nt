@@ -530,33 +530,20 @@ describe('persistent CLI validation', () => {
     );
   });
 
-  it('persists and re-admits exact Asset-backed source-analysis revisions', async () => {
-    const sourceText = 'local value = "asset-backed"\n';
+  it('persists and re-admits exact project-file source-analysis revisions', async () => {
+    const sourceText = 'local value = "file-backed"\n';
     const contentHash = await sha256PrefixedUtf8(sourceText);
     const root = await fixture(false, (project) => {
-      project.assets['script-source'] = {
-        id: 'script-source',
-        label: 'Script Source',
-        data: {
-          kind: 'script',
-          source: { type: 'project-file', path: 'assets/lua/shared.lua' },
-          aliases: [],
-          extension: '.lua',
-          byteSize: sourceText.length,
-          contentHash,
-          imageMetadata: null,
-        },
-      } as never;
       project.scripts.logic = createDefaultAuthoringRecord(
         'scripts',
         'logic',
       ) as typeof project.scripts.logic;
       project.scripts.logic!.data.source = {
-        kind: 'asset',
-        asset: { $ref: { collection: 'assets', id: 'script-source' } },
+        kind: 'project-file',
+        path: 'scripts/shared.lua',
       };
     });
-    const sourcePath = path.join(root, 'assets/lua/shared.lua');
+    const sourcePath = path.join(root, 'scripts/shared.lua');
     await mkdir(path.dirname(sourcePath), { recursive: true });
     await writeFile(sourcePath, sourceText);
     const nativeTools = tools();
@@ -581,16 +568,14 @@ describe('persistent CLI validation', () => {
         sourceRevisions: Array<{ path: string; contentHash: string }>;
       }>;
     };
-    expect(artifact.externalSourceRevisions).toContainEqual({
-      path: 'assets/lua/shared.lua',
-      contentHash,
-      byteSize: sourceText.length,
-    });
+    expect(artifact.externalSourceRevisions).not.toContainEqual(
+      expect.objectContaining({ path: 'scripts/shared.lua' }),
+    );
     expect(
       artifact.sourceAnalyses.some((entry) =>
         entry.sourceRevisions.some(
           (revision) =>
-            revision.path === 'assets/lua/shared.lua' && revision.contentHash === contentHash,
+            revision.path === 'scripts/shared.lua' && revision.contentHash === contentHash,
         ),
       ),
     ).toBe(true);
@@ -608,7 +593,7 @@ describe('persistent CLI validation', () => {
     expect(rehashed).toBe(true);
     expect(
       reusable?.sourceAnalyses.some((entry) =>
-        entry.sourceRevisions.some((revision) => revision.path === 'assets/lua/shared.lua'),
+        entry.sourceRevisions.some((revision) => revision.path === 'scripts/shared.lua'),
       ),
     ).toBe(true);
 
@@ -619,7 +604,7 @@ describe('persistent CLI validation', () => {
     );
     expect(
       changed?.sourceAnalyses.some((entry) =>
-        entry.sourceRevisions.some((revision) => revision.path === 'assets/lua/shared.lua'),
+        entry.sourceRevisions.some((revision) => revision.path === 'scripts/shared.lua'),
       ),
     ).toBe(false);
   });

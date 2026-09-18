@@ -4286,13 +4286,14 @@ TEST_CASE("runtime Lua Material Parameters and postprocess effects stay semantic
         "local ok, err = noveltea.presentation.set_background({owner='session', "
         "material='sprite-material', color='#ffffff'}); assert(ok and err == nil)\n"
         "ok, err = noveltea.presentation.set_material_parameter({kind='background'}, "
-        "'sprite-material', 'u_tint', {r=0.2,g=0.4,b=0.6,a=1.0}, "
+        "'sprite-material', 'u_useTexture', 0.2, "
         "{owner='session', clock='gameplay'}); assert(ok and err == nil)\n"
         "ok, err = noveltea.presentation.set_postprocess('lua-grade', "
         "'scene-postprocess-material', {owner='session', scope='world', order=7, "
         "clock='unscaled-presentation'}); assert(ok and err == nil)\n"
         "ok, err = noveltea.presentation.set_material_parameter({kind='postprocess', "
-        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_strength', 0.75, "
+        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_tint', "
+        "{r=0.75,g=0.75,b=0.75,a=1.0}, "
         "{owner='session', clock='unscaled-presentation'}); assert(ok and err == nil)",
         "typed-material-presentation-set"));
     auto flushed = fixture.session->dispatch(
@@ -4305,9 +4306,8 @@ TEST_CASE("runtime Lua Material Parameters and postprocess effects stay semantic
     REQUIRE(execute_session_lua(
         fixture,
         "local parameter, err = noveltea.presentation.material_parameter({kind='background'}, "
-        "'sprite-material', 'u_tint', {owner='session'}); assert(parameter ~= nil and "
-        "err == nil and parameter.clock == 'gameplay' and parameter.value.r == 0.2 and "
-        "parameter.value.a == 1.0)\n"
+        "'sprite-material', 'u_useTexture', {owner='session'}); assert(parameter ~= nil and "
+        "err == nil and parameter.clock == 'gameplay' and parameter.value == 0.2)\n"
         "local effect; effect, err = noveltea.presentation.postprocess('lua-grade', "
         "{owner='session'}); assert(effect ~= nil and err == nil and "
         "effect.material == 'scene-postprocess-material' and effect.scope == 'world' and "
@@ -4317,11 +4317,10 @@ TEST_CASE("runtime Lua Material Parameters and postprocess effects stay semantic
 
     REQUIRE(execute_session_lua(
         fixture,
-        "local ok, err = noveltea.presentation.clear_material_parameter({kind='postprocess', "
-        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_strength', "
-        "{owner='session'}); assert(ok and err == nil)\n"
-        "ok, err = noveltea.presentation.bind_material_parameter({kind='postprocess', "
-        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_strength', "
+        "local ok, err = noveltea.presentation.clear_material_parameter({kind='background'}, "
+        "'sprite-material', 'u_useTexture', {owner='session'}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.bind_material_parameter({kind='background'}, "
+        "'sprite-material', 'u_useTexture', "
         "{kind='standard-facet', facet='occurrence-time'}, "
         "{owner='session', clock='unscaled-presentation'}); assert(ok and err == nil)",
         "typed-material-presentation-bind"));
@@ -4330,9 +4329,9 @@ TEST_CASE("runtime Lua Material Parameters and postprocess effects stay semantic
     REQUIRE(bound.diagnostics.empty());
     REQUIRE(execute_session_lua(
         fixture,
-        "local parameter, err = noveltea.presentation.material_parameter({kind='postprocess', "
-        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_strength', "
-        "{owner='session'}); assert(parameter ~= nil and err == nil and parameter.value == nil "
+        "local parameter, err = noveltea.presentation.material_parameter({kind='background'}, "
+        "'sprite-material', 'u_useTexture', {owner='session'}); "
+        "assert(parameter ~= nil and err == nil and parameter.value == nil "
         "and parameter.binding.kind == 'standard-facet' and "
         "parameter.binding.facet == 'occurrence-time')",
         "typed-material-presentation-binding-query"));
@@ -4340,9 +4339,9 @@ TEST_CASE("runtime Lua Material Parameters and postprocess effects stay semantic
     REQUIRE(execute_session_lua(
         fixture,
         "local ok, err = noveltea.presentation.clear_material_parameter({kind='background'}, "
-        "'sprite-material', 'u_tint', {owner='session'}); assert(ok and err == nil)\n"
+        "'sprite-material', 'u_useTexture', {owner='session'}); assert(ok and err == nil)\n"
         "ok, err = noveltea.presentation.clear_material_parameter({kind='postprocess', "
-        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_strength', "
+        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_tint', "
         "{owner='session'}); assert(ok and err == nil)\n"
         "ok, err = noveltea.presentation.clear_postprocess('lua-grade', {owner='session'}); "
         "assert(ok and err == nil)",

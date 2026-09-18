@@ -5,7 +5,7 @@
   "data": {
     "kind": "script-module",
     "source": {
-      "kind": "file",
+      "kind": "project-file",
       "path": "scripts/feature-lab-bootstrap.lua"
     }
   }

@@ -58,7 +58,7 @@ export function declaredLayoutDependencyByResolvedPath(
   const matches = ids.filter((id) => {
     const data = parseAssetData(project.assets[id]?.data);
     if (!data || data.source.path !== resolvedPath) return false;
-    if (requiredKind === 'script') return data.kind === 'script';
+    if (requiredKind === 'script') return false;
     const basename = data.source.path.slice(data.source.path.lastIndexOf('/') + 1);
     return data.kind === 'text' && basename.toLowerCase().endsWith('.rml');
   });

@@ -30,10 +30,6 @@ import { roomPreviewDocumentSchema } from '../../shared/project-schema/room-prev
 import { defaultLayoutData, layoutDataSchema } from '../../shared/project-schema/authoring-layouts';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
-import {
-  shaderDataSchema,
-  shaderStageDataSchema,
-} from '../../shared/project-schema/authoring-shaders';
 import { shaderVariantValues } from '../../shared/shader-variants';
 
 const hash = `sha256:${'a'.repeat(64)}`;
@@ -185,89 +181,6 @@ describe('shared contracts characterization', () => {
     expect(() =>
       roomPreviewInputsSchema.parse({ displayPreference: { mode: 'project' }, unknown: true }),
     ).toThrow();
-  });
-
-  it('requires complete canonical authoring Shader compiled-output metadata', () => {
-    const path = 'project:/shaders/bgfx/glsl-330/noise.fs.bin';
-    const fingerprint = `sha256:${'b'.repeat(64)}`;
-    for (const invalid of [
-      path,
-      { path, byteHash: hash, byteSize: 12 },
-      { path, byteHash: hash, compileInputFingerprint: fingerprint },
-      { path, byteSize: 12, compileInputFingerprint: fingerprint },
-      {
-        path: 'shaders/bgfx/glsl-330/noise.fs.bin',
-        byteHash: hash,
-        byteSize: 12,
-        compileInputFingerprint: fingerprint,
-      },
-      { path, byteHash: 'sha256:not-a-hash', byteSize: 12, compileInputFingerprint: fingerprint },
-    ]) {
-      expect(() =>
-        shaderStageDataSchema.parse({ stage: 'fragment', compiled: { 'glsl-330': invalid } }),
-      ).toThrow();
-    }
-    expect(
-      shaderStageDataSchema.parse({
-        stage: 'fragment',
-        compiled: {
-          'glsl-330': {
-            path,
-            byteHash: hash,
-            byteSize: 12,
-            compileInputFingerprint: fingerprint,
-          },
-        },
-      }).compiled['glsl-330'],
-    ).toMatchObject({ byteHash: hash, byteSize: 12 });
-  });
-
-  it('rejects non-canonical and shared compiled Shader stage outputs during authoring validation', () => {
-    expect(() =>
-      shaderDataSchema.parse({
-        stages: [
-          {
-            stage: 'fragment',
-            compiled: {
-              'glsl-330': {
-                path: 'project:/../outside.bin',
-                byteHash: hash,
-                byteSize: 12,
-                compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
-              },
-            },
-          },
-        ],
-      }),
-    ).toThrow(/not a canonical runtime Shader path/);
-    expect(() =>
-      shaderDataSchema.parse({
-        stages: [
-          {
-            stage: 'vertex',
-            compiled: {
-              'glsl-330': {
-                path: 'project:/shaders/bgfx/glsl-330/shared.bin',
-                byteHash: hash,
-                byteSize: 12,
-                compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
-              },
-            },
-          },
-          {
-            stage: 'fragment',
-            compiled: {
-              'glsl-330': {
-                path: 'project:/shaders/bgfx/glsl-330/shared.bin',
-                byteHash: hash,
-                byteSize: 12,
-                compileInputFingerprint: `sha256:${'c'.repeat(64)}`,
-              },
-            },
-          },
-        ],
-      }),
-    ).toThrow(/duplicates stage 0/);
   });
 
   it('pins the complete source-analysis contract and accepts explicit fallback metadata', () => {

@@ -172,7 +172,7 @@ struct RuntimeFixture {
     RuntimeFixture()
     {
         const std::string layout_script = "return { layout = true }";
-        source->add("project:/assets/scripts/layout.lua",
+        source->add("project:/scripts/layout.lua",
                     assets::AssetBytes(layout_script.begin(), layout_script.end()));
         assets.mount("project", source);
         REQUIRE(scripts.initialize({&assets}));
@@ -848,11 +848,11 @@ TEST_CASE("compiled runtime certifies unused modules before executing Bootstrap"
     CHECK(value.value());
 }
 
-TEST_CASE("compiled runtime certifies asset-backed layout Lua")
+TEST_CASE("compiled runtime certifies project-file Layout Lua")
 {
     RuntimeFixture runtime;
     const std::string invalid = "local =";
-    runtime.source->add("project:/assets/scripts/layout.lua",
+    runtime.source->add("project:/scripts/layout.lua",
                         assets::AssetBytes(invalid.begin(), invalid.end()));
 
     auto rejected = runtime::load_running_game(

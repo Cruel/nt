@@ -41,15 +41,13 @@ function nodeForRecord(item: CommandPaletteItem): AssetNode | null {
         ? 'variable'
         : item.collection === 'assets'
           ? 'asset'
-          : item.collection === 'shaders'
-            ? 'shader'
-            : item.collection === 'materials'
-              ? 'material'
-              : item.collection === 'layouts'
-                ? 'layout'
-                : item.collection === 'characters'
-                  ? 'character'
-                  : 'folder',
+          : item.collection === 'materials'
+            ? 'material'
+            : item.collection === 'layouts'
+              ? 'layout'
+              : item.collection === 'characters'
+                ? 'character'
+                : 'folder',
     collection: item.collection,
     entityId: item.entityId,
   };

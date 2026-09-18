@@ -86,7 +86,6 @@ export const MUTATION_SURFACE_ATTRIBUTIONS = {
 
 const RECORD_EDITOR_COLLECTIONS = {
   'asset-detail': 'assets',
-  'shader-detail': 'shaders',
   'material-detail': 'materials',
   'layout-detail': 'layouts',
   'archetype-detail': 'archetypes',

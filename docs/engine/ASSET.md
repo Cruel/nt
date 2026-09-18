@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Asset records describe imported project resources such as images, fonts, audio, video, scripts, shader sources, text/data files, and opaque binary files. Assets provide stable IDs, safe project-relative source paths, aliases, metadata, and preview information used by the editor and later runtime/package export.
+Asset records describe imported/runtime project resources such as images, fonts, audio, video, text/data files, and opaque binary files. Assets provide stable IDs, safe project-relative source paths, aliases, metadata, and preview information used by the editor and later runtime/package export. Lua and shader source are source files, not Asset records.
 
 This document covers the new authoring asset model. It does not describe the old NovelTea asset manager as a compatibility contract.
 
@@ -89,7 +89,7 @@ At runtime, the asset manager works through logical asset paths and typed loader
 
 Image, audio, and video Assets may opt into locale-specific physical realizations without changing their semantic Asset ID. Localization stores sparse mappings by target locale and semantic base Asset. Each mapping is either `Use source intentionally` or a reference to another ordinary Asset of the same kind. Locale inheritance uses the same explicit authoring `parentLocale` chain as Message translation authoring; an explicit `Use source intentionally` mapping stops inheritance for that Asset.
 
-Localized variants carry a fingerprint of the semantic base Asset content identity plus origin/review metadata. Replacing the base content makes an independently authored variant Outdated; `Use source intentionally` always follows the current base content and therefore remains Current. Fonts are not localized through this mechanism because locale font stacks already select them. Scripts, shader sources, text/data, and binary Assets are not implicitly localized.
+Localized variants carry a fingerprint of the semantic base Asset content identity plus origin/review metadata. Replacing the base content makes an independently authored variant Outdated; `Use source intentionally` always follows the current base content and therefore remains Current. Fonts are not localized through this mechanism because locale font stacks already select them. Text/data and binary Assets are not implicitly localized. Lua and shader source are outside the Asset model entirely.
 
 Compiled gameplay and presentation references continue to name the semantic base Asset. The compiled Asset resource carries locale realization metadata, and `CompiledProject::resolve_asset()` selects the effective physical Asset for an active locale. The structured mandatory/prefetch dependency index performs that resolution before typed requests and cache/residency keys are formed, so residency tracks the physical locale realization without creating a second localization-only Asset runtime.
 
@@ -102,8 +102,6 @@ image
 font
 audio
 video
-script
-shader-source
 text
 data
 binary
@@ -131,7 +129,7 @@ Many component schemas reference assets directly with `$ref` objects, for exampl
 
 Asset aliases are scanned separately by the authoring asset reference helpers. Alias rename operations rewrite known alias usages across the project.
 
-Direct asset references currently appear in layouts, shader stages, material textures, characters, rooms, scenes, and tests. Additional components should use direct `$ref` records when delete/rename/reference safety matters.
+Direct asset references currently appear in layouts, material textures, characters, rooms, scenes, and tests. Shader stages use normalized shader source-file paths rather than Asset references. Additional components should use direct `$ref` records when delete/rename/reference safety matters.
 
 ## Defaults
 
@@ -152,13 +150,11 @@ Asset kind is inferred from extension:
 - fonts: `.ttf`, `.otf`, `.woff`, `.woff2`;
 - audio: `.mp3`, `.ogg`, `.wav`, `.flac`, `.m4a`;
 - video: `.mp4`, `.webm`, `.mkv`, `.mov`, `.m4v`;
-- scripts: `.lua`;
-- shader sources: `.sc`, `.glsl`, `.vert`, `.frag`, `.vs`, `.fs`;
 - text: `.txt`, `.md`, `.rml`, `.rcss`, `.css`;
 - data: `.json`, `.toml`, `.yaml`, `.yml`, `.csv`;
 - otherwise `binary`.
 
-Asset kind also maps to default project folders such as `assets/images`, `assets/fonts`, `assets/audio`, `assets/scripts`, `assets/shaders`, `assets/text`, `assets/data`, and `assets/binary`.
+Asset kind also maps to default project folders such as `assets/images`, `assets/fonts`, `assets/audio`, `assets/video`, `assets/text`, `assets/data`, and `assets/binary`. Lua and shader extensions are source-code inputs under `scripts/` and `shaders/`; Asset import does not classify them as semantic Assets.
 
 ## Validation
 
@@ -170,7 +166,7 @@ Asset validation currently checks:
 - aliases are not duplicated within the asset;
 - aliases are not assigned to multiple assets.
 
-Component validators perform kind-specific warnings. For example, character sprite refs and room background refs warn when the target asset is not an image; shader stage source refs warn when the target is not a `shader-source`; layout source refs warn on unexpected extensions or non-text-like asset kinds.
+Component validators perform kind-specific warnings. For example, character sprite refs and room background refs warn when the target asset is not an image, while RML/RCSS Layout Asset sources warn on unexpected extensions or non-text-like Asset kinds. Lua and shader source validation uses source-file path and compiler/source-analysis contracts instead of Asset-kind checks.
 
 ## Command Behavior
 
@@ -273,18 +269,7 @@ textures, materials, and Shader programs.
 
 ## Export / Package Status
 
-Authoring export maps asset kinds to package prefixes:
-
-- images to `textures/`;
-- fonts to `fonts/`;
-- audio to `audio/`;
-- scripts to `scripts/`;
-- text to `text/`;
-- data to `data/`;
-- shader source to `resources/shaders/`;
-- binary to `resources/`.
-
-Runtime packages can include all project assets or only assets discovered from currently supported references. Runtime package export omits shader source assets when building a runtime package profile that strips shader sources.
+Authoring export maps semantic Asset kinds to runtime package entries appropriate for images, fonts, audio, video, text, data, and binary resources. Lua and shader source are packaged from their source-file inventories rather than through Asset-kind routing. Runtime packages can include all semantic project Assets or only Assets discovered from currently supported references; shader-source inclusion/stripping is handled separately by the shader/source packaging policy.
 
 Alpha occupancy and custom hotspot masks are runtime-derived residency, not package files or
 authoring assets. They are never exported, written to the filesystem, or retained in a
@@ -300,14 +285,14 @@ Only JSON-backed `data` Assets are admitted by this API. It is not a general raw
 
 Assets are dependencies for:
 
-- shaders, when stage source is stored in a shader-source asset;
-- materials, when texture slots point to image assets;
-- layouts, for RML/RCSS/Lua sources and dependency lists;
+- materials, when texture slots point to image Assets;
+- layouts, for Asset-backed RML/RCSS and ordinary image/font/data dependency lists;
 - characters, for pose and expression sprites;
 - rooms, for backgrounds;
 - scenes, for backgrounds/audio/etc. as scene support expands;
-- scripts, once standalone script records are stabilized;
-- package export, which copies asset files into runtime packages.
+- package export, which copies semantic Asset files into runtime packages.
+
+Shader stages and Lua modules use source-file paths and therefore do not create Asset dependencies merely because they contain source code.
 
 ## Legacy Reference Notes
 

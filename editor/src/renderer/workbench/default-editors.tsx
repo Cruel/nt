@@ -45,7 +45,6 @@ import { ChaptersEditor } from '@/editors/project/ChaptersEditor';
 import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
 import { PlatformExportEditor } from '@/editors/project/PlatformExportEditor';
 import { TagsEditor } from '@/editors/project/TagsEditor';
-import { ShaderEditor } from '@/editors/shaders/ShaderEditor';
 import { ComponentsTabEditor } from '@/editors/utility/ComponentsTabEditor';
 import { SettingsTabEditor } from '@/editors/utility/SettingsTabEditor';
 import { VariablesEditor } from '@/editors/variables/VariablesEditor';
@@ -90,14 +89,6 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'ComfyUI Workflows',
     icon: Workflow,
     component: ComfyUiWorkflowsEditor,
-  },
-  {
-    type: 'shader-detail',
-    label: 'Shader Detail',
-    icon: FileCode,
-    component: ShaderEditor,
-    previewHostPolicy: 'dedicated-while-open',
-    previewPersistence: 'derived',
   },
   {
     type: 'material-detail',

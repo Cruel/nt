@@ -365,8 +365,16 @@ LayoutRealizer::validate_project(const core::CompiledProject& project,
             validate_asset(asset, layout.id, "font dependency");
         for (const auto& asset : layout.dependencies.images)
             validate_asset(asset, layout.id, "image dependency");
-        for (const auto& asset : layout.dependencies.scripts)
-            validate_asset(asset, layout.id, "script dependency");
+        for (const auto& logical_path : layout.dependencies.scripts) {
+            if (!project_assets.exists(logical_path)) {
+                diagnostics.push_back(
+                    {.code = "layout_realizer.script_dependency_unreadable",
+                     .message = "operation=validate layout=" + layout.id.text() +
+                                " source=script:" + logical_path +
+                                " owner=unknown plane=unknown: unreadable script dependency",
+                     .source_path = logical_path});
+            }
+        }
         for (const auto& asset : layout.dependencies.stylesheets)
             validate_asset(asset, layout.id, "stylesheet dependency");
     }

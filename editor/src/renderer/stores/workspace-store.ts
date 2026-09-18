@@ -24,7 +24,6 @@ export interface AssetNode {
     | 'script'
     | 'asset'
     | 'variable'
-    | 'shader'
     | 'material'
     | 'layout'
     | 'archetype'

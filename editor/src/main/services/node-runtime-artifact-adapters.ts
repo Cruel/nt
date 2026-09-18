@@ -21,7 +21,7 @@ export const nodeRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
         try {
           const bytes = await readFile(path.resolve(projectRoot, projectRelativePath));
           const contentHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const;
-          if (contentHash !== expectedContentHash)
+          if (expectedContentHash !== null && contentHash !== expectedContentHash)
             return { status: 'unavailable' as const, assetId };
           return {
             status: 'ready' as const,

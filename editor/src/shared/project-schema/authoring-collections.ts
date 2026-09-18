@@ -3,7 +3,6 @@ export const AUTHORING_PROJECT_SCHEMA = 'noveltea.authoring.project' as const;
 export const authoringCollectionKeys = [
   'assets',
   'variables',
-  'shaders',
   'materials',
   'layouts',
   'archetypes',
@@ -28,7 +27,6 @@ export interface AuthoringCollectionMetadata {
   nodeType:
     | 'asset'
     | 'variable'
-    | 'shader'
     | 'material'
     | 'layout'
     | 'archetype'
@@ -55,7 +53,6 @@ export const authoringCollectionMetadata: Record<
     singularLabel: 'Variable',
     nodeType: 'variable',
   },
-  shaders: { key: 'shaders', label: 'Shaders', singularLabel: 'Shader', nodeType: 'shader' },
   materials: {
     key: 'materials',
     label: 'Materials',

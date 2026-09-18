@@ -150,10 +150,10 @@ describe('incremental authoring graph service', () => {
     expect(reads.mock.calls[0]?.[0].entries).toHaveLength(1);
     expect(
       service.currentSourceAnalysis('instance', 1, scriptKey('one'))?.[0]?.sourceAssetIds,
-    ).toEqual(['shared']);
+    ).toEqual([]);
     expect(
       service.currentSourceAnalysis('instance', 1, scriptKey('two'))?.[0]?.sourceAssetIds,
-    ).toEqual(['shared']);
+    ).toEqual([]);
 
     const changed = structuredClone(project) as StructurallyAdmittedAuthoringProject;
     changed.scripts.one.label = 'One renamed';
@@ -286,6 +286,8 @@ describe('incremental authoring graph service', () => {
     const nextHash = `sha256:${createHash('sha256').update(nextText).digest('hex')}` as const;
     const project = sourceProject(initialText, initialHash);
     project.rooms.foyer.id = 'alpha';
+    let currentText = initialText;
+    let currentHash = initialHash;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -293,16 +295,14 @@ describe('incremental authoring graph service', () => {
     const service = new AuthoringDependencyGraphService({
       getProjectSessionId: () => 'session',
       readProjectTextSources: async (request) => {
-        const expectedHash = request.entries[0]?.expectedContentHash;
-        if (expectedHash === nextHash) await gate;
-        const text = expectedHash === nextHash ? nextText : initialText;
+        if (currentText === nextText) await gate;
         return {
           entries: request.entries.map((entry) => ({
             status: 'ready' as const,
             readKey: entry.readKey,
             projectRelativePath: entry.projectRelativePath,
-            contentHash: entry.expectedContentHash,
-            text,
+            contentHash: currentHash,
+            text: currentText,
             hadUtf8Bom: false,
           })),
         };
@@ -312,11 +312,12 @@ describe('incremental authoring graph service', () => {
 
     const secondProject = structuredClone(project) as StructurallyAdmittedAuthoringProject;
     secondProject.rooms.foyer.id = 'beta';
-    (secondProject.assets.shared.data as { contentHash?: string }).contentHash = nextHash;
+    currentText = nextText;
+    currentHash = nextHash;
     const secondPromise = service.publish(
       publication(project, secondProject, 2, 'command', [
         '/rooms/foyer/id',
-        '/assets/shared/data/contentHash',
+        '/scripts/one/data/source',
       ]),
     );
     const thirdProject = structuredClone(secondProject) as StructurallyAdmittedAuthoringProject;
@@ -334,7 +335,7 @@ describe('incremental authoring graph service', () => {
           status: 'ready' as const,
           readKey: entry.readKey,
           projectRelativePath: entry.projectRelativePath,
-          contentHash: entry.expectedContentHash,
+          contentHash: nextHash,
           text: nextText,
           hadUtf8Bom: false,
         })),
@@ -387,21 +388,19 @@ describe('incremental authoring graph service', () => {
         },
       ],
       [
-        '/assets/shared/data/contentHash',
-        (next) => {
+        '/scripts/one/data/source/path',
+        () => {
           currentText = 'return "hall"';
           currentHash = `sha256:${createHash('sha256').update(currentText).digest('hex')}` as const;
-          (next.assets.shared.data as { contentHash?: string }).contentHash = currentHash;
         },
       ],
       [
-        '/assets/shared/data/source/path',
+        '/scripts/two/data/source/path',
         (next) => {
-          (
-            next.assets.shared.data as {
-              source: { path: string };
-            }
-          ).source.path = 'assets/scripts/shared-renamed.lua';
+          next.scripts.two!.data.source = {
+            kind: 'project-file',
+            path: 'scripts/shared-renamed.lua',
+          };
         },
       ],
     ];
@@ -451,7 +450,7 @@ function canonicalGraph(graph: AuthoringDependencyGraph): string {
 
 function sourceProject(
   _text: string,
-  hash: `sha256:${string}`,
+  _hash: `sha256:${string}`,
 ): StructurallyAdmittedAuthoringProject {
   const project = createAuthoringProject() as StructurallyAdmittedAuthoringProject;
   project.rooms.foyer = {
@@ -460,21 +459,9 @@ function sourceProject(
     description: '',
     data: defaultRoomData('Foyer'),
   };
-  project.assets.shared = {
-    id: 'shared',
-    label: 'Shared',
-    data: {
-      kind: 'script',
-      source: { type: 'project-file', path: 'assets/scripts/shared.lua' },
-      aliases: [],
-      extension: '.lua',
-      contentHash: hash,
-      imageMetadata: null,
-    },
-  };
   for (const id of ['one', 'two']) {
     const data = defaultScriptModuleData();
-    data.source = { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'shared' } } };
+    data.source = { kind: 'project-file', path: 'scripts/shared.lua' };
     project.scripts[id] = { id, label: id, data };
   }
   return project;

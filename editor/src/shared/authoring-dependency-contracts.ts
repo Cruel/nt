@@ -150,6 +150,7 @@ export type AuthoringDependencyContributionKey = string;
 export type AuthoringDependencyDerivationKey = string;
 export type AuthoringDependencyDerivationDependency =
   | { kind: 'source-asset'; assetId: string }
+  | { kind: 'source-project-file'; path: string }
   | { kind: 'source-resolution-asset'; assetId: string }
   | { kind: 'project-field'; path: JsonPointer }
   | { kind: 'localization-lookup'; key: string }

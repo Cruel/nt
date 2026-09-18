@@ -9,7 +9,6 @@ import {
   buildInteractionDetailTabForRecord,
   buildRoomDetailTabForRecord,
   buildSceneDetailTabForRecord,
-  buildShaderDetailTabForRecord,
   buildTestDetailTabForRecord,
   buildVariablesEditorTab,
 } from '@/workbench/editor-registry';
@@ -480,12 +479,6 @@ export function resolveProjectDiagnosticTarget(
     return target(
       buildMaterialDetailTabForRecord(id, recordLabel(project, 'materials', id)),
       'material.summary',
-    );
-  }
-  if (collection === 'shaders' && project.shaders[id]) {
-    return target(
-      buildShaderDetailTabForRecord(id, recordLabel(project, 'shaders', id)),
-      'shader.summary',
     );
   }
   if (collection === 'variables' && project.variables[id]) {

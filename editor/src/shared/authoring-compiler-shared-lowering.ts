@@ -29,6 +29,7 @@ import {
   systemLayoutRoleValues,
   parseLayoutData,
   resolveLayoutScalePolicy,
+  type LayoutLuaSourceData,
   type LayoutSourceData,
 } from './project-schema/authoring-layouts';
 import { parseMapData } from './project-schema/authoring-maps';
@@ -53,7 +54,6 @@ import { parseInteractionData } from './project-schema/authoring-interactions';
 import { parseScriptModuleData } from './project-schema/authoring-script-modules';
 import { parseVariableData } from './project-schema/authoring-variables';
 import { parseVerbData, type SubjectSelector } from './project-schema/authoring-verbs';
-import { parseShaderData } from './project-schema/authoring-shaders';
 
 type WireDefinitions = CompiledProjectWire['definitions'];
 type WireResources = CompiledProjectWire['resources'];
@@ -444,7 +444,7 @@ function compileFeature(
   };
 }
 
-function compileLayoutSource(source: LayoutSourceData) {
+function compileLayoutSource(source: LayoutSourceData | LayoutLuaSourceData) {
   if (source.sourceMode === 'asset' && source.sourceAsset) {
     return {
       kind: 'asset' as const,
@@ -577,7 +577,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         fonts: data.dependencies.fonts.map((ref) => assetRef(ref)!),
         stylesheets: data.dependencies.stylesheets.map((ref) => assetRef(ref)!),
         materials: data.dependencies.materials.map((ref) => materialRef(ref)!),
-        scripts: data.dependencies.scripts.map((ref) => assetRef(ref)!),
+        scripts: data.dependencies.scripts.map((path) => `project:/${path}`),
         data: (data.dependencies.data ?? []).map((ref) => assetRef(ref)!),
       },
     });
@@ -592,7 +592,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       source:
         data.source.kind === 'inline-lua'
           ? { kind: 'inline-lua', source: data.source.source }
-          : { kind: 'asset', asset: assetRef(data.source.asset)! },
+          : { kind: 'project-file', path: `project:/${data.source.path}` },
     });
   }
 
@@ -1570,21 +1570,11 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   const materialInterfaces: WireResources['materialInterfaces'] = [];
   for (const [id] of sortedEntries(project.materials)) {
     const resolved = resolveMaterialData(project, id);
-    if (!resolved.data?.shader) {
+    if (!resolved.data) {
       diagnostics.push({
-        code: 'authoring.compile.material-interface-missing-shader',
-        path: `/materials/${id}/data/shader`,
-        message: `Material '${id}' cannot publish a runtime interface without a Shader.`,
-      });
-      continue;
-    }
-    const shaderId = resolved.data.shader.$ref.id;
-    const shader = parseShaderData(project.shaders[shaderId]?.data);
-    if (!shader) {
-      diagnostics.push({
-        code: 'authoring.compile.material-interface-invalid-shader',
-        path: `/materials/${id}/data/shader`,
-        message: `Material '${id}' references invalid Shader '${shaderId}'.`,
+        code: 'authoring.compile.material-interface-unresolved',
+        path: `/materials/${id}/data/base`,
+        message: `Material '${id}' cannot publish a runtime interface because its preset chain is invalid.`,
       });
       continue;
     }
@@ -1592,12 +1582,12 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       id,
       role: resolved.data.role,
       postprocessScope: resolved.data.postprocessScope,
-      parameters: [...shader.uniforms]
-        .sort((left, right) => left.name.localeCompare(right.name))
-        .map((uniform) => ({
-          name: uniform.name,
+      parameters: Object.entries(resolved.data.preset.uniforms)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([name, uniform]) => ({
+          name,
           type: uniform.type,
-          rendererBinding: uniform.binding ?? null,
+          rendererBinding: resolved.data?.parameters[name]?.binding ?? uniform.binding ?? null,
         })),
     });
   }

@@ -1558,8 +1558,6 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
                                                       {"font", AssetKind::Font},
                                                       {"audio", AssetKind::Audio},
                                                       {"video", AssetKind::Video},
-                                                      {"script", AssetKind::Script},
-                                                      {"shader-source", AssetKind::ShaderSource},
                                                       {"text", AssetKind::Text},
                                                       {"data", AssetKind::Data},
                                                       {"binary", AssetKind::Binary}})
@@ -2018,7 +2016,15 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
         };
         auto fonts = decode_assets("fonts");
         auto images = decode_assets("images");
-        auto scripts = decode_assets("scripts");
+        const auto* script_collection =
+            decoder.member(*dependencies_value, "scripts", dependency_pointer);
+        auto scripts = script_collection
+                           ? decoder.array<std::string>(
+                                 *script_collection, pointer_child(dependency_pointer, "scripts"),
+                                 [&](const nlohmann::json& value, const std::string& item_pointer) {
+                                     return decoder.string(value, item_pointer);
+                                 })
+                           : std::nullopt;
         auto stylesheets = decode_assets("stylesheets");
         auto data = decode_assets("data");
         const auto* material_collection =

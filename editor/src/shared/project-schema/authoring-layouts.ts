@@ -101,11 +101,22 @@ export const layoutRecordRefSchema = z
   })
   .strict();
 
+export const layoutScriptPathSchema = z
+  .string()
+  .regex(/^scripts\/(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*\\)(?!.*\/\/)[^/].*\.lua$/u);
+
 export const layoutSourceDataSchema = z
   .object({
     sourceMode: z.enum(layoutSourceModeValues).default('inline'),
     sourceText: z.string().default(''),
     sourceAsset: layoutAssetRefSchema.nullable().default(null),
+  })
+  .strict();
+
+export const layoutLuaSourceDataSchema = z
+  .object({
+    sourceMode: z.literal('inline').default('inline'),
+    sourceText: z.string().default(''),
   })
   .strict();
 
@@ -115,7 +126,7 @@ export const layoutDependencyDataSchema = z
     fonts: z.array(layoutAssetRefSchema).default([]),
     stylesheets: z.array(layoutAssetRefSchema).default([]),
     materials: z.array(layoutMaterialRefSchema).default([]),
-    scripts: z.array(layoutAssetRefSchema).default([]),
+    scripts: z.array(layoutScriptPathSchema).default([]),
     templates: z.array(layoutAssetRefSchema).optional(),
     data: z.array(layoutAssetRefSchema).optional(),
   })
@@ -295,10 +306,9 @@ export const layoutDataSchema = z
       sourceText: '',
       sourceAsset: null,
     }),
-    lua: layoutSourceDataSchema.default({
+    lua: layoutLuaSourceDataSchema.default({
       sourceMode: 'inline',
       sourceText: '',
-      sourceAsset: null,
     }),
     script: layoutScriptDataSchema.default({ enabled: true }),
     mount: layoutMountDataSchema.default({ scopedStyles: true }),
@@ -341,7 +351,9 @@ export const systemLayoutSettingsSchema = z
 export type LayoutAssetRef = z.infer<typeof layoutAssetRefSchema>;
 export type LayoutMaterialRef = z.infer<typeof layoutMaterialRefSchema>;
 export type LayoutRecordRef = z.infer<typeof layoutRecordRefSchema>;
+export type LayoutScriptPath = z.infer<typeof layoutScriptPathSchema>;
 export type LayoutSourceData = z.infer<typeof layoutSourceDataSchema>;
+export type LayoutLuaSourceData = z.infer<typeof layoutLuaSourceDataSchema>;
 export type LayoutDependencyData = z.infer<typeof layoutDependencyDataSchema>;
 export type LayoutScriptData = z.infer<typeof layoutScriptDataSchema>;
 export type LayoutMountData = z.infer<typeof layoutMountDataSchema>;
@@ -495,7 +507,7 @@ function validateSourceAsset(
   project: AuthoringProject,
   source: LayoutSourceData,
   path: string,
-  expected: 'rml' | 'rcss' | 'lua',
+  expected: 'rml' | 'rcss',
   diagnostics: LayoutSchemaDiagnostic[],
 ) {
   if (source.sourceMode === 'inline') {
@@ -554,16 +566,8 @@ function validateSourceAsset(
         ),
       );
     }
-  } else if (extension && !['.lua', 'lua'].includes(extension)) {
-    diagnostics.push(
-      diagnostic(
-        pathJoin(path, 'sourceAsset/$ref'),
-        `Lua source asset '${assetId}' has extension '${extension}'.`,
-        'warning',
-      ),
-    );
   }
-  if (kind && !['text', 'data', 'script', 'shader-source'].includes(kind)) {
+  if (kind && !['text', 'data'].includes(kind)) {
     diagnostics.push(
       diagnostic(
         pathJoin(path, 'sourceAsset/$ref'),
@@ -903,7 +907,6 @@ export function defaultLayoutData(
       sourceMode: 'inline',
       sourceText:
         layoutKind === 'fragment' ? DEFAULT_FRAGMENT_LUA_SOURCE : DEFAULT_DOCUMENT_LUA_SOURCE,
-      sourceAsset: null,
     },
     script: { enabled: true, namespace: 'layout_preview' },
     mount: { defaultParent: 'nt-layout-preview-mount', scopedStyles: true },
@@ -938,7 +941,6 @@ export function validateLayoutData(
   const data = parsed.data;
   validateSourceAsset(project, data.rml, `${base}/rml`, 'rml', diagnostics);
   validateSourceAsset(project, data.rcss, `${base}/rcss`, 'rcss', diagnostics);
-  validateSourceAsset(project, data.lua, `${base}/lua`, 'lua', diagnostics);
   validateRmlShape(data, base, diagnostics);
   validateScriptMetadata(data, base, diagnostics);
   validateAssetRefs(
@@ -962,13 +964,18 @@ export function validateLayoutData(
     'stylesheet',
     diagnostics,
   );
-  validateAssetRefs(
-    project,
-    data.dependencies.scripts,
-    `${base}/dependencies/scripts`,
-    'script',
-    diagnostics,
-  );
+  const seenScriptPaths = new Set<string>();
+  data.dependencies.scripts.forEach((scriptPath, index) => {
+    if (seenScriptPaths.has(scriptPath))
+      diagnostics.push(
+        diagnostic(
+          `${base}/dependencies/scripts/${index}`,
+          `Duplicate script dependency '${scriptPath}'.`,
+          'warning',
+        ),
+      );
+    seenScriptPaths.add(scriptPath);
+  });
   validateAssetRefs(
     project,
     data.dependencies.data ?? [],

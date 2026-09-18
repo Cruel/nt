@@ -81,6 +81,7 @@
         "features": [],
         "inventories": [],
         "presentation": {
+          "cursor": null,
           "hotspots": {
             "kind": "none"
           },
@@ -700,12 +701,14 @@
           }
         ],
         "presentation": {
+          "cursor": null,
           "hotspots": {
             "hotspots": [
               {
                 "condition": {
                   "kind": "always"
                 },
+                "cursor": null,
                 "highlight": {
                   "kind": "material",
                   "material": {
@@ -734,6 +737,7 @@
                 "condition": {
                   "kind": "always"
                 },
+                "cursor": null,
                 "highlight": {
                   "kind": "none"
                 },
@@ -784,6 +788,7 @@
         "id": "credits",
         "inventories": [],
         "presentation": {
+          "cursor": null,
           "hotspots": {
             "kind": "none"
           },
@@ -816,6 +821,7 @@
         "id": "dust",
         "inventories": [],
         "presentation": {
+          "cursor": null,
           "hotspots": {
             "hotspots": [],
             "kind": "custom"
@@ -872,11 +878,13 @@
           }
         ],
         "presentation": {
+          "cursor": null,
           "hotspots": {
             "hotspot": {
               "condition": {
                 "kind": "always"
               },
+              "cursor": null,
               "highlight": {
                 "kind": "default"
               },
@@ -1775,6 +1783,7 @@
             "condition": {
               "kind": "always"
             },
+            "cursor": null,
             "highlight": {
               "kind": "default"
             },
@@ -1799,6 +1808,7 @@
             "condition": {
               "kind": "always"
             },
+            "cursor": null,
             "highlight": {
               "kind": "none"
             },
@@ -2752,7 +2762,7 @@
                   "kind": "material"
                 },
                 "owner": "invocation",
-                "parameter": "u_tint",
+                "parameter": "u_useTexture",
                 "skippable": true,
                 "target": {
                   "kind": "actor",
@@ -2761,13 +2771,8 @@
                 },
                 "transition": "none",
                 "value": {
-                  "type": "color",
-                  "value": {
-                    "a": 1,
-                    "b": 1,
-                    "g": 1,
-                    "r": 1
-                  }
+                  "type": "float",
+                  "value": 1
                 },
                 "waitForCompletion": false
               },
@@ -2787,25 +2792,21 @@
                 "id": "layout-material",
                 "kind": "material-parameter",
                 "material": {
-                  "id": "layout-decorator-material",
+                  "id": "sprite-material",
                   "kind": "material"
                 },
                 "owner": "invocation",
-                "parameter": "u_tint",
+                "parameter": "u_useTexture",
                 "skippable": true,
                 "target": {
-                  "kind": "layout",
-                  "slot": "custom"
+                  "kind": "actor",
+                  "layerId": "body",
+                  "slotId": "hero-stage"
                 },
                 "transition": "none",
                 "value": {
-                  "type": "color",
-                  "value": {
-                    "a": 1,
-                    "b": 0.5,
-                    "g": 0.5,
-                    "r": 0.5
-                  }
+                  "type": "float",
+                  "value": 0
                 },
                 "waitForCompletion": false
               },
@@ -3437,15 +3438,6 @@
           "kind": "material",
           "material": {
             "id": "sprite-material",
-            "kind": "material"
-          }
-        }
-      ],
-      [
-        {
-          "kind": "material",
-          "material": {
-            "id": "layout-decorator-material",
             "kind": "material"
           }
         }
@@ -4136,7 +4128,7 @@
           "successor": 24
         },
         "dependencyGroups": [
-          6
+          5
         ],
         "frontier": "normal",
         "point": {
@@ -4156,7 +4148,7 @@
           "successor": 25
         },
         "dependencyGroups": [
-          7
+          6
         ],
         "frontier": "normal",
         "point": {
@@ -4265,7 +4257,7 @@
           "successor": 31
         },
         "dependencyGroups": [
-          8
+          7
         ],
         "frontier": "normal",
         "point": {
@@ -4304,7 +4296,7 @@
           "successor": 33
         },
         "dependencyGroups": [
-          9
+          8
         ],
         "frontier": "normal",
         "point": {
@@ -4348,7 +4340,7 @@
           "successor": 35
         },
         "dependencyGroups": [
-          10
+          9
         ],
         "frontier": "normal",
         "point": {
@@ -4371,7 +4363,7 @@
           "successor": 36
         },
         "dependencyGroups": [
-          11
+          10
         ],
         "frontier": "normal",
         "point": {
@@ -4394,7 +4386,7 @@
           "successor": 37
         },
         "dependencyGroups": [
-          12
+          11
         ],
         "frontier": "normal",
         "point": {
@@ -4844,7 +4836,7 @@
           "successor": null
         },
         "dependencyGroups": [
-          13
+          12
         ],
         "frontier": "normal",
         "point": {
@@ -4944,7 +4936,7 @@
           "successor": null
         },
         "dependencyGroups": [
-          14
+          13
         ],
         "frontier": "normal",
         "point": {
@@ -6122,18 +6114,6 @@
       },
       {
         "aliases": [],
-        "id": "script-layout",
-        "kind": "script",
-        "path": "assets/scripts/layout.lua"
-      },
-      {
-        "aliases": [],
-        "id": "shader-source",
-        "kind": "shader-source",
-        "path": "assets/shaders/effect.sc"
-      },
-      {
-        "aliases": [],
         "id": "text-rcss",
         "kind": "text",
         "path": "assets/ui/layout.rcss"
@@ -6167,10 +6147,7 @@
             }
           ],
           "scripts": [
-            {
-              "id": "script-layout",
-              "kind": "asset"
-            }
+            "project:/scripts/layout.lua"
           ],
           "stylesheets": [
             {
@@ -6183,11 +6160,8 @@
         "id": "hud-assets",
         "kind": "fragment",
         "lua": {
-          "asset": {
-            "id": "script-layout",
-            "kind": "asset"
-          },
-          "kind": "asset"
+          "kind": "inline",
+          "text": "layout_preview = layout_preview or {}\nlayout_preview.click_count = 0\n\nfunction layout_preview.on_click(event, element, document)\n  layout_preview.click_count = layout_preview.click_count + 1\n  element.inner_rml = 'Clicked ' .. layout_preview.click_count .. ' times'\nend\n"
         },
         "mount": {
           "defaultParent": "nt-layout-preview-mount",
@@ -6238,10 +6212,7 @@
             }
           ],
           "scripts": [
-            {
-              "id": "script-layout",
-              "kind": "asset"
-            }
+            "project:/scripts/layout.lua"
           ],
           "stylesheets": [
             {
@@ -6358,29 +6329,34 @@
         "id": "hotspot-overlay",
         "parameters": [
           {
-            "name": "u_bounds",
+            "name": "u_hotspotBounds",
             "rendererBinding": "engine.hotspot_bounds",
             "type": "vec4"
           },
           {
-            "name": "u_hovered",
+            "name": "u_hotspotHovered",
             "rendererBinding": "engine.hotspot_hovered",
             "type": "bool"
           },
           {
-            "name": "u_image_size",
+            "name": "u_hotspotImageDimensions",
             "rendererBinding": "engine.hotspot_image_dimensions",
             "type": "vec2"
           },
           {
-            "name": "u_mask_size",
+            "name": "u_hotspotMaskDimensions",
             "rendererBinding": "engine.hotspot_mask_dimensions",
             "type": "vec2"
           },
           {
-            "name": "u_pressed",
+            "name": "u_hotspotPressed",
             "rendererBinding": "engine.hotspot_pressed",
             "type": "bool"
+          },
+          {
+            "name": "u_time",
+            "rendererBinding": "engine.time",
+            "type": "float"
           }
         ],
         "postprocessScope": "world",
@@ -6388,13 +6364,7 @@
       },
       {
         "id": "layout-decorator-material",
-        "parameters": [
-          {
-            "name": "u_tint",
-            "rendererBinding": null,
-            "type": "color"
-          }
-        ],
+        "parameters": [],
         "postprocessScope": "world",
         "role": "rmlui-decorator"
       },
@@ -6402,9 +6372,9 @@
         "id": "sprite-material",
         "parameters": [
           {
-            "name": "u_tint",
+            "name": "u_useTexture",
             "rendererBinding": null,
-            "type": "color"
+            "type": "float"
           }
         ],
         "postprocessScope": "world",
@@ -6415,11 +6385,8 @@
       {
         "id": "asset-module",
         "source": {
-          "asset": {
-            "id": "script-layout",
-            "kind": "asset"
-          },
-          "kind": "asset"
+          "kind": "project-file",
+          "path": "project:/scripts/layout.lua"
         }
       },
       {
@@ -6438,7 +6405,7 @@
       }
     ]
   },
-  "saveContract": "sc1:7f20944486b93d3a0becba94cdd5e416",
+  "saveContract": "sc1:fbdfa75a02044410acf3c08ab7d6512c",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

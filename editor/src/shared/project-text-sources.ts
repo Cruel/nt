@@ -14,7 +14,7 @@ export interface ReadProjectTextSourcesRequest {
   entries: readonly {
     readKey: string;
     projectRelativePath: string;
-    expectedContentHash: Sha256Digest;
+    expectedContentHash: Sha256Digest | null;
   }[];
 }
 
