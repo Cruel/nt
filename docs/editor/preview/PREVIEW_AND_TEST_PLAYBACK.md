@@ -13,7 +13,9 @@ The shared TypeScript CLI and Electron main process persist canonical runtime/te
 runtime artifact plus a lowered authored-test catalog. Runtime freshness and Test-catalog freshness
 are independent: runtime freshness uses exact relevant Project Workspace files, declared Asset source
 paths, conservative NovelTea-source discovery, and exact file modification-time-plus-size metadata,
-while Test freshness uses the canonical `records/tests/` source revisions. A Test-only edit therefore
+while Test freshness uses the canonical `records/tests/` source revisions. Shared filesystem trust,
+containment, deterministic discovery, and metadata capture live in the Project source-inventory
+boundary; cache consumers supply only their authoritative paths and discovery scopes. A Test-only edit therefore
 republishes the catalog while carrying forward the still-fresh runtime artifact bytes; a
 runtime-affecting change causes normal runtime preparation and regenerates the catalog against the
 new Project state. General persistent incremental runtime compilation remains deferred: only the

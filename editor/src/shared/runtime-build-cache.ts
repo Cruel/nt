@@ -14,11 +14,18 @@ import {
   PROJECT_WORKSPACE_SCHEMA_VERSION,
   assertProjectWorkspacePathContained,
   assetSourcePaths,
-  compareProjectWorkspaceUnicodeCodePoints,
   type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceFileSystem,
   type ProjectWorkspaceProcessLiveness,
 } from './project-workspace';
+import {
+  captureProjectSourceInventory,
+  ProjectSourceInventoryError,
+  projectSourceDiscoveryScopesEqual,
+  projectSourceInventoriesEqual,
+  type ProjectSourceDiscoveryScope,
+  type ProjectSourceInventory,
+} from './project-source-inventory';
 import { sha256PrefixedUtf8 } from './web-crypto';
 import { runtimeTestCatalogSchema, type RuntimeTestCatalog } from './runtime-test-catalog';
 import { validateAuthoringProject } from './project-schema/authoring-validation';
@@ -39,31 +46,17 @@ export interface RuntimeBuildCacheObservation {
   readonly publicationReason?: string;
 }
 
-export interface RuntimeBuildCacheInputSnapshot {
-  readonly entries: readonly RuntimeBuildCacheInputEntry[];
-}
-
-interface RuntimeBuildCacheInputEntry {
-  readonly path: string;
-  readonly byteSize: number;
-  readonly mtimeNanoseconds: string;
-}
+export type RuntimeBuildCacheInputSnapshot = ProjectSourceInventory;
 
 export interface RuntimeBuildCachePublicationHost {
   readonly pid: number;
   readonly processLiveness: ProjectWorkspaceProcessLiveness;
 }
 
-interface RuntimeBuildCacheDiscoveryScope {
-  readonly root: string;
-  readonly extensions: readonly string[];
-  readonly excludedPrefixes: readonly string[];
-}
-
 const cacheGenerationIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
-const runtimeDiscoveryScopes: readonly RuntimeBuildCacheDiscoveryScope[] = [
+const runtimeDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = [
   {
     root: 'records',
     extensions: ['.json', '.lua', '.rcss', '.rml'],
@@ -164,164 +157,39 @@ function runtimeCanonicalSourcePaths(snapshot: LoadedProjectWorkspaceSnapshot): 
 function runtimeAuthoritativePaths(snapshot: LoadedProjectWorkspaceSnapshot): string[] {
   const paths = new Set(runtimeCanonicalSourcePaths(snapshot));
   for (const file of assetSourcePaths(snapshot.project)) paths.add(file);
-  return [...paths].sort(compareProjectWorkspaceUnicodeCodePoints);
+  return [...paths];
 }
 
-function scopeExcludes(scope: RuntimeBuildCacheDiscoveryScope, relative: string): boolean {
-  return scope.excludedPrefixes.some(
-    (prefix) => relative === prefix.replace(/\/$/u, '') || relative.startsWith(prefix),
-  );
-}
-
-function matchesCandidateExtension(
-  scope: RuntimeBuildCacheDiscoveryScope,
-  relative: string,
-): boolean {
-  if (scopeExcludes(scope, relative)) return false;
-  return scope.extensions.some((extension) => relative.endsWith(extension));
-}
-
-async function assertContainedRegularFile(
-  fileSystem: ProjectWorkspaceFileSystem,
-  projectRoot: string,
-  projectRootRealPath: string,
-  relative: string,
-): Promise<RuntimeBuildCacheInputEntry> {
-  const absolute = fileSystem.joinPath(projectRoot, relative);
-  const metadata = await fileSystem.readPathMetadata!(absolute);
-  if (metadata.kind === 'missing') throw new RuntimeBuildCacheInputError('input-missing');
-  if (metadata.kind !== 'file' || metadata.byteSize === undefined || !metadata.mtimeNanoseconds)
-    throw new RuntimeBuildCacheInputError(
-      metadata.kind === 'symlink' ? 'input-symlink' : 'input-not-regular-file',
-    );
-  let real: string;
-  try {
-    real = await fileSystem.realpath(absolute);
-  } catch {
-    throw new RuntimeBuildCacheInputError('input-realpath-unavailable');
-  }
-  const relation = normalizeRelativePath(fileSystem.relativePath(projectRootRealPath, real));
-  if (relation === '..' || relation.startsWith('../'))
-    throw new RuntimeBuildCacheInputError('input-escapes-project');
-  return {
-    path: normalizeRelativePath(relative),
-    byteSize: metadata.byteSize,
-    mtimeNanoseconds: metadata.mtimeNanoseconds,
-  };
-}
-
-async function discoverScopeCandidates(
-  fileSystem: ProjectWorkspaceFileSystem,
-  projectRoot: string,
-  scope: RuntimeBuildCacheDiscoveryScope,
-): Promise<string[]> {
-  const found: string[] = [];
-
-  async function walk(relativeDirectory: string): Promise<void> {
-    if (scopeExcludes(scope, `${relativeDirectory}/`)) return;
-    const absoluteDirectory = fileSystem.joinPath(projectRoot, relativeDirectory);
-    const metadata = await fileSystem.readPathMetadata!(absoluteDirectory);
-    if (metadata.kind === 'missing') return;
-    if (metadata.kind === 'symlink') throw new RuntimeBuildCacheInputError('discovery-symlink');
-    if (metadata.kind !== 'directory')
-      throw new RuntimeBuildCacheInputError('discovery-root-not-directory');
-    let names: readonly string[];
-    try {
-      names = await fileSystem.listDirectory(absoluteDirectory);
-    } catch {
-      throw new RuntimeBuildCacheInputError('discovery-directory-unreadable');
-    }
-    for (const name of [...names].sort(compareProjectWorkspaceUnicodeCodePoints)) {
-      const relative = `${relativeDirectory}/${name}`;
-      if (scopeExcludes(scope, relative)) continue;
-      const absolute = fileSystem.joinPath(projectRoot, relative);
-      const entry = await fileSystem.readPathMetadata!(absolute);
-      const candidate = matchesCandidateExtension(scope, relative);
-      if (candidate && entry.kind !== 'file') {
-        if (entry.kind === 'symlink') throw new RuntimeBuildCacheInputError('discovery-symlink');
-        throw new RuntimeBuildCacheInputError('discovery-candidate-not-regular-file');
-      }
-      if (entry.kind === 'directory') {
-        await walk(relative);
-        continue;
-      }
-      if (entry.kind === 'symlink') {
-        const followed = await fileSystem.inspect(absolute);
-        if (followed === 'directory') throw new RuntimeBuildCacheInputError('discovery-symlink');
-        continue;
-      }
-      if (candidate) found.push(relative);
-    }
-  }
-
-  await walk(scope.root);
-  return found;
-}
-
-async function captureRuntimeInputs(
+function captureRuntimeInputs(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: LoadedProjectWorkspaceSnapshot,
 ): Promise<RuntimeBuildCacheInputSnapshot> {
-  if (!fileSystem.readPathMetadata) throw new RuntimeBuildCacheInputError('metadata-unavailable');
-  let projectRootRealPath: string;
-  try {
-    projectRootRealPath = await fileSystem.realpath(snapshot.projectRoot);
-  } catch {
-    throw new RuntimeBuildCacheInputError('project-root-realpath-unavailable');
-  }
-  const paths = new Set(runtimeAuthoritativePaths(snapshot));
-  for (const scope of runtimeDiscoveryScopes)
-    for (const candidate of await discoverScopeCandidates(fileSystem, snapshot.projectRoot, scope))
-      paths.add(candidate);
-
-  const entries: RuntimeBuildCacheInputEntry[] = [];
-  for (const relative of [...paths].sort(compareProjectWorkspaceUnicodeCodePoints))
-    entries.push(
-      await assertContainedRegularFile(
-        fileSystem,
-        snapshot.projectRoot,
-        projectRootRealPath,
-        relative,
-      ),
-    );
-  return { entries };
+  return captureProjectSourceInventory(fileSystem, snapshot.projectRoot, {
+    authoritativePaths: runtimeAuthoritativePaths(snapshot),
+    discoveryScopes: runtimeDiscoveryScopes,
+  });
 }
 
-async function captureTestInputs(
+function captureTestInputs(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: LoadedProjectWorkspaceSnapshot,
 ): Promise<RuntimeBuildCacheInputSnapshot> {
-  if (!fileSystem.readPathMetadata) throw new RuntimeBuildCacheInputError('metadata-unavailable');
-  let projectRootRealPath: string;
-  try {
-    projectRootRealPath = await fileSystem.realpath(snapshot.projectRoot);
-  } catch {
-    throw new RuntimeBuildCacheInputError('project-root-realpath-unavailable');
-  }
-  const entries: RuntimeBuildCacheInputEntry[] = [];
-  for (const relative of snapshot.canonicalSourceFiles
-    .filter((file) => file.startsWith('records/tests/'))
-    .sort(compareProjectWorkspaceUnicodeCodePoints))
-    entries.push(
-      await assertContainedRegularFile(
-        fileSystem,
-        snapshot.projectRoot,
-        projectRootRealPath,
-        relative,
-      ),
-    );
-  return { entries };
+  return captureProjectSourceInventory(fileSystem, snapshot.projectRoot, {
+    authoritativePaths: snapshot.canonicalSourceFiles.filter((file) =>
+      file.startsWith('records/tests/'),
+    ),
+  });
 }
 
 function sameInputSnapshot(
   left: RuntimeBuildCacheInputSnapshot,
   right: RuntimeBuildCacheInputSnapshot,
 ): boolean {
-  return JSON.stringify(left.entries) === JSON.stringify(right.entries);
+  return projectSourceInventoriesEqual(left, right);
 }
 
-function sameDiscoveryScopes(value: readonly RuntimeBuildCacheDiscoveryScope[]): boolean {
-  return JSON.stringify(value) === JSON.stringify(runtimeDiscoveryScopes);
+function sameDiscoveryScopes(value: readonly ProjectSourceDiscoveryScope[]): boolean {
+  return projectSourceDiscoveryScopesEqual(value, runtimeDiscoveryScopes);
 }
 
 async function readContainedCacheText(
@@ -483,7 +351,7 @@ async function lookupRuntimeBuildCache(
       observation: {
         status: 'unusable',
         reason:
-          error instanceof RuntimeBuildCacheInputError ? error.reason : 'input-inspection-failed',
+          error instanceof ProjectSourceInventoryError ? error.reason : 'input-inspection-failed',
       },
     };
   }
@@ -950,7 +818,7 @@ async function publishRuntimeBuildCache(
     return {
       published: false,
       reason:
-        error instanceof RuntimeBuildCacheInputError ? error.reason : 'input-inspection-failed',
+        error instanceof ProjectSourceInventoryError ? error.reason : 'input-inspection-failed',
     };
   }
   if (!sameInputSnapshot(expectedInputs, currentInputs))
