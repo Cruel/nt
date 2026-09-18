@@ -549,6 +549,24 @@ Acceptance:
 - Failed shader compilation produces readable diagnostics.
 - Re-running without source changes hits the cache.
 
+#### Source-program prefactor for the #292 authoring redesign
+
+The compiler also exposes a source-program seam that does not require authored `ShaderDefinition`
+identity. It accepts project shader paths below `project:/shaders/` and engine-owned `engine:/`
+stages, requires an explicit varying/interface definition, and never synthesizes an authored varying
+file. Project and engine includes are resolved only through contained shader roots; transitive source
+contents, the explicit interface contract, varying contents, embedded compiler identity, and target
+variant participate in derived compile/cache identity.
+
+Successful source-program outputs expose reflected uniforms and sampled images from the compiled bgfx
+binary. The `essl-300` output additionally exposes the compiled ESSL source payload for the future
+lightweight Material preview renderer. Derived binaries use a deterministic program identity rather
+than authored Shader ids, and runtime program resolution has a matching source-program key path that
+can represent ActiveText direct vertex/fragment programs without Shader records.
+
+`compile_shader_project()` and the current Shader-record schema remain supported during this prefactor;
+the canonical authoring cutover is intentionally deferred to later #292 tickets.
+
 ### Phase 4: Engine 2D Material Binding `[implemented]`
 
 Implemented model:

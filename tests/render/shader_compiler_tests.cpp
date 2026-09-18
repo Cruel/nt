@@ -3,6 +3,7 @@
 #include "noveltea/render/shader_compiler.hpp"
 #include "noveltea/render/material_codec.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -32,6 +33,7 @@ noveltea::ShaderCompileOptions make_options(const std::filesystem::path& temp)
 {
     noveltea::ShaderCompileOptions options;
     options.project_root = temp / "project";
+    options.engine_shader_root = temp / "engine-shaders";
     options.output_root = temp / "generated";
     options.cache_root = temp / "cache";
     options.variants = noveltea::shader_compile_variants_from_names({"glsl-330", "essl-300"});
@@ -267,6 +269,160 @@ TEST_CASE("shader compiler reports missing source diagnostics without an externa
     REQUIRE_FALSE(result.success());
     REQUIRE_FALSE(result.diagnostics.empty());
     CHECK(diagnostic_mentions(result, "missing.fs.sc"));
+
+    std::filesystem::remove_all(temp);
+}
+
+TEST_CASE(
+    "source program compiler uses explicit varying inputs and fingerprints transitive includes")
+{
+    const auto temp = unique_temp_dir("source-program");
+    auto options = make_options(temp);
+    options.variants =
+        noveltea::shader_compile_variants_from_names({"glsl-330", "essl-300", "metal"});
+    write_text(options.project_root / "shaders" / "varying.def.sc",
+               "vec2 a_position : POSITION;\nvec2 v_uv : TEXCOORD0;\n");
+    write_text(options.project_root / "shaders" / "shared.sc",
+               "#define NT_TINT vec4(1.0, 0.0, 0.0, 1.0)\n");
+    write_text(options.project_root / "shaders" / "main.vs.sc",
+               "$input a_position\n$output v_uv\n#include <bgfx_shader.sh>\n"
+               "void main() { v_uv = a_position; gl_Position = vec4(a_position, 0.0, 1.0); }\n");
+    write_text(options.project_root / "shaders" / "main.fs.sc",
+               "$input v_uv\n#include <bgfx_shader.sh>\n#include \"shared.sc\"\n"
+               "// #include \"../outside.sc\"\n"
+               "void main() { gl_FragColor = NT_TINT; }\n");
+
+    const noveltea::ShaderSourceProgramRequest request{
+        .vertex_source = "project:/shaders/main.vs.sc",
+        .fragment_source = "project:/shaders/main.fs.sc",
+        .varying_definition = "project:/shaders/varying.def.sc",
+        .interface_contract = "engine-2d:v1",
+    };
+    const noveltea::ShaderCompilerService compiler;
+    const auto first = compiler.compile_source_program(request, options);
+    REQUIRE(first.success());
+    REQUIRE(first.outputs.size() == 6);
+    CHECK(std::any_of(first.outputs.begin(), first.outputs.end(),
+                      [](const auto& output) { return output.variant == "glsl-330"; }));
+    CHECK(std::any_of(first.outputs.begin(), first.outputs.end(),
+                      [](const auto& output) { return output.variant == "essl-300"; }));
+    CHECK(std::any_of(first.outputs.begin(), first.outputs.end(),
+                      [](const auto& output) { return output.variant == "metal"; }));
+    CHECK_FALSE(first.program_identity.empty());
+    CHECK_FALSE(
+        std::filesystem::exists(options.project_root / "shaders" / "main" / "varying.def.sc"));
+
+    const auto fragment =
+        std::find_if(first.outputs.begin(), first.outputs.end(), [](const auto& output) {
+            return output.stage == noveltea::ShaderStage::Fragment && output.variant == "glsl-330";
+        });
+    REQUIRE(fragment != first.outputs.end());
+    CHECK(std::find(fragment->dependencies.begin(), fragment->dependencies.end(),
+                    "project:/shaders/shared.sc") != fragment->dependencies.end());
+    const auto first_key = fragment->cache_key;
+    const auto first_identity = first.program_identity;
+
+    write_text(options.project_root / "shaders" / "shared.sc",
+               "#define NT_TINT vec4(0.0, 1.0, 0.0, 1.0)\n");
+    const auto second = compiler.compile_source_program(request, options);
+    REQUIRE(second.success());
+    CHECK(second.program_identity != first_identity);
+    const auto second_fragment =
+        std::find_if(second.outputs.begin(), second.outputs.end(), [](const auto& output) {
+            return output.stage == noveltea::ShaderStage::Fragment && output.variant == "glsl-330";
+        });
+    REQUIRE(second_fragment != second.outputs.end());
+    CHECK(second_fragment->cache_key != first_key);
+
+    auto changed_contract = request;
+    changed_contract.interface_contract = "engine-2d:v2";
+    const auto third = compiler.compile_source_program(changed_contract, options);
+    REQUIRE(third.success());
+    CHECK(third.program_identity != second.program_identity);
+
+    std::filesystem::remove_all(temp);
+}
+
+TEST_CASE("source program compiler rejects project include escapes")
+{
+    const auto temp = unique_temp_dir("include-escape");
+    auto options = make_options(temp);
+    options.variants = noveltea::shader_compile_variants_from_names({"glsl-330"});
+    write_text(options.project_root / "shaders" / "varying.def.sc", "vec2 v_uv : TEXCOORD0;\n");
+    write_text(options.project_root / "outside.sc", "#define ESCAPED 1\n");
+    write_text(options.project_root / "shaders" / "main.fs.sc",
+               "#include <bgfx_shader.sh>\n#include \"../outside.sc\"\n"
+               "void main() { gl_FragColor = vec4(1.0); }\n");
+
+    const noveltea::ShaderSourceProgramRequest request{
+        .fragment_source = "project:/shaders/main.fs.sc",
+        .varying_definition = "project:/shaders/varying.def.sc",
+    };
+    const noveltea::ShaderCompilerService compiler;
+    const auto result = compiler.compile_source_program(request, options);
+    REQUIRE_FALSE(result.success());
+    CHECK(std::any_of(
+        result.diagnostics.begin(), result.diagnostics.end(), [](const auto& diagnostic) {
+            return diagnostic.code == noveltea::ShaderCompileDiagnosticCode::UnsafeIncludePath;
+        }));
+
+    std::filesystem::remove_all(temp);
+}
+
+TEST_CASE(
+    "source program compiler supports engine stages and exposes reflection and browser payload")
+{
+    const auto temp = unique_temp_dir("engine-stage");
+    auto options = make_options(temp);
+    options.variants = noveltea::shader_compile_variants_from_names({"essl-300"});
+    write_text(options.engine_shader_root / "varying.def.sc",
+               "vec2 a_position : POSITION;\nvec2 v_uv : TEXCOORD0;\n");
+    write_text(options.engine_shader_root / "default.vs.sc",
+               "$input a_position\n$output v_uv\n#include <bgfx_shader.sh>\n"
+               "void main() { v_uv = a_position; gl_Position = vec4(a_position, 0.0, 1.0); }\n");
+    write_text(options.engine_shader_root / "preview-common.sc",
+               "#define NT_PREVIEW_BIAS vec4(0.0)\n");
+    write_text(
+        options.project_root / "shaders" / "custom.fs.sc",
+        "$input v_uv\n#include <bgfx_shader.sh>\n# include \"preview-common.sc\"\n"
+        "uniform vec4 u_tint;\nSAMPLER2D(s_tex, 0);\n"
+        "void main() { gl_FragColor = u_tint + texture2D(s_tex, v_uv) + NT_PREVIEW_BIAS; }\n");
+
+    const noveltea::ShaderSourceProgramRequest request{
+        .vertex_source = "engine:/default.vs.sc",
+        .fragment_source = "project:/shaders/custom.fs.sc",
+        .varying_definition = "engine:/varying.def.sc",
+        .interface_contract = "preview:test",
+    };
+    const noveltea::ShaderCompilerService compiler;
+    const auto result = compiler.compile_source_program(request, options);
+    REQUIRE(result.success());
+    REQUIRE(result.outputs.size() == 2);
+    const auto fragment =
+        std::find_if(result.outputs.begin(), result.outputs.end(), [](const auto& output) {
+            return output.stage == noveltea::ShaderStage::Fragment;
+        });
+    REQUIRE(fragment != result.outputs.end());
+    REQUIRE(fragment->browser_payload);
+    CHECK(fragment->browser_payload->find("void main") != std::string::npos);
+    CHECK(std::find(fragment->dependencies.begin(), fragment->dependencies.end(),
+                    "engine:/preview-common.sc") != fragment->dependencies.end());
+    CHECK(std::any_of(fragment->reflected_inputs.begin(), fragment->reflected_inputs.end(),
+                      [](const auto& input) {
+                          return input.name == "u_tint" &&
+                                 input.kind == noveltea::ShaderReflectedInputKind::Uniform;
+                      }));
+    CHECK(std::any_of(fragment->reflected_inputs.begin(), fragment->reflected_inputs.end(),
+                      [](const auto& input) {
+                          return input.name == "s_tex" &&
+                                 input.kind == noveltea::ShaderReflectedInputKind::SampledImage;
+                      }));
+
+    const auto repeated = compiler.compile_source_program(request, options);
+    REQUIRE(repeated.success());
+    CHECK(repeated.program_identity == result.program_identity);
+    CHECK(std::all_of(repeated.outputs.begin(), repeated.outputs.end(),
+                      [](const auto& output) { return output.cache_hit; }));
 
     std::filesystem::remove_all(temp);
 }
