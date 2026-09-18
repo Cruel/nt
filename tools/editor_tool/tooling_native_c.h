@@ -32,6 +32,8 @@ uint64_t noveltea_tooling_disk_space_json(const uint8_t* request, uint64_t reque
                                           uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_path_metadata_json(const uint8_t* request, uint64_t request_size,
                                              uint8_t* response, uint64_t response_capacity);
+uint64_t noveltea_tooling_probe_authoring_cache_json(const uint8_t* request, uint64_t request_size,
+                                                     uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_probe_runtime_cache_json(const uint8_t* request, uint64_t request_size,
                                                    uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_create_archive_json(const uint8_t* request, uint64_t request_size,

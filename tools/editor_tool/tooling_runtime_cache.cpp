@@ -581,7 +581,153 @@ Json probe(const Json& request)
     return result;
 }
 
+bool regular_contained_cache_file(const std::filesystem::path& root,
+                                  const std::filesystem::path& relative)
+{
+    if (!contained_by_root(root, root / relative))
+        return false;
+    auto current = root;
+    std::error_code error;
+    for (const auto& part : relative) {
+        current /= part;
+        const auto status = std::filesystem::symlink_status(current, error);
+        if (error || std::filesystem::is_symlink(status))
+            return false;
+    }
+    return std::filesystem::is_regular_file(current, error) && !error;
+}
+
+bool authoring_workspace_settled(const std::filesystem::path& root)
+{
+    const auto transactions = root / ".noveltea/transactions";
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(transactions, error);
+    if (error == std::errc::no_such_file_or_directory)
+        return true;
+    if (error || !std::filesystem::is_directory(status))
+        return false;
+    return std::filesystem::is_empty(transactions, error) && !error;
+}
+
+bool validation_result_shape_valid(const Json& result)
+{
+    if (!result.is_object() || result.size() != 3 || !bool_field(result, "success") ||
+        !integer_field(result, "exitCode") || !result.contains("diagnostics") ||
+        !authoring_diagnostics_shape_valid(result["diagnostics"]))
+        return false;
+    const auto code = *integer_field(result, "exitCode");
+    if ((code != 0 && code != 4 && code != 6) || *bool_field(result, "success") != (code == 0))
+        return false;
+    bool has_error = false;
+    for (const auto& diagnostic : result["diagnostics"]) {
+        has_error = has_error || diagnostic["severity"] == "error";
+        for (const auto& [key, value] : diagnostic.items()) {
+            if (key == "sourceUrl") {
+                if (!value.is_string())
+                    return false;
+            } else if (key == "line" || key == "column") {
+                if (!value.is_number_unsigned())
+                    return false;
+            } else if (key != "code" && key != "severity" && key != "path" && key != "message") {
+                return false;
+            }
+        }
+    }
+    return has_error == (code != 0);
+}
+
+Json probe_authoring(const Json& request)
+{
+    const auto root_text = string_field(request, "projectRoot");
+    const auto identity = string_field(request, "buildIdentity");
+    if (!root_text || !identity)
+        return response("unusable", "probe-request-invalid");
+    const auto root = filesystem_path_from_utf8(*root_text);
+    std::error_code error;
+    const auto root_status = std::filesystem::symlink_status(root, error);
+    if (error || !std::filesystem::is_directory(root_status) || !authoring_workspace_settled(root))
+        return response("unusable", "workspace-unsettled");
+    const std::filesystem::path cache_root = ".noveltea/cache/authoring";
+    if (!regular_contained_cache_file(root, cache_root / "current"))
+        return response("miss", "current-generation-unavailable");
+    const auto pointer_text = read_text(root / cache_root / "current");
+    if (!pointer_text)
+        return response("unusable", "current-generation-unreadable");
+    const auto pointer = Json::parse(*pointer_text, nullptr, false);
+    const auto generation = string_field(pointer, "generation");
+    const auto digest = string_field(pointer, "manifestSha256");
+    if (!pointer.is_object() || pointer.size() != 2 || !generation || !is_uuid(*generation) ||
+        (*generation)[14] != '4' ||
+        std::string_view("89ab").find((*generation)[19]) == std::string_view::npos ||
+        generation->find_first_not_of("0123456789abcdef-") != std::string::npos || !digest)
+        return response("unusable", "current-generation-invalid");
+    const auto manifest_path = cache_root / "generations" / *generation / "manifest.json";
+    if (!regular_contained_cache_file(root, manifest_path))
+        return response("unusable", "manifest-unavailable");
+    const auto text = read_text(root / manifest_path);
+    if (!text || sha256_prefixed(*text) != *digest)
+        return response("unusable", "manifest-digest-mismatch");
+    const auto manifest = Json::parse(*text, nullptr, false);
+    if (!manifest.is_object() || manifest.size() != 7 ||
+        string_field(manifest, "projectRoot") != root_text ||
+        string_field(manifest, "schema") != "noveltea.authoring-cache" ||
+        string_field(manifest, "buildIdentity") != identity ||
+        !manifest.contains("projectWorkspace") ||
+        manifest["projectWorkspace"] !=
+            Json{{"schema", kWorkspaceSchema}, {"formatVersion", kWorkspaceVersion}} ||
+        !manifest.contains("inputs") || !manifest["inputs"].is_array() ||
+        !manifest.contains("discoveryScopes") || !manifest.contains("result") ||
+        !validation_result_shape_valid(manifest["result"]))
+        return response("unusable", "cache-contract-changed");
+
+    const Json scopes =
+        Json::array({{{"root", "records"},
+                      {"extensions", Json::array({".json", ".lua", ".rcss", ".rml"})},
+                      {"excludedPrefixes", Json::array()}},
+                     {{"root", "scripts"},
+                      {"extensions", Json::array({".lua"})},
+                      {"excludedPrefixes", Json::array()}},
+                     {{"root", "i18n"},
+                      {"extensions", Json::array({".json"})},
+                      {"excludedPrefixes", Json::array()}}});
+    if (manifest["discoveryScopes"] != scopes)
+        return response("stale", "discovery-contract-changed");
+    std::set<std::string> inputs;
+    std::string previous;
+    for (const auto& input : manifest["inputs"]) {
+        if (!input.is_object() || input.size() != 3 || !metadata_matches(root, input))
+            return response("stale", "input-metadata-changed");
+        const auto relative = input["path"].get<std::string>();
+        if (relative <= previous)
+            return response("unusable", "input-order-invalid");
+        previous = relative;
+        inputs.insert(relative);
+    }
+    if (!inputs.contains("project.json") || !inputs.contains("editor.json"))
+        return response("unusable", "manifest-inputs-invalid");
+    if (!discovery_matches(root, scopes, inputs) || !authoring_workspace_settled(root))
+        return response("stale", "discovery-inputs-changed");
+    auto result = response("hit", "current-authoring-generation-valid");
+    result["result"] = manifest["result"];
+    return result;
+}
+
 } // namespace
+
+extern "C" std::uint64_t
+noveltea_tooling_probe_authoring_cache_json(const std::uint8_t* request, std::uint64_t request_size,
+                                            std::uint8_t* response_buffer,
+                                            std::uint64_t response_capacity)
+{
+    const auto input = request == nullptr
+                           ? std::string_view{}
+                           : std::string_view(reinterpret_cast<const char*>(request),
+                                              static_cast<std::size_t>(request_size));
+    const auto parsed = Json::parse(input, nullptr, false);
+    return write_response(parsed.is_discarded() ? response("unusable", "probe-request-invalid")
+                                                : probe_authoring(parsed),
+                          response_buffer, response_capacity);
+}
 
 extern "C" std::uint64_t noveltea_tooling_probe_runtime_cache_json(const std::uint8_t* request,
                                                                    std::uint64_t request_size,
