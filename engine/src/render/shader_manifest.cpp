@@ -301,6 +301,52 @@ ShaderProgramResolution resolve_source_shader_pair_program(
     };
 }
 
+ShaderProgramResolutionResult resolve_source_shader_program(const ShaderMaterialProject& project,
+                                                            std::string_view program_identity,
+                                                            ShaderRole role,
+                                                            std::string_view active_variant)
+{
+    ShaderProgramResolutionResult result;
+    const ShaderId internal_id{std::string(program_identity)};
+    const auto* shader = find_shader(project, internal_id);
+    if (shader == nullptr) {
+        add_diagnostic(result.diagnostics, ShaderProgramDiagnosticCode::UnknownShader,
+                       "source program '" + std::string(program_identity) + "'",
+                       "unknown derived source program");
+        return result;
+    }
+    if (!has_role(*shader, role)) {
+        add_diagnostic(result.diagnostics, ShaderProgramDiagnosticCode::IncompatibleShaderRole,
+                       "source program '" + std::string(program_identity) + "'",
+                       "derived source program does not support the requested role");
+        return result;
+    }
+    const auto find_path = [&](ShaderStage stage) -> std::optional<std::string> {
+        for (const auto& definition : shader->stages) {
+            if (definition.stage != stage)
+                continue;
+            for (const auto& compiled : definition.compiled)
+                if (compiled.variant == active_variant)
+                    return compiled.path;
+            return std::nullopt;
+        }
+        return std::nullopt;
+    };
+    const auto vertex = find_path(ShaderStage::Vertex);
+    const auto fragment = find_path(ShaderStage::Fragment);
+    if (!vertex || !fragment) {
+        add_diagnostic(result.diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
+                       "source program '" + std::string(program_identity) + "' variant '" +
+                           std::string(active_variant) + "'",
+                       "derived source program is missing a compiled vertex or fragment stage");
+        return result;
+    }
+    result.program =
+        resolve_source_shader_pair_program(std::string(program_identity), role, active_variant,
+                                           *vertex, *fragment, shader->uniforms, shader->samplers);
+    return result;
+}
+
 std::string shader_program_cache_key(const ShaderProgramKey& key)
 {
     std::ostringstream out;

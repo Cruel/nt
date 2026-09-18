@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
 /**
@@ -5,10 +6,10 @@ import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
  * Shader source is opened as a project source file by the Files/source-tab workbench path.
  */
 export function ShaderEditor({ tab }: WorkbenchEditorProps) {
+  const { t } = useTranslation('workspace');
   return (
     <div className="p-4 text-sm text-muted-foreground">
-      {tab.title}: Shader records are no longer authoring resources. Open the shader source file
-      from its Material instead.
+      {t('materialEditor.shaderRemoved', { title: tab.title })}
     </div>
   );
 }

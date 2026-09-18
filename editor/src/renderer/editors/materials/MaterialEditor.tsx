@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,9 +32,12 @@ import {
 } from '../../../shared/project-schema/authoring-shaders';
 import {
   buildMaterialPreviewDocumentData,
+  buildShaderMaterialProject,
   materialPreviewRevision,
 } from '../../../shared/project-schema/shader-material-project';
+import { useShaderCompileStore } from '@/shaders/shader-compile-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import type { ShaderCompileOutput } from '../../../shared/editor-tooling';
 
 function updateMaterial(materialId: string, next: MaterialData, label: string) {
   return useCommandStore.getState().executeCommand({
@@ -67,6 +71,7 @@ function valueToText(value: unknown): string {
 }
 
 export function MaterialEditor({ tab }: WorkbenchEditorProps) {
+  const { t } = useTranslation('workspace');
   const projectDocument = useProjectStore((state) => state.document);
   const materialId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -96,16 +101,26 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
         active = false;
       };
     }
-    void buildMaterialPreviewDocumentData(project, materialId).then((next) => {
+    void (async () => {
+      const shaderProject = await buildShaderMaterialProject(project);
+      let outputs: ShaderCompileOutput[] = [];
+      if (Object.keys(shaderProject.compilation.programs).length > 0) {
+        const response = await useShaderCompileStore
+          .getState()
+          .runCompile(shaderProject.compilation, undefined, { shaderVariants: ['essl-300'] });
+        if (!response.success) return;
+        outputs = response.outputs;
+      }
+      const next = await buildMaterialPreviewDocumentData(project, materialId, outputs);
       if (active) setPreviewData(next);
-    });
+    })();
     return () => {
       active = false;
     };
   }, [project, materialId]);
 
   if (!materialId || !record || !project)
-    return <div className="p-4 text-sm text-muted-foreground">Material record not found.</div>;
+    return <div className="p-4 text-sm text-muted-foreground">{t('materialEditor.missing')}</div>;
 
   const revision = materialPreviewRevision(project, materialId);
   const previewDocument = previewData
@@ -117,31 +132,34 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
       }
     : undefined;
 
-  function commit(next: MaterialData, label = 'Update material') {
+  function commit(next: MaterialData, label = t('materialEditor.commands.update')) {
     updateMaterial(materialId!, next, label);
   }
 
   function setParameter(name: string, patch: MaterialParameterOverride) {
     commit(
       { ...data, parameters: { ...data.parameters, [name]: patch } },
-      'Set material parameter',
+      t('materialEditor.commands.setParameter'),
     );
   }
 
   function clearParameter(name: string) {
     const parameters = { ...data.parameters };
     delete parameters[name];
-    commit({ ...data, parameters }, 'Reset material parameter');
+    commit({ ...data, parameters }, t('materialEditor.commands.resetParameter'));
   }
 
   function setTexture(name: string, patch: MaterialTextureData) {
-    commit({ ...data, textures: { ...data.textures, [name]: patch } }, 'Set material texture');
+    commit(
+      { ...data, textures: { ...data.textures, [name]: patch } },
+      t('materialEditor.commands.setTexture'),
+    );
   }
 
   function clearTexture(name: string) {
     const textures = { ...data.textures };
     delete textures[name];
-    commit({ ...data, textures }, 'Reset material texture');
+    commit({ ...data, textures }, t('materialEditor.commands.resetTexture'));
   }
 
   const baseValue =
@@ -158,16 +176,13 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             <Badge variant="outline">{materialId}</Badge>
             {effective ? <Badge variant="secondary">{effective.role}</Badge> : null}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Material Preset/inheritance contract with sparse parameter, texture, and shader-source
-            overrides.
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{t('materialEditor.summary')}</p>
         </div>
       </div>
 
       {!parsedData ? (
         <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
-          Material data is invalid; canonical defaults are shown until you apply a change.
+          {t('materialEditor.invalidData')}
         </div>
       ) : null}
       {resolved.diagnostics.length > 0 ? (
@@ -185,7 +200,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             data-workbench-anchor="material.settings"
           >
             <div className="space-y-1">
-              <Label>Base</Label>
+              <Label>{t('materialEditor.base')}</Label>
               <Select
                 value={baseValue}
                 onValueChange={(value) => {
@@ -196,7 +211,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                         ...data,
                         base: { kind: 'preset', preset: raw.slice(7) as MaterialPresetId },
                       },
-                      'Set Material Preset',
+                      t('materialEditor.commands.setPreset'),
                     );
                   } else {
                     commit(
@@ -207,14 +222,14 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                           material: { $ref: { collection: 'materials', id: raw.slice(9) } },
                         },
                       },
-                      'Set base Material',
+                      t('materialEditor.commands.setBase'),
                     );
                   }
                 }}
               >
                 {materialPresetIdValues.map((presetId) => (
                   <SelectItem key={presetId} value={`preset:${presetId}`}>
-                    {materialPresets[presetId].label} (Preset)
+                    {materialPresets[presetId].label} ({t('materialEditor.presetSuffix')})
                   </SelectItem>
                 ))}
                 {Object.entries(project.materials)
@@ -227,20 +242,17 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>Effective contract</Label>
+              <Label>{t('materialEditor.effectiveContract')}</Label>
               <div className="flex h-9 items-center gap-2 rounded border px-3 text-xs">
-                <span>{effective?.preset.label ?? 'Invalid'}</span>
+                <span>{effective?.preset.label ?? t('materialEditor.invalidContract')}</span>
                 {effective ? <Badge variant="outline">{effective.role}</Badge> : null}
               </div>
             </div>
           </section>
 
           <section className="space-y-3 rounded border p-3" data-workbench-anchor="material.shader">
-            <h3 className="text-sm font-medium">Shader Sources</h3>
-            <p className="text-xs text-muted-foreground">
-              Empty overrides use the inherited preset/base source. Project source paths must remain
-              under shaders/.
-            </p>
+            <h3 className="text-sm font-medium">{t('materialEditor.shaderSources')}</h3>
+            <p className="text-xs text-muted-foreground">{t('materialEditor.shaderSourcesHelp')}</p>
             {(['vertex', 'fragment', 'varying'] as const).map((stage) => {
               const local = data.shader?.[stage];
               const effectivePath =
@@ -268,7 +280,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                           ...data,
                           shader: Object.keys(shader).length > 0 ? shader : undefined,
                         },
-                        'Set material shader source',
+                        t('materialEditor.commands.setShaderSource'),
                       );
                     }}
                   />
@@ -281,11 +293,11 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                       delete shader[stage];
                       commit(
                         { ...data, shader: Object.keys(shader).length > 0 ? shader : undefined },
-                        'Reset material shader source',
+                        t('materialEditor.commands.resetShaderSource'),
                       );
                     }}
                   >
-                    Reset
+                    {t('materialEditor.reset')}
                   </Button>
                 </div>
               );
@@ -296,7 +308,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             className="space-y-3 rounded border p-3"
             data-workbench-anchor="material.parameters"
           >
-            <h3 className="text-sm font-medium">Parameters</h3>
+            <h3 className="text-sm font-medium">{t('materialEditor.parameters')}</h3>
             {Object.entries(effective?.preset.uniforms ?? {}).map(([name, declaration]) => {
               const local = data.parameters[name];
               const current = effective?.parameters[name];
@@ -314,11 +326,12 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                     variant={local ? 'default' : 'outline'}
                     className="h-7 self-center justify-center"
                   >
-                    {declaration.binding ?? (local ? 'override' : 'inherited')}
+                    {declaration.binding ??
+                      (local ? t('materialEditor.override') : t('materialEditor.inherited'))}
                   </Badge>
                   {rendererBound ? (
                     <div className="self-center text-xs text-muted-foreground">
-                      Runtime supplied
+                      {t('materialEditor.runtimeSupplied')}
                     </div>
                   ) : declaration.type === 'bool' ? (
                     <Select
@@ -347,7 +360,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                     disabled={!local}
                     onClick={() => clearParameter(name)}
                   >
-                    Reset
+                    {t('materialEditor.reset')}
                   </Button>
                 </div>
               );
@@ -359,9 +372,9 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                   key={name}
                   className="flex items-center justify-between rounded border border-dashed p-2 text-xs"
                 >
-                  <span>Orphaned parameter: {name}</span>
+                  <span>{t('materialEditor.orphanedParameter', { name })}</span>
                   <Button size="sm" variant="outline" onClick={() => clearParameter(name)}>
-                    Remove
+                    {t('materialEditor.remove')}
                   </Button>
                 </div>
               ))}
@@ -371,7 +384,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             className="space-y-3 rounded border p-3"
             data-workbench-anchor="material.textures"
           >
-            <h3 className="text-sm font-medium">Textures</h3>
+            <h3 className="text-sm font-medium">{t('materialEditor.textures')}</h3>
             {Object.entries(effective?.preset.samplers ?? {}).map(([name, declaration]) => {
               const local = data.textures[name];
               const current = effective?.textures[name];
@@ -386,27 +399,32 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                   <div>
                     <div className="font-mono text-xs">{name}</div>
                     <div className="text-[10px] text-muted-foreground">
-                      {declaration.binding ?? (local ? 'override' : 'inherited')}
+                      {declaration.binding ??
+                        (local ? t('materialEditor.override') : t('materialEditor.inherited'))}
                     </div>
                   </div>
                   {rendererBound ? (
                     <div className="self-center text-xs text-muted-foreground">
-                      Runtime supplied
+                      {t('materialEditor.runtimeSupplied')}
                     </div>
                   ) : (
                     <Select
                       value={refId}
-                      onValueChange={(value) =>
+                      onValueChange={(value) => {
+                        if (value === '__none__') {
+                          const next = { ...local };
+                          delete next.source;
+                          if (Object.keys(next).length === 0) clearTexture(name);
+                          else setTexture(name, next);
+                          return;
+                        }
                         setTexture(name, {
                           ...local,
-                          source:
-                            value === '__none__'
-                              ? { uri: '' }
-                              : { $ref: { collection: 'assets', id: String(value) } },
-                        })
-                      }
+                          source: { $ref: { collection: 'assets', id: String(value) } },
+                        });
+                      }}
                     >
-                      <SelectItem value="__none__">No texture</SelectItem>
+                      <SelectItem value="__none__">{t('materialEditor.noTexture')}</SelectItem>
                       {imageAssets.map((asset) => (
                         <SelectItem key={asset.id} value={asset.id}>
                           {asset.label} ({asset.id})
@@ -436,7 +454,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                     disabled={!local}
                     onClick={() => clearTexture(name)}
                   >
-                    Reset
+                    {t('materialEditor.reset')}
                   </Button>
                 </div>
               );
@@ -448,9 +466,9 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                   key={name}
                   className="flex items-center justify-between rounded border border-dashed p-2 text-xs"
                 >
-                  <span>Orphaned texture: {name}</span>
+                  <span>{t('materialEditor.orphanedTexture', { name })}</span>
                   <Button size="sm" variant="outline" onClick={() => clearTexture(name)}>
-                    Remove
+                    {t('materialEditor.remove')}
                   </Button>
                 </div>
               ))}

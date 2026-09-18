@@ -1080,11 +1080,19 @@ thead, tbody, tfoot {
 
     async function stagePreviewProjectAssets(message, data) {
       const paths = [...collectProjectAssetPaths(data)];
-      if (paths.length === 0) return true;
+      const explicitAssets = Array.isArray(data && data.previewAssets) ? data.previewAssets : [];
+      if (paths.length === 0 && explicitAssets.length === 0) return true;
       const fs = moduleFileSystem();
       if (!fs) {
         failCommand(message, 'Preview widget filesystem is unavailable. Rebuild the editor preview with FS exported.', { category: 'project-asset' });
         return false;
+      }
+      for (const asset of explicitAssets) {
+        if (!asset || !safeProjectAssetPath(asset.sourcePath) || !safeProjectAssetPath(asset.runtimePath)) {
+          failCommand(message, 'Preview asset mapping is invalid.', { category: 'project-asset' });
+          return false;
+        }
+        if (!(await stageProjectAsset(message, fs, asset.sourcePath, asset.runtimePath))) return false;
       }
       for (const projectRelativePath of paths) {
         const ok = await stageProjectAsset(message, fs, projectRelativePath);

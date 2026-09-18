@@ -379,6 +379,10 @@ nlohmann::json source_program_outputs_to_json(
 {
     auto result = nlohmann::json::array();
     for (const auto& output : compile_result.outputs) {
+        auto dependency_revisions = nlohmann::json::array();
+        for (const auto& dependency : output.dependency_revisions)
+            dependency_revisions.push_back(nlohmann::json::object(
+                {{"identity", dependency.identity}, {"contentHash", dependency.content_hash}}));
         nlohmann::json item = {
             {"program", program},
             {"programIdentity", compile_result.program_identity},
@@ -386,6 +390,7 @@ nlohmann::json source_program_outputs_to_json(
             {"variant", output.variant},
             {"sourceIdentity", output.source_identity},
             {"dependencies", output.dependencies},
+            {"dependencyRevisions", std::move(dependency_revisions)},
             {"outputPath", filesystem_path_to_utf8(output.output_path)},
             {"runtimePath", output.runtime_path},
             {"cacheKey", output.cache_key},

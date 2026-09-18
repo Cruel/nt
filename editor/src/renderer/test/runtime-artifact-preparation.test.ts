@@ -97,7 +97,8 @@ function compiledShaderOutput(
     stage,
     variant: 'glsl-330',
     sourceIdentity,
-    dependencies: [sourceIdentity],
+    dependencies: [],
+    dependencyRevisions: [],
     outputPath: `/project/.noveltea/build/shaders/derived/glsl-330/${programIdentity}.${stage}.bin`,
     runtimePath: `project:/shaders/derived/glsl-330/${programIdentity}.${stage}.bin`,
     cacheKey: `${program}-${stage}-glsl-330`,
@@ -643,6 +644,43 @@ describe('Prepared Runtime Artifact module', () => {
     });
   });
 
+  it('packages Layout-only Lua dependencies as project source files', async () => {
+    const project = roomProject();
+    const layout = defaultLayoutData();
+    layout.dependencies.scripts = ['scripts/layout-helper.lua'];
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+
+    const result = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(), compileShadersBeforeExport: false },
+      paths: {
+        resolveProjectSource(root, source) {
+          return `${root}/${source}`;
+        },
+        shaderAssetRoot() {
+          return undefined;
+        },
+        async readProjectTextSources(_root, entries) {
+          return entries.map((entry) => ({
+            status: 'ready' as const,
+            assetId: entry.assetId,
+            projectRelativePath: entry.projectRelativePath,
+            contentHash: `sha256:${'a'.repeat(64)}` as const,
+            text: 'return {}',
+          }));
+        },
+      },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.fileEntries).toContainEqual(
+      expect.objectContaining({
+        packagePath: 'scripts/layout-helper.lua',
+        kind: 'script-source',
+      }),
+    );
+  });
+
   it('retains assets referenced only by conservative Lua/source analysis', async () => {
     const project = roomProject();
     project.assets['lua-only'] = {
@@ -1128,6 +1166,143 @@ describe('Prepared Runtime Artifact module', () => {
       'compileInputFingerprint',
     );
     expect(project).toEqual(authored);
+  });
+
+  it('packages requested shader sources and reflected custom Material parameters', async () => {
+    const project = roomProject();
+    const { program, request } = await addCustomShaderMaterial(project);
+    const vertex = compiledShaderOutput(program, request.vertexSource, 'vertex', 'b');
+    const fragment = {
+      ...compiledShaderOutput(program, request.fragmentSource, 'fragment', 'a'),
+      dependencies: ['project:/shaders/basic.fs.sc', 'project:/shaders/common.sc'],
+      dependencyRevisions: [
+        {
+          identity: 'project:/shaders/basic.fs.sc',
+          contentHash: `sha256:${'1'.repeat(64)}` as const,
+        },
+        {
+          identity: 'project:/shaders/common.sc',
+          contentHash: `sha256:${'2'.repeat(64)}` as const,
+        },
+      ],
+      reflectedInputs: [
+        { name: 'u_custom', kind: 'uniform' as const, type: 'float', arraySize: 1 },
+      ],
+    };
+    const result = await prepareRuntimeArtifactForTest(project, {
+      projectRoot: '/project',
+      profile: {
+        ...defaultExportProfile(project),
+        shaderVariants: ['glsl-330'],
+        stripShaderSources: false,
+      },
+      shaderOutputs: [vertex, fragment],
+      paths: {
+        resolveProjectSource(root, source) {
+          return `${root}/${source}`;
+        },
+        shaderAssetRoot() {
+          return undefined;
+        },
+        async readProjectTextSources(_root, entries) {
+          return entries.map((entry) => ({
+            status: 'ready' as const,
+            assetId: entry.assetId,
+            projectRelativePath: entry.projectRelativePath,
+            contentHash:
+              entry.projectRelativePath === 'shaders/common.sc'
+                ? (`sha256:${'2'.repeat(64)}` as const)
+                : (`sha256:${'1'.repeat(64)}` as const),
+            text: 'shader source',
+          }));
+        },
+      },
+    });
+
+    expect(result.status).toBe('prepared');
+    if (result.status !== 'prepared') return;
+    expect(result.artifact.fileEntries.map((entry) => entry.packagePath)).toEqual(
+      expect.arrayContaining(['shaders/basic.fs.sc', 'shaders/common.sc']),
+    );
+    expect(
+      result.artifact.compiledProject.resources.materialInterfaces.find(
+        (entry) => entry.id === 'basic',
+      )?.parameters,
+    ).toContainEqual(expect.objectContaining({ name: 'u_custom', type: 'float' }));
+  });
+
+  it('rejects shader outputs when a project dependency changes during compilation', async () => {
+    const project = roomProject();
+    const { program, request } = await addCustomShaderMaterial(project);
+    const fragment = {
+      ...compiledShaderOutput(program, request.fragmentSource, 'fragment', 'a'),
+      dependencies: ['project:/shaders/basic.fs.sc'],
+      dependencyRevisions: [
+        {
+          identity: 'project:/shaders/basic.fs.sc',
+          contentHash: `sha256:${'1'.repeat(64)}` as const,
+        },
+      ],
+    };
+    const result = await prepareRuntimeArtifactForTest(project, {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
+      shaderOutputs: [compiledShaderOutput(program, request.vertexSource, 'vertex', 'b'), fragment],
+      paths: {
+        resolveProjectSource(root, source) {
+          return `${root}/${source}`;
+        },
+        shaderAssetRoot() {
+          return undefined;
+        },
+        async readProjectTextSources(_root, entries) {
+          return entries.map((entry) => ({
+            status: 'ready' as const,
+            assetId: entry.assetId,
+            projectRelativePath: entry.projectRelativePath,
+            contentHash: `sha256:${'9'.repeat(64)}` as const,
+            text: 'new shader source',
+          }));
+        },
+      },
+    });
+
+    expect(result.status).toBe('blocked');
+    if (result.status !== 'blocked') return;
+    expect(result.shaderDiagnostics).toContainEqual(
+      expect.objectContaining({ code: 'runtime-artifact.shader-source-revision-stale' }),
+    );
+  });
+
+  it('lowers ActiveText source shader pairs to derived source-program identities', async () => {
+    const project = roomProject();
+    project.rooms.foyer!.data.description = {
+      source: {
+        kind: 'inline',
+        text: '[shader v=project:/shaders/wave.vs.sc f=project:/shaders/wave.fs.sc]Wave[/shader]',
+      },
+      markup: 'active-text',
+    };
+    const sourceProject = await buildShaderMaterialProject(project);
+    const [program, request] =
+      Object.entries(sourceProject.compilation.programs).find(([id]) =>
+        id.startsWith('active-text-'),
+      ) ?? [];
+    expect(program).toBeTruthy();
+    expect(request).toBeTruthy();
+    if (!program || !request) return;
+    const prepared = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
+      shaderOutputs: [
+        compiledShaderOutput(program, request.vertexSource, 'vertex', 'a'),
+        compiledShaderOutput(program, request.fragmentSource, 'fragment', 'b'),
+      ],
+    });
+
+    expect(JSON.stringify(prepared.compiledProject)).toContain(`source-program:${program}`);
+    expect(JSON.stringify(prepared.compiledProject)).not.toContain('project:/shaders/wave.vs.sc');
+    expect(prepared.shaderMaterialMetadata?.shaders[program]).toBeDefined();
   });
 
   it('publishes and verifies the one current Prepared Runtime Artifact contract', async () => {

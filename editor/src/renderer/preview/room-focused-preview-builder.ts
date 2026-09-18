@@ -65,6 +65,8 @@ import { parseScriptModuleData } from '../../shared/project-schema/authoring-scr
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { parseVariableData } from '../../shared/project-schema/authoring-variables';
 import type { ShaderVariant } from '../../shared/shader-variants';
+import type { ShaderCompileOutput } from '../../shared/editor-tooling';
+import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
 import { projectOriginalAssetUrl } from '../../shared/project-original-asset';
 
 type Diagnostic = AuthoringDependencyGraphDiagnostic;
@@ -1294,7 +1296,19 @@ export async function buildFocusedRoomPreview(
   const materialClosure = completeMaterialClosure(project, visual.materials);
   for (const id of materialClosure.assetIds) visual.assets.add(id);
   for (const cursor of project.settings.cursors.named) visual.assets.add(cursor.image.$ref.id);
-  const materialProject = await buildShaderMaterialProject(project);
+  const materialSourceProject = await buildShaderMaterialProject(project);
+  let materialCompileOutputs: ShaderCompileOutput[] = [];
+  if (Object.keys(materialSourceProject.compilation.programs).length > 0) {
+    const response = parseShaderCompileResponse(
+      await window.noveltea.compileShaders(projectSessionId, materialSourceProject.compilation, {
+        shaderVariants: [activeShaderVariant],
+      }),
+    );
+    if (!response.success)
+      throw new Error(response.error ?? 'Focused Room Material shader compilation failed.');
+    materialCompileOutputs = response.outputs;
+  }
+  const materialProject = await buildShaderMaterialProject(project, materialCompileOutputs);
   diagnostics.push(
     ...materialProject.diagnostics.map((item) => ({
       severity: item.severity === 'info' ? ('warning' as const) : item.severity,
@@ -1325,5 +1339,23 @@ export async function buildFocusedRoomPreview(
     activeShaderVariant,
     diagnostics,
   );
+  resources.push(
+    ...materialCompileOutputs
+      .filter((output) => output.variant === activeShaderVariant)
+      .map((output) => ({
+        usageRoles: ['material-shader'],
+        fetchProjectRelativePath: `.noveltea/build/${output.runtimePath.replace(/^project:\//, '')}`,
+        logicalPath: output.runtimePath,
+        contentHash: output.byteHash,
+        byteSize: output.byteSize,
+        resourceId: `shader:${output.program}:${output.stage}:${output.variant}`,
+        sourceKind: 'shader-compiled-output' as const,
+        shaderId: output.program,
+        shaderStage: output.stage,
+        shaderVariant: output.variant as ShaderVariant,
+        kind: 'shader-binary' as const,
+      })),
+  );
+  resources.sort((left, right) => left.resourceId.localeCompare(right.resourceId));
   return { data: roomPreviewDocumentSchema.parse(data), resources, diagnostics };
 }

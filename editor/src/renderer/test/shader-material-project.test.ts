@@ -203,6 +203,9 @@ describe('canonical Material shader lowering', () => {
       variant: 'glsl-330',
       sourceIdentity: stage === 'vertex' ? 'engine:/vs_quad.sc' : 'project:/shaders/noise.fs.sc',
       dependencies: ['engine:/varying.def.sc'],
+      dependencyRevisions: [
+        { identity: 'engine:/varying.def.sc', contentHash: `sha256:${'c'.repeat(64)}` },
+      ],
       outputPath: `/tmp/${stage}.bin`,
       runtimePath: `project:/shaders/derived/glsl-330/program-identity.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
       cacheKey: `${stage}-cache`,

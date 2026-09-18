@@ -19,6 +19,7 @@ import { effectivePreviewDisplay } from '../../shared/preview-display';
 import { effectivePreviewLocale } from '../../shared/preview-locale';
 import { PSEUDO_PREVIEW_LOCALE, pseudoLocalizeRmlMessages } from '../../shared/pseudo-localization';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import type { ShaderCompileOutput } from '../../shared/editor-tooling';
 import { projectOriginalAssetUrl } from '../../shared/project-original-asset';
 import type { AuthoringSourceAnalysisArtifact } from '../../shared/project-schema/authoring-lua-analysis';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
@@ -34,6 +35,7 @@ import {
   SHADER_MATERIAL_SCHEMA,
 } from '../../shared/project-schema/shader-material-project';
 import type { ShaderVariant } from '../../shared/shader-variants';
+import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
 import { sha256PrefixedUtf8 } from '../../shared/web-crypto';
 import { buildFocusedRoomPreview } from './room-focused-preview-builder';
 
@@ -160,7 +162,7 @@ async function materialProjection(
   project: AuthoringProject,
   projectSessionId: string,
   initialMaterialIds: readonly string[],
-  _variant: ShaderVariant,
+  variant: ShaderVariant,
 ): Promise<{
   shaderMaterials: {
     schema: typeof SHADER_MATERIAL_SCHEMA;
@@ -169,10 +171,36 @@ async function materialProjection(
   };
   resources: PreviewResourceManifestEntry[];
 }> {
-  const built = await buildShaderMaterialProject(project);
+  const sourceProject = await buildShaderMaterialProject(project);
+  let compileOutputs: ShaderCompileOutput[] = [];
+  if (Object.keys(sourceProject.compilation.programs).length > 0) {
+    const response = parseShaderCompileResponse(
+      await window.noveltea.compileShaders(projectSessionId, sourceProject.compilation, {
+        shaderVariants: [variant],
+      }),
+    );
+    if (!response.success)
+      throw new Error(response.error ?? 'Focused Material shader compilation failed.');
+    compileOutputs = response.outputs;
+  }
+  const built = await buildShaderMaterialProject(project, compileOutputs);
   if (built.diagnostics.some((item) => item.severity === 'error'))
     throw new Error('Focused preview Material metadata could not be built.');
-  const resources: PreviewResourceManifestEntry[] = [];
+  const resources: PreviewResourceManifestEntry[] = compileOutputs
+    .filter((output) => output.variant === variant)
+    .map((output) => ({
+      usageRoles: ['material-shader'],
+      fetchProjectRelativePath: `.noveltea/build/${output.runtimePath.replace(/^project:\//, '')}`,
+      logicalPath: output.runtimePath,
+      contentHash: output.byteHash,
+      byteSize: output.byteSize,
+      resourceId: `shader:${output.program}:${output.stage}:${output.variant}`,
+      sourceKind: 'shader-compiled-output' as const,
+      shaderId: output.program,
+      shaderStage: output.stage,
+      shaderVariant: output.variant as ShaderVariant,
+      kind: 'shader-binary' as const,
+    }));
   for (const materialId of initialMaterialIds) {
     const resolved = resolveMaterialData(project, materialId);
     if (!resolved.data || resolved.diagnostics.some((item) => item.severity === 'error'))

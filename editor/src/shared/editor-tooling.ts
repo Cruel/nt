@@ -166,6 +166,7 @@ export interface ShaderCompileOutput {
   variant: string;
   sourceIdentity: string;
   dependencies: string[];
+  dependencyRevisions: Array<{ identity: string; contentHash: `sha256:${string}` }>;
   outputPath: string;
   runtimePath: string;
   cacheKey: string;

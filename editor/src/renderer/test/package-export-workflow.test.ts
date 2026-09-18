@@ -169,6 +169,7 @@ describe('package export workflow', () => {
           sourceIdentity:
             programs[program]![stage === 'vertex' ? 'vertexSource' : 'fragmentSource'],
           dependencies: [],
+          dependencyRevisions: [],
           runtimePath: `project:/shaders/derived/glsl-330/basic-program-identity.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
           outputPath: `/project/.noveltea/build/shaders/derived/glsl-330/basic-program-identity.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
           cacheKey: `basic-${stage}-glsl-330`,
