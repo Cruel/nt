@@ -1,5 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { captureAuthoringValidationAuthorityInputs } from '../../shared/authoring-cache';
+import type { ProjectSourceInventory } from '../../shared/project-source-inventory';
 import type { EditorProjectState } from '../../shared/project-schema/editor-project-state';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
@@ -116,6 +118,9 @@ class ActiveProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
   }
   inspectFresh(value: string): Promise<'missing' | 'file' | 'directory'> {
     return this.raw.inspect(value);
+  }
+  readPathMetadata(value: string) {
+    return this.raw.readPathMetadata(value);
   }
   async listDirectory(value: string): Promise<readonly string[]> {
     const key = this.key(value);
@@ -283,6 +288,10 @@ export class ActiveProjectWorkspaceSession {
 
   knownFileRevision(relativePath: string): `sha256:${string}` | undefined {
     return this.snapshotValue.fileRevisions[relativePath]?.contentHash;
+  }
+
+  async captureAuthoringValidationAuthority(): Promise<ProjectSourceInventory | null> {
+    return captureAuthoringValidationAuthorityInputs(this.fileSystem, this.snapshotValue);
   }
 
   async readFreshRevision(relativePath: string): Promise<`sha256:${string}` | 'absent'> {

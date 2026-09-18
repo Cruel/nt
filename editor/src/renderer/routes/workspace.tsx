@@ -55,6 +55,7 @@ import { usePreferencesStore } from '@/stores/preferences-store';
 import { useTemplateRegistryStore } from '@/export/template-registry-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { mergeEditorValidationDiagnostics } from '@/diagnostics/validation-diagnostic-merge';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { useCloseGuardStore } from '@/workbench/close-guard-store';
 import { Workbench } from '@/workbench/Workbench';
@@ -1591,13 +1592,12 @@ export function WorkspacePage() {
       : [...persistentRecoveryDiagnosticsRef.current];
     try {
       const native = await window.noveltea.validateProject(projectSessionId, project, authority);
-      diagnostics.push(
-        ...(saveDirty
-          ? native.diagnostics.filter((diagnostic) =>
-              diagnostic.code?.startsWith('localization.font_coverage'),
-            )
-          : native.diagnostics),
-      );
+      const nativeDiagnostics = saveDirty
+        ? native.diagnostics.filter((diagnostic) =>
+            diagnostic.code?.startsWith('localization.font_coverage'),
+          )
+        : native.diagnostics;
+      diagnostics = mergeEditorValidationDiagnostics(diagnostics, nativeDiagnostics);
     } catch (error) {
       if (!saveDirty)
         diagnostics = collectWorkspaceProjectDiagnostics(

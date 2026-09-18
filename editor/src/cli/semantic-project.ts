@@ -8,6 +8,7 @@ import {
   type AuthoringCollectionKey,
 } from '../shared/project-schema/authoring-collections';
 import type { AuthoringProject, ReferenceTarget } from '../shared/project-schema/authoring-project';
+import type { ProjectValidationDiagnostic } from '../shared/project-schema/project-validation';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { buildShaderMaterialProject } from '../shared/project-schema/shader-material-project';
 import { localizationFontCoverageLocales } from '../shared/localization-font-coverage';
@@ -40,6 +41,7 @@ export interface CliOpenedProject {
   readonly editorState: LoadedProjectWorkspaceSnapshot['project']['editor'];
   readonly sourceContributions: ProjectWorkspaceSourceContributions;
   readonly validationContributions: readonly AuthoringValidationContribution[];
+  readonly authoringDiagnostics: readonly ProjectValidationDiagnostic[];
 }
 
 export interface CliMutationPlan {
@@ -108,6 +110,7 @@ export async function openCliProject(
       editorState: opened.snapshot.project.editor,
       sourceContributions: opened.sourceContributions,
       validationContributions: opened.validationContributions,
+      authoringDiagnostics: opened.diagnostics,
     },
     diagnostics: opened.diagnostics.map((item) =>
       cliDiagnostic(item.code, item.path, item.message, item.severity),

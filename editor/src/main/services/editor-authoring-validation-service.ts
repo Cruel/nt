@@ -38,22 +38,41 @@ export class EditorAuthoringValidationService {
     if (!this.diskAuthoritative(input.workspace, input.project, input.authority))
       return input.validateSessionLocal();
 
-    const [{ runNovelTeaCli }, nativeTools] = await Promise.all([
-      import('../../cli/application'),
-      this.options.nativeTools
-        ? Promise.resolve(this.options.nativeTools)
-        : import('../../cli/native-tool-service-node').then((module) =>
-            module.createNodeNovelTeaCliNativeToolService(),
+    return input.workspace.runExclusive(async () => {
+      if (!this.diskAuthoritative(input.workspace, input.project, input.authority))
+        return input.validateSessionLocal();
+      const expectedInputs = await input.workspace.captureAuthoringValidationAuthority();
+      if (!expectedInputs) return input.validateSessionLocal();
+
+      const [{ AuthoringValidationAuthorityMismatchError, runNovelTeaCli }, nativeTools] =
+        await Promise.all([
+          import('../../cli/application'),
+          this.options.nativeTools
+            ? Promise.resolve(this.options.nativeTools)
+            : import('../../cli/native-tool-service-node').then((module) =>
+                module.createNodeNovelTeaCliNativeToolService(),
+              ),
+        ]);
+      try {
+        const result = await runNovelTeaCli(['--json', 'validate'], {
+          cwd: input.workspace.projectRoot(),
+          nativeTools,
+          expectedAuthoringValidationInputs: expectedInputs,
+        });
+        return {
+          ok: true,
+          success: result.envelope.success,
+          diagnostics: (result.editorDiagnostics ?? result.envelope.diagnostics).map(
+            (diagnostic) => ({
+              ...diagnostic,
+            }),
           ),
-    ]);
-    const result = await runNovelTeaCli(['--json', 'validate'], {
-      cwd: input.workspace.projectRoot(),
-      nativeTools,
+        };
+      } catch (error) {
+        if (error instanceof AuthoringValidationAuthorityMismatchError)
+          return input.validateSessionLocal();
+        throw error;
+      }
     });
-    return {
-      ok: true,
-      success: result.envelope.success,
-      diagnostics: result.envelope.diagnostics.map((diagnostic) => ({ ...diagnostic })),
-    };
   }
 }
