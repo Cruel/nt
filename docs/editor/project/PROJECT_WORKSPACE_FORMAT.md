@@ -239,16 +239,21 @@ pipeline. Clean disk validation may publish an immutable Project-local authoring
 containing the exact source inventory, canonical diagnostics, and a digest-protected per-source
 contribution artifact. Each canonical authoring source contribution is keyed by its Project-relative
 path and exact content hash and retains its normalized parsed JSON fragment or source text, schema
-admission, precise semantic owner paths, and locally attributable validation diagnostics. The same
-artifact retains dependency-graph contributions and source-analysis products with the exact source
-revisions they depend on, so unchanged semantic work remains admissible for later dependency-aware
-validation. A stale whole-validation result may therefore reuse unchanged source assembly
-contributions without rereading or reparsing them, while changed-source semantic contributions are
-filtered out. If only metadata changed, the affected source is reread and hashed; exact byte identity
-re-admits the prior contribution. Added, deleted, structurally reclassified, or otherwise uncertain
-candidate-source inventory disables contribution reuse conservatively. This layer currently reuses
-source assembly contributions while complete Project-wide semantic validation still runs after a
-partial reassembly; dependency-aware validation consumes the retained semantic products separately.
+admission, precise semantic owner paths, and only validation diagnostics whose inputs are provably
+confined to that physical source. Attribution alone does not make a cross-record/reference finding
+source-local. The same artifact retains dependency-graph contributions and source-analysis products
+with the exact source revisions they depend on. Source-analysis products additionally depend on the
+complete analyzed-source revision set because analyzer byte/occurrence limits are snapshot-wide;
+Asset-backed text sources participate through their exact external source-file revisions. A stale
+whole-validation result may therefore rebuild from cached normalized fragments without rereading or
+reparsing unrelated unchanged JSON sources: fresh fragments are normalized by their owning schemas,
+and malformed or otherwise uncertain input falls back to the canonical full-Project parser.
+Changed-source semantic contributions are filtered out. If only metadata changed, the affected source
+is reread and hashed; exact byte identity re-admits the prior contribution. Added, deleted,
+structurally reclassified, or otherwise uncertain candidate-source inventory disables contribution
+reuse conservatively. This layer currently reuses source assembly contributions while complete
+Project-wide semantic validation still runs after a partial reassembly; dependency-aware validation
+consumes the retained semantic products separately.
 
 Projects with authored Shaders or Materials also run shader readiness for `glsl-330`, `essl-300`, and
 `metal` through the standalone `noveltea` native tooling boundary. The retired

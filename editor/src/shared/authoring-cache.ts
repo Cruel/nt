@@ -115,6 +115,9 @@ const sourceRevisionSchema = z
     contentHash: digestSchema,
   })
   .strict();
+const externalSourceRevisionSchema = sourceRevisionSchema
+  .extend({ byteSize: z.number().int().nonnegative() })
+  .strict();
 const dependencyContributionSchema = z
   .object({
     key: z.string().min(1),
@@ -135,6 +138,7 @@ const contributionsSchema = z
     buildIdentity: z.literal(buildIdentity),
     projectRoot: z.string().min(1),
     entries: z.array(sourceContributionSchema),
+    externalSourceRevisions: z.array(externalSourceRevisionSchema),
     dependencyContributions: z.array(dependencyContributionSchema),
     sourceAnalyses: z.array(sourceAnalysisContributionSchema),
   })
@@ -325,44 +329,72 @@ export async function readReusableAuthoringContributions(
 
     const priorByPath = new Map(prior.entries.map((entry) => [entry.path, entry]));
     const currentByPath = new Map(current.entries.map((entry) => [entry.path, entry]));
-    const reusable: z.infer<typeof sourceContributionSchema>[] = [];
-    for (const contribution of artifact.entries) {
-      const previousInput = priorByPath.get(contribution.path);
-      const currentInput = currentByPath.get(contribution.path);
-      if (!previousInput || !currentInput || contribution.byteSize !== previousInput.byteSize)
-        return null;
+    const revisionIsReusable = async (
+      path: string,
+      byteSize: number,
+      contentHash: string,
+    ): Promise<boolean> => {
+      const previousInput = priorByPath.get(path);
+      const currentInput = currentByPath.get(path);
+      if (!previousInput || !currentInput || byteSize !== previousInput.byteSize)
+        throw new Error('Cached content revision is not part of the published source inventory.');
       if (
         previousInput.byteSize === currentInput.byteSize &&
         previousInput.mtimeNanoseconds === currentInput.mtimeNanoseconds
-      ) {
-        reusable.push(contribution);
-        continue;
-      }
-      const bytes = await fileSystem.readBytes(fileSystem.joinPath(root, contribution.path));
-      if (
+      )
+        return true;
+      const bytes = await fileSystem.readBytes(fileSystem.joinPath(root, path));
+      return (
         bytes.byteLength === currentInput.byteSize &&
-        bytes.byteLength === contribution.byteSize &&
-        (await sha256PrefixedBytes(bytes)) === contribution.contentHash
+        bytes.byteLength === byteSize &&
+        (await sha256PrefixedBytes(bytes)) === contentHash
+      );
+    };
+
+    const reusable: z.infer<typeof sourceContributionSchema>[] = [];
+    for (const contribution of artifact.entries)
+      if (
+        await revisionIsReusable(contribution.path, contribution.byteSize, contribution.contentHash)
       )
         reusable.push(contribution);
+
+    const reusableExternalSourceRevisions = new Map<string, string>();
+    let previousExternalPath: string | null = null;
+    const contributionPaths = new Set(artifact.entries.map((entry) => entry.path));
+    for (const revision of artifact.externalSourceRevisions) {
+      if (
+        contributionPaths.has(revision.path) ||
+        (previousExternalPath !== null &&
+          compareProjectWorkspaceUnicodeCodePoints(revision.path, previousExternalPath) <= 0)
+      )
+        return null;
+      previousExternalPath = revision.path;
+      if (await revisionIsReusable(revision.path, revision.byteSize, revision.contentHash))
+        reusableExternalSourceRevisions.set(revision.path, revision.contentHash);
     }
     if (!(await settled(fileSystem, root))) return null;
     const sourceContributions = contributionRecord(reusable);
     if (!sourceContributions) return null;
-    const cachedSourcePaths = new Set(artifact.entries.map((entry) => entry.path));
+    const cachedRevisionPaths = new Set([
+      ...artifact.entries.map((entry) => entry.path),
+      ...artifact.externalSourceRevisions.map((entry) => entry.path),
+    ]);
     const semanticReuseUncertain = current.entries.some((entry) => {
       const previous = priorByPath.get(entry.path);
       return (
-        !cachedSourcePaths.has(entry.path) &&
+        !cachedRevisionPaths.has(entry.path) &&
         previous !== undefined &&
         (previous.byteSize !== entry.byteSize ||
           previous.mtimeNanoseconds !== entry.mtimeNanoseconds)
       );
     });
     const reusableRevision = (revisions: readonly { path: string; contentHash: string }[]) =>
-      revisions.every(
-        (revision) => sourceContributions[revision.path]?.contentHash === revision.contentHash,
-      );
+      revisions.every((revision) => {
+        const admittedHash =
+          sourceContributions[revision.path]?.contentHash ??
+          reusableExternalSourceRevisions.get(revision.path);
+        return admittedHash === revision.contentHash;
+      });
     return {
       sourceContributions,
       dependencyContributions: semanticReuseUncertain
@@ -477,19 +509,43 @@ function semanticSourceRevisions(
     }
     return found;
   };
+  const addRevisionPath = (path: string): boolean => {
+    const sourceContribution = sourceContributions[path];
+    if (sourceContribution) {
+      revisions.set(path, sourceContribution.contentHash);
+      return true;
+    }
+    const externalRevision = dependencyAnalysis.externalSourceRevisions.get(path);
+    if (!externalRevision) return false;
+    revisions.set(path, externalRevision.contentHash);
+    return true;
+  };
+  const addGlobalSourceAnalysisInputs = (): boolean => {
+    for (const [key, analyses] of dependencyAnalysis.sourceAnalyses) {
+      if (analyses.length === 0) continue;
+      const ownerContribution = dependencyAnalysis.contributions.byKey.get(key);
+      if (!ownerContribution || !addMostSpecificOwner(ownerContribution.ownerPath)) return false;
+      for (const path of dependencyAnalysis.sourcePathsByContributionKey.get(key) ?? [])
+        if (!addRevisionPath(path)) return false;
+    }
+    return true;
+  };
 
   if (!addMostSpecificOwner(contribution.ownerPath)) return null;
-  for (const path of dependencyAnalysis.sourcePathsByContributionKey.get(contributionKey) ?? []) {
-    const sourceContribution = sourceContributions[path];
-    if (!sourceContribution) return null;
-    revisions.set(path, sourceContribution.contentHash);
-  }
-  if (scope === 'source-analysis')
+  for (const path of dependencyAnalysis.sourcePathsByContributionKey.get(contributionKey) ?? [])
+    if (!addRevisionPath(path)) return null;
+  if (scope === 'source-analysis') {
+    // Source-analysis limits are snapshot-wide. Any analyzed source can alter another owner's
+    // limit diagnostics, so a persisted analysis is reusable only while the complete analyzed
+    // source revision set remains exact.
+    if (!addGlobalSourceAnalysisInputs()) return null;
     return [...revisions.entries()]
       .sort(([left], [right]) => compareProjectWorkspaceUnicodeCodePoints(left, right))
       .map(([path, contentHash]) => ({ path, contentHash }));
+  }
 
   if ((dependencyAnalysis.sourceAnalyses.get(contributionKey)?.length ?? 0) > 0) {
+    if (!addGlobalSourceAnalysisInputs()) return null;
     for (const sourceContribution of Object.values(sourceContributions)) {
       const contributesSymbols =
         sourceContribution.path === 'project.json' ||
@@ -562,6 +618,20 @@ export async function publishAuthoringCache(
       })
     )
       return;
+    const contributionPaths = new Set(contributionEntries.map((entry) => entry.path));
+    const externalSourceRevisions = dependencyAnalysis
+      ? [...dependencyAnalysis.externalSourceRevisions.entries()]
+          .filter(([path]) => !contributionPaths.has(path))
+          .sort(([left], [right]) => compareProjectWorkspaceUnicodeCodePoints(left, right))
+          .map(([path, revision]) => ({ path, ...revision }))
+      : [];
+    if (
+      externalSourceRevisions.some((revision) => {
+        const input = inputByPath.get(revision.path);
+        return !input || input.byteSize !== revision.byteSize;
+      })
+    )
+      return;
     const dependencyContributions = dependencyAnalysis
       ? [...dependencyAnalysis.contributions.byKey.entries()]
           .sort(([left], [right]) => compareProjectWorkspaceUnicodeCodePoints(left, right))
@@ -601,6 +671,7 @@ export async function publishAuthoringCache(
       buildIdentity,
       projectRoot: root,
       entries: contributionEntries,
+      externalSourceRevisions,
       dependencyContributions,
       sourceAnalyses,
     });

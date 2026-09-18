@@ -386,6 +386,184 @@ describe('persistent CLI validation', () => {
     );
   });
 
+  it('does not retain cross-source validation findings as source-local diagnostics', async () => {
+    const root = await fixture(false, (project) => {
+      project.rooms.start!.traits = ['shared'];
+    });
+    const nativeTools = tools();
+    expect(
+      (await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools })).exitCode,
+    ).toBe(4);
+
+    const traitsPath = path.join(root, 'traits.json');
+    const traits = JSON.parse(await readFile(traitsPath, 'utf8')) as Record<string, unknown>;
+    traits.shared = {
+      id: 'shared',
+      label: 'Shared',
+      ownerKinds: ['room'],
+      properties: [],
+    };
+    await writeFile(traitsPath, JSON.stringify(traits));
+    expect(
+      (await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools })).exitCode,
+    ).toBe(0);
+
+    const currentGeneration = await generation(root);
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(
+          root,
+          '.noveltea/cache/authoring/generations',
+          currentGeneration,
+          'contributions.json',
+        ),
+        'utf8',
+      ),
+    ) as {
+      entries: Array<{ path: string; localDiagnostics: Array<{ message: string }> }>;
+    };
+    const room = artifact.entries.find((entry) => entry.path === 'records/rooms/start.json');
+    expect(room?.localDiagnostics.some((item) => item.message.includes("Trait 'shared'"))).toBe(
+      false,
+    );
+  });
+
+  it('binds cached source analyses to the complete analyzed-source revision set', async () => {
+    const root = await fixture(true, (project) => {
+      project.scripts.other = createDefaultAuthoringRecord(
+        'scripts',
+        'other',
+      ) as typeof project.scripts.other;
+      project.scripts.other!.data.source = {
+        kind: 'inline-lua',
+        source: 'local other = "value"',
+      };
+    });
+    const nativeTools = tools();
+    expect(
+      (await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools })).exitCode,
+    ).toBe(0);
+    const currentGeneration = await generation(root);
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(
+          root,
+          '.noveltea/cache/authoring/generations',
+          currentGeneration,
+          'contributions.json',
+        ),
+        'utf8',
+      ),
+    ) as {
+      sourceAnalyses: Array<{
+        sourceRevisions: Array<{ path: string }>;
+      }>;
+    };
+    const analysis = artifact.sourceAnalyses.find((entry) =>
+      entry.sourceRevisions.some((revision) => revision.path === 'scripts/logic.lua'),
+    );
+    expect(analysis?.sourceRevisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'scripts/logic.lua' }),
+        expect.objectContaining({ path: 'scripts/other.lua' }),
+      ]),
+    );
+  });
+
+  it('persists and re-admits exact Asset-backed source-analysis revisions', async () => {
+    const sourceText = 'local value = "asset-backed"\n';
+    const contentHash = await sha256PrefixedUtf8(sourceText);
+    const root = await fixture(false, (project) => {
+      project.assets['script-source'] = {
+        id: 'script-source',
+        label: 'Script Source',
+        data: {
+          kind: 'script',
+          source: { type: 'project-file', path: 'assets/lua/shared.lua' },
+          aliases: [],
+          extension: '.lua',
+          byteSize: sourceText.length,
+          contentHash,
+          imageMetadata: null,
+        },
+      } as never;
+      project.scripts.logic = createDefaultAuthoringRecord(
+        'scripts',
+        'logic',
+      ) as typeof project.scripts.logic;
+      project.scripts.logic!.data.source = {
+        kind: 'asset',
+        asset: { $ref: { collection: 'assets', id: 'script-source' } },
+      };
+    });
+    const sourcePath = path.join(root, 'assets/lua/shared.lua');
+    await mkdir(path.dirname(sourcePath), { recursive: true });
+    await writeFile(sourcePath, sourceText);
+    const nativeTools = tools();
+    expect(
+      (await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools })).exitCode,
+    ).toBe(0);
+
+    const currentGeneration = await generation(root);
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(
+          root,
+          '.noveltea/cache/authoring/generations',
+          currentGeneration,
+          'contributions.json',
+        ),
+        'utf8',
+      ),
+    ) as {
+      externalSourceRevisions: Array<{ path: string; contentHash: string }>;
+      sourceAnalyses: Array<{
+        sourceRevisions: Array<{ path: string; contentHash: string }>;
+      }>;
+    };
+    expect(artifact.externalSourceRevisions).toContainEqual({
+      path: 'assets/lua/shared.lua',
+      contentHash,
+      byteSize: sourceText.length,
+    });
+    expect(
+      artifact.sourceAnalyses.some((entry) =>
+        entry.sourceRevisions.some(
+          (revision) =>
+            revision.path === 'assets/lua/shared.lua' && revision.contentHash === contentHash,
+        ),
+      ),
+    ).toBe(true);
+
+    const touched = new Date(Date.now() + 5_000);
+    await utimes(sourcePath, touched, touched);
+    let rehashed = false;
+    class AssetMetadataMissReads extends NodeProjectWorkspaceFileSystem {
+      override async readBytes(file: string) {
+        if (file === sourcePath) rehashed = true;
+        return super.readBytes(file);
+      }
+    }
+    const reusable = await readReusableAuthoringContributions(new AssetMetadataMissReads(), root);
+    expect(rehashed).toBe(true);
+    expect(
+      reusable?.sourceAnalyses.some((entry) =>
+        entry.sourceRevisions.some((revision) => revision.path === 'assets/lua/shared.lua'),
+      ),
+    ).toBe(true);
+
+    await writeFile(sourcePath, 'local value = "asset-changed"\n');
+    const changed = await readReusableAuthoringContributions(
+      new NodeProjectWorkspaceFileSystem(),
+      root,
+    );
+    expect(
+      changed?.sourceAnalyses.some((entry) =>
+        entry.sourceRevisions.some((revision) => revision.path === 'assets/lua/shared.lua'),
+      ),
+    ).toBe(false);
+  });
+
   it('invalidates a semantic contribution when a declared derivation source changes', async () => {
     const root = await fixture(false, (project) => {
       project.rooms.start!.data.description = {
