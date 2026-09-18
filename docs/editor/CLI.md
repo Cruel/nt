@@ -241,8 +241,14 @@ paths still resolve to the same source revisions. Checks affected by changed sou
 findings are reused. Added, deleted, reclassified, or otherwise uncertain source inventory falls back
 to fresh validation rather than risking stale semantics. `NOVELTEA_CLI_TRACE=1` exposes standalone
 admission/fallback and island-import traces without adding routine cache fields to validation output.
-Unsaved editor drafts never publish through this CLI disk-validation path. The cache is disposable
-and excluded from portable Project bundles.
+Clean saved editor validation uses this same disk-authoritative `validate` path, so an eligible editor
+validation may consume or publish the same generation used by later CLI validation. The renderer marks
+validation session-local whenever Project content, draft state, or pending field input is dirty, and the
+main process independently requires a coherent active Workspace whose persisted Project content matches
+the submitted Project before allowing cache admission/publication. A mismatched or unreconciled save
+therefore validates in memory only; the previous clean generation continues to describe disk until the
+active Workspace has reconciled the saved physical generation. Unsaved editor drafts never publish to
+the persistent authoring cache. The cache is disposable and excluded from portable Project bundles.
 
 ## Machine-readable protocol
 

@@ -1,3 +1,5 @@
+import type { EditorValidationAuthority } from './editor-tooling';
+
 export interface AppInfo {
   version: string;
   electronVersion: string;
@@ -49,7 +51,11 @@ interface NovelTeaElectronApiContract {
   onProjectImportRequested(callback: () => void): () => void;
   openProject(projectPath: string): Promise<OpenProjectResponse>;
   closeActiveProject(): Promise<void>;
-  validateProject(projectSessionId: string, project: unknown): Promise<ValidationResponse>;
+  validateProject(
+    projectSessionId: string,
+    project: unknown,
+    authority: EditorValidationAuthority,
+  ): Promise<ValidationResponse>;
   listPlaybackTests(project: unknown): Promise<TestListResponse>;
   prepareEditorRuntime(
     projectSessionId: string,

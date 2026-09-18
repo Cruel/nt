@@ -1585,18 +1585,25 @@ export function WorkspacePage() {
 
   async function validate() {
     if (!project || !projectSessionId) return;
-    const diagnostics = collectWorkspaceProjectDiagnostics(
-      project,
-      persistentRecoveryDiagnosticsRef.current,
-    );
+    const authority = saveDirty ? 'session-local' : 'disk-authoritative';
+    let diagnostics = saveDirty
+      ? collectWorkspaceProjectDiagnostics(project, persistentRecoveryDiagnosticsRef.current)
+      : [...persistentRecoveryDiagnosticsRef.current];
     try {
-      const native = await window.noveltea.validateProject(projectSessionId, project);
+      const native = await window.noveltea.validateProject(projectSessionId, project, authority);
       diagnostics.push(
-        ...native.diagnostics.filter((diagnostic) =>
-          diagnostic.code?.startsWith('localization.font_coverage'),
-        ),
+        ...(saveDirty
+          ? native.diagnostics.filter((diagnostic) =>
+              diagnostic.code?.startsWith('localization.font_coverage'),
+            )
+          : native.diagnostics),
       );
     } catch (error) {
+      if (!saveDirty)
+        diagnostics = collectWorkspaceProjectDiagnostics(
+          project,
+          persistentRecoveryDiagnosticsRef.current,
+        );
       diagnostics.push({
         code: 'localization.font_coverage.tool',
         severity: 'error',

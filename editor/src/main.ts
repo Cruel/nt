@@ -61,6 +61,7 @@ import {
   resolveProjectOriginalAssetUrl,
 } from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
+import { EditorAuthoringValidationService } from './main/services/editor-authoring-validation-service';
 import { EditorRuntimeCacheService } from './main/services/editor-runtime-cache-service';
 import { importDesktopProject } from './main/services/desktop-project-import-service';
 import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
@@ -289,6 +290,7 @@ const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
   : undefined;
 const activeProjectSessions = new ActiveProjectSessionService();
+const editorAuthoringValidationService = new EditorAuthoringValidationService();
 const editorRuntimeCache = new EditorRuntimeCacheService();
 const assetMetadataInspectionService = new AssetMetadataInspectionService(activeProjectSessions);
 const localizationFontCoverageService = new LocalizationFontCoverageService();
@@ -973,47 +975,56 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.VALIDATE_PROJECT,
     (arguments_) => validateProjectArgumentsSchema.parse(arguments_),
-    async (projectSessionId, project) => {
+    async (projectSessionId, project, authority) => {
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-      const result = await validateProject(project);
-      try {
-        const fontDiagnostics = await localizationFontCoverageService.validate(
-          projectSessionId,
-          projectRoot,
-          project,
-        );
-        const diagnostics = [
-          ...result.diagnostics,
-          ...fontDiagnostics.map((diagnostic) => ({
-            code: diagnostic.code,
-            severity: diagnostic.severity,
-            category: 'Localization font coverage',
-            path: diagnostic.path,
-            message: `${diagnostic.message} Message: ${diagnostic.messageId}. Effective stack: ${diagnostic.fontStack.join(', ')}.`,
-          })),
-        ];
-        return {
-          ...result,
-          success:
-            result.success && !diagnostics.some((diagnostic) => diagnostic.severity === 'error'),
-          diagnostics,
-        };
-      } catch (error) {
-        return {
-          ...result,
-          success: false,
-          diagnostics: [
-            ...result.diagnostics,
-            {
-              code: 'localization.font_coverage.tool',
-              severity: 'error' as const,
-              category: 'Localization font coverage',
-              path: '/localization',
-              message: error instanceof Error ? error.message : String(error),
-            },
-          ],
-        };
-      }
+      const workspace = activeProjectSessions.requireActiveWorkspace(projectSessionId);
+      return editorAuthoringValidationService.validate({
+        workspace,
+        project,
+        authority,
+        validateSessionLocal: async () => {
+          const result = await validateProject(project);
+          try {
+            const fontDiagnostics = await localizationFontCoverageService.validate(
+              projectSessionId,
+              projectRoot,
+              project,
+            );
+            const diagnostics = [
+              ...result.diagnostics,
+              ...fontDiagnostics.map((diagnostic) => ({
+                code: diagnostic.code,
+                severity: diagnostic.severity,
+                category: 'Localization font coverage',
+                path: diagnostic.path,
+                message: `${diagnostic.message} Message: ${diagnostic.messageId}. Effective stack: ${diagnostic.fontStack.join(', ')}.`,
+              })),
+            ];
+            return {
+              ...result,
+              success:
+                result.success &&
+                !diagnostics.some((diagnostic) => diagnostic.severity === 'error'),
+              diagnostics,
+            };
+          } catch (error) {
+            return {
+              ...result,
+              success: false,
+              diagnostics: [
+                ...result.diagnostics,
+                {
+                  code: 'localization.font_coverage.tool',
+                  severity: 'error' as const,
+                  category: 'Localization font coverage',
+                  path: '/localization',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              ],
+            };
+          }
+        },
+      });
     },
   );
 
