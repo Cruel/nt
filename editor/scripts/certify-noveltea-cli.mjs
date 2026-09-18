@@ -659,6 +659,41 @@ const differentialCases = [
   },
   { name: 'usages', args: (root) => ['--project', root, '--json', 'usages', 'rooms', 'gallery'] },
   {
+    name: 'asset-audit',
+    args: (root) => ['--project', root, '--json', 'asset', 'audit'],
+  },
+  {
+    name: 'asset-audit-unrelated-malformed',
+    args: (root) => ['--project', root, '--json', 'asset', 'audit'],
+    prepare: async (root) => {
+      const manifestPath = path.join(root, 'project.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      manifest.settings = null;
+      await writeJson(manifestPath, manifest);
+      const dialoguesRoot = path.join(root, 'records', 'dialogues');
+      await mkdir(dialoguesRoot, { recursive: true });
+      await writeFile(path.join(dialoguesRoot, 'broken.json'), '{"id":');
+    },
+  },
+  {
+    name: 'asset-audit-malformed-asset',
+    args: (root) => ['--project', root, '--json', 'asset', 'audit'],
+    prepare: async (root) => {
+      const assetsRoot = path.join(root, 'records', 'assets');
+      await mkdir(assetsRoot, { recursive: true });
+      await writeJson(path.join(assetsRoot, 'broken.json'), {
+        id: 'broken',
+        label: 'Broken',
+        data: {
+          kind: 'not-an-asset-kind',
+          source: { type: 'project-file', path: 'assets/text/broken.txt' },
+          aliases: [],
+          imageMetadata: null,
+        },
+      });
+    },
+  },
+  {
     name: 'platform-profiles',
     args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
   },
@@ -1185,6 +1220,143 @@ async function certifyAuthoringCache(tempRoot, pristine) {
     invoke('authoring native uncertainty resolved', false);
   }
   process.stdout.write('[authoring-cache] cold/warm, parity, invalidation, recovery: PASS\n');
+}
+
+function certifyEditorAuthoringCacheSharing() {
+  requireSuccess(
+    'editor authoring-cache sharing integration',
+    runPnpm(
+      [
+        'exec',
+        'vp',
+        'test',
+        'run',
+        'src/renderer/test/editor-authoring-validation-service.test.ts',
+      ],
+      { cwd: editorRoot },
+    ),
+  );
+  process.stdout.write('[editor-authoring-cache] clean sharing and dirty isolation: PASS\n');
+}
+
+function elapsedMilliseconds(operation) {
+  const started = process.hrtime.bigint();
+  const result = operation();
+  const elapsed = Number(process.hrtime.bigint() - started) / 1_000_000;
+  return { result, elapsed };
+}
+
+function median(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+}
+
+function summarizeBenchmark(values) {
+  return {
+    medianMs: Math.round(median(values) * 10) / 10,
+    minimumMs: Math.round(Math.min(...values) * 10) / 10,
+    maximumMs: Math.round(Math.max(...values) * 10) / 10,
+  };
+}
+
+async function certifyPerformanceEnvelope(tempRoot, pristine) {
+  const runs = 5;
+  const measureRepeated = (label, invoke) => {
+    const samples = [];
+    for (let index = 0; index < runs; index += 1) {
+      const { result, elapsed } = elapsedMilliseconds(invoke);
+      requireSuccess(`${label} benchmark ${index + 1}`, result);
+      samples.push(elapsed);
+    }
+    return summarizeBenchmark(samples);
+  };
+
+  const nodeRoot = path.join(tempRoot, 'performance-node');
+  const nativeRoot = path.join(tempRoot, 'performance-native');
+  const templateRegistryRoot = path.join(tempRoot, 'performance-templates');
+  await resetCase(pristine, nodeRoot);
+  await resetCase(pristine, nativeRoot);
+  await mkdir(templateRegistryRoot, { recursive: true });
+  const benchmarkEnvironment = {
+    ...process.env,
+    NOVELTEA_TEMPLATE_REGISTRY_ROOT: templateRegistryRoot,
+  };
+
+  const report = {
+    targetsMs: { trivial: 300, lightweightProject: 500 },
+    note: 'Engineering observations only; certification does not fail on wall-clock thresholds.',
+    cases: {
+      nodeVersion: measureRepeated('Node version', () => runNode(['--json', '--version'])),
+      scriptcVersion: measureRepeated('ScriptC version', () => runNative(['--json', '--version'])),
+      nodeTemplateList: measureRepeated('Node platform template list', () =>
+        runNode(['--json', 'platform', 'template', 'list'], { env: benchmarkEnvironment }),
+      ),
+      scriptcTemplateList: measureRepeated('ScriptC platform template list', () =>
+        runNative(['--json', 'platform', 'template', 'list'], { env: benchmarkEnvironment }),
+      ),
+      nodeAssetAudit: measureRepeated('Node asset audit', () =>
+        runNode(['--project', nodeRoot, '--json', 'asset', 'audit'], {
+          cwd: nodeRoot,
+          env: benchmarkEnvironment,
+        }),
+      ),
+      scriptcAssetAudit: measureRepeated('ScriptC asset audit', () =>
+        runNative(['--project', nativeRoot, '--json', 'asset', 'audit'], {
+          cwd: nativeRoot,
+          env: benchmarkEnvironment,
+        }),
+      ),
+      nodePlatformProfiles: measureRepeated('Node platform profiles', () =>
+        runNode(['--project', nodeRoot, '--json', 'platform', 'profiles'], {
+          cwd: nodeRoot,
+          env: benchmarkEnvironment,
+        }),
+      ),
+      scriptcPlatformProfiles: measureRepeated('ScriptC platform profiles', () =>
+        runNative(['--project', nativeRoot, '--json', 'platform', 'profiles'], {
+          cwd: nativeRoot,
+          env: benchmarkEnvironment,
+        }),
+      ),
+    },
+  };
+
+  const nodeValidateRoot = path.join(tempRoot, 'performance-node-validate');
+  const scriptcValidateRoot = path.join(tempRoot, 'performance-scriptc-validate');
+  await resetCase(pristine, nodeValidateRoot);
+  await resetCase(pristine, scriptcValidateRoot);
+  const nodeCold = elapsedMilliseconds(() =>
+    runNode(['--project', nodeValidateRoot, '--json', 'validate'], { cwd: nodeValidateRoot }),
+  );
+  requireSuccess('Node cold validate benchmark', nodeCold.result);
+  const nodeWarm = elapsedMilliseconds(() =>
+    runNode(['--project', nodeValidateRoot, '--json', 'validate'], { cwd: nodeValidateRoot }),
+  );
+  requireSuccess('Node warm validate benchmark', nodeWarm.result);
+  const scriptcCold = elapsedMilliseconds(() =>
+    runNative(['--project', scriptcValidateRoot, '--json', 'validate'], {
+      cwd: scriptcValidateRoot,
+    }),
+  );
+  requireSuccess('ScriptC cold validate benchmark', scriptcCold.result);
+  const scriptcWarm = elapsedMilliseconds(() =>
+    runNative(['--project', scriptcValidateRoot, '--json', 'validate'], {
+      cwd: scriptcValidateRoot,
+    }),
+  );
+  requireSuccess('ScriptC warm validate benchmark', scriptcWarm.result);
+  report.cases.nodeValidate = {
+    coldMs: Math.round(nodeCold.elapsed * 10) / 10,
+    warmMs: Math.round(nodeWarm.elapsed * 10) / 10,
+  };
+  report.cases.scriptcValidate = {
+    coldMs: Math.round(scriptcCold.elapsed * 10) / 10,
+    warmMs: Math.round(scriptcWarm.elapsed * 10) / 10,
+  };
+
+  process.stdout.write(`[performance] ${JSON.stringify(report)}\n`);
+  return report;
 }
 
 async function certifyRuntimeCacheInvalidation(tempRoot, pristine) {
@@ -2519,6 +2691,8 @@ async function main() {
     await certifyTypedShaders(tempRoot);
     await certifyRawShaderc(tempRoot);
     await certifyAuthoringCache(tempRoot, pristine);
+    certifyEditorAuthoringCacheSharing();
+    const performance = await certifyPerformanceEnvelope(tempRoot, pristine);
     await certifyTestCommandParity(tempRoot, pristine);
     await certifyRuntimeCacheInvalidation(tempRoot, pristine);
     await certifyNativeOperations(tempRoot, pristine);
@@ -2548,6 +2722,9 @@ async function main() {
         testCommandParity: true,
         runtimeCacheCertification: true,
         authoringCacheCertification: true,
+        editorAuthoringCacheSharingCertification: true,
+        scopedPreparationCertification: true,
+        performance,
         featureLabSuite: true,
         relocation: true,
         sourceLeakageAudit: true,
