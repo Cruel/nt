@@ -209,6 +209,37 @@ The standalone release keeps operating-system/native capabilities in a small sta
 
 Rename/delete use the shared dependency graph and source recognizers. Proven rewriteable source ranges may be changed transactionally; exact manual references block unsafe rename; possible lexical references require explicit acknowledgement; delete's `--force` handling of exact blockers is independent from possible-source acknowledgement. `--dry-run` performs discovery, assembly, validation/preflight, graph/source analysis, and projected transaction planning without changing tracked or ignored project files.
 
+## Persistent validation cache
+
+`validate` can reuse unchanged disk-authoritative validation from `.noveltea/cache/authoring/`.
+The shared TypeScript producer writes isolated immutable generations and atomically replaces a
+`current` pointer containing the generation ID and manifest digest. The strict same-build manifest
+binds the Project root, Workspace identity, exact source inventory, discovery contract, and structured
+validation result. It has no independent compatibility version or migration path.
+
+Freshness uses the shared Project source-inventory mechanism also used by the runtime/Test cache:
+exact byte size and nanosecond mtime for canonical Workspace files (including Tests and editor state),
+declared Asset sources, and conservative candidates under `records/`, `scripts/`, and `i18n/`.
+Ordinary hits do not reread/hash authored source bytes. Unrelated README files do not invalidate.
+The producer brackets Workspace assembly with candidate discovery, proves loaded source revisions,
+and rechecks inventory after validation and payload writing before advancing `current`. Concurrent
+writers publish separate complete generations without acquiring a Project authoring lock just for
+cache population. Pending transaction state prevents admission/publication.
+
+Standalone root-level or explicit-Project hits run entirely in the static/native tier, before QuickJS.
+The native probe shares metadata/discovery machinery with runtime-cache admission, verifies the
+manifest digest and current contract, and returns diagnostics rather than implementing validation.
+Upward discovery, missing/stale/corrupt/incompatible state, unsafe paths, unavailable exact metadata,
+and other uncertainty use normal TypeScript validation. Publication is best-effort; unwritable cache
+state never changes freshly computed diagnostics. Native tooling failures are not memoized.
+
+Cached semantic errors, warnings, informational findings, locations, ordering, exit status, and human
+or JSON formatting retain ordinary validation semantics. `NOVELTEA_CLI_TRACE=1` exposes standalone
+admission/fallback and island-import traces without adding routine cache fields to validation output.
+This initial cache stores whole-validation results only. Clean editor-session publication and
+per-source incremental reuse are separate follow-ups; unsaved editor drafts never publish through
+this CLI disk-validation path. The cache is disposable and excluded from portable Project bundles.
+
 ## Machine-readable protocol
 
 Use `--json` on NovelTea command surfaces that support the structured protocol. Expected success and failure produce exactly one compact JSON object followed by one LF on stdout and keep stderr empty. The envelope includes `success`, `exitCode`, and deterministic `diagnostics`; source-aware diagnostics carry stable paths/codes and source locations when available.

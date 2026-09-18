@@ -94,6 +94,9 @@ type StaticDiagnostic = Readonly<{
   severity: 'info' | 'warning' | 'error';
   path: string;
   message: string;
+  sourceUrl?: string;
+  line?: number;
+  column?: number;
 }>;
 
 function staticRuntimeCacheObservation(probe: any): Readonly<Record<string, unknown>> {
@@ -154,6 +157,9 @@ function compareStaticDiagnostic(left: StaticDiagnostic, right: StaticDiagnostic
   return (
     compareStaticText(left.code, right.code) ||
     compareStaticText(left.path, right.path) ||
+    compareStaticText(left.sourceUrl ?? '', right.sourceUrl ?? '') ||
+    (left.line ?? 0) - (right.line ?? 0) ||
+    (left.column ?? 0) - (right.column ?? 0) ||
     compareStaticText(left.message, right.message)
   );
 }
@@ -166,6 +172,7 @@ function formatStaticCommand(
   diagnostics: readonly StaticDiagnostic[],
   fields: Readonly<Record<string, unknown>>,
   successMessage: string,
+  failureMessageOverride: string | null = null,
 ): HostResult {
   const sorted = [...diagnostics].sort(compareStaticDiagnostic);
   const envelope: any = {
@@ -187,8 +194,9 @@ function formatStaticCommand(
       successMessage ? `${successMessage}\n` : '',
       diagnosticText ? `${diagnosticText}\n` : '',
     ];
-  const failureMessage =
+  const defaultFailureMessage =
     sorted.find((item) => item.severity === 'error')?.message ?? 'Command failed.';
+  const failureMessage = failureMessageOverride ?? defaultFailureMessage;
   return [exitCode, '', `${[diagnosticText, failureMessage].filter(Boolean).join('\n')}\n`];
 }
 
@@ -250,7 +258,7 @@ function parseNativeResponse(operation: string, request: any): any {
   return parsed && typeof parsed === 'object' ? parsed : null;
 }
 
-function staticTestPath(argv: readonly string[]): HostResult | null {
+function staticProjectCommand(argv: readonly string[]): any {
   let json = false;
   let projectRoot: string | null = null;
   let index = 0;
@@ -272,6 +280,57 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
     }
     return null;
   }
+  return { json, root: projectRoot ?? process.cwd(), index };
+}
+
+function staticValidationPath(argv: readonly string[]): HostResult | null {
+  const parsed: any = staticProjectCommand(argv);
+  if (!parsed) return null;
+  const index: number = parsed.index;
+  if (argv[index] !== 'validate' || argv.length !== index + 1) return null;
+  try {
+    const probe: any = parseNativeResponse('authoring-cache-probe', {
+      projectRoot: parsed.root,
+      buildIdentity: `${NOVELTEA_CLI_VERSION}:${NOVELTEA_CLI_BUILD_IDENTITY}`,
+    });
+    trace(`authoring cache ${probe?.status ?? 'unusable'}: ${probe?.reason ?? 'probe-failed'}`);
+    if (!probe || probe.ok !== true || probe.status !== 'hit') return null;
+    const result: any = probe.result;
+    const diagnostics: StaticDiagnostic[] = [];
+    for (const item of result.diagnostics) {
+      const diagnostic: any = {
+        code: item.code,
+        severity: item.severity,
+        path: item.path,
+        message: item.message,
+      };
+      if (item.sourceUrl !== undefined) diagnostic.sourceUrl = item.sourceUrl;
+      if (item.line !== undefined) diagnostic.line = item.line;
+      if (item.column !== undefined) diagnostic.column = item.column;
+      diagnostics.push(diagnostic);
+    }
+    trace('authoring cache hit: static/native validate path admitted');
+    return formatStaticCommand(
+      parsed.json,
+      result.success,
+      result.exitCode,
+      parsed.root,
+      diagnostics,
+      {},
+      'NovelTea validate succeeded.',
+      diagnostics[0]?.message ?? 'Command failed.',
+    );
+  } catch {
+    trace('authoring cache unusable: probe-failed');
+    return null;
+  }
+}
+
+function staticTestPath(argv: readonly string[]): HostResult | null {
+  const parsed: any = staticProjectCommand(argv);
+  if (!parsed) return null;
+  const index: number = parsed.index;
+  const json: boolean = parsed.json;
   if (argv[index] !== 'test') return null;
   const operation = argv[index + 1];
   const trailing = argv.slice(index + 2);
@@ -283,7 +342,7 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
 
   // Implicit native discovery is deliberately root-only. Upward discovery remains owned by the
   // canonical TypeScript workspace path whenever cwd is not itself the intended Project root.
-  const root = projectRoot ?? process.cwd();
+  const root: string = parsed.root;
   const compilerIdentity = `${NOVELTEA_CLI_VERSION}:${NOVELTEA_CLI_BUILD_IDENTITY}`;
   trace(`runtime cache probe compiler identity: ${compilerIdentity}`);
   const probe: any = parseNativeResponse('runtime-cache-probe', {
@@ -622,7 +681,11 @@ async function main(): Promise<void> {
   try {
     // scriptc's argv slice throws when the process has no user arguments.
     const argv = process.argv.length > 2 ? process.argv.slice(2) : [];
-    const fastPath = staticFastPath(argv) ?? staticTestPath(argv) ?? staticNativePath(argv);
+    const fastPath =
+      staticFastPath(argv) ??
+      staticValidationPath(argv) ??
+      staticTestPath(argv) ??
+      staticNativePath(argv);
     if (fastPath !== null) {
       emit(fastPath);
       exitCode = fastPath[0];

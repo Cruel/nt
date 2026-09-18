@@ -11,6 +11,7 @@ import {
   readlink,
   rm,
   stat,
+  symlink,
   utimes,
   writeFile,
 } from 'node:fs/promises';
@@ -138,6 +139,8 @@ async function treeSnapshot(root) {
     entries.sort((left, right) => left.name.localeCompare(right.name, 'en'));
     for (const entry of entries) {
       const child = relative ? `${relative}/${entry.name}` : entry.name;
+      // Immutable cache generations have process-local UUIDs and source timestamps.
+      if (child === '.noveltea/cache/authoring') continue;
       const absolute = path.join(root, child);
       const info = await lstat(absolute);
       if (info.isDirectory()) await visit(child);
@@ -1000,6 +1003,109 @@ async function certifyTestCommandParity(tempRoot, pristine) {
     assertPublicCommandParity(`${test.name} human cache hit`, nodeHuman, scriptcHuman);
     process.stdout.write(`[test-parity] ${test.name}: PASS\n`);
   }
+}
+
+async function certifyAuthoringCache(tempRoot, pristine) {
+  const root = path.join(tempRoot, 'authoring-cache');
+  await resetCase(pristine, root);
+  const cacheRoot = path.join(root, '.noveltea/cache/authoring');
+  await writeFile(
+    path.join(root, 'records/layouts/fixture-hud/layout.lua'),
+    'local text = "unterminated',
+  );
+  const args = ['--project', root, '--json', 'validate'];
+  const invoke = (label, island) => {
+    const result = runNative(args, { cwd: root, env: { ...process.env, NOVELTEA_CLI_TRACE: '1' } });
+    assertIslandTrace(label, result, island);
+    const reference = runNode(args, { cwd: root });
+    assertPublicCommandParity(label, reference, {
+      ...result,
+      stderr: result.stderr
+        .split('\n')
+        .filter((line) => !line.startsWith('[scriptc-'))
+        .join('\n'),
+    });
+    assertPublicCommandParity(
+      `${label} human`,
+      runNode(['--project', root, 'validate'], { cwd: root }),
+      runNative(['--project', root, 'validate'], { cwd: root }),
+    );
+    return result;
+  };
+  const cold = invoke('authoring cold validation', true);
+  if (
+    !JSON.parse(cold.stdout).diagnostics.some(
+      (item) =>
+        item.code === 'authoring.lua.lexical_incomplete' &&
+        item.sourceUrl &&
+        item.line === 1 &&
+        item.column === 1,
+    )
+  )
+    fail('Authoring validation fixture did not exercise source locations.');
+  invoke('authoring warm validation', false);
+  await writeFile(path.join(root, 'scripts/README.md'), 'ignored notes');
+  invoke('authoring ignored file', false);
+  const candidate = path.join(root, 'scripts/cache-candidate.lua');
+  await writeFile(candidate, '-- new candidate\n');
+  invoke('authoring added candidate', true);
+  await rm(candidate);
+  invoke('authoring removed candidate', true);
+  const manifestPath = path.join(root, 'project.json');
+  await writeFile(manifestPath, `${await readFile(manifestPath, 'utf8')}\n`);
+  invoke('authoring changed metadata', true);
+  const declaredAsset = path.join(root, 'assets/scripts/startup.lua');
+  await writeFile(declaredAsset, `${await readFile(declaredAsset, 'utf8')}\n-- changed asset\n`);
+  invoke('authoring changed declared Asset', true);
+  const project = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const originalEntrypoint = project.entrypoint;
+  project.entrypoint = { kind: 'room', id: 'missing-cache-room' };
+  await writeJson(manifestPath, project);
+  if (invoke('authoring semantic failure', true).status !== 4)
+    fail('Authoring semantic-error fixture did not fail validation.');
+  invoke('authoring cached semantic failure', false);
+  project.entrypoint = originalEntrypoint;
+  await writeJson(manifestPath, project);
+  invoke('authoring semantic repair', true);
+  const pointerPath = path.join(cacheRoot, 'current');
+  const pointer = JSON.parse(await readFile(pointerPath, 'utf8'));
+  await writeFile(path.join(cacheRoot, 'generations', pointer.generation, 'manifest.json'), '{}');
+  invoke('authoring corrupt generation', true);
+  await writeFile(pointerPath, '{broken');
+  invoke('authoring malformed pointer', true);
+  const incompatiblePointer = JSON.parse(await readFile(pointerPath, 'utf8'));
+  const incompatiblePath = path.join(
+    cacheRoot,
+    'generations',
+    incompatiblePointer.generation,
+    'manifest.json',
+  );
+  const incompatible = JSON.parse(await readFile(incompatiblePath, 'utf8'));
+  incompatible.buildIdentity = 'different-build';
+  const text = JSON.stringify(incompatible);
+  await writeFile(incompatiblePath, text);
+  await writeJson(pointerPath, {
+    ...incompatiblePointer,
+    manifestSha256: `sha256:${sha256(text)}`,
+  });
+  invoke('authoring incompatible build', true);
+  await rm(pointerPath);
+  await mkdir(pointerPath);
+  invoke('authoring best-effort publication', true);
+  await rm(pointerPath, { recursive: true });
+  invoke('authoring publication recovery', true);
+  invoke('authoring recovered warm hit', false);
+  if (!isWindows) {
+    const before = await readFile(pointerPath, 'utf8');
+    const link = path.join(root, 'scripts/ignored-link.txt');
+    await symlink(path.join(root, 'scripts/README.md'), link);
+    invoke('authoring conservative native rejection', true);
+    if ((await readFile(pointerPath, 'utf8')) === before)
+      fail('Rejected native authoring admission reused the cache inside the island.');
+    await rm(link);
+    invoke('authoring native uncertainty resolved', false);
+  }
+  process.stdout.write('[authoring-cache] cold/warm, parity, invalidation, recovery: PASS\n');
 }
 
 async function certifyRuntimeCacheInvalidation(tempRoot, pristine) {
@@ -2333,6 +2439,7 @@ async function main() {
     certifyBootstrapOnlyIslandFailures();
     await certifyTypedShaders(tempRoot);
     await certifyRawShaderc(tempRoot);
+    await certifyAuthoringCache(tempRoot, pristine);
     await certifyTestCommandParity(tempRoot, pristine);
     await certifyRuntimeCacheInvalidation(tempRoot, pristine);
     await certifyNativeOperations(tempRoot, pristine);
@@ -2361,6 +2468,7 @@ async function main() {
         ],
         testCommandParity: true,
         runtimeCacheCertification: true,
+        authoringCacheCertification: true,
         featureLabSuite: true,
         relocation: true,
         sourceLeakageAudit: true,

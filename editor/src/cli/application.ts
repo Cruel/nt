@@ -30,6 +30,7 @@ export interface RunNovelTeaCliOptions {
   readonly stdinText?: string;
   readonly readStdinText?: () => string;
   readonly forceRuntimeCacheRebuild?: boolean;
+  readonly forceAuthoringCacheRebuild?: boolean;
   readonly comfyUiWorkflowLibraryOptions?: WorkflowLibraryServiceOptions;
   readonly comfyUiAbortSignal?: AbortSignal;
   readonly onComfyUiProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
@@ -329,6 +330,29 @@ export async function runNovelTeaCli(
       discovery.projectRoot ? { projectRoot: discovery.projectRoot } : {},
     );
 
+  const validationCache =
+    globals.command[0] === 'validate' && nativeTools.validateFontCoverage
+      ? await import('../shared/authoring-cache')
+      : null;
+  const cachedValidation = options.forceAuthoringCacheRebuild
+    ? null
+    : await validationCache?.readAuthoringCache(services.fileSystem, discovery.projectRoot);
+  if (cachedValidation) {
+    if (!cachedValidation.success)
+      return failure(cachedValidation.exitCode, cachedValidation.diagnostics, globals.json, {
+        projectRoot: discovery.projectRoot,
+      });
+    return formatCliResult(
+      { ...cachedValidation, projectRoot: discovery.projectRoot },
+      globals.json,
+      { success: 'NovelTea validate succeeded.' },
+    );
+  }
+
+  const validationBaseline = await validationCache?.captureAuthoringSourceBaseline(
+    services.fileSystem,
+    discovery.projectRoot,
+  );
   const { openCliProject } = await import('./semantic-project');
   const opened = await openCliProject(services.workspace, discovery.projectRoot, {
     readOnly: command.dryRun,
@@ -339,6 +363,11 @@ export async function runNovelTeaCli(
     });
 
   try {
+    const validationInputs = await validationCache?.captureAuthoringValidationInputs(
+      services.fileSystem,
+      opened.opened.snapshot,
+      validationBaseline ?? null,
+    );
     const semantic = await command.run({
       cwd,
       stdinJson,
@@ -352,6 +381,17 @@ export async function runNovelTeaCli(
     });
 
     const diagnostics = [...opened.diagnostics, ...semantic.diagnostics];
+    if (validationInputs)
+      await validationCache?.publishAuthoringCache(
+        services.fileSystem,
+        discovery.projectRoot,
+        validationInputs,
+        {
+          success: semantic.ok,
+          exitCode: semantic.ok ? 0 : (semantic.exitCode ?? semanticExitCode(diagnostics)),
+          diagnostics,
+        },
+      );
     if (!semantic.ok)
       return failure(
         semantic.exitCode ?? semanticExitCode(diagnostics),
