@@ -19,11 +19,8 @@ import {
   typedProjectSettingsSchema,
 } from './authoring-project-settings';
 import { editorProjectStateSchema, emptyEditorProjectState } from './editor-project-state';
-import { defaultExportProfile, exportProfileSchema } from './authoring-export';
-import {
-  assetMemoryPolicyDefinitionSchema,
-  platformExportProfileSchema,
-} from './platform-export-contracts';
+import { defaultExportProfile } from './authoring-export';
+import { projectExportSettingsSchema } from './authoring-project-export';
 import { inventoryDefinitionSchema } from './authoring-inventories';
 import { DEFAULT_PROJECT_INVENTORY } from './authoring-inventories';
 import { interactableInstanceDataSchema } from './authoring-interactables';
@@ -48,14 +45,6 @@ export const projectEntrypointSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('scene'), id: entityIdSchema }).strict(),
   z.object({ kind: z.literal('dialogue'), id: entityIdSchema }).strict(),
 ]);
-
-const projectExportSettingsSchema = z
-  .object({
-    runtime: exportProfileSchema,
-    profiles: z.array(platformExportProfileSchema).default([]),
-    assetMemoryPolicies: z.array(assetMemoryPolicyDefinitionSchema).default([]),
-  })
-  .strict();
 
 export const authoringProjectSchema = z
   .object({

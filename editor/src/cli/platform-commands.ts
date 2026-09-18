@@ -20,8 +20,13 @@ import { derivedPlatformCapabilities } from '../shared/project-schema/platform-d
 import { cliDiagnostic, NOVELTEA_CLI_EXIT_CODES } from './contracts';
 import type { NovelTeaCliPlatformToolService } from './platform-tool-service';
 import type { CliSemanticResult } from './semantic-project';
-import type { CliCommandDefinition, CliCommandInvocation } from './commands/types';
+import type {
+  CliCommandDefinition,
+  CliCommandInvocation,
+  CliScopedCommandInvocation,
+} from './commands/types';
 import { CliCommandUsageError } from './commands/types';
+import { platformProfilesProjectPreparationIntent } from './project-preparation';
 
 type ParsedOptions = Readonly<{
   values: Readonly<Record<string, string>>;
@@ -92,7 +97,7 @@ function stageDiagnostics(diagnostics: readonly PlatformStageDiagnostic[]) {
   });
 }
 
-function exactPlatformSettings(project: AuthoringProject) {
+function exactPlatformSettings(project: Pick<AuthoringProject, 'export'>) {
   const parsed = projectPlatformExportSettingsSchema.safeParse({
     profiles: project.export.profiles,
   });
@@ -240,7 +245,7 @@ function hostPlatform(): 'windows' | 'linux' | 'macos' {
 }
 
 async function profileRows(
-  project: AuthoringProject,
+  project: Pick<AuthoringProject, 'export'>,
   profiles: readonly PlatformExportProfile[],
   templates: readonly InstalledTemplate[],
 ) {
@@ -283,16 +288,21 @@ async function profileRows(
 
 export const platformProfilesCommand: CliCommandDefinition = {
   path: ['platform', 'profiles'],
-  parse(arguments_): CliCommandInvocation {
+  parse(arguments_): CliScopedCommandInvocation {
     if (arguments_.length > 0)
       throw new CliCommandUsageError('platform profiles does not accept arguments.');
     return {
       dryRun: true,
       mutation: false,
+      projectPreparation: platformProfilesProjectPreparationIntent,
       async run(context) {
-        const settings = exactPlatformSettings(context.snapshot.project);
+        const exportSettings = context.preparation.exportSettings;
+        if (!exportSettings)
+          throw new Error('Platform profile preparation did not provide export settings.');
+        const project = { export: exportSettings };
+        const settings = exactPlatformSettings(project);
         const rows = await profileRows(
-          context.snapshot.project,
+          project,
           settings.profiles,
           await context.platformTools.listTemplates(),
         );

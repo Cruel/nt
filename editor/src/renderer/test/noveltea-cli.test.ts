@@ -524,6 +524,156 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
+  it('lists platform profiles without parsing unrelated authoring domains', async () => {
+    const project = validProject();
+    project.export.profiles = [defaultPlatformExportProfile('linux')];
+    const value = fixture(project);
+    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+      string,
+      unknown
+    >;
+    manifest.settings = null;
+    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+    await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.json`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/traits.json`, '{"broken":');
+    await value.fileSystem.writeTextAtomic(`${root}/i18n/project.json`, '{"sourceLocale":');
+
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'profiles'],
+      options(value, root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      profiles: [{ id: 'linux-release', target: 'linux', architecture: 'x64' }],
+    });
+  });
+
+  it('preserves Project identity diagnostics during scoped platform profile preparation', async () => {
+    const value = fixture();
+    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+      string,
+      unknown
+    >;
+    manifest.project = { ...(manifest.project as Record<string, unknown>), id: '' };
+    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'profiles'],
+      options(value, root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(3);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      exitCode: 3,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'WORKSPACE_SOURCE_READ',
+          path: '/project/id',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
+  it('preserves export-profile semantic diagnostics during scoped platform profile preparation', async () => {
+    const project = validProject();
+    const profile = defaultPlatformExportProfile('linux');
+    profile.assetMemory = { kind: 'policy', policyId: 'missing-policy' };
+    project.export.profiles = [profile];
+    const value = fixture(project);
+
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'profiles'],
+      options(value, root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      success: true,
+      exitCode: 0,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'authoring.asset-memory-policy.reference.missing',
+          path: '/export/profiles/0/assetMemory/policyId',
+          severity: 'error',
+        }),
+      ]),
+      profiles: [{ id: 'linux-release' }],
+    });
+  });
+
+  it('preserves export-profile schema diagnostics during scoped platform profile preparation', async () => {
+    const project = validProject();
+    project.export.profiles = [defaultPlatformExportProfile('linux')];
+    const value = fixture(project);
+    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+      string,
+      unknown
+    >;
+    const exportSettings = manifest.export as Record<string, unknown>;
+    const runtime = exportSettings.runtime as Record<string, unknown>;
+    runtime.id = '';
+    const profiles = exportSettings.profiles as Array<Record<string, unknown>>;
+    profiles[0] = { ...profiles[0], target: 'not-a-platform' };
+    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'profiles'],
+      options(value, root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(3);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      exitCode: 3,
+      diagnostics: [
+        expect.objectContaining({
+          code: 'WORKSPACE_SOURCE_READ',
+          path: '/export/profiles/0/target',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          code: 'WORKSPACE_SOURCE_READ',
+          path: '/export/runtime/id',
+          severity: 'error',
+        }),
+      ],
+    });
+  });
+
+  it('preserves canonical ordering for multiple export semantic diagnostics', async () => {
+    const project = validProject();
+    project.export.assetMemoryPolicies = [
+      {
+        id: 'too-warm',
+        label: 'Too warm',
+        basePreset: 'low',
+        overrides: { warmPreparedCpuBytes: 40 * 1024 * 1024 },
+      },
+    ];
+    const profile = defaultPlatformExportProfile('linux');
+    profile.assetMemory = { kind: 'policy', policyId: 'missing-policy' };
+    project.export.profiles = [profile];
+    const value = fixture(project);
+
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'profiles'],
+      options(value, root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout).diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'authoring.asset-memory-policy.reference.missing',
+        path: '/export/profiles/0/assetMemory/policyId',
+      }),
+      expect.objectContaining({
+        code: 'authoring.asset-memory-policy.warm.exceeds-total',
+        path: '/export/assetMemoryPolicies/0/overrides/warmPreparedCpuBytes',
+      }),
+    ]);
+  });
+
   it('exports the sole platform profile and forwards strict publication flags', async () => {
     const project = validProject();
     const profile = defaultPlatformExportProfile('linux');

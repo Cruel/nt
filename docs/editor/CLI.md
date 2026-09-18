@@ -159,7 +159,7 @@ noveltea platform template remove <id>@<build> --force
 noveltea platform config init <path> [--force]
 ```
 
-`platform profiles` prints the exact profile IDs accepted by `platform export`. Projects do not
+`platform profiles` prints the exact profile IDs accepted by `platform export`. The read-only query uses scoped Project preparation: it validates only Project identity plus export/profile settings, so malformed unrelated gameplay, localization, Project settings, or other authoring domains do not block profile inspection. Projects do not
 store a selected platform profile. Omitting `--profile` is accepted only when exactly one platform
 profile exists; when multiple profiles exist, pass `--profile <id>` explicitly. Template and config
 commands are installation-scoped and reject global `--project`; profiles and export use normal
