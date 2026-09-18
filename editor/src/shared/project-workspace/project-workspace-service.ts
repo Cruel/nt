@@ -597,6 +597,52 @@ function jsonPointersOverlap(left: string, right: string): boolean {
   return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 }
 
+function jsonPointerPrefixes(path: string): string[] {
+  if (path === '/') return ['/'];
+  const segments = path.split('/').slice(1);
+  const prefixes: string[] = [];
+  let current = '';
+  for (const segment of segments) {
+    current += `/${segment}`;
+    prefixes.push(current);
+  }
+  return prefixes;
+}
+
+interface SourceOwnerPathIndex {
+  readonly overlappingFiles: (path: string) => readonly string[];
+  readonly descendantFiles: (path: string) => readonly string[];
+}
+
+function buildSourceOwnerPathIndex(
+  ownerPathsByFile: ReadonlyMap<string, readonly string[]>,
+): SourceOwnerPathIndex {
+  const exactOwners = new Map<string, Set<string>>();
+  const descendants = new Map<string, Set<string>>();
+  const add = (index: Map<string, Set<string>>, path: string, file: string) => {
+    const files = index.get(path) ?? new Set<string>();
+    files.add(file);
+    index.set(path, files);
+  };
+  for (const [file, ownerPaths] of ownerPathsByFile) {
+    for (const ownerPath of ownerPaths) {
+      add(exactOwners, ownerPath, file);
+      for (const prefix of jsonPointerPrefixes(ownerPath)) add(descendants, prefix, file);
+    }
+  }
+  const sorted = (files: ReadonlySet<string> | undefined) =>
+    [...(files ?? [])].sort(compareProjectWorkspaceUnicodeCodePoints);
+  return {
+    overlappingFiles: (path) => {
+      const files = new Set(descendants.get(path) ?? []);
+      for (const prefix of jsonPointerPrefixes(path))
+        for (const file of exactOwners.get(prefix) ?? []) files.add(file);
+      return sorted(files);
+    },
+    descendantFiles: (path) => sorted(descendants.get(path)),
+  };
+}
+
 // Only diagnostics whose validator is provably confined to the owning physical source belong in a
 // per-source contribution. Cross-record/reference diagnostics are retained by whole/dependency-aware
 // validation instead; ownerPaths describe attribution, not the complete dependency set.
@@ -1613,6 +1659,7 @@ export class ProjectWorkspaceService {
                 ),
               ),
             );
+          const sourceOwnerPathIndex = buildSourceOwnerPathIndex(ownerPathsByFile);
           const validationReuse: AuthoringValidationReuse = {
             contributions: options.reusableValidationContributions ?? [],
             resolveInputs: (paths) => {
@@ -1625,26 +1672,13 @@ export class ProjectWorkspaceService {
                 return null;
               const files = new Set<string>();
               for (const path of paths) {
-                let matched = false;
-                for (const [file, owners] of ownerPathsByFile) {
-                  if (owners.some((owner) => jsonPointersOverlap(path, owner))) {
-                    files.add(file);
-                    matched = true;
-                  }
-                }
+                const overlappingFiles = sourceOwnerPathIndex.overlappingFiles(path);
+                for (const file of overlappingFiles) files.add(file);
                 const collection = path.split('/')[1] ?? '';
-                if (!matched && isAuthoringCollectionKey(collection)) {
-                  const collectionRoot = `/${collection}`;
-                  for (const [file, owners] of ownerPathsByFile) {
-                    if (
-                      owners.some(
-                        (owner) =>
-                          owner === collectionRoot || owner.startsWith(`${collectionRoot}/`),
-                      )
-                    )
-                      files.add(file);
-                  }
-                } else if (!matched) {
+                if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
+                  for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
+                    files.add(file);
+                } else if (overlappingFiles.length === 0) {
                   files.add('project.json');
                 }
               }
