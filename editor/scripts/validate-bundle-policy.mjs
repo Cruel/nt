@@ -151,8 +151,8 @@ const toolFiles = (await listFiles(path.join(outputRoot, 'tools'))).filter((file
 const sharpRuntimeToolChunks = new Set([
   'runtime-artifact-preparation.mjs',
   'materialize-platform-export-fixture.mjs',
-  'noveltea.mjs',
   'platform-deployment.mjs',
+  'platform-image-sharp-service.mjs',
 ]);
 for (const toolFile of toolFiles) {
   const text = await fs.readFile(toolFile, 'utf8');

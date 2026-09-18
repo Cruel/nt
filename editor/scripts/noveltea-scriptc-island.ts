@@ -170,14 +170,11 @@ export async function runNovelTeaScriptcIsland(
   const internal = await runInternalCommand(effectiveArgv, nativeTools, invokeHost);
   if (internal !== null) return internal;
 
-  let command: readonly string[] = [];
-  try {
-    const { parseNovelTeaCliGlobals } = await import('../src/cli/bootstrap');
-    command = parseNovelTeaCliGlobals(effectiveArgv).command;
-  } catch {
-    // Canonical bootstrap below owns usage diagnostics. Failed preliminary parsing must not
-    // guess a command family and eagerly initialize capabilities for an invalid command line.
-  }
+  const { bootstrapNovelTeaCli } = await import('../src/cli/bootstrap');
+  const bootstrap = bootstrapNovelTeaCli(effectiveArgv);
+  if (bootstrap.complete)
+    return result(bootstrap.result.exitCode, bootstrap.result.stdout, bootstrap.result.stderr);
+  const command = bootstrap.globals.command;
   const family = command[0];
   const operation = command[1];
 
