@@ -659,6 +659,67 @@ const differentialCases = [
   },
   { name: 'usages', args: (root) => ['--project', root, '--json', 'usages', 'rooms', 'gallery'] },
   {
+    name: 'platform-profiles',
+    args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
+  },
+  {
+    name: 'platform-profiles-unrelated-malformed',
+    args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
+    prepare: async (root) => {
+      const manifestPath = path.join(root, 'project.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      manifest.settings = null;
+      await writeJson(manifestPath, manifest);
+      const dialoguesRoot = path.join(root, 'records', 'dialogues');
+      await mkdir(dialoguesRoot, { recursive: true });
+      await writeFile(path.join(dialoguesRoot, 'broken.json'), '{"id":');
+    },
+  },
+  {
+    name: 'platform-profiles-malformed-profile',
+    args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
+    prepare: async (root) => {
+      const manifestPath = path.join(root, 'project.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      manifest.export.profiles[0].target = 'not-a-platform';
+      await writeJson(manifestPath, manifest);
+    },
+  },
+  {
+    name: 'platform-profiles-missing-memory-policy',
+    args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
+    prepare: async (root) => {
+      const manifestPath = path.join(root, 'project.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      manifest.export.profiles[0].assetMemory = {
+        kind: 'policy',
+        policyId: 'missing-policy',
+      };
+      await writeJson(manifestPath, manifest);
+    },
+  },
+  {
+    name: 'platform-profiles-multiple-export-diagnostics',
+    args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
+    prepare: async (root) => {
+      const manifestPath = path.join(root, 'project.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      manifest.export.assetMemoryPolicies = [
+        {
+          id: 'too-warm',
+          label: 'Too warm',
+          basePreset: 'low',
+          overrides: { warmPreparedCpuBytes: 40 * 1024 * 1024 },
+        },
+      ];
+      manifest.export.profiles[0].assetMemory = {
+        kind: 'policy',
+        policyId: 'missing-policy',
+      };
+      await writeJson(manifestPath, manifest);
+    },
+  },
+  {
     name: 'create-dry-run',
     args: (root) => [
       '--project',

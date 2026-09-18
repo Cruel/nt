@@ -6,6 +6,10 @@ import {
 import { entityIdSchema } from '../shared/project-schema/authoring-common';
 import { assetRecordSchema } from '../shared/project-schema/authoring-asset-record';
 import {
+  projectExportSettingsSchema,
+  validateProjectExportSettings,
+} from '../shared/project-schema/authoring-project-export';
+import {
   inferAssetKindFromExtension,
   isSafeProjectAssetPath,
   parseAssetData,
@@ -20,7 +24,11 @@ import {
 } from '../shared/project-workspace/project-workspace-contracts';
 import { cliDiagnostic, type NovelTeaCliDiagnostic } from './contracts';
 
-export type CliProjectPreparationDomain = 'project-identity' | 'assets' | 'filesystem-inventory';
+export type CliProjectPreparationDomain =
+  | 'project-identity'
+  | 'assets'
+  | 'filesystem-inventory'
+  | 'export';
 
 export interface CliProjectPreparationIntent {
   readonly mode: 'scoped-read-only';
@@ -38,10 +46,17 @@ export const assetAuditProjectPreparationIntent: CliProjectPreparationIntent = O
   validationBoundary: 'required-domains',
 });
 
+export const platformProfilesProjectPreparationIntent: CliProjectPreparationIntent = Object.freeze({
+  mode: 'scoped-read-only',
+  domains: Object.freeze<CliProjectPreparationDomain[]>(['project-identity', 'export']),
+  validationBoundary: 'required-domains',
+});
+
 export interface CliScopedProjectPreparation {
   readonly intent: CliProjectPreparationIntent;
   readonly projectRoot: string;
   readonly projectIdentity: ProjectIdentity;
+  readonly exportSettings: AuthoringProject['export'] | null;
   readonly assets: AuthoringProject['assets'];
   readonly assetFilesystemInventory: readonly Readonly<{
     projectRelativePath: string;
@@ -77,13 +92,28 @@ function escapeJsonPointerSegment(value: string): string {
   return value.replaceAll('~', '~0').replaceAll('/', '~1');
 }
 
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function schemaFailure(
   basePath: string,
-  issues: readonly Readonly<{ path: readonly PropertyKey[]; message: string }>[],
+  issues: readonly Readonly<{ code: PropertyKey; path: readonly PropertyKey[]; message: string }>[],
 ): CliProjectPreparationResult {
+  const sorted = [...issues].sort((left, right) => {
+    const code = compareStrings(
+      `authoring.schema.${String(left.code)}`,
+      `authoring.schema.${String(right.code)}`,
+    );
+    if (code !== 0) return code;
+    const leftPath = left.path.map(String).map(escapeJsonPointerSegment).join('/');
+    const rightPath = right.path.map(String).map(escapeJsonPointerSegment).join('/');
+    const path = compareStrings(leftPath, rightPath);
+    return path !== 0 ? path : compareStrings(left.message, right.message);
+  });
   return {
     ok: false,
-    diagnostics: issues.map((issue) => {
+    diagnostics: sorted.map((issue) => {
       const suffix = issue.path.map(String).map(escapeJsonPointerSegment).join('/');
       return cliDiagnostic(
         'WORKSPACE_SOURCE_READ',
@@ -92,6 +122,19 @@ function schemaFailure(
       );
     }),
   };
+}
+
+function sortCliDiagnostics(
+  diagnostics: readonly NovelTeaCliDiagnostic[],
+): NovelTeaCliDiagnostic[] {
+  return [...diagnostics].sort((left, right) => {
+    const code = compareStrings(left.code, right.code);
+    if (code !== 0) return code;
+    const path = compareStrings(left.path, right.path);
+    if (path !== 0) return path;
+    const severity = compareStrings(left.severity, right.severity);
+    return severity !== 0 ? severity : compareStrings(left.message, right.message);
+  });
 }
 
 function exactManifestShape(value: Readonly<Record<string, unknown>>): boolean {
@@ -255,6 +298,21 @@ export async function prepareCliProject(
   const projectIdentity = projectIdentitySchema.safeParse(manifest.project);
   if (!projectIdentity.success) return schemaFailure('/project', projectIdentity.error.issues);
 
+  const diagnostics: NovelTeaCliDiagnostic[] = [];
+  let exportSettings: AuthoringProject['export'] | null = null;
+  if (intent.domains.includes('export')) {
+    const parsedExport = projectExportSettingsSchema.safeParse(manifest.export);
+    if (!parsedExport.success) return schemaFailure('/export', parsedExport.error.issues);
+    exportSettings = parsedExport.data;
+    diagnostics.push(
+      ...sortCliDiagnostics(
+        validateProjectExportSettings(exportSettings).map((finding) =>
+          cliDiagnostic(finding.code, finding.path, finding.message, 'error'),
+        ),
+      ),
+    );
+  }
+
   const assets: AuthoringProject['assets'] = {};
   if (intent.domains.includes('assets')) {
     const recordsRoot = fileSystem.joinPath(projectRoot, 'records');
@@ -354,11 +412,12 @@ export async function prepareCliProject(
 
   return {
     ok: true,
-    diagnostics: [],
+    diagnostics,
     preparation: {
       intent,
       projectRoot,
       projectIdentity: projectIdentity.data,
+      exportSettings,
       assets,
       assetFilesystemInventory,
     },
