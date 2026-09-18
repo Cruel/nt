@@ -6,6 +6,7 @@ import {
   type AuthoringCollectionKey,
 } from './authoring-collections';
 import { entityIdSchema, type EntityId } from './authoring-common';
+import { projectIdentitySchema } from './authoring-project-identity';
 import {
   defaultAuthoringLocalization,
   authoringLocalizationSchema,
@@ -47,16 +48,6 @@ export const projectEntrypointSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('scene'), id: entityIdSchema }).strict(),
   z.object({ kind: z.literal('dialogue'), id: entityIdSchema }).strict(),
 ]);
-
-const projectIdentitySchema = z
-  .object({
-    id: entityIdSchema,
-    name: z.string(),
-    version: z.string().default('0.1.0'),
-    author: z.string().default(''),
-    description: z.string().default(''),
-  })
-  .strict();
 
 const projectExportSettingsSchema = z
   .object({

@@ -1,4 +1,4 @@
-import type { CliCommandDefinition, CliCommandInvocation } from './types';
+import type { CliCommandDefinition, CliParsedCommand } from './types';
 import { CliCommandUsageError } from './types';
 
 function matchesPath(command: readonly string[], path: readonly string[]): boolean {
@@ -68,7 +68,7 @@ async function commandDefinitions(
   }
 }
 
-export async function parseCliCommand(command: readonly string[]): Promise<CliCommandInvocation> {
+export async function parseCliCommand(command: readonly string[]): Promise<CliParsedCommand> {
   const commands = await commandDefinitions(command);
   const definition = commands.find((candidate) => matchesPath(command, candidate.path));
   if (!definition) throw new CliCommandUsageError(`Unknown command path '${command.join(' ')}'.`);
