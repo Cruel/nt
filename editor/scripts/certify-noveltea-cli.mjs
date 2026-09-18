@@ -517,6 +517,23 @@ function assertIslandBoundaryTrace(label, result, marker, expected) {
     );
 }
 
+function certifyBootstrapOnlyIslandFailures() {
+  const env = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  for (const test of [
+    { label: 'repeated global help', args: ['--help', '--help'], expectedStatus: 0 },
+    { label: 'unknown global option', args: ['--not-a-global-option'], expectedStatus: 2 },
+  ]) {
+    const result = runNative(test.args, { env });
+    if (result.status !== test.expectedStatus)
+      fail(
+        `${test.label} returned ${result.status ?? 'no status'} instead of ${test.expectedStatus}.`,
+      );
+    assertIslandTrace(test.label, result, true);
+    assertIslandBoundaryTrace(test.label, result, 'platform host configuration starting', false);
+    assertIslandBoundaryTrace(test.label, result, 'workspace services import starting', false);
+  }
+}
+
 async function prepareWritingRecovery(root) {
   const target = 'records/rooms/gallery.json';
   const absolute = path.join(root, target);
@@ -557,6 +574,8 @@ const differentialCases = [
   { name: 'no-command', args: () => [], project: false },
   { name: 'version', args: () => ['--json', '--version'], project: false },
   { name: 'help', args: () => ['--help'], project: false },
+  { name: 'repeated-help', args: () => ['--help', '--help'], project: false },
+  { name: 'unknown-global', args: () => ['--not-a-global-option'], project: false },
   { name: 'validate-explicit', args: (root) => ['--project', root, '--json', 'validate'] },
   { name: 'validate-root', args: () => ['--json', 'validate'] },
   { name: 'agent-sync', args: (root) => ['--project', root, '--json', 'agent', 'sync'] },
@@ -2311,6 +2330,7 @@ async function main() {
   let cleanupError = null;
   try {
     const { pristine } = await runDifferential(tempRoot);
+    certifyBootstrapOnlyIslandFailures();
     await certifyTypedShaders(tempRoot);
     await certifyRawShaderc(tempRoot);
     await certifyTestCommandParity(tempRoot, pristine);

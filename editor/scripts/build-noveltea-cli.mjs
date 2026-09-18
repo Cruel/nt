@@ -239,12 +239,6 @@ await stagePrebuiltShadercLinkClosure();
 run(process.execPath, [vitePlusEntrypoint, 'pack'], { cwd: editorRoot, env: buildEnv });
 if (!existsSync(islandBundle))
   throw new Error(`Scriptc island bundle was not produced: ${islandBundle}`);
-const islandEntryBytes = (await lstat(islandBundle)).size;
-const maxIslandEntryBytes = 64 * 1024;
-if (islandEntryBytes > maxIslandEntryBytes)
-  throw new Error(
-    `Scriptc island entry grew to ${islandEntryBytes} bytes; expected at most ${maxIslandEntryBytes} bytes so heavy authoring modules remain lazily split.`,
-  );
 
 const buildRoot = path.join(repositoryRoot, 'build', releasePreset);
 const editorToolRoot = path.join(buildRoot, 'tools', 'editor_tool');
