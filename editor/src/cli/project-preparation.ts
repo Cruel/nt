@@ -73,6 +73,27 @@ function failure(code: string, path: string, message: string): CliProjectPrepara
   return { ok: false, diagnostics: [cliDiagnostic(code, path, message)] };
 }
 
+function escapeJsonPointerSegment(value: string): string {
+  return value.replaceAll('~', '~0').replaceAll('/', '~1');
+}
+
+function schemaFailure(
+  basePath: string,
+  issues: readonly Readonly<{ path: readonly PropertyKey[]; message: string }>[],
+): CliProjectPreparationResult {
+  return {
+    ok: false,
+    diagnostics: issues.map((issue) => {
+      const suffix = issue.path.map(String).map(escapeJsonPointerSegment).join('/');
+      return cliDiagnostic(
+        'WORKSPACE_SOURCE_READ',
+        suffix.length > 0 ? `${basePath}/${suffix}` : basePath,
+        issue.message,
+      );
+    }),
+  };
+}
+
 function exactManifestShape(value: Readonly<Record<string, unknown>>): boolean {
   const actual = Object.keys(value).sort();
   const expected = [...manifestKeys].sort();
@@ -232,16 +253,24 @@ export async function prepareCliProject(
     );
 
   const projectIdentity = projectIdentitySchema.safeParse(manifest.project);
-  if (!projectIdentity.success)
-    return failure('WORKSPACE_SOURCE_READ', '/project', 'Project identity is malformed.');
+  if (!projectIdentity.success) return schemaFailure('/project', projectIdentity.error.issues);
 
   const assets: AuthoringProject['assets'] = {};
   if (intent.domains.includes('assets')) {
     const recordsRoot = fileSystem.joinPath(projectRoot, 'records');
     const assetsRoot = fileSystem.joinPath(recordsRoot, 'assets');
     try {
-      if ((await fileSystem.inspect(recordsRoot)) !== 'missing')
-        await assertProjectWorkspacePathContained(fileSystem, projectRoot, recordsRoot);
+      if ((await fileSystem.inspect(recordsRoot)) !== 'missing') {
+        try {
+          await assertProjectWorkspacePathContained(fileSystem, projectRoot, recordsRoot);
+        } catch {
+          return failure(
+            'WORKSPACE_PATH_INVALID',
+            '/records',
+            'records/ escapes the project root.',
+          );
+        }
+      }
       const assetsKind = await fileSystem.inspect(assetsRoot);
       if (assetsKind !== 'missing') {
         if (assetsKind !== 'directory')
@@ -250,7 +279,15 @@ export async function prepareCliProject(
             '/records/assets',
             'Asset records path is not a directory.',
           );
-        await assertProjectWorkspacePathContained(fileSystem, projectRoot, assetsRoot);
+        try {
+          await assertProjectWorkspacePathContained(fileSystem, projectRoot, assetsRoot);
+        } catch {
+          return failure(
+            'WORKSPACE_PATH_INVALID',
+            '/records/assets',
+            'Record collection escapes the project root.',
+          );
+        }
         for (const entry of [...(await fileSystem.listDirectory(assetsRoot))].sort()) {
           const diagnosticPath = `/records/assets/${entry}`;
           if (!entry.endsWith('.json'))
@@ -284,27 +321,17 @@ export async function prepareCliProject(
             );
           const parsedRecord = assetRecordSchema.safeParse(raw);
           if (!parsedRecord.success)
-            return failure('WORKSPACE_SOURCE_READ', diagnosticPath, 'Asset record is malformed.');
+            return schemaFailure(
+              `/assets/${escapeJsonPointerSegment(id)}`,
+              parsedRecord.error.issues,
+            );
           const asset = parseAssetData(parsedRecord.data.data);
           if (!asset || !isSafeProjectAssetPath(asset.source.path))
             return failure(
               'WORKSPACE_PATH_INVALID',
-              `/assets/${id}/data/source/path`,
+              '/',
               'Asset source path is not a safe project-relative path.',
             );
-          try {
-            await assertProjectWorkspacePathContained(
-              fileSystem,
-              projectRoot,
-              fileSystem.joinPath(projectRoot, asset.source.path),
-            );
-          } catch {
-            return failure(
-              'WORKSPACE_PATH_INVALID',
-              `/assets/${id}/data/source/path`,
-              'Asset source path escapes the project root.',
-            );
-          }
           assets[id] = parsedRecord.data;
         }
       }

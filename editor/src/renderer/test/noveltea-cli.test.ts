@@ -881,6 +881,37 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
+  it('preserves field-specific Asset schema diagnostics during scoped audit preparation', async () => {
+    const value = fixture();
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/assets/broken.json`,
+      JSON.stringify({
+        id: 'broken',
+        label: 'Broken',
+        data: {
+          kind: 'not-an-asset-kind',
+          source: { type: 'project-file', path: 'assets/text/broken.txt' },
+          aliases: [],
+          imageMetadata: null,
+        },
+      }),
+    );
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).toBe(3);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      exitCode: 3,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'WORKSPACE_SOURCE_READ',
+          path: '/assets/broken/data/kind',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
   it('rejects invalid declared Asset source routing inside the scoped boundary', async () => {
     const value = fixture();
     await value.fileSystem.writeTextAtomic(
@@ -904,7 +935,32 @@ describe('NovelTea headless CLI', () => {
       diagnostics: expect.arrayContaining([
         expect.objectContaining({
           code: 'WORKSPACE_PATH_INVALID',
-          path: '/assets/broken/data/source/path',
+          path: '/',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
+  it('preserves workspace containment diagnostics for the scoped Asset boundary', async () => {
+    const value = fixture();
+    const recordsRoot = `${root}/records`;
+    const realpath = value.fileSystem.realpath.bind(value.fileSystem);
+    const relativePath = value.fileSystem.relativePath.bind(value.fileSystem);
+    value.fileSystem.realpath = async (pathValue: string) =>
+      pathValue === recordsRoot ? '/outside/records' : realpath(pathValue);
+    value.fileSystem.relativePath = (from: string, to: string) =>
+      from === root && to === '/outside/records' ? '../outside/records' : relativePath(from, to);
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).toBe(3);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      exitCode: 3,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'WORKSPACE_PATH_INVALID',
+          path: '/records',
           severity: 'error',
         }),
       ]),
@@ -920,6 +976,42 @@ describe('NovelTea headless CLI', () => {
       pathValue === escapedPath ? '/outside/escape.txt' : realpath(pathValue);
 
     const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+    expect(audit.exitCode).toBe(4);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      exitCode: 4,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'asset.audit.path_escape',
+          path: 'assets/text/escape.txt',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
+  it('reports a registered Asset symlink escape as the same semantic audit failure', async () => {
+    const value = fixture();
+    const escapedPath = `${root}/assets/text/escape.txt`;
+    await value.fileSystem.writeTextAtomic(escapedPath, 'outside');
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/assets/escape.json`,
+      JSON.stringify({
+        id: 'escape',
+        label: 'Escape',
+        data: {
+          kind: 'text',
+          source: { type: 'project-file', path: 'assets/text/escape.txt' },
+          aliases: [],
+          imageMetadata: null,
+        },
+      }),
+    );
+    const realpath = value.fileSystem.realpath.bind(value.fileSystem);
+    value.fileSystem.realpath = async (pathValue: string) =>
+      pathValue === escapedPath ? '/outside/escape.txt' : realpath(pathValue);
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
     expect(audit.exitCode).toBe(4);
     expect(JSON.parse(audit.stdout)).toMatchObject({
       exitCode: 4,
