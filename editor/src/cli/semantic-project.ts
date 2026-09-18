@@ -13,7 +13,9 @@ import { localizationFontCoverageLocales } from '../shared/localization-font-cov
 import {
   projectWorkspaceFiles,
   type LoadedProjectWorkspaceSnapshot,
+  type ProjectWorkspaceDependencyAnalysis,
   type ProjectWorkspaceService,
+  type ProjectWorkspaceSourceContributions,
 } from '../shared/project-workspace/project-workspace-service';
 import { applyJsonPatch, type JsonPatchOperation } from '../renderer/project/json-patch';
 import { toJsonValue } from '../renderer/project/json-value';
@@ -35,6 +37,7 @@ import type { NovelTeaCliExitCode } from './contracts';
 export interface CliOpenedProject {
   readonly snapshot: LoadedProjectWorkspaceSnapshot;
   readonly editorState: LoadedProjectWorkspaceSnapshot['project']['editor'];
+  readonly sourceContributions: ProjectWorkspaceSourceContributions;
 }
 
 export interface CliMutationPlan {
@@ -50,6 +53,7 @@ export interface CliSemanticResult {
   readonly fields?: Readonly<Record<string, unknown>>;
   readonly humanSuccess?: string;
   readonly exitCode?: NovelTeaCliExitCode;
+  readonly authoringDependencyAnalysis?: ProjectWorkspaceDependencyAnalysis;
 }
 
 function workspaceDiagnosticCode(message: string, fallback = 'WORKSPACE_SOURCE_READ'): string {
@@ -68,13 +72,17 @@ function workspaceDiagnosticCode(message: string, fallback = 'WORKSPACE_SOURCE_R
 export async function openCliProject(
   workspace: ProjectWorkspaceService,
   projectRoot: string,
-  options: Readonly<{ readOnly?: boolean }> = {},
+  options: Readonly<{
+    readOnly?: boolean;
+    reusableSourceContributions?: ProjectWorkspaceSourceContributions;
+  }> = {},
 ): Promise<
   | Readonly<{ ok: true; opened: CliOpenedProject; diagnostics: readonly NovelTeaCliDiagnostic[] }>
   | Readonly<{ ok: false; diagnostics: readonly NovelTeaCliDiagnostic[] }>
 > {
   const opened = await workspace.open(projectRoot, {
     recoverTransactions: options.readOnly ? false : true,
+    reusableSourceContributions: options.reusableSourceContributions,
   });
   if (!opened.ok) {
     return {
@@ -91,7 +99,11 @@ export async function openCliProject(
   }
   return {
     ok: true,
-    opened: { snapshot: opened.snapshot, editorState: opened.snapshot.project.editor },
+    opened: {
+      snapshot: opened.snapshot,
+      editorState: opened.snapshot.project.editor,
+      sourceContributions: opened.sourceContributions,
+    },
     diagnostics: opened.diagnostics.map((item) =>
       cliDiagnostic(item.code, item.path, item.message, item.severity),
     ),
@@ -208,8 +220,9 @@ export async function validateCliProject(
     .diagnostics.map((item) =>
       cliDiagnostic(item.code, item.jsonPointer, item.message, item.severity),
     );
+  const dependencyAnalysis = await workspace.buildDependencyGraphAnalysis(snapshot);
   diagnostics.push(
-    ...(await workspace.buildDependencyGraphWithSources(snapshot)).diagnostics.map((item) =>
+    ...dependencyAnalysis.graph.diagnostics.map((item) =>
       cliDiagnostic(item.code, item.path, item.message, item.severity, {
         sourceUrl: item.sourceUrl,
         line: item.line,
@@ -302,6 +315,7 @@ export async function validateCliProject(
     ok: !diagnostics.some((item) => item.severity === 'error'),
     diagnostics,
     fields: { projectRoot: snapshot.projectRoot },
+    authoringDependencyAnalysis: dependencyAnalysis,
   };
 }
 

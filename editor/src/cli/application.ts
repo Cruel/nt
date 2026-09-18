@@ -353,9 +353,16 @@ export async function runNovelTeaCli(
     services.fileSystem,
     discovery.projectRoot,
   );
+  const reusableAuthoring = options.forceAuthoringCacheRebuild
+    ? null
+    : await validationCache?.readReusableAuthoringContributions(
+        services.fileSystem,
+        discovery.projectRoot,
+      );
   const { openCliProject } = await import('./semantic-project');
   const opened = await openCliProject(services.workspace, discovery.projectRoot, {
     readOnly: command.dryRun,
+    reusableSourceContributions: reusableAuthoring?.sourceContributions,
   });
   if (!opened.ok)
     return failure(workspaceOpenExitCode(opened.diagnostics), opened.diagnostics, globals.json, {
@@ -363,29 +370,53 @@ export async function runNovelTeaCli(
     });
 
   try {
-    const validationInputs = await validationCache?.captureAuthoringValidationInputs(
+    let activeOpened = opened;
+    let validationInputs = await validationCache?.captureAuthoringValidationInputs(
       services.fileSystem,
-      opened.opened.snapshot,
+      activeOpened.opened.snapshot,
       validationBaseline ?? null,
+      activeOpened.opened.sourceContributions,
+      reusableAuthoring?.inventory ?? null,
     );
+    if (reusableAuthoring && !validationInputs) {
+      const freshOpened = await openCliProject(services.workspace, discovery.projectRoot, {
+        readOnly: command.dryRun,
+      });
+      if (!freshOpened.ok)
+        return failure(
+          workspaceOpenExitCode(freshOpened.diagnostics),
+          freshOpened.diagnostics,
+          globals.json,
+          { projectRoot: discovery.projectRoot },
+        );
+      activeOpened = freshOpened;
+      validationInputs = await validationCache?.captureAuthoringValidationInputs(
+        services.fileSystem,
+        activeOpened.opened.snapshot,
+        validationBaseline ?? null,
+        activeOpened.opened.sourceContributions,
+      );
+    }
     const semantic = await command.run({
       cwd,
       stdinJson,
       fileSystem: services.fileSystem,
       workspace: services.workspace,
-      snapshot: opened.opened.snapshot,
+      snapshot: activeOpened.opened.snapshot,
       nativeTools,
       platformTools,
       onPlatformProgress: options.onPlatformProgress,
       forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
     });
 
-    const diagnostics = [...opened.diagnostics, ...semantic.diagnostics];
+    const diagnostics = [...activeOpened.diagnostics, ...semantic.diagnostics];
     if (validationInputs)
       await validationCache?.publishAuthoringCache(
         services.fileSystem,
         discovery.projectRoot,
         validationInputs,
+        activeOpened.opened.sourceContributions,
+        semantic.authoringDependencyAnalysis,
         {
           success: semantic.ok,
           exitCode: semantic.ok ? 0 : (semantic.exitCode ?? semanticExitCode(diagnostics)),

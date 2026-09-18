@@ -1095,6 +1095,24 @@ async function certifyAuthoringCache(tempRoot, pristine) {
   await rm(pointerPath, { recursive: true });
   invoke('authoring publication recovery', true);
   invoke('authoring recovered warm hit', false);
+  const incompletePointer = JSON.parse(await readFile(pointerPath, 'utf8'));
+  const incompleteManifestPath = path.join(
+    cacheRoot,
+    'generations',
+    incompletePointer.generation,
+    'manifest.json',
+  );
+  const incompleteManifest = JSON.parse(await readFile(incompleteManifestPath, 'utf8'));
+  incompleteManifest.inputs = incompleteManifest.inputs.filter(
+    (input) => input.path !== 'traits.json',
+  );
+  const incompleteText = JSON.stringify(incompleteManifest);
+  await writeFile(incompleteManifestPath, incompleteText);
+  await writeJson(pointerPath, {
+    ...incompletePointer,
+    manifestSha256: `sha256:${sha256(incompleteText)}`,
+  });
+  invoke('authoring missing authoritative root fragment', true);
   if (!isWindows) {
     const before = await readFile(pointerPath, 'utf8');
     const link = path.join(root, 'scripts/ignored-link.txt');
