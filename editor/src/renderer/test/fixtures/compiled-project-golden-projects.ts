@@ -52,7 +52,6 @@ import {
   sceneVariableRef,
 } from '../../../shared/project-schema/authoring-scenes';
 import { defaultScriptModuleData } from '../../../shared/project-schema/authoring-script-modules';
-import { defaultShaderData } from '../../../shared/project-schema/authoring-shaders';
 import { defaultVariableData } from '../../../shared/project-schema/authoring-variables';
 import { defaultVerbData } from '../../../shared/project-schema/authoring-verbs';
 
@@ -458,26 +457,19 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   addAsset(project, 'image-main', 'image', 'assets/images/main.png', ['main-image']);
   addAsset(project, 'font-main', 'font', 'assets/fonts/main.ttf', ['main-font']);
   addAsset(project, 'audio-voice', 'audio', 'assets/audio/voice.ogg');
-  addAsset(project, 'script-layout', 'script', 'assets/scripts/layout.lua');
-  addAsset(project, 'shader-source', 'shader-source', 'assets/shaders/effect.sc');
   addAsset(project, 'text-rml', 'text', 'assets/ui/layout.rml');
   addAsset(project, 'text-rcss', 'text', 'assets/ui/layout.rcss');
   addAsset(project, 'data-config', 'data', 'assets/data/config.json');
   addAsset(project, 'binary-blob', 'binary', 'assets/binary/blob.bin');
 
-  const shader = defaultShaderData('Sprite Shader');
-  shader.samplers = [{ name: 's_texColor', type: 'texture2d', binding: null }];
-  project.shaders['sprite-shader'] = { id: 'sprite-shader', label: 'Sprite Shader', data: shader };
-
-  const material = defaultMaterialData('Sprite Material', 'sprite-shader');
-  material.uniforms = [{ name: 'u_tint', value: [1, 0.75, 0.5, 1] }];
-  material.textures = [
-    {
-      sampler: 's_texColor',
+  const material = defaultMaterialData('Sprite Material', 'engine-2d');
+  material.parameters = { u_useTexture: { value: 1 } };
+  material.textures = {
+    s_texColor: {
       source: assetReference('image-main'),
       filtering: 'repeat-linear',
     },
-  ];
+  };
   project.materials['sprite-material'] = {
     id: 'sprite-material',
     label: 'Sprite Material',
@@ -491,7 +483,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     fonts: [assetReference('font-main')],
     stylesheets: [assetReference('text-rcss')],
     materials: [{ $ref: { collection: 'materials', id: 'sprite-material' } }],
-    scripts: [assetReference('script-layout')],
+    scripts: ['scripts/layout.lua'],
   };
   project.layouts['hud-inline'] = { id: 'hud-inline', label: 'Inline HUD', data: inlineLayout };
 
@@ -507,17 +499,12 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     sourceText: '',
     sourceAsset: assetReference('text-rcss'),
   };
-  assetLayout.lua = {
-    sourceMode: 'asset',
-    sourceText: '',
-    sourceAsset: assetReference('script-layout'),
-  };
   assetLayout.dependencies = {
     images: [assetReference('image-main')],
     fonts: [assetReference('font-main')],
     stylesheets: [assetReference('text-rcss')],
     materials: [{ $ref: { collection: 'materials', id: 'sprite-material' } }],
-    scripts: [assetReference('script-layout')],
+    scripts: ['scripts/layout.lua'],
   };
   project.layouts['hud-assets'] = { id: 'hud-assets', label: 'Asset HUD', data: assetLayout };
 
@@ -530,10 +517,10 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   };
   project.scripts['asset-module'] = {
     id: 'asset-module',
-    label: 'Asset Module',
+    label: 'File Module',
     data: {
       kind: 'script-module',
-      source: { kind: 'asset', asset: assetReference('script-layout') },
+      source: { kind: 'project-file', path: 'scripts/layout.lua' },
     },
   };
 
@@ -1113,21 +1100,7 @@ export function sceneProgramGoldenProject(): AuthoringProject {
   renameProject(project, 'golden-scene-program', 'Golden Scene Program');
   addAsset(project, 'image-arrival-dialogue', 'image', 'assets/images/arrival-dialogue.png');
 
-  const postprocessShader = defaultShaderData('Scene Postprocess Shader');
-  postprocessShader.roles = ['postprocess'];
-  postprocessShader.uniforms = [
-    { name: 'u_strength', type: 'float', default: 0.25, label: 'Strength' },
-  ];
-  project.shaders['scene-postprocess-shader'] = {
-    id: 'scene-postprocess-shader',
-    label: 'Scene Postprocess Shader',
-    data: postprocessShader,
-  };
-  const postprocessMaterial = defaultMaterialData(
-    'Scene Postprocess Material',
-    'scene-postprocess-shader',
-  );
-  postprocessMaterial.role = 'postprocess';
+  const postprocessMaterial = defaultMaterialData('Scene Postprocess Material', 'postprocess-tint');
   postprocessMaterial.postprocessScope = 'world';
   project.materials['scene-postprocess-material'] = {
     id: 'scene-postprocess-material',
@@ -1328,15 +1301,15 @@ export function sceneProgramGoldenProject(): AuthoringProject {
       scope: 'world',
       order: 2,
       clock: 'unscaled-presentation',
-      parameters: [{ name: 'u_strength', value: 0.4 }],
+      parameters: [{ name: 'u_tint', value: { r: 0.4, g: 0.4, b: 0.4, a: 1 } }],
     },
     {
       ...defaultSceneStep('material-parameter'),
       id: 'background-material',
       target: { kind: 'background' },
       material: sceneMaterialRef('sprite-material'),
-      parameter: 'u_tint',
-      value: { r: 0.9, g: 0.8, b: 0.7, a: 1 },
+      parameter: 'u_useTexture',
+      value: 0.9,
       transition: 'none',
       durationMs: 0,
       easing: 'linear',
@@ -1349,8 +1322,8 @@ export function sceneProgramGoldenProject(): AuthoringProject {
       id: 'postprocess-material',
       target: { kind: 'postprocess', instanceId: 'scene-grade' },
       material: sceneMaterialRef('scene-postprocess-material'),
-      parameter: 'u_strength',
-      value: 0.75,
+      parameter: 'u_tint',
+      value: { r: 0.75, g: 0.75, b: 0.75, a: 1 },
       transition: 'tween',
       durationMs: 350,
       easing: 'ease-in-out',
@@ -1695,26 +1668,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   const project = comprehensiveGoldenProject();
   renameProject(project, 'golden-interaction-program', 'Golden Interaction Program');
 
-  const hotspotShader = defaultShaderData('Hotspot Overlay Shader');
-  hotspotShader.roles = ['hotspot-overlay'];
-  hotspotShader.samplers = [
-    { name: 's_image', type: 'texture2d', binding: 'engine.hotspot_image' },
-    { name: 's_mask', type: 'texture2d', binding: 'engine.hotspot_mask' },
-  ];
-  hotspotShader.uniforms = [
-    { name: 'u_bounds', type: 'vec4', binding: 'engine.hotspot_bounds' },
-    { name: 'u_hovered', type: 'bool', binding: 'engine.hotspot_hovered' },
-    { name: 'u_pressed', type: 'bool', binding: 'engine.hotspot_pressed' },
-    { name: 'u_image_size', type: 'vec2', binding: 'engine.hotspot_image_dimensions' },
-    { name: 'u_mask_size', type: 'vec2', binding: 'engine.hotspot_mask_dimensions' },
-  ];
-  project.shaders['hotspot-overlay-shader'] = {
-    id: 'hotspot-overlay-shader',
-    label: 'Hotspot Overlay Shader',
-    data: hotspotShader,
-  };
-  const hotspotMaterial = defaultMaterialData('Hotspot Overlay', 'hotspot-overlay-shader');
-  hotspotMaterial.role = 'hotspot-overlay';
+  const hotspotMaterial = defaultMaterialData('Hotspot Overlay', 'hotspot-overlay-custom');
   project.materials['hotspot-overlay'] = {
     id: 'hotspot-overlay',
     label: 'Hotspot Overlay',
@@ -2251,21 +2205,7 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
     data: statefulLayout,
   };
 
-  const decoratorShader = defaultShaderData('Layout Decorator Shader');
-  decoratorShader.roles = ['rmlui-decorator'];
-  decoratorShader.uniforms = [
-    { name: 'u_tint', type: 'color', default: { r: 1, g: 1, b: 1, a: 1 } },
-  ];
-  project.shaders['layout-decorator-shader'] = {
-    id: 'layout-decorator-shader',
-    label: 'Layout Decorator Shader',
-    data: decoratorShader,
-  };
-  const decoratorMaterial = defaultMaterialData(
-    'Layout Decorator Material',
-    'layout-decorator-shader',
-  );
-  decoratorMaterial.role = 'rmlui-decorator';
+  const decoratorMaterial = defaultMaterialData('Layout Decorator Material', 'rmlui-decorator');
   project.materials['layout-decorator-material'] = {
     id: 'layout-decorator-material',
     label: 'Layout Decorator Material',
@@ -2487,16 +2427,16 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
       id: 'actor-material',
       target: { kind: 'actor', slotId: 'hero-stage', layerId: 'body' },
       material: sceneMaterialRef('sprite-material'),
-      parameter: 'u_tint',
-      value: { r: 1, g: 1, b: 1, a: 1 },
+      parameter: 'u_useTexture',
+      value: 1,
     },
     {
       ...defaultSceneStep('material-parameter'),
       id: 'layout-material',
-      target: { kind: 'layout', slot: 'custom' },
-      material: sceneMaterialRef('layout-decorator-material'),
-      parameter: 'u_tint',
-      value: { r: 0.5, g: 0.5, b: 0.5, a: 1 },
+      target: { kind: 'actor', slotId: 'hero-stage', layerId: 'body' },
+      material: sceneMaterialRef('sprite-material'),
+      parameter: 'u_useTexture',
+      value: 0,
     },
     {
       ...defaultSceneStep('transition-group'),
@@ -2798,7 +2738,6 @@ export function canonicalExplorationGoldenProject(): AuthoringProject {
   delete project.scenes.vocabulary;
   delete project.dialogues['cue-vocabulary'];
   delete project.materials['layout-decorator-material'];
-  delete project.shaders['layout-decorator-shader'];
   const coinHotspots = project.interactables.coin?.data.presentation.hotspots;
   if (coinHotspots?.kind === 'custom')
     coinHotspots.hotspots = coinHotspots.hotspots.map((hotspot) => ({
@@ -2806,7 +2745,6 @@ export function canonicalExplorationGoldenProject(): AuthoringProject {
       highlight: hotspot.highlight.kind === 'material' ? { kind: 'default' } : hotspot.highlight,
     }));
   delete project.materials['hotspot-overlay'];
-  delete project.shaders['hotspot-overlay-shader'];
 
   project.scripts.bootstrap!.data = {
     kind: 'script-module',

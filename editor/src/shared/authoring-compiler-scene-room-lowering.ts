@@ -12,7 +12,7 @@ import { parseCharacterData } from './project-schema/authoring-characters';
 import { parseRoomData } from './project-schema/authoring-rooms';
 import { resolveArchetypeConfiguration } from './project-schema/authoring-archetypes';
 import { resolveMaterialData } from './project-schema/authoring-materials';
-import { parseShaderData, type ShaderUniformValue } from './project-schema/authoring-shaders';
+import type { ShaderUniformValue } from './project-schema/authoring-shaders';
 import {
   parseSceneData,
   type SceneStepData,
@@ -111,12 +111,7 @@ function compileMaterialParameterValue(
   value: ShaderUniformValue,
 ): Extract<SceneProgram['events'][number]['instruction'], { kind: 'material-parameter' }>['value'] {
   const material = resolveMaterialData(project, materialId).data;
-  const shaderId = material?.shader?.$ref.id;
-  const uniform = shaderId
-    ? parseShaderData(project.shaders[shaderId]?.data)?.uniforms.find(
-        (item) => item.name === parameter,
-      )
-    : undefined;
+  const uniform = material?.preset.uniforms[parameter];
   if (!uniform || value === null)
     throw new Error(`Validated Material Parameter '${materialId}.${parameter}' cannot be lowered.`);
   switch (uniform.type) {

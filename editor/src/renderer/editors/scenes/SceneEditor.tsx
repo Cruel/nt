@@ -41,10 +41,9 @@ import {
 } from '../../../shared/project-schema/authoring-scenes';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
-import {
-  parseShaderData,
-  type ShaderUniformData,
-  type ShaderUniformValue,
+import type {
+  ShaderUniformData,
+  ShaderUniformValue,
 } from '../../../shared/project-schema/authoring-shaders';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
@@ -225,9 +224,17 @@ function materialUniforms(
 ): ShaderUniformData[] {
   if (!isAuthoringProject(project)) return [];
   const material = resolveMaterialData(project, materialId).data;
-  if (!material?.shader) return [];
-  const shader = parseShaderData(project.shaders[material.shader.$ref.id]?.data);
-  return shader?.uniforms.filter((uniform) => !uniform.binding) ?? [];
+  if (!material) return [];
+  return Object.entries(material.preset.uniforms)
+    .filter(([, uniform]) => !uniform.binding)
+    .map(([name, uniform]) => ({
+      name,
+      type: uniform.type,
+      ...(uniform.default !== undefined ? { default: uniform.default } : {}),
+      ...(uniform.range ? { range: [uniform.range[0], uniform.range[1]] as [number, number] } : {}),
+      ...(uniform.label !== undefined ? { label: uniform.label } : {}),
+      ...(uniform.binding !== undefined ? { binding: uniform.binding } : {}),
+    }));
 }
 
 function defaultUniformValue(

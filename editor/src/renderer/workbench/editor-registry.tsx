@@ -122,20 +122,6 @@ export function buildAssetDetailTabForRecord(entityId: string, title = entityId)
   };
 }
 
-export function buildShaderDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
-  return {
-    id: `tab:shader-detail:shaders:${entityId}`,
-    title,
-    editorType: 'shader-detail',
-    resource: {
-      kind: 'record',
-      stableId: `record:shaders:${entityId}`,
-      collection: 'shaders',
-      entityId,
-    },
-  };
-}
-
 export function buildMaterialDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
   return {
     id: `tab:material-detail:materials:${entityId}`,
@@ -423,8 +409,6 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   const title = node.label || node.entityId;
   if (node.collection === 'assets' && node.entityId)
     return buildAssetDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'shaders' && node.entityId)
-    return buildShaderDetailTabForRecord(node.entityId, title);
   if (node.collection === 'materials' && node.entityId)
     return buildMaterialDetailTabForRecord(node.entityId, title);
   if (node.collection === 'layouts' && node.entityId)
@@ -581,7 +565,6 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'engine-preview') return MonitorPlay;
   if (editorType === 'image-generation') return Images;
   if (editorType === 'asset-detail' || editorType === 'asset-library') return Image;
-  if (editorType === 'shader-detail') return FileCode;
   if (editorType === 'material-detail') return Palette;
   if (editorType === 'layout-detail') return Layers;
   if (editorType === 'character-detail') return User;

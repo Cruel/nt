@@ -241,7 +241,7 @@ TEST_CASE(
                                    "engine/assets/system/fonts/LiberationSans.ttf",
                                project_root / "assets/fonts/main.ttf",
                                std::filesystem::copy_options::overwrite_existing);
-    write_source("assets/scripts/layout.lua", R"LUA(
+    constexpr std::string_view layout_lua = R"LUA(
 layout_test = layout_test or {}
 function layout_test.confirm(event, element, document)
   local context = Game.mount_context()
@@ -250,7 +250,8 @@ function layout_test.confirm(event, element, document)
   assert(ok, err)
 end
 return {}
-)LUA");
+)LUA";
+    write_source("scripts/layout.lua", layout_lua);
 
     auto& layouts = project["resources"]["layouts"];
     auto layout = std::find_if(layouts.begin(), layouts.end(), [](const auto& candidate) {
@@ -259,19 +260,19 @@ return {}
     REQUIRE(layout != layouts.end());
     (*layout)["rml"] = {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "text-rml"}}}};
     (*layout)["rcss"] = {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "text-rcss"}}}};
-    (*layout)["lua"] = {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "script-layout"}}}};
+    (*layout)["lua"] = {{"kind", "inline"}, {"text", layout_lua}};
     (*layout)["script"] = {{"enabled", true}, {"namespace", "layout_test"}};
     (*layout)["dependencies"] = {
         {"fonts", nlohmann::json::array()},
         {"images", nlohmann::json::array()},
         {"materials", nlohmann::json::array()},
-        {"scripts", nlohmann::json::array({{{"kind", "asset"}, {"id", "script-layout"}}})},
+        {"scripts", nlohmann::json::array({"project:/scripts/layout.lua"})},
         {"stylesheets", nlohmann::json::array({{{"kind", "asset"}, {"id", "text-rcss"}}})},
         {"data", nlohmann::json::array()},
     };
 
     // Keep the fixture's unrelated title Layout inert so this test isolates the file-backed
-    // gameplay Layout while still leaving the asset-backed Script Module available for runtime
+    // gameplay Layout while leaving the project-file Script Module available for runtime
     // certification through the same project-root mount.
     for (auto& candidate : layouts) {
         if (candidate.value("id", std::string{}) != "hud-assets")

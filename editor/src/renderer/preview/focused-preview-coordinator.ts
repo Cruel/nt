@@ -86,12 +86,11 @@ export class FocusedPreviewFreshnessCoordinator {
   }
 
   private rootKeyText(state: FocusedPreviewDesiredState): string {
-    const collection =
-      state.root.kind === 'layout-preview'
-        ? 'layouts'
-        : state.root.kind === 'shader-preview'
-          ? 'shaders'
-          : 'rooms';
+    if (state.root.kind === 'shader-preview')
+      throw new Error(
+        'Authored Shader focused previews were removed; shader source previews use source tabs.',
+      );
+    const collection = state.root.kind === 'layout-preview' ? 'layouts' : 'rooms';
     return serializeAuthoringDependencyNodeKey(recordNodeKey(collection, state.root.recordId));
   }
 

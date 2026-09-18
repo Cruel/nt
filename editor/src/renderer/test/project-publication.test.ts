@@ -148,10 +148,7 @@ describe('authoritative project publication', () => {
 
   it('classifies exact field and reverse source-resolution impacts without graph diffing', () => {
     const indexes = {
-      contributionKeysByOwnerPath: new Map([
-        ['/layouts/main', ['record:layouts:main']],
-        ['/shaders/world', ['record:shaders:world']],
-      ]),
+      contributionKeysByOwnerPath: new Map([['/layouts/main', ['record:layouts:main']]]),
       contributionKeysByDerivationKey: new Map([
         [JSON.stringify(['source-resolution-asset', 'layout-script']), ['record:layouts:main']],
         [JSON.stringify(['source-asset', 'layout-script']), ['record:layouts:main']],
@@ -175,9 +172,6 @@ describe('authoritative project publication', () => {
     expect(classifyAuthoringGraphMutation(['/layouts/main/data/rcss/sourceText'], indexes)).toEqual(
       { kind: 'graph-stable' },
     );
-    expect(
-      classifyAuthoringGraphMutation(['/shaders/world/data/stages/0/sourceText'], indexes),
-    ).toEqual({ kind: 'graph-stable' });
     expect(classifyAssetReverseDependencies('layout-script', 'path', indexes)).toEqual([
       'record:layouts:main',
     ]);

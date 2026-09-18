@@ -55,7 +55,6 @@ const authoringCollectionNames = new Set([
   'rooms',
   'scenes',
   'scripts',
-  'shaders',
   'tags',
   'tests',
   'variables',

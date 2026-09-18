@@ -535,16 +535,37 @@ void parse_shader_stage_definition(std::string_view stage_name, const nlohmann::
                 }
                 const auto runtime_path =
                     core::json_access::member_as<std::string>(binary_json, "runtimePath");
+                if (!runtime_path || !valid_asset_ref(*runtime_path) ||
+                    !valid_binary_suffix(*stage, *runtime_path)) {
+                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
+                                   path,
+                                   "invalid compiled shader binary path: " +
+                                       runtime_path.value_or(std::string{}));
+                    continue;
+                }
+                if (runtime_path->starts_with("system:/")) {
+                    if (binary_json.size() != 1) {
+                        add_diagnostic(diagnostics,
+                                       MaterialDiagnosticCode::InvalidCompiledBinaryRef, path,
+                                       "trusted system shader metadata must contain exactly "
+                                       "runtimePath");
+                        continue;
+                    }
+                    stage_definition.compiled.push_back(
+                        ShaderCompiledBinaryRef::trusted_system(variant, *runtime_path));
+                    continue;
+                }
                 const auto byte_hash =
                     core::json_access::member_as<std::string>(binary_json, "byteHash");
                 const auto* byte_size_json = core::json_access::member(binary_json, "byteSize");
                 const auto byte_size = byte_size_json && byte_size_json->is_number_unsigned()
                                            ? core::json_access::get<std::uint64_t>(*byte_size_json)
                                            : std::nullopt;
-                if (binary_json.size() != 3 || !runtime_path || !byte_hash || !byte_size) {
+                if (!runtime_path->starts_with("project:/") || binary_json.size() != 3 ||
+                    !byte_hash || !byte_size) {
                     add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
                                    path,
-                                   "compiled shader metadata must contain exactly runtimePath, "
+                                   "project shader metadata must contain exactly runtimePath, "
                                    "byteHash, and byteSize");
                     continue;
                 }
@@ -552,14 +573,6 @@ void parse_shader_stage_definition(std::string_view stage_name, const nlohmann::
                     add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
                                    path,
                                    "compiled Shader metadata contains an invalid SHA-256 value");
-                    continue;
-                }
-                const bool namespaced =
-                    runtime_path->starts_with("project:/") || runtime_path->starts_with("system:/");
-                if (!namespaced || !valid_asset_ref(*runtime_path) ||
-                    !valid_binary_suffix(*stage, *runtime_path)) {
-                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
-                                   path, "invalid compiled shader binary path: " + *runtime_path);
                     continue;
                 }
                 stage_definition.compiled.emplace_back(variant, *runtime_path, *byte_hash,

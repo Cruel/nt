@@ -39,16 +39,13 @@ TEST_CASE("native shader compile rejects an unsupported requested variant")
     const TempDirectory temp("invalid-variant");
     const nlohmann::json request = {
         {"shaderProject",
-         {{"schema", "noveltea.shader-materials"},
-          {"shaders",
+         {{"schema", "noveltea.shader-source-programs"},
+          {"programs",
            {{"sample_effect",
-             {{"stages",
-               {{"fragment",
-                 {{"source_text",
-                   "#include <bgfx_shader.sh>\nvoid main() { gl_FragColor = vec4(1.0); }\n"}}}}},
-              {"roles", nlohmann::json::array({"engine-2d"})},
-              {"role_bindings", nlohmann::json::object()}}}}},
-          {"materials", nlohmann::json::object()}}},
+             {{"vertexSource", "engine:/vs_quad.sc"},
+              {"fragmentSource", "engine:/fs_quad.sc"},
+              {"varyingDefinition", "engine:/varying.def.sc"},
+              {"interfaceContract", "test:sample-effect:1"}}}}}}},
         {"options",
          {{"projectRoot", (temp.path() / "project").generic_string()},
           {"outputRoot", (temp.path() / "generated").generic_string()},
@@ -62,8 +59,10 @@ TEST_CASE("native shader compile rejects an unsupported requested variant")
     REQUIRE_FALSE(response.is_discarded());
     REQUIRE(response.value("ok", false));
     CHECK(response.value("success", true) == false);
-    REQUIRE(response["outputs"].size() == 1);
+    REQUIRE(response["outputs"].size() == 2);
     CHECK(response["outputs"][0]["variant"] == "glsl-330");
+    CHECK(response["outputs"][1]["variant"] == "glsl-330");
+    CHECK(response["outputs"][0]["stage"] != response["outputs"][1]["stage"]);
     REQUIRE(response["diagnostics"].size() == 1);
     CHECK(response["diagnostics"][0]["severity"] == "error");
     CHECK(response["diagnostics"][0]["code"] == "invalid_variant");

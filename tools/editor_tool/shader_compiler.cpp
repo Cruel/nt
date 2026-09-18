@@ -199,6 +199,38 @@ public:
     return core::sha256_hex(std::as_bytes(std::span(value.data(), value.size())));
 }
 
+[[nodiscard]] std::string embedded_engine_shader_hash()
+{
+    std::string identity;
+    for (const auto& resource : embedded_bgfx::engine_shader_resources) {
+        identity += resource.name;
+        identity.push_back('=');
+        identity += resource.sha256;
+        identity.push_back('\n');
+    }
+    return core::sha256_hex(std::as_bytes(std::span(identity.data(), identity.size())));
+}
+
+[[nodiscard]] std::optional<std::filesystem::path>
+materialize_embedded_engine_shader_resources(const std::filesystem::path& cache_root)
+{
+    const auto root = cache_root / "toolchain" / "noveltea-shaders" / embedded_engine_shader_hash();
+    for (const auto& resource : embedded_bgfx::engine_shader_resources) {
+        const auto text = std::string_view(reinterpret_cast<const char*>(resource.bytes.data()),
+                                           resource.bytes.size());
+        const auto path = root / resource.name;
+        if (!write_text_file_if_changed(path, text))
+            return std::nullopt;
+        const auto check = read_text_file(path);
+        if (!check)
+            return std::nullopt;
+        const auto hash = core::sha256_hex(std::as_bytes(std::span(check->data(), check->size())));
+        if (hash != resource.sha256)
+            return std::nullopt;
+    }
+    return root;
+}
+
 [[nodiscard]] std::optional<std::filesystem::path>
 materialize_embedded_bgfx_resources(const std::filesystem::path& cache_root)
 {
@@ -1005,10 +1037,23 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
     if (!validate_tools(options, result.diagnostics))
         return result;
 
+    ShaderCompileOptions effective_options = options;
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
     const auto embedded_include_root = materialize_embedded_bgfx_resources(options.cache_root);
     if (!embedded_include_root)
         return result;
+    if (effective_options.engine_shader_root.empty()) {
+        const auto embedded_engine_root =
+            materialize_embedded_engine_shader_resources(options.cache_root);
+        if (!embedded_engine_root) {
+            add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                           ShaderCompileDiagnosticCode::SourceWriteFailed, ShaderId{},
+                           ShaderStage::Fragment, {}, {}, {}, {}, 0,
+                           "Failed to materialize embedded NovelTea engine shader sources.");
+            return result;
+        }
+        effective_options.engine_shader_root = *embedded_engine_root;
+    }
 #else
     const std::filesystem::path embedded_include_root;
 #endif
@@ -1027,8 +1072,8 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
         return result;
     }
 
-    auto varying = resolve_source_identity(request.varying_definition, options, ShaderStage::Fragment,
-                                           result.diagnostics);
+    auto varying = resolve_source_identity(request.varying_definition, effective_options,
+                                           ShaderStage::Fragment, result.diagnostics);
     if (!varying)
         return result;
     const auto varying_text = read_text_file(varying->path);
@@ -1049,12 +1094,12 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
     const auto prepare_stage = [&](ShaderStage stage, const std::string& identity) {
         if (identity.empty())
             return true;
-        auto source = resolve_source_identity(identity, options, stage, result.diagnostics);
+        auto source = resolve_source_identity(identity, effective_options, stage, result.diagnostics);
         if (!source)
             return false;
         StageWork work{.stage = stage, .source = std::move(*source)};
-        if (!collect_source_dependencies(work.source, options, work.dependencies, result.diagnostics,
-                                         stage)) {
+        if (!collect_source_dependencies(work.source, effective_options, work.dependencies,
+                                         result.diagnostics, stage)) {
             return false;
         }
         stages.push_back(std::move(work));
@@ -1080,10 +1125,10 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
     }
     result.program_identity = hash_hex(identity_input.str());
 
-    const auto manifest_path = options.cache_root / "shader-cache" / "manifest.json";
+    const auto manifest_path = effective_options.cache_root / "shader-cache" / "manifest.json";
     auto cache_manifest = read_cache_manifest(manifest_path, result.diagnostics);
     for (const auto& stage : stages) {
-        for (const auto& variant : options.variants) {
+        for (const auto& variant : effective_options.variants) {
             std::ostringstream key_input;
             key_input << result.program_identity << '\n' << variant.name << ':' << variant.platform
                       << ':' << variant.profile << '\n' << to_string(stage.stage) << '\n';
@@ -1092,7 +1137,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                                       result.program_identity + "." + stage_suffix(stage.stage) +
                                       ".bin";
             const auto runtime_path = "project:/" + package_path;
-            const auto output_path = options.output_root / package_path;
+            const auto output_path = effective_options.output_root / package_path;
 
             auto append_output = [&](bool cache_hit) -> bool {
                 const auto metadata = compiled_binary_metadata(output_path);
@@ -1138,7 +1183,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                 return true;
             };
 
-            if (!options.force_rebuild &&
+            if (!effective_options.force_rebuild &&
                 cache_entry_matches(cache_manifest, package_path, cache_key, output_path)) {
                 if (append_output(true))
                     continue;
@@ -1163,11 +1208,11 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                 "shaderc", "-f", path_utf8(stage.source.path), "-o", path_utf8(output_path),
                 "--type", shaderc_stage_type(stage.stage), "--platform", variant.platform,
                 "--profile", variant.profile, "--varyingdef", path_utf8(varying->path),
-                "-i", path_utf8(options.project_root / "shaders"),
+                "-i", path_utf8(effective_options.project_root / "shaders"),
             };
-            if (!options.engine_shader_root.empty()) {
+            if (!effective_options.engine_shader_root.empty()) {
                 args.push_back("-i");
-                args.push_back(path_utf8(options.engine_shader_root));
+                args.push_back(path_utf8(effective_options.engine_shader_root));
             }
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
             args.push_back("-i");
@@ -1175,9 +1220,10 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
 #endif
             const auto command_line = command_line_from_args(args);
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
-            std::vector<std::filesystem::path> include_roots = {options.project_root / "shaders"};
-            if (!options.engine_shader_root.empty())
-                include_roots.push_back(options.engine_shader_root);
+            std::vector<std::filesystem::path> include_roots = {
+                effective_options.project_root / "shaders"};
+            if (!effective_options.engine_shader_root.empty())
+                include_roots.push_back(effective_options.engine_shader_root);
             include_roots.push_back(*embedded_include_root);
             const auto process = run_embedded_shaderc(args, stage.stage, variant, stage.source.path,
                                                       output_path, varying->path, include_roots);

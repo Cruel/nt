@@ -573,9 +573,11 @@ TEST_CASE(
     CHECK(kernel->state().postprocess_effects().front().instance ==
           core::PostprocessEffectInstanceId::create("scene-grade").value());
     REQUIRE(kernel->state().material_parameters().size() == 1);
-    CHECK(kernel->state().material_parameters().front().parameter == "u_strength");
+    CHECK(kernel->state().material_parameters().front().parameter == "u_tint");
     REQUIRE(kernel->state().material_parameters().front().value);
-    CHECK(std::get<double>(*kernel->state().material_parameters().front().value) == 0.4);
+    CHECK(std::get<core::compiled::MaterialColorValue>(
+              *kernel->state().material_parameters().front().value) ==
+          core::compiled::MaterialColorValue{0.4, 0.4, 0.4, 1.0});
 
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
@@ -594,18 +596,20 @@ TEST_CASE(
     const auto* pending_material = std::get_if<runtime::PendingMaterialParameterOperation>(
         &*kernel->pending_presentation_operation());
     REQUIRE(pending_material != nullptr);
-    CHECK(std::get<double>(pending_material->source_value) == 0.4);
-    CHECK(std::get<double>(pending_material->target_value) == 0.75);
+    CHECK(std::get<core::compiled::MaterialColorValue>(pending_material->source_value) ==
+          core::compiled::MaterialColorValue{0.4, 0.4, 0.4, 1.0});
+    CHECK(std::get<core::compiled::MaterialColorValue>(pending_material->target_value) ==
+          core::compiled::MaterialColorValue{0.75, 0.75, 0.75, 1.0});
     CHECK(pending_material->duration == std::chrono::milliseconds{350});
     CHECK(pending_material->clock == core::MaterialClockPolicy::UnscaledPresentation);
     CHECK(pending_material->easing == core::PresentationEasing::EaseInOut);
     const auto target_parameter =
-        std::ranges::find_if(kernel->state().material_parameters(), [](const auto& parameter) {
-            return parameter.parameter == "u_strength";
-        });
+        std::ranges::find_if(kernel->state().material_parameters(),
+                             [](const auto& parameter) { return parameter.parameter == "u_tint"; });
     REQUIRE(target_parameter != kernel->state().material_parameters().end());
     REQUIRE(target_parameter->value);
-    CHECK(std::get<double>(*target_parameter->value) == 0.75);
+    CHECK(std::get<core::compiled::MaterialColorValue>(*target_parameter->value) ==
+          core::compiled::MaterialColorValue{0.75, 0.75, 0.75, 1.0});
 
     kernel->commit_pending_presentation();
     REQUIRE(kernel->complete(material_presentation->owner, material_presentation->handle));

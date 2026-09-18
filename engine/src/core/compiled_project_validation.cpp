@@ -1913,7 +1913,18 @@ private:
             };
             assets(layout.dependencies.fonts, "fonts");
             assets(layout.dependencies.images, "images");
-            assets(layout.dependencies.scripts, "scripts");
+            for (std::size_t dependency = 0; dependency < layout.dependencies.scripts.size();
+                 ++dependency) {
+                const auto& script_path = layout.dependencies.scripts[dependency];
+                if (!script_path.starts_with("project:/scripts/") ||
+                    !script_path.ends_with(".lua") || script_path.size() <= 21 ||
+                    script_path.find("..") != std::string::npos ||
+                    script_path.find('\\') != std::string::npos)
+                    error(
+                        "compiled_project.invalid_layout_script_path",
+                        "Layout script dependency must be a contained project:/scripts/*.lua path.",
+                        path + "/dependencies/scripts/" + std::to_string(dependency));
+            }
             assets(layout.dependencies.stylesheets, "stylesheets");
             assets(layout.dependencies.data, "data");
             for (std::size_t dependency = 0; dependency < layout.dependencies.data.size();
@@ -1965,10 +1976,19 @@ private:
                                   "/fields/" + std::to_string(field_index) + "/id");
             }
         }
-        for (std::size_t index = 0; index < m_input.scripts.size(); ++index)
-            if (const auto* source = std::get_if<AssetScriptSource>(&m_input.scripts[index].source))
-                require(m_assets, source->asset, "asset",
-                        item("/resources/scripts", index) + "/source/asset");
+        for (std::size_t index = 0; index < m_input.scripts.size(); ++index) {
+            const auto* source =
+                std::get_if<ProjectFileScriptSource>(&m_input.scripts[index].source);
+            if (!source)
+                continue;
+            const auto& path = source->path;
+            if (!path.starts_with("project:/scripts/") || path.size() <= 21 ||
+                path.find("..") != std::string::npos || path.find('\\') != std::string::npos)
+                error(
+                    "compiled_project.invalid_script_source_path",
+                    "Script Module project-file source must be a contained project:/scripts/ path.",
+                    item("/resources/scripts", index) + "/source/path");
+        }
     }
 
     void validate_definitions()

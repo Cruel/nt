@@ -1,45 +1,21 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { createInitialCommandHistoryState, executeCommand } from './command-test-utils';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { createInitialCommandHistoryState, executeCommand } from './command-test-utils';
 
-describe('shader/material command operations', () => {
-  it('replaces shader data through the command bus', () => {
+describe('Material command operations', () => {
+  it('replaces canonical Material data through the command bus', () => {
     const project = createAuthoringProject();
-    project.shaders.noise = { id: 'noise', label: 'Noise', data: defaultShaderData('Noise') };
-    const next = { ...defaultShaderData('Noise'), roles: ['rmlui-decorator' as const] };
-    const result = executeCommand(
-      {
-        document: project as never,
-        savedDocument: project as never,
-        history: createInitialCommandHistoryState(),
-      },
-      {
-        type: 'shader.replaceData',
-        label: 'Update shader',
-        payload: { shaderId: 'noise', data: next },
-      },
-    );
-    expect(result.ok).toBe(true);
-    expect(
-      (result.document as never as { shaders: Record<string, { data: unknown }> }).shaders.noise
-        ?.data,
-    ).toMatchObject({ roles: ['rmlui-decorator'] });
-  });
-
-  it('applies compiled outputs to shader stages through an undoable patch', () => {
-    const project = createAuthoringProject();
-    project.shaders.noise = {
-      id: 'noise',
-      label: 'Noise',
-      data: {
-        ...defaultShaderData('Noise'),
-        stages: [
-          { stage: 'fragment', sourceMode: 'inline', sourceText: 'void main() {}', compiled: {} },
-        ],
-      },
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
     };
+    const next = {
+      ...defaultMaterialData('Panel', 'postprocess-tint'),
+      parameters: { u_tint: { value: [0.25, 0.5, 0.75, 1] as [number, number, number, number] } },
+    };
+
     const result = executeCommand(
       {
         document: project as never,
@@ -47,81 +23,63 @@ describe('shader/material command operations', () => {
         history: createInitialCommandHistoryState(),
       },
       {
-        type: 'shader.applyCompiledOutputs',
-        label: 'Apply outputs',
-        payload: {
-          outputs: [
-            {
-              shader: 'noise',
-              stage: 'fragment',
-              variant: 'glsl-330',
-              metadata: {
-                path: 'project:/shaders/bgfx/glsl-330/noise.fs.bin',
-                byteHash: `sha256:${'a'.repeat(64)}`,
-                byteSize: 42,
-                compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
-              },
-            },
-          ],
-        },
+        type: 'material.replaceData',
+        label: 'Update material',
+        payload: { materialId: 'panel', data: next },
       },
     );
+
     expect(result.ok).toBe(true);
     expect(
-      (
-        result.document as never as {
-          shaders: Record<
-            string,
-            {
-              data: {
-                stages: Array<{
-                  compiled?: Record<
-                    string,
-                    {
-                      path: string;
-                      byteHash: string;
-                      byteSize: number;
-                      compileInputFingerprint: string;
-                    }
-                  >;
-                }>;
-              };
-            }
-          >;
-        }
-      ).shaders.noise?.data.stages[0]?.compiled,
-    ).toEqual({
-      'glsl-330': {
-        path: 'project:/shaders/bgfx/glsl-330/noise.fs.bin',
-        byteHash: `sha256:${'a'.repeat(64)}`,
-        byteSize: 42,
-        compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
-      },
+      (result.document as never as { materials: Record<string, { data: unknown }> }).materials.panel
+        ?.data,
+    ).toMatchObject({
+      base: { kind: 'preset', preset: 'postprocess-tint' },
+      parameters: { u_tint: { value: [0.25, 0.5, 0.75, 1] } },
     });
   });
 
-  it('sets explicit material inheritance without restoring generic record inheritance', () => {
+  it('stores single-parent Material inheritance in canonical Material data', () => {
     const project = createAuthoringProject();
-    project.materials.base = { id: 'base', label: 'Base', data: defaultMaterialData('Base') };
-    project.materials.child = { id: 'child', label: 'Child', data: defaultMaterialData('Child') };
+    project.materials.base = {
+      id: 'base',
+      label: 'Base',
+      data: defaultMaterialData('Base', 'engine-2d'),
+    };
+    project.materials.child = {
+      id: 'child',
+      label: 'Child',
+      data: defaultMaterialData('Child', 'engine-2d'),
+    };
+    const next = {
+      kind: 'material' as const,
+      base: {
+        kind: 'material' as const,
+        material: { $ref: { collection: 'materials' as const, id: 'base' } },
+      },
+      parameters: {},
+      textures: {},
+    };
+
     const result = executeCommand(
       {
         document: project as never,
         savedDocument: project as never,
         history: createInitialCommandHistoryState(),
       },
-      { type: 'material.setBase', payload: { materialId: 'child', baseMaterialId: 'base' } },
+      {
+        type: 'material.replaceData',
+        label: 'Set base material',
+        payload: { materialId: 'child', data: next },
+      },
     );
+
     expect(result.ok).toBe(true);
     expect(
-      (
-        result.document as never as {
-          materials: Record<string, { data: { baseMaterialId: string | null } }>;
-        }
-      ).materials.child?.data.baseMaterialId,
-    ).toBe('base');
-    expect(
-      (result.document as never as { materials: Record<string, unknown> }).materials.child,
-    ).not.toHaveProperty('inherits');
+      (result.document as never as { materials: Record<string, { data: unknown }> }).materials.child
+        ?.data,
+    ).toMatchObject({
+      base: { kind: 'material', material: { $ref: { collection: 'materials', id: 'base' } } },
+    });
   });
 });

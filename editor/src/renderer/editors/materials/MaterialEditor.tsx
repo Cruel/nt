@@ -11,21 +11,22 @@ import { useProjectStore } from '@/project/project-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
   defaultMaterialData,
-  materialBlendValues,
-  postprocessScopeValues,
   materialTextureFilteringValues,
   parseMaterialData,
   resolveMaterialData,
   type MaterialData,
+  type MaterialParameterOverride,
   type MaterialTextureData,
-  type MaterialUniformOverride,
 } from '../../../shared/project-schema/authoring-materials';
+import {
+  materialPresetIdValues,
+  materialPresets,
+  type MaterialPresetId,
+} from '../../../shared/project-schema/authoring-material-presets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
-  parseShaderData,
-  shaderRoleValues,
   shaderUniformValueSchema,
-  type ShaderUniformData,
+  type ShaderUniformType,
   type ShaderUniformValue,
 } from '../../../shared/project-schema/authoring-shaders';
 import {
@@ -44,7 +45,7 @@ function updateMaterial(materialId: string, next: MaterialData, label: string) {
   });
 }
 
-function parseUniformValue(type: ShaderUniformData['type'], text: string): ShaderUniformValue {
+function parseParameterValue(type: ShaderUniformType, text: string): ShaderUniformValue {
   const raw =
     type === 'float'
       ? Number.parseFloat(text || '0')
@@ -65,14 +66,6 @@ function valueToText(value: unknown): string {
     : '';
 }
 
-function inheritedUniform(data: MaterialData, name: string): MaterialUniformOverride | null {
-  return data.uniforms.find((item) => item.name === name) ?? null;
-}
-
-function inheritedTexture(data: MaterialData, name: string): MaterialTextureData | null {
-  return data.textures.find((item) => item.sampler === name) ?? null;
-}
-
 export function MaterialEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const materialId = tab.resource?.entityId;
@@ -87,18 +80,14 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
         : { data: null, diagnostics: [] },
     [project, materialId],
   );
-  const resolvedData = resolved.data ?? data;
-  const shaderId = data.shader?.$ref.id ?? null;
-  const shader = shaderId && project ? parseShaderData(project.shaders[shaderId]?.data) : null;
-  const shaderRecords = project ? Object.entries(project.shaders) : [];
+  const effective = resolved.data;
   const imageAssets = project
     ? Object.entries(project.assets)
         .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
         .map(([id, asset]) => ({ id, label: asset.label }))
     : [];
-  const localUniforms = new Map(data.uniforms.map((item) => [item.name, item]));
-  const localTextures = new Map(data.textures.map((item) => [item.sampler, item]));
   const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
+
   useEffect(() => {
     let active = true;
     if (!project || !materialId) {
@@ -117,81 +106,75 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
 
   if (!materialId || !record || !project)
     return <div className="p-4 text-sm text-muted-foreground">Material record not found.</div>;
-  const activeMaterialId = materialId;
-  const activeRecord = record;
-  const activeProject = project;
 
-  const revision = materialPreviewRevision(activeProject, activeMaterialId);
+  const revision = materialPreviewRevision(project, materialId);
   const previewDocument = previewData
     ? {
         kind: 'material-preview' as const,
-        recordId: activeMaterialId,
+        recordId: materialId,
         revision,
         data: previewData,
       }
     : undefined;
+
   function commit(next: MaterialData, label = 'Update material') {
-    updateMaterial(activeMaterialId, next, label);
+    updateMaterial(materialId!, next, label);
   }
 
-  function setUniform(declaration: ShaderUniformData, value: ShaderUniformValue) {
-    const uniforms = data.uniforms.filter((item) => item.name !== declaration.name);
+  function setParameter(name: string, patch: MaterialParameterOverride) {
     commit(
-      { ...data, uniforms: [...uniforms, { name: declaration.name, value }] },
-      'Set material uniform',
+      { ...data, parameters: { ...data.parameters, [name]: patch } },
+      'Set material parameter',
     );
   }
 
-  function clearUniform(name: string) {
-    commit(
-      { ...data, uniforms: data.uniforms.filter((item) => item.name !== name) },
-      'Clear material uniform',
-    );
+  function clearParameter(name: string) {
+    const parameters = { ...data.parameters };
+    delete parameters[name];
+    commit({ ...data, parameters }, 'Reset material parameter');
   }
 
-  function setTexture(sampler: string, patch: Partial<MaterialTextureData>) {
-    const existing = localTextures.get(sampler) ??
-      inheritedTexture(resolvedData, sampler) ?? {
-        sampler,
-        source: { uri: '' },
-        filtering: 'clamp-linear' as const,
-      };
-    const textures = data.textures.filter((item) => item.sampler !== sampler);
-    commit(
-      { ...data, textures: [...textures, { ...existing, ...patch, sampler }] },
-      'Set material texture',
-    );
+  function setTexture(name: string, patch: MaterialTextureData) {
+    commit({ ...data, textures: { ...data.textures, [name]: patch } }, 'Set material texture');
   }
 
-  function clearTexture(sampler: string) {
-    commit(
-      { ...data, textures: data.textures.filter((item) => item.sampler !== sampler) },
-      'Clear material texture',
-    );
+  function clearTexture(name: string) {
+    const textures = { ...data.textures };
+    delete textures[name];
+    commit({ ...data, textures }, 'Reset material texture');
   }
+
+  const baseValue =
+    data.base.kind === 'preset'
+      ? `preset:${data.base.preset}`
+      : `material:${data.base.material.$ref.id}`;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
       <div className="flex items-start gap-3" data-workbench-anchor="material.summary">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2>
-            <Badge variant="outline">{activeMaterialId}</Badge>
+            <h2 className="truncate text-lg font-semibold">{record.label}</h2>
+            <Badge variant="outline">{materialId}</Badge>
+            {effective ? <Badge variant="secondary">{effective.role}</Badge> : null}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Material shader, role, uniform overrides, texture slots, inheritance, and live preview.
+            Material Preset/inheritance contract with sparse parameter, texture, and shader-source
+            overrides.
           </p>
         </div>
       </div>
 
       {!parsedData ? (
         <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
-          Material data was invalid; showing editable defaults until you apply a change.
+          Material data is invalid; canonical defaults are shown until you apply a change.
         </div>
       ) : null}
       {resolved.diagnostics.length > 0 ? (
-        <div className="mt-3 rounded border p-2 text-xs text-muted-foreground">
-          {resolved.diagnostics[0]?.message}
+        <div className="mt-3 space-y-1 rounded border p-2 text-xs text-muted-foreground">
+          {resolved.diagnostics.map((item) => (
+            <div key={`${item.path}:${item.message}`}>{item.message}</div>
+          ))}
         </div>
       ) : null}
 
@@ -202,169 +185,105 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             data-workbench-anchor="material.settings"
           >
             <div className="space-y-1">
-              <Label>Base material</Label>
+              <Label>Base</Label>
               <Select
-                value={data.baseMaterialId ?? '__none__'}
-                onValueChange={(value) =>
-                  useCommandStore.getState().executeCommand({
-                    type: 'material.setBase',
-                    label: 'Set base material',
-                    payload: {
-                      materialId: activeMaterialId,
-                      baseMaterialId: value === '__none__' ? null : String(value),
-                    },
-                    originSaveUnitId: recordSaveUnitId('materials', activeMaterialId),
-                    persistencePolicy: 'manual-save',
-                  })
-                }
+                value={baseValue}
+                onValueChange={(value) => {
+                  const raw = String(value);
+                  if (raw.startsWith('preset:')) {
+                    commit(
+                      {
+                        ...data,
+                        base: { kind: 'preset', preset: raw.slice(7) as MaterialPresetId },
+                      },
+                      'Set Material Preset',
+                    );
+                  } else {
+                    commit(
+                      {
+                        ...data,
+                        base: {
+                          kind: 'material',
+                          material: { $ref: { collection: 'materials', id: raw.slice(9) } },
+                        },
+                      },
+                      'Set base Material',
+                    );
+                  }
+                }}
               >
-                <SelectItem value="__none__">No base material</SelectItem>
-                {Object.entries(activeProject.materials)
-                  .filter(([id]) => id !== activeMaterialId)
+                {materialPresetIdValues.map((presetId) => (
+                  <SelectItem key={presetId} value={`preset:${presetId}`}>
+                    {materialPresets[presetId].label} (Preset)
+                  </SelectItem>
+                ))}
+                {Object.entries(project.materials)
+                  .filter(([id]) => id !== materialId)
                   .map(([id, materialRecord]) => (
-                    <SelectItem key={id} value={id}>
+                    <SelectItem key={id} value={`material:${id}`}>
                       {materialRecord.label} ({id})
                     </SelectItem>
                   ))}
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>Shader</Label>
-              <Select
-                value={shaderId ?? '__none__'}
-                onValueChange={(value) =>
-                  commit(
-                    {
-                      ...data,
-                      shader:
-                        value === '__none__'
-                          ? null
-                          : { $ref: { collection: 'shaders', id: String(value) } },
-                    },
-                    'Set material shader',
-                  )
-                }
-              >
-                <SelectItem value="__none__">No shader</SelectItem>
-                {shaderRecords.map(([id, shaderRecord]) => (
-                  <SelectItem key={id} value={id}>
-                    {shaderRecord.label} ({id})
-                  </SelectItem>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Role</Label>
-              <Select
-                value={data.role}
-                onValueChange={(value) =>
-                  commit({ ...data, role: value as MaterialData['role'] }, 'Set material role')
-                }
-              >
-                {shaderRoleValues.map((role) => (
-                  <SelectItem key={role} value={role}>
-                    {role}
-                    {shader && !shader.roles.includes(role) ? ' (unsupported)' : ''}
-                  </SelectItem>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Blend</Label>
-              <Select
-                value={data.blend}
-                onValueChange={(value) =>
-                  commit({ ...data, blend: value as MaterialData['blend'] }, 'Set material blend')
-                }
-              >
-                {materialBlendValues.map((blend) => (
-                  <SelectItem key={blend} value={blend}>
-                    {blend}
-                  </SelectItem>
-                ))}
-              </Select>
-            </div>
-            {data.role === 'postprocess' ? (
-              <div className="space-y-1">
-                <Label>Postprocess Scope</Label>
-                <Select
-                  value={data.postprocessScope}
-                  onValueChange={(value) =>
-                    commit(
-                      {
-                        ...data,
-                        postprocessScope: value as MaterialData['postprocessScope'],
-                      },
-                      'Set postprocess scope',
-                    )
-                  }
-                >
-                  {postprocessScopeValues.map((scope) => (
-                    <SelectItem key={scope} value={scope}>
-                      {scope}
-                    </SelectItem>
-                  ))}
-                </Select>
+              <Label>Effective contract</Label>
+              <div className="flex h-9 items-center gap-2 rounded border px-3 text-xs">
+                <span>{effective?.preset.label ?? 'Invalid'}</span>
+                {effective ? <Badge variant="outline">{effective.role}</Badge> : null}
               </div>
-            ) : null}
+            </div>
           </section>
 
-          <section
-            className="space-y-3 rounded border p-3"
-            data-workbench-anchor="material.uniforms"
-          >
-            <h3 className="text-sm font-medium">Uniform Overrides</h3>
-            {!shader ? (
-              <p className="text-xs text-muted-foreground">
-                Choose a valid shader to edit uniform overrides.
-              </p>
-            ) : null}
-            {shader?.uniforms.map((uniform) => {
-              const local = localUniforms.get(uniform.name);
-              const inherited = inheritedUniform(resolvedData, uniform.name);
-              const display = local ?? inherited;
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="material.shader">
+            <h3 className="text-sm font-medium">Shader Sources</h3>
+            <p className="text-xs text-muted-foreground">
+              Empty overrides use the inherited preset/base source. Project source paths must remain
+              under shaders/.
+            </p>
+            {(['vertex', 'fragment', 'varying'] as const).map((stage) => {
+              const local = data.shader?.[stage];
+              const effectivePath =
+                stage === 'vertex'
+                  ? effective?.vertexSource
+                  : stage === 'fragment'
+                    ? effective?.fragmentSource
+                    : effective?.varyingDefinition;
               return (
-                <div
-                  key={uniform.name}
-                  className="grid gap-2 rounded border p-2 @3xl:grid-cols-[160px_120px_1fr_auto]"
-                >
-                  <div>
-                    <div className="font-mono text-xs">{uniform.name}</div>
-                    <div className="text-[10px] text-muted-foreground">
-                      {uniform.type}
-                      {local ? ' local' : inherited ? ' inherited' : ' default'}
-                    </div>
-                  </div>
-                  <Badge
-                    variant={local ? 'default' : 'outline'}
-                    className="h-7 self-center justify-center"
-                  >
-                    {uniform.binding ?? 'manual'}
-                  </Badge>
-                  {uniform.type === 'bool' ? (
-                    <Select
-                      value={display?.value === true || uniform.default === true ? 'true' : 'false'}
-                      onValueChange={(value) => setUniform(uniform, value === 'true')}
-                    >
-                      <SelectItem value="false">false</SelectItem>
-                      <SelectItem value="true">true</SelectItem>
-                    </Select>
-                  ) : (
-                    <Input
-                      value={valueToText(display?.value ?? uniform.default)}
-                      onChange={(event) =>
-                        setUniform(
-                          uniform,
-                          parseUniformValue(uniform.type, event.currentTarget.value),
-                        )
-                      }
-                    />
-                  )}
+                <div key={stage} className="grid gap-2 @3xl:grid-cols-[100px_1fr_auto]">
+                  <Label className="self-center capitalize">{stage}</Label>
+                  <Input
+                    value={local?.path ?? ''}
+                    placeholder={effectivePath ?? ''}
+                    onChange={(event) => {
+                      const path = event.currentTarget.value.trim();
+                      const shader = { ...data.shader };
+                      if (path)
+                        shader[stage] = path.startsWith('engine:/')
+                          ? { kind: 'engine', path }
+                          : { kind: 'project', path };
+                      else delete shader[stage];
+                      commit(
+                        {
+                          ...data,
+                          shader: Object.keys(shader).length > 0 ? shader : undefined,
+                        },
+                        'Set material shader source',
+                      );
+                    }}
+                  />
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => clearUniform(uniform.name)}
                     disabled={!local}
+                    onClick={() => {
+                      const shader = { ...data.shader };
+                      delete shader[stage];
+                      commit(
+                        { ...data, shader: Object.keys(shader).length > 0 ? shader : undefined },
+                        'Reset material shader source',
+                      );
+                    }}
                   >
                     Reset
                   </Button>
@@ -375,53 +294,132 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
 
           <section
             className="space-y-3 rounded border p-3"
-            data-workbench-anchor="material.textures"
+            data-workbench-anchor="material.parameters"
           >
-            <h3 className="text-sm font-medium">Texture Slots</h3>
-            {!shader ? (
-              <p className="text-xs text-muted-foreground">
-                Choose a valid shader to edit texture slots.
-              </p>
-            ) : null}
-            {shader?.samplers.map((sampler) => {
-              const local = localTextures.get(sampler.name);
-              const inherited = inheritedTexture(resolvedData, sampler.name);
-              const display = local ?? inherited;
-              const refId =
-                display?.source && '$ref' in display.source ? display.source.$ref.id : '__none__';
+            <h3 className="text-sm font-medium">Parameters</h3>
+            {Object.entries(effective?.preset.uniforms ?? {}).map(([name, declaration]) => {
+              const local = data.parameters[name];
+              const current = effective?.parameters[name];
+              const rendererBound = declaration.binding !== undefined;
               return (
                 <div
-                  key={sampler.name}
+                  key={name}
+                  className="grid gap-2 rounded border p-2 @3xl:grid-cols-[160px_120px_1fr_auto]"
+                >
+                  <div>
+                    <div className="font-mono text-xs">{name}</div>
+                    <div className="text-[10px] text-muted-foreground">{declaration.type}</div>
+                  </div>
+                  <Badge
+                    variant={local ? 'default' : 'outline'}
+                    className="h-7 self-center justify-center"
+                  >
+                    {declaration.binding ?? (local ? 'override' : 'inherited')}
+                  </Badge>
+                  {rendererBound ? (
+                    <div className="self-center text-xs text-muted-foreground">
+                      Runtime supplied
+                    </div>
+                  ) : declaration.type === 'bool' ? (
+                    <Select
+                      value={current?.value === true ? 'true' : 'false'}
+                      onValueChange={(value) =>
+                        setParameter(name, { ...local, value: value === 'true' })
+                      }
+                    >
+                      <SelectItem value="false">false</SelectItem>
+                      <SelectItem value="true">true</SelectItem>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={valueToText(current?.value)}
+                      onChange={(event) =>
+                        setParameter(name, {
+                          ...local,
+                          value: parseParameterValue(declaration.type, event.currentTarget.value),
+                        })
+                      }
+                    />
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!local}
+                    onClick={() => clearParameter(name)}
+                  >
+                    Reset
+                  </Button>
+                </div>
+              );
+            })}
+            {Object.keys(data.parameters)
+              .filter((name) => !effective?.preset.uniforms[name])
+              .map((name) => (
+                <div
+                  key={name}
+                  className="flex items-center justify-between rounded border border-dashed p-2 text-xs"
+                >
+                  <span>Orphaned parameter: {name}</span>
+                  <Button size="sm" variant="outline" onClick={() => clearParameter(name)}>
+                    Remove
+                  </Button>
+                </div>
+              ))}
+          </section>
+
+          <section
+            className="space-y-3 rounded border p-3"
+            data-workbench-anchor="material.textures"
+          >
+            <h3 className="text-sm font-medium">Textures</h3>
+            {Object.entries(effective?.preset.samplers ?? {}).map(([name, declaration]) => {
+              const local = data.textures[name];
+              const current = effective?.textures[name];
+              const rendererBound = declaration.binding !== undefined;
+              const refId =
+                current?.source && '$ref' in current.source ? current.source.$ref.id : '__none__';
+              return (
+                <div
+                  key={name}
                   className="grid gap-2 rounded border p-2 @3xl:grid-cols-[160px_1fr_160px_auto]"
                 >
                   <div>
-                    <div className="font-mono text-xs">{sampler.name}</div>
+                    <div className="font-mono text-xs">{name}</div>
                     <div className="text-[10px] text-muted-foreground">
-                      {local ? 'local' : inherited ? 'inherited' : 'empty'}
+                      {declaration.binding ?? (local ? 'override' : 'inherited')}
                     </div>
                   </div>
+                  {rendererBound ? (
+                    <div className="self-center text-xs text-muted-foreground">
+                      Runtime supplied
+                    </div>
+                  ) : (
+                    <Select
+                      value={refId}
+                      onValueChange={(value) =>
+                        setTexture(name, {
+                          ...local,
+                          source:
+                            value === '__none__'
+                              ? { uri: '' }
+                              : { $ref: { collection: 'assets', id: String(value) } },
+                        })
+                      }
+                    >
+                      <SelectItem value="__none__">No texture</SelectItem>
+                      {imageAssets.map((asset) => (
+                        <SelectItem key={asset.id} value={asset.id}>
+                          {asset.label} ({asset.id})
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  )}
                   <Select
-                    value={refId}
+                    value={current?.filtering ?? 'clamp-linear'}
+                    disabled={rendererBound}
                     onValueChange={(value) =>
-                      setTexture(sampler.name, {
-                        source:
-                          value === '__none__'
-                            ? { uri: '' }
-                            : { $ref: { collection: 'assets', id: String(value) } },
-                      })
-                    }
-                  >
-                    <SelectItem value="__none__">No texture</SelectItem>
-                    {imageAssets.map((asset) => (
-                      <SelectItem key={asset.id} value={asset.id}>
-                        {asset.label} ({asset.id})
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  <Select
-                    value={display?.filtering ?? 'clamp-linear'}
-                    onValueChange={(value) =>
-                      setTexture(sampler.name, {
+                      setTexture(name, {
+                        ...local,
                         filtering: value as MaterialTextureData['filtering'],
                       })
                     }
@@ -435,16 +433,30 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => clearTexture(sampler.name)}
                     disabled={!local}
+                    onClick={() => clearTexture(name)}
                   >
                     Reset
                   </Button>
                 </div>
               );
             })}
+            {Object.keys(data.textures)
+              .filter((name) => !effective?.preset.samplers[name])
+              .map((name) => (
+                <div
+                  key={name}
+                  className="flex items-center justify-between rounded border border-dashed p-2 text-xs"
+                >
+                  <span>Orphaned texture: {name}</span>
+                  <Button size="sm" variant="outline" onClick={() => clearTexture(name)}>
+                    Remove
+                  </Button>
+                </div>
+              ))}
           </section>
         </div>
+
         <aside
           className="min-h-[420px] overflow-hidden rounded border bg-muted/20"
           data-workbench-anchor="material.preview"

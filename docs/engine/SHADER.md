@@ -1,385 +1,152 @@
-# Shader Entity
+# Shader Source and Material Programs
 
 ## Purpose
 
-Shader records define runtime-safe shader metadata for NovelTea projects. They describe source stages, compiled platform variants, uniform declarations, sampler declarations, role compatibility, and standard engine input bindings.
+NovelTea does not expose Shader as an authored Project record. Materials are the semantic rendering resources; shaders are source files and derived runtime programs.
 
-This document covers the new shader authoring component. Legacy shader editor behavior and bundled GLSL examples are reference material only.
+Built-in Material Presets provide the default rendering contract for ordinary Materials. A preset defines the Material role, engine shader stages, interface/binding metadata, default render state, and preview harness. Presets are engine-owned stable contracts and are not Project records.
 
-## Current Status
+When a Material uses custom shader source, its stages reference normalized source paths directly. Project-owned shader files live beneath `shaders/`; engine-owned stages use `engine:/...` identities. Reuse happens through source files and `#include`, not through shared authored Shader IDs.
 
-Shaders are implemented as a typed authoring collection in the editor. The Shader editor supports inline stage source, source-asset references, interface declarations, roles, compiled output metadata, helper compile actions, and a live material-style preview.
+## Canonical authoring model
 
-The engine has runtime shader/material metadata types and parsers under `noveltea.shader-materials`, bgfx shader loading and program caching, and shader compiler/manifest support. Platform shader compilation remains a package/build workflow rather than runtime compilation on all targets.
+There is no `/shaders` collection and no Shader `$ref` in canonical authoring data.
 
-## Collection
-
-Shader records live at:
-
-```json
-/shaders/{shaderId}
-```
-
-The record uses the standard authoring record wrapper. Shader-specific data lives in `record.data`.
+A Material has exactly one immediate base:
 
 ```ts
-interface ShaderData {
-  kind: 'shader';
-  displayName?: string;
-  stages: ShaderStageData[];
-  uniforms: ShaderUniformData[];
-  samplers: ShaderSamplerData[];
-  roles: ShaderRole[];
-  roleBindings: ShaderRoleBindingData[];
+{ kind: 'preset', preset: 'engine-2d' }
+```
+
+or:
+
+```ts
+{ kind: 'material', material: { $ref: { collection: 'materials', id: 'base-material' } } }
+```
+
+Material inheritance is single-parent and must terminate at a built-in preset. Cycles and missing bases are invalid. Parameters, textures, render-state fields, preview metadata, and shader-stage overrides are sparse overrides. Resolution preserves provenance so the editor can distinguish preset values, inherited Material values, and local overrides.
+
+A Material may override shader stages with project or engine source paths:
+
+```ts
+shader: {
+  vertex?: { kind: 'project' | 'engine'; path: string };
+  fragment?: { kind: 'project' | 'engine'; path: string };
+  varying?: { kind: 'project' | 'engine'; path: string };
 }
 ```
 
-## Identity Rules
+Project shader paths are contained project-relative files beneath `shaders/`. Engine paths use the explicit `engine:/` namespace. Preset-backed Materials require no project shader source.
 
-Shader IDs use the project entity ID format:
+## Interface ownership
 
-```text
-lowercase kebab-case, starts with a letter, contains only letters, numbers, and hyphens
-```
+The shader compiler's reflected interface is the structural source of truth for custom-source programs. Reflection reports uniforms and sampled images from compiled stage output. Runtime shader metadata is generated from that reflected interface rather than from an authored Shader declaration.
 
-Examples:
+Material and preset metadata may decorate compatible reflected inputs with authoring semantics such as defaults, labels, ranges, and engine bindings. Engine-bound inputs are runtime-owned and cannot be occurrence-authored. Ordinary reflected inputs may receive authored Material values or texture assignments.
 
-```text
-simple-tint
-active-text-glow
-rmlui-noise-panel
-```
+If an authored Material parameter or texture key no longer exists in reflection, NovelTea preserves it as orphaned configuration and emits a diagnostic. It is not deleted automatically. Unsupported reflected uniform types are also diagnosed.
 
-Shader uniform and sampler names are shader-language-facing names. They must be non-empty and should match the names expected by the shader source and material assignments.
+Built-in preset programs use the preset's engine-owned interface contract. Custom programs use reflection from the compiled outputs. This keeps ordinary engine rendering stable while ensuring project shader structure cannot drift from the compiler-visible program.
 
-## High-Level Model
+## Source compilation
 
-A shader record is authoring metadata for one logical shader definition. It may contain vertex and fragment stage source, compiled binaries by variant, uniforms, samplers, supported roles, and optional role bindings.
-
-Shader records do not directly define textures or uniform values for a game object. Materials bind concrete uniform values and textures to a shader.
-
-## Data Model
-
-### Roles
-
-Shader roles currently include:
+Editor/native shader compilation consumes the canonical source-program request:
 
 ```text
-engine-2d
-active-text
-rmlui-decorator
-rmlui-filter
-postprocess
+noveltea.shader-source-programs
 ```
 
-Roles describe where a shader is compatible. Materials select one role and must reference a shader that supports that role.
+Each requested program identifies vertex source, fragment source, varying definition, and the interface-contract identity. Source inputs may mix project files and engine-provided stages. Project includes are contained to approved project shader roots; engine includes resolve through explicit embedded engine/bgfx roots. Relative escapes are rejected.
 
-Postprocess materials also select a closed composition scope. Authoring data uses
-`postprocessScope`; runtime shader/material metadata uses `postprocess_scope`. The supported values
-are:
+The standalone native tooling embeds the NovelTea engine shader source bundle required to resolve `engine:/...` stages. A source checkout is therefore not required merely to compile a Material program.
+
+Compiler output includes the target variant, derived runtime path/hash/size, dependency fingerprint information, reflected inputs, and browser payload where applicable. Compiled outputs and compiler fingerprints are derived build/runtime artifacts only; they are never written into canonical Material records.
+
+Program/cache identity is derived from effective source inputs, dependencies, interface contract, compiler identity, and target variant. Authored Shader IDs do not participate in runtime identity or deduplication.
+
+## Runtime metadata
+
+The runtime continues to use internal shader/program structures and the `noveltea.shader-materials` metadata document. That document is a derived runtime representation, not an authoring schema.
+
+`buildShaderMaterialProject()` resolves effective Materials and emits:
+
+- engine preset programs for preset-backed Materials;
+- custom derived programs for source-overridden Materials;
+- reflected uniforms/samplers for compiled custom programs;
+- Material values, textures, blend state, role, and postprocess scope;
+- diagnostics for unresolved inheritance, invalid bindings, unsupported reflection, and orphaned configuration.
+
+Preset programs resolve to shipped system shader binaries. Custom source programs must have the required compiled target variants before runtime package export succeeds.
+
+## Material roles and standard bindings
+
+Current Material roles include ordinary 2D rendering, ActiveText, RmlUi decoration, postprocess rendering, and hotspot overlay roles. A Material's role comes from its root preset; it is not an independently editable enum.
+
+Standard engine bindings remain typed runtime-owned inputs. Examples include time, paint dimensions, raster/UI scale values, viewport dimensions, pointer state, and role-specific hotspot/RmlUi inputs. A reflected input can be author-settable or engine-bound, but not both.
+
+Postprocess Materials retain the closed composition scopes `world` and `full-game-viewport`. Hotspot and RmlUi presets retain their role-specific sampler/uniform ownership rules.
+
+## ActiveText
+
+ActiveText retains its advanced direct shader-pair path without authored Shader records. Direct vertex/fragment programs reference project shader files and/or engine stages, with varying/interface source handled through the same source-program compiler seam. ActiveText direct pairs remain lower-level than Material inheritance and do not introduce authored Shader IDs.
+
+## Editor behavior
+
+The semantic Project tree contains Materials, not Shaders. Material editing exposes the effective preset/base chain, sparse parameter and texture overrides, shader source overrides, and provenance. Shader compilation diagnostics refer to source paths and derived programs.
+
+Physical shader-source navigation and richer source-tab workflows belong to the Files/source-editor portion of the Material redesign. Built-in preset source is engine-owned/read-only; project-customized shader files are Project-owned source.
+
+There is no Shader entity wizard, Shader detail editor registration, Shader delete/rename command, or command that applies compiled outputs back into authoring data.
+
+## Assets and source files
+
+Shader source is not an Asset kind. `.sc`, `.glsl`, `.vert`, `.frag`, `.vs`, `.fs`, and varying/include files are source files under the shader source root rather than semantic Asset records.
+
+Lua follows the same source-code boundary: Lua source is not a script Asset. Script Modules reference `scripts/*.lua` project files, and canonically owned Layout Lua lives in its workspace source file. Asset records remain for imported/runtime content such as images, fonts, audio, video, text/data resources, and binary resources.
+
+## Export/package behavior
+
+Runtime artifact preparation performs exhaustive compilation for the requested platform variants, validates reflection/interface ownership, and publishes the derived shader/material document plus binary paths. Runtime package export may strip project shader source while retaining the compiled outputs required by the package.
+
+`--include-shader-sources` is a developer export override that preserves project shader source files; it does not reintroduce shader-source Assets or authored Shader records.
+
+## Compatibility policy
+
+The cutover is canonical and atomic:
+
+- authored Shader collections are obsolete and rejected;
+- `script` and `shader-source` Asset kinds are obsolete and rejected;
+- native shader compilation accepts the source-program compile envelope, not the old authored-Shader compile envelope;
+- compiled outputs/fingerprints are derived state;
+- no authoring alias, migration reader, or fallback Shader record path is retained.
+
+Internal runtime shader/program types may continue to use shader-oriented terminology because they model renderer implementation details rather than authored Project identity.
+
+## Primary implementation files
 
 ```text
-world
-full-game-viewport
-```
-
-`world` is the authored and runtime default. It processes the completed semantic world group,
-including native `WorldOverlay`, before GameUi. `full-game-viewport` processes the completed runtime
-game viewport, including runtime UI. Presentation bars and debug/editor chrome remain outside both
-scopes. A postprocess material reads the captured scene through an explicitly assigned sampler whose
-source is `$draw.texture`; the scope does not introduce a separate shader-input convention.
-
-### Stages
-
-A stage has:
-
-```ts
-interface ShaderStageData {
-  stage: 'vertex' | 'fragment';
-  sourceMode: 'asset' | 'inline';
-  sourceAsset?: { $ref: { collection: 'assets'; id: string } } | null;
-  sourceText?: string;
-  compiled: Record<string, {
-    path: string;
-    profile: string;
-    stage: 'vertex' | 'fragment';
-    varyingPath: string;
-    sourceHash: string;
-  }>;
-}
-```
-
-Inline stages store `sourceText` directly. Asset stages point to an asset record, usually of kind
-`shader-source`. Compiled outputs map variant names to one canonical metadata object; string-valued
-compiled paths are not accepted.
-
-### Uniforms
-
-A uniform declaration has:
-
-```ts
-interface ShaderUniformData {
-  name: string;
-  type: 'float' | 'vec2' | 'vec3' | 'vec4' | 'color' | 'int' | 'bool';
-  default?: unknown;
-  range?: [number, number];
-  label?: string;
-  binding?: ShaderInputBinding | null;
-}
-```
-
-Supported standard input bindings are:
-
-```text
-engine.time
-engine.paint_dimensions
-engine.reference_to_world_raster_scale
-engine.context_logical_to_ui_raster_scale
-engine.ui_media_query_resolution
-engine.viewport_pixel_dimensions
-engine.pointer_position
-engine.pointer_valid
-rmlui.paint_dimensions
-rmlui.context_logical_to_ui_raster_scale
-rmlui.media_query_resolution
-rmlui.viewport_pixel_dimensions
-```
-
-Bound uniforms are intended to receive standard runtime inputs instead of manually authored material values. Scale and size bindings are domain-specific:
-
-- `engine.reference_to_world_raster_scale` is a `vec2` conversion from project reference coordinates to the current world raster.
-- `engine.context_logical_to_ui_raster_scale` is a `vec2` conversion from the active logical UI context to native UI raster pixels.
-- `engine.ui_media_query_resolution` is the actual scalar UI media-query resolution in dppx.
-- `engine.viewport_pixel_dimensions` is the actual fitted game viewport size in pixels as a `vec2`.
-- The `rmlui.*` forms expose the decorator's own context-logical-to-UI-raster scale, media-query resolution, viewport pixel dimensions, and paint dimensions. They never derive UI density from the world raster scale.
-
-The former `engine.dpi_scale` and `rmlui.dpi_scale` bindings are not accepted because they did not identify a coordinate or raster domain.
-
-### Samplers
-
-A sampler declaration has a name and currently supports `texture2d`.
-
-Every sampler also declares an explicit binding. Ordinary samplers use `null`; hotspot highlight
-Shaders use `engine.hotspot_image` and, for custom mode, `engine.hotspot_mask`. Default-alpha
-interfaces require exactly one image binding and no mask binding. Custom interfaces require exactly
-one of each. Authored Materials cannot override these engine-bound samplers.
-
-Hotspot highlight uniforms use the existing typed uniform binding field:
-
-```text
-engine.hotspot_bounds
-engine.hotspot_hovered
-engine.hotspot_pressed
-engine.hotspot_image_dimensions
-engine.hotspot_mask_dimensions
-```
-
-Validation requires their exact `vec4`, `bool`, `bool`, `vec2`, and `vec2` types respectively.
-
-### Role Bindings
-
-Role bindings may specify role-specific vertex/fragment shader references. If no explicit bindings exist, the shader's `roles` array is used as the runtime role declaration.
-
-## References
-
-Shader references use:
-
-```ts
-{ $ref: { collection: 'shaders', id: 'shader-id' } }
-```
-
-Shader stage source assets use:
-
-```ts
-{ $ref: { collection: 'assets', id: 'shader-source-asset-id' } }
-```
-
-Materials reference shaders directly. Role bindings can also reference shader records.
-
-## Defaults
-
-`defaultShaderData()` creates a simple `engine-2d` shader with inline vertex and fragment stages.
-
-The default vertex stage passes position, texcoord, and color through bgfx-style shader inputs. The default fragment stage declares `uniform vec4 u_tint` and outputs `v_color0 * u_tint`.
-
-The default uniform list contains:
-
-```ts
-{ name: 'u_tint', type: 'color', default: [1, 1, 1, 1], label: 'Tint' }
-```
-
-The default roles list is:
-
-```ts
-['engine-2d']
-```
-
-## Validation
-
-Shader validation checks:
-
-- `record.data` parses as `ShaderData`;
-- duplicate stage kinds;
-- asset source mode requires a source asset;
-- source asset exists;
-- source asset data is valid;
-- non-`shader-source` stage source assets produce warnings;
-- duplicate uniform names;
-- uniform default value compatibility;
-- uniform range minimum is not greater than maximum;
-- duplicate sampler names;
-- at least one supported role.
-
-Uniform value compatibility accepts numbers for `float`, integer numbers for `int`, booleans for `bool`, fixed-length numeric arrays for vector types, and either RGBA arrays or `{ r, g, b, a }` objects for colors.
-
-## Command Behavior
-
-Shader-specific commands include:
-
-- `shader.replaceData` for validated full data replacement;
-- `shader.applyCompiledOutputs` for writing compiled output paths into matching stage `compiled` maps.
-
-Generic entity commands handle creation, rename, duplication, metadata edits, and deletion. Shader deletion should be preflighted through the reference index because materials may reference the shader. Shader records do not participate in a generic parent relationship.
-
-## Editor Behavior
-
-The Shader editor exposes source stages, shader interface metadata, role declarations, compiled outputs, helper compile action, and preview. It opens shader compiler diagnostics in the bottom panel when compile is triggered.
-
-Shader source may be inline or asset-backed. Asset-backed source preserves inline text so users can switch back without losing draft text.
-
-The editor keeps shader authoring metadata separate from material instance values. A shader preview is generated by building temporary shader/material preview document data.
-
-## Editor Preview
-
-Shader preview uses `buildShaderPreviewDocumentData()` and the stable `noveltea.shader-preview` preview schema. The preview payload includes:
-
-- the generated shader/material metadata project;
-- shader/material diagnostics;
-- the shader ID;
-- a generated preview material ID;
-- internal RML/RCSS template paths for a square preview;
-- preview geometry/background settings.
-
-The preview depends on the same shader/material metadata builder used for export-facing metadata.
-
-## Runtime Status
-
-Native runtime shader types include:
-
-- `ShaderId`;
-- `ShaderRole`;
-- `ShaderStage`;
-- `ShaderUniformType`;
-- `ShaderInputSemantic`;
-- `ShaderStandardInputs`;
-- `ShaderStageDefinition`;
-- `ShaderUniformDeclaration`;
-- `ShaderSamplerDeclaration`;
-- `ShaderRoleBinding`;
-- `ShaderDefinition`.
-
-The bgfx renderer has shader loader and shader program cache code for runtime resource binding. Shader compilation is not assumed to be available at runtime on every platform; Web and packaged builds rely on precompiled shader variants.
-
-Postprocess material programs are resolved through the ordinary role-specific material binder. The
-renderer lazily allocates one native scene target only while a postprocess material is active, routes
-the selected composition scope into that target, applies the material, and then composites the
-result at the scope boundary.
-
-## Export / Package Status
-
-`buildShaderMaterialProject()` converts authoring shaders into strict
-`noveltea.shader-materials` metadata. Stage source is emitted either as inline `source_text` or as
-a `project:/...` source path derived from a shader-source asset. Compiled maps are emitted when
-present. Runtime role membership is always the required `roles` array. Role-specific stage selection
-is always the separate required `role_bindings` object, emitted as `{}` when no overrides exist.
-Binding keys must be declared roles, binding objects may contain only `vertex` and `fragment`, and at
-least one stage must be selected.
-
-Runtime package export includes shader/material metadata when shader or material records exist. It computes required shader binary paths for the selected export shader variants.
-
-Runtime package profiles may strip shader sources from runtime packages while still requiring compiled binaries.
-
-## Scripting Status
-
-Shaders are not directly script-authored at runtime. Scripts may indirectly select or influence materials, layouts, or runtime UI that use shaders. Standard input bindings are intended to reduce the need for scripts to manually feed time, domain-specific raster scales, viewport dimensions, media resolution, or pointer state into shader uniforms.
-
-## Relationship To Other Entity Types
-
-Shaders are used primarily by materials. Shader source may be stored as assets of kind `shader-source`. Layouts, characters, rooms, active text, and RmlUi custom components may use materials whose shaders support the needed role.
-
-## Legacy Reference Notes
-
-Legacy `ShaderWidget` and bundled shader examples such as `pixelate.frag` and `wave.vert` can be used to understand old workflow expectations. They are not a required schema or shader-language compatibility layer.
-
-The new engine uses bgfx shader source/compiled variants and explicit material metadata. It should not assume that runtime GLSL compilation is available everywhere.
-
-## Recommended Authoring Patterns
-
-Declare all uniforms and samplers explicitly. Keep shader roles narrow so invalid material usage can be caught. Prefer standard input bindings for engine-provided values such as time and paint dimensions.
-
-Use asset-backed shader source when the shader is meant to be shared or externally edited. Use inline source for small tests and editor-created shaders.
-
-Ensure compiled output maps are populated for every target variant needed by package export.
-
-## Current Implementation Files
-
-Primary editor files:
-
-```text
+editor/src/shared/project-schema/authoring-material-presets.ts
+editor/src/shared/project-schema/authoring-materials.ts
 editor/src/shared/project-schema/authoring-shaders.ts
 editor/src/shared/project-schema/shader-material-project.ts
-editor/src/renderer/editors/shaders/ShaderEditor.tsx
-editor/src/renderer/project/shader-material-operations.ts
-editor/src/renderer/commands/builtin-commands.ts
-```
-
-Primary engine files:
-
-```text
-engine/include/noveltea/render/shader.hpp
-engine/include/noveltea/render/shader_compiler.hpp
-engine/include/noveltea/render/shader_manifest.hpp
-engine/include/noveltea/render/material.hpp
-engine/src/render/shader_compiler.cpp
-engine/src/render/shader_manifest.cpp
-engine/src/render/material.cpp
+editor/src/shared/shader-compile-contract.ts
+editor/src/shared/runtime-artifact-preparation.ts
+tools/editor_tool/shader_compiler.cpp
+tools/editor_tool/tooling_native.cpp
+engine/src/render/material_codec.cpp
 engine/src/render/bgfx/bgfx_shader_loader.cpp
 engine/src/render/bgfx/bgfx_shader_program_cache.cpp
 engine/shaders/bgfx/
 ```
 
-Related docs:
+`authoring-shaders.ts` now contains shared shader vocabulary/value/binding types used by Materials and runtime lowering; it is not a Shader-record schema.
+
+## Related documentation
 
 ```text
+docs/engine/ASSET.md
+docs/engine/SCRIPT_MODULE.md
 docs/rendering/plans/SHADER_MATERIAL_PLAN.md
 docs/rendering/RENDERING_STACK.md
 docs/editor/export/EXPORT_AND_PACKAGING.md
 ```
-
-Useful legacy references:
-
-```text
-refs/NovelTea/src/editor/Widgets/ShaderWidget.cpp
-refs/NovelTea/src/editor/Widgets/ShaderWidget.hpp
-refs/NovelTea/res/forms/ShaderWidget.ui
-refs/NovelTea/res/pixelate.frag
-refs/NovelTea/res/wave.vert
-```
-
-## Known Gaps
-
-- Shader compile workflow still depends on helper tooling and platform variants.
-- The editor can record compiled output paths, but package/runtime handling must continue to mature around variant manifests.
-- Role binding behavior is represented in schema but should be expanded as real role-specific shader composition is implemented.
-- Shader diagnostics are schema/interface diagnostics; shader compiler diagnostics are a separate bottom-panel/tooling path.
-
-## Future Work
-
-- Stabilize shader variant naming and package manifest semantics.
-- Expand standard input binding docs as renderer/UI integrations mature.
-- Add role-specific preview fixtures for active text, RmlUi decorators, filters, and postprocess shaders.
-- Improve validation between declared shader interface and compiled source reflection if feasible.
-
-## Verification
-
-This doc was written from the current shader authoring schema, shader/material project builder, shader editor, shader operation helpers, and native shader/render headers. No build is required for this documentation-only change.

@@ -318,6 +318,8 @@ export function serializeAuthoringDependencyDerivationDependency(
   switch (dependency.kind) {
     case 'source-asset':
       return JSON.stringify(['source-asset', dependency.assetId]);
+    case 'source-project-file':
+      return JSON.stringify(['source-project-file', dependency.path]);
     case 'source-resolution-asset':
       return JSON.stringify(['source-resolution-asset', dependency.assetId]);
     case 'project-field':
@@ -1881,30 +1883,27 @@ function recordContribution(
       ),
     );
   }
-  if (
-    collection === 'materials' &&
-    isRecord(record.data) &&
-    typeof record.data.baseMaterialId === 'string'
-  ) {
-    edges.push(
-      structuralEdge(
-        source,
-        recordNodeKey('materials', record.data.baseMaterialId),
-        `${owningPath}/data/baseMaterialId`,
-        `/materials/${escapeJsonPointerSegment(record.data.baseMaterialId)}`,
-        {
+  scanStructuralReferences(record.data, `${owningPath}/data`, source, edges, project);
+  if (collection === 'materials') {
+    for (let index = edges.length - 1; index >= 0; index -= 1) {
+      const edge = edges[index]!;
+      if (
+        edge.sourcePath === `${owningPath}/data/base/material/$ref` &&
+        edge.target.kind === 'record' &&
+        edge.target.collection === 'materials'
+      ) {
+        edges[index] = structuralEdge(edge.source, edge.target, edge.sourcePath, edge.targetPath, {
           role: 'material-base',
           facets: ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-          targetImpactPaths: recordImpactPaths(
-            recordNodeKey('materials', record.data.baseMaterialId),
-            ['/data'],
-          ),
-          repair: { kind: 'set-null', path: `${owningPath}/data/baseMaterialId` },
-        },
-      ),
-    );
+          targetImpactPaths: recordImpactPaths(edge.target, ['/data']),
+          repair: {
+            kind: 'blocked',
+            reason: 'Material inheritance requires an explicit replacement base.',
+          },
+        });
+      }
+    }
   }
-  scanStructuralReferences(record.data, `${owningPath}/data`, source, edges, project);
   if (collection === 'layouts')
     addInlineRcssCursorReferenceEdges(project, id, record, source, edges);
   if (collection === 'archetypes') {
@@ -2514,6 +2513,11 @@ function addLuaEvidenceToContribution(
           kind: 'source-resolution-asset',
           assetId: descriptor.sourceAssetId,
         });
+    } else if (descriptor.sourceUrl.startsWith('project:/')) {
+      derivationDependencies.push({
+        kind: 'source-project-file',
+        path: descriptor.sourceUrl.slice('project:/'.length),
+      });
     }
     const explicitDependencies = (descriptor.explicitDependencies ??
       []) as LuaExplicitDependencyTarget[];
@@ -2622,6 +2626,8 @@ function addLuaEvidenceToContribution(
     for (const analysis of analyses) {
       for (const sourceAssetId of analysis.sourceAssetIds)
         derivationDependencies.push({ kind: 'source-asset', assetId: sourceAssetId });
+      for (const path of analysis.projectSourcePaths)
+        derivationDependencies.push({ kind: 'source-project-file', path });
       diagnostics.push(...analysis.diagnostics);
       literals.push(...analysis.literalOccurrences);
       for (const occurrence of analysis.cursorNameOccurrences) {

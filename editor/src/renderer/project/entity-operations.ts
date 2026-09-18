@@ -16,7 +16,6 @@ import { defaultInteractionData } from '../../shared/project-schema/authoring-in
 import { defaultMapData } from '../../shared/project-schema/authoring-maps';
 import { defaultScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
@@ -162,8 +161,6 @@ export function defaultDataForCollection(
   if (isRecord(explicitData)) return explicitData;
   if (collection === 'variables')
     return defaultVariableData() as unknown as Record<string, unknown>;
-  if (collection === 'shaders')
-    return defaultShaderData(label) as unknown as Record<string, unknown>;
   if (collection === 'materials')
     return defaultMaterialData(label) as unknown as Record<string, unknown>;
   if (collection === 'layouts')

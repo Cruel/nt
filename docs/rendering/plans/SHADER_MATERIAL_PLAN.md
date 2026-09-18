@@ -2,7 +2,9 @@
 
 Date: 2026-06-23
 
-This plan defines how NovelTea supports user-authored shaders and materials while continuing to use bgfx as the renderer abstraction. It also defines how RmlUi's generic `shader(<string>)` decorator maps into NovelTea materials.
+> Historical plan: the authored Shader-record and shader-Asset model described below was superseded by the canonical Material Preset + source-file design in #292/#294. Current authoring has Materials as semantic records, shader source as files under `shaders/`, and no top-level Shader collection or `shader-source` Asset kind. See `docs/engine/SHADER.md` for the current contract.
+
+This plan records the earlier design for NovelTea shaders/materials while continuing to use bgfx as the renderer abstraction. It remains useful as rendering-history context, but its authoring-schema sections are not current implementation guidance.
 
 ## Current Direction
 

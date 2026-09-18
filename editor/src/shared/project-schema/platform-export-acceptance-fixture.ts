@@ -3,7 +3,6 @@ import { defaultLayoutData } from './authoring-layouts';
 import { defaultMaterialData } from './authoring-materials';
 import { createAuthoringProject } from './authoring-project';
 import { defaultRoomData, roomAssetRef, roomMaterialRef, roomRoomRef } from './authoring-rooms';
-import { defaultShaderData } from './authoring-shaders';
 
 export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION = '2026-07-11.1' as const;
 
@@ -18,7 +17,6 @@ export function createPlatformExportAcceptanceFixture() {
     ['backdrop', 'image', 'assets/images/backdrop.png'],
     ['body-font', 'font', 'assets/fonts/body.ttf'],
     ['theme-music', 'audio', 'assets/audio/theme.wav'],
-    ['startup-lua', 'script', 'assets/scripts/startup.lua'],
   ] as const;
   for (const [id, kind, assetPath] of assets) {
     const metadata =
@@ -36,17 +34,10 @@ export function createPlatformExportAcceptanceFixture() {
     };
   }
 
-  const fixtureShader = defaultShaderData('Fixture Shader');
-  if (fixtureShader.uniforms[0]) delete fixtureShader.uniforms[0].default;
-  project.shaders['fixture-shader'] = {
-    id: 'fixture-shader',
-    label: 'Fixture Shader',
-    data: fixtureShader,
-  };
   project.materials['fixture-material'] = {
     id: 'fixture-material',
     label: 'Fixture Material',
-    data: defaultMaterialData('Fixture Material', 'fixture-shader'),
+    data: defaultMaterialData('Fixture Material', 'engine-2d'),
   };
   const layout = defaultLayoutData('Fixture HUD');
   layout.rml.sourceText = '<rml><body><p id="save-status">Ready</p></body></rml>';
@@ -54,7 +45,6 @@ export function createPlatformExportAcceptanceFixture() {
   layout.lua.sourceText =
     'function save_and_reload() Game.save("fixture"); Game.load("fixture") end';
   layout.dependencies.fonts = [{ $ref: { collection: 'assets', id: 'body-font' } }];
-  layout.dependencies.scripts = [{ $ref: { collection: 'assets', id: 'startup-lua' } }];
   project.layouts['fixture-hud'] = { id: 'fixture-hud', label: 'Fixture HUD', data: layout };
 
   const foyer = defaultRoomData('Foyer');

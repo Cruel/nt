@@ -346,8 +346,7 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
                 "Gameplay asset path is unsafe or outside the runtime package layout for asset '" +
                     asset.id.text() + "'.",
                 "/resources/assets");
-        else if (manifest.kind != RuntimePackageKind::Runtime ||
-                 asset.kind != compiled::AssetKind::ShaderSource) {
+        else {
             // Runtime localization may omit the authored base bytes only when every selectable
             // packaged locale resolves this logical Asset to a different physical realization.
             const bool source_path_required =

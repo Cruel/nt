@@ -12,7 +12,7 @@ import {
   type CharacterPoseData,
   type CharacterPresentationProfileData,
 } from './authoring-characters';
-import { parseMaterialData } from './authoring-materials';
+import { resolveMaterialData } from './authoring-materials';
 import type { AuthoringProject } from './authoring-project';
 
 export const CHARACTER_PREVIEW_SCHEMA = 'noveltea.character-preview' as const;
@@ -57,12 +57,19 @@ function materialMetadata(
   if (!ref) return null;
   const id = ref.$ref.id;
   const record = project.materials[id];
-  const data = parseMaterialData(record?.data);
+  const data = resolveMaterialData(project, id).data;
   return {
     id,
     label: record?.label ?? id,
     role: data?.role ?? null,
-    shader: data?.shader?.$ref.id ?? null,
+    preset: data?.preset.id ?? null,
+    shader: data
+      ? {
+          vertex: data.vertexSource,
+          fragment: data.fragmentSource,
+          varying: data.varyingDefinition,
+        }
+      : null,
   };
 }
 

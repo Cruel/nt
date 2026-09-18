@@ -108,9 +108,9 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:d0fd97b4ad602d323abf16e4b45d8d5e");
+    CHECK(project.save_contract == "sc1:00e98cec3cc3de8a674754fcbd00417e");
     CHECK(project.properties.size() == 14);
-    CHECK(project.assets.size() == 9);
+    CHECK(project.assets.size() == 7);
     CHECK(project.layouts.size() == 2);
     CHECK(project.scripts.size() == 3);
     CHECK(project.characters.size() == 1);
@@ -463,13 +463,13 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(postprocess_add.parameters.size() == 1);
         const auto& background_material =
             std::get<MaterialParameterInstruction>(opening.program.instructions[15]);
-        CHECK(background_material.parameter == "u_tint");
+        CHECK(background_material.parameter == "u_useTexture");
         CHECK(background_material.transition == MaterialParameterTransition::None);
         CHECK(background_material.duration_ms == 0);
         CHECK(background_material.clock == MaterialClock::Gameplay);
         const auto& postprocess_material =
             std::get<MaterialParameterInstruction>(opening.program.instructions[16]);
-        CHECK(postprocess_material.parameter == "u_strength");
+        CHECK(postprocess_material.parameter == "u_tint");
         CHECK(postprocess_material.transition == MaterialParameterTransition::Tween);
         CHECK(postprocess_material.duration_ms == 350);
         CHECK(postprocess_material.clock == MaterialClock::UnscaledPresentation);
@@ -1127,7 +1127,7 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
     REQUIRE(comprehensive);
     const auto& complete = comprehensive.value();
     CHECK(complete.properties().size() == 14);
-    CHECK(complete.assets().size() == 9);
+    CHECK(complete.assets().size() == 7);
     CHECK(complete.layouts().size() == 2);
     CHECK(complete.scripts().size() == 3);
     CHECK(complete.characters().size() == 1);
@@ -1863,17 +1863,6 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
             path_member(document, {"resources", "layouts", "0", "dependencies", "images", "0"});
         REQUIRE(image != nullptr);
         (*image)["id"] = "missing-asset";
-        auto result = noveltea::core::decode_compiled_project(document, "resources.json");
-        REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
-    }
-
-    SECTION("gameplay Script source references a missing Asset")
-    {
-        auto document = fixture("resources");
-        auto* asset = path_member(document, {"resources", "scripts", "0", "source", "asset"});
-        REQUIRE(asset != nullptr);
-        (*asset)["id"] = "missing-asset";
         auto result = noveltea::core::decode_compiled_project(document, "resources.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));

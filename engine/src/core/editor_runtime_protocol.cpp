@@ -2539,8 +2539,8 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                     diagnostics.push_back(error(
                         "editor_preview.invalid_manifest_identity",
                         "Authoring Asset resources require only assetId typed identity.", path));
-                constexpr std::array<std::string_view, 8> asset_kinds = {
-                    "image", "font", "audio", "script", "shader-source", "text", "data", "binary"};
+                constexpr std::array<std::string_view, 7> asset_kinds = {
+                    "image", "font", "audio", "video", "text", "data", "binary"};
                 if (std::ranges::find(asset_kinds, entry.kind) == asset_kinds.end())
                     diagnostics.push_back(error("editor_preview.invalid_asset_kind",
                                                 "Authoring Asset kind is unsupported.",
@@ -2559,6 +2559,17 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                     diagnostics.push_back(
                         error("editor_preview.invalid_alpha_coverage_requirement",
                               "Alpha coverage retention is valid only for image Assets.", path));
+            } else if (entry.source_kind == "project-source") {
+                const auto project_prefix = std::string_view{"project:/"};
+                const auto relative = entry.logical_path.starts_with(project_prefix)
+                                          ? entry.logical_path.substr(project_prefix.size())
+                                          : std::string{};
+                if (entry.asset_id || entry.shader_id || entry.shader_stage ||
+                    entry.shader_variant || entry.kind != "lua" || entry.sampling ||
+                    relative.empty() || entry.resource_id != "source:" + relative)
+                    diagnostics.push_back(error(
+                        "editor_preview.invalid_manifest_identity",
+                        "Project source resources require a canonical Lua path identity.", path));
             } else if (entry.source_kind == "shader-compiled-output") {
                 if (!entry.shader_id || !entry.shader_stage || !entry.shader_variant ||
                     entry.asset_id || entry.kind != "shader-binary" || entry.sampling ||

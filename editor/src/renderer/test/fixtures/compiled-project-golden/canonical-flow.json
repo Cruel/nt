@@ -302,6 +302,7 @@
           }
         ],
         "presentation": {
+          "cursor": null,
           "hotspots": {
             "hotspots": [],
             "kind": "custom"
@@ -333,6 +334,7 @@
         "id": "credits",
         "inventories": [],
         "presentation": {
+          "cursor": null,
           "hotspots": {
             "kind": "none"
           },
@@ -365,6 +367,7 @@
         "id": "dust",
         "inventories": [],
         "presentation": {
+          "cursor": null,
           "hotspots": {
             "hotspots": [],
             "kind": "custom"
@@ -395,6 +398,7 @@
           }
         ],
         "presentation": {
+          "cursor": null,
           "hotspots": {
             "hotspots": [],
             "kind": "custom"
@@ -2884,18 +2888,6 @@
       },
       {
         "aliases": [],
-        "id": "script-layout",
-        "kind": "script",
-        "path": "assets/scripts/layout.lua"
-      },
-      {
-        "aliases": [],
-        "id": "shader-source",
-        "kind": "shader-source",
-        "path": "assets/shaders/effect.sc"
-      },
-      {
-        "aliases": [],
         "id": "text-rcss",
         "kind": "text",
         "path": "assets/ui/layout.rcss"
@@ -2929,10 +2921,7 @@
             }
           ],
           "scripts": [
-            {
-              "id": "script-layout",
-              "kind": "asset"
-            }
+            "project:/scripts/layout.lua"
           ],
           "stylesheets": [
             {
@@ -2945,11 +2934,8 @@
         "id": "hud-assets",
         "kind": "fragment",
         "lua": {
-          "asset": {
-            "id": "script-layout",
-            "kind": "asset"
-          },
-          "kind": "asset"
+          "kind": "inline",
+          "text": "layout_preview = layout_preview or {}\nlayout_preview.click_count = 0\n\nfunction layout_preview.on_click(event, element, document)\n  layout_preview.click_count = layout_preview.click_count + 1\n  element.inner_rml = 'Clicked ' .. layout_preview.click_count .. ' times'\nend\n"
         },
         "mount": {
           "defaultParent": "nt-layout-preview-mount",
@@ -3000,10 +2986,7 @@
             }
           ],
           "scripts": [
-            {
-              "id": "script-layout",
-              "kind": "asset"
-            }
+            "project:/scripts/layout.lua"
           ],
           "stylesheets": [
             {
@@ -3047,9 +3030,9 @@
         "id": "sprite-material",
         "parameters": [
           {
-            "name": "u_tint",
+            "name": "u_useTexture",
             "rendererBinding": null,
-            "type": "color"
+            "type": "float"
           }
         ],
         "postprocessScope": "world",
@@ -3060,11 +3043,8 @@
       {
         "id": "asset-module",
         "source": {
-          "asset": {
-            "id": "script-layout",
-            "kind": "asset"
-          },
-          "kind": "asset"
+          "kind": "project-file",
+          "path": "project:/scripts/layout.lua"
         }
       },
       {
@@ -3083,7 +3063,7 @@
       }
     ]
   },
-  "saveContract": "sc1:fb7993631d6e7a91efa72b1354aeb95d",
+  "saveContract": "sc1:73df2bb31b9d6b895135f583966ef97d",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

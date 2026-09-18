@@ -631,8 +631,7 @@ TEST_CASE("focused preview manifest image sampling is explicit and discriminated
     request["resources"][0].erase("sampling");
     CHECK_FALSE(decode_focused_editor_document_request_text(request.dump()));
 
-    for (const std::string_view kind :
-         {"font", "audio", "script", "shader-source", "text", "data", "binary"}) {
+    for (const std::string_view kind : {"font", "audio", "video", "text", "data", "binary"}) {
         CAPTURE(kind);
         request["resources"][0] = image;
         request["resources"][0]["kind"] = kind;
@@ -643,7 +642,7 @@ TEST_CASE("focused preview manifest image sampling is explicit and discriminated
         CHECK_FALSE(non_image.value().resources.front().sampling);
     }
 
-    for (const std::string_view kind : {"video", "rml", "rcss", "lua"}) {
+    for (const std::string_view kind : {"rml", "rcss", "lua"}) {
         CAPTURE(kind);
         request["resources"][0] = image;
         request["resources"][0]["kind"] = kind;
