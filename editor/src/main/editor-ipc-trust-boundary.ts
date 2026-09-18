@@ -504,6 +504,7 @@ const playbackSpecSchema = z
 export const validateProjectArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   authoringProjectSchema,
+  z.enum(['disk-authoritative', 'session-local']),
 ]);
 export const listPlaybackTestsArgumentsSchema = z.tuple([authoringProjectSchema]);
 const runtimeRecoveryFingerprintSchema = z.record(

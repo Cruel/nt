@@ -1,4 +1,5 @@
 export type ToolSeverity = 'info' | 'warning' | 'error';
+export type EditorValidationAuthority = 'disk-authoritative' | 'session-local';
 
 export type ToolDiagnosticNavigation = {
   kind: 'interactable-instance-property';

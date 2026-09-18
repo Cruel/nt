@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { NovelTeaElectronApi } from './shared/electron-api';
+import type { EditorValidationAuthority } from './shared/editor-tooling';
 import { IPC_CHANNELS } from './shared/ipc-channels';
 import { normalizeEditorIpcBoundaryError } from './shared/editor-ipc-boundary';
 
@@ -58,8 +59,11 @@ const api: NovelTeaElectronApi = {
   },
   openProject: (projectPath: string) => invokeGuarded(IPC_CHANNELS.OPEN_PROJECT, projectPath),
   closeActiveProject: () => invokeGuarded(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT),
-  validateProject: (projectSessionId: string, project: unknown) =>
-    ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_PROJECT, projectSessionId, project),
+  validateProject: (
+    projectSessionId: string,
+    project: unknown,
+    authority: EditorValidationAuthority,
+  ) => ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_PROJECT, projectSessionId, project, authority),
   listPlaybackTests: (project: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.LIST_PLAYBACK_TESTS, project),
   prepareEditorRuntime: (
