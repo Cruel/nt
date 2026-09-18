@@ -26,7 +26,8 @@ import {
 import { parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseTestData } from './project-schema/authoring-tests';
-import { validateAuthoringProject } from './project-schema/authoring-validation';
+import { validateAdmittedAuthoringProject } from './project-schema/authoring-validation';
+import type { ProjectValidationDiagnostic } from './project-schema/project-validation';
 import { parseVerbData } from './project-schema/authoring-verbs';
 import { lowerSharedAuthoringProject } from './authoring-compiler-shared-lowering';
 import { lowerSceneAndRoomPrograms } from './authoring-compiler-scene-room-lowering';
@@ -301,14 +302,17 @@ function normalizeAuthoringProject(value: unknown, context: CompilerContext): vo
   addStage(context, 'normalize', 'completed');
 }
 
-function validateSemantics(context: CompilerContext): void {
+function validateSemantics(
+  context: CompilerContext,
+  validate: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[],
+): void {
   const project = context.normalizedProject;
   if (!project) {
     addStage(context, 'semantic-validation', 'skipped');
     return;
   }
 
-  validateAuthoringProject(project).forEach((diagnostic) => {
+  validate(project).forEach((diagnostic) => {
     context.diagnostics.push(
       makeDiagnostic(
         `AUTHORING_${normalizeDiagnosticCode(diagnostic.code)}`,
@@ -632,7 +636,11 @@ function finish(context: CompilerContext): CompileFailure {
  * The one public authoring-to-gameplay compiler boundary. It is pure: input is
  * parsed into a normalized copy and no project/editor state is mutated.
  */
-export function compileAuthoringProject(project: unknown): CompileResult<CompiledProjectWire> {
+export function compileAuthoringProject(
+  project: unknown,
+  validate: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[] = (project) =>
+    validateAdmittedAuthoringProject(project).diagnostics,
+): CompileResult<CompiledProjectWire> {
   const context: CompilerContext = { diagnostics: [], stages: [] };
   normalizeAuthoringProject(project, context);
   if (!context.normalizedProject) {
@@ -648,7 +656,7 @@ export function compileAuthoringProject(project: unknown): CompileResult<Compile
     return finish(context);
   }
 
-  validateSemantics(context);
+  validateSemantics(context, validate);
   if (hasErrors(context.diagnostics)) {
     addSkippedStages(context, [
       'link',

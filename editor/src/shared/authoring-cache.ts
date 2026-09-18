@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AuthoringValidationContribution } from './project-schema/authoring-validation-contributions';
 import type { AuthoringDependencyGraphContribution } from './authoring-dependency-contracts';
 import { escapeJsonPointerSegment } from './json-pointer';
 import { NOVELTEA_BUILD_IDENTITY, NOVELTEA_VERSION } from './product-version';
@@ -141,6 +142,16 @@ const contributionsSchema = z
     externalSourceRevisions: z.array(externalSourceRevisionSchema),
     dependencyContributions: z.array(dependencyContributionSchema),
     sourceAnalyses: z.array(sourceAnalysisContributionSchema),
+    validationContributions: z.array(
+      z
+        .object({
+          key: z.string().min(1),
+          inputPaths: z.array(z.string()),
+          sourceRevisions: z.array(sourceRevisionSchema),
+          diagnostics: z.array(projectValidationDiagnosticSchema),
+        })
+        .strict(),
+    ),
   })
   .strict();
 const manifestSchema = z
@@ -175,6 +186,7 @@ const manifestSchema = z
     contributions: z
       .object({
         schema: z.literal(AUTHORING_CONTRIBUTIONS_SCHEMA),
+        validationInputs: z.literal('source-revisions'),
         sha256: digestSchema,
       })
       .strict(),
@@ -300,6 +312,7 @@ export interface ReusableAuthoringContributions {
   readonly dependencyContributions: readonly ReusableAuthoringDependencyContribution[];
   readonly sourceAnalyses: readonly ReusableAuthoringSourceAnalysis[];
   readonly inventory: ProjectSourceInventory;
+  readonly validationContributions: readonly AuthoringValidationContribution[];
 }
 
 export async function readReusableAuthoringContributions(
@@ -405,6 +418,11 @@ export async function readReusableAuthoringContributions(
       sourceAnalyses: semanticReuseUncertain
         ? []
         : artifact.sourceAnalyses.filter((entry) => reusableRevision(entry.sourceRevisions)),
+      validationContributions: semanticReuseUncertain
+        ? []
+        : artifact.validationContributions.filter((entry) =>
+            reusableRevision(entry.sourceRevisions),
+          ),
       inventory: current,
     };
   } catch {
@@ -598,6 +616,7 @@ export async function publishAuthoringCache(
     exitCode: number;
     diagnostics: readonly z.infer<typeof diagnosticSchema>[];
   }>,
+  validationContributions: readonly AuthoringValidationContribution[],
 ): Promise<void> {
   try {
     // Host failures are not deterministic validation products.
@@ -674,6 +693,7 @@ export async function publishAuthoringCache(
       externalSourceRevisions,
       dependencyContributions,
       sourceAnalyses,
+      validationContributions,
     });
     const contributionText = `${JSON.stringify(contributions)}\n`;
     const manifest = manifestSchema.parse({
@@ -688,6 +708,7 @@ export async function publishAuthoringCache(
       inputs: inputs.entries,
       contributions: {
         schema: AUTHORING_CONTRIBUTIONS_SCHEMA,
+        validationInputs: 'source-revisions',
         sha256: await sha256PrefixedUtf8(contributionText),
       },
       result,
