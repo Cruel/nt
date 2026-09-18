@@ -162,6 +162,25 @@ TEST_CASE("direct ActiveText shader pairs resolve without material records")
     REQUIRE(find_uniform(*result.program, "u_time") != nullptr);
 }
 
+TEST_CASE("source-backed ActiveText programs resolve without authored Shader ids")
+{
+    const auto program = noveltea::resolve_source_shader_pair_program(
+        "program-abc", noveltea::ShaderRole::ActiveText, "glsl-330",
+        "project:/shaders/derived/glsl-330/program-abc.vs.bin",
+        "project:/shaders/derived/glsl-330/program-abc.fs.bin");
+
+    CHECK(program.key.kind == noveltea::ShaderProgramRequestKind::SourceProgram);
+    CHECK(program.key.program_identity == "program-abc");
+    CHECK(program.key.role == noveltea::ShaderRole::ActiveText);
+    CHECK(program.key.vertex_shader.string().empty());
+    CHECK(program.key.fragment_shader.string().empty());
+    CHECK(program.vertex.path == "project:/shaders/derived/glsl-330/program-abc.vs.bin");
+    CHECK(program.fragment.path == "project:/shaders/derived/glsl-330/program-abc.fs.bin");
+
+    const auto cache_key = noveltea::shader_program_cache_key(program.key);
+    CHECK(cache_key.find("source_program|program-abc|active-text|") != std::string::npos);
+}
+
 TEST_CASE("missing material variants report material context and expected binary paths")
 {
     const auto project = make_project();
