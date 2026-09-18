@@ -333,7 +333,10 @@ export default defineConfig({
       ...commonNodePack,
       name: 'scriptc-island',
       plugins: [
-        cliStartupPolicy('ScriptC island', path.join(editorRoot, 'scripts/noveltea-scriptc-island.ts')),
+        cliStartupPolicy(
+          'ScriptC island',
+          path.join(editorRoot, 'scripts/noveltea-scriptc-island.ts'),
+        ),
       ],
       deps: {
         ...commonNodePack.deps,
