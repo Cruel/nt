@@ -1,13 +1,6 @@
 import path from 'node:path';
-import {
-  createNodeProjectWorkspaceFileSystem,
-  createNodeProjectWorkspaceService,
-  discoverProjectRoot,
-  validateExplicitProjectRoot,
-  ProjectWorkspaceMutationError,
-  type ProjectWorkspaceFileSystem,
-  type ProjectWorkspaceService,
-} from '../shared/project-workspace';
+import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
+import type { ProjectWorkspaceService } from '../shared/project-workspace/project-workspace-service';
 import { bootstrapNovelTeaCli, novelTeaCliUsageFailure } from './bootstrap';
 import {
   cliDiagnostic,
@@ -17,19 +10,13 @@ import {
   type NovelTeaCliDiagnostic,
   type NovelTeaCliExitCode,
 } from './contracts';
-import { openCliProject } from './semantic-project';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import {
   unavailablePlatformTools,
   type NovelTeaCliPlatformToolService,
 } from './platform-tool-service';
-import { runProjectIndependentPlatformCommand } from './platform-commands';
 import { CliCommandUsageError, parseCliCommand } from './commands';
 import type { NovelTeaAgentKitPayload } from './agent-kit';
-import { runNovelTeaAgentSyncCli } from './agent-sync-cli';
-import { runNovelTeaProjectCreateCli } from './project-create-cli';
-import { runNovelTeaProjectBundleCli } from './project-bundle-cli';
-import { runComfyUiCatalogCommand } from './comfyui-catalog-commands';
 import type { WorkflowLibraryServiceOptions } from '../main/services/comfyui-workflow-library-service';
 
 export interface RunNovelTeaCliOptions {
@@ -110,82 +97,131 @@ export async function runNovelTeaCli(
   const globals = bootstrap.globals;
 
   const cwd = path.resolve(options.cwd ?? process.cwd());
-  const fileSystem = options.fileSystem ?? createNodeProjectWorkspaceFileSystem();
-  const workspace = options.workspace ?? createNodeProjectWorkspaceService();
   const platformTools = options.platformTools ?? unavailablePlatformTools;
-  if (globals.command[0] === 'project' && globals.command[1] === 'create')
-    return runNovelTeaProjectCreateCli(globals, fileSystem, workspace);
-  const projectBundle = await runNovelTeaProjectBundleCli(globals, fileSystem, workspace, cwd);
-  if (projectBundle) return projectBundle;
-  if (globals.command[0] === 'agent' && globals.command[1] === 'sync')
-    return runNovelTeaAgentSyncCli(globals, fileSystem, cwd, options.agentKitPayload);
+  const nativeTools = options.nativeTools ?? unavailableNativeTools;
+  let fileSystem = options.fileSystem;
+  let workspace = options.workspace;
+  const workspaceServices = async () => {
+    if (!fileSystem) {
+      const { createNodeProjectWorkspaceFileSystem } =
+        await import('../shared/project-workspace/node-project-workspace-file-system');
+      fileSystem = createNodeProjectWorkspaceFileSystem();
+    }
+    if (!workspace) {
+      const { createNodeProjectWorkspaceService } =
+        await import('../shared/project-workspace/node-project-workspace-service');
+      workspace = createNodeProjectWorkspaceService();
+    }
+    return { fileSystem, workspace };
+  };
 
-  try {
-    const comfyUiCatalog = await runComfyUiCatalogCommand({
-      command: globals.command,
-      projectOption: globals.project ?? null,
-      json: globals.json,
+  if (globals.command[0] === 'project' && globals.command[1] === 'create') {
+    const services = await workspaceServices();
+    const { runNovelTeaProjectCreateCli } = await import('./project-create-cli');
+    return runNovelTeaProjectCreateCli(globals, services.fileSystem, services.workspace);
+  }
+  if (
+    globals.command[0] === 'project' &&
+    (globals.command[1] === 'export' || globals.command[1] === 'import')
+  ) {
+    const services = await workspaceServices();
+    const { runNovelTeaProjectBundleCli } = await import('./project-bundle-cli');
+    const projectBundle = await runNovelTeaProjectBundleCli(
+      globals,
+      services.fileSystem,
+      services.workspace,
       cwd,
-      fileSystem,
-      workspace,
-      libraryOptions: options.comfyUiWorkflowLibraryOptions,
-      abortSignal: options.comfyUiAbortSignal,
-      onRunProgress: options.onComfyUiProgress,
-    });
-    if (comfyUiCatalog) return comfyUiCatalog;
-  } catch (error) {
-    if (error instanceof CliCommandUsageError)
-      return novelTeaCliUsageFailure(error.message, globals.json);
-    return failure(
-      NOVELTEA_CLI_EXIT_CODES.internal,
-      [cliDiagnostic('CLI_INTERNAL', '/', error instanceof Error ? error.message : String(error))],
-      globals.json,
     );
+    if (projectBundle) return projectBundle;
+  }
+  if (globals.command[0] === 'agent' && globals.command[1] === 'sync') {
+    const services = await workspaceServices();
+    const { runNovelTeaAgentSyncCli } = await import('./agent-sync-cli');
+    return runNovelTeaAgentSyncCli(globals, services.fileSystem, cwd, options.agentKitPayload);
   }
 
-  try {
-    const independent = await runProjectIndependentPlatformCommand({
-      command: globals.command,
-      projectOption: globals.project,
-      cwd,
-      platformTools,
-    });
-    if (independent) {
-      if (!independent.ok)
-        return failure(
-          independent.exitCode ?? semanticExitCode(independent.diagnostics),
-          independent.diagnostics,
-          globals.json,
-          independent.fields,
-        );
-      return formatCliResult(
-        {
-          success: true,
-          exitCode: NOVELTEA_CLI_EXIT_CODES.success,
-          diagnostics: independent.diagnostics,
-          ...independent.fields,
-        },
+  if (globals.command[0] === 'comfyui') {
+    const services = await workspaceServices();
+    try {
+      const { runComfyUiCatalogCommand } = await import('./comfyui-catalog-commands');
+      const comfyUiCatalog = await runComfyUiCatalogCommand({
+        command: globals.command,
+        projectOption: globals.project ?? null,
+        json: globals.json,
+        cwd,
+        fileSystem: services.fileSystem,
+        workspace: services.workspace,
+        libraryOptions: options.comfyUiWorkflowLibraryOptions,
+        abortSignal: options.comfyUiAbortSignal,
+        onRunProgress: options.onComfyUiProgress,
+      });
+      if (comfyUiCatalog) return comfyUiCatalog;
+    } catch (error) {
+      if (error instanceof CliCommandUsageError)
+        return novelTeaCliUsageFailure(error.message, globals.json);
+      return failure(
+        NOVELTEA_CLI_EXIT_CODES.internal,
+        [
+          cliDiagnostic(
+            'CLI_INTERNAL',
+            '/',
+            error instanceof Error ? error.message : String(error),
+          ),
+        ],
         globals.json,
-        { success: independent.humanSuccess ?? `NovelTea ${globals.command.join(' ')} succeeded.` },
       );
     }
-  } catch (error) {
-    if (error instanceof CliCommandUsageError)
-      return novelTeaCliUsageFailure(error.message, globals.json);
-    return failure(
-      NOVELTEA_CLI_EXIT_CODES.native,
-      [
-        cliDiagnostic(
-          'native.platform',
-          '/',
-          error instanceof Error ? error.message : String(error),
-        ),
-      ],
-      globals.json,
-    );
   }
 
-  const nativeTools = options.nativeTools ?? unavailableNativeTools;
+  if (
+    globals.command[0] === 'platform' &&
+    (globals.command[1] === 'template' || globals.command[1] === 'config')
+  ) {
+    try {
+      const { runProjectIndependentPlatformCommand } = await import('./platform-commands');
+      const independent = await runProjectIndependentPlatformCommand({
+        command: globals.command,
+        projectOption: globals.project,
+        cwd,
+        platformTools,
+      });
+      if (independent) {
+        if (!independent.ok)
+          return failure(
+            independent.exitCode ?? semanticExitCode(independent.diagnostics),
+            independent.diagnostics,
+            globals.json,
+            independent.fields,
+          );
+        return formatCliResult(
+          {
+            success: true,
+            exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+            diagnostics: independent.diagnostics,
+            ...independent.fields,
+          },
+          globals.json,
+          {
+            success: independent.humanSuccess ?? `NovelTea ${globals.command.join(' ')} succeeded.`,
+          },
+        );
+      }
+    } catch (error) {
+      if (error instanceof CliCommandUsageError)
+        return novelTeaCliUsageFailure(error.message, globals.json);
+      return failure(
+        NOVELTEA_CLI_EXIT_CODES.native,
+        [
+          cliDiagnostic(
+            'native.platform',
+            '/',
+            error instanceof Error ? error.message : String(error),
+          ),
+        ],
+        globals.json,
+      );
+    }
+  }
   if (globals.command[0] === 'shaderc') {
     if (globals.json)
       return novelTeaCliUsageFailure("Raw 'shaderc' does not support NovelTea --json mode.", true);
@@ -249,7 +285,7 @@ export async function runNovelTeaCli(
 
   let command;
   try {
-    command = parseCliCommand(globals.command);
+    command = await parseCliCommand(globals.command);
   } catch (error) {
     return novelTeaCliUsageFailure(
       error instanceof Error ? error.message : String(error),
@@ -279,9 +315,12 @@ export async function runNovelTeaCli(
     }
   }
 
+  const services = await workspaceServices();
+  const { discoverProjectRoot, validateExplicitProjectRoot } =
+    await import('../shared/project-workspace/project-workspace-discovery');
   const discovery = globals.project
-    ? await validateExplicitProjectRoot(fileSystem, path.resolve(cwd, globals.project))
-    : await discoverProjectRoot(fileSystem, cwd);
+    ? await validateExplicitProjectRoot(services.fileSystem, path.resolve(cwd, globals.project))
+    : await discoverProjectRoot(services.fileSystem, cwd);
   if (!discovery.ok)
     return failure(
       NOVELTEA_CLI_EXIT_CODES.workspace,
@@ -290,7 +329,8 @@ export async function runNovelTeaCli(
       discovery.projectRoot ? { projectRoot: discovery.projectRoot } : {},
     );
 
-  const opened = await openCliProject(workspace, discovery.projectRoot, {
+  const { openCliProject } = await import('./semantic-project');
+  const opened = await openCliProject(services.workspace, discovery.projectRoot, {
     readOnly: command.dryRun,
   });
   if (!opened.ok)
@@ -302,8 +342,8 @@ export async function runNovelTeaCli(
     const semantic = await command.run({
       cwd,
       stdinJson,
-      fileSystem,
-      workspace,
+      fileSystem: services.fileSystem,
+      workspace: services.workspace,
       snapshot: opened.opened.snapshot,
       nativeTools,
       platformTools,
@@ -336,6 +376,8 @@ export async function runNovelTeaCli(
   } catch (error) {
     if (error instanceof CliCommandUsageError)
       return novelTeaCliUsageFailure(error.message, globals.json);
+    const { ProjectWorkspaceMutationError } =
+      await import('../shared/project-workspace/project-workspace-transaction');
     if (error instanceof ProjectWorkspaceMutationError)
       return failure(
         NOVELTEA_CLI_EXIT_CODES.mutation,

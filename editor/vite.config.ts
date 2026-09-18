@@ -344,7 +344,7 @@ export default defineConfig({
       fixedExtension: true,
       clean: true,
       checks: { legacyCjs: false },
-      outputOptions: { codeSplitting: false },
+      outputOptions: { codeSplitting: true },
       sourcemap: false,
     },
   ],

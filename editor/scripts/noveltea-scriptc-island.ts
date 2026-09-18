@@ -1,35 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createNovelTeaAgentKitPayload } from '../src/cli/agent-kit';
-import { runNovelTeaCli } from '../src/cli/application';
 import type { NovelTeaCliNativeToolService } from '../src/cli/native-tool-service';
 import type {
   LocalizationFontCoverageRequest,
   LocalizationFontCoverageResponse,
 } from '../src/shared/localization-font-coverage';
 import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
-import { createNovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service-node';
-import { configureImageInspectionService } from '../src/main/services/image-inspection-service';
-import { configurePlatformHostService } from '../src/main/services/platform-host-service';
-import {
-  scriptcAgentKitProvenance,
-  scriptcAgentKitSourceFiles,
-  scriptcAgentKitSystemLayoutSourceFiles,
-} from './noveltea-scriptc-agent-kit-source';
-import { scriptcComfyUiWorkflowFiles } from './noveltea-scriptc-comfyui-workflows';
-import {
-  createScriptcPathMetadataReader,
-  type ScriptcHostInvoke,
-} from './noveltea-scriptc-path-metadata';
-import {
-  createNodeProjectWorkspaceFileSystem,
-  ProjectWorkspaceService,
-  ProjectWorkspaceTransactionService,
-} from '../src/shared/project-workspace';
-import { configureSha256BytesImplementation } from '../src/shared/web-crypto';
+import type { ScriptcHostInvoke } from './noveltea-scriptc-path-metadata';
 
-configureSha256BytesImplementation(async (bytes) =>
-  createHash('sha256').update(bytes).digest('hex'),
-);
+function trace(message: string): void {
+  if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-island] ${message}\n`);
+}
 
 function createNativeTools(invoke: ScriptcHostInvoke): NovelTeaCliNativeToolService {
   const call = (operation: string, request: unknown): unknown =>
@@ -74,7 +54,7 @@ function createNativeTools(invoke: ScriptcHostInvoke): NovelTeaCliNativeToolServ
   };
 }
 
-function configureScriptcPlatformHost(invoke: ScriptcHostInvoke): void {
+async function configureScriptcPlatformHost(invoke: ScriptcHostInvoke): Promise<void> {
   const call = <T>(operation: string, request: unknown): T => {
     const response = JSON.parse(invoke(operation, JSON.stringify(request))) as unknown;
     if (
@@ -86,6 +66,12 @@ function configureScriptcPlatformHost(invoke: ScriptcHostInvoke): void {
       throw new Error((response as { error: string }).error);
     return response as T;
   };
+  const [{ configureImageInspectionService }, { configurePlatformHostService }] = await Promise.all(
+    [
+      import('../src/main/services/image-inspection-service'),
+      import('../src/main/services/platform-host-service'),
+    ],
+  );
   const inspectImage = async (sourcePath: string) =>
     call<{
       width: number;
@@ -181,53 +167,114 @@ export async function runNovelTeaScriptcIsland(
     process.env.NOVELTEA_CLI_CERTIFICATION === '1' && argv[0] === '__comfyui-cancel-certification';
   const effectiveArgv = cancellationCertification ? argv.slice(1) : argv;
   const nativeTools = createNativeTools(invokeHost);
-  configureScriptcPlatformHost(invokeHost);
-  const platformTools: NovelTeaCliPlatformToolService =
-    createNovelTeaCliPlatformToolService(nativeTools);
   const internal = await runInternalCommand(effectiveArgv, nativeTools, invokeHost);
   if (internal !== null) return internal;
 
-  const fileSystem = createNodeProjectWorkspaceFileSystem(
-    createScriptcPathMetadataReader(invokeHost),
-  );
-  const workspace = new ProjectWorkspaceService(
-    fileSystem,
-    new ProjectWorkspaceTransactionService(
+  let command: readonly string[] = [];
+  try {
+    const { parseNovelTeaCliGlobals } = await import('../src/cli/bootstrap');
+    command = parseNovelTeaCliGlobals(effectiveArgv).command;
+  } catch {
+    // Canonical bootstrap below owns usage diagnostics. Failed preliminary parsing must not
+    // guess a command family and eagerly initialize capabilities for an invalid command line.
+  }
+  const family = command[0];
+  const operation = command[1];
+
+  let platformTools: NovelTeaCliPlatformToolService | undefined;
+  if (family === 'platform') {
+    const { createNovelTeaCliPlatformToolService } =
+      await import('../src/cli/platform-tool-service-node');
+    platformTools = createNovelTeaCliPlatformToolService(nativeTools);
+  }
+
+  const platformNeedsHost =
+    family === 'platform' &&
+    (operation === 'export' || (operation === 'template' && command[2] === 'install'));
+  const projectNeedsHost = family === 'project' && operation === 'export';
+  if (
+    family === 'comfyui' ||
+    (family === 'asset' && operation === 'import') ||
+    platformNeedsHost ||
+    projectNeedsHost
+  ) {
+    trace('platform host configuration starting');
+    await configureScriptcPlatformHost(invokeHost);
+  }
+
+  const projectIndependentPlatform =
+    family === 'platform' && (operation === 'template' || operation === 'config');
+  let fileSystem:
+    | import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem
+    | undefined;
+  let workspace:
+    | import('../src/shared/project-workspace/project-workspace-service').ProjectWorkspaceService
+    | undefined;
+  if (!projectIndependentPlatform) {
+    trace('workspace services import starting');
+    const [fileSystemModule, serviceModule, transactionModule, metadataModule, cryptoModule] =
+      await Promise.all([
+        import('../src/shared/project-workspace/node-project-workspace-file-system'),
+        import('../src/shared/project-workspace/project-workspace-service'),
+        import('../src/shared/project-workspace/project-workspace-transaction'),
+        import('./noveltea-scriptc-path-metadata'),
+        import('../src/shared/web-crypto'),
+      ]);
+    cryptoModule.configureSha256BytesImplementation(async (bytes) =>
+      createHash('sha256').update(bytes).digest('hex'),
+    );
+    fileSystem = fileSystemModule.createNodeProjectWorkspaceFileSystem(
+      metadataModule.createScriptcPathMetadataReader(invokeHost),
+    );
+    workspace = new serviceModule.ProjectWorkspaceService(
       fileSystem,
-      {
-        async isProcessAlive(pid) {
-          const value = invokeHost('process-alive', String(pid));
-          return value === 'true' ? true : value === 'false' ? false : null;
+      new transactionModule.ProjectWorkspaceTransactionService(
+        fileSystem,
+        {
+          async isProcessAlive(pid) {
+            const value = invokeHost('process-alive', String(pid));
+            return value === 'true' ? true : value === 'false' ? false : null;
+          },
         },
-      },
-      process.pid,
-      randomUUID,
-    ),
-  );
-  const needsAgentKit = effectiveArgv.some(
-    (argument, index) => argument === 'agent' && argv[index + 1] === 'sync',
-  );
+        process.pid,
+        randomUUID,
+      ),
+    );
+  }
+
+  let agentKitPayload: import('../src/cli/agent-kit').NovelTeaAgentKitPayload | undefined;
+  if (family === 'agent' && operation === 'sync') {
+    const [agentKit, source] = await Promise.all([
+      import('../src/cli/agent-kit'),
+      import('./noveltea-scriptc-agent-kit-source'),
+    ]);
+    agentKitPayload = agentKit.createNovelTeaAgentKitPayload(
+      source.scriptcAgentKitSourceFiles,
+      source.scriptcAgentKitProvenance,
+      source.scriptcAgentKitSystemLayoutSourceFiles,
+    );
+  }
+
+  let embeddedBuiltInFiles: Readonly<Record<string, string>> | undefined;
+  if (family === 'comfyui') {
+    const comfyUi = await import('./noveltea-scriptc-comfyui-workflows');
+    embeddedBuiltInFiles = comfyUi.scriptcComfyUiWorkflowFiles;
+  }
+
   const cancellationController = cancellationCertification ? new AbortController() : null;
   const cancellationTimer = cancellationController
     ? setTimeout(() => cancellationController.abort(), 500)
     : null;
   try {
+    const { runNovelTeaCli } = await import('../src/cli/application');
     const commandResult = await runNovelTeaCli(effectiveArgv, {
-      fileSystem,
-      workspace,
+      ...(fileSystem ? { fileSystem } : {}),
+      ...(workspace ? { workspace } : {}),
       nativeTools,
-      platformTools,
-      comfyUiWorkflowLibraryOptions: { embeddedBuiltInFiles: scriptcComfyUiWorkflowFiles },
+      ...(platformTools ? { platformTools } : {}),
+      ...(embeddedBuiltInFiles ? { comfyUiWorkflowLibraryOptions: { embeddedBuiltInFiles } } : {}),
       ...(cancellationController ? { comfyUiAbortSignal: cancellationController.signal } : {}),
-      ...(needsAgentKit
-        ? {
-            agentKitPayload: createNovelTeaAgentKitPayload(
-              scriptcAgentKitSourceFiles,
-              scriptcAgentKitProvenance,
-              scriptcAgentKitSystemLayoutSourceFiles,
-            ),
-          }
-        : {}),
+      ...(agentKitPayload ? { agentKitPayload } : {}),
       readStdinText: () => invokeHost('read-stdin', ''),
       forceRuntimeCacheRebuild,
     });

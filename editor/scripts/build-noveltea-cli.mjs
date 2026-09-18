@@ -70,7 +70,8 @@ async function collectUtf8Files(root, directory, files = {}) {
   return files;
 }
 
-const islandBundle = path.join(editorRoot, 'dist-scriptc-island', 'noveltea-scriptc-island.mjs');
+const islandBundleRoot = path.join(editorRoot, 'dist-scriptc-island');
+const islandBundle = path.join(islandBundleRoot, 'noveltea-scriptc-island.mjs');
 const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-island.d.ts');
 const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
 const hostProcessSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-process.ts');
@@ -238,6 +239,12 @@ await stagePrebuiltShadercLinkClosure();
 run(process.execPath, [vitePlusEntrypoint, 'pack'], { cwd: editorRoot, env: buildEnv });
 if (!existsSync(islandBundle))
   throw new Error(`Scriptc island bundle was not produced: ${islandBundle}`);
+const islandEntryBytes = (await lstat(islandBundle)).size;
+const maxIslandEntryBytes = 64 * 1024;
+if (islandEntryBytes > maxIslandEntryBytes)
+  throw new Error(
+    `Scriptc island entry grew to ${islandEntryBytes} bytes; expected at most ${maxIslandEntryBytes} bytes so heavy authoring modules remain lazily split.`,
+  );
 
 const buildRoot = path.join(repositoryRoot, 'build', releasePreset);
 const editorToolRoot = path.join(buildRoot, 'tools', 'editor_tool');
@@ -359,6 +366,7 @@ await mkdir(agentKitSourcePackageRoot, { recursive: true });
 await mkdir(comfyUiWorkflowPackageRoot, { recursive: true });
 
 try {
+  await cp(islandBundleRoot, islandPackageRoot, { recursive: true });
   await cp(islandBundle, path.join(islandPackageRoot, 'index.mjs'));
   await writeFile(
     path.join(islandPackageRoot, 'package.json'),

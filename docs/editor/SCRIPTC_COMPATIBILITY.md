@@ -4,9 +4,9 @@ NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.1.1. The r
 
 ## Release architecture
 
-The shared authoring CLI is bundled as one private CommonJS package and executed inside scriptc's embedded QuickJS-ng island. This keeps the Node reference implementation and standalone CLI on the same TypeScript authoring/workspace semantics without requiring the shared codebase to conform to scriptc's current static TypeScript subset.
+The shared authoring CLI is bundled as one private code-split ESM package and executed inside scriptc's embedded QuickJS-ng island. The package keeps a tiny routing entry while command families, Project Workspace assembly, platform/export services, ComfyUI, agent-kit generation, and other heavy authoring subsystems remain separate lazy modules. ScriptC embeds the complete private package and compiles an embedded module only when its dynamic import is reached. This keeps the Node reference implementation and standalone CLI on the same TypeScript authoring/workspace semantics without requiring the shared codebase to conform to scriptc's current static TypeScript subset.
 
-The static host owns only narrow capabilities. `--version` and `--help` are resolved entirely in this static tier from shared canonical CLI constants, raw `noveltea shaderc ...` dispatches from the static host directly into the embedded native shader compiler, and the `test` command family may execute directly when the Project-local canonical runtime cache is independently proven fresh. The QuickJS island is imported lazily whenever authoring/workspace semantics are required or cache admission cannot be established. This keeps trivial CLI startup, raw shaderc forwarding, and repeated cached test execution near native process-launch cost without making the static host a second Project parser.
+The static host owns only narrow capabilities. `--version` and `--help` are resolved entirely in this static tier from shared canonical CLI constants, raw `noveltea shaderc ...` dispatches from the static host directly into the embedded native shader compiler, and the `test` command family may execute directly when the Project-local canonical runtime cache is independently proven fresh. The QuickJS island is imported lazily whenever authoring/workspace semantics are required or cache admission cannot be established; once inside the island, the canonical global-argument parser selects the command family before heavy services are loaded. Project-independent platform template/config commands therefore do not initialize the Project Workspace, while operations such as platform export, portable Project export, and template installation configure the ScriptC platform host only when their process/archive capabilities are required. This keeps trivial CLI startup, raw shaderc forwarding, lightweight island commands, and repeated cached test execution inexpensive without making the static host a second Project parser.
 
 The static host owns:
 
@@ -37,8 +37,8 @@ Built-in ComfyUI packages are handled the same way. The checked-in manifests and
 - admitted standalone targets: Linux x64 and Windows x64
 
 `editor/scripts/build-noveltea-cli.mjs` verifies the installed scriptc version, builds the native
-tooling archive closure for the current admitted host, produces the minified/no-sourcemap QuickJS
-package, stages the private island, agent-kit-source, and ComfyUI-workflow packages under `build/host-tools/scriptc/`, invokes scriptc with
+tooling archive closure for the current admitted host, produces the minified/no-sourcemap code-split
+QuickJS package, rejects an island routing entry that grows beyond the guarded lightweight budget, stages the complete private island module graph plus agent-kit-source and ComfyUI-workflow packages under `build/host-tools/scriptc/`, invokes scriptc with
 `--dynamic` and the platform-specific FFI manifest, strips the resulting ELF or PE executable, and
 removes the staging directory. Windows deliberately uses the dedicated `windows-cli-gnu` CMake
 preset and `x64-mingw-static-noveltea` target triplet so every FFI archive shares ScriptC's supported
@@ -73,7 +73,7 @@ The release gate also exercises runtime-cache freshness and recovery through the
 
 ComfyUI certification uses `editor/scripts/comfyui-certification-server.mjs`, a deterministic local HTTP server requiring neither a GPU nor a ComfyUI installation. Node and ScriptC are compared for status, built-in listing/inspection, verification, scalar filesystem generation, secure local-image editing, classification-default selection, Project Asset publication, named mixed publication, upload/execution/output failures, and request timeout behavior. Certification compares normalized machine output, stderr/exit status, publication state, and externally observable request sequences; successful history deliberately completes on a later poll. The cancellation checks require prompt-specific queue deletion and reject `/interrupt`.
 
-A release is not admitted merely because scriptc can build it. The differential and native certification must pass.
+Certification also traces the island's lazy capability boundaries for representative platform commands: template installation must configure the platform host without initializing the Project Workspace, template listing and config initialization must stay Project-independent, and platform export must initialize both the platform host and Project Workspace. A release is not admitted merely because scriptc can build it. The differential and native certification must pass.
 
 ## Performance policy
 

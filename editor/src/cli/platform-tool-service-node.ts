@@ -4,17 +4,8 @@ import {
   EDITOR_EXPORT_LOCAL_STATE_FORMAT,
   parseEditorExportLocalState,
 } from '../shared/project-schema/platform-export-contracts';
-import { exportProjectToPlatform } from '../main/services/platform-export-orchestration-service';
-import { cancelPlatformExport } from '../main/services/platform-staging-service';
-import {
-  inspectPlayerTemplate,
-  installPlayerTemplate,
-  listPlayerTemplates,
-  removePlayerTemplate,
-} from '../main/services/template-registry-service';
 import type { NovelTeaCliPlatformToolService } from './platform-tool-service';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
-import { loadUserExportConfig } from '../main/services/user-export-config-service';
 
 function internalToken(token: string): string {
   const match = /^([a-zA-Z0-9._-]+)@([a-zA-Z0-9._-]+)$/.exec(token);
@@ -35,22 +26,33 @@ export function createNovelTeaCliPlatformToolService(
   nativeTools?: NovelTeaCliNativeToolService,
 ): NovelTeaCliPlatformToolService {
   return {
-    listTemplates: () => listPlayerTemplates(),
+    async listTemplates() {
+      const { listPlayerTemplates } = await import('../main/services/template-registry-service');
+      return listPlayerTemplates();
+    },
     async inspectTemplate(token) {
+      const { inspectPlayerTemplate } = await import('../main/services/template-registry-service');
       const [templateId, buildId] = internalToken(token).split('/');
       return inspectPlayerTemplate(templateId!, buildId!);
     },
-    installTemplate: (archivePath, force) =>
-      installPlayerTemplate({
+    async installTemplate(archivePath, force) {
+      const { installPlayerTemplate } = await import('../main/services/template-registry-service');
+      return installPlayerTemplate({
         archivePath: path.resolve(archivePath),
         force,
         origin: 'noveltea-cli',
-      }),
+      });
+    },
     async removeTemplate(token) {
+      const { removePlayerTemplate } = await import('../main/services/template-registry-service');
       const [templateId, buildId] = internalToken(token).split('/');
       return removePlayerTemplate(templateId!, buildId!);
     },
     async exportProject(request, onProgress) {
+      const [{ exportProjectToPlatform }, { cancelPlatformExport }] = await Promise.all([
+        import('../main/services/platform-export-orchestration-service'),
+        import('../main/services/platform-staging-service'),
+      ]);
       const operationId = request.operationId ?? `cli-${process.pid}-${Date.now()}`;
       const cancel = () => cancelPlatformExport(operationId);
       process.once('SIGINT', cancel);
@@ -73,7 +75,10 @@ export function createNovelTeaCliPlatformToolService(
         process.off('SIGTERM', cancel);
       }
     },
-    loadUserConfig: () => loadUserExportConfig(),
+    async loadUserConfig() {
+      const { loadUserExportConfig } = await import('../main/services/user-export-config-service');
+      return loadUserExportConfig();
+    },
     async initializeConfig(destination, force) {
       const resolved = path.resolve(destination);
       const kind = await pathKind(resolved);
