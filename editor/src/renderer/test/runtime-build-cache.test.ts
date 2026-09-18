@@ -19,7 +19,11 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
-import { projectWorkspaceFiles } from '../../shared/project-workspace';
+import {
+  NodeProjectWorkspaceFileSystem,
+  projectWorkspaceFiles,
+  type ProjectWorkspaceFileSystem,
+} from '../../shared/project-workspace';
 
 const roots: string[] = [];
 
@@ -97,8 +101,16 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function runCachedTest(root: string, tools: NovelTeaCliNativeToolService) {
-  return runNovelTeaCli(['--json', 'test', 'run', 'smoke'], { cwd: root, nativeTools: tools });
+async function runCachedTest(
+  root: string,
+  tools: NovelTeaCliNativeToolService,
+  fileSystem?: ProjectWorkspaceFileSystem,
+) {
+  return runNovelTeaCli(['--json', 'test', 'run', 'smoke'], {
+    cwd: root,
+    nativeTools: tools,
+    ...(fileSystem ? { fileSystem } : {}),
+  });
 }
 
 async function runCachedStdinTest(
@@ -568,6 +580,50 @@ describe('persistent runtime build cache', () => {
       expect(cacheStatus(result)).toMatchObject({
         status: 'unusable',
         reason: 'discovery-symlink',
+      });
+    },
+  );
+
+  it('fails closed when authoritative source containment reports a cross-volume path', async () => {
+    const assetPath = 'images/custom/source.png';
+    const root = await createProjectWorkspace({ assetPath });
+    const tools = nativeTools([]);
+
+    class CrossVolumeFileSystem extends NodeProjectWorkspaceFileSystem {
+      override relativePath(from: string, to: string): string {
+        if (to.replaceAll('\\', '/').endsWith(`/${assetPath}`)) return 'D:/outside/source.png';
+        return super.relativePath(from, to);
+      }
+    }
+
+    const result = await runCachedTest(root, tools, new CrossVolumeFileSystem());
+    expect(result.exitCode).toBe(0);
+    expect(cacheStatus(result)).toMatchObject({
+      status: 'unusable',
+      reason: 'input-escapes-project',
+    });
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'fails closed when an authoritative source resolves outside the Project',
+    async () => {
+      const assetPath = 'images/custom/source.png';
+      const root = await createProjectWorkspace({ assetPath });
+      const tools = nativeTools([]);
+      expect((await runCachedTest(root, tools)).exitCode).toBe(0);
+
+      const outside = await mkdtemp(path.join(tmpdir(), 'noveltea-runtime-cache-outside-'));
+      roots.push(outside);
+      await mkdir(path.join(outside, 'custom'), { recursive: true });
+      await writeFile(path.join(outside, 'custom/source.png'), new Uint8Array([1, 2, 3, 4]));
+      await rm(path.join(root, 'images'), { recursive: true, force: true });
+      await symlink(outside, path.join(root, 'images'));
+
+      const result = await runCachedTest(root, tools);
+      expect(result.exitCode).toBe(0);
+      expect(cacheStatus(result)).toMatchObject({
+        status: 'unusable',
+        reason: 'input-escapes-project',
       });
     },
   );
