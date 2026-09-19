@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next';
 import {
   useMaterialPreviewGroupRenderer,
   useMaterialPreviewGroupStatus,
+  useMaterialPreviewProjectResources,
 } from './material-preview-provider';
+import type { MaterialPreviewProjectResources } from './material-preview-resources';
 import type { MaterialPreviewPointerState } from './material-preview-renderer';
 
 const OUTSIDE_POINTER: MaterialPreviewPointerState = { x: -1, y: -1, pressed: false };
@@ -11,13 +13,18 @@ const OUTSIDE_POINTER: MaterialPreviewPointerState = { x: -1, y: -1, pressed: fa
 export function MaterialPreview({
   materialId,
   className,
+  resources: explicitResources,
 }: {
   materialId: string;
   className?: string;
+  resources?: MaterialPreviewProjectResources;
 }) {
   const { t } = useTranslation('workspace');
   const renderer = useMaterialPreviewGroupRenderer();
   const status = useMaterialPreviewGroupStatus();
+  const projectResources = useMaterialPreviewProjectResources();
+  const resources = explicitResources ?? projectResources;
+  const [resourceStatus, setResourceStatus] = useState<{ stale: boolean } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const registrationRef = useRef<ReturnType<typeof renderer.registerSurface> | null>(null);
   const [size, setSize] = useState({ width: 1, height: 1 });
@@ -50,6 +57,16 @@ export function MaterialPreview({
   }, []);
 
   useEffect(() => {
+    let active = true;
+    void resources.getMaterial(materialId).then((resource) => {
+      if (active) setResourceStatus(resource ? { stale: resource.stale } : null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [materialId, resources, resources.generation]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const state = {
@@ -59,10 +76,11 @@ export function MaterialPreview({
       height: size.height,
       visible,
       pointer: pointerRef.current,
+      resources,
     };
     if (!registrationRef.current) registrationRef.current = renderer.registerSurface(state);
     else registrationRef.current.update(state);
-  }, [materialId, renderer, size.height, size.width, visible]);
+  }, [materialId, renderer, resources, resources.generation, size.height, size.width, visible]);
 
   useEffect(
     () => () => {
@@ -86,6 +104,7 @@ export function MaterialPreview({
       height: size.height,
       visible,
       pointer: pointerRef.current,
+      resources,
     });
   }
 
@@ -117,9 +136,18 @@ export function MaterialPreview({
             height: size.height,
             visible,
             pointer: OUTSIDE_POINTER,
+            resources,
           });
         }}
       />
+      {resourceStatus?.stale ? (
+        <div
+          className="absolute right-2 top-2 rounded bg-amber-500/90 px-2 py-1 text-[10px] font-medium text-black"
+          data-material-preview-stale
+        >
+          {t('materialEditor.preview.stale')}
+        </div>
+      ) : null}
       {!status.available ? (
         <div
           className="absolute inset-0 flex items-center justify-center bg-muted/80 p-4 text-center text-xs text-muted-foreground"

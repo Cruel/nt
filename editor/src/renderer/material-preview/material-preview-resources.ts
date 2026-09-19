@@ -1,4 +1,4 @@
-import type { ShaderCompileOutput } from '../../shared/editor-tooling';
+import type { ShaderCompileDiagnostic, ShaderCompileOutput } from '../../shared/editor-tooling';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
@@ -14,6 +14,7 @@ import {
   type MaterialDerivedInterface,
   type ShaderMaterialProjectBuildResult,
   type ShaderMaterialProjectDiagnostic,
+  type ShaderSourcePrograms,
 } from '../../shared/project-schema/shader-material-project';
 
 export interface MaterialPreviewTextureResource {
@@ -30,12 +31,33 @@ export interface MaterialPreviewResource {
   fragmentShaderSource: string | null;
   textures: Readonly<Record<string, MaterialPreviewTextureResource>>;
   diagnostics: ReadonlyArray<MaterialSchemaDiagnostic | ShaderMaterialProjectDiagnostic>;
+  compileDiagnostics: readonly ShaderCompileDiagnostic[];
+  stale: boolean;
+}
+
+export interface MaterialPreviewCompileResult {
+  success: boolean;
+  outputs: readonly ShaderCompileOutput[];
+  diagnostics: readonly ShaderCompileDiagnostic[];
+}
+
+export interface MaterialPreviewCompileOptions {
+  sourceOverlays?: Readonly<Record<string, string>>;
 }
 
 export interface MaterialPreviewResourceDependencies {
-  compileShaders: (project: unknown) => Promise<readonly ShaderCompileOutput[]>;
+  compileShaders: (
+    project: unknown,
+    options?: MaterialPreviewCompileOptions,
+  ) => Promise<MaterialPreviewCompileResult | readonly ShaderCompileOutput[]>;
   resolveAssetUrl: (assetId: string) => Promise<string | null>;
   decodeImage: (url: string) => Promise<TexImageSource | null>;
+}
+
+export interface MaterialPreviewProjectOptions {
+  materialIds?: readonly string[];
+  sourceOverlays?: Readonly<Record<string, string>>;
+  scopeKey?: string | null;
 }
 
 interface MaterialPreviewProjectSnapshot {
@@ -43,6 +65,8 @@ interface MaterialPreviewProjectSnapshot {
   project: AuthoringProject;
   built: ShaderMaterialProjectBuildResult;
   outputs: readonly ShaderCompileOutput[];
+  compileDiagnostics: readonly ShaderCompileDiagnostic[];
+  stalePrograms: ReadonlySet<string>;
 }
 
 function defaultDecodeImage(url: string): Promise<TexImageSource | null> {
@@ -72,21 +96,83 @@ function textureAssetId(project: AuthoringProject, source: MaterialTextureSource
   return null;
 }
 
+function normalizeCompileResult(
+  result: MaterialPreviewCompileResult | readonly ShaderCompileOutput[],
+): MaterialPreviewCompileResult {
+  return Array.isArray(result)
+    ? { success: true, outputs: result, diagnostics: [] }
+    : (result as MaterialPreviewCompileResult);
+}
+
+function previewOptionsKey(options: MaterialPreviewProjectOptions): string {
+  return JSON.stringify({
+    materialIds: [...(options.materialIds ?? [])].sort(),
+    sourceOverlays: Object.fromEntries(
+      Object.entries(options.sourceOverlays ?? {}).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ),
+    scopeKey: options.scopeKey ?? null,
+  });
+}
+
+function scopedCompilation(
+  initial: ShaderMaterialProjectBuildResult,
+  materialIds: readonly string[] | undefined,
+): ShaderSourcePrograms {
+  if (!materialIds) return initial.compilation;
+  const programIds = new Set(
+    materialIds.flatMap((materialId) => {
+      const shader = initial.project.materials[materialId]?.shader;
+      return shader && initial.compilation.programs[shader] ? [shader] : [];
+    }),
+  );
+  return {
+    ...initial.compilation,
+    programs: Object.fromEntries(
+      Object.entries(initial.compilation.programs).filter(([programId]) =>
+        programIds.has(programId),
+      ),
+    ),
+  };
+}
+
 /** CPU-side Material preview authority. It deliberately owns no WebGL objects. */
 export class MaterialPreviewProjectResources {
   private project: AuthoringProject | null = null;
   private projectAuthorityKey: string | null = null;
+  private projectOptions: MaterialPreviewProjectOptions = {};
+  private projectOptionsKey = previewOptionsKey({});
   private projectGeneration = 0;
   private projectSnapshot: Promise<MaterialPreviewProjectSnapshot | null> | null = null;
   private materialCache = new Map<string, Promise<MaterialPreviewResource | null>>();
   private decodedTextures = new Map<string, Promise<MaterialPreviewTextureResource>>();
+  private lastGoodOutputsByProgram = new Map<string, readonly ShaderCompileOutput[]>();
+  private lastGoodScopeKey: string | null = null;
 
   constructor(private readonly dependencies: MaterialPreviewResourceDependencies) {}
 
-  updateProject(project: AuthoringProject | null, authorityKey: string | null = null) {
-    if (this.project === project && this.projectAuthorityKey === authorityKey) return;
+  updateProject(
+    project: AuthoringProject | null,
+    authorityKey: string | null = null,
+    options: MaterialPreviewProjectOptions = {},
+  ) {
+    const optionsKey = previewOptionsKey(options);
+    if (
+      this.project === project &&
+      this.projectAuthorityKey === authorityKey &&
+      this.projectOptionsKey === optionsKey
+    )
+      return;
+    const nextScopeKey = options.scopeKey ?? null;
+    if (nextScopeKey !== this.lastGoodScopeKey && this.lastGoodScopeKey !== null) {
+      this.lastGoodOutputsByProgram.clear();
+    }
+    this.lastGoodScopeKey = nextScopeKey;
     this.project = project;
     this.projectAuthorityKey = authorityKey;
+    this.projectOptions = options;
+    this.projectOptionsKey = optionsKey;
     this.projectGeneration += 1;
     this.projectSnapshot = null;
     this.materialCache.clear();
@@ -114,14 +200,45 @@ export class MaterialPreviewProjectResources {
     if (this.projectSnapshot) return this.projectSnapshot;
     this.projectSnapshot = (async () => {
       const initial = await buildShaderMaterialProject(project);
+      const compilation = scopedCompilation(initial, this.projectOptions.materialIds);
+      const requestedPrograms = Object.keys(compilation.programs);
       let outputs: readonly ShaderCompileOutput[] = [];
-      if (Object.keys(initial.compilation.programs).length > 0) {
-        outputs = await this.dependencies.compileShaders(initial.compilation);
+      let compileDiagnostics: readonly ShaderCompileDiagnostic[] = [];
+      const stalePrograms = new Set<string>();
+      if (requestedPrograms.length > 0) {
+        const compiled = normalizeCompileResult(
+          await this.dependencies.compileShaders(compilation, {
+            sourceOverlays: this.projectOptions.sourceOverlays,
+          }),
+        );
+        compileDiagnostics = compiled.diagnostics;
+        if (compiled.success) {
+          outputs = compiled.outputs;
+          for (const programId of requestedPrograms) {
+            const programOutputs = compiled.outputs.filter(
+              (output) => output.program === programId,
+            );
+            if (programOutputs.length > 0)
+              this.lastGoodOutputsByProgram.set(programId, programOutputs);
+          }
+        } else {
+          const recovered: ShaderCompileOutput[] = [];
+          for (const programId of requestedPrograms) {
+            const lastGood = this.lastGoodOutputsByProgram.get(programId);
+            if (lastGood?.length) {
+              recovered.push(...lastGood);
+              stalePrograms.add(programId);
+            } else {
+              recovered.push(...compiled.outputs.filter((output) => output.program === programId));
+            }
+          }
+          outputs = recovered;
+        }
       }
       const built =
         outputs.length > 0 ? await buildShaderMaterialProject(project, outputs) : initial;
       if (generation !== this.projectGeneration || project !== this.project) return null;
-      return { generation, project, built, outputs };
+      return { generation, project, built, outputs, compileDiagnostics, stalePrograms };
     })();
     return this.projectSnapshot;
   }
@@ -172,6 +289,8 @@ export class MaterialPreviewProjectResources {
       fragmentShaderSource,
       textures,
       diagnostics: [...resolution.diagnostics, ...snapshot.built.diagnostics],
+      compileDiagnostics: snapshot.compileDiagnostics,
+      stale: runtimeMaterial ? snapshot.stalePrograms.has(runtimeMaterial.shader) : false,
     };
   }
 

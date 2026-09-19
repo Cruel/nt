@@ -11,6 +11,7 @@ import { MaterialPreview } from '@/material-preview/MaterialPreview';
 import { useMaterialPreviewResource } from '@/material-preview/material-preview-provider';
 import { useProjectSourceStore } from '@/project/project-source-store';
 import { useProjectStore } from '@/project/project-store';
+import { seedShaderSourceTabMaterial } from '@/shaders/shader-source-tab-state';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
   defaultMaterialData,
@@ -150,7 +151,11 @@ function MaterialShaderSourceRow({
     }
     const path = projectShaderPath(effectivePath);
     const source = path ? files.find((candidate) => candidate.id === path) : null;
-    if (source) openTab(buildProjectSourceTab(source));
+    if (source) {
+      const sourceTab = buildProjectSourceTab(source);
+      openTab(sourceTab);
+      seedShaderSourceTabMaterial(sourceTab.id, materialId);
+    }
   }
 
   async function makeSpecificCopy() {
@@ -170,7 +175,11 @@ function MaterialShaderSourceRow({
       const created = useProjectSourceStore
         .getState()
         .files.find((candidate) => candidate.id === result.createdSourceIds?.[0]);
-      if (created) openTab(buildProjectSourceTab(created));
+      if (created) {
+        const sourceTab = buildProjectSourceTab(created);
+        openTab(sourceTab);
+        seedShaderSourceTabMaterial(sourceTab.id, materialId);
+      }
     } finally {
       setBusy(false);
     }

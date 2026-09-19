@@ -16,6 +16,7 @@ export interface MaterialPreviewSurfaceState {
   height: number;
   visible: boolean;
   pointer: MaterialPreviewPointerState;
+  resources?: MaterialPreviewProjectResources;
 }
 
 export interface MaterialPreviewGroupRendererStatus {
@@ -426,9 +427,14 @@ export class MaterialPreviewGroupRenderer {
       update: (next: MaterialPreviewSurfaceState) => {
         const registered = this.surfaces.get(token);
         if (!registered) return;
-        const materialChanged = registered.state.materialId !== next.materialId;
+        const previousResources = registered.state.resources ?? this.resources;
+        const nextResources = next.resources ?? this.resources;
+        const resourceChanged =
+          registered.state.materialId !== next.materialId ||
+          previousResources !== nextResources ||
+          registered.resourceGeneration !== nextResources.generation;
         registered.state = next;
-        if (materialChanged) {
+        if (resourceChanged) {
           registered.resource = null;
           registered.resourceGeneration = -1;
           void this.refreshSurface(token);
@@ -469,14 +475,16 @@ export class MaterialPreviewGroupRenderer {
   private async refreshSurface(token: object) {
     const registered = this.surfaces.get(token);
     if (!registered) return;
-    const generation = this.resources.generation;
+    const resources = registered.state.resources ?? this.resources;
+    const generation = resources.generation;
     const materialId = registered.state.materialId;
-    const resource = await this.resources.getMaterial(materialId);
+    const resource = await resources.getMaterial(materialId);
     const current = this.surfaces.get(token);
     if (
       !current ||
       current.state.materialId !== materialId ||
-      generation !== this.resources.generation
+      (current.state.resources ?? this.resources) !== resources ||
+      generation !== resources.generation
     )
       return;
     current.resource = resource;
@@ -505,7 +513,8 @@ export class MaterialPreviewGroupRenderer {
     if (!this.backend || this.contextLost) return;
     for (const [token, registered] of this.surfaces) {
       if (!registered.state.visible) continue;
-      if (registered.resourceGeneration !== this.resources.generation) {
+      const resources = registered.state.resources ?? this.resources;
+      if (registered.resourceGeneration !== resources.generation) {
         void this.refreshSurface(token);
         continue;
       }

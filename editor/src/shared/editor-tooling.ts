@@ -136,6 +136,8 @@ export interface ShaderCompileOptions {
   engineShaderRoot?: string;
   forceRebuild?: boolean;
   shaderVariants?: string[];
+  /** Editor-only dirty shader buffers staged ahead of persisted Project source. */
+  sourceOverlays?: Record<string, string>;
 }
 
 export interface ShaderCompileDiagnostic {
