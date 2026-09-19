@@ -669,6 +669,99 @@ describe('active Project session lifecycle', () => {
     expect((await openProject(project)).success).toBe(true);
   });
 
+  it('customizes one Material shader stage atomically from built-in source', async () => {
+    const project = await createWorkspace('material-shader-copy');
+    await fs.mkdir(path.join(project, 'records', 'materials'), { recursive: true });
+    await fs.writeFile(
+      path.join(project, 'records', 'materials', 'panel.json'),
+      `${JSON.stringify(
+        { id: 'panel', label: 'Panel', data: defaultMaterialData('Panel', 'engine-2d') },
+        null,
+        2,
+      )}\n`,
+    );
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const projectSessionId = attached.projectSessionId!;
+
+    const customized = await service.mutateProjectSources({
+      projectSessionId,
+      operation: {
+        kind: 'material-shader-copy',
+        materialId: 'panel',
+        stage: 'fragment',
+        sourceIdentity: 'engine:/fs_postprocess_tint.sc',
+      },
+    });
+
+    expect(customized).toMatchObject({
+      success: true,
+      createdSourceIds: ['shaders/materials/panel/fs.sc'],
+    });
+    const copied = await fs.readFile(
+      path.join(project, 'shaders', 'materials', 'panel', 'fs.sc'),
+      'utf8',
+    );
+    expect(copied).toBe(
+      await fs.readFile(path.resolve('..', 'engine/shaders/bgfx/fs_postprocess_tint.sc'), 'utf8'),
+    );
+    const material = JSON.parse(
+      await fs.readFile(path.join(project, 'records', 'materials', 'panel.json'), 'utf8'),
+    ) as { data: { shader?: { vertex?: unknown; fragment?: { kind: string; path: string } } } };
+    expect(material.data.shader).toEqual({
+      fragment: { kind: 'project', path: 'shaders/materials/panel/fs.sc' },
+    });
+    expect((await openProject(project)).success).toBe(true);
+  });
+
+  it('rejects Material shader copies from traversing or escaping Project shader sources', async () => {
+    const project = await createWorkspace('material-shader-copy-containment');
+    await fs.mkdir(path.join(project, 'records', 'materials'), { recursive: true });
+    await fs.writeFile(
+      path.join(project, 'records', 'materials', 'panel.json'),
+      `${JSON.stringify(
+        { id: 'panel', label: 'Panel', data: defaultMaterialData('Panel', 'engine-2d') },
+        null,
+        2,
+      )}\n`,
+    );
+    const outside = path.join(path.dirname(project), 'outside.sc');
+    await fs.writeFile(outside, 'void outside() {}\n');
+    await fs.mkdir(path.join(project, 'shaders'), { recursive: true });
+    await fs.symlink(outside, path.join(project, 'shaders', 'escape.sc'));
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const projectSessionId = attached.projectSessionId!;
+
+    await expect(
+      service.mutateProjectSources({
+        projectSessionId,
+        operation: {
+          kind: 'material-shader-copy',
+          materialId: 'panel',
+          stage: 'fragment',
+          sourceIdentity: 'project:/shaders/../project.json',
+        },
+      }),
+    ).resolves.toMatchObject({ success: false });
+    await expect(
+      service.mutateProjectSources({
+        projectSessionId,
+        operation: {
+          kind: 'material-shader-copy',
+          materialId: 'panel',
+          stage: 'fragment',
+          sourceIdentity: 'project:/shaders/escape.sc',
+        },
+      }),
+    ).resolves.toMatchObject({ success: false });
+    await expect(
+      fs.stat(path.join(project, 'shaders', 'materials', 'panel', 'fs.sc')),
+    ).rejects.toThrow();
+  });
+
   it('moves source folders as one descendant path rewrite', async () => {
     const project = await createWorkspace('source-folder-move');
     await fs.mkdir(path.join(project, 'scripts', 'helpers'), { recursive: true });

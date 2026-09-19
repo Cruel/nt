@@ -48,6 +48,11 @@ interface ProjectStoreState {
     scriptSourcePaths: Readonly<Record<string, string>>;
   }) => void;
   applyCommittedSourcePathRemap: (pathRemap: Readonly<Record<string, string>>) => boolean;
+  applyCommittedMaterialShaderCopy: (
+    materialId: string,
+    stage: 'vertex' | 'fragment' | 'varying',
+    path: string,
+  ) => boolean;
   setHistoryCursor: (historyCursor: number) => void;
   markSaved: (metadata?: ProjectSaveMetadata) => void;
   markEditorMetadataPersisted: (editorState: EditorProjectState) => void;
@@ -79,6 +84,31 @@ function remapLayoutRmlScriptReferences(
       return `${prefix}${quote}${rewritten}${quote}`;
     },
   );
+}
+
+function applyMaterialShaderCopy(
+  document: JsonValue | null,
+  materialId: string,
+  stage: 'vertex' | 'fragment' | 'varying',
+  path: string,
+): JsonValue | null {
+  if (!document || typeof document !== 'object' || Array.isArray(document)) return document;
+  const next = cloneJsonValue(document) as Record<string, JsonValue>;
+  const materials = next.materials;
+  if (!materials || typeof materials !== 'object' || Array.isArray(materials)) return document;
+  const record = (materials as Record<string, JsonValue>)[materialId];
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return document;
+  const recordValue = record as Record<string, JsonValue>;
+  const data = recordValue.data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return document;
+  const dataValue = data as Record<string, JsonValue>;
+  const shader =
+    dataValue.shader && typeof dataValue.shader === 'object' && !Array.isArray(dataValue.shader)
+      ? ({ ...(dataValue.shader as Record<string, JsonValue>) } as Record<string, JsonValue>)
+      : {};
+  shader[stage] = { kind: 'project', path };
+  dataValue.shader = shader;
+  return next as JsonValue;
 }
 
 function remapProjectSourcePaths(
@@ -330,6 +360,36 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
               projectRevision,
               kind: 'external',
               affectedPaths: ['/materials', '/scripts', '/layouts'],
+            }),
+          }
+        : {}),
+    });
+    return true;
+  },
+  applyCommittedMaterialShaderCopy: (materialId, stage, path) => {
+    const state = get();
+    if (!state.document || !state.projectInstanceId || !state.admittedProject) return false;
+    const working = applyMaterialShaderCopy(state.document, materialId, stage, path);
+    const saved = applyMaterialShaderCopy(state.savedDocument, materialId, stage, path);
+    const admittedWorking = admitProjectCandidate(working);
+    const admittedSaved = saved ? admitProjectCandidate(saved) : null;
+    if (!admittedWorking || (saved && !admittedSaved)) return false;
+    const changed = !jsonValuesEqual(state.document, admittedWorking.document);
+    const projectRevision = changed ? state.projectRevision + 1 : state.projectRevision;
+    set({
+      document: admittedWorking.document,
+      admittedProject: admittedWorking.project,
+      savedDocument: admittedSaved?.document ?? saved,
+      projectRevision,
+      ...(changed
+        ? {
+            lastMutationPublication: createMutationPublication({
+              previousProject: state.admittedProject,
+              project: admittedWorking.project,
+              projectInstanceId: state.projectInstanceId,
+              projectRevision,
+              kind: 'external',
+              affectedPaths: [`/materials/${materialId}/data/shader/${stage}`],
             }),
           }
         : {}),

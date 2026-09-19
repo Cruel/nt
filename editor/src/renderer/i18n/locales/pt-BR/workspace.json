@@ -979,6 +979,16 @@
       "compiled": "compilado"
     }
   },
+  "materialsLibrary": {
+    "noProject": "Abra um projeto para navegar pelos Materiais.",
+    "searchLabel": "Pesquisar Materiais",
+    "searchPlaceholder": "Pesquise Materiais por nome, ID ou tag…",
+    "livePreviews": "Pré-visualizações ao vivo",
+    "newMaterial": "Novo Material",
+    "noMatches": "Nenhum Material corresponde a esta pesquisa.",
+    "empty": "Ainda não há Materiais. Crie um para começar.",
+    "previewDisabled": "Pré-visualização ao vivo desativada"
+  },
   "materialEditor": {
     "missing": "Registro de Material não encontrado.",
     "preview": {
@@ -995,6 +1005,20 @@
     "invalidContract": "Inválido",
     "shaderSources": "Fontes de Shader",
     "shaderSourcesHelp": "Substituições vazias usam a fonte herdada do preset/base. Caminhos de fonte do projeto devem permanecer em shaders/.",
+    "builtInReadOnly": "Integrado · somente leitura",
+    "builtInSourceUnavailable": "A fonte de shader integrada não está disponível.",
+    "customizeShader": "Personalizar Shader",
+    "customizeFailed": "A personalização do shader falhou.",
+    "openSource": "Abrir fonte",
+    "sourceUsage": "{{count}} Material(is)",
+    "makeMaterialSpecific": "Criar cópia específica do Material",
+    "rebind": "Reassociar…",
+    "provenance": {
+      "unknown": "Origem desconhecida",
+      "preset": "Preset: {{label}}",
+      "base": "Base: {{label}}",
+      "current": "Este Material"
+    },
     "reset": "Redefinir",
     "parameters": "Parâmetros",
     "textures": "Texturas",
@@ -1014,8 +1038,10 @@
       "resetShaderSource": "Redefinir fonte de shader do Material",
       "setParameter": "Definir parâmetro do Material",
       "resetParameter": "Redefinir parâmetro do Material",
+      "rebindParameter": "Reassociar parâmetro do Material",
       "setTexture": "Definir textura do Material",
-      "resetTexture": "Redefinir textura do Material"
+      "resetTexture": "Redefinir textura do Material",
+      "rebindTexture": "Reassociar textura do Material"
     }
   },
   "hotspots": {

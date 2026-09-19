@@ -943,6 +943,16 @@
       "compiled": "⟦compiled⟧"
     }
   },
+  "materialsLibrary": {
+    "noProject": "⟦Open a project to browse Materials.⟧",
+    "searchLabel": "⟦Search Materials⟧",
+    "searchPlaceholder": "⟦Search Materials by name, ID, or tag…⟧",
+    "livePreviews": "⟦Live previews⟧",
+    "newMaterial": "⟦New Material⟧",
+    "noMatches": "⟦No Materials match this search.⟧",
+    "empty": "⟦No Materials yet. Create one to get started.⟧",
+    "previewDisabled": "⟦Live preview disabled⟧"
+  },
   "materialEditor": {
     "missing": "⟦Material record not found.⟧",
     "preview": {
@@ -959,6 +969,20 @@
     "invalidContract": "⟦Invalid⟧",
     "shaderSources": "⟦Shader Sources⟧",
     "shaderSourcesHelp": "⟦Empty overrides use the inherited preset/base source. Project source paths must remain under shaders/.⟧",
+    "builtInReadOnly": "⟦Built-in · read only⟧",
+    "builtInSourceUnavailable": "⟦Built-in shader source is unavailable.⟧",
+    "customizeShader": "⟦Customize Shader⟧",
+    "customizeFailed": "⟦Shader customization failed.⟧",
+    "openSource": "⟦Open source⟧",
+    "sourceUsage": "⟦{{count}} Material(s)⟧",
+    "makeMaterialSpecific": "⟦Make Material-specific copy⟧",
+    "rebind": "⟦Rebind…⟧",
+    "provenance": {
+      "unknown": "⟦Unknown source⟧",
+      "preset": "⟦Preset: {{label}}⟧",
+      "base": "⟦Base: {{label}}⟧",
+      "current": "⟦This Material⟧"
+    },
     "reset": "⟦Reset⟧",
     "parameters": "⟦Parameters⟧",
     "textures": "⟦Textures⟧",
@@ -978,8 +1002,10 @@
       "resetShaderSource": "⟦Reset material shader source⟧",
       "setParameter": "⟦Set material parameter⟧",
       "resetParameter": "⟦Reset material parameter⟧",
+      "rebindParameter": "⟦Rebind material parameter⟧",
       "setTexture": "⟦Set material texture⟧",
-      "resetTexture": "⟦Reset material texture⟧"
+      "resetTexture": "⟦Reset material texture⟧",
+      "rebindTexture": "⟦Rebind material texture⟧"
     }
   },
   "hotspots": {

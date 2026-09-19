@@ -4,6 +4,7 @@ import {
   buildComfyUiWorkflowsTab,
   buildDefaultRecordTab,
   buildFullGamePreviewTab,
+  buildMaterialsEditorTab,
   buildPlatformExportTab,
   buildTestsEditorTab,
   buildVariablesEditorTab,
@@ -122,6 +123,19 @@ describe('editor registry', () => {
       editorType: 'asset-library',
       resource: { kind: 'project', stableId: 'assets', entityId: 'logo' },
     });
+    expect(buildMaterialsEditorTab()).toMatchObject({
+      editorType: 'material-library',
+      resource: { kind: 'project', stableId: 'materials', collection: 'materials' },
+    });
+    expect(
+      buildDefaultRecordTab({
+        id: 'materials',
+        label: 'Materials',
+        type: 'folder',
+        collection: 'materials',
+      } as AssetNode),
+    ).toMatchObject({ editorType: 'material-library' });
+
     expect(buildTestsEditorTab()).toMatchObject({
       editorType: 'test-suite',
       resource: { kind: 'project', stableId: 'tests' },

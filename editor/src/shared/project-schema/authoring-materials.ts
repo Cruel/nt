@@ -201,6 +201,10 @@ export function defaultMaterialData(
     textures: {},
   });
 }
+
+export function materialDataWithBase(data: MaterialData, base: MaterialBase): MaterialData {
+  return materialDataSchema.parse({ ...data, base });
+}
 export function isMaterialRecord(
   record: AuthoringRecordBase | undefined | null,
 ): record is AuthoringRecordBase & { data: MaterialData } {
@@ -594,4 +598,23 @@ export function materialRoleIsCompatible(
   role: ShaderRole,
 ): boolean {
   return materialRole(project, materialId) === role;
+}
+
+export function materialCanInheritFrom(
+  project: AuthoringProject,
+  materialId: string,
+  candidateBaseId: string,
+): boolean {
+  if (candidateBaseId === materialId || !project.materials[candidateBaseId]) return false;
+  const seen = new Set<string>();
+  let currentId = candidateBaseId;
+  while (currentId) {
+    if (currentId === materialId || seen.has(currentId)) return false;
+    seen.add(currentId);
+    const data = parseMaterialData(project.materials[currentId]?.data);
+    if (!data) return false;
+    if (data.base.kind === 'preset') return true;
+    currentId = data.base.material.$ref.id;
+  }
+  return false;
 }
