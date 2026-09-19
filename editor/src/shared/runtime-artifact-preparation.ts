@@ -448,6 +448,163 @@ async function referencedRuntimeAssetIds(
   );
 }
 
+type CompiledMaterialInterface =
+  PreparedRuntimeArtifact['compiledProject']['resources']['materialInterfaces'][number];
+type CompiledMaterialParameterType = CompiledMaterialInterface['parameters'][number]['type'];
+
+function materialParameterValueMatches(
+  type: CompiledMaterialParameterType,
+  value: unknown,
+): boolean {
+  switch (type) {
+    case 'float':
+      return typeof value === 'number' && Number.isFinite(value);
+    case 'int':
+      return typeof value === 'number' && Number.isInteger(value);
+    case 'bool':
+      return typeof value === 'boolean';
+    case 'vec2':
+      return Array.isArray(value) && value.length === 2 && value.every(Number.isFinite);
+    case 'vec3':
+      return Array.isArray(value) && value.length === 3 && value.every(Number.isFinite);
+    case 'vec4':
+      return Array.isArray(value) && value.length === 4 && value.every(Number.isFinite);
+    case 'color':
+      return (
+        value !== null &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        ['r', 'g', 'b', 'a'].every(
+          (key) =>
+            typeof (value as Record<string, unknown>)[key] === 'number' &&
+            Number.isFinite((value as Record<string, number>)[key]),
+        )
+      );
+  }
+}
+
+function reconcileCompiledMaterialParameters<T>(
+  value: T,
+  interfaces: readonly CompiledMaterialInterface[],
+): { value: T; diagnostics: ProjectValidationDiagnostic[] } {
+  const byMaterial = new Map(interfaces.map((item) => [item.id, item]));
+  const diagnostics: ProjectValidationDiagnostic[] = [];
+  const reconcileValue = (
+    materialId: string,
+    parameterName: string,
+    compiledValue: unknown,
+    path: string,
+    transition?: unknown,
+  ): unknown => {
+    const material = byMaterial.get(materialId);
+    const parameter = material?.parameters.find((item) => item.name === parameterName);
+    if (!parameter) {
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.material-parameter.unknown',
+          severity: 'error',
+          path: `${path}/parameter`,
+          message: `Material '${materialId}' reflected interface does not declare parameter '${parameterName}'.`,
+          category: 'Materials',
+          boundaries: ['runtime-package'],
+          ownerPaths: [`/materials/${materialId}`],
+        }),
+      );
+      return compiledValue;
+    }
+    if (parameter.rendererBinding !== null) {
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.material-parameter.renderer-bound',
+          severity: 'error',
+          path: `${path}/parameter`,
+          message: `Material parameter '${materialId}.${parameterName}' is runtime-owned and cannot be occurrence-controlled.`,
+          category: 'Materials',
+          boundaries: ['runtime-package'],
+          ownerPaths: [`/materials/${materialId}`],
+        }),
+      );
+      return compiledValue;
+    }
+    const raw =
+      compiledValue && typeof compiledValue === 'object' && 'value' in compiledValue
+        ? (compiledValue as { value: unknown }).value
+        : undefined;
+    if (!materialParameterValueMatches(parameter.type, raw)) {
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.material-parameter.type',
+          severity: 'error',
+          path: `${path}/value`,
+          message: `Material parameter '${materialId}.${parameterName}' value does not match reflected type '${parameter.type}'.`,
+          category: 'Materials',
+          boundaries: ['runtime-package'],
+          ownerPaths: [`/materials/${materialId}`],
+        }),
+      );
+      return compiledValue;
+    }
+    if (transition === 'tween' && (parameter.type === 'bool' || parameter.type === 'int'))
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.material-parameter.transition',
+          severity: 'error',
+          path: `${path}/transition`,
+          message: `Material parameter '${materialId}.${parameterName}' cannot use finite interpolation for reflected type '${parameter.type}'.`,
+          category: 'Materials',
+          boundaries: ['runtime-package'],
+          ownerPaths: [`/materials/${materialId}`],
+        }),
+      );
+    return { type: parameter.type, value: raw };
+  };
+
+  const visit = (current: unknown, path: string): unknown => {
+    if (Array.isArray(current))
+      return current.map((item, index) => visit(item, `${path}/${index}`));
+    if (!current || typeof current !== 'object') return current;
+    const record = current as Record<string, unknown>;
+    const next = Object.fromEntries(
+      Object.entries(record).map(([key, item]) => [key, visit(item, `${path}/${key}`)]),
+    );
+    if (
+      record.kind === 'material-parameter' &&
+      record.material &&
+      typeof record.material === 'object' &&
+      typeof (record.material as Record<string, unknown>).id === 'string' &&
+      typeof record.parameter === 'string'
+    )
+      next.value = reconcileValue(
+        (record.material as Record<string, string>).id,
+        record.parameter,
+        record.value,
+        path,
+        record.transition,
+      );
+    if (
+      record.kind === 'postprocess-effect' &&
+      record.material &&
+      typeof record.material === 'object' &&
+      typeof (record.material as Record<string, unknown>).id === 'string' &&
+      Array.isArray(record.parameters)
+    ) {
+      const materialId = (record.material as Record<string, string>).id;
+      next.parameters = record.parameters.map((parameter, index) => {
+        if (!parameter || typeof parameter !== 'object') return parameter;
+        const item = parameter as Record<string, unknown>;
+        if (typeof item.name !== 'string') return parameter;
+        return {
+          ...item,
+          value: reconcileValue(materialId, item.name, item.value, `${path}/parameters/${index}`),
+        };
+      });
+    }
+    return next;
+  };
+
+  return { value: visit(value, '') as T, diagnostics };
+}
+
 function rewriteCompiledActiveTextSourcePrograms<T>(
   value: T,
   programs: ReadonlyMap<string, string>,
@@ -628,6 +785,7 @@ async function assembleRuntimeArtifact(
       });
     }
   }
+  let materialParameterDiagnostics: ProjectValidationDiagnostic[] = [];
   if (compiledProject) {
     const materialInterfaces = Object.entries(shaderBuild.project.materials)
       .sort(([left], [right]) => left.localeCompare(right))
@@ -650,6 +808,11 @@ async function assembleRuntimeArtifact(
       ...compiledProject,
       resources: { ...compiledProject.resources, materialInterfaces },
     };
+    if (options.shaderOutputs !== undefined) {
+      const reconciled = reconcileCompiledMaterialParameters(compiledProject, materialInterfaces);
+      compiledProject = reconciled.value;
+      materialParameterDiagnostics = reconciled.diagnostics;
+    }
     gameplayJson = serializeCompiledProjectWire(compiledProject);
   }
   const shaderDiagnostics = classifyProjectValidationDiagnostics(
@@ -677,6 +840,7 @@ async function assembleRuntimeArtifact(
     sourceGraph?.diagnostics ?? [],
     compilerDiagnostics,
     shaderDiagnostics,
+    materialParameterDiagnostics,
     localizationClosure?.diagnostics ?? [],
     entrypointDiagnostics,
   );
@@ -1143,6 +1307,43 @@ async function expectedFileEntriesForVerification(
       kind: authored.kind,
     });
   }
+  const addProjectSource = (
+    packagePath: string,
+    assetId: string,
+    kind: 'script-source' | 'shader-source',
+  ) => {
+    if (packagePaths.has(packagePath)) return;
+    packagePaths.add(packagePath);
+    entries.push({
+      source: options.paths.resolveProjectSource(options.projectRoot, packagePath),
+      packagePath,
+      storage: 'auto',
+      assetId,
+      kind,
+    });
+  };
+  for (const [scriptId, record] of Object.entries(options.project.scripts)) {
+    const source = parseScriptModuleData(record.data)?.source;
+    if (source?.kind === 'project-file') addProjectSource(source.path, scriptId, 'script-source');
+  }
+  for (const record of Object.values(options.project.layouts)) {
+    const layout = parseLayoutData(record.data);
+    for (const scriptPath of layout?.dependencies.scripts ?? [])
+      addProjectSource(scriptPath, `source:${scriptPath}`, 'script-source');
+  }
+  if (!options.profile.stripShaderSources) {
+    const shaderBuild = await buildShaderMaterialProject(options.project);
+    const addShaderIdentity = (identity: string) => {
+      if (!identity.startsWith('project:/shaders/')) return;
+      const path = identity.slice('project:/'.length);
+      addProjectSource(path, `source:${path}`, 'shader-source');
+    };
+    for (const request of Object.values(shaderBuild.compilation.programs)) {
+      addShaderIdentity(request.vertexSource);
+      addShaderIdentity(request.fragmentSource);
+      addShaderIdentity(request.varyingDefinition);
+    }
+  }
   return { entries, compiledAssets: expectedCompiledAssets };
 }
 
@@ -1187,10 +1388,24 @@ function shaderMetadataWithoutCompiledOutputs(
   metadata: NonNullable<PreparedRuntimeArtifact['shaderMaterialMetadata']>,
 ) {
   const next = structuredClone(metadata);
-  for (const shader of Object.values(next.shaders)) {
+  const sourceBackedShaders = new Set<string>();
+  for (const [shaderId, shader] of Object.entries(next.shaders)) {
+    let sourceBacked = false;
     for (const stage of Object.values(shader.stages)) {
-      if (stage) delete stage.compiled;
+      if (!stage) continue;
+      if (stage.source !== undefined) sourceBacked = true;
+      delete stage.compiled;
     }
+    if (sourceBacked) {
+      sourceBackedShaders.add(shaderId);
+      shader.uniforms = {};
+      shader.samplers = {};
+    }
+  }
+  for (const material of Object.values(next.materials)) {
+    if (!sourceBackedShaders.has(material.shader)) continue;
+    material.uniforms = {};
+    material.textures = {};
   }
   return next;
 }
@@ -1325,14 +1540,42 @@ export async function verifyPreparedRuntimeArtifact(
       'Prepared Compiled Project asset resources do not match freshly derived pruning evidence.',
       '/artifact/compiledProject/resources/assets',
     );
-  if (
-    stableStringify(normalizedExportFileEntries(artifact.fileEntries)) !==
-    stableStringify(normalizedExportFileEntries(expectedInventory.entries))
-  )
+  const actualFileEntries = normalizedExportFileEntries(artifact.fileEntries);
+  const expectedFileEntries = normalizedExportFileEntries(expectedInventory.entries);
+  const actualFileEntriesByPath = new Map(
+    actualFileEntries.map((entry) => [entry.packagePath, entry]),
+  );
+  if (actualFileEntriesByPath.size !== actualFileEntries.length)
     return rejectedEvidence(
-      'Prepared asset inventory does not match the current Project and Compiled Project.',
+      'Prepared file inventory contains duplicate package paths.',
       '/artifact/fileEntries',
     );
+  for (const expectedEntry of expectedFileEntries) {
+    const actualEntry = actualFileEntriesByPath.get(expectedEntry.packagePath);
+    if (!actualEntry || stableStringify(actualEntry) !== stableStringify(expectedEntry))
+      return rejectedEvidence(
+        'Prepared file inventory does not match the current Project and Compiled Project.',
+        '/artifact/fileEntries',
+      );
+  }
+  for (const actualEntry of actualFileEntries) {
+    if (expectedFileEntries.some((entry) => entry.packagePath === actualEntry.packagePath))
+      continue;
+    if (
+      options.profile.stripShaderSources ||
+      actualEntry.kind !== 'shader-source' ||
+      !actualEntry.packagePath.startsWith('shaders/') ||
+      actualEntry.assetId !== `source:${actualEntry.packagePath}` ||
+      actualEntry.source !==
+        normalizedFilesystemPath(
+          options.paths.resolveProjectSource(options.projectRoot, actualEntry.packagePath),
+        )
+    )
+      return rejectedEvidence(
+        'Prepared file inventory contains an unexpected Project source.',
+        '/artifact/fileEntries',
+      );
+  }
 
   const currentShaderMetadata = (await buildShaderMaterialProject(options.project)).project;
   const currentHasShaderMetadata = hasShaderMaterialMetadata(currentShaderMetadata);
@@ -1388,10 +1631,10 @@ export async function verifyPreparedRuntimeArtifact(
       'Prepared Compiled Project contains invalid runtime display metadata.',
       '/artifact/compiledProject/settings/display',
     );
-  const expectedPackageFileEntries = expectedInventory.entries.map(
+  const expectedPackageFileEntries = artifact.fileEntries.map(
     ({ source, packagePath, storage }) => ({ source, packagePath, storage }),
   );
-  const expectedSeekablePaths = expectedInventory.entries
+  const expectedSeekablePaths = artifact.fileEntries
     .filter((entry) => entry.kind === 'audio')
     .map((entry) => entry.packagePath);
   const expectedShaderAssetRoot = expectedShaderVariants.length
@@ -1437,11 +1680,11 @@ export async function verifyPreparedRuntimeArtifact(
     projectVersion: runtimeProjectVersion(options.project.project.version),
     entryCount:
       1 +
-      expectedInventory.entries.length +
+      artifact.fileEntries.length +
       expectedPartitioned.textEntries.length +
       expectedRequiredShaderBinaryPaths.length +
       (artifact.shaderMaterialMetadata ? 1 : 0),
-    assetCount: expectedInventory.entries.length,
+    assetCount: artifact.fileEntries.length,
     shaderVariants: expectedShaderVariants,
     requiredShaderBinaryPaths: expectedRequiredShaderBinaryPaths,
     display: presentation.display,

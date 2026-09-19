@@ -25,7 +25,11 @@ import {
   roomAssetRef,
   roomRoomRef,
 } from '../../shared/project-schema/authoring-rooms';
-import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
+import {
+  defaultSceneData,
+  defaultSceneStep,
+  sceneMaterialRef,
+} from '../../shared/project-schema/authoring-scenes';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
@@ -1189,34 +1193,41 @@ describe('Prepared Runtime Artifact module', () => {
         { name: 'u_custom', kind: 'uniform' as const, type: 'float', arraySize: 1 },
       ],
     };
+    const profile: ExportProfileData = {
+      ...defaultExportProfile(project),
+      shaderVariants: ['glsl-330'],
+      stripShaderSources: false,
+    };
+    const paths = {
+      resolveProjectSource(root: string | null, source: string) {
+        return `${root}/${source}`;
+      },
+      shaderAssetRoot() {
+        return undefined;
+      },
+      async readProjectTextSources(
+        _root: string | null,
+        entries: Parameters<
+          NonNullable<typeof rendererRuntimeArtifactPaths.readProjectTextSources>
+        >[1],
+      ) {
+        return entries.map((entry) => ({
+          status: 'ready' as const,
+          assetId: entry.assetId,
+          projectRelativePath: entry.projectRelativePath,
+          contentHash:
+            entry.projectRelativePath === 'shaders/common.sc'
+              ? (`sha256:${'2'.repeat(64)}` as const)
+              : (`sha256:${'1'.repeat(64)}` as const),
+          text: 'shader source',
+        }));
+      },
+    };
     const result = await prepareRuntimeArtifactForTest(project, {
       projectRoot: '/project',
-      profile: {
-        ...defaultExportProfile(project),
-        shaderVariants: ['glsl-330'],
-        stripShaderSources: false,
-      },
+      profile,
       shaderOutputs: [vertex, fragment],
-      paths: {
-        resolveProjectSource(root, source) {
-          return `${root}/${source}`;
-        },
-        shaderAssetRoot() {
-          return undefined;
-        },
-        async readProjectTextSources(_root, entries) {
-          return entries.map((entry) => ({
-            status: 'ready' as const,
-            assetId: entry.assetId,
-            projectRelativePath: entry.projectRelativePath,
-            contentHash:
-              entry.projectRelativePath === 'shaders/common.sc'
-                ? (`sha256:${'2'.repeat(64)}` as const)
-                : (`sha256:${'1'.repeat(64)}` as const),
-            text: 'shader source',
-          }));
-        },
-      },
+      paths,
     });
 
     expect(result.status).toBe('prepared');
@@ -1229,6 +1240,55 @@ describe('Prepared Runtime Artifact module', () => {
         (entry) => entry.id === 'basic',
       )?.parameters,
     ).toContainEqual(expect.objectContaining({ name: 'u_custom', type: 'float' }));
+    const verified = await verifyPreparedRuntimeArtifact(result.artifact, {
+      project,
+      projectRoot: '/project',
+      profile,
+      paths,
+    });
+    expect(verified).toEqual(expect.objectContaining({ status: 'verified' }));
+  });
+
+  it('reconciles Scene custom Material Parameters against reflected shader interfaces', async () => {
+    const project = roomProject();
+    const { program, request } = await addCustomShaderMaterial(project);
+    const scene = defaultSceneData('Custom Material Scene');
+    scene.events = [
+      {
+        ...defaultSceneStep('material-parameter'),
+        id: 'custom-parameter',
+        target: { kind: 'background' },
+        material: sceneMaterialRef('basic'),
+        parameter: 'u_custom',
+        value: 0.5,
+        transition: 'none',
+        durationMs: 0,
+      },
+    ];
+    project.scenes.custom = { id: 'custom', label: 'Custom Material Scene', data: scene };
+    const fragment = {
+      ...compiledShaderOutput(program, request.fragmentSource, 'fragment', 'a'),
+      reflectedInputs: [
+        { name: 'u_custom', kind: 'uniform' as const, type: 'float', arraySize: 1 },
+      ],
+    };
+    const result = await prepareRuntimeArtifactForTest(project, {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
+      shaderOutputs: [compiledShaderOutput(program, request.vertexSource, 'vertex', 'b'), fragment],
+    });
+
+    expect(result.status).toBe('prepared');
+    if (result.status !== 'prepared') return;
+    const compiledScene = result.artifact.compiledProject.definitions.scenes.find(
+      (candidate) => candidate.id === 'custom',
+    );
+    const instruction = compiledScene?.program.events[0]?.instruction;
+    expect(instruction).toMatchObject({
+      kind: 'material-parameter',
+      parameter: 'u_custom',
+      value: { type: 'float', value: 0.5 },
+    });
   });
 
   it('rejects shader outputs when a project dependency changes during compilation', async () => {
@@ -1303,6 +1363,65 @@ describe('Prepared Runtime Artifact module', () => {
     expect(JSON.stringify(prepared.compiledProject)).toContain(`source-program:${program}`);
     expect(JSON.stringify(prepared.compiledProject)).not.toContain('project:/shaders/wave.vs.sc');
     expect(prepared.shaderMaterialMetadata?.shaders[program]).toBeDefined();
+  });
+
+  it('publishes and verifies project-file Lua sources in the prepared inventory', async () => {
+    const project = roomProject();
+    project.scripts.main = {
+      id: 'main',
+      label: 'Main',
+      data: {
+        kind: 'script-module',
+        source: { kind: 'project-file', path: 'scripts/main.lua' },
+      },
+    };
+    const layout = defaultLayoutData('HUD');
+    layout.dependencies.scripts = ['scripts/layout-helper.lua'];
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    const profile = { ...defaultExportProfile(project), compileShadersBeforeExport: false };
+    const paths = {
+      ...rendererRuntimeArtifactPaths,
+      async readProjectTextSources(
+        _root: string | null,
+        entries: Parameters<
+          NonNullable<typeof rendererRuntimeArtifactPaths.readProjectTextSources>
+        >[1],
+      ) {
+        return entries.map((entry) => ({
+          status: 'ready' as const,
+          assetId: entry.assetId,
+          projectRelativePath: entry.projectRelativePath,
+          contentHash: `sha256:${'a'.repeat(64)}` as const,
+          text: '',
+        }));
+      },
+    };
+    const prepared = await prepareRuntimeArtifactForTest(project, {
+      projectRoot: '/project',
+      profile,
+      paths,
+    });
+    expect(prepared.status).toBe('prepared');
+    if (prepared.status !== 'prepared') return;
+    expect(prepared.artifact.fileEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          packagePath: 'scripts/main.lua',
+          kind: 'script-source',
+        }),
+        expect.objectContaining({
+          packagePath: 'scripts/layout-helper.lua',
+          kind: 'script-source',
+        }),
+      ]),
+    );
+    const verified = await verifyPreparedRuntimeArtifact(prepared.artifact, {
+      project,
+      projectRoot: '/project',
+      profile,
+      paths,
+    });
+    expect(verified).toEqual(expect.objectContaining({ status: 'verified' }));
   });
 
   it('publishes and verifies the one current Prepared Runtime Artifact contract', async () => {

@@ -174,6 +174,10 @@ export interface MaterialSchemaDiagnostic {
   message: string;
   category?: string;
 }
+export interface MaterialAuthoredOverrides {
+  parameters: Record<string, MaterialParameterOverride>;
+  textures: Record<string, MaterialTextureData>;
+}
 function diagnostic(
   path: string,
   message: string,
@@ -324,6 +328,14 @@ function applyMaterialOverrides(
     provenance,
   };
 }
+export function resolvedMaterialUsesCustomShader(resolved: ResolvedMaterialData): boolean {
+  return (
+    resolved.vertexSource !== resolved.preset.vertexSource ||
+    resolved.fragmentSource !== resolved.preset.fragmentSource ||
+    resolved.varyingDefinition !== resolved.preset.varyingDefinition
+  );
+}
+
 export function resolveMaterialData(
   project: AuthoringProject,
   materialId: string,
@@ -383,6 +395,33 @@ export function resolveMaterialData(
     resolved = applyMaterialOverrides(resolved, entry.data, entry.id);
   return { data: resolved, diagnostics };
 }
+export function resolveMaterialAuthoredOverrides(
+  project: AuthoringProject,
+  materialId: string,
+): MaterialAuthoredOverrides | null {
+  const chain: MaterialData[] = [];
+  const seen = new Set<string>();
+  let currentId = materialId;
+  while (currentId) {
+    if (seen.has(currentId)) return null;
+    seen.add(currentId);
+    const data = parseMaterialData(project.materials[currentId]?.data);
+    if (!data) return null;
+    chain.push(data);
+    if (data.base.kind === 'preset') break;
+    currentId = data.base.material.$ref.id;
+  }
+  const parameters: Record<string, MaterialParameterOverride> = {};
+  const textures: Record<string, MaterialTextureData> = {};
+  for (const data of chain.reverse()) {
+    for (const [name, override] of Object.entries(data.parameters))
+      parameters[name] = { ...parameters[name], ...override };
+    for (const [name, override] of Object.entries(data.textures))
+      textures[name] = { ...textures[name], ...override };
+  }
+  return { parameters, textures };
+}
+
 export function validateMaterialData(
   project: AuthoringProject,
   materialId: string,
@@ -413,6 +452,33 @@ export function validateMaterialData(
   const resolved = resolution.data;
   if (!resolved) return diagnostics;
   const preset = resolved.preset;
+  if (resolvedMaterialUsesCustomShader(resolved)) {
+    for (const [name, parameter] of Object.entries(data.parameters))
+      if (parameter.binding != null && parameter.value !== undefined)
+        diagnostics.push(
+          diagnostic(
+            `${base}/parameters/${name}/value`,
+            `Renderer-bound parameter '${name}' cannot have an authored value.`,
+          ),
+        );
+    for (const [name, texture] of Object.entries(data.textures)) {
+      if (texture.binding != null && texture.source !== undefined)
+        diagnostics.push(
+          diagnostic(
+            `${base}/textures/${name}/source`,
+            `Renderer-bound texture '${name}' cannot have an authored source.`,
+          ),
+        );
+      if (texture.source)
+        validateTextureSource(
+          project,
+          texture.source,
+          `${base}/textures/${name}/source`,
+          diagnostics,
+        );
+    }
+    return diagnostics;
+  }
   for (const [name, parameter] of Object.entries(data.parameters)) {
     const declaration = preset.uniforms[name];
     if (!declaration) {

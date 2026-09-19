@@ -161,6 +161,71 @@ describe('canonical Material shader lowering', () => {
     );
   });
 
+  it('treats engine-stage overrides as custom source programs without Shader records', async () => {
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: {
+        ...defaultMaterialData('Panel', 'engine-2d'),
+        shader: { fragment: { kind: 'engine', path: 'engine:/fs_custom.sc' } },
+      },
+    };
+
+    const built = await buildShaderMaterialProject(project);
+    expect(Object.values(built.compilation.programs)).toContainEqual(
+      expect.objectContaining({
+        vertexSource: 'engine:/vs_quad.sc',
+        fragmentSource: 'engine:/fs_custom.sc',
+      }),
+    );
+    expect(built.project.materials.panel?.shader).toMatch(/^program-/u);
+  });
+
+  it('preserves explicit author-settable ownership for reflected custom inputs', async () => {
+    const project = createAuthoringProject();
+    project.materials.hotspot = {
+      id: 'hotspot',
+      label: 'Hotspot',
+      data: {
+        ...defaultMaterialData('Hotspot', 'hotspot-overlay-alpha'),
+        shader: { fragment: { kind: 'project', path: 'shaders/hotspot.fs.sc' } },
+        parameters: { u_time: { binding: null, value: 0.5 } },
+      },
+    };
+
+    const source = await buildShaderMaterialProject(project);
+    const [program] = Object.keys(source.compilation.programs);
+    expect(program).toBeDefined();
+    const output = (stage: 'vertex' | 'fragment'): ShaderCompileOutput => ({
+      program: program!,
+      programIdentity: 'program-identity',
+      stage,
+      variant: 'glsl-330',
+      sourceIdentity: stage === 'vertex' ? 'engine:/vs_quad.sc' : 'project:/shaders/hotspot.fs.sc',
+      dependencies: [],
+      dependencyRevisions: [],
+      outputPath: `/tmp/${stage}.bin`,
+      runtimePath: `project:/shaders/derived/glsl-330/program-identity.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
+      cacheKey: `${stage}-cache`,
+      byteHash: `sha256:${stage === 'vertex' ? 'a'.repeat(64) : 'b'.repeat(64)}`,
+      byteSize: 32,
+      reflectedInputs:
+        stage === 'fragment'
+          ? [{ name: 'u_time', kind: 'uniform', type: 'float', arraySize: 1 }]
+          : [],
+      cacheHit: false,
+    });
+
+    const built = await buildShaderMaterialProject(project, [output('vertex'), output('fragment')]);
+    expect(built.project.shaders[program!]?.uniforms.u_time).toMatchObject({
+      type: 'float',
+      binding: null,
+      default: 0.5,
+    });
+    expect(built.project.materials.hotspot?.uniforms).toEqual({ u_time: 0.5 });
+  });
+
   it('compiles custom source-backed Materials through derived program outputs and reflection', async () => {
     const project = createAuthoringProject();
     project.assets['noise-texture'] = imageAsset();
@@ -183,6 +248,12 @@ describe('canonical Material shader lowering', () => {
         },
       },
     };
+
+    expect(validateMaterialData(project, 'panel', project.materials.panel)).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining("parameter 'u_amount'") }),
+      ]),
+    );
 
     const request = await buildShaderMaterialProject(project);
     const [program] = Object.keys(request.compilation.programs);
@@ -220,7 +291,7 @@ describe('canonical Material shader lowering', () => {
     const built = await buildShaderMaterialProject(project, [
       output('vertex', []),
       output('fragment', [
-        { name: 'u_amount', kind: 'uniform', type: 'vec4', arraySize: 1 },
+        { name: 'u_amount', kind: 'uniform', type: 'float', arraySize: 1 },
         { name: 's_noise', kind: 'sampled-image', type: 'sampler2D', arraySize: 1 },
       ]),
     ]);
@@ -233,7 +304,7 @@ describe('canonical Material shader lowering', () => {
       },
     });
     expect(built.project.shaders[program!]).toMatchObject({
-      uniforms: { u_amount: { type: 'vec4' } },
+      uniforms: { u_amount: { type: 'float' } },
       samplers: { s_noise: { type: 'texture2d' } },
       stages: {
         fragment: {
@@ -245,6 +316,26 @@ describe('canonical Material shader lowering', () => {
         },
       },
     });
+    expect(built.diagnostics).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining("parameter 'u_useTexture'") }),
+        expect.objectContaining({ message: expect.stringContaining("texture 's_texColor'") }),
+      ]),
+    );
     expect(project.materials.panel.data).not.toHaveProperty('compiled');
+
+    project.materials.panel.data.parameters.u_amount = { value: [1, 1, 1, 1] };
+    const incompatible = await buildShaderMaterialProject(project, [
+      output('vertex', []),
+      output('fragment', [{ name: 'u_amount', kind: 'uniform', type: 'float', arraySize: 1 }]),
+    ]);
+    expect(incompatible.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: expect.stringContaining("does not match reflected shader type 'float'"),
+        }),
+      ]),
+    );
+    expect(incompatible.project.materials.panel?.uniforms).not.toHaveProperty('u_amount');
   });
 });

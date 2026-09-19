@@ -8,11 +8,15 @@ import {
   materialBlendValues,
   materialTextureFilteringValues,
   postprocessScopeValues,
+  resolvedMaterialUsesCustomShader,
+  resolveMaterialAuthoredOverrides,
   resolveMaterialData,
+  type MaterialAuthoredOverrides,
   type MaterialTextureSource,
   type ResolvedMaterialData,
 } from './authoring-materials';
 import {
+  isUniformValueCompatible,
   shaderInputBindingValues,
   shaderRoleValues,
   shaderSamplerBindingValues,
@@ -162,6 +166,20 @@ export interface ShaderMaterialProjectBuildResult {
 }
 type RuntimeShaderDefinition = z.infer<typeof runtimeShaderDefinitionSchema>;
 type RuntimeMaterialDefinition = z.infer<typeof runtimeMaterialDefinitionSchema>;
+export interface MaterialDerivedInterface {
+  uniforms: RuntimeShaderDefinition['uniforms'];
+  samplers: RuntimeShaderDefinition['samplers'];
+}
+
+export function materialDerivedInterface(
+  project: z.infer<typeof shaderMaterialProjectWireSchema>,
+  materialId: string,
+): MaterialDerivedInterface | null {
+  const material = project.materials[materialId];
+  if (!material) return null;
+  const shader = project.shaders[material.shader];
+  return shader ? { uniforms: shader.uniforms, samplers: shader.samplers } : null;
+}
 function diagnostic(
   path: string,
   message: string,
@@ -194,11 +212,7 @@ async function programKey(resolved: ResolvedMaterialData): Promise<string> {
   return `program-${(await sha256HexUtf8(JSON.stringify(customProgramRequest(resolved)))).slice(0, 24)}`;
 }
 function isCustomProgram(resolved: ResolvedMaterialData): boolean {
-  return (
-    resolved.vertexSource.startsWith('project:/') ||
-    resolved.fragmentSource.startsWith('project:/') ||
-    resolved.varyingDefinition.startsWith('project:/')
-  );
+  return resolvedMaterialUsesCustomShader(resolved);
 }
 function runtimeTextureSource(
   project: AuthoringProject,
@@ -387,30 +401,51 @@ export async function buildShaderMaterialProject(
     diagnostics.push(...resolution.diagnostics);
     const resolved = resolution.data;
     if (!resolved) continue;
-    const key = isCustomProgram(resolved)
-      ? await programKey(resolved)
-      : `preset-${resolved.preset.id}`;
-    if (isCustomProgram(resolved)) programs[key] = customProgramRequest(resolved);
+    const custom = isCustomProgram(resolved);
+    const authoredOverrides = resolveMaterialAuthoredOverrides(project, materialId) ?? {
+      parameters: {},
+      textures: {},
+    };
+    const key = custom ? await programKey(resolved) : `preset-${resolved.preset.id}`;
+    if (custom) programs[key] = customProgramRequest(resolved);
     if (!shaders[key]) {
       const built = buildRuntimeShader(
         materialId,
         resolved,
         key,
         compiledByProgram.get(key) ?? [],
+        authoredOverrides,
         diagnostics,
       );
       if (built) shaders[key] = built;
     }
+    const shader = shaders[key];
     const uniforms: Record<string, ShaderUniformValue> = {};
-    for (const [name, parameter] of Object.entries(resolved.parameters)) {
+    for (const [name, parameter] of Object.entries(
+      custom ? authoredOverrides.parameters : resolved.parameters,
+    )) {
+      const declaration = shader?.uniforms[name];
       const value = runtimeUniformValue(parameter.value);
-      if (value !== undefined && parameter.binding == null) uniforms[name] = value;
+      if (
+        declaration &&
+        declaration.binding == null &&
+        value !== undefined &&
+        isUniformValueCompatible(declaration.type, value)
+      )
+        uniforms[name] = value;
     }
     const textures: RuntimeMaterialDefinition['textures'] = {};
-    for (const [name, texture] of Object.entries(resolved.textures)) {
-      if (!texture.source || texture.binding != null) continue;
+    for (const [name, texture] of Object.entries(
+      custom ? authoredOverrides.textures : resolved.textures,
+    )) {
+      const declaration = shader?.samplers[name];
+      if (!declaration || declaration.binding != null || !texture.source) continue;
       const source = runtimeTextureSource(project, texture.source);
-      if (source) textures[name] = { source, sampler: texture.filtering };
+      if (source)
+        textures[name] = {
+          source,
+          sampler: resolved.textures[name]?.filtering ?? 'clamp-linear',
+        };
       else
         diagnostics.push(
           diagnostic(
@@ -449,6 +484,7 @@ function buildRuntimeShader(
   resolved: ResolvedMaterialData,
   key: string,
   outputs: readonly ShaderCompileOutput[],
+  authoredOverrides: MaterialAuthoredOverrides,
   diagnostics: ShaderMaterialProjectDiagnostic[],
 ): RuntimeShaderDefinition | null {
   const custom = isCustomProgram(resolved);
@@ -471,22 +507,69 @@ function buildRuntimeShader(
       byteSize: output.byteSize,
     };
   }
-  const reflected = new Map<string, { kind: 'uniform' | 'sampled-image'; type: string }>();
+  const reflected = new Map<
+    string,
+    { kind: 'uniform' | 'sampled-image'; type: string; arraySize: number }
+  >();
+  const reflectionConflicts = new Set<string>();
   for (const output of outputs)
-    for (const input of output.reflectedInputs ?? [])
-      reflected.set(input.name, { kind: input.kind, type: input.type });
+    for (const input of output.reflectedInputs ?? []) {
+      const existing = reflected.get(input.name);
+      if (
+        existing &&
+        (existing.kind !== input.kind ||
+          existing.type !== input.type ||
+          existing.arraySize !== input.arraySize)
+      ) {
+        if (!reflectionConflicts.has(input.name))
+          diagnostics.push(
+            diagnostic(
+              `/materials/${materialId}/data/parameters/${input.name}`,
+              `Reflected input '${input.name}' has inconsistent declarations across compiled shader stages or variants.`,
+            ),
+          );
+        reflectionConflicts.add(input.name);
+        continue;
+      }
+      reflected.set(input.name, {
+        kind: input.kind,
+        type: input.type,
+        arraySize: input.arraySize,
+      });
+    }
 
   const uniforms: RuntimeShaderDefinition['uniforms'] = {};
   const samplers: RuntimeShaderDefinition['samplers'] = {};
-  if (custom && outputs.length > 0) {
+  if (custom) {
     for (const [name, input] of reflected) {
-      if (input.kind === 'sampled-image') {
-        samplers[name] = { type: 'texture2d', binding: resolved.textures[name]?.binding ?? null };
+      if (reflectionConflicts.has(name)) continue;
+      if (input.arraySize !== 1) {
+        diagnostics.push(
+          diagnostic(
+            `/materials/${materialId}/data/parameters/${name}`,
+            `Reflected input '${name}' uses unsupported array size ${input.arraySize}.`,
+          ),
+        );
         continue;
       }
-      const preset = resolved.preset.uniforms[name];
-      const type = preset?.type ?? reflectedType(input.type);
-      if (!type) {
+      if (input.kind === 'sampled-image') {
+        const texture = authoredOverrides.textures[name];
+        const binding =
+          texture?.binding !== undefined
+            ? texture.binding
+            : (resolved.preset.samplers[name]?.binding ?? null);
+        if (texture?.source !== undefined && binding !== null)
+          diagnostics.push(
+            diagnostic(
+              `/materials/${materialId}/data/textures/${name}/source`,
+              `Renderer-bound reflected texture '${name}' cannot have an authored source.`,
+            ),
+          );
+        samplers[name] = { type: 'texture2d', binding };
+        continue;
+      }
+      const reflected = reflectedType(input.type);
+      if (!reflected) {
         diagnostics.push(
           diagnostic(
             `/materials/${materialId}/data/parameters/${name}`,
@@ -495,39 +578,68 @@ function buildRuntimeShader(
         );
         continue;
       }
-      const parameter = resolved.parameters[name];
+      const preset = resolved.preset.uniforms[name];
+      const presetCompatible =
+        preset !== undefined &&
+        (preset.type === reflected || (preset.type === 'color' && reflected === 'vec4'));
+      const type: ShaderUniformType = presetCompatible ? preset.type : reflected;
+      const parameter = authoredOverrides.parameters[name];
+      const binding =
+        parameter?.binding !== undefined
+          ? parameter.binding
+          : presetCompatible
+            ? (preset?.binding ?? null)
+            : null;
+      if (parameter?.value !== undefined && !isUniformValueCompatible(type, parameter.value))
+        diagnostics.push(
+          diagnostic(
+            `/materials/${materialId}/data/parameters/${name}/value`,
+            `Material parameter '${name}' does not match reflected shader type '${type}'.`,
+          ),
+        );
+      if (parameter?.value !== undefined && binding !== null)
+        diagnostics.push(
+          diagnostic(
+            `/materials/${materialId}/data/parameters/${name}/value`,
+            `Renderer-bound reflected parameter '${name}' cannot have an authored value.`,
+          ),
+        );
       uniforms[name] = {
         type,
-        ...(parameter?.value !== undefined
+        ...(parameter?.value !== undefined && isUniformValueCompatible(type, parameter.value)
           ? { default: parameter.value }
-          : preset?.default !== undefined
+          : presetCompatible && preset?.default !== undefined
             ? { default: preset.default }
             : {}),
-        ...(preset?.range ? { range: [...preset.range] as [number, number] } : {}),
-        binding: parameter?.binding ?? preset?.binding ?? null,
-        ...(parameter?.editor?.label || preset?.label
+        ...(presetCompatible && preset?.range
+          ? { range: [...preset.range] as [number, number] }
+          : {}),
+        binding,
+        ...(parameter?.editor?.label || (presetCompatible && preset?.label)
           ? { editor: { label: parameter?.editor?.label ?? preset?.label ?? name } }
           : {}),
       };
     }
-    for (const name of Object.keys(resolved.parameters))
-      if (!reflected.has(name))
-        diagnostics.push(
-          diagnostic(
-            `/materials/${materialId}/data/parameters/${name}`,
-            `Material parameter '${name}' is not present in the reflected shader interface and remains orphaned.`,
-            'warning',
-          ),
-        );
-    for (const name of Object.keys(resolved.textures))
-      if (!reflected.has(name))
-        diagnostics.push(
-          diagnostic(
-            `/materials/${materialId}/data/textures/${name}`,
-            `Material texture '${name}' is not present in the reflected shader interface and remains orphaned.`,
-            'warning',
-          ),
-        );
+    if (outputs.length > 0) {
+      for (const name of Object.keys(authoredOverrides.parameters))
+        if (!reflected.has(name))
+          diagnostics.push(
+            diagnostic(
+              `/materials/${materialId}/data/parameters/${name}`,
+              `Material parameter '${name}' is not present in the reflected shader interface and remains orphaned.`,
+              'warning',
+            ),
+          );
+      for (const name of Object.keys(authoredOverrides.textures))
+        if (!reflected.has(name))
+          diagnostics.push(
+            diagnostic(
+              `/materials/${materialId}/data/textures/${name}`,
+              `Material texture '${name}' is not present in the reflected shader interface and remains orphaned.`,
+              'warning',
+            ),
+          );
+    }
   } else {
     for (const [name, value] of Object.entries(resolved.preset.uniforms))
       uniforms[name] = {
@@ -556,38 +668,6 @@ function buildRuntimeShader(
     return null;
   }
   return parsed.data;
-}
-
-export function buildMaterialDefinition(
-  project: AuthoringProject,
-  materialId: string,
-): { value: RuntimeMaterialDefinition | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
-  const record = project.materials[materialId];
-  const resolution = resolveMaterialData(project, materialId);
-  if (!record || !resolution.data) return { value: null, diagnostics: resolution.diagnostics };
-  const resolved = resolution.data;
-  const uniforms: Record<string, ShaderUniformValue> = {};
-  for (const [name, parameter] of Object.entries(resolved.parameters))
-    if (parameter.value !== undefined && parameter.binding == null)
-      uniforms[name] = parameter.value;
-  const textures: RuntimeMaterialDefinition['textures'] = {};
-  for (const [name, texture] of Object.entries(resolved.textures)) {
-    if (!texture.source || texture.binding != null) continue;
-    const source = runtimeTextureSource(project, texture.source);
-    if (source) textures[name] = { source, sampler: texture.filtering };
-  }
-  return {
-    value: runtimeMaterialDefinitionSchema.parse({
-      display_name: record.label,
-      role: resolved.role,
-      ...(resolved.role === 'postprocess' ? { postprocess_scope: resolved.postprocessScope } : {}),
-      shader: isCustomProgram(resolved) ? `material-${materialId}` : `preset-${resolved.preset.id}`,
-      uniforms,
-      textures,
-      blend: resolved.blend,
-    }),
-    diagnostics: resolution.diagnostics,
-  };
 }
 
 export function materialPreviewRevision(project: AuthoringProject, materialId: string): string {

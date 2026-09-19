@@ -927,6 +927,22 @@
     "createDedicated": "[Çřëäţë ðëðïçäţëð þläçëɱëñţ]",
     "moveToPlacement": "[Mövë ţö þläçëɱëñţ]"
   },
+  "shaderCompilePanel": {
+    "empty": "⟦No shader compile result yet.⟧",
+    "status": {
+      "compiling": "⟦compiling⟧",
+      "error": "⟦error⟧",
+      "ready": "⟦ready⟧"
+    },
+    "summary": "⟦{{outputCount}} derived output(s), {{diagnosticCount}} diagnostic(s)⟧",
+    "clear": "⟦Clear⟧",
+    "diagnostics": "⟦Diagnostics⟧",
+    "outputs": "⟦Derived outputs⟧",
+    "outputStatus": {
+      "cacheHit": "⟦cache hit⟧",
+      "compiled": "⟦compiled⟧"
+    }
+  },
   "materialEditor": {
     "missing": "⟦Material record not found.⟧",
     "summary": "⟦Material Preset/inheritance contract with sparse parameter, texture, and shader-source overrides.⟧",

@@ -14,6 +14,7 @@ import {
   defaultMaterialData,
   materialTextureFilteringValues,
   parseMaterialData,
+  resolvedMaterialUsesCustomShader,
   resolveMaterialData,
   type MaterialData,
   type MaterialParameterOverride,
@@ -26,6 +27,7 @@ import {
 } from '../../../shared/project-schema/authoring-material-presets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
+  isUniformValueCompatible,
   shaderUniformValueSchema,
   type ShaderUniformType,
   type ShaderUniformValue,
@@ -33,7 +35,9 @@ import {
 import {
   buildMaterialPreviewDocumentData,
   buildShaderMaterialProject,
+  materialDerivedInterface,
   materialPreviewRevision,
+  type MaterialDerivedInterface,
 } from '../../../shared/project-schema/shader-material-project';
 import { useShaderCompileStore } from '@/shaders/shader-compile-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -92,11 +96,16 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
         .map(([id, asset]) => ({ id, label: asset.label }))
     : [];
   const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
+  const [derivedInterface, setDerivedInterface] = useState<{
+    materialId: string;
+    value: MaterialDerivedInterface;
+  } | null>(null);
 
   useEffect(() => {
     let active = true;
     if (!project || !materialId) {
       setPreviewData(null);
+      setDerivedInterface(null);
       return () => {
         active = false;
       };
@@ -111,8 +120,13 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
         if (!response.success) return;
         outputs = response.outputs;
       }
+      const built = await buildShaderMaterialProject(project, outputs);
       const next = await buildMaterialPreviewDocumentData(project, materialId, outputs);
-      if (active) setPreviewData(next);
+      if (active) {
+        setPreviewData(next);
+        const value = materialDerivedInterface(built.project, materialId);
+        setDerivedInterface(value ? { materialId, value } : null);
+      }
     })();
     return () => {
       active = false;
@@ -166,6 +180,13 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
     data.base.kind === 'preset'
       ? `preset:${data.base.preset}`
       : `material:${data.base.material.$ref.id}`;
+  const customSource = effective ? resolvedMaterialUsesCustomShader(effective) : false;
+  const currentDerivedInterface =
+    derivedInterface?.materialId === materialId ? derivedInterface.value : null;
+  const parameterDeclarations =
+    currentDerivedInterface?.uniforms ?? (customSource ? {} : (effective?.preset.uniforms ?? {}));
+  const textureDeclarations =
+    currentDerivedInterface?.samplers ?? (customSource ? {} : (effective?.preset.samplers ?? {}));
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
@@ -185,14 +206,6 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
           {t('materialEditor.invalidData')}
         </div>
       ) : null}
-      {resolved.diagnostics.length > 0 ? (
-        <div className="mt-3 space-y-1 rounded border p-2 text-xs text-muted-foreground">
-          {resolved.diagnostics.map((item) => (
-            <div key={`${item.path}:${item.message}`}>{item.message}</div>
-          ))}
-        </div>
-      ) : null}
-
       <div className="mt-4 grid gap-4 @7xl:grid-cols-[1fr_320px]">
         <div className="space-y-4">
           <section
@@ -309,10 +322,15 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             data-workbench-anchor="material.parameters"
           >
             <h3 className="text-sm font-medium">{t('materialEditor.parameters')}</h3>
-            {Object.entries(effective?.preset.uniforms ?? {}).map(([name, declaration]) => {
+            {Object.entries(parameterDeclarations).map(([name, declaration]) => {
               const local = data.parameters[name];
               const current = effective?.parameters[name];
-              const rendererBound = declaration.binding !== undefined;
+              const currentValue =
+                current?.value !== undefined &&
+                isUniformValueCompatible(declaration.type, current.value)
+                  ? current.value
+                  : undefined;
+              const rendererBound = declaration.binding != null;
               return (
                 <div
                   key={name}
@@ -335,7 +353,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                     </div>
                   ) : declaration.type === 'bool' ? (
                     <Select
-                      value={current?.value === true ? 'true' : 'false'}
+                      value={currentValue === true ? 'true' : 'false'}
                       onValueChange={(value) =>
                         setParameter(name, { ...local, value: value === 'true' })
                       }
@@ -345,7 +363,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                     </Select>
                   ) : (
                     <Input
-                      value={valueToText(current?.value)}
+                      value={valueToText(currentValue)}
                       onChange={(event) =>
                         setParameter(name, {
                           ...local,
@@ -366,7 +384,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
               );
             })}
             {Object.keys(data.parameters)
-              .filter((name) => !effective?.preset.uniforms[name])
+              .filter((name) => !parameterDeclarations[name])
               .map((name) => (
                 <div
                   key={name}
@@ -385,10 +403,10 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             data-workbench-anchor="material.textures"
           >
             <h3 className="text-sm font-medium">{t('materialEditor.textures')}</h3>
-            {Object.entries(effective?.preset.samplers ?? {}).map(([name, declaration]) => {
+            {Object.entries(textureDeclarations).map(([name, declaration]) => {
               const local = data.textures[name];
               const current = effective?.textures[name];
-              const rendererBound = declaration.binding !== undefined;
+              const rendererBound = declaration.binding != null;
               const refId =
                 current?.source && '$ref' in current.source ? current.source.$ref.id : '__none__';
               return (
@@ -460,7 +478,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
               );
             })}
             {Object.keys(data.textures)
-              .filter((name) => !effective?.preset.samplers[name])
+              .filter((name) => !textureDeclarations[name])
               .map((name) => (
                 <div
                   key={name}
