@@ -1,3 +1,4 @@
+import type { ShaderUniformValue } from '../../shared/project-schema/authoring-shaders';
 import type {
   MaterialPreviewProjectResources,
   MaterialPreviewResource,
@@ -17,6 +18,7 @@ export interface MaterialPreviewSurfaceState {
   visible: boolean;
   pointer: MaterialPreviewPointerState;
   resources?: MaterialPreviewProjectResources;
+  parameterOverrides?: Readonly<Record<string, ShaderUniformValue>>;
 }
 
 export interface MaterialPreviewGroupRendererStatus {
@@ -159,6 +161,16 @@ function setUniformValue(
     if (value.length === 2) gl.uniform2fv(location, value as [number, number]);
     else if (value.length === 3) gl.uniform3fv(location, value as [number, number, number]);
     else if (value.length === 4) gl.uniform4fv(location, value as [number, number, number, number]);
+  } else if (value && typeof value === 'object') {
+    const color = value as Partial<Record<'r' | 'g' | 'b' | 'a', unknown>>;
+    if ([color.r, color.g, color.b, color.a].every((item) => typeof item === 'number')) {
+      gl.uniform4fv(location, [color.r, color.g, color.b, color.a] as [
+        number,
+        number,
+        number,
+        number,
+      ]);
+    }
   }
 }
 
@@ -248,6 +260,8 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
     for (const [name, parameter] of Object.entries(resource.resolved.parameters)) {
       if (parameter.value !== undefined) setUniformValue(gl, program, name, parameter.value);
     }
+    for (const [name, value] of Object.entries(surface.parameterOverrides ?? {}))
+      setUniformValue(gl, program, name, value);
     setUniformValue(gl, program, 'u_time', timeSeconds);
     setUniformValue(gl, program, 'u_useTexture', textureEntries.length > 0 ? 1 : 0);
     setUniformValue(

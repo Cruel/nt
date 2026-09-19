@@ -989,6 +989,19 @@
     "empty": "Ainda não há Materiais. Crie um para começar.",
     "previewDisabled": "Pré-visualização ao vivo desativada"
   },
+  "materialSelector": {
+    "choose": "Escolher Material",
+    "unassigned": "Escolher material",
+    "search": "Pesquisar Materiais…",
+    "showIncompatible": "Mostrar incompatíveis",
+    "previewOccurrenceOverrides": "Pré-visualizar substituições da ocorrência",
+    "select": "Selecionar",
+    "partialOverrides": "{{applied}} de {{total}} substituições se aplicam",
+    "invalidMaterial": "O Material é inválido.",
+    "roleMismatch": "Requer {{expected}}; este Material usa {{actual}}.",
+    "interactableChoose": "Escolher material do Interactable",
+    "noMatches": "Nenhum Material corresponde a este seletor."
+  },
   "materialEditor": {
     "missing": "Registro de Material não encontrado.",
     "preview": {

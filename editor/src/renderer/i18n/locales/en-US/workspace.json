@@ -949,6 +949,19 @@
     "empty": "No Materials yet. Create one to get started.",
     "previewDisabled": "Live preview disabled"
   },
+  "materialSelector": {
+    "choose": "Choose Material",
+    "unassigned": "Choose material",
+    "search": "Search Materials…",
+    "showIncompatible": "Show incompatible",
+    "previewOccurrenceOverrides": "Preview occurrence overrides",
+    "select": "Select",
+    "partialOverrides": "{{applied}} of {{total}} overrides apply",
+    "invalidMaterial": "Material is invalid.",
+    "roleMismatch": "Requires {{expected}}; this Material uses {{actual}}.",
+    "interactableChoose": "Choose Interactable material",
+    "noMatches": "No Materials match this selector."
+  },
   "materialEditor": {
     "missing": "Material record not found.",
     "preview": {
