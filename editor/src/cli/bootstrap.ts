@@ -11,6 +11,7 @@ export interface ParsedGlobalArguments {
   readonly json: boolean;
   readonly project?: string;
   readonly command: readonly string[];
+  readonly noDaemon: boolean;
   readonly help: boolean;
   readonly version: boolean;
 }
@@ -29,6 +30,7 @@ export type NovelTeaCliBootstrapResult =
 export function parseNovelTeaCliGlobals(argv: readonly string[]): ParsedGlobalArguments {
   let json = false;
   let project: string | undefined;
+  let noDaemon = false;
   let help = false;
   let version = false;
   let index = 0;
@@ -50,6 +52,13 @@ export function parseNovelTeaCliGlobals(argv: readonly string[]): ParsedGlobalAr
       index += 2;
       continue;
     }
+    if (argument === '--no-daemon') {
+      if (noDaemon)
+        throw new CliUsageError("Global option '--no-daemon' may be supplied only once.");
+      noDaemon = true;
+      index += 1;
+      continue;
+    }
     if (argument === '--help') {
       help = true;
       index += 1;
@@ -66,7 +75,7 @@ export function parseNovelTeaCliGlobals(argv: readonly string[]): ParsedGlobalAr
   if ((help || version) && command.length > 0)
     throw new CliUsageError('--help and --version do not accept a command path.');
   if (help && version) throw new CliUsageError('--help and --version cannot be combined.');
-  return { json, project, command, help, version };
+  return { json, project, command, noDaemon, help, version };
 }
 
 export function novelTeaCliUsageFailure(message: string, json: boolean): NovelTeaCliCommandResult {

@@ -450,6 +450,14 @@ struct ClientConnection {
 struct QueuedRequest {
     std::weak_ptr<ClientConnection> client;
     std::string request_id;
+    std::string method;
+    Json payload = Json::object();
+};
+
+struct ActiveRequest {
+    std::weak_ptr<ClientConnection> client;
+    std::string request_id;
+    bool cancelled = false;
 };
 
 class BrokerServer : public std::enable_shared_from_this<BrokerServer> {
@@ -478,8 +486,72 @@ public:
                 return error_json("daemon broker is not in starting state");
         }
         touch();
-        drain_queued_without_worker();
+        queue_cv_.notify_all();
         return status_json();
+    }
+
+    Json take_next_request()
+    {
+        for (;;) {
+            QueuedRequest queued;
+            {
+                std::unique_lock lock(queue_mutex_);
+                queue_cv_.wait(lock, [this] {
+                    return !queued_.empty() || state_.load() == State::draining ||
+                           state_.load() == State::stopped;
+                });
+                if (queued_.empty())
+                    return {{"ok", true}, {"stopped", true}};
+                queued = std::move(queued_.front());
+                queued_.erase(queued_.begin());
+            }
+            const auto client = queued.client.lock();
+            if (!client || client->current() == invalid_connection)
+                continue;
+            const auto token = next_request_token_.fetch_add(1);
+            {
+                std::scoped_lock lock(queue_mutex_);
+                active_.emplace(token,
+                                ActiveRequest{client, queued.request_id, false});
+            }
+            touch();
+            return {{"ok", true},
+                    {"stopped", false},
+                    {"token", token},
+                    {"requestId", queued.request_id},
+                    {"method", queued.method},
+                    {"payload", std::move(queued.payload)}};
+        }
+    }
+
+    Json complete_request(std::uint64_t token, bool ok, const Json& result,
+                          std::string_view error)
+    {
+        ActiveRequest active;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto found = active_.find(token);
+            if (found == active_.end())
+                return error_json("daemon request token is not active");
+            active = found->second;
+            active_.erase(found);
+        }
+        touch();
+        const auto client = active.client.lock();
+        if (!client || client->current() == invalid_connection)
+            return {{"ok", true}, {"delivered", false}};
+        const auto result_text = result.dump();
+        const auto delivered = client->send(result_event_json(active.request_id, ok, result_text, error));
+        return {{"ok", true}, {"delivered", delivered}};
+    }
+
+    Json cancellation_status(std::uint64_t token)
+    {
+        std::scoped_lock lock(queue_mutex_);
+        const auto found = active_.find(token);
+        if (found == active_.end())
+            return {{"ok", true}, {"active", false}, {"cancelled", true}};
+        return {{"ok", true}, {"active", true}, {"cancelled", found->second.cancelled}};
     }
 
     Json enter_critical_section()
@@ -774,13 +846,29 @@ private:
                     client->send(result_event_json(request_id, false, "null",
                                                    "duplicate pending daemon request id"));
                 } else {
-                    queued_.push_back(QueuedRequest{client, request_id});
+                    queued_.push_back(QueuedRequest{client, request_id, method,
+                                                    message.value("payload", Json::object())});
+                    queue_cv_.notify_one();
                 }
                 continue;
             }
-            client->send(result_event_json(request_id, false, "null",
-                                           "daemon authoring worker is not attached"));
+            {
+                std::scoped_lock lock(queue_mutex_);
+                const auto duplicate =
+                    std::find_if(queued_.begin(), queued_.end(), [&](const QueuedRequest& queued) {
+                        return queued.request_id == request_id && queued.client.lock() == client;
+                    });
+                if (duplicate != queued_.end()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "duplicate pending daemon request id"));
+                } else {
+                    queued_.push_back(QueuedRequest{client, request_id, method,
+                                                    message.value("payload", Json::object())});
+                    queue_cv_.notify_one();
+                }
+            }
         }
+        cancel_client_requests(client);
         client->close();
     }
 
@@ -804,20 +892,29 @@ private:
                 Json::parse(result_event_json(request_id, false, "null", "request cancelled"));
             event["cancelled"] = true;
             client->send(event.dump());
+            return;
+        }
+        std::scoped_lock lock(queue_mutex_);
+        for (auto& [token, active] : active_) {
+            (void)token;
+            if (active.request_id == request_id && active.client.lock() == client) {
+                active.cancelled = true;
+                break;
+            }
         }
     }
 
-    void drain_queued_without_worker()
+    void cancel_client_requests(const std::shared_ptr<ClientConnection>& client)
     {
-        std::vector<QueuedRequest> queued;
-        {
-            std::scoped_lock lock(queue_mutex_);
-            queued.swap(queued_);
-        }
-        for (const auto& request : queued) {
-            if (const auto client = request.client.lock())
-                client->send(result_event_json(request.request_id, false, "null",
-                                               "daemon authoring worker is not attached"));
+        std::scoped_lock lock(queue_mutex_);
+        queued_.erase(std::remove_if(queued_.begin(), queued_.end(), [&](const QueuedRequest& queued) {
+                          return queued.client.lock() == client;
+                      }),
+                      queued_.end());
+        for (auto& [token, active] : active_) {
+            (void)token;
+            if (active.client.lock() == client)
+                active.cancelled = true;
         }
     }
 
@@ -836,6 +933,14 @@ private:
                 client->send(event.dump());
             }
         }
+        {
+            std::scoped_lock lock(queue_mutex_);
+            for (auto& [token, active] : active_) {
+                (void)token;
+                active.cancelled = true;
+            }
+        }
+        queue_cv_.notify_all();
     }
 
     void request_stop()
@@ -947,7 +1052,10 @@ private:
     mutable std::mutex state_mutex_;
     std::condition_variable state_cv_;
     mutable std::mutex queue_mutex_;
+    std::condition_variable queue_cv_;
     std::vector<QueuedRequest> queued_;
+    std::unordered_map<std::uint64_t, ActiveRequest> active_;
+    std::atomic<std::uint64_t> next_request_token_{1};
     std::mutex clients_mutex_;
     std::unordered_set<std::shared_ptr<ClientConnection>> clients_;
     std::vector<std::thread> client_threads_;
@@ -992,6 +1100,7 @@ ConnectionHandle connect_endpoint(const Endpoint& endpoint)
 }
 
 Json client_request(const BrokerContext& context, std::string_view method, std::string request_id,
+                    Json request_payload = Json::object(),
                     std::optional<std::uint64_t> cancel_after_ms = std::nullopt)
 {
     Endpoint endpoint;
@@ -1021,7 +1130,7 @@ Json client_request(const BrokerContext& context, std::string_view method, std::
     const Json request = {{"type", "request"},
                           {"requestId", request_id},
                           {"method", std::string(method)},
-                          {"payload", Json::object()}};
+                          {"payload", std::move(request_payload)}};
     if (!send_payload(connection, request.dump())) {
         close_connection(connection);
         return {{"ok", false}, {"error", "failed to send daemon request"}};
@@ -1071,6 +1180,48 @@ Json mark_local_ready()
     }
     return server ? server->mark_ready()
                   : Json{{"ok", false}, {"error", "daemon broker is not running in this process"}};
+}
+
+Json take_local_request()
+{
+    std::shared_ptr<BrokerServer> server;
+    {
+        std::scoped_lock lock(server_mutex);
+        server = local_server;
+    }
+    return server ? server->take_next_request()
+                  : Json{{"ok", false}, {"error", "daemon broker is not running in this process"}};
+}
+
+Json complete_local_request(const Json& request)
+{
+    std::shared_ptr<BrokerServer> server;
+    {
+        std::scoped_lock lock(server_mutex);
+        server = local_server;
+    }
+    if (!server)
+        return {{"ok", false}, {"error", "daemon broker is not running in this process"}};
+    if (!request.contains("token") || !request["token"].is_number_unsigned())
+        return {{"ok", false}, {"error", "daemon completion requires request token"}};
+    return server->complete_request(request["token"].get<std::uint64_t>(),
+                                    request.value("requestOk", false),
+                                    request.value("result", Json(nullptr)),
+                                    request.value("error", std::string{}));
+}
+
+Json local_cancellation_status(const Json& request)
+{
+    std::shared_ptr<BrokerServer> server;
+    {
+        std::scoped_lock lock(server_mutex);
+        server = local_server;
+    }
+    if (!server)
+        return {{"ok", false}, {"error", "daemon broker is not running in this process"}};
+    if (!request.contains("token") || !request["token"].is_number_unsigned())
+        return {{"ok", false}, {"error", "daemon cancellation probe requires request token"}};
+    return server->cancellation_status(request["token"].get<std::uint64_t>());
 }
 
 Json enter_local_critical_section()
@@ -1516,6 +1667,12 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = start_local_server(*context);
     else if (action == "serve-ready")
         result = mark_local_ready();
+    else if (action == "serve-next")
+        result = take_local_request();
+    else if (action == "serve-complete")
+        result = complete_local_request(parsed);
+    else if (action == "serve-cancelled")
+        result = local_cancellation_status(parsed);
     else if (action == "serve-enter-critical")
         result = enter_local_critical_section();
     else if (action == "serve-leave-critical")
@@ -1550,7 +1707,8 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
             std::optional<std::uint64_t> cancel_after;
             if (parsed.contains("cancelAfterMs") && parsed["cancelAfterMs"].is_number_unsigned())
                 cancel_after = parsed["cancelAfterMs"].get<std::uint64_t>();
-            result = client_request(*context, method, request_id, cancel_after);
+            result = client_request(*context, method, request_id,
+                                    parsed.value("payload", Json::object()), cancel_after);
         }
     } else if (action == "ensure")
         result = ensure_daemon(parsed, *context);

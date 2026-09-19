@@ -197,11 +197,27 @@ TEST_CASE("daemon broker exposes starting, queues work until ready, and drains o
     REQUIRE(ready["ok"] == true);
     CHECK(ready["state"] == "ready");
 
+    auto next_request = request;
+    next_request["action"] = "serve-next";
+    const auto next = invoke_daemon(next_request);
+    REQUIRE(next["ok"] == true);
+    REQUIRE(next["stopped"] == false);
+    CHECK(next["requestId"] == "queued-1");
+    CHECK(next["method"] == "future-worker-command");
+    REQUIRE(next["token"].is_number_unsigned());
+
+    auto complete_request = request;
+    complete_request["action"] = "serve-complete";
+    complete_request["token"] = next["token"];
+    complete_request["requestOk"] = true;
+    complete_request["result"] = Json{{"value", 7}};
+    REQUIRE(invoke_daemon(complete_request)["ok"] == true);
+
     REQUIRE(pending.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
-    const auto unsupported = pending.get();
-    CHECK(unsupported["ok"] == false);
-    CHECK(unsupported["requestId"] == "queued-1");
-    CHECK(unsupported["error"] == "daemon authoring worker is not attached");
+    const auto completed = pending.get();
+    CHECK(completed["ok"] == true);
+    CHECK(completed["requestId"] == "queued-1");
+    CHECK(completed["result"] == Json{{"value", 7}});
 
     const auto ready_status = invoke_daemon(status_request);
     CHECK(ready_status["state"] == "ready");
@@ -268,14 +284,78 @@ TEST_CASE("queued daemon request IDs are scoped to each client connection")
 
     request["action"] = "serve-ready";
     REQUIRE(invoke_daemon(request)["ok"] == true);
+    for (int index = 0; index < 2; ++index) {
+        request["action"] = "serve-next";
+        const auto next = invoke_daemon(request);
+        REQUIRE(next["ok"] == true);
+        CHECK(next["requestId"] == "shared-id");
+        request["action"] = "serve-complete";
+        request["token"] = next["token"];
+        request["requestOk"] = true;
+        request["result"] = Json{{"index", index}};
+        REQUIRE(invoke_daemon(request)["ok"] == true);
+    }
     REQUIRE(first.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
     REQUIRE(second.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
     for (const auto result : {first.get(), second.get()}) {
-        CHECK(result["ok"] == false);
+        CHECK(result["ok"] == true);
         CHECK(result["requestId"] == "shared-id");
-        CHECK(result["error"] == "daemon authoring worker is not attached");
     }
 
+    request.erase("token");
+    request.erase("requestOk");
+    request.erase("result");
+    request["action"] = "stop";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-wait";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+
+TEST_CASE("active daemon request observes client cancellation")
+{
+    auto request = context(unique_build("active-cancel"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    auto work_request = request;
+    work_request["action"] = "request";
+    work_request["requestId"] = "active-cancel";
+    work_request["method"] = "invoke";
+    work_request["payload"] = Json{{"argv", Json::array({"validate"})}};
+    work_request["cancelAfterMs"] = 20;
+    auto pending =
+        std::async(std::launch::async, [work_request]() { return invoke_daemon(work_request); });
+
+    request["action"] = "serve-next";
+    const auto next = invoke_daemon(request);
+    REQUIRE(next["ok"] == true);
+    REQUIRE(next["stopped"] == false);
+    CHECK(next["payload"] == work_request["payload"]);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+    request["action"] = "serve-cancelled";
+    request["token"] = next["token"];
+    const auto cancelled = invoke_daemon(request);
+    REQUIRE(cancelled["ok"] == true);
+    CHECK(cancelled["active"] == true);
+    CHECK(cancelled["cancelled"] == true);
+
+    request["action"] = "serve-complete";
+    request["requestOk"] = false;
+    request["result"] = nullptr;
+    request["error"] = "request cancelled";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    REQUIRE(pending.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    const auto result = pending.get();
+    CHECK(result["ok"] == false);
+    CHECK(result["error"] == "request cancelled");
+
+    request.erase("token");
+    request.erase("requestOk");
+    request.erase("result");
+    request.erase("error");
     request["action"] = "stop";
     REQUIRE(invoke_daemon(request)["ok"] == true);
     request["action"] = "serve-wait";

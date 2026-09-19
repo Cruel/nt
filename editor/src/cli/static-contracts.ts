@@ -9,7 +9,7 @@ export const NOVELTEA_DAEMON_PROTOCOL_VERSION = 1 as const;
 export const NOVELTEA_CLI_HELP = `NovelTea headless CLI
 
 Usage:
-  noveltea [--project <project-directory>] [--json] <command> ...
+  noveltea [--project <project-directory>] [--json] [--no-daemon] <command> ...
 
 Commands:
   project create <directory> --name <project-name>
@@ -60,6 +60,7 @@ Commands:
 Global options:
   --project <project-directory>  Use this project root instead of upward project.json discovery.
   --json                         Emit one compact JSON object on stdout; stderr remains empty.
+  --no-daemon                    Bypass resident-daemon acceleration for this invocation.
   --help                         Show this help.
   --version                      Show the CLI version.
 

@@ -18,12 +18,20 @@ declare function nativeInvokeToFile(
 ): void;
 
 type HostResult = readonly [exitCode: number, stdout: string, stderr: string];
+type RequestOutputCapture = { stdout: string; stderr: string };
+type CapturedNativeEnvelope = Readonly<{
+  captureOk: boolean;
+  response: string;
+  stdout: string;
+  stderr: string;
+}>;
 
 let nativeCallSequence = 0;
 let nativeResponseRoot: string | null = null;
 let cachedStdin: string | null = null;
 let forceRuntimeCacheRebuild = false;
 let authoringCacheInventoryHint = '';
+let daemonRequestSequence = 0;
 
 function trace(message: string): void {
   if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-host] ${message}\n`);
@@ -582,6 +590,24 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
   );
 }
 
+type DaemonRequestContext = Readonly<{
+  argv: readonly string[];
+  cwd: string;
+  environment: Readonly<Record<string, string>>;
+  stdinText: string | null;
+  terminal: Readonly<{
+    stdin: boolean;
+    stdout: boolean;
+    stderr: boolean;
+    columns: number | null;
+    rows: number | null;
+  }>;
+  outputMode: 'json' | 'human';
+  replaySafe: boolean;
+  forceRuntimeCacheRebuild: boolean;
+  authoringCacheInventoryHint: string;
+}>;
+
 type DaemonNativeResponse = Readonly<{
   ok?: boolean;
   running?: boolean;
@@ -592,6 +618,14 @@ type DaemonNativeResponse = Readonly<{
   stopped?: boolean;
   started?: boolean;
   error?: string;
+  token?: number;
+  requestId?: string;
+  method?: string;
+  payload?: DaemonRequestContext;
+  result?: HostResult | null;
+  active?: boolean;
+  cancelled?: boolean;
+  delivered?: boolean;
 }>;
 
 type DaemonStatusCore = Readonly<{
@@ -624,6 +658,23 @@ function daemonEnsureNativeRequest(): DaemonNativeResponse {
         build: NOVELTEA_CLI_BUILD_IDENTITY,
         protocol: NOVELTEA_DAEMON_PROTOCOL_VERSION,
         startupTimeoutMs: 2000,
+      }),
+    ),
+  ) as DaemonNativeResponse;
+}
+
+function daemonRequestNative(request: DaemonRequestContext): DaemonNativeResponse {
+  daemonRequestSequence += 1;
+  return JSON.parse(
+    invokeHost(
+      'daemon',
+      JSON.stringify({
+        action: 'request',
+        build: NOVELTEA_CLI_BUILD_IDENTITY,
+        protocol: NOVELTEA_DAEMON_PROTOCOL_VERSION,
+        requestId: `cli-${String(process.pid)}-${String(Date.now())}-${String(daemonRequestSequence)}`,
+        method: 'invoke',
+        payload: request,
       }),
     ),
   ) as DaemonNativeResponse;
@@ -764,6 +815,10 @@ function hiddenDaemonBrokerInvocation(
 function hiddenDaemonNativeRequest(
   action: string,
   invocation: HiddenDaemonBrokerInvocation,
+  token = 0,
+  requestOk = false,
+  result: HostResult | null = null,
+  error = '',
 ): DaemonNativeResponse {
   return JSON.parse(
     invokeHost(
@@ -774,9 +829,93 @@ function hiddenDaemonNativeRequest(
         protocol: invocation.protocol,
         daemonIdleMs: invocation.daemonIdleMs,
         projectSessionIdleMs: invocation.projectSessionIdleMs,
+        token,
+        requestOk,
+        result,
+        error,
       }),
     ),
   ) as DaemonNativeResponse;
+}
+
+function requestEnvironment(): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env))
+    if (typeof value === 'string') result[key] = value;
+  return result;
+}
+
+function commandStart(argv: readonly string[]): number {
+  let index = 0;
+  while (index < argv.length && argv[index]!.startsWith('--')) {
+    if (argv[index] === '--project') index += 2;
+    else index += 1;
+  }
+  return index;
+}
+
+function daemonReplaySafe(argv: readonly string[]): boolean {
+  const index = commandStart(argv);
+  const family = argv[index];
+  const operation = argv[index + 1];
+  const detail = argv[index + 2];
+  if (family === 'validate' || family === 'usages' || family === 'test') return true;
+  if (family === 'asset' && operation === 'audit') return true;
+  if (family === 'localization' && operation === 'view') return true;
+  if (
+    family === 'comfyui' &&
+    (operation === 'status' || operation === 'workflows' || operation === 'verify')
+  )
+    return true;
+  if (family === 'platform' && operation === 'profiles') return true;
+  return (
+    family === 'platform' && operation === 'template' && (detail === 'list' || detail === 'inspect')
+  );
+}
+
+function daemonConsumesStdin(argv: readonly string[]): boolean {
+  const index = commandStart(argv);
+  return (
+    argv[index] === 'test' && (argv[index + 1] === 'run-spec' || argv[index + 1] === 'run-ui-spec')
+  );
+}
+
+function daemonRequestContext(argv: readonly string[]): DaemonRequestContext {
+  return {
+    argv,
+    cwd: process.cwd(),
+    environment: requestEnvironment(),
+    stdinText: daemonConsumesStdin(argv) ? invokeHost('read-stdin', '') : null,
+    terminal: {
+      stdin: process.stdin.isTTY === true,
+      stdout: process.stdout.isTTY === true,
+      stderr: process.stderr.isTTY === true,
+      columns: null,
+      rows: null,
+    },
+    outputMode: argv.includes('--json') ? 'json' : 'human',
+    replaySafe: daemonReplaySafe(argv),
+    forceRuntimeCacheRebuild,
+    authoringCacheInventoryHint,
+  };
+}
+
+function requestInvokeHost(
+  context: DaemonRequestContext,
+  output: RequestOutputCapture,
+): typeof invokeHost {
+  return (operation, requestText) => {
+    if (operation === 'read-stdin') return context.stdinText ?? '';
+    if (operation === 'process-alive' || operation === 'run-process')
+      return invokeHost(operation, requestText);
+    const envelope = JSON.parse(
+      invokeHost(`capture:${operation}`, requestText),
+    ) as CapturedNativeEnvelope;
+    if (envelope.captureOk !== true) throw new Error('failed to capture daemon native output');
+    output.stdout += envelope.stdout;
+    output.stderr += envelope.stderr;
+    return envelope.response;
+  };
 }
 
 async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): Promise<number> {
@@ -790,13 +929,73 @@ async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): 
   try {
     trace('daemon QuickJS initialization starting');
     // @ts-expect-error The private island package is materialized only during release staging.
-    await import('noveltea-scriptc-island');
+    const { runNovelTeaScriptcIsland } = await import('noveltea-scriptc-island');
     trace('daemon QuickJS initialization completed');
     const ready = hiddenDaemonNativeRequest('serve-ready', invocation);
     if (ready.ok !== true) {
       const message =
         typeof ready.error === 'string' ? ready.error : 'Failed to mark NovelTea daemon ready.';
       throw new Error(message);
+    }
+    for (;;) {
+      const next = hiddenDaemonNativeRequest('serve-next', invocation);
+      if (next.ok !== true) {
+        const message =
+          typeof next.error === 'string' ? next.error : 'NovelTea daemon broker failed.';
+        throw new Error(message);
+      }
+      if (next.stopped === true) break;
+      const token = next.token;
+      const payload = next.payload as DaemonRequestContext;
+      if (
+        !Number.isSafeInteger(token) ||
+        next.method !== 'invoke' ||
+        !payload ||
+        !Array.isArray(payload.argv)
+      ) {
+        hiddenDaemonNativeRequest(
+          'serve-complete',
+          invocation,
+          typeof token === 'number' ? token : 0,
+          false,
+          null,
+          'invalid daemon invocation request',
+        );
+        continue;
+      }
+      try {
+        const output: RequestOutputCapture = { stdout: '', stderr: '' };
+        const responseText = await runNovelTeaScriptcIsland(
+          JSON.stringify(payload.argv),
+          requestInvokeHost(payload, output),
+          payload.forceRuntimeCacheRebuild,
+          payload.authoringCacheInventoryHint,
+          {
+            cwd: payload.cwd,
+            environment: payload.environment,
+            cancellationProbe: () => {
+              const status = hiddenDaemonNativeRequest('serve-cancelled', invocation, token);
+              return status.cancelled === true;
+            },
+          },
+        );
+        const response = JSON.parse(responseText) as HostResult;
+        const completed: HostResult = [
+          response[0],
+          `${output.stdout}${response[1]}`,
+          `${output.stderr}${response[2]}`,
+        ];
+        hiddenDaemonNativeRequest('serve-complete', invocation, token, true, completed);
+      } catch (error) {
+        hiddenDaemonNativeRequest(
+          'serve-complete',
+          invocation,
+          token,
+          false,
+          null,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     }
     const waited = hiddenDaemonNativeRequest('serve-wait', invocation);
     if (waited.ok !== true) {
@@ -910,6 +1109,73 @@ function staticFastPath(argv: readonly string[]): HostResult | null {
   return [0, stdout, ''];
 }
 
+function strippedStaticArgv(argv: readonly string[]): readonly string[] {
+  let seen = false;
+  const result: string[] = [];
+  let inGlobals = true;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]!;
+    if (inGlobals && argument === '--no-daemon' && !seen) {
+      seen = true;
+      continue;
+    }
+    result.push(argument);
+    if (inGlobals && argument === '--project') {
+      const value = argv[index + 1];
+      if (value !== undefined) {
+        result.push(value);
+        index += 1;
+      }
+      continue;
+    }
+    if (inGlobals && !argument.startsWith('--')) inGlobals = false;
+  }
+  return result;
+}
+
+function daemonDisabled(argv: readonly string[]): boolean {
+  return process.env.NOVELTEA_NO_DAEMON === '1' || argv.includes('--no-daemon');
+}
+
+function privateInternalInvocation(argv: readonly string[]): boolean {
+  return (
+    argv[0] === '__editor-native' ||
+    argv[0] === '__shaderc-batch' ||
+    argv[0] === '__comfyui-cancel-certification'
+  );
+}
+
+async function runLocalIsland(argv: readonly string[]): Promise<HostResult> {
+  trace('dynamic island import starting');
+  // @ts-expect-error The private island package is materialized only during release staging.
+  const { runNovelTeaScriptcIsland } = await import('noveltea-scriptc-island');
+  trace('dynamic island import completed');
+  trace('dynamic island invocation starting');
+  const responseText = await runNovelTeaScriptcIsland(
+    JSON.stringify(argv),
+    invokeHost,
+    forceRuntimeCacheRebuild,
+    authoringCacheInventoryHint,
+  );
+  trace('dynamic island invocation completed');
+  return JSON.parse(responseText) as HostResult;
+}
+
+function daemonFailureResult(json: boolean, message: string): HostResult {
+  if (json)
+    return [
+      70,
+      `${JSON.stringify({
+        success: false,
+        exitCode: 70,
+        diagnostics: [{ code: 'DAEMON_EXECUTION', severity: 'error', path: '/', message }],
+        protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
+      })}\n`,
+      '',
+    ];
+  return [70, '', `[error] DAEMON_EXECUTION /: ${message}\n`];
+}
+
 function emit(result: HostResult): void {
   const stdoutText = result[1];
   const stderrText = result[2];
@@ -933,29 +1199,50 @@ async function main(): Promise<void> {
       exitCode = ensured.ok === false ? 70 : 0;
       return;
     }
+    const staticArgv = strippedStaticArgv(argv);
     const fastPath =
-      staticFastPath(argv) ??
-      staticDaemonPath(argv) ??
-      staticValidationPath(argv) ??
-      staticTestPath(argv) ??
-      staticNativePath(argv);
+      staticFastPath(staticArgv) ??
+      staticDaemonPath(staticArgv) ??
+      staticValidationPath(staticArgv) ??
+      staticTestPath(staticArgv) ??
+      staticNativePath(staticArgv);
     if (fastPath !== null) {
       emit(fastPath);
       exitCode = fastPath[0];
-    } else {
-      trace('dynamic island import starting');
-      // @ts-expect-error The private island package is materialized only during release staging.
-      const { runNovelTeaScriptcIsland } = await import('noveltea-scriptc-island');
-      trace('dynamic island import completed');
-      trace('dynamic island invocation starting');
-      const responseText = await runNovelTeaScriptcIsland(
-        JSON.stringify(argv),
-        invokeHost,
-        forceRuntimeCacheRebuild,
-        authoringCacheInventoryHint,
+    } else if (privateInternalInvocation(argv) || daemonDisabled(argv)) {
+      trace(
+        privateInternalInvocation(argv) ? 'private internal invocation' : 'daemon routing bypassed',
       );
-      trace('dynamic island invocation completed');
-      const response = JSON.parse(responseText) as [number, string, string];
+      const response = await runLocalIsland(argv);
+      emit(response);
+      exitCode = response[0];
+    } else {
+      const request = daemonRequestContext(argv);
+      const ensured = daemonEnsureNativeRequest();
+      let response: HostResult | null = null;
+      if (ensured.ok !== false) {
+        trace('daemon invocation forwarding');
+        const daemonResponse = daemonRequestNative(request);
+        if (
+          daemonResponse.ok === true &&
+          daemonResponse.result !== undefined &&
+          daemonResponse.result !== null
+        ) {
+          response = daemonResponse.result;
+        } else {
+          const message =
+            typeof daemonResponse?.error === 'string'
+              ? daemonResponse.error
+              : 'Resident daemon execution failed.';
+          const safeConnectionFailure = message === 'daemon broker is not reachable';
+          if (!request.replaySafe && !safeConnectionFailure)
+            response = daemonFailureResult(request.outputMode === 'json', message);
+        }
+      }
+      if (response === null) {
+        trace('daemon acceleration unavailable; using local island fallback');
+        response = await runLocalIsland(argv);
+      }
       emit(response);
       exitCode = response[0];
     }

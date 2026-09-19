@@ -521,7 +521,7 @@ function assertIslandBoundaryTrace(label, result, marker, expected) {
 }
 
 function certifyBootstrapOnlyIslandFailures() {
-  const env = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  const env = { ...process.env, NOVELTEA_CLI_TRACE: '1', NOVELTEA_NO_DAEMON: '1' };
   for (const test of [
     { label: 'repeated global help', args: ['--help', '--help'], expectedStatus: 0 },
     { label: 'unknown global option', args: ['--not-a-global-option'], expectedStatus: 2 },
@@ -1111,7 +1111,10 @@ async function certifyAuthoringCache(tempRoot, pristine) {
   );
   const args = ['--project', root, '--json', 'validate'];
   const invoke = (label, island) => {
-    const result = runNative(args, { cwd: root, env: { ...process.env, NOVELTEA_CLI_TRACE: '1' } });
+    const result = runNative(args, {
+      cwd: root,
+      env: { ...process.env, NOVELTEA_CLI_TRACE: '1', NOVELTEA_NO_DAEMON: '1' },
+    });
     assertIslandTrace(label, result, island);
     const reference = runNode(args, { cwd: root });
     assertPublicCommandParity(label, reference, {
@@ -1429,8 +1432,7 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
     warmMs: Math.round(scriptcWarm.elapsed * 10) / 10,
     oneSourceChangedMs: Math.round(scriptcChanged.elapsed * 10) / 10,
     forcedFullMs: Math.round(scriptcForcedFull.elapsed * 10) / 10,
-    oneSourceSpeedup:
-      Math.round((scriptcForcedFull.elapsed / scriptcChanged.elapsed) * 100) / 100,
+    oneSourceSpeedup: Math.round((scriptcForcedFull.elapsed / scriptcChanged.elapsed) * 100) / 100,
     oneSourceWork: validationProfile(scriptcChanged.result),
     forcedFullWork: validationProfile(scriptcForcedFull.result),
   };
@@ -1440,7 +1442,7 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
 }
 
 function certifyScopedPreparationLazyBoundaries(projectRoot) {
-  const env = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  const env = { ...process.env, NOVELTEA_CLI_TRACE: '1', NOVELTEA_NO_DAEMON: '1' };
   for (const test of [
     {
       label: 'standalone scoped asset audit',
@@ -1467,7 +1469,11 @@ async function certifyRuntimeCacheInvalidation(tempRoot, pristine) {
       cwd: root,
     }),
   );
-  const tracedEnvironment = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  const tracedEnvironment = {
+    ...process.env,
+    NOVELTEA_CLI_TRACE: '1',
+    NOVELTEA_NO_DAEMON: '1',
+  };
   const cacheRoot = path.join(root, '.noveltea', 'cache', 'runtime');
   const runCached = (label, expectedIsland, expectedStatus) => {
     const result = requireSuccess(
@@ -1607,7 +1613,11 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
   await rm(root, { recursive: true, force: true });
   await cp(source, root, { recursive: true });
   await rm(path.join(root, '.noveltea', 'cache', 'runtime'), { recursive: true, force: true });
-  const tracedEnvironment = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  const tracedEnvironment = {
+    ...process.env,
+    NOVELTEA_CLI_TRACE: '1',
+    NOVELTEA_NO_DAEMON: '1',
+  };
 
   const suite = requireSuccess(
     'Feature Lab authored suite',
@@ -1661,7 +1671,11 @@ async function certifyNativeOperations(tempRoot, pristine) {
       cwd: root,
     }),
   );
-  const tracedEnvironment = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  const tracedEnvironment = {
+    ...process.env,
+    NOVELTEA_CLI_TRACE: '1',
+    NOVELTEA_NO_DAEMON: '1',
+  };
   const firstCachedTest = requireSuccess(
     'runtime-cache first authored test',
     runNative(['--project', root, '--json', 'test', 'run', 'cache-certification'], {
@@ -2057,6 +2071,7 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
     ...process.env,
     NOVELTEA_TEMPLATE_REGISTRY_ROOT: registry,
     NOVELTEA_CLI_TRACE: '1',
+    NOVELTEA_NO_DAEMON: '1',
   };
   const installed = requireSuccess(
     'standalone template install',
@@ -2098,6 +2113,49 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
   const templates = JSON.parse(listed.stdout).templates;
   if (!Array.isArray(templates) || templates[0]?.id !== 'certification-web-template@build-1')
     fail('Standalone template registry did not return the installed template identity.');
+
+  const daemonEnvironment = {
+    ...process.env,
+    NOVELTEA_TEMPLATE_REGISTRY_ROOT: registry,
+  };
+  const daemonListed = requireSuccess(
+    'daemon template registry environment',
+    runNative(['--json', 'platform', 'template', 'list'], {
+      cwd: tempRoot,
+      env: daemonEnvironment,
+    }),
+  );
+  const daemonTemplates = JSON.parse(daemonListed.stdout).templates;
+  if (
+    !Array.isArray(daemonTemplates) ||
+    daemonTemplates[0]?.id !== 'certification-web-template@build-1'
+  )
+    fail('Daemon-routed template registry did not observe the caller environment.');
+  const emptyRegistry = path.join(tempRoot, 'empty-template-registry');
+  await mkdir(emptyRegistry, { recursive: true });
+  const isolatedEnvironment = {
+    ...process.env,
+    NOVELTEA_TEMPLATE_REGISTRY_ROOT: emptyRegistry,
+  };
+  const isolatedList = requireSuccess(
+    'daemon template registry environment isolation',
+    runNative(['--json', 'platform', 'template', 'list'], {
+      cwd: tempRoot,
+      env: isolatedEnvironment,
+    }),
+  );
+  if (JSON.parse(isolatedList.stdout).templates?.length !== 0)
+    fail('Daemon template registry environment leaked across requests.');
+  const restoredList = requireSuccess(
+    'daemon template registry environment restore',
+    runNative(['--json', 'platform', 'template', 'list'], {
+      cwd: tempRoot,
+      env: daemonEnvironment,
+    }),
+  );
+  if (JSON.parse(restoredList.stdout).templates?.[0]?.id !== 'certification-web-template@build-1')
+    fail('Daemon template registry environment was not restored for the next request.');
+
   const config = path.join(tempRoot, 'platform-export-config.json');
   const configured = requireSuccess(
     'standalone platform config',

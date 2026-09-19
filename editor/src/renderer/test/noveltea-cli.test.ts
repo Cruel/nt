@@ -878,6 +878,11 @@ describe('NovelTea headless CLI', () => {
     expect(help.stdout).toContain('Edit record JSON, Lua, RML, and RCSS source files directly');
     expect(help.stdout).toContain('noveltea validate');
     expect(help.stdout).toContain('--allow-localization-warnings');
+    expect(help.stdout).toContain('--no-daemon');
+
+    const noDaemonHelp = await runNovelTeaCli(['--no-daemon', '--help'], { cwd: '/missing' });
+    expect(noDaemonHelp.exitCode).toBe(0);
+    expect(noDaemonHelp.stdout).toBe(help.stdout);
 
     const version = await runNovelTeaCli(['--json', '--version'], { cwd: '/missing' });
     expect(version.exitCode).toBe(0);
