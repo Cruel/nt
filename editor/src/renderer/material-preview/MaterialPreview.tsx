@@ -5,6 +5,7 @@ import {
   useMaterialPreviewGroupStatus,
   useMaterialPreviewProjectResources,
 } from './material-preview-provider';
+import type { ShaderUniformValue } from '../../shared/project-schema/authoring-shaders';
 import type { MaterialPreviewProjectResources } from './material-preview-resources';
 import type { MaterialPreviewPointerState } from './material-preview-renderer';
 
@@ -14,10 +15,14 @@ export function MaterialPreview({
   materialId,
   className,
   resources: explicitResources,
+  parameterOverrides,
+  compact = false,
 }: {
   materialId: string;
   className?: string;
   resources?: MaterialPreviewProjectResources;
+  parameterOverrides?: Readonly<Record<string, ShaderUniformValue>>;
+  compact?: boolean;
 }) {
   const { t } = useTranslation('workspace');
   const renderer = useMaterialPreviewGroupRenderer();
@@ -77,10 +82,20 @@ export function MaterialPreview({
       visible,
       pointer: pointerRef.current,
       resources,
+      parameterOverrides,
     };
     if (!registrationRef.current) registrationRef.current = renderer.registerSurface(state);
     else registrationRef.current.update(state);
-  }, [materialId, renderer, resources, resources.generation, size.height, size.width, visible]);
+  }, [
+    materialId,
+    parameterOverrides,
+    renderer,
+    resources,
+    resources.generation,
+    size.height,
+    size.width,
+    visible,
+  ]);
 
   useEffect(
     () => () => {
@@ -105,6 +120,7 @@ export function MaterialPreview({
       visible,
       pointer: pointerRef.current,
       resources,
+      parameterOverrides,
     });
   }
 
@@ -118,12 +134,19 @@ export function MaterialPreview({
           : status.message;
 
   return (
-    <div className={`relative h-full min-h-[160px] w-full overflow-hidden ${className ?? ''}`}>
+    <div
+      className={`relative h-full ${compact ? 'min-h-0' : 'min-h-[160px]'} w-full overflow-hidden ${className ?? ''}`}
+    >
       <canvas
         ref={canvasRef}
         aria-label={t('materialEditor.preview.label')}
         className="h-full w-full touch-none"
         data-material-preview={materialId}
+        data-material-preview-parameter-overrides={
+          parameterOverrides && Object.keys(parameterOverrides).length > 0
+            ? Object.keys(parameterOverrides).sort().join(',')
+            : undefined
+        }
         onPointerDown={(event) => updatePointer(event, true)}
         onPointerMove={(event) => updatePointer(event, pointerRef.current.pressed)}
         onPointerUp={(event) => updatePointer(event, false)}
@@ -137,6 +160,7 @@ export function MaterialPreview({
             visible,
             pointer: OUTSIDE_POINTER,
             resources,
+            parameterOverrides,
           });
         }}
       />

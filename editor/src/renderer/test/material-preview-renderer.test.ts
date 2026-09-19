@@ -304,7 +304,10 @@ describe('Material preview workbench-group renderer', () => {
     const backend = fakeBackendFactory();
     const renderer = new MaterialPreviewGroupRenderer(resources, backend.factory, clock.scheduler);
 
-    const first = surface('panel');
+    const first = {
+      ...surface('panel'),
+      parameterOverrides: { u_tint: [0.2, 0.3, 0.4, 1] as [number, number, number, number] },
+    };
     const second = { ...surface('panel'), width: 320, pointer: { x: 20, y: 30, pressed: true } };
     renderer.registerSurface(first);
     renderer.registerSurface(second);
@@ -317,6 +320,10 @@ describe('Material preview workbench-group renderer', () => {
     expect(backend.renders).toHaveLength(2);
     expect(backend.renders.map((entry) => entry.time)).toEqual([2.5, 2.5]);
     expect(backend.renders[0]?.surface.width).toBe(160);
+    expect(backend.renders[0]?.surface.parameterOverrides).toEqual({
+      u_tint: [0.2, 0.3, 0.4, 1],
+    });
+    expect(backend.renders[1]?.surface.parameterOverrides).toBeUndefined();
     expect(backend.renders[1]?.surface.width).toBe(320);
     expect(backend.renders[1]?.surface.pointer.pressed).toBe(true);
     renderer.dispose();
