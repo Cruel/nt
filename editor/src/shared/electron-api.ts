@@ -39,6 +39,11 @@ interface NovelTeaElectronApiContract {
   onEditorShortcut(callback: (command: EditorShortcutCommand) => void): () => void;
   isAppWindowMaximized(): Promise<boolean>;
   setNativeWindowFrame(nativeFrame: boolean): Promise<AppInfo>;
+  ensureTerminalSession(): Promise<import('./terminal').TerminalSessionSnapshot>;
+  writeTerminal(sessionId: string, data: string): Promise<void>;
+  resizeTerminal(request: import('./terminal').TerminalResizeRequest): Promise<void>;
+  retryTerminalSession(): Promise<import('./terminal').TerminalSessionSnapshot>;
+  onTerminalEvent(callback: (event: import('./terminal').TerminalEvent) => void): () => void;
   getEnginePreviewSession(projectSessionId: string): Promise<EnginePreviewSession>;
   reloadEnginePreview(projectSessionId: string): Promise<EnginePreviewSession>;
   createProject(request: CreateProjectRequest): Promise<SaveProjectResponse>;

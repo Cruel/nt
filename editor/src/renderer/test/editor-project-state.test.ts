@@ -42,6 +42,21 @@ describe('editor project state defaults', () => {
     });
   });
 
+  it('accepts Terminal as Project-scoped bottom-panel view state without terminal session data', () => {
+    const state = emptyEditorProjectState();
+    state.bottomPanel = {
+      visible: true,
+      activePanelId: 'terminal',
+      sizePercent: 42,
+    };
+
+    expect(editorProjectStateSchema.parse(state).bottomPanel).toEqual({
+      visible: true,
+      activePanelId: 'terminal',
+      sizePercent: 42,
+    });
+  });
+
   it('accepts persisted image-generation tab resources in current metadata', () => {
     const parsed = parseEditorProjectState({
       ...emptyEditorProjectState(),

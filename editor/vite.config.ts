@@ -16,7 +16,13 @@ const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
 const nodeRuntimeExternals = [
   ...new Set(builtinModules.flatMap((moduleName) => [moduleName, `node:${moduleName}`])),
 ];
-const electronRuntimeExternals = [...nodeRuntimeExternals, 'electron', 'sharp', /^sharp\//];
+const electronRuntimeExternals = [
+  ...nodeRuntimeExternals,
+  'electron',
+  'node-pty',
+  'sharp',
+  /^sharp\//,
+];
 const productionBuild = process.env.NODE_ENV === 'production';
 const editorCheckInputs = [
   'src/**/*',
@@ -28,7 +34,8 @@ const editorCheckInputs = [
 ];
 
 function shouldBundleNodeDependency(id: string): boolean {
-  if (id === 'electron' || id === 'sharp' || id.startsWith('sharp/')) return false;
+  if (id === 'electron' || id === 'node-pty' || id === 'sharp' || id.startsWith('sharp/'))
+    return false;
   const withoutNodeProtocol = id.startsWith('node:') ? id.slice(5) : id;
   return !builtinModules.includes(withoutNodeProtocol);
 }

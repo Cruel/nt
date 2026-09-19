@@ -102,6 +102,10 @@ export class ActiveProjectSessionService {
     return this.active?.id ?? null;
   }
 
+  currentProjectRoot(): string | null {
+    return this.active?.root ?? null;
+  }
+
   requireActiveProjectRoot(projectSessionId: string): string {
     const active = this.active;
     if (!active || projectSessionId !== active.id) {

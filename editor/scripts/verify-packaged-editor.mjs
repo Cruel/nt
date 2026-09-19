@@ -81,6 +81,28 @@ export async function findSharpNativeClosure(unpackedRoot, platform = process.pl
   return { sharpPackages, libvipsPackages };
 }
 
+export async function findNodePtyNativeClosure(unpackedRoot) {
+  const nodePtyRoot = path.join(unpackedRoot, 'node_modules', 'node-pty');
+  if (!(await pathExists(path.join(nodePtyRoot, 'package.json')))) {
+    throw new Error('Unpacked node-pty package metadata is missing.');
+  }
+  const visit = async (directory) => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (await visit(target)) return true;
+      } else if (entry.isFile() && /\.node$/i.test(entry.name)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  if (!(await visit(nodePtyRoot))) {
+    throw new Error('No unpacked node-pty native binding was found.');
+  }
+  return { root: nodePtyRoot };
+}
+
 export async function verifyPackagedEditor(outputOrApplication) {
   let application;
   if (outputOrApplication && typeof outputOrApplication === 'object') {
@@ -109,6 +131,7 @@ export async function verifyPackagedEditor(outputOrApplication) {
     'dist-electron/preload/preload.cjs',
     'dist-electron/renderer/index.html',
     'node_modules/sharp/package.json',
+    'node_modules/node-pty/package.json',
   ]) {
     if (!entries.includes(required)) throw new Error(`Required ASAR entry is missing: ${required}`);
   }
@@ -188,6 +211,7 @@ export async function verifyPackagedEditor(outputOrApplication) {
     }
   }
   const nativeClosure = await findSharpNativeClosure(unpackedRoot);
+  const nodePtyClosure = await findNodePtyNativeClosure(unpackedRoot);
 
   const fuseWire = await getCurrentFuseWire(application.executable);
   for (const [fuse, expected] of expectedFuses) {
@@ -205,6 +229,7 @@ export async function verifyPackagedEditor(outputOrApplication) {
     version: packageMetadata.version,
     asarEntries: entries.length,
     nativeClosure,
+    nodePtyClosure,
     fuses: Object.fromEntries(
       [...expectedFuses].map(([fuse]) => [FuseV1Options[fuse], FuseState[fuseWire[fuse]]]),
     ),

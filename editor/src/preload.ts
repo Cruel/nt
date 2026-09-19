@@ -45,6 +45,16 @@ const api: NovelTeaElectronApi = {
   isAppWindowMaximized: () => invokeGuarded(IPC_CHANNELS.IS_APP_WINDOW_MAXIMIZED),
   setNativeWindowFrame: (nativeFrame: boolean) =>
     invokeGuarded(IPC_CHANNELS.SET_NATIVE_WINDOW_FRAME, nativeFrame),
+  ensureTerminalSession: () => invokeGuarded(IPC_CHANNELS.TERMINAL_ENSURE_SESSION),
+  writeTerminal: (sessionId, data) => invokeGuarded(IPC_CHANNELS.TERMINAL_WRITE, sessionId, data),
+  resizeTerminal: (request) => invokeGuarded(IPC_CHANNELS.TERMINAL_RESIZE, request),
+  retryTerminalSession: () => invokeGuarded(IPC_CHANNELS.TERMINAL_RETRY),
+  onTerminalEvent: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: unknown) =>
+      callback(event as never);
+    ipcRenderer.on(IPC_CHANNELS.TERMINAL_EVENT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_EVENT, listener);
+  },
   getEnginePreviewSession: (projectSessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION, projectSessionId),
   reloadEnginePreview: (projectSessionId: string) =>

@@ -10,7 +10,8 @@ export type BottomPanelId =
   | 'shader-compile'
   | 'package-export'
   | 'asset-performance'
-  | 'command-history';
+  | 'command-history'
+  | 'terminal';
 
 export interface BottomPanelWorkbenchContext {
   hasProject: boolean;
@@ -28,6 +29,7 @@ const projectAvailable = (context: BottomPanelWorkbenchContext) => context.hasPr
 export const bottomPanelDefinitions: BottomPanelDefinition[] = [
   { id: 'problems', labelKey: 'bottomPanel.labels.problems', isAvailable: projectAvailable },
   { id: 'output', labelKey: 'bottomPanel.labels.output', isAvailable: globallyAvailable },
+  { id: 'terminal', labelKey: 'bottomPanel.labels.terminal', isAvailable: globallyAvailable },
   {
     id: 'preview-events',
     labelKey: 'bottomPanel.labels.previewEvents',
