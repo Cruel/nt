@@ -40,6 +40,16 @@ Visible previews are live by default and receive the same group-frame timestamp.
 
 Project invalidation clears the group's GPU caches before refreshed Project resources are consumed, preventing stale programs or textures from crossing generations.
 
+## Shader Source Workspaces
+
+Project shader source tabs reuse the normal editor preview split and the owning workbench group's shared WebGL renderer. Each tab owns only a local Material preview set and a CPU preview-resource authority; opening the same source normally reuses the canonical tab, while an explicit duplicate tab receives independent serialized preview-set state.
+
+The editor discovers both direct Material entrypoint consumers and Materials affected transitively through `#include` edges from the current source buffers. Opening a Project shader from a Material seeds that Material into the source tab. A direct Files/quick-open navigation auto-seeds only when exactly one Material is affected; otherwise the tab starts with no arbitrary context and exposes **Add Preview** grouped by direct versus include-affected consumers. The source toolbar always reports the full affected-Material count independently from the attached preview set.
+
+Source-tab compilation is preview-only. The renderer supplies every dirty shader buffer as a Project-scoped source overlay, and the main process materializes those buffers over a temporary copy of the Project shader tree before invoking the native compiler. Dirty included files therefore participate in the same compile generation as the edited entrypoint without being saved. Only programs required by the tab's attached Material previews are submitted, and only the `essl-300` browser variant is requested. Overlay paths remain constrained to Project `shaders/` paths at the IPC trust boundary, and compiler diagnostic source paths are remapped back to the real Project root.
+
+Rapid edits are debounced. If a browser compile fails after a successful generation, preview resources retain that program's last successful browser payload, mark the surface stale, and expose the current compiler diagnostics. Source saving remains independent from preview validity: invalid shader text may still be saved through the ordinary source-file authority.
+
 ## Preview Harnesses
 
 The effective Material `preview.geometry` and `preview.background` metadata selects the representative harness. Preset defaults currently provide `quad`, `rounded-rect`, `sprite`, and `glyphs` geometries plus transparent, checker, dark, and light backgrounds. Material overrides flow through normal inheritance resolution.

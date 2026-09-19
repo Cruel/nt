@@ -55,6 +55,7 @@ export const useShaderCompileStore = create<ShaderCompileStoreState>()((set, get
         await window.noveltea.compileShaders(projectSessionId, shaderProject, {
           forceRebuild: options.forceRebuild,
           shaderVariants: options.shaderVariants,
+          sourceOverlays: options.sourceOverlays,
         }),
       );
       get().setResult(response, options);

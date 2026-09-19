@@ -130,7 +130,7 @@ interface NovelTeaElectronApiContract {
   compileShaders(
     projectSessionId: string,
     shaderProject: unknown,
-    options?: Pick<ShaderCompileOptions, 'forceRebuild' | 'shaderVariants'>,
+    options?: Pick<ShaderCompileOptions, 'forceRebuild' | 'shaderVariants' | 'sourceOverlays'>,
   ): Promise<ShaderCompileResponse>;
   saveProjectContent(
     projectSessionId: string,

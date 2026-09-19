@@ -959,7 +959,8 @@
       "label": "⟦Material preview⟧",
       "webgl2Unavailable": "⟦Material preview requires WebGL2.⟧",
       "contextLost": "⟦Material preview is temporarily unavailable.⟧",
-      "renderFailed": "⟦Material preview rendering failed.⟧"
+      "renderFailed": "⟦Material preview rendering failed.⟧",
+      "stale": "⟦Stale preview⟧"
     },
     "summary": "⟦Material Preset/inheritance contract with sparse parameter, texture, and shader-source overrides.⟧",
     "invalidData": "⟦Material data is invalid; canonical defaults are shown until you apply a change.⟧",
@@ -1007,6 +1008,21 @@
       "resetTexture": "⟦Reset material texture⟧",
       "rebindTexture": "⟦Rebind material texture⟧"
     }
+  },
+  "shaderSourcePreview": {
+    "title": "⟦Material previews⟧",
+    "addPreview": "⟦Add Preview⟧",
+    "affectedUsage": "⟦{{count}} affected⟧",
+    "affectedMaterials": "⟦Affected Materials⟧",
+    "noAffectedMaterials": "⟦No affected Materials⟧",
+    "direct": "⟦Direct⟧",
+    "included": "⟦Included⟧",
+    "directConsumers": "⟦Direct consumers⟧",
+    "transitiveConsumers": "⟦Affected through includes⟧",
+    "noPreviewsToAdd": "⟦No additional affected Materials⟧",
+    "empty": "⟦Add an affected Material to preview this shader source in context.⟧",
+    "remove": "⟦Remove⟧",
+    "resize": "⟦Resize shader source preview⟧"
   },
   "hotspots": {
     "subtitle": "⟦Hotspots define pointer geometry and select a semantic target; behavior belongs to the selected subject.⟧",

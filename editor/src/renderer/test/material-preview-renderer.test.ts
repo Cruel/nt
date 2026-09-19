@@ -156,6 +156,101 @@ describe('Material preview Project resources', () => {
     expect(compileShaders).toHaveBeenCalledTimes(1);
   });
 
+  it('limits source-workspace compilation to programs required by attached Material previews', async () => {
+    const project = materialProject();
+    project.materials.panel!.data = {
+      ...defaultMaterialData('Panel'),
+      shader: { fragment: { kind: 'project' as const, path: 'shaders/panel.sc' } },
+    };
+    project.materials.badge = {
+      id: 'badge',
+      label: 'Badge',
+      data: {
+        ...defaultMaterialData('Badge'),
+        shader: { fragment: { kind: 'project' as const, path: 'shaders/badge.sc' } },
+      },
+    };
+    const compileShaders = vi.fn().mockResolvedValue([]);
+    const resources = createResources({ compileShaders });
+    resources.updateProject(project, 'source-tab:panel', {
+      materialIds: ['panel'],
+      sourceOverlays: { 'shaders/panel.sc': 'unsaved panel source' },
+    });
+
+    await resources.getMaterial('panel');
+
+    const [compilation, options] = compileShaders.mock.calls[0]!;
+    expect(
+      Object.values(
+        (compilation as { programs: Record<string, { fragmentSource: string }> }).programs,
+      ),
+    ).toHaveLength(1);
+    expect(
+      Object.values(
+        (compilation as { programs: Record<string, { fragmentSource: string }> }).programs,
+      )[0]?.fragmentSource,
+    ).toBe('project:/shaders/panel.sc');
+    expect(options).toEqual({ sourceOverlays: { 'shaders/panel.sc': 'unsaved panel source' } });
+  });
+
+  it('retains the last successful browser program and marks it stale after a live compile failure', async () => {
+    const project = materialProject();
+    project.materials.panel!.data = {
+      ...defaultMaterialData('Panel'),
+      shader: { fragment: { kind: 'project' as const, path: 'shaders/panel.sc' } },
+    };
+    let fail = false;
+    const compileShaders = vi.fn().mockImplementation(async (compilation: unknown) => {
+      const program = Object.keys(
+        (compilation as { programs: Record<string, unknown> }).programs,
+      )[0]!;
+      if (fail)
+        return {
+          success: false,
+          outputs: [],
+          diagnostics: [{ severity: 'error' as const, message: 'broken shader' }],
+        };
+      return {
+        success: true,
+        diagnostics: [],
+        outputs: [
+          {
+            program,
+            programIdentity: 'program:first',
+            stage: 'fragment' as const,
+            variant: 'essl-300',
+            sourceIdentity: 'project:/shaders/panel.sc',
+            dependencies: [],
+            dependencyRevisions: [],
+            outputPath: '/tmp/panel.bin',
+            runtimePath: 'shaders/panel.bin',
+            cacheKey: 'first',
+            byteHash: `sha256:${'a'.repeat(64)}` as const,
+            byteSize: 16,
+            reflectedInputs: [],
+            browserPayload: '#version 300 es\nvoid main() {}',
+            cacheHit: false,
+          },
+        ],
+      };
+    });
+    const resources = createResources({ compileShaders });
+    resources.updateProject(project, 'source-tab:first', { materialIds: ['panel'] });
+    const first = await resources.getMaterial('panel');
+    expect(first?.stale).toBe(false);
+    expect(first?.fragmentShaderSource).toContain('void main');
+
+    fail = true;
+    resources.updateProject(project, 'source-tab:broken', { materialIds: ['panel'] });
+    const broken = await resources.getMaterial('panel');
+
+    expect(broken?.stale).toBe(true);
+    expect(broken?.fragmentShaderSource).toBe(first?.fragmentShaderSource);
+    expect(broken?.compileDiagnostics).toEqual([
+      expect.objectContaining({ severity: 'error', message: 'broken shader' }),
+    ]);
+  });
+
   it('decodes one Project texture once when multiple Materials share it', async () => {
     const project = materialProject();
     project.assets.logo = {

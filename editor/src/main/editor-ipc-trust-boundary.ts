@@ -606,6 +606,18 @@ export const previewExportedPackageArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.string().min(1).max(MAX_PROJECT_PATH_LENGTH),
 ]);
+const shaderSourceOverlayPathSchema = projectRelativePathSchema.refine((value) =>
+  value.startsWith('shaders/'),
+);
+const shaderSourceOverlaysSchema = z
+  .record(shaderSourceOverlayPathSchema, z.string().max(PROJECT_TEXT_SOURCE_LIMITS.maxSourceBytes))
+  .refine((value) => Object.keys(value).length <= PROJECT_TEXT_SOURCE_LIMITS.maxEntries)
+  .refine(
+    (value) =>
+      Object.values(value).reduce((bytes, text) => bytes + Buffer.byteLength(text, 'utf8'), 0) <=
+      PROJECT_TEXT_SOURCE_LIMITS.maxAggregateBytes,
+  );
+
 export const compileShadersArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   shaderSourceProgramsSchema,
@@ -616,6 +628,7 @@ export const compileShadersArgumentsSchema = z.tuple([
         .array(z.string().min(1).max(MAX_SHADER_VARIANT_LENGTH))
         .max(MAX_SHADER_VARIANTS)
         .optional(),
+      sourceOverlays: shaderSourceOverlaysSchema.optional(),
     })
     .strict(),
 ]);

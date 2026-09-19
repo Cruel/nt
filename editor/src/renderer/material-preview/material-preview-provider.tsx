@@ -32,6 +32,13 @@ interface MaterialPreviewProjectContextValue {
 const ProjectResourcesContext = createContext<MaterialPreviewProjectContextValue | null>(null);
 const GroupRendererContext = createContext<MaterialPreviewGroupRenderer | null>(null);
 
+export async function resolveMaterialPreviewAssetUrl(assetId: string): Promise<string | null> {
+  const sessionId = useProjectStore.getState().projectSessionId;
+  if (!sessionId) return null;
+  const response = await window.noveltea.resolveProjectOriginalAssetUrl(sessionId, assetId);
+  return response.ok ? (response.url ?? null) : null;
+}
+
 export function MaterialPreviewProjectProvider({ children }: { children: ReactNode }) {
   const document = useProjectStore((state) => state.document);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
@@ -44,17 +51,11 @@ export function MaterialPreviewProjectProvider({ children }: { children: ReactNo
       compileShaders: async (compilation) => {
         if (Object.keys((compilation as { programs?: object }).programs ?? {}).length === 0)
           return [];
-        const response = await useShaderCompileStore
+        return useShaderCompileStore
           .getState()
           .runCompile(compilation, undefined, { shaderVariants: ['essl-300'] });
-        return response.success ? response.outputs : [];
       },
-      resolveAssetUrl: async (assetId) => {
-        const sessionId = useProjectStore.getState().projectSessionId;
-        if (!sessionId) return null;
-        const response = await window.noveltea.resolveProjectOriginalAssetUrl(sessionId, assetId);
-        return response.ok ? (response.url ?? null) : null;
-      },
+      resolveAssetUrl: resolveMaterialPreviewAssetUrl,
       decodeImage: materialPreviewDefaultDecodeImage,
     });
   }
@@ -64,7 +65,9 @@ export function MaterialPreviewProjectProvider({ children }: { children: ReactNo
     .map((file) => `${file.id}:${file.contentHash ?? 'absent'}`)
     .sort()
     .join('|');
-  resources.updateProject(project, `${projectSessionId ?? 'none'}|${shaderSourceRevision}`);
+  resources.updateProject(project, `${projectSessionId ?? 'none'}|${shaderSourceRevision}`, {
+    scopeKey: projectSessionId,
+  });
   const generation = resources.generation;
   const value = useMemo(() => ({ resources, generation }), [generation, resources]);
   return (
