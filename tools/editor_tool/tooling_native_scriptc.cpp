@@ -1,23 +1,40 @@
 #include "tooling_daemon_broker.hpp"
 #include "tooling_native_c.h"
 
+#include <nlohmann/json.hpp>
+
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 #if defined(_WIN32)
+#include <io.h>
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace {
 
 using NativeOperation = std::uint64_t (*)(const std::uint8_t*, std::uint64_t, std::uint8_t*,
                                           std::uint64_t);
+
+constexpr std::size_t native_response_headroom = 64 * 1024;
+
+std::size_t response_capacity(std::uint64_t required)
+{
+    const auto size = static_cast<std::size_t>(required);
+    if (size > std::numeric_limits<std::size_t>::max() - native_response_headroom)
+        return size;
+    return size + native_response_headroom;
+}
 
 NativeOperation operation_for(std::string_view operation)
 {
@@ -84,6 +101,122 @@ void write_text(std::string_view path, std::string_view text)
     output.write(text.data(), static_cast<std::streamsize>(text.size()));
 }
 
+int duplicate_fd(int fd)
+{
+#if defined(_WIN32)
+    return _dup(fd);
+#else
+    return ::dup(fd);
+#endif
+}
+
+bool replace_fd(int source, int target)
+{
+#if defined(_WIN32)
+    return _dup2(source, target) == 0;
+#else
+    return ::dup2(source, target) >= 0;
+#endif
+}
+
+void close_fd(int fd)
+{
+#if defined(_WIN32)
+    _close(fd);
+#else
+    ::close(fd);
+#endif
+}
+
+int file_fd(std::FILE* file)
+{
+#if defined(_WIN32)
+    return _fileno(file);
+#else
+    return ::fileno(file);
+#endif
+}
+
+std::string read_capture(std::FILE* file)
+{
+    if (file == nullptr)
+        return {};
+    std::fflush(file);
+    if (std::fseek(file, 0, SEEK_END) != 0)
+        return {};
+    const auto length = std::ftell(file);
+    if (length <= 0 || std::fseek(file, 0, SEEK_SET) != 0)
+        return {};
+    std::string result(static_cast<std::size_t>(length), '\0');
+    const auto read = std::fread(result.data(), 1, result.size(), file);
+    result.resize(read);
+    return result;
+}
+
+struct CapturedNativeResponse {
+    bool ok = false;
+    std::string response;
+    std::string stdout_text;
+    std::string stderr_text;
+};
+
+CapturedNativeResponse invoke_captured(NativeOperation operation, const std::uint8_t* request_bytes,
+                                       std::size_t request_size)
+{
+    std::fflush(stdout);
+    std::fflush(stderr);
+    std::FILE* stdout_capture = std::tmpfile();
+    std::FILE* stderr_capture = std::tmpfile();
+    const int stdout_copy = duplicate_fd(file_fd(stdout));
+    const int stderr_copy = duplicate_fd(file_fd(stderr));
+    const bool resources_ready = stdout_capture != nullptr && stderr_capture != nullptr &&
+                                 stdout_copy >= 0 && stderr_copy >= 0;
+    bool stdout_redirected = false;
+    bool stderr_redirected = false;
+    if (resources_ready) {
+        stdout_redirected = replace_fd(file_fd(stdout_capture), file_fd(stdout));
+        if (stdout_redirected)
+            stderr_redirected = replace_fd(file_fd(stderr_capture), file_fd(stderr));
+    }
+    if (!stdout_redirected || !stderr_redirected) {
+        if (stdout_redirected)
+            replace_fd(stdout_copy, file_fd(stdout));
+        if (stderr_redirected)
+            replace_fd(stderr_copy, file_fd(stderr));
+        if (stdout_copy >= 0)
+            close_fd(stdout_copy);
+        if (stderr_copy >= 0)
+            close_fd(stderr_copy);
+        if (stdout_capture != nullptr)
+            std::fclose(stdout_capture);
+        if (stderr_capture != nullptr)
+            std::fclose(stderr_capture);
+        return {};
+    }
+
+    const auto required = operation(request_bytes, static_cast<std::uint64_t>(request_size), nullptr, 0);
+    std::vector<std::uint8_t> response(response_capacity(required));
+    const auto written = operation(request_bytes, static_cast<std::uint64_t>(request_size),
+                                   response.data(), response.size());
+    std::fflush(stdout);
+    std::fflush(stderr);
+    replace_fd(stdout_copy, file_fd(stdout));
+    replace_fd(stderr_copy, file_fd(stderr));
+    close_fd(stdout_copy);
+    close_fd(stderr_copy);
+
+    CapturedNativeResponse captured;
+    captured.ok = true;
+    captured.stdout_text = read_capture(stdout_capture);
+    captured.stderr_text = read_capture(stderr_capture);
+    std::fclose(stdout_capture);
+    std::fclose(stderr_capture);
+    if (written <= response.size())
+        captured.response.assign(reinterpret_cast<const char*>(response.data()),
+                                 static_cast<std::size_t>(written));
+    return captured;
+}
+
 } // namespace
 
 extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* operation_bytes,
@@ -93,13 +226,29 @@ extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* oper
                                                         const std::uint8_t* response_path_bytes,
                                                         std::size_t response_path_size)
 {
-    const std::string_view operation(reinterpret_cast<const char*>(operation_bytes),
-                                     operation_size);
+    const std::string_view requested_operation(reinterpret_cast<const char*>(operation_bytes),
+                                               operation_size);
+    constexpr std::string_view capture_prefix = "capture:";
+    const bool capture_output = requested_operation.starts_with(capture_prefix);
+    const std::string_view operation = capture_output
+                                           ? requested_operation.substr(capture_prefix.size())
+                                           : requested_operation;
     const std::string_view response_path(reinterpret_cast<const char*>(response_path_bytes),
                                          response_path_size);
     const auto native_operation = operation_for(operation);
     if (native_operation == nullptr) {
         write_text(response_path, R"({"ok":false,"error":"unknown native operation"})");
+        return;
+    }
+
+    if (capture_output && operation != "daemon") {
+        const auto captured = invoke_captured(native_operation, request_bytes, request_size);
+        const auto envelope = nlohmann::json{{"captureOk", captured.ok},
+                                             {"response", captured.response},
+                                             {"stdout", captured.stdout_text},
+                                             {"stderr", captured.stderr_text}}
+                                  .dump();
+        write_text(response_path, envelope);
         return;
     }
 
@@ -123,9 +272,9 @@ extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* oper
 
     const auto required =
         native_operation(request_bytes, static_cast<std::uint64_t>(request_size), nullptr, 0);
-    std::vector<std::uint8_t> response(static_cast<std::size_t>(required));
+    std::vector<std::uint8_t> response(response_capacity(required));
     const auto written = native_operation(request_bytes, static_cast<std::uint64_t>(request_size),
-                                          response.data(), required);
+                                          response.data(), response.size());
     if (written > response.size()) {
         write_text(response_path, R"({"ok":false,"error":"native response overflow"})");
         return;

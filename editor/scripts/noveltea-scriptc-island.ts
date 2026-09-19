@@ -157,11 +157,48 @@ async function runInternalCommand(
   return result(record.ok === true ? 0 : 1, `${JSON.stringify(response)}\n`);
 }
 
+export interface ScriptcInvocationContext {
+  readonly cwd?: string;
+  readonly environment?: Readonly<Record<string, string>>;
+  readonly cancellationProbe?: () => boolean;
+}
+
 export async function runNovelTeaScriptcIsland(
   argvText: string,
   invokeHost: ScriptcHostInvoke,
   forceRuntimeCacheRebuild = false,
   authoringCacheInventoryText = '',
+  invocationContext: ScriptcInvocationContext = {},
+): Promise<string> {
+  const previousEnvironment = invocationContext.environment ? { ...process.env } : null;
+  if (invocationContext.environment) {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    for (const [key, value] of Object.entries(invocationContext.environment))
+      process.env[key] = value;
+  }
+  try {
+    return await runNovelTeaScriptcIslandScoped(
+      argvText,
+      invokeHost,
+      forceRuntimeCacheRebuild,
+      authoringCacheInventoryText,
+      invocationContext,
+    );
+  } finally {
+    if (previousEnvironment) {
+      for (const key of Object.keys(process.env)) delete process.env[key];
+      for (const [key, value] of Object.entries(previousEnvironment))
+        if (value !== undefined) process.env[key] = value;
+    }
+  }
+}
+
+async function runNovelTeaScriptcIslandScoped(
+  argvText: string,
+  invokeHost: ScriptcHostInvoke,
+  forceRuntimeCacheRebuild: boolean,
+  authoringCacheInventoryText: string,
+  invocationContext: ScriptcInvocationContext,
 ): Promise<string> {
   const argv = JSON.parse(argvText) as string[];
   const precomputedAuthoringCacheInventory = authoringCacheInventoryText
@@ -169,8 +206,9 @@ export async function runNovelTeaScriptcIsland(
         entries: JSON.parse(authoringCacheInventoryText),
       } as import('../src/shared/project-source-inventory').ProjectSourceInventory)
     : undefined;
+  const environment = invocationContext.environment ?? process.env;
   const cancellationCertification =
-    process.env.NOVELTEA_CLI_CERTIFICATION === '1' && argv[0] === '__comfyui-cancel-certification';
+    environment.NOVELTEA_CLI_CERTIFICATION === '1' && argv[0] === '__comfyui-cancel-certification';
   const effectiveArgv = cancellationCertification ? argv.slice(1) : argv;
   const nativeTools = createNativeTools(invokeHost);
   const internal = await runInternalCommand(effectiveArgv, nativeTools, invokeHost);
@@ -276,9 +314,15 @@ export async function runNovelTeaScriptcIsland(
     embeddedBuiltInFiles = comfyUi.scriptcComfyUiWorkflowFiles;
   }
 
-  const cancellationController = cancellationCertification ? new AbortController() : null;
-  const cancellationTimer = cancellationController
-    ? setTimeout(() => cancellationController.abort(), 500)
+  const cancellationController =
+    cancellationCertification || invocationContext.cancellationProbe ? new AbortController() : null;
+  const cancellationTimer = cancellationCertification
+    ? setTimeout(() => cancellationController?.abort(), 500)
+    : null;
+  const cancellationPoll = invocationContext.cancellationProbe
+    ? setInterval(() => {
+        if (invocationContext.cancellationProbe?.()) cancellationController?.abort();
+      }, 25)
     : null;
   try {
     trace('application import starting');
@@ -286,6 +330,7 @@ export async function runNovelTeaScriptcIsland(
     trace('application import completed');
     trace('application invocation starting');
     const commandResult = await runNovelTeaCli(effectiveArgv, {
+      ...(invocationContext.cwd ? { cwd: invocationContext.cwd } : {}),
       ...(fileSystem ? { fileSystem } : {}),
       ...(workspace ? { workspace } : {}),
       nativeTools,
@@ -300,7 +345,7 @@ export async function runNovelTeaScriptcIsland(
       skipAuthoringWholeResultCache: true,
       ...(precomputedAuthoringCacheInventory ? { precomputedAuthoringCacheInventory } : {}),
       onAuthoringValidationInstrumentation:
-        process.env.NOVELTEA_CLI_VALIDATION_PROFILE === '1'
+        environment.NOVELTEA_CLI_VALIDATION_PROFILE === '1'
           ? (instrumentation) =>
               process.stderr.write(`[validation-profile] ${JSON.stringify(instrumentation)}\n`)
           : undefined,
@@ -309,5 +354,6 @@ export async function runNovelTeaScriptcIsland(
     return result(commandResult.exitCode, commandResult.stdout, commandResult.stderr);
   } finally {
     if (cancellationTimer) clearTimeout(cancellationTimer);
+    if (cancellationPoll) clearInterval(cancellationPoll);
   }
 }
