@@ -1753,9 +1753,7 @@ export async function analyzeAuthoringSources(
     if (descriptor.sourceAssetId) {
       const entry = snapshot.entriesByAssetId.get(descriptor.sourceAssetId);
       if (!entry)
-        throw new Error(
-          `Missing Lua source snapshot entry for Asset '${descriptor.sourceAssetId}'.`,
-        );
+        throw new Error(`Missing source snapshot entry for Asset '${descriptor.sourceAssetId}'.`);
       if (entry.status === 'ready') {
         text = entry.text;
         hash = entry.contentHash;

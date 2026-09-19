@@ -790,24 +790,9 @@ function semanticEdgeOptions(
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
     [
-      /\/data\/shader\/\$ref$/,
-      'material-shader',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
       /\/data\/textures\/[^/]+\/source\/\$ref$/,
       'material-texture',
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/stages\/[^/]+\/sourceAsset\/\$ref$/,
-      'shader-source',
-      ['reference-integrity', 'tooling-reference', 'resource'],
-    ],
-    [
-      /\/scripts\/[^/]+\/data\/source\/asset\/\$ref$/,
-      'script-source',
-      ['reference-integrity', 'tooling-reference', 'resource', 'runtime-only'],
     ],
     [
       /\/layouts\/[^/]+\/data\/rml\/sourceAsset\/\$ref$/,
@@ -817,11 +802,6 @@ function semanticEdgeOptions(
     [
       /\/layouts\/[^/]+\/data\/rcss\/sourceAsset\/\$ref$/,
       'layout-rcss-source',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /\/layouts\/[^/]+\/data\/lua\/sourceAsset\/\$ref$/,
-      'layout-lua-source',
       ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
     ],
     [
@@ -837,11 +817,6 @@ function semanticEdgeOptions(
     [
       /\/layouts\/[^/]+\/data\/dependencies\/stylesheets\/\d+\/\$ref$/,
       'layout-stylesheet',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /\/layouts\/[^/]+\/data\/dependencies\/scripts\/\d+\/\$ref$/,
-      'layout-script',
       ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
     ],
     [
@@ -908,15 +883,11 @@ function semanticEdgeOptions(
       'character-expression-sprite',
       'interactable-sprite',
       'material-texture',
-      'shader-source',
-      'script-source',
       'layout-rml-source',
       'layout-rcss-source',
-      'layout-lua-source',
       'layout-image',
       'layout-font',
       'layout-stylesheet',
-      'layout-script',
       'layout-template',
       'default-font',
       'font-stack',
@@ -942,8 +913,6 @@ function semanticEdgeOptions(
       'material-base',
     ].includes(role)
   ) {
-    targetImpactPaths = recordImpactPaths(target, ['/data']);
-  } else if (role === 'material-shader') {
     targetImpactPaths = recordImpactPaths(target, ['/data']);
   } else if (
     role === 'room-overlay-layout' ||

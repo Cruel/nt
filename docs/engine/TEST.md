@@ -452,7 +452,7 @@ runPlaybackSpec(project, spec) => invokeEditorTool('run-test', { project, spec }
 UI Tests use the parallel `run-ui-test` operation exposed as
 `window.noveltea.runUiPlaybackSpec(projectSessionId, project, spec)`. The main process resolves the
 trusted active Project root from that session and supplies it only to the native UI runner, so
-file-backed Layout RML/RCSS/Lua and gameplay Script Assets resolve through the same `project:/`
+file-backed Layout RML/RCSS/Lua and gameplay Script Module source files resolve through the same `project:/`
 namespace as normal execution. Unlike `run-test`, this operation instantiates the real RuntimeUI/RmlUi
 presentation path and drives selector clicks through `RuntimeUiPlaybackDriver`.
 The driver requires the requested document to be visible, the selected element to be enabled and have

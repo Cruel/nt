@@ -2209,6 +2209,7 @@ const layoutSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),
   strict({ asset: assetReferenceSchema, kind: z.literal('asset') }),
 ]);
+const layoutLuaSourceSchema = strict({ kind: z.literal('inline'), text: z.string() });
 const layoutContractValueTypeSchema = z.enum(['boolean', 'integer', 'number', 'string']);
 const layoutContractValueShapeSchema = strict({
   nullable: z.boolean(),
@@ -2293,7 +2294,7 @@ const layoutResourceSchema = strict({
   }),
   id,
   kind: z.enum(['document', 'fragment']),
-  lua: layoutSourceSchema,
+  lua: layoutLuaSourceSchema,
   mount: strict({ defaultParent: z.string().nullable(), scopedStyles: z.boolean() }),
   rcss: layoutSourceSchema,
   rml: layoutSourceSchema,

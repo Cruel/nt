@@ -19,10 +19,10 @@ This table is the authoritative current ownership map. Authoring records are edi
 | Verbs | Verb records | `VerbDefinition` + default `InteractionProgram` | Immutable; fallback execution and property overrides only |
 | Interactions | Ordered rules/programs | `InteractionRule` + `InteractionProgram` | Interaction frames and effects on typed state |
 | Maps | Map presentation records | `MapDefinition` linked to Room exits | Focus/visibility presentation state when needed |
-| Script Modules | Inline/Asset Lua records | Script resource IDs/source references | Explicit invocation only; no entity or mutable record |
+| Script Modules | Lua module records with Project source under `scripts/` | Script resource IDs/source references | Explicit invocation only; no entity or mutable record |
 | Assets | Asset records/import metadata | Typed resource IDs and aliases | Prepared asset registries; backend resource lifetime outside session state |
 | Layouts | RML/layout source records | Typed layout resource IDs | Prepared runtime UI resources, not entities |
-| Shaders/materials | Dedicated authored metadata | Separate versioned shader/material document and resource IDs | Prepared render registries, not entities |
+| Materials | Material Preset/inheritance records plus optional Project shader-source paths | Derived shader/material document and Material resource IDs | Prepared render registries, not entities; shader programs have no authored identity |
 | Localization | Project locale catalogs | Compiled locale catalogs | Selected locale/fallback lookup; source catalogs immutable |
 | Tests | Editor test records | Not gameplay wire data | Tooling/playback input only |
 | Categories/tags/editor metadata | Editor organization | Not emitted | No runtime meaning |

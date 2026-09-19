@@ -1043,7 +1043,6 @@
     "orphanedTexture": "Textura órfã: {{name}}",
     "remove": "Remover",
     "noTexture": "Sem textura",
-    "shaderRemoved": "{{title}}: registros de Shader não são mais recursos de autoria. Abra o arquivo de fonte do shader pelo Material correspondente.",
     "commands": {
       "update": "Atualizar Material",
       "setPreset": "Definir Preset de Material",
