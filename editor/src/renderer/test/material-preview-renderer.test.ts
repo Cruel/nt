@@ -697,9 +697,8 @@ describe('Material preview workbench-group renderer', () => {
     expect(compileShaders).not.toHaveBeenCalled();
 
     registration.update(surface('panel', true));
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(clock.pending).toBe(1);
-    expect(compileShaders).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(compileShaders).toHaveBeenCalledTimes(1));
     renderer.dispose();
   });
 
