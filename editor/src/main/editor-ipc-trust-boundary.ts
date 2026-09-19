@@ -281,6 +281,14 @@ export const createProjectArgumentsSchema = z.tuple([
     .strict(),
 ]);
 
+export const listProjectSourceFilesArgumentsSchema = z.tuple([
+  z
+    .object({
+      projectSessionId: z.string().min(1).max(MAX_PROJECT_SESSION_ID_LENGTH),
+    })
+    .strict(),
+]);
+
 export const readProjectTextSourcesArgumentsSchema = z.tuple([
   z
     .object({

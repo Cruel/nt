@@ -6,7 +6,14 @@ import {
 
 export const EDITOR_PROJECT_STATE_SCHEMA = 'noveltea.editor.project-state' as const;
 
-const workbenchResourceKindSchema = z.enum(['record', 'preview', 'tool', 'project', 'raw']);
+const workbenchResourceKindSchema = z.enum([
+  'record',
+  'preview',
+  'tool',
+  'project',
+  'source',
+  'raw',
+]);
 
 export const editorWorkbenchResourceSchema = z
   .object({
@@ -16,6 +23,8 @@ export const editorWorkbenchResourceSchema = z
     entityId: z.string().optional(),
     testId: z.string().optional(),
     explorerNodeId: z.string().optional(),
+    sourceId: z.string().optional(),
+    projectRelativePath: z.string().optional(),
     generationMode: z.enum(['generate', 'edit']).optional(),
   })
   .strict();
@@ -103,6 +112,7 @@ export const editorExplorerStateSchema = z
     filterTags: z.array(z.string()).default([]),
     showTagFilter: z.boolean().default(false),
     exactMatch: z.boolean().default(false),
+    navigationMode: z.enum(['project', 'files']).default('project'),
   })
   .strict();
 
@@ -323,6 +333,7 @@ export function emptyEditorExplorerState(): EditorExplorerState {
     filterTags: [],
     showTagFilter: false,
     exactMatch: false,
+    navigationMode: 'project',
   };
 }
 

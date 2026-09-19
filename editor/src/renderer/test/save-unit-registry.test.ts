@@ -45,6 +45,12 @@ const representativeResources: Record<string, WorkbenchResource> = {
   traits: { kind: 'project', stableId: 'traits', collection: 'traits' },
   components: { kind: 'tool', stableId: 'utility:components' },
   settings: { kind: 'tool', stableId: 'utility:settings' },
+  'source-file': {
+    kind: 'source',
+    stableId: 'source:scripts/helpers.lua',
+    sourceId: 'scripts/helpers.lua',
+    projectRelativePath: 'scripts/helpers.lua',
+  },
   'project-settings': { kind: 'project', stableId: 'project:settings' },
   localization: { kind: 'project', stableId: 'project:localization' },
   'platform-export': { kind: 'project', stableId: 'project:platform-export' },

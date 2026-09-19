@@ -199,6 +199,9 @@ interface NovelTeaElectronApiContract {
   onEditorCacheEpoch(
     callback: (event: import('./image-thumbnails').EditorCacheEpochEvent) => void,
   ): () => void;
+  listProjectSourceFiles(
+    request: import('./project-source-files').ListProjectSourceFilesRequest,
+  ): Promise<import('./project-source-files').ListProjectSourceFilesResponse>;
   readProjectTextSources(
     request: import('./project-text-sources').ReadProjectTextSourcesRequest,
   ): Promise<import('./project-text-sources').ReadProjectTextSourcesResponse>;

@@ -452,6 +452,34 @@ describe('active Project session lifecycle', () => {
     });
   });
 
+  it('lists only author-facing source roots for Files navigation', async () => {
+    const project = await createWorkspace('source-files');
+    await fs.mkdir(path.join(project, 'scripts', 'helpers'), { recursive: true });
+    await fs.mkdir(path.join(project, 'shaders', 'includes'), { recursive: true });
+    await fs.mkdir(path.join(project, 'records', 'internal'), { recursive: true });
+    await fs.writeFile(path.join(project, 'scripts', 'helpers', 'utility.lua'), 'return true\n');
+    await fs.writeFile(path.join(project, 'scripts', 'ignore.txt'), 'not lua\n');
+    await fs.writeFile(path.join(project, 'shaders', 'includes', 'common.sc'), 'vec4 helper;\n');
+    await fs.writeFile(path.join(project, 'assets', 'note.txt'), 'asset text\n');
+    await fs.writeFile(path.join(project, 'records', 'internal', 'hidden.lua'), 'return false\n');
+    const service = new ActiveProjectSessionService();
+    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.json'));
+
+    const response = await service.listProjectSourceFiles({ projectSessionId });
+
+    expect(response.files.map((file) => file.displayPath)).toEqual([
+      'assets/note.txt',
+      'scripts/bootstrap.lua',
+      'scripts/helpers/utility.lua',
+      'shaders/includes/common.sc',
+    ]);
+    expect(response.files).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ projectRelativePath: 'records/internal/hidden.lua' }),
+      ]),
+    );
+  });
+
   it('enforces the source limit against bytes observed after the metadata check', async () => {
     const project = await createWorkspace('growing-source');
     const source = Buffer.alloc(PROJECT_TEXT_SOURCE_LIMITS.maxSourceBytes + 1, 0x61);

@@ -109,6 +109,7 @@ import {
   normalizeDesktopProjectImportArgument,
   type DesktopProjectImportRequest,
 } from './shared/project-import-handoff';
+import type { ListProjectSourceFilesRequest } from './shared/project-source-files';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 import {
@@ -154,6 +155,7 @@ import {
   installPlayerTemplateArgumentsSchema,
   listPlaybackTestsArgumentsSchema,
   listPlayerTemplatesArgumentsSchema,
+  listProjectSourceFilesArgumentsSchema,
   installEditorNavigationPolicy,
   noArgumentsSchema,
   openExternalArgumentsSchema,
@@ -1480,6 +1482,13 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.CLEAR_EDITOR_CACHE,
     (arguments_) => noArgumentsSchema.parse(arguments_),
     () => imageThumbnailService.clearEditorCache(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.LIST_PROJECT_SOURCE_FILES,
+    (arguments_) => listProjectSourceFilesArgumentsSchema.parse(arguments_),
+    (request: ListProjectSourceFilesRequest) =>
+      activeProjectSessions.listProjectSourceFiles(request),
   );
 
   guardedIpc.handle(

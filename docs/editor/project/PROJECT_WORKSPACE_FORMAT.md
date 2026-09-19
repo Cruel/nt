@@ -94,6 +94,12 @@ sources are obsolete. Workspace assembly reads a `file` Layout companion into th
 Layout source used by compiler/editor consumers while retaining the companion file as the authoritative
 physical source.
 
+Author-managed Lua and shader source use real Project source roots: Lua lives beneath `scripts/` and
+shader stages/includes/interface files live beneath `shaders/`. These freeform source trees are not
+record collections and files may exist without a semantic record owner. Their normalized Project-relative
+paths are their source identity; the editor Files view and quick-open/search surfaces use those paths
+without introducing hidden authored file IDs.
+
 Script Module file sources use `{ "kind": "project-file", "path": "scripts/...lua" }`. Their paths
 are safe project-relative `scripts/` paths and remain `project-file` sources after workspace assembly;
 the file bytes are read through the Project source authority when analysis, compilation, preview, or
@@ -156,7 +162,9 @@ rewrite tracked `editor.json` nor adopt tracked-file revisions that the active w
 not reconciled. Tracked organization and ignored local/session state are persisted independently, and
 ignored local/session changes do not change in-memory or on-disk workspace identity.
 
-New projects create `records/`, `scripts/`, and `assets/` but do not add placeholder files. Editor and
+New projects create `records/`, `scripts/`, and `assets/` but do not add placeholder files. The
+`shaders/` root is author-managed source as well and may remain absent until custom shader source is
+created. Editor and
 CLI creation use one transactional service: it stages and validates the complete workspace before
 activating a new destination path that does not exist. Every existing file, directory, or symlink is
 rejected, and paths containing spaces are supported. The editor's Browse action selects a parent

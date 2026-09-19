@@ -30,6 +30,7 @@ interface ProjectExplorerStore {
   filterTags: string[];
   showTagFilter: boolean;
   exactMatch: boolean;
+  navigationMode: 'project' | 'files';
   activeNodeId: string | null;
   followExpandedNodeIds: string[];
   followSuppressedNodeIds: string[];
@@ -54,6 +55,7 @@ interface ProjectExplorerStore {
   setFilterTags: (tags: string[]) => void;
   setShowTagFilter: (visible: boolean) => void;
   setExactMatch: (enabled: boolean) => void;
+  setNavigationMode: (mode: 'project' | 'files') => void;
   setActiveNodeId: (nodeId: string | null) => void;
   setFollowExpandedNodeIds: (nodeIds: string[]) => void;
   suppressFollowNodeId: (nodeId: string) => void;
@@ -73,6 +75,7 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
   filterTags: [],
   showTagFilter: false,
   exactMatch: false,
+  navigationMode: 'project',
   activeNodeId: null,
   followExpandedNodeIds: [],
   followSuppressedNodeIds: [],
@@ -110,6 +113,7 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
           ? nextExplorer.exactMatch
           : state.exactMatch
         : false,
+      navigationMode: nextExplorer.navigationMode ?? 'project',
       activeNodeId: null,
       followExpandedNodeIds: [],
       followSuppressedNodeIds: [],
@@ -138,6 +142,7 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
       filterTags: unique(state.filterTags),
       showTagFilter: state.showTagFilter,
       exactMatch: state.exactMatch,
+      navigationMode: state.navigationMode,
     };
   },
   serializeChapters: () => {
@@ -183,6 +188,7 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
   setFilterTags: (filterTags) => set({ filterTags: unique(filterTags) }),
   setShowTagFilter: (showTagFilter) => set({ showTagFilter }),
   setExactMatch: (exactMatch) => set({ exactMatch }),
+  setNavigationMode: (navigationMode) => set({ navigationMode }),
   setActiveNodeId: (activeNodeId) => set({ activeNodeId }),
   setFollowExpandedNodeIds: (nodeIds) => set({ followExpandedNodeIds: unique(nodeIds) }),
   suppressFollowNodeId: (nodeId) =>
