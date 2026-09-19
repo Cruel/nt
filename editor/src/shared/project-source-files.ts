@@ -15,6 +15,7 @@ export interface ProjectSourceFile {
   projectRelativePath: string;
   kind: ProjectSourceFileKind;
   text: boolean;
+  contentHash?: `sha256:${string}`;
   assetIds?: readonly string[];
   layout?: {
     id: string;
@@ -28,6 +29,67 @@ export interface ListProjectSourceFilesRequest {
 
 export interface ListProjectSourceFilesResponse {
   files: readonly ProjectSourceFile[];
+  /** Author-managed physical folders beneath scripts/ and shaders/. */
+  folders?: readonly string[];
+}
+
+export type ProjectSourceExpectedRevision = `sha256:${string}` | 'absent';
+
+export interface ProjectSourceUsage {
+  kind:
+    | 'material-shader'
+    | 'script-module'
+    | 'shader-include'
+    | 'layout-script-dependency'
+    | 'layout-rml-script';
+  owner: string;
+  path: string;
+  detail: string;
+}
+
+export type ProjectSourceStructuralOperation =
+  | { kind: 'create-file'; path: string; fileKind: 'lua' | 'shader' }
+  | { kind: 'create-folder'; path: string }
+  | { kind: 'move'; fromPath: string; toPath: string }
+  | { kind: 'delete'; path: string };
+
+export interface ProjectSourceStructuralRequest {
+  projectSessionId: string;
+  operation: ProjectSourceStructuralOperation;
+  expectedRevisions?: Readonly<Record<string, ProjectSourceExpectedRevision>>;
+}
+
+export interface ProjectSourceStructuralResponse {
+  ok: boolean;
+  success: boolean;
+  error?: string;
+  usages?: readonly ProjectSourceUsage[];
+  pathRemap?: Readonly<Record<string, string>>;
+  changedPaths?: readonly string[];
+}
+
+export interface ProjectSourceWriteRequest {
+  projectSessionId: string;
+  sourceId: string;
+  expectedRevision: ProjectSourceExpectedRevision;
+  text: string;
+}
+
+export interface ProjectSourceWriteResponse {
+  ok: boolean;
+  success: boolean;
+  sourceId: string;
+  contentHash?: `sha256:${string}`;
+  error?: string;
+}
+
+export interface ProjectSourceUsageRequest {
+  projectSessionId: string;
+  path: string;
+}
+
+export interface ProjectSourceUsageResponse {
+  usages: readonly ProjectSourceUsage[];
 }
 
 export function sourceFileLanguage(

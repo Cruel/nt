@@ -207,6 +207,20 @@ export class AuthoringDependencyGraphService {
     return Object.freeze(values);
   }
 
+  refreshProjectSources(
+    publication: Publication,
+  ): Promise<AuthoringDependencyGraphSnapshot | null> {
+    return this.publish({
+      previousProject: publication.project,
+      project: publication.project,
+      changeSet: {
+        ...publication.changeSet,
+        kind: 'replace',
+        affectedPaths: ['/'],
+      },
+    });
+  }
+
   publish(publication: Publication): Promise<AuthoringDependencyGraphSnapshot | null> {
     const instance = publication.changeSet.projectInstanceId;
     if (

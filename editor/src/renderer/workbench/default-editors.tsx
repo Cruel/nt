@@ -192,6 +192,7 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Source File',
     icon: FileCode,
     component: SourceFileEditor,
+    mountPolicy: 'keep-mounted-while-open',
   },
   {
     type: 'script-module-detail',

@@ -23,10 +23,22 @@ import type {
   ListProjectSourceFilesRequest,
   ListProjectSourceFilesResponse,
   ProjectSourceFile,
+  ProjectSourceStructuralRequest,
+  ProjectSourceStructuralResponse,
+  ProjectSourceUsageRequest,
+  ProjectSourceUsageResponse,
+  ProjectSourceWriteRequest,
+  ProjectSourceWriteResponse,
 } from '../../shared/project-source-files';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import type { LoadedProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
 import { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
+import {
+  mutateProjectSources,
+  projectSourceUsages,
+  recreatableProjectSourcePhysicalPath,
+  writeProjectSourceText,
+} from './project-source-file-service';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const readOnlyNoFollowFlags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
@@ -244,6 +256,7 @@ export class ActiveProjectSessionService {
     }
 
     const files = new Map<string, ProjectSourceFile>();
+    const folders = new Set<string>();
     const addTree = async (rootName: 'scripts' | 'shaders' | 'assets') => {
       const root = path.join(active.root, rootName);
       const visit = async (directory: string): Promise<void> => {
@@ -261,6 +274,8 @@ export class ActiveProjectSessionService {
           if (relativeReal.startsWith('..') || path.isAbsolute(relativeReal)) continue;
           const stat = await fs.stat(real);
           if (stat.isDirectory()) {
+            if (rootName !== 'assets')
+              folders.add(path.relative(active.root, candidate).split(path.sep).join('/'));
             await visit(candidate);
             continue;
           }
@@ -277,6 +292,13 @@ export class ActiveProjectSessionService {
             projectRelativePath,
             kind,
             text: kind !== 'asset',
+            ...(kind !== 'asset'
+              ? {
+                  contentHash: `sha256:${createHash('sha256')
+                    .update(await fs.readFile(real))
+                    .digest('hex')}` as const,
+                }
+              : {}),
           });
         }
       };
@@ -309,6 +331,7 @@ export class ActiveProjectSessionService {
             projectRelativePath: physicalPath,
             kind: `layout-${channel}`,
             text: true,
+            contentHash: snapshot.fileRevisions[physicalPath]?.contentHash,
             layout: { id: layoutId, channel },
           });
         }
@@ -321,7 +344,62 @@ export class ActiveProjectSessionService {
           left.displayPath.localeCompare(right.displayPath),
         ),
       ),
+      folders: Object.freeze([...folders].sort()),
     };
+  }
+
+  async projectSourceUsages(
+    request: ProjectSourceUsageRequest,
+  ): Promise<ProjectSourceUsageResponse> {
+    const active = this.active;
+    if (!active || request.projectSessionId !== active.id || !active.workspace)
+      throw new Error('Project session is stale or unknown.');
+    return {
+      usages: await projectSourceUsages(active.root, active.workspace.snapshot(), request.path),
+    };
+  }
+
+  async mutateProjectSources(
+    request: ProjectSourceStructuralRequest,
+  ): Promise<ProjectSourceStructuralResponse> {
+    const workspace = this.requireActiveWorkspace(request.projectSessionId);
+    const result = await mutateProjectSources(
+      workspace,
+      request.operation,
+      request.expectedRevisions,
+    );
+    if (result.success) this.refreshActiveWorkspaceAssets(request.projectSessionId);
+    return result;
+  }
+
+  async writeProjectSource(
+    request: ProjectSourceWriteRequest,
+  ): Promise<ProjectSourceWriteResponse> {
+    const workspace = this.requireActiveWorkspace(request.projectSessionId);
+    const listed = await this.listProjectSourceFiles({
+      projectSessionId: request.projectSessionId,
+    });
+    const source = listed.files.find((candidate) => candidate.id === request.sourceId);
+    const physicalPath =
+      source?.text === true
+        ? source.projectRelativePath
+        : request.expectedRevision === 'absent'
+          ? recreatableProjectSourcePhysicalPath(workspace.project(), request.sourceId)
+          : null;
+    if (!physicalPath)
+      return {
+        ok: false,
+        success: false,
+        sourceId: request.sourceId,
+        error: 'Source file is unavailable.',
+      };
+    return writeProjectSourceText(
+      workspace,
+      request.sourceId,
+      physicalPath,
+      request.expectedRevision,
+      request.text,
+    );
   }
 
   async read(request: ReadProjectTextSourcesRequest): Promise<ReadProjectTextSourcesResponse> {

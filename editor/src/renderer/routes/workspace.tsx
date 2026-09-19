@@ -50,7 +50,9 @@ import {
   reconcileExternalProjectChange,
 } from '@/project/project-external-reconciliation';
 import { toJsonValue } from '@/project/json-value';
+import { refreshAuthoringDependencyGraphProjectSources } from '@/project/authoring-dependency-graph-runtime';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
+import { useProjectSourceStore } from '@/project/project-source-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useTemplateRegistryStore } from '@/export/template-registry-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
@@ -256,6 +258,7 @@ export function WorkspacePage() {
   const takeNextPendingProjectImportRef = useRef<() => Promise<void>>(async () => {});
   const persistentRecoveryDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
   const externalSourceDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
+  const externalPhysicalSourceDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
   const externalAssetDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
   const metadataFlushPromiseRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const metadataFlushTimerRef = useRef<number | null>(null);
@@ -951,6 +954,28 @@ export function WorkspacePage() {
         )
           return;
         const authoring = event.authoring;
+        if ((event.sourceChangedPaths?.length ?? 0) > 0 || event.assetChangedPaths.length > 0)
+          void useProjectSourceStore.getState().reconcileExternal(latestProjectSessionId);
+        if ((event.sourceChangedPaths?.length ?? 0) > 0)
+          void refreshAuthoringDependencyGraphProjectSources();
+        const sourceAuditChanged = (event.sourceChangedPaths?.length ?? 0) > 0;
+        const hadSourceDiagnostics = externalPhysicalSourceDiagnosticsRef.current.length > 0;
+        if (sourceAuditChanged) {
+          externalPhysicalSourceDiagnosticsRef.current = [...(event.sourceDiagnostics ?? [])];
+          if (externalPhysicalSourceDiagnosticsRef.current.length > 0) {
+            setDiagnostics(
+              collectWorkspaceProjectDiagnostics(latestProject, [
+                ...persistentRecoveryDiagnosticsRef.current,
+                ...externalSourceDiagnosticsRef.current,
+                ...externalPhysicalSourceDiagnosticsRef.current,
+                ...externalAssetDiagnosticsRef.current,
+              ]),
+            );
+            useBottomPanelStore.getState().setActivePanelId('problems');
+            setBottomPanelVisible(true);
+            setStatusMessage('Project source changes require attention');
+          }
+        }
         const assetAuditChanged = event.assetChangedPaths.length > 0;
         const hadAssetDiagnostics = externalAssetDiagnosticsRef.current.length > 0;
         if (assetAuditChanged) {
@@ -975,6 +1000,20 @@ export function WorkspacePage() {
         }
         if (!authoring) {
           if (assetAuditChanged) void runAssetAudit(latestProject);
+          if (
+            sourceAuditChanged &&
+            hadSourceDiagnostics &&
+            externalPhysicalSourceDiagnosticsRef.current.length === 0
+          ) {
+            setDiagnostics(
+              collectWorkspaceProjectDiagnostics(latestProject, [
+                ...persistentRecoveryDiagnosticsRef.current,
+                ...externalSourceDiagnosticsRef.current,
+                ...externalAssetDiagnosticsRef.current,
+              ]),
+            );
+            setStatusMessage('Project source is valid again');
+          }
           if (
             assetAuditChanged &&
             hadAssetDiagnostics &&

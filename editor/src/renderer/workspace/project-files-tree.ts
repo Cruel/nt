@@ -29,7 +29,10 @@ function compareNodes(left: ProjectFilesNode, right: ProjectFilesNode): number {
   return left.label.localeCompare(right.label);
 }
 
-export function buildProjectFilesTree(files: readonly ProjectSourceFile[]): ProjectFilesNode[] {
+export function buildProjectFilesTree(
+  files: readonly ProjectSourceFile[],
+  explicitFolders: readonly string[] = [],
+): ProjectFilesNode[] {
   const roots: MutableProjectFilesNode[] = [];
   const folders = new Map<string, MutableProjectFilesNode>();
   for (const rootName of ['scripts', 'shaders', 'assets', 'layouts']) {
@@ -42,6 +45,29 @@ export function buildProjectFilesTree(files: readonly ProjectSourceFile[]): Proj
     };
     roots.push(root);
     folders.set(rootName, root);
+  }
+
+  for (const explicitFolder of explicitFolders) {
+    const parts = explicitFolder.split('/').filter(Boolean);
+    let parent: MutableProjectFilesNode | null = null;
+    let accumulated = '';
+    for (const part of parts) {
+      accumulated = accumulated ? `${accumulated}/${part}` : part;
+      let folder = folders.get(accumulated);
+      if (!folder) {
+        folder = {
+          id: `folder:${accumulated}`,
+          label: part,
+          path: accumulated,
+          kind: 'folder',
+          children: [],
+        };
+        folders.set(accumulated, folder);
+        if (parent) parent.children.push(folder);
+        else roots.push(folder);
+      }
+      parent = folder;
+    }
   }
 
   for (const source of files) {
