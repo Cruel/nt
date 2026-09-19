@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
+import type { NovelTeaCliNativeToolService } from '../../cli/native-tool-service';
 import { importDesktopProject } from '../../main/services/desktop-project-import-service';
 
 const roots: string[] = [];
@@ -18,6 +19,32 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
+
+function validationNativeTools(): NovelTeaCliNativeToolService {
+  return {
+    async compileShaders() {
+      return { ok: true, success: true, diagnostics: [], outputs: [] };
+    },
+    async validateFontCoverage() {
+      return { ok: true, success: true, diagnostics: [] };
+    },
+    async runHeadlessTest() {
+      return { ok: true, success: true };
+    },
+    async runUiTest() {
+      return { ok: true, success: true };
+    },
+    async exportPackage() {
+      return { ok: true, success: true };
+    },
+    shaderc() {
+      return 0;
+    },
+    texturec() {
+      return 0;
+    },
+  };
+}
 
 function crc32(bytes: Buffer): number {
   let crc = 0xffffffff;
@@ -126,6 +153,35 @@ async function createPortableFixture(root: string): Promise<{
     { cwd: root },
   );
   expect(importedAsset.exitCode).toBe(0);
+
+  await fs.mkdir(path.join(projectRoot, 'records', 'materials'), { recursive: true });
+  await fs.mkdir(path.join(projectRoot, 'shaders'), { recursive: true });
+  await fs.writeFile(
+    path.join(projectRoot, 'records', 'materials', 'portable.json'),
+    `${JSON.stringify(
+      {
+        id: 'portable',
+        label: 'Portable Material',
+        data: {
+          kind: 'material',
+          base: { kind: 'preset', preset: 'engine-2d' },
+          displayName: 'Portable Material',
+          shader: {
+            vertex: { kind: 'project', path: 'shaders/portable.vs.sc' },
+            fragment: { kind: 'project', path: 'shaders/portable.fs.sc' },
+          },
+          parameters: {},
+          textures: {},
+          preview: { geometry: 'quad', background: 'checker' },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
+  await fs.writeFile(path.join(projectRoot, 'shaders', 'portable.vs.sc'), 'void main() {}\n');
+  await fs.writeFile(path.join(projectRoot, 'shaders', 'portable.fs.sc'), 'void main() {}\n');
 
   await fs.mkdir(path.join(projectRoot, 'workflows', 'image'), { recursive: true });
   await fs.writeFile(
@@ -271,7 +327,14 @@ describe('portable .ntproject Project bundle', () => {
       bundleVersion: 1,
     });
 
-    const validated = await runNovelTeaCli(['--project', destination, 'validate'], { cwd: root });
+    await expect(fs.stat(path.join(destination, '.noveltea'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+
+    const validated = await runNovelTeaCli(['--project', destination, 'validate'], {
+      cwd: root,
+      nativeTools: validationNativeTools(),
+    });
     expect(validated.exitCode, validated.stdout || validated.stderr).toBe(0);
     expect(await fs.readFile(path.join(destination, 'project.json'), 'utf8')).toBe(
       await fs.readFile(path.join(projectRoot, 'project.json'), 'utf8'),
@@ -279,13 +342,16 @@ describe('portable .ntproject Project bundle', () => {
     expect(
       await fs.readFile(path.join(destination, 'workflows', 'image', 'manifest.json'), 'utf8'),
     ).toBe('{"id":"portable-workflow"}\n');
+    expect(await fs.readFile(path.join(destination, 'shaders', 'portable.vs.sc'), 'utf8')).toBe(
+      'void main() {}\n',
+    );
+    expect(await fs.readFile(path.join(destination, 'shaders', 'portable.fs.sc'), 'utf8')).toBe(
+      'void main() {}\n',
+    );
     await expect(
       fs.stat(path.join(destination, 'workflows', 'image', '.git')),
     ).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(fs.stat(path.join(destination, 'dist'))).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(fs.stat(path.join(destination, '.noveltea'))).rejects.toMatchObject({
-      code: 'ENOENT',
-    });
     await expect(fs.stat(path.join(destination, '.git'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
