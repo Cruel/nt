@@ -27,6 +27,10 @@ export {
 } from './project-workspace-transaction';
 export { InMemoryProjectWorkspaceFileSystem } from './testing';
 export {
+  ResidentProjectWorkspaceService,
+  type ResidentProjectWorkspaceServiceFactory,
+} from './resident-project-workspace-service';
+export {
   createHostProjectWorkspaceService,
   createNodeProjectWorkspaceService,
 } from './node-project-workspace-service';

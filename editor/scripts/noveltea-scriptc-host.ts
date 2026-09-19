@@ -973,6 +973,7 @@ async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): 
           {
             cwd: payload.cwd,
             environment: payload.environment,
+            residentProjectSessions: true,
             cancellationProbe: () => {
               const status = hiddenDaemonNativeRequest('serve-cancelled', invocation, token);
               return status.cancelled === true;
