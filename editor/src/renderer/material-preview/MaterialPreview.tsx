@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useMaterialPreviewGroupRenderer,
@@ -30,10 +30,21 @@ export function MaterialPreview({
   const projectResources = useMaterialPreviewProjectResources();
   const resources = explicitResources ?? projectResources;
   const [resourceStatus, setResourceStatus] = useState<{ stale: boolean } | null>(null);
+  const [shaderProgramStatus, setShaderProgramStatus] = useState<{
+    stale: boolean;
+    message: string | null;
+  }>({ stale: false, message: null });
+  const updateShaderProgramStatus = useCallback(
+    (next: { stale: boolean; message: string | null }) =>
+      setShaderProgramStatus((current) =>
+        current.stale === next.stale && current.message === next.message ? current : next,
+      ),
+    [],
+  );
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const registrationRef = useRef<ReturnType<typeof renderer.registerSurface> | null>(null);
   const [size, setSize] = useState({ width: 1, height: 1 });
-  const [visible, setVisible] = useState(true);
+  const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined');
   const pointerRef = useRef<MaterialPreviewPointerState>(OUTSIDE_POINTER);
 
   useEffect(() => {
@@ -63,13 +74,14 @@ export function MaterialPreview({
 
   useEffect(() => {
     let active = true;
+    if (!visible) return () => void (active = false);
     void resources.getMaterial(materialId).then((resource) => {
       if (active) setResourceStatus(resource ? { stale: resource.stale } : null);
     });
     return () => {
       active = false;
     };
-  }, [materialId, resources, resources.generation]);
+  }, [materialId, resources, resources.generation, visible]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -83,6 +95,7 @@ export function MaterialPreview({
       pointer: pointerRef.current,
       resources,
       parameterOverrides,
+      onShaderProgramStatus: updateShaderProgramStatus,
     };
     if (!registrationRef.current) registrationRef.current = renderer.registerSurface(state);
     else registrationRef.current.update(state);
@@ -94,6 +107,7 @@ export function MaterialPreview({
     resources.generation,
     size.height,
     size.width,
+    updateShaderProgramStatus,
     visible,
   ]);
 
@@ -121,9 +135,11 @@ export function MaterialPreview({
       pointer: pointerRef.current,
       resources,
       parameterOverrides,
+      onShaderProgramStatus: updateShaderProgramStatus,
     });
   }
 
+  const shaderProgramStale = shaderProgramStatus.stale;
   const diagnosticMessage =
     status.code === 'material-preview.webgl2-unavailable'
       ? t('materialEditor.preview.webgl2Unavailable')
@@ -161,15 +177,24 @@ export function MaterialPreview({
             pointer: OUTSIDE_POINTER,
             resources,
             parameterOverrides,
+            onShaderProgramStatus: updateShaderProgramStatus,
           });
         }}
       />
-      {resourceStatus?.stale ? (
+      {resourceStatus?.stale || shaderProgramStale ? (
         <div
           className="absolute right-2 top-2 rounded bg-amber-500/90 px-2 py-1 text-[10px] font-medium text-black"
           data-material-preview-stale
         >
           {t('materialEditor.preview.stale')}
+        </div>
+      ) : null}
+      {shaderProgramStatus.message ? (
+        <div
+          className="absolute bottom-2 left-2 right-2 rounded bg-destructive/90 px-2 py-1 text-[10px] text-destructive-foreground"
+          data-material-preview-shader-diagnostic
+        >
+          {shaderProgramStatus.message}
         </div>
       ) : null}
       {!status.available ? (

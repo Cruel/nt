@@ -210,18 +210,33 @@ function rewriteSemanticPaths(
 }
 
 function relativeShaderInclude(fromFile: string, toFile: string, original: string): string {
-  if (original.startsWith('shaders/')) return toFile;
   let result = path.posix.relative(path.posix.dirname(fromFile), toFile);
   if (!result.startsWith('.')) result = `./${result}`;
   if (!original.startsWith('./') && !original.startsWith('../')) return result.replace(/^\.\//, '');
   return result;
 }
 
-function resolveShaderInclude(sourceFile: string, include: string): string | null {
-  if (include.startsWith('engine:/') || include === 'bgfx_shader.sh') return null;
-  if (include.startsWith('shaders/')) return path.posix.normalize(include);
-  const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(sourceFile), include));
-  return resolved.startsWith('shaders/') ? resolved : null;
+function resolveShaderInclude(
+  sourceFile: string,
+  include: string,
+  existingShaderPaths: ReadonlySet<string>,
+): string | null {
+  if (
+    include.startsWith('engine:/') ||
+    include === 'bgfx_shader.sh' ||
+    include === 'bgfx_compute.sh'
+  )
+    return null;
+  if (path.posix.isAbsolute(include)) return null;
+  const candidates = [
+    path.posix.normalize(path.posix.join(path.posix.dirname(sourceFile), include)),
+    path.posix.normalize(path.posix.join('shaders', include)),
+  ];
+  return (
+    candidates.find(
+      (candidate) => candidate.startsWith('shaders/') && existingShaderPaths.has(candidate),
+    ) ?? null
+  );
 }
 
 function rewriteShaderIncludes(
@@ -229,18 +244,22 @@ function rewriteShaderIncludes(
   oldConsumerPath: string,
   newConsumerPath: string,
   remap: ReadonlyMap<string, string>,
+  existingShaderPaths: ReadonlySet<string>,
 ): string {
-  return text.replace(/(#include\s*[<"])([^">]+)([">])/g, (whole, prefix, include, suffix) => {
-    const target = resolveShaderInclude(oldConsumerPath, String(include));
-    if (!target) return whole;
-    const nextTarget = mappedPath(target, remap);
-    if (nextTarget === target && newConsumerPath === oldConsumerPath) return whole;
-    return `${prefix}${relativeShaderInclude(
-      newConsumerPath,
-      nextTarget,
-      String(include),
-    )}${suffix}`;
-  });
+  return text.replace(
+    /^(\s*#\s*include\s*[<"])([^">]+)([">])/gmu,
+    (whole, prefix, include, suffix) => {
+      const target = resolveShaderInclude(oldConsumerPath, String(include), existingShaderPaths);
+      if (!target) return whole;
+      const nextTarget = mappedPath(target, remap);
+      if (nextTarget === target && newConsumerPath === oldConsumerPath) return whole;
+      return `${prefix}${relativeShaderInclude(
+        newConsumerPath,
+        nextTarget,
+        String(include),
+      )}${suffix}`;
+    },
+  );
 }
 
 async function walkFiles(root: string, relative: string): Promise<string[]> {
@@ -336,10 +355,12 @@ export async function projectSourceUsages(
         });
     }
   }
-  for (const shaderPath of await allShaderFiles(root)) {
+  const shaderFiles = await allShaderFiles(root);
+  const existingShaderPaths = new Set(shaderFiles);
+  for (const shaderPath of shaderFiles) {
     const text = await fs.readFile(path.join(root, shaderPath), 'utf8');
-    for (const match of text.matchAll(/#include\s*[<"]([^">]+)[">]/g)) {
-      const target = resolveShaderInclude(shaderPath, match[1]!);
+    for (const match of text.matchAll(/^\s*#\s*include\s*[<"]([^">]+)[">]/gmu)) {
+      const target = resolveShaderInclude(shaderPath, match[1]!, existingShaderPaths);
       if (target && targets.has(target) && !targets.has(shaderPath))
         usages.push({
           kind: 'shader-include',
@@ -486,6 +507,15 @@ export async function mutateProjectSources(
           copyIndex += 1;
         }
         assertSourcePath(destination);
+        const copiedSourceText = sourceIdentity.startsWith('project:/shaders/')
+          ? rewriteShaderIncludes(
+              sourceText,
+              sourceIdentity.slice('project:/'.length),
+              destination,
+              new Map(),
+              new Set(await allShaderFiles(root)),
+            )
+          : sourceText;
         const candidate = structuredClone(snapshot.project);
         const candidateData = parseMaterialData(candidate.materials[operation.materialId]?.data);
         if (!candidateData)
@@ -523,7 +553,7 @@ export async function mutateProjectSources(
                   path: destination,
                   operation: 'write',
                   expectedRevision: PROJECT_WORKSPACE_ABSENT_REVISION,
-                  bytes: encoder.encode(sourceText),
+                  bytes: encoder.encode(copiedSourceText),
                 },
               ],
               preflightSnapshot: snapshot,
@@ -611,13 +641,21 @@ export async function mutateProjectSources(
         sourceBytes.set(source, await fileSystem.readBytes(path.join(root, source)));
 
       if (sourceRoot(operation.fromPath) === 'shaders') {
-        for (const shaderPath of await allShaderFiles(root)) {
+        const shaderFiles = await allShaderFiles(root);
+        const existingShaderPaths = new Set(shaderFiles);
+        for (const shaderPath of shaderFiles) {
           const oldBytes =
             sourceBytes.get(shaderPath) ??
             (await fileSystem.readBytes(path.join(root, shaderPath)));
           const oldText = decoder.decode(oldBytes);
           const newPath = mappedPath(shaderPath, remap);
-          const newText = rewriteShaderIncludes(oldText, shaderPath, newPath, remap);
+          const newText = rewriteShaderIncludes(
+            oldText,
+            shaderPath,
+            newPath,
+            remap,
+            existingShaderPaths,
+          );
           const moved = newPath !== shaderPath;
           const rewritten = newText !== oldText;
           if (!moved && !rewritten) continue;

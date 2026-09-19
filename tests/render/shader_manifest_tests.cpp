@@ -274,4 +274,12 @@ TEST_CASE("program cache keys distinguish material programs from direct shader p
     CHECK(material_key != direct_key);
     CHECK(material_key.find("material|world/water") != std::string::npos);
     CHECK(direct_key.find("direct_shader_pair|") != std::string::npos);
+
+    auto same_binaries = *material.program;
+    same_binaries.key.material_id = "world/ice";
+    same_binaries.key.material_shader = noveltea::ShaderId("material_specific_metadata");
+    CHECK(noveltea::shader_program_cache_key(material.program->key) !=
+          noveltea::shader_program_cache_key(same_binaries.key));
+    CHECK(noveltea::shader_program_binary_cache_key(*material.program) ==
+          noveltea::shader_program_binary_cache_key(same_binaries));
 }

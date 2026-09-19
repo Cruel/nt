@@ -267,12 +267,85 @@ describe('canonical Material shader lowering', () => {
     });
 
     const built = await buildShaderMaterialProject(project, [output('vertex'), output('fragment')]);
-    expect(built.project.shaders[program!]?.uniforms.u_time).toMatchObject({
+    const shaderId = built.project.materials.hotspot?.shader;
+    expect(shaderId).toBeDefined();
+    expect(built.project.shaders[shaderId!]?.uniforms.u_time).toMatchObject({
       type: 'float',
       binding: null,
       default: 0.5,
     });
     expect(built.project.materials.hotspot?.uniforms).toEqual({ u_time: 0.5 });
+  });
+
+  it('deduplicates custom program binaries without sharing Material-specific reflected metadata', async () => {
+    const project = createAuthoringProject();
+    const custom = {
+      ...defaultMaterialData('Shared', 'engine-2d'),
+      shader: { fragment: { kind: 'project' as const, path: 'shaders/shared.fs.sc' } },
+    };
+    project.materials.first = {
+      id: 'first',
+      label: 'First',
+      data: { ...custom, displayName: 'First', parameters: { u_amount: { value: 0.25 } } },
+    };
+    project.materials.second = {
+      id: 'second',
+      label: 'Second',
+      data: {
+        ...custom,
+        displayName: 'Second',
+        parameters: { u_amount: { binding: 'engine.time' }, old_uniform: { value: 1 } },
+      },
+    };
+
+    const source = await buildShaderMaterialProject(project);
+    const [program] = Object.keys(source.compilation.programs);
+    expect(Object.keys(source.compilation.programs)).toHaveLength(1);
+    const output = (stage: 'vertex' | 'fragment'): ShaderCompileOutput => ({
+      program: program!,
+      programIdentity: 'shared-program',
+      stage,
+      variant: 'glsl-330',
+      sourceIdentity: stage === 'vertex' ? 'engine:/vs_quad.sc' : 'project:/shaders/shared.fs.sc',
+      dependencies: [],
+      dependencyRevisions: [],
+      outputPath: `/tmp/shared.${stage}.bin`,
+      runtimePath: `project:/shaders/derived/glsl-330/shared-program.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
+      cacheKey: `${stage}-cache`,
+      byteHash: `sha256:${stage === 'vertex' ? 'a'.repeat(64) : 'b'.repeat(64)}`,
+      byteSize: 32,
+      reflectedInputs:
+        stage === 'fragment'
+          ? [{ name: 'u_amount', kind: 'uniform', type: 'float', arraySize: 1 }]
+          : [],
+      cacheHit: false,
+    });
+
+    const built = await buildShaderMaterialProject(project, [output('vertex'), output('fragment')]);
+    const firstShaderId = built.project.materials.first?.shader;
+    const secondShaderId = built.project.materials.second?.shader;
+    expect(firstShaderId).not.toBe(secondShaderId);
+    expect(built.project.shaders[firstShaderId!]?.uniforms.u_amount).toMatchObject({
+      binding: null,
+      default: 0.25,
+    });
+    expect(built.project.shaders[secondShaderId!]?.uniforms.u_amount).toMatchObject({
+      binding: 'engine.time',
+    });
+    expect(built.project.shaders[secondShaderId!]?.uniforms.u_amount).not.toHaveProperty('default');
+    expect(
+      built.project.shaders[firstShaderId!]?.stages.fragment?.compiled?.['glsl-330']?.runtimePath,
+    ).toBe(
+      built.project.shaders[secondShaderId!]?.stages.fragment?.compiled?.['glsl-330']?.runtimePath,
+    );
+    expect(built.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/materials/second/data/parameters/old_uniform',
+          message: expect.stringContaining("parameter 'old_uniform'"),
+        }),
+      ]),
+    );
   });
 
   it('compiles custom source-backed Materials through derived program outputs and reflection', async () => {
@@ -345,14 +418,16 @@ describe('canonical Material shader lowering', () => {
       ]),
     ]);
 
+    const shaderId = built.project.materials.panel?.shader;
+    expect(shaderId).toMatch(new RegExp(`^${program}:material:panel$`, 'u'));
     expect(built.project.materials.panel).toMatchObject({
-      shader: program,
+      shader: shaderId,
       uniforms: { u_amount: 0.75 },
       textures: {
         s_noise: { source: 'project:/assets/images/noise.png', sampler: 'clamp-linear' },
       },
     });
-    expect(built.project.shaders[program!]).toMatchObject({
+    expect(built.project.shaders[shaderId!]).toMatchObject({
       uniforms: { u_amount: { type: 'float' } },
       samplers: { s_noise: { type: 'texture2d' } },
       stages: {

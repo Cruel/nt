@@ -406,20 +406,21 @@ export async function buildShaderMaterialProject(
       parameters: {},
       textures: {},
     };
-    const key = custom ? await programKey(resolved) : `preset-${resolved.preset.id}`;
-    if (custom) programs[key] = customProgramRequest(resolved);
-    if (!shaders[key]) {
+    const program = custom ? await programKey(resolved) : `preset-${resolved.preset.id}`;
+    if (custom) programs[program] = customProgramRequest(resolved);
+    const shaderId = custom ? `${program}:material:${materialId}` : program;
+    if (!shaders[shaderId]) {
       const built = buildRuntimeShader(
         materialId,
         resolved,
-        key,
-        compiledByProgram.get(key) ?? [],
+        shaderId,
+        compiledByProgram.get(program) ?? [],
         authoredOverrides,
         diagnostics,
       );
-      if (built) shaders[key] = built;
+      if (built) shaders[shaderId] = built;
     }
-    const shader = shaders[key];
+    const shader = shaders[shaderId];
     const uniforms: Record<string, ShaderUniformValue> = {};
     for (const [name, parameter] of Object.entries(
       custom ? authoredOverrides.parameters : resolved.parameters,
@@ -458,7 +459,7 @@ export async function buildShaderMaterialProject(
       display_name: record.label,
       role: resolved.role,
       ...(resolved.role === 'postprocess' ? { postprocess_scope: resolved.postprocessScope } : {}),
-      shader: key,
+      shader: shaderId,
       uniforms,
       textures,
       blend: resolved.blend,

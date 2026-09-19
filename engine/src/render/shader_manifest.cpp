@@ -361,6 +361,13 @@ std::string shader_program_cache_key(const ShaderProgramKey& key)
     return out.str();
 }
 
+std::string shader_program_binary_cache_key(const ShaderProgramResolution& resolution)
+{
+    std::ostringstream out;
+    out << resolution.key.variant << '|' << resolution.vertex.path << '|' << resolution.fragment.path;
+    return out.str();
+}
+
 std::string expected_shader_binary_path(const ShaderId& shader_id, ShaderStage stage,
                                         std::string_view variant)
 {

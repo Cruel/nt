@@ -1699,6 +1699,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const [sourceOperation, setSourceOperation] = useState<SourceOperationDialogState | null>(null);
   const [hoverDetails, setHoverDetails] = useState<HoverDetailsState | null>(null);
   const lastProjectKey = useRef<string | null>(null);
+  const restoredSourceRecoverySessionId = useRef<string | null>(null);
   const lastFollowedActiveTabId = useRef<string | null>(null);
   const observedInitialActiveTab = useRef(false);
 
@@ -1719,11 +1720,31 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   }, [hydrateExplorer, project, projectFilePath]);
 
   useEffect(() => {
+    let active = true;
     if (!project || !projectSessionId) {
+      restoredSourceRecoverySessionId.current = null;
       clearProjectSources();
-      return;
+      return () => {
+        active = false;
+      };
     }
-    void refreshProjectSources(projectSessionId);
+    void refreshProjectSources(projectSessionId).then((loaded) => {
+      if (!loaded || !active || restoredSourceRecoverySessionId.current === projectSessionId)
+        return;
+      const currentProjectState = useProjectStore.getState();
+      if (
+        currentProjectState.projectSessionId !== projectSessionId ||
+        useProjectSourceStore.getState().projectSessionId !== projectSessionId ||
+        !currentProjectState.document
+      )
+        return;
+      const editorState = editorProjectStateFromProject(currentProjectState.document);
+      useProjectSourceStore.getState().restoreRecovery(editorState.sourceRecoveryById);
+      restoredSourceRecoverySessionId.current = projectSessionId;
+    });
+    return () => {
+      active = false;
+    };
   }, [clearProjectSources, project, projectSessionId, refreshProjectSources]);
 
   const explorer = useMemo(

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { render } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useCommandStore } from '@/commands/command-store';
@@ -9,6 +9,7 @@ import {
   MaterialPreviewGroupProvider,
   MaterialPreviewProjectProvider,
 } from '@/material-preview/material-preview-provider';
+import type { MaterialPreviewBackendFactory } from '@/material-preview/material-preview-renderer';
 import type {
   WorkbenchGroup as WorkbenchGroupModel,
   WorkbenchTab,
@@ -47,10 +48,13 @@ function group(activeTabId: string | null): WorkbenchGroupModel {
   return { id: 'root', activeTabId, tabIds: [materialTab.id, nonPreviewTab.id] };
 }
 
-function renderGroup(model: WorkbenchGroupModel) {
+function renderGroup(
+  model: WorkbenchGroupModel,
+  backendFactory: MaterialPreviewBackendFactory = noWebGlBackend,
+) {
   return render(
     <MaterialPreviewProjectProvider>
-      <MaterialPreviewGroupProvider backendFactory={noWebGlBackend}>
+      <MaterialPreviewGroupProvider backendFactory={backendFactory}>
         <WorkbenchTabDndContext>
           <WorkbenchGroup group={model} tabs={[materialTab, nonPreviewTab]} />
         </WorkbenchTabDndContext>
@@ -59,10 +63,14 @@ function renderGroup(model: WorkbenchGroupModel) {
   );
 }
 
-function rerenderGroup(view: ReturnType<typeof render>, model: WorkbenchGroupModel) {
+function rerenderGroup(
+  view: ReturnType<typeof render>,
+  model: WorkbenchGroupModel,
+  backendFactory: MaterialPreviewBackendFactory = noWebGlBackend,
+) {
   view.rerender(
     <MaterialPreviewProjectProvider>
-      <MaterialPreviewGroupProvider backendFactory={noWebGlBackend}>
+      <MaterialPreviewGroupProvider backendFactory={backendFactory}>
         <WorkbenchTabDndContext>
           <WorkbenchGroup group={model} tabs={[materialTab, nonPreviewTab]} />
         </WorkbenchTabDndContext>
@@ -108,5 +116,41 @@ describe('Material lightweight previews', () => {
 
     rerenderGroup(view, group(materialTab.id));
     expect(view.container.querySelector('[data-material-preview="panel"]')).not.toBeNull();
+  });
+
+  it('recreates the group renderer when the active Project session changes', async () => {
+    const disposals: Array<ReturnType<typeof vi.fn>> = [];
+    const backendFactory: MaterialPreviewBackendFactory = vi.fn(() => {
+      const dispose = vi.fn();
+      disposals.push(dispose);
+      return {
+        render: vi.fn(),
+        invalidateProjectResources: vi.fn(),
+        reset: vi.fn(),
+        dispose,
+      };
+    });
+    renderGroup(group(materialTab.id), backendFactory);
+    await waitFor(() => expect(backendFactory).toHaveBeenCalledTimes(1));
+
+    const nextProject = createAuthoringProject();
+    nextProject.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    act(() => {
+      expect(
+        useProjectStore.getState().loadProjectDocument({
+          document: nextProject,
+          projectPath: '/mock/next',
+          projectFilePath: '/mock/next/project.json',
+          projectSessionId: 'session:material-preview:next',
+        }),
+      ).toBe(true);
+    });
+
+    await waitFor(() => expect(backendFactory).toHaveBeenCalledTimes(2));
+    expect(disposals[0]).toHaveBeenCalledTimes(1);
   });
 });

@@ -7,6 +7,7 @@ import type {
   ProjectSourceStructuralResponse,
   ProjectSourceUsage,
 } from '../../shared/project-source-files';
+import type { EditorSourceRecoveryEntry } from '../../shared/project-schema/editor-project-state';
 
 export interface ProjectSourceConflict {
   externalExists: boolean;
@@ -31,8 +32,9 @@ interface ProjectSourceStoreState {
   loading: boolean;
   error: string | null;
   clear: () => void;
-  refresh: (projectSessionId: string) => Promise<void>;
+  refresh: (projectSessionId: string) => Promise<boolean>;
   reconcileExternal: (projectSessionId: string) => Promise<void>;
+  restoreRecovery: (entries: Readonly<Record<string, EditorSourceRecoveryEntry>>) => void;
   setText: (sourceId: string, text: string) => void;
   save: (sourceId: string, acceptExternalBase?: boolean) => Promise<boolean>;
   useDisk: (sourceId: string) => void;
@@ -42,6 +44,7 @@ interface ProjectSourceStoreState {
 }
 
 const READ_BATCH_SIZE = 8;
+const sourceRefreshesBySession = new Map<string, Promise<boolean>>();
 
 async function loadSourceSnapshot(projectSessionId: string) {
   const listed = await window.noveltea.listProjectSourceFiles({ projectSessionId });
@@ -175,25 +178,37 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
       loading: false,
       error: null,
     }),
-  refresh: async (projectSessionId) => {
-    if (get().projectSessionId === projectSessionId && get().loading) return;
+  refresh: (projectSessionId) => {
+    const inFlight = sourceRefreshesBySession.get(projectSessionId);
+    if (inFlight) return inFlight;
+
     const preserveDirty = get().projectSessionId === projectSessionId;
     set({ projectSessionId, loading: true, error: null });
-    try {
-      const loaded = await loadSourceSnapshot(projectSessionId);
-      if (get().projectSessionId !== projectSessionId) return;
-      set((state) => ({
-        ...mergeSnapshot(state, loaded, preserveDirty),
-        loading: false,
-        error: null,
-      }));
-    } catch (error) {
-      if (get().projectSessionId !== projectSessionId) return;
-      set({
-        loading: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    const refresh = (async () => {
+      try {
+        const loaded = await loadSourceSnapshot(projectSessionId);
+        if (get().projectSessionId !== projectSessionId) return false;
+        set((state) => ({
+          ...mergeSnapshot(state, loaded, preserveDirty),
+          loading: false,
+          error: null,
+        }));
+        return true;
+      } catch (error) {
+        if (get().projectSessionId !== projectSessionId) return false;
+        set({
+          loading: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    })();
+    sourceRefreshesBySession.set(projectSessionId, refresh);
+    void refresh.finally(() => {
+      if (sourceRefreshesBySession.get(projectSessionId) === refresh)
+        sourceRefreshesBySession.delete(projectSessionId);
+    });
+    return refresh;
   },
   reconcileExternal: async (projectSessionId) => {
     if (get().projectSessionId !== projectSessionId) return;
@@ -206,6 +221,51 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
       set({ error: error instanceof Error ? error.message : String(error) });
     }
   },
+  restoreRecovery: (entries) =>
+    set((state) => {
+      const files = [...state.files];
+      const buffersById = { ...state.buffersById };
+      const textById = { ...state.textById };
+      for (const [sourceId, recovered] of Object.entries(entries)) {
+        const current = buffersById[sourceId];
+        if (!files.some((file) => file.id === sourceId)) {
+          files.push({ ...recovered.file, text: true });
+        }
+        if (current && current.baseContentHash === recovered.baseContentHash) {
+          buffersById[sourceId] = {
+            text: recovered.text,
+            baseText: current.text,
+            baseContentHash: current.baseContentHash,
+            dirty: recovered.text !== current.text,
+            conflict: null,
+          };
+        } else {
+          buffersById[sourceId] = {
+            text: recovered.text,
+            baseText: recovered.baseText,
+            baseContentHash: recovered.baseContentHash as ProjectSourceBuffer['baseContentHash'],
+            dirty: true,
+            conflict: current
+              ? {
+                  externalExists: true,
+                  externalText: current.text,
+                  externalContentHash: current.baseContentHash,
+                }
+              : {
+                  externalExists: false,
+                  externalText: '',
+                  externalContentHash: 'absent',
+                },
+          };
+        }
+        textById[sourceId] = recovered.text;
+      }
+      return {
+        files: files.sort((a, b) => a.displayPath.localeCompare(b.displayPath)),
+        buffersById,
+        textById,
+      };
+    }),
   setText: (sourceId, text) =>
     set((state) => {
       const prior = state.buffersById[sourceId];
@@ -225,11 +285,12 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
       acceptExternalBase && buffer.conflict
         ? buffer.conflict.externalContentHash
         : buffer.baseContentHash;
+    const submittedText = buffer.text;
     const result = await window.noveltea.writeProjectSource({
       projectSessionId,
       sourceId,
       expectedRevision,
-      text: buffer.text,
+      text: submittedText,
     });
     if (!result.success || !result.contentHash) {
       set({ error: result.error ?? 'Source save failed.' });
@@ -240,9 +301,9 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
       if (!latest) return current;
       const next: ProjectSourceBuffer = {
         text: latest.text,
-        baseText: latest.text,
+        baseText: submittedText,
         baseContentHash: result.contentHash!,
-        dirty: false,
+        dirty: latest.text !== submittedText,
         conflict: null,
       };
       return {

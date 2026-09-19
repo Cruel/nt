@@ -8,6 +8,7 @@ export type SaveUnitKind =
   | 'project-settings'
   | 'project-tool'
   | 'project-structure'
+  | 'source-file'
   | 'workflow'
   | 'non-content-tool';
 

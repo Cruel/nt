@@ -1145,9 +1145,11 @@ describe('Prepared Runtime Artifact module', () => {
     });
 
     expect(prepared.sourceFingerprint).toBe(before.sourceFingerprint);
+    const shaderId = prepared.shaderMaterialMetadata?.materials.basic?.shader;
+    expect(shaderId).toBeDefined();
     expect(prepared.shaderMaterialMetadata).toMatchObject({
       shaders: {
-        [program]: {
+        [shaderId!]: {
           stages: {
             fragment: {
               compiled: {

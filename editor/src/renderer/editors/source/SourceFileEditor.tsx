@@ -18,11 +18,14 @@ import {
   materialPreviewDefaultDecodeImage,
 } from '@/material-preview/material-preview-resources';
 import { useProjectSourceStore } from '@/project/project-source-store';
+import { saveActiveSaveUnit } from '@/project/project-save-coordinator';
+import { sourceSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import {
   DebouncedShaderPreviewCompiler,
   discoverShaderSourceMaterialUsages,
   shaderSourceOverlays,
+  shaderSourcePreviewAuthorityKey,
   type ShaderSourceMaterialUsage,
 } from '@/shaders/shader-source-preview';
 import {
@@ -59,7 +62,6 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
   const textById = useProjectSourceStore((state) => state.textById);
   const buffersById = useProjectSourceStore((state) => state.buffersById);
   const setText = useProjectSourceStore((state) => state.setText);
-  const save = useProjectSourceStore((state) => state.save);
   const acceptDisk = useProjectSourceStore((state) => state.useDisk);
   const projectDocument = useProjectStore((state) => state.document);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
@@ -146,8 +148,8 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
   const localResources = localResourcesRef.current;
   const overlays = useMemo(() => shaderSourceOverlays(files, buffersById), [buffersById, files]);
   const previewAuthorityKey = useMemo(
-    () => JSON.stringify({ attachedMaterialIds, overlays }),
-    [attachedMaterialIds, overlays],
+    () => shaderSourcePreviewAuthorityKey(attachedMaterialIds, overlays, files),
+    [attachedMaterialIds, files, overlays],
   );
   localResources.updateProject(project, previewAuthorityKey, {
     materialIds: attachedMaterialIds,
@@ -183,7 +185,9 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
   async function saveBuffer(acceptExternalBase = false) {
     setSaving(true);
     try {
-      await save(sourceId!, acceptExternalBase);
+      await saveActiveSaveUnit(sourceSaveUnitId(sourceId!), {
+        acceptExternalSourceBase: acceptExternalBase,
+      });
     } finally {
       setSaving(false);
     }
