@@ -11,8 +11,9 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
-  bottomPanelDefinitions,
+  availableBottomPanelDefinitions,
   type BottomPanelId,
+  resolveAvailableBottomPanelId,
   useBottomPanelStore,
 } from './bottom-panel-store';
 import { ReferencesPanel } from './ReferencesPanel';
@@ -165,9 +166,13 @@ export function BottomPanel() {
   const setVisible = useBottomPanelStore((state) => state.setVisible);
   const toggleVisible = useBottomPanelStore((state) => state.toggleVisible);
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
+  const hasProject = useProjectStore((state) => state.document !== null);
+  const availabilityContext = { hasProject };
+  const availablePanels = availableBottomPanelDefinitions(availabilityContext);
+  const resolvedActivePanelId = resolveAvailableBottomPanelId(activePanelId, availabilityContext);
 
   function selectPanel(panelId: BottomPanelId) {
-    if (visible && activePanelId === panelId) {
+    if (visible && resolvedActivePanelId === panelId) {
       setVisible(false);
       return;
     }
@@ -177,13 +182,13 @@ export function BottomPanel() {
   return (
     <div className="@container flex h-full min-h-0 flex-col border-t bg-background">
       <div className="flex h-9 shrink-0 items-center gap-1 border-b px-2">
-        {bottomPanelDefinitions.map((panel) => (
+        {availablePanels.map((panel) => (
           <button
             key={panel.id}
             type="button"
             onClick={() => selectPanel(panel.id)}
             className={`rounded px-2 py-1 text-xs transition-colors hover:bg-accent ${
-              activePanelId === panel.id
+              resolvedActivePanelId === panel.id
                 ? 'bg-accent text-accent-foreground'
                 : 'text-muted-foreground'
             }`}
@@ -206,9 +211,9 @@ export function BottomPanel() {
           {visible ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
         </Button>
       </div>
-      {visible ? (
+      {visible && resolvedActivePanelId ? (
         <div className="min-h-0 flex-1 overflow-auto">
-          <PanelContent panelId={activePanelId} />
+          <PanelContent panelId={resolvedActivePanelId} />
         </div>
       ) : null}
     </div>

@@ -743,7 +743,6 @@ export function WorkspacePage() {
     setPlaybackTests([]);
     setLastPlaybackReport(null);
     setLastExportResult(null);
-    setBottomPanelVisible(false);
     ignoredUntrackedAssetPaths.current = new Set();
     setUntrackedAssetFiles([]);
     setUntrackedAssetDialogOpen(false);
@@ -1857,7 +1856,7 @@ export function WorkspacePage() {
           useWorkbenchStore.getState().reopenLastClosedTab();
           break;
         case 'toggle-bottom-panel':
-          if (project) setBottomPanelVisible(!bottomPanelVisible);
+          setBottomPanelVisible(!bottomPanelVisible);
           break;
         case 'command-palette':
           setCommandPaletteOpen(true);
@@ -1892,16 +1891,16 @@ export function WorkspacePage() {
     : null;
   const canCompleteProjectImport =
     !projectImportNameIssue && !projectImportDirectoryIssue && !projectImportBusy;
-  const showBottomPanel = project !== null && bottomPanelVisible;
+  const showBottomPanel = bottomPanelVisible;
 
   useLayoutEffect(() => {
-    if (!project || !bottomPanelRef.current) return;
+    if (!bottomPanelRef.current) return;
     if (bottomPanelVisible) {
       bottomPanelRef.current.resize(`${bottomPanelSizePercent}%`);
     } else {
       bottomPanelRef.current.collapse();
     }
-  }, [bottomPanelRef, bottomPanelSizePercent, bottomPanelVisible, project]);
+  }, [bottomPanelRef, bottomPanelSizePercent, bottomPanelVisible]);
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -1923,29 +1922,23 @@ export function WorkspacePage() {
             >
               <Workbench />
             </Panel>
-            {project ? (
-              <>
-                <PanelResizeSeparator
-                  id="bottom-panel-resize"
-                  orientation="vertical"
-                  disabled={!bottomPanelVisible}
-                  className={
-                    bottomPanelVisible ? undefined : 'h-0 pointer-events-none bg-transparent'
-                  }
-                />
-                <Panel
-                  id="workspace-bottom-panel"
-                  panelRef={bottomPanelRef}
-                  defaultSize={bottomPanelVisible ? `${bottomPanelSizePercent}%` : '36px'}
-                  minSize="180px"
-                  maxSize="70%"
-                  collapsedSize="36px"
-                  collapsible
-                >
-                  <BottomPanel />
-                </Panel>
-              </>
-            ) : null}
+            <PanelResizeSeparator
+              id="bottom-panel-resize"
+              orientation="vertical"
+              disabled={!bottomPanelVisible}
+              className={bottomPanelVisible ? undefined : 'h-0 pointer-events-none bg-transparent'}
+            />
+            <Panel
+              id="workspace-bottom-panel"
+              panelRef={bottomPanelRef}
+              defaultSize={bottomPanelVisible ? `${bottomPanelSizePercent}%` : '36px'}
+              minSize="180px"
+              maxSize="70%"
+              collapsedSize="36px"
+              collapsible
+            >
+              <BottomPanel />
+            </Panel>
           </Group>
         </div>
       </div>
