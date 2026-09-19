@@ -105,6 +105,11 @@ import {
   loadNovelTeaUserPreferences,
   saveNovelTeaUserPreferences,
 } from './main/services/user-config-service';
+import {
+  createNodePtyAdapter,
+  resolveDefaultTerminalShell,
+  TerminalService,
+} from './main/services/terminal-service';
 import type { CreateProjectRequest } from './shared/editor-tooling';
 import {
   normalizeDesktopProjectImportArgument,
@@ -184,6 +189,8 @@ import {
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
+  terminalResizeArgumentsSchema,
+  terminalWriteArgumentsSchema,
   validateProjectArgumentsSchema,
 } from './main/editor-ipc-trust-boundary';
 
@@ -290,6 +297,18 @@ const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
   : undefined;
 const activeProjectSessions = new ActiveProjectSessionService();
+const terminalService = new TerminalService({
+  pty: createNodePtyAdapter(),
+  resolveProjectRoot: () => activeProjectSessions.currentProjectRoot(),
+  resolveFallbackCwd: resolveConfiguredTerminalFallbackCwd,
+  resolveDefaultProjectDirectory: getDefaultProjectDirectory,
+  resolveShell: resolveDefaultTerminalShell,
+  emit: (event) => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_EVENT, event);
+    }
+  },
+});
 const editorAuthoringValidationService = new EditorAuthoringValidationService();
 const editorRuntimeCache = new EditorRuntimeCacheService();
 const assetMetadataInspectionService = new AssetMetadataInspectionService(activeProjectSessions);
@@ -511,6 +530,18 @@ function getDefaultProjectDirectory() {
   return path.join(app.getPath('documents'), 'NovelTea');
 }
 
+async function resolveConfiguredTerminalFallbackCwd(): Promise<string | null> {
+  const preferences = await loadNovelTeaUserPreferences();
+  const candidate = preferences.terminalFallbackCwd;
+  if (typeof candidate !== 'string' || candidate.trim() === '') return null;
+  try {
+    const real = await fs.promises.realpath(path.resolve(candidate));
+    return (await fs.promises.stat(real)).isDirectory() ? real : null;
+  } catch {
+    return null;
+  }
+}
+
 function clampZoomFactor(value: number) {
   return Math.min(MAX_ZOOM_FACTOR, Math.max(MIN_ZOOM_FACTOR, value));
 }
@@ -627,6 +658,7 @@ function createWindow(): BrowserWindow {
   });
   const sessionOwner = mainWindow;
   mainWindow.on('closed', () => {
+    terminalService.dispose();
     activeProjectSessions.dispose();
     if (mainWindow === sessionOwner) mainWindow = null;
   });
@@ -903,6 +935,30 @@ void app.whenReady().then(async () => {
       currentFramelessWindow = !nativeFrame;
       return getAppInfoPayload();
     },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_ENSURE_SESSION,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => terminalService.ensureSession(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_WRITE,
+    (arguments_) => terminalWriteArgumentsSchema.parse(arguments_),
+    (sessionId, data) => terminalService.write(sessionId, data),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_RESIZE,
+    (arguments_) => terminalResizeArgumentsSchema.parse(arguments_),
+    (request) => terminalService.resize(request.sessionId, request.columns, request.rows),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_RETRY,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => terminalService.retrySession(),
   );
 
   guardedIpc.handle(

@@ -77,7 +77,8 @@
       "problems": "Problemas",
       "references": "Referências",
       "shaderCompile": "Compilação de shaders",
-      "testPlayback": "Reprodução de testes"
+      "testPlayback": "Reprodução de testes",
+      "terminal": "Terminal"
     },
     "lastCommandDiagnostics": "Diagnósticos do último comando",
     "toggle": "Alternar painel inferior"

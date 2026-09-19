@@ -45,6 +45,7 @@ export const EDITOR_STAGE_MANIFEST_SCHEMA = 'noveltea.editor-stage-manifest';
 export const EDITOR_STAGE_MANIFEST_SCHEMA_VERSION = 1;
 const editorRequire = createRequire(path.join(editorRoot, 'package.json'));
 export const EXPECTED_SHARP_VERSION = editorRequire('sharp').versions.sharp;
+export const EXPECTED_NODE_PTY_VERSION = editorRequire('node-pty/package.json').version;
 
 export function assertCurrentEditorStageManifest(manifest) {
   if (
@@ -577,6 +578,17 @@ async function runSharpOperation(appRoot) {
   );
 }
 
+async function runNodePtyOperation(appRoot) {
+  await runCommand(
+    process.execPath,
+    [path.join(editorRoot, 'scripts', 'verify-staged-node-pty.mjs'), appRoot],
+    {
+      cwd: appRoot,
+      label: 'verify-node-pty',
+    },
+  );
+}
+
 function assertSafePackageMetadata(metadata) {
   if (
     metadata.name !== 'noveltea-editor' ||
@@ -598,7 +610,11 @@ function assertSafePackageMetadata(metadata) {
     throw new Error('Deployed package metadata contains development-only fields.');
   }
   const dependencies = metadata.dependencies ?? {};
-  if (Object.keys(dependencies).length !== 1 || dependencies.sharp !== EXPECTED_SHARP_VERSION) {
+  if (
+    Object.keys(dependencies).length !== 2 ||
+    dependencies.sharp !== EXPECTED_SHARP_VERSION ||
+    dependencies['node-pty'] !== EXPECTED_NODE_PTY_VERSION
+  ) {
     throw new Error(
       `Unexpected top-level production dependency set: ${JSON.stringify(dependencies)}`,
     );
@@ -653,7 +669,12 @@ function assertAllowedApplicationFiles(records) {
       throw new Error(`Type-only optional-peer file entered the production stage: ${record.path}`);
     }
     if (/\.(?:node|so(?:\.\d+)*)$|\.(?:dll|dylib)$/i.test(record.path)) {
-      if (!relative.startsWith('node_modules/@img/') && !relative.includes('/node_modules/@img/')) {
+      const admittedSharp =
+        relative.startsWith('node_modules/@img/') || relative.includes('/node_modules/@img/');
+      const admittedNodePty =
+        relative.startsWith('node_modules/node-pty/') ||
+        relative.includes('/node_modules/node-pty/');
+      if (!admittedSharp && !admittedNodePty) {
         throw new Error(`Unexpected native runtime file in application stage: ${record.path}`);
       }
     }
@@ -748,6 +769,15 @@ export async function verifyStage(stageRoot, options = {}) {
       `The staged production closure does not contain sharp ${EXPECTED_SHARP_VERSION}.`,
     );
   }
+  if (
+    !installedPackages.some(
+      (entry) => entry.name === 'node-pty' && entry.version === EXPECTED_NODE_PTY_VERSION,
+    )
+  ) {
+    throw new Error(
+      `The staged production closure does not contain node-pty ${EXPECTED_NODE_PTY_VERSION}.`,
+    );
+  }
   for (const entry of installedPackages) {
     if (forbiddenProductionPackages.has(entry.name) || entry.name.startsWith('@types/')) {
       throw new Error(`Development-only package entered the production closure: ${entry.name}`);
@@ -779,7 +809,10 @@ export async function verifyStage(stageRoot, options = {}) {
       throw new Error('Native-tool resource-root hash mismatch.');
     }
   }
-  if (runSharp) await runSharpOperation(appRoot);
+  if (runSharp) {
+    await runSharpOperation(appRoot);
+    await runNodePtyOperation(appRoot);
+  }
   return { metadata, installedPackages, records };
 }
 
@@ -894,7 +927,7 @@ export async function createStage(options = {}) {
       private: true,
       author: editorPackage.author,
       license: editorPackage.license,
-      dependencies: { sharp: EXPECTED_SHARP_VERSION },
+      dependencies: { sharp: EXPECTED_SHARP_VERSION, 'node-pty': EXPECTED_NODE_PTY_VERSION },
     };
     await writeJson(path.join(appRoot, 'package.json'), deployedMetadata);
     await copyResources(path.join(transactionStage, 'resources'));

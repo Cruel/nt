@@ -100,6 +100,21 @@ the outdated installed-package marker. Full cross-platform recertification of th
 remains required. Windows and macOS triplets are defined but require their native builders before they can
 be marked validated.
 
+## Electron editor native-module boundary
+
+Native Node/Electron modules loaded only by the Electron editor are not linked into
+`noveltea_engine`, a player executable, or an exported player template. Their C++ ABI belongs to the
+Electron/Node runtime rather than NovelTea's no-exceptions/no-compiler-RTTI target ABI, so the target
+library admission gate below does not apply to that isolated editor-native graph. The current examples
+are `sharp` and `node-pty`. They remain shipped production dependencies and must instead pass the
+editor's strict production-closure, native-staging, ASAR-unpack, and packaged-application verification
+in `docs/editor/BUILD_AND_DISTRIBUTION.md`.
+
+This boundary is not permission to route engine/runtime C++ dependencies through Electron. If an
+editor-native module is linked into a NovelTea C++ target, copied into a player/export template, or
+otherwise enters the player runtime graph, this boundary no longer applies and the complete admission
+gate below is required before shipping it.
+
 ## Host-tool exemption
 
 A native-only build tool may use exceptions or compiler RTTI only when all of the following are true:

@@ -30,6 +30,8 @@ import {
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
   stagePlatformExportArgumentsSchema,
+  terminalResizeArgumentsSchema,
+  terminalWriteArgumentsSchema,
   type EditorIpcEvent,
   type EditorIpcMain,
   type EditorWebContents,
@@ -655,6 +657,59 @@ describe('guarded editor IPC registrar', () => {
         },
       ]).success,
     ).toBe(false);
+  });
+
+  it('strictly admits terminal lifecycle requests without renderer shell or cwd authority', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const ensureService = vi.fn(() => 'created');
+    const writeService = vi.fn((sessionId: string, data: string) => ({ sessionId, data }));
+    const resizeService = vi.fn((request: unknown) => request);
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'terminal-ensure',
+      (arguments_) => noArgumentsSchema.parse(arguments_),
+      ensureService,
+    );
+    registrar.handle(
+      'terminal-write',
+      (arguments_) => terminalWriteArgumentsSchema.parse(arguments_),
+      writeService,
+    );
+    registrar.handle(
+      'terminal-resize',
+      (arguments_) => terminalResizeArgumentsSchema.parse(arguments_),
+      resizeService,
+    );
+
+    const sessionId = '00000000-0000-4000-8000-000000000001';
+    await expect(ipcMain.invoke('terminal-ensure', harness.event)).resolves.toBe('created');
+    await expect(
+      ipcMain.invoke('terminal-write', harness.event, sessionId, 'echo hi\r'),
+    ).resolves.toEqual({
+      sessionId,
+      data: 'echo hi\r',
+    });
+    await expect(
+      ipcMain.invoke('terminal-resize', harness.event, { sessionId, columns: 120, rows: 40 }),
+    ).resolves.toEqual({ sessionId, columns: 120, rows: 40 });
+
+    for (const [channel, arguments_] of [
+      ['terminal-ensure', [{ shell: '/bin/bash' }]],
+      ['terminal-ensure', [{ cwd: '/tmp' }]],
+      ['terminal-write', [sessionId, 'x'.repeat(64 * 1024 + 1)]],
+      ['terminal-write', ['not-a-session', 'echo']],
+      ['terminal-resize', [{ sessionId, columns: 0, rows: 24 }]],
+      ['terminal-resize', [{ sessionId, columns: 80, rows: 24, cwd: '/tmp' }]],
+    ] as const) {
+      await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+    }
   });
 
   it('strictly admits bounded app, window, dialog, and shell requests before side effects', async () => {

@@ -103,7 +103,7 @@ export default {
     },
   ],
   asar: true,
-  asarUnpack: ['node_modules/sharp/**/*', 'node_modules/@img/**/*'],
+  asarUnpack: ['node_modules/sharp/**/*', 'node_modules/@img/**/*', 'node_modules/node-pty/**/*'],
   npmRebuild: false,
   buildDependenciesFromSource: false,
   removePackageScripts: true,

@@ -21,6 +21,7 @@ import { PreviewDiagnosticsPanel } from './PreviewDiagnosticsPanel';
 import { ShaderCompilePanel } from '@/shaders/ShaderCompilePanel';
 import { PackageExportPanel } from '@/export/PackageExportPanel';
 import { TestPlaybackPanel } from './TestPlaybackPanel';
+import { TerminalPanel } from './TerminalPanel';
 import { AssetPerformancePanel } from '@/asset-profiler/AssetPerformancePanel';
 
 function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
@@ -155,6 +156,8 @@ function PanelContent({ panelId }: { panelId: BottomPanelId }) {
       return <AssetPerformancePanel />;
     case 'command-history':
       return <CommandHistoryPanel />;
+    case 'terminal':
+      return <TerminalPanel />;
   }
 }
 
