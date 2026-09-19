@@ -37,13 +37,9 @@ export interface CliScopedCommandContext extends CliCommandContextBase {
   readonly preparation: CliScopedProjectPreparation;
 }
 
-export type CliMutationEffect = 'transactional-project' | 'opaque';
-
 export interface CliCommandInvocation {
   readonly dryRun: boolean;
   readonly mutation: boolean;
-  /** Declares how a mutating daemon-routed command affects resident Project authority. */
-  readonly mutationEffect?: CliMutationEffect;
   readonly projectPreparation?: undefined;
   run(context: CliCommandContext): Promise<CliSemanticResult> | CliSemanticResult;
 }

@@ -9,6 +9,7 @@ import {
   NOVELTEA_CLI_VERSION,
   NOVELTEA_DAEMON_PROTOCOL_VERSION,
 } from '../src/cli/static-contracts';
+import { classifyNovelTeaCliCommand, type CliCommandRouting } from '../src/cli/command-routing';
 import { runNovelTeaScriptcProcess } from './noveltea-scriptc-process';
 
 declare function nativeInvokeToFile(
@@ -854,38 +855,20 @@ function commandStart(argv: readonly string[]): number {
   return index;
 }
 
-function daemonReplaySafe(argv: readonly string[]): boolean {
+function commandRouting(argv: readonly string[]): CliCommandRouting | null {
   const index = commandStart(argv);
-  const family = argv[index];
-  const operation = argv[index + 1];
-  const detail = argv[index + 2];
-  if (family === 'validate' || family === 'usages' || family === 'test') return true;
-  if (family === 'asset' && operation === 'audit') return true;
-  if (family === 'localization' && operation === 'view') return true;
-  if (
-    family === 'comfyui' &&
-    (operation === 'status' || operation === 'workflows' || operation === 'verify')
-  )
-    return true;
-  if (family === 'platform' && operation === 'profiles') return true;
-  return (
-    family === 'platform' && operation === 'template' && (detail === 'list' || detail === 'inspect')
-  );
+  return classifyNovelTeaCliCommand(argv.slice(index));
 }
 
-function daemonConsumesStdin(argv: readonly string[]): boolean {
-  const index = commandStart(argv);
-  return (
-    argv[index] === 'test' && (argv[index + 1] === 'run-spec' || argv[index + 1] === 'run-ui-spec')
-  );
-}
-
-function daemonRequestContext(argv: readonly string[]): DaemonRequestContext {
+function daemonRequestContext(
+  argv: readonly string[],
+  routing: CliCommandRouting | null,
+): DaemonRequestContext {
   return {
     argv,
     cwd: process.cwd(),
     environment: requestEnvironment(),
-    stdinText: daemonConsumesStdin(argv) ? invokeHost('read-stdin', '') : null,
+    stdinText: routing?.stdin === 'json' ? invokeHost('read-stdin', '') : null,
     terminal: {
       stdin: process.stdin.isTTY === true,
       stdout: process.stdout.isTTY === true,
@@ -894,7 +877,7 @@ function daemonRequestContext(argv: readonly string[]): DaemonRequestContext {
       rows: null,
     },
     outputMode: argv.includes('--json') ? 'json' : 'human',
-    replaySafe: daemonReplaySafe(argv),
+    replaySafe: routing?.replaySafe === true,
     forceRuntimeCacheRebuild,
     authoringCacheInventoryHint,
   };
@@ -1024,6 +1007,18 @@ function staticNativePath(argv: readonly string[]): HostResult | null {
   }
   if (argv[index] === 'shaderc') return [nativeShaderc(argv.slice(index + 1)), '', ''];
   if (argv[index] === 'texturec') return [nativeTexturec(argv.slice(index + 1)), '', ''];
+  return null;
+}
+
+function staticCommandPath(
+  argv: readonly string[],
+  routing: CliCommandRouting | null,
+): HostResult | null {
+  if (!routing) return null;
+  if (routing.staticCompletion === 'daemon-control') return staticDaemonPath(argv);
+  if (routing.staticCompletion === 'authoring-cache') return staticValidationPath(argv);
+  if (routing.staticCompletion === 'runtime-cache') return staticTestPath(argv);
+  if (routing.staticCompletion === 'native-tool') return staticNativePath(argv);
   return null;
 }
 
@@ -1201,12 +1196,8 @@ async function main(): Promise<void> {
       return;
     }
     const staticArgv = strippedStaticArgv(argv);
-    const fastPath =
-      staticFastPath(staticArgv) ??
-      staticDaemonPath(staticArgv) ??
-      staticValidationPath(staticArgv) ??
-      staticTestPath(staticArgv) ??
-      staticNativePath(staticArgv);
+    const routing = commandRouting(staticArgv);
+    const fastPath = staticFastPath(staticArgv) ?? staticCommandPath(staticArgv, routing);
     if (fastPath !== null) {
       emit(fastPath);
       exitCode = fastPath[0];
@@ -1218,7 +1209,7 @@ async function main(): Promise<void> {
       emit(response);
       exitCode = response[0];
     } else {
-      const request = daemonRequestContext(argv);
+      const request = daemonRequestContext(argv, routing);
       const ensured = daemonEnsureNativeRequest();
       let response: HostResult | null = null;
       if (ensured.ok !== false) {

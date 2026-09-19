@@ -18,7 +18,6 @@ export const entityCreateCommand: CliCommandDefinition = {
     return {
       dryRun,
       mutation: !dryRun,
-      mutationEffect: dryRun ? undefined : 'transactional-project',
       run: ({ workspace, snapshot }) => createEntity(workspace, snapshot, collection, id!, dryRun),
     };
   },

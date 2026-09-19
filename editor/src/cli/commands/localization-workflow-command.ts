@@ -163,7 +163,6 @@ function workflowMutationCommand(command: 'accept' | 'review'): CliCommandDefini
       return {
         dryRun: parsed.dryRun,
         mutation: !parsed.dryRun,
-        mutationEffect: parsed.dryRun ? undefined : 'transactional-project',
         async run(context) {
           requireTargetLocale(context, parsed.locale);
           const project = context.snapshot.project;

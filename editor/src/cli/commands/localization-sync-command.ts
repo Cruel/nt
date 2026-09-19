@@ -14,7 +14,6 @@ export const localizationSyncCommand: CliCommandDefinition = {
     return {
       dryRun,
       mutation: !dryRun,
-      mutationEffect: dryRun ? undefined : 'transactional-project',
       async run({ workspace, snapshot }) {
         const result = synchronizeLocalizationMessageTracking(snapshot.project);
         const localizationFiles = projectWorkspaceChangedLocalizationFiles(
