@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
@@ -46,6 +47,7 @@ function shaderDiagnosticTarget(
 }
 
 export function ShaderCompilePanel() {
+  const { t } = useTranslation('workspace');
   const compiling = useShaderCompileStore((state) => state.compiling);
   const diagnostics = useShaderCompileStore((state) => state.diagnostics);
   const outputs = useShaderCompileStore((state) => state.outputs);
@@ -69,7 +71,7 @@ export function ShaderCompilePanel() {
   );
 
   if (!compiling && diagnostics.length === 0 && outputs.length === 0 && !error) {
-    return <p className="p-3 text-xs text-muted-foreground">No shader compile result yet.</p>;
+    return <p className="p-3 text-xs text-muted-foreground">{t('shaderCompilePanel.empty')}</p>;
   }
 
   return (
@@ -82,25 +84,31 @@ export function ShaderCompilePanel() {
               : 'secondary'
           }
         >
-          {compiling ? 'compiling' : error ? 'error' : 'ready'}
+          {compiling
+            ? t('shaderCompilePanel.status.compiling')
+            : error
+              ? t('shaderCompilePanel.status.error')
+              : t('shaderCompilePanel.status.ready')}
         </Badge>
         <span className="text-muted-foreground">
-          {outputs.length} derived output{outputs.length === 1 ? '' : 's'}, {diagnostics.length}{' '}
-          diagnostic{diagnostics.length === 1 ? '' : 's'}
+          {t('shaderCompilePanel.summary', {
+            outputCount: outputs.length,
+            diagnosticCount: diagnostics.length,
+          })}
         </span>
         <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={clear}>
-          Clear
+          {t('shaderCompilePanel.clear')}
         </Button>
       </div>
       {diagnostics.length > 0 ? (
         <section className="space-y-2">
-          <div className="font-medium">Diagnostics</div>
+          <div className="font-medium">{t('shaderCompilePanel.diagnostics')}</div>
           <DiagnosticList items={diagnosticItems} />
         </section>
       ) : null}
       {outputs.length > 0 ? (
         <section className="space-y-2">
-          <div className="font-medium">Derived outputs</div>
+          <div className="font-medium">{t('shaderCompilePanel.outputs')}</div>
           {outputs.map((output, index) => (
             <div
               key={`${output.program}-${output.stage}-${output.variant}-${index}`}
@@ -108,7 +116,9 @@ export function ShaderCompilePanel() {
             >
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={output.cacheHit ? 'outline' : 'secondary'}>
-                  {output.cacheHit ? 'cache hit' : 'compiled'}
+                  {output.cacheHit
+                    ? t('shaderCompilePanel.outputStatus.cacheHit')
+                    : t('shaderCompilePanel.outputStatus.compiled')}
                 </Badge>
                 <span className="font-mono">{output.program}</span>
                 <span className="font-mono text-muted-foreground">{output.stage}</span>

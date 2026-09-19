@@ -35,7 +35,7 @@ import { interactionSubjectSchema } from './authoring-features';
 import { interactableLocationSchema } from './authoring-interactables';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
-import { resolveMaterialData } from './authoring-materials';
+import { resolvedMaterialUsesCustomShader, resolveMaterialData } from './authoring-materials';
 import { isUniformValueCompatible, shaderUniformValueSchema } from './authoring-shaders';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
@@ -1054,6 +1054,7 @@ export function validateSceneData(
           `Material role '${resolved.data.role}' is not valid for this presentation occurrence.`,
         ),
       );
+    if (resolvedMaterialUsesCustomShader(resolved.data)) return;
     const uniform = resolved.data.preset.uniforms[parameter];
     if (!uniform) {
       diagnostics.push(
@@ -1585,7 +1586,10 @@ export function validateSceneData(
           );
         if (typeof step.value === 'boolean' || Number.isInteger(step.value)) {
           const resolved = resolveMaterialData(project, step.material.$ref.id);
-          const uniform = resolved.data?.preset.uniforms[step.parameter];
+          const uniform =
+            resolved.data && !resolvedMaterialUsesCustomShader(resolved.data)
+              ? resolved.data.preset.uniforms[step.parameter]
+              : undefined;
           if (uniform?.type === 'bool' || uniform?.type === 'int')
             diagnostics.push(
               diagnostic(
