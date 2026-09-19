@@ -11,7 +11,10 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
-import { runNovelTeaCli } from '../../cli/application';
+import {
+  runNovelTeaCli,
+  type AuthoringValidationInstrumentation,
+} from '../../cli/application';
 import type { NovelTeaCliNativeToolService } from '../../cli/native-tool-service';
 import { readReusableAuthoringContributions } from '../../shared/authoring-cache';
 import { sha256PrefixedUtf8 } from '../../shared/web-crypto';
@@ -101,6 +104,7 @@ describe('persistent CLI validation', () => {
     });
     const fileSystem = new NodeProjectWorkspaceFileSystem();
     const work: Array<{ executed: number; reused: number }> = [];
+    const instrumentation: AuthoringValidationInstrumentation[] = [];
     class ObservedWorkspace extends ProjectWorkspaceService {
       override async open(...args: Parameters<ProjectWorkspaceService['open']>) {
         const opened = await super.open(...args);
@@ -113,6 +117,9 @@ describe('persistent CLI validation', () => {
       nativeTools: tools(),
       fileSystem,
       workspace: new ObservedWorkspace(fileSystem),
+      onAuthoringValidationInstrumentation(value: AuthoringValidationInstrumentation) {
+        instrumentation.push(value);
+      },
     };
     await runNovelTeaCli(['--json', 'validate'], options);
     const file = path.join(root, 'records/rooms/start.json');
@@ -132,6 +139,23 @@ describe('persistent CLI validation', () => {
     expect(work[1]!.reused).toBeGreaterThan(50);
     expect(work[1]!.executed).toBeLessThan(work[0]!.executed / 2);
     expect(work[2]!.reused).toBe(0);
+    expect(instrumentation).toHaveLength(3);
+    expect(instrumentation[1]!.validationWork.reused).toBeGreaterThan(50);
+    expect(instrumentation[1]!.sourceWork.parsedJsonSources).toBe(1);
+    expect(instrumentation[1]!.sourceWork.projectedJsonSources).toBe(1);
+    expect(instrumentation[1]!.sourceWork.wholeProjectSchemaParses).toBe(0);
+    expect(instrumentation[1]!.sourceWork.reusedJsonSources).toBeGreaterThan(30);
+    expect(instrumentation[1]!.dependencyWork.reusedContributions).toBeGreaterThan(
+      instrumentation[1]!.dependencyWork.derivedContributions,
+    );
+    expect(instrumentation[1]!.compilerWork).toEqual({
+      wholeProjectNormalizations: 0,
+      linkBuilds: 0,
+      artifactLowerings: 0,
+      serializations: 0,
+    });
+    expect(instrumentation[2]!.dependencyWork.reusedContributions).toBe(0);
+    expect(instrumentation[2]!.sourceWork.wholeProjectSchemaParses).toBe(1);
   });
   it('does not certify a source addition that happened after workspace assembly', async () => {
     const root = await fixture();
@@ -740,14 +764,35 @@ describe('persistent CLI validation', () => {
       }
     }
 
+    const dependencyWork: Array<{
+      derivedContributions: number;
+      reusedContributions: number;
+      analyzedOwners: number;
+      reusedSourceAnalyses: number;
+    }> = [];
+    class ObservedIncrementalWorkspace extends ProjectWorkspaceService {
+      override async buildDependencyGraphAnalysis(
+        ...args: Parameters<ProjectWorkspaceService['buildDependencyGraphAnalysis']>
+      ) {
+        const analysis = await super.buildDependencyGraphAnalysis(...args);
+        dependencyWork.push(analysis.work);
+        return analysis;
+      }
+    }
     const incrementalFileSystem = new IncrementalReads();
     const incremental = await runNovelTeaCli(['--json', 'validate'], {
       cwd: root,
       nativeTools,
       fileSystem: incrementalFileSystem,
-      workspace: new ProjectWorkspaceService(incrementalFileSystem),
+      workspace: new ObservedIncrementalWorkspace(incrementalFileSystem),
     });
     expect(incremental.exitCode).toBe(0);
+    expect(dependencyWork).toHaveLength(1);
+    expect(dependencyWork[0]!.reusedContributions).toBeGreaterThan(0);
+    expect(dependencyWork[0]!.derivedContributions).toBeGreaterThan(0);
+    expect(dependencyWork[0]!.derivedContributions).toBeLessThan(
+      dependencyWork[0]!.reusedContributions,
+    );
     await rm(path.join(root, '.noveltea/cache/authoring/current'));
     const fresh = await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools });
     expect(incremental).toEqual(fresh);

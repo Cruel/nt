@@ -51,6 +51,11 @@ if (bootstrap.complete) {
     onPlatformProgress: bootstrap.globals.json
       ? undefined
       : (stage, message) => process.stderr.write(`[${stage}] ${message}\n`),
+    onAuthoringValidationInstrumentation:
+      process.env.NOVELTEA_CLI_VALIDATION_PROFILE === '1'
+        ? (instrumentation) =>
+            process.stderr.write(`[validation-profile] ${JSON.stringify(instrumentation)}\n`)
+        : undefined,
   });
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);

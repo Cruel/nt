@@ -102,6 +102,11 @@ export interface CompileFailure {
   stages: readonly CompilerStageReport[];
 }
 
+export interface AuthoringPreflightResult {
+  diagnostics: readonly CompiledDiagnostic[];
+  stages: readonly CompilerStageReport[];
+}
+
 export type CompileResult<Project> = CompileSuccess<Project> | CompileFailure;
 
 interface CompilerContext {
@@ -627,6 +632,38 @@ function lowerAuthoringProject(
 function finish(context: CompilerContext): CompileFailure {
   return {
     ok: false,
+    diagnostics: sortAndDedupeDiagnostics(context.diagnostics),
+    stages: context.stages,
+  };
+}
+
+/** Lightweight validation-only compiler preflight for an already admitted Project. */
+export function preflightAdmittedAuthoringProject(
+  project: AuthoringProject,
+  validate: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[] = (project) =>
+    validateAdmittedAuthoringProject(project).diagnostics,
+): AuthoringPreflightResult {
+  const context: CompilerContext = {
+    diagnostics: [],
+    normalizedProject: project,
+    stages: [{ name: 'normalize', status: 'skipped' }],
+  };
+  validateSemantics(context, validate);
+  // Validation owns reference integrity through the shared dependency graph. Running the compiler's
+  // link graph here would rebuild the complete Project merely to rediscover the same authoring
+  // errors, defeating change-proportional validation.
+  addStage(context, 'link', 'skipped');
+  if (!hasErrors(context.diagnostics) && !project.entrypoint)
+    context.diagnostics.push(
+      makeDiagnostic(
+        'COMPILER_ENTRYPOINT_REQUIRED',
+        'error',
+        '/entrypoint',
+        'A Room, Scene, or Dialogue entrypoint is required for compiled gameplay.',
+      ),
+    );
+  addSkippedStages(context, ['lower', 'collect-resources', 'assemble', 'validate-wire', 'serialize']);
+  return {
     diagnostics: sortAndDedupeDiagnostics(context.diagnostics),
     stages: context.stages,
   };

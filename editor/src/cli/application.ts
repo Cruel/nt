@@ -30,6 +30,39 @@ function editorDiagnosticProjectionKey(diagnostic: NovelTeaCliDiagnostic): strin
   return [diagnostic.code, diagnostic.severity, diagnostic.path, diagnostic.message].join('\u0000');
 }
 
+export interface AuthoringValidationInstrumentation {
+  readonly discoveryMs: number;
+  readonly cacheAdmissionMs: number;
+  readonly workspaceAdmissionMs: number;
+  readonly freshnessProofMs: number;
+  readonly diagnosticProjectionMs: number;
+  readonly cachePublicationMs: number;
+  readonly validationWork: Readonly<{ executed: number; reused: number }>;
+  readonly sourceWork: Readonly<{
+    parsedJsonSources: number;
+    reusedJsonSources: number;
+    readTextSources: number;
+    reusedTextSources: number;
+    projectedJsonSources: number;
+    wholeProjectSchemaParses: number;
+  }>;
+  readonly preflightMs: number;
+  readonly dependencyMs: number;
+  readonly nativeMs: number;
+  readonly dependencyWork: Readonly<{
+    derivedContributions: number;
+    reusedContributions: number;
+    analyzedOwners: number;
+    reusedSourceAnalyses: number;
+  }>;
+  readonly compilerWork: Readonly<{
+    wholeProjectNormalizations: number;
+    linkBuilds: number;
+    artifactLowerings: number;
+    serializations: number;
+  }>;
+}
+
 export interface RunNovelTeaCliOptions {
   readonly cwd?: string;
   readonly fileSystem?: ProjectWorkspaceFileSystem;
@@ -37,6 +70,9 @@ export interface RunNovelTeaCliOptions {
   readonly nativeTools?: NovelTeaCliNativeToolService;
   readonly platformTools?: NovelTeaCliPlatformToolService;
   readonly onPlatformProgress?: (stage: string, message: string) => void;
+  readonly onAuthoringValidationInstrumentation?: (
+    instrumentation: AuthoringValidationInstrumentation,
+  ) => void;
   readonly agentKitPayload?: NovelTeaAgentKitPayload;
   readonly stdinText?: string;
   readonly readStdinText?: () => string;
@@ -44,6 +80,8 @@ export interface RunNovelTeaCliOptions {
   readonly forceAuthoringCacheRebuild?: boolean;
   readonly skipAuthoringWholeResultCache?: boolean;
   readonly expectedAuthoringValidationInputs?: ProjectSourceInventory;
+  /** Trusted static-host metadata captured by the native authoring-cache probe. */
+  readonly precomputedAuthoringCacheInventory?: ProjectSourceInventory;
   readonly comfyUiWorkflowLibraryOptions?: WorkflowLibraryServiceOptions;
   readonly comfyUiAbortSignal?: AbortSignal;
   readonly onComfyUiProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
@@ -343,11 +381,13 @@ export async function runNovelTeaCli(
   }
 
   const fileSystemService = await projectFileSystem();
+  const discoveryStarted = Date.now();
   const { discoverProjectRoot, validateExplicitProjectRoot } =
     await import('../shared/project-workspace/project-workspace-discovery');
   const discovery = globals.project
     ? await validateExplicitProjectRoot(fileSystemService, path.resolve(cwd, globals.project))
     : await discoverProjectRoot(fileSystemService, cwd);
+  const discoveryMs = Date.now() - discoveryStarted;
   if (!discovery.ok)
     return failure(
       NOVELTEA_CLI_EXIT_CODES.workspace,
@@ -421,14 +461,20 @@ export async function runNovelTeaCli(
     globals.command[0] === 'validate' && nativeTools.validateFontCoverage
       ? await import('../shared/authoring-cache')
       : null;
-  const cachedValidation =
-    options.forceAuthoringCacheRebuild || options.skipAuthoringWholeResultCache
-      ? null
-      : await validationCache?.readAuthoringCache(
-          services.fileSystem,
-          discovery.projectRoot,
-          options.expectedAuthoringValidationInputs ?? null,
-        );
+  const cacheAdmissionStarted = Date.now();
+  const authoringCacheAdmission = options.forceAuthoringCacheRebuild
+    ? null
+    : await validationCache?.readAuthoringCacheAdmission(
+        services.fileSystem,
+        discovery.projectRoot,
+        options.expectedAuthoringValidationInputs ?? null,
+        options.skipAuthoringWholeResultCache ?? false,
+        options.precomputedAuthoringCacheInventory ?? null,
+      );
+  const cacheAdmissionMs = Date.now() - cacheAdmissionStarted;
+  const cachedValidation = options.skipAuthoringWholeResultCache
+    ? null
+    : authoringCacheAdmission?.result;
   if (cachedValidation) {
     const { editorDiagnostics, ...cachedEnvelope } = cachedValidation;
     if (!cachedValidation.success)
@@ -446,22 +492,22 @@ export async function runNovelTeaCli(
     };
   }
 
-  const validationBaseline = await validationCache?.captureAuthoringSourceBaseline(
-    services.fileSystem,
-    discovery.projectRoot,
-  );
-  const reusableAuthoring = options.forceAuthoringCacheRebuild
+  const reusableAuthoring = authoringCacheAdmission?.reusable ?? null;
+  const validationBaseline = reusableAuthoring
     ? null
-    : await validationCache?.readReusableAuthoringContributions(
+    : await validationCache?.captureAuthoringSourceBaseline(
         services.fileSystem,
         discovery.projectRoot,
       );
   const { openCliProject } = await import('./semantic-project');
+  const workspaceAdmissionStarted = Date.now();
   const opened = await openCliProject(services.workspace, discovery.projectRoot, {
     readOnly: command.dryRun,
     reusableSourceContributions: reusableAuthoring?.sourceContributions,
     reusableValidationContributions: reusableAuthoring?.validationContributions,
+    reusableDependencyState: reusableAuthoring?.dependencyState,
   });
+  const workspaceAdmissionMs = Date.now() - workspaceAdmissionStarted;
   if (!opened.ok)
     return failure(workspaceOpenExitCode(opened.diagnostics), opened.diagnostics, globals.json, {
       projectRoot: discovery.projectRoot,
@@ -469,6 +515,7 @@ export async function runNovelTeaCli(
 
   try {
     let activeOpened = opened;
+    const freshnessProofStarted = Date.now();
     let validationInputs = await validationCache?.captureAuthoringValidationInputs(
       services.fileSystem,
       activeOpened.opened.snapshot,
@@ -495,6 +542,7 @@ export async function runNovelTeaCli(
         activeOpened.opened.sourceContributions,
       );
     }
+    const freshnessProofMs = Date.now() - freshnessProofStarted;
     if (options.expectedAuthoringValidationInputs) {
       const { projectSourceInventoriesEqual } = await import('../shared/project-source-inventory');
       if (
@@ -515,6 +563,7 @@ export async function runNovelTeaCli(
       forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
     });
 
+    const diagnosticProjectionStarted = Date.now();
     const diagnostics = [...activeOpened.diagnostics, ...semantic.diagnostics];
     let editorDiagnostics = activeOpened.opened.authoringDiagnostics;
     if (validationCache) {
@@ -535,6 +584,8 @@ export async function runNovelTeaCli(
         supplementalDiagnostics,
       );
     }
+    const diagnosticProjectionMs = Date.now() - diagnosticProjectionStarted;
+    const cachePublicationStarted = Date.now();
     if (validationInputs)
       await validationCache?.publishAuthoringCache(
         services.fileSystem,
@@ -550,6 +601,19 @@ export async function runNovelTeaCli(
         },
         activeOpened.opened.validationContributions,
       );
+    const cachePublicationMs = Date.now() - cachePublicationStarted;
+    if (semantic.authoringValidationMetrics)
+      options.onAuthoringValidationInstrumentation?.({
+        discoveryMs,
+        cacheAdmissionMs,
+        workspaceAdmissionMs,
+        freshnessProofMs,
+        diagnosticProjectionMs,
+        cachePublicationMs,
+        validationWork: activeOpened.opened.validationWork,
+        sourceWork: activeOpened.opened.sourceWork,
+        ...semantic.authoringValidationMetrics,
+      });
     if (!semantic.ok)
       return {
         ...failure(semantic.exitCode ?? semanticExitCode(diagnostics), diagnostics, globals.json, {

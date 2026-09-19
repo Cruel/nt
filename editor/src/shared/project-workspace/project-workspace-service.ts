@@ -14,6 +14,7 @@ import {
 } from '../authoring-dependency-graph';
 import type {
   AuthoringDependencyGraph,
+  AuthoringDependencyGraphContribution,
   AuthoringDependencyGraphContributionSet,
   AuthoringDependencyGraphDiagnostic,
 } from '../authoring-dependency-contracts';
@@ -21,6 +22,10 @@ import {
   publishCompiledArtifact,
   type CompiledArtifactPublicationResult,
 } from '../compiled-artifact-publication';
+import {
+  preflightAdmittedAuthoringProject,
+  type AuthoringPreflightResult,
+} from '../authoring-compiler';
 import {
   buildProjectSearchIndex,
   type ProjectSearchExternalSource,
@@ -209,6 +214,21 @@ export type ProjectWorkspaceSourceContribution =
 export type ProjectWorkspaceSourceContributions = Readonly<
   Record<string, ProjectWorkspaceSourceContribution>
 >;
+export interface ProjectWorkspaceSourceWork {
+  readonly parsedJsonSources: number;
+  readonly reusedJsonSources: number;
+  readonly readTextSources: number;
+  readonly reusedTextSources: number;
+  readonly projectedJsonSources: number;
+  readonly wholeProjectSchemaParses: number;
+}
+
+export interface ProjectWorkspaceDependencyWork {
+  readonly derivedContributions: number;
+  readonly reusedContributions: number;
+  readonly analyzedOwners: number;
+  readonly reusedSourceAnalyses: number;
+}
 export interface ProjectWorkspaceDependencyAnalysis {
   readonly graph: AuthoringDependencyGraph;
   readonly contributions: AuthoringDependencyGraphContributionSet;
@@ -218,6 +238,15 @@ export interface ProjectWorkspaceDependencyAnalysis {
   >;
   readonly sourcePathsByContributionKey: ReadonlyMap<string, readonly string[]>;
   readonly externalSourceRevisions: ReadonlyMap<string, ProjectWorkspaceFileRevision>;
+  readonly work: ProjectWorkspaceDependencyWork;
+}
+export interface ProjectWorkspaceReusableDependencyState {
+  readonly contributions?: readonly AuthoringDependencyGraphContribution[];
+  readonly sourceAnalyses?: ReadonlyMap<
+    string,
+    readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
+  >;
+  readonly externalSourceRevisions?: ReadonlyMap<string, ProjectWorkspaceFileRevision>;
 }
 export interface ProjectWorkspaceSaveUnitFileOwnership {
   readonly files: readonly string[];
@@ -254,6 +283,7 @@ export type ProjectWorkspaceOpenResult =
       readonly sourceContributions: ProjectWorkspaceSourceContributions;
       readonly validationContributions: readonly AuthoringValidationContribution[];
       readonly validationWork: AuthoringValidationWork;
+      readonly sourceWork: ProjectWorkspaceSourceWork;
     }
   | {
       readonly ok: false;
@@ -266,6 +296,7 @@ export interface ProjectWorkspaceOpenOptions {
   readonly recoverTransactions?: boolean;
   readonly reusableSourceContributions?: ProjectWorkspaceSourceContributions;
   readonly reusableValidationContributions?: readonly AuthoringValidationContribution[];
+  readonly reusableDependencyState?: ProjectWorkspaceReusableDependencyState;
 }
 
 export function compareProjectWorkspaceUnicodeCodePoints(left: string, right: string): number {
@@ -735,6 +766,7 @@ async function readWorkspaceFileRevision(
 async function buildWorkspaceSourceAnalysisSnapshot(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: ProjectWorkspaceSnapshot,
+  contributionKeys?: ReadonlySet<string>,
 ): Promise<{
   sources: LuaSourceSnapshot<AuthoringDependencyGraphDiagnostic>;
   externalSourceRevisions: ReadonlyMap<string, ProjectWorkspaceFileRevision>;
@@ -742,7 +774,14 @@ async function buildWorkspaceSourceAnalysisSnapshot(
   const entries = new Map<string, LuaSourceSnapshotEntry<AuthoringDependencyGraphDiagnostic>>();
   const externalSourceRevisions = new Map<string, ProjectWorkspaceFileRevision>();
   const decoder = new TextDecoder('utf-8', { fatal: true });
-  for (const assetId of collectAuthoringSourceRequirements(snapshot.project)) {
+  const requiredAssetIds = contributionKeys
+    ? new Set(
+        [...contributionKeys].flatMap((key) =>
+          collectAuthoringSourceRequirements(snapshot.project, key),
+        ),
+      )
+    : new Set(collectAuthoringSourceRequirements(snapshot.project));
+  for (const assetId of [...requiredAssetIds].sort(compareProjectWorkspaceUnicodeCodePoints)) {
     const asset = parseAssetData(snapshot.project.assets[assetId]?.data);
     const unavailable = (message: string) => {
       entries.set(assetId, {
@@ -968,6 +1007,122 @@ function externalSearchSources(
   );
 }
 
+function projectWorkspaceFile(
+  project: AuthoringProject,
+  editorState: EditorProjectState,
+  scriptSourcePaths: Readonly<Record<string, string>>,
+  file: string,
+): string | undefined {
+  if (file === 'project.json')
+    return canonicalJson(
+      {
+        schema: PROJECT_WORKSPACE_SCHEMA,
+        schemaVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
+        project: project.project,
+        settings: project.settings,
+        export: project.export,
+        bootstrapModule: project.bootstrapModule,
+        entrypoint: project.entrypoint,
+        inventories: project.inventories,
+        interactableInstances: project.interactableInstances,
+      },
+      workspaceManifestSchema,
+    );
+  if (file === 'traits.json') return canonicalJson(project.traits, traitsWorkspaceSchema);
+  if (file === 'editor.json')
+    return canonicalJson(
+      {
+        chapters: editorState.chapters,
+        tags: editorState.tags,
+        recordMetadata: editorState.recordMetadata,
+      },
+      trackedEditorOrganizationSchema,
+    );
+  if (file === LOCALIZATION_POLICY_FILE)
+    return canonicalJson(
+      {
+        sourceLocale: project.localization.sourceLocale,
+        sourceLocaleLock:
+          project.localization.sourceLocaleLock ??
+          (hasSubstantiveLocalizationWork(project.localization)
+            ? project.localization.sourceLocale
+            : null),
+        defaultLocale: project.localization.defaultLocale,
+        locales: project.localization.locales,
+      },
+      localizationPolicyFragmentSchema,
+    );
+  if (file === LOCALIZATION_MESSAGES_FILE)
+    return canonicalJson(
+      {
+        messages: project.localization.messages,
+        structuredMessageIds: project.localization.structuredMessageIds,
+      },
+      localizationMessagesFragmentSchema,
+    );
+  if (file === LOCALIZATION_USAGE_NOTES_FILE)
+    return canonicalJson(project.localization.usageNotes, localizationUsageNotesFragmentSchema);
+  if (file === LOCALIZATION_TRACKING_FILE)
+    return canonicalJson(project.localization.sourceMessageTracking, localizationTrackingFragmentSchema);
+  if (file === LOCALIZATION_ORPHANS_FILE)
+    return canonicalJson(project.localization.orphanedMessages, localizationOrphansFragmentSchema);
+  const translation = /^i18n\/locales\/([^/]+)\.json$/u.exec(file);
+  if (translation)
+    return canonicalJson(
+      project.localization.translations[translation[1]!] ?? {},
+      localizationTranslationSchema,
+    );
+  const localizedAssets = /^i18n\/assets\/([^/]+)\.json$/u.exec(file);
+  if (localizedAssets)
+    return canonicalJson(
+      project.localization.assets[localizedAssets[1]!] ?? {},
+      localizationAssetsLocaleFragmentSchema,
+    );
+  const layoutMatch = /^records\/layouts\/([^/]+)\/layout\.(json|rml|rcss|lua)$/u.exec(file);
+  if (layoutMatch) {
+    const id = layoutMatch[1]!;
+    const channel = layoutMatch[2]!;
+    const original = project.layouts[id];
+    if (!original) return undefined;
+    if (channel !== 'json') {
+      const source = original.data[channel as 'rml' | 'rcss' | 'lua'];
+      return source.sourceMode === 'inline' ? source.sourceText : undefined;
+    }
+    const record = structuredClone(original) as Record<string, unknown>;
+    const data = record.data as Record<string, Record<string, unknown>>;
+    for (const sourceChannel of ['rml', 'rcss', 'lua'] as const) {
+      const source = data[sourceChannel]!;
+      if (source.sourceMode === 'inline') data[sourceChannel] = { sourceMode: 'file' };
+      else if (source.sourceMode === 'asset')
+        data[sourceChannel] = { sourceMode: 'asset', sourceAsset: source.sourceAsset };
+      else data[sourceChannel] = { sourceMode: 'none' };
+    }
+    return canonicalJson(record, authoringRecordSchemas.layouts);
+  }
+  const recordMatch = /^records\/([^/]+)\/([^/]+)\.json$/u.exec(file);
+  if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!)) {
+    const collection = recordMatch[1] as AuthoringCollectionKey;
+    const id = recordMatch[2]!;
+    const original = project[collection][id];
+    if (!original) return undefined;
+    const record = structuredClone(original) as Record<string, unknown>;
+    if (collection === 'scripts') {
+      const data = record.data as { source: { kind: string; source?: string; path?: string } };
+      if (data.source.kind === 'inline-lua') {
+        const sourcePath = scriptSourcePaths[id] ?? `scripts/${id}.lua`;
+        data.source = { kind: 'file', path: sourcePath };
+      }
+    }
+    return canonicalJson(record, authoringRecordSchemas[collection]);
+  }
+  for (const [id, record] of Object.entries(project.scripts)) {
+    const source = record.data.source;
+    if (source.kind !== 'inline-lua') continue;
+    if ((scriptSourcePaths[id] ?? `scripts/${id}.lua`) === file) return source.source;
+  }
+  return undefined;
+}
+
 /** Projection is the only writer for tracked workspace files. */
 export function projectWorkspaceFiles(
   project: AuthoringProject,
@@ -1083,6 +1238,10 @@ export class ProjectWorkspaceService {
     ProjectWorkspaceSnapshot,
     (project: AuthoringProject) => readonly ProjectValidationDiagnostic[]
   >();
+  private readonly snapshotDependencyReuse = new WeakMap<
+    ProjectWorkspaceSnapshot,
+    ProjectWorkspaceReusableDependencyState
+  >();
   private readonly transactions: ProjectWorkspaceTransactionService;
 
   constructor(
@@ -1118,8 +1277,17 @@ export class ProjectWorkspaceService {
             );
           const reusableSourceContributions = options.reusableSourceContributions ?? {};
           const textSourceValues = new Map<string, string>();
+          const admittedSourcePaths = new Set<string>();
           const reusedJsonSourcePaths = new Set<string>();
           const freshJsonSourcePaths = new Set<string>();
+          const sourceWork = {
+            parsedJsonSources: 0,
+            reusedJsonSources: 0,
+            readTextSources: 0,
+            reusedTextSources: 0,
+            projectedJsonSources: 0,
+            wholeProjectSchemaParses: 0,
+          };
           let requiresFullSchemaParse = false;
           const reusableContribution = (relativePath: string) => {
             const contribution = reusableSourceContributions[relativePath];
@@ -1128,11 +1296,20 @@ export class ProjectWorkspaceService {
               : undefined;
           };
           const readJsonSource = async (relativePath: string): Promise<unknown> => {
+            admittedSourcePaths.add(relativePath);
             const contribution = reusableContribution(relativePath);
             if (contribution?.kind === 'json') {
+              sourceWork.reusedJsonSources++;
               reusedJsonSourcePaths.add(relativePath);
-              return structuredClone(contribution.parsed);
+              const requiresMutableProjection =
+                relativePath === 'project.json' ||
+                /^records\/layouts\/[^/]+\/layout\.json$/u.test(relativePath) ||
+                /^records\/scripts\/[^/]+\.json$/u.test(relativePath);
+              return requiresMutableProjection
+                ? structuredClone(contribution.parsed)
+                : contribution.parsed;
             }
+            sourceWork.parsedJsonSources++;
             freshJsonSourcePaths.add(relativePath);
             const absolute = this.fileSystem.joinPath(discovered.projectRoot, relativePath);
             await this.assertContained(discovered.projectRoot, absolute);
@@ -1148,11 +1325,14 @@ export class ProjectWorkspaceService {
               : schema.parse(value);
           };
           const readTextSource = async (relativePath: string): Promise<string> => {
+            admittedSourcePaths.add(relativePath);
             const contribution = reusableContribution(relativePath);
             if (contribution?.kind === 'text') {
+              sourceWork.reusedTextSources++;
               textSourceValues.set(relativePath, contribution.text);
               return contribution.text;
             }
+            sourceWork.readTextSources++;
             const absolute = this.fileSystem.joinPath(discovered.projectRoot, relativePath);
             await this.assertContained(discovered.projectRoot, absolute);
             const text = await this.fileSystem.readText(absolute);
@@ -1607,6 +1787,7 @@ export class ProjectWorkspaceService {
             // rebuilding from those fragments avoids reparsing unrelated unchanged sources.
             decodedProject = candidate as AuthoringProject;
           } else {
+            sourceWork.wholeProjectSchemaParses++;
             const decoded = authoringProjectSchema.safeParse(candidate);
             if (!decoded.success)
               return complete({
@@ -1622,11 +1803,6 @@ export class ProjectWorkspaceService {
           decodedProject.editor.chapters = trackedEditor.chapters;
           decodedProject.editor.tags = trackedEditor.tags;
           decodedProject.editor.recordMetadata = trackedEditor.recordMetadata;
-          const projected = projectWorkspaceFiles(
-            decodedProject,
-            decodedProject.editor,
-            scriptSourcePaths,
-          );
           try {
             // Validate Asset source paths here, but do not make binary Asset bytes part of the
             // authoring workspace revision inventory. Asset integrity has its own exact-byte
@@ -1635,7 +1811,7 @@ export class ProjectWorkspaceService {
           } catch (error) {
             return fail(error instanceof Error ? error.message : 'Asset source path is invalid.');
           }
-          const canonicalSourceFiles = Object.keys(projected).sort(
+          const canonicalSourceFiles = [...admittedSourcePaths].sort(
             compareProjectWorkspaceUnicodeCodePoints,
           );
           const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {};
@@ -1703,11 +1879,20 @@ export class ProjectWorkspaceService {
               ? reused.localDiagnostics
               : Object.freeze([...(localDiagnosticsByFile.get(file) ?? [])]);
             if (file.endsWith('.json')) {
-              const normalizedText = projected[file];
-              if (normalizedText === undefined)
-                return fail(`Authoritative source file '${file}' was not projected.`, `/${file}`);
-              const parsed =
-                reused?.kind === 'json' ? reused.parsed : (JSON.parse(normalizedText) as unknown);
+              let parsed: unknown;
+              if (reused?.kind === 'json') parsed = reused.parsed;
+              else {
+                sourceWork.projectedJsonSources++;
+                const normalizedText = projectWorkspaceFile(
+                  decodedProject,
+                  decodedProject.editor,
+                  scriptSourcePaths,
+                  file,
+                );
+                if (normalizedText === undefined)
+                  return fail(`Authoritative source file '${file}' was not projected.`, `/${file}`);
+                parsed = JSON.parse(normalizedText) as unknown;
+              }
               sourceContributions[file] = Object.freeze({
                 path: file,
                 contentHash: revision.contentHash,
@@ -1751,21 +1936,13 @@ export class ProjectWorkspaceService {
             externalSourceDescriptors: externalDescriptors(decodedProject, scriptSourcePaths),
             scriptSourcePaths: Object.freeze(sortKeys(scriptSourcePaths)),
           });
-          let compilerDiagnostics: readonly ProjectValidationDiagnostic[] | undefined;
-          this.snapshotValidators.set(snapshot, (project) => {
-            if (compilerDiagnostics) return compilerDiagnostics;
-            // Compiler settings normalization has its own check namespace, not workspace findings.
-            const compiledValidation = validateAdmittedAuthoringProject(
-              project,
-              validationReuse,
-              'compiler',
-            );
-            validation.contributions.push(...compiledValidation.contributions);
-            validation.work.executed += compiledValidation.work.executed;
-            validation.work.reused += compiledValidation.work.reused;
-            compilerDiagnostics = compiledValidation.diagnostics;
-            return compilerDiagnostics;
-          });
+          // Workspace admission has already run the authoritative semantic validation over this
+          // exact admitted Project generation. Compiler/preflight callers consume that immutable
+          // diagnostic product instead of rerunning the same Project-wide checks under a second
+          // namespace.
+          this.snapshotValidators.set(snapshot, () => validationDiagnostics);
+          if (options.reusableDependencyState)
+            this.snapshotDependencyReuse.set(snapshot, options.reusableDependencyState);
           const result: ProjectWorkspaceOpenResult = {
             ok: true,
             snapshot,
@@ -1777,6 +1954,7 @@ export class ProjectWorkspaceService {
             sourceContributions: Object.freeze(sortKeys(sourceContributions)),
             validationContributions: validation.contributions,
             validationWork: validation.work,
+            sourceWork,
           };
           return complete(result);
         } catch (error) {
@@ -1916,6 +2094,12 @@ export class ProjectWorkspaceService {
     if ((await this.fileSystem.readText(localPath).catch(() => null)) !== localText)
       await this.fileSystem.writeTextAtomic(localPath, localText);
   }
+  preflightCompiledArtifact(snapshot: ProjectWorkspaceSnapshot): AuthoringPreflightResult {
+    return preflightAdmittedAuthoringProject(
+      snapshot.project,
+      this.snapshotValidators.get(snapshot),
+    );
+  }
   publishCompiledArtifact(snapshot: ProjectWorkspaceSnapshot): CompiledArtifactPublicationResult {
     return publishCompiledArtifact(snapshot.project, this.snapshotValidators.get(snapshot));
   }
@@ -1925,8 +2109,37 @@ export class ProjectWorkspaceService {
   async buildDependencyGraphAnalysis(
     snapshot: ProjectWorkspaceSnapshot,
   ): Promise<ProjectWorkspaceDependencyAnalysis> {
-    const sourceSnapshot = await buildWorkspaceSourceAnalysisSnapshot(this.fileSystem, snapshot);
-    const analyses = await this.analyzeSources(snapshot, sourceSnapshot.sources);
+    const reusable = this.snapshotDependencyReuse.get(snapshot);
+    const contributionKeys = enumerateAuthoringDependencyContributionKeys(snapshot.project);
+    const currentKeys = new Set(contributionKeys);
+    const reusableContributions = new Map(
+      (reusable?.contributions ?? [])
+        .filter((contribution) => currentKeys.has(contribution.key))
+        .map((contribution) => [contribution.key, contribution]),
+    );
+    const reusableAnalyses = new Map(
+      [...(reusable?.sourceAnalyses ?? new Map())].filter(([key]) => currentKeys.has(key)),
+    );
+    const missingKeys = new Set(
+      contributionKeys.filter((key) => !reusableContributions.has(key)),
+    );
+    const analysesToRun = new Set(
+      [...missingKeys].filter((key) => !reusableAnalyses.has(key)),
+    );
+    const sourceSnapshot = await buildWorkspaceSourceAnalysisSnapshot(
+      this.fileSystem,
+      snapshot,
+      analysesToRun,
+    );
+    const freshAnalyses =
+      analysesToRun.size > 0
+        ? await this.analyzeSources(snapshot, sourceSnapshot.sources, undefined, analysesToRun)
+        : new Map<
+            string,
+            readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
+          >();
+    const analyses = new Map(reusableAnalyses);
+    for (const [key, value] of freshAnalyses) analyses.set(key, value);
     const descriptorsByKey = new Map<string, AuthoringLuaSourceDescriptor[]>();
     const sourcePathsByContributionKey = new Map<string, Set<string>>();
     for (const descriptor of snapshot.externalSourceDescriptors) {
@@ -1939,20 +2152,26 @@ export class ProjectWorkspaceService {
         sourcePathsByContributionKey.set(descriptor.contributionKey, paths);
       }
     }
-    const contributions = createAuthoringDependencyGraphContributionSet(
-      enumerateAuthoringDependencyContributionKeys(snapshot.project).map((contributionKey) => {
-        const contribution = deriveAuthoringDependencyContributionFromPrepared(
-          snapshot.project,
-          contributionKey,
-          descriptorsByKey.get(contributionKey) ?? [],
-          analyses.get(contributionKey) ?? [],
-          true,
-        );
-        if (!contribution)
-          throw new Error(`Unable to derive graph contribution '${contributionKey}'.`);
-        return contribution;
-      }),
-    );
+    const derived: AuthoringDependencyGraphContribution[] = [];
+    const allContributions = contributionKeys.map((contributionKey) => {
+      const reused = reusableContributions.get(contributionKey);
+      if (reused) return reused;
+      const contribution = deriveAuthoringDependencyContributionFromPrepared(
+        snapshot.project,
+        contributionKey,
+        descriptorsByKey.get(contributionKey) ?? [],
+        analyses.get(contributionKey) ?? [],
+        true,
+      );
+      if (!contribution)
+        throw new Error(`Unable to derive graph contribution '${contributionKey}'.`);
+      derived.push(contribution);
+      return contribution;
+    });
+    const contributions = createAuthoringDependencyGraphContributionSet(allContributions);
+    const externalSourceRevisions = new Map(reusable?.externalSourceRevisions ?? []);
+    for (const [path, revision] of sourceSnapshot.externalSourceRevisions)
+      externalSourceRevisions.set(path, revision);
     return {
       graph: assembleAuthoringDependencyGraph(contributions),
       contributions,
@@ -1963,7 +2182,13 @@ export class ProjectWorkspaceService {
           Object.freeze([...paths].sort(compareProjectWorkspaceUnicodeCodePoints)),
         ]),
       ),
-      externalSourceRevisions: sourceSnapshot.externalSourceRevisions,
+      externalSourceRevisions,
+      work: {
+        derivedContributions: derived.length,
+        reusedContributions: reusableContributions.size,
+        analyzedOwners: freshAnalyses.size,
+        reusedSourceAnalyses: reusableAnalyses.size,
+      },
     };
   }
   async buildDependencyGraphWithSources(

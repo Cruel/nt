@@ -1260,6 +1260,35 @@ function summarizeBenchmark(values) {
   };
 }
 
+function validationProfile(result) {
+  const line = result.stderr
+    .split(/\r?\n/u)
+    .find((entry) => entry.startsWith('[validation-profile] '));
+  if (!line) return null;
+  return JSON.parse(line.slice('[validation-profile] '.length));
+}
+
+async function inflateValidationBenchmark(root, count = 120) {
+  const source = JSON.parse(
+    await readFile(path.join(root, 'records', 'rooms', 'foyer.json'), 'utf8'),
+  );
+  for (let index = 0; index < count; index += 1) {
+    const id = `validation-benchmark-${String(index).padStart(3, '0')}`;
+    await writeJson(path.join(root, 'records', 'rooms', `${id}.json`), {
+      ...source,
+      id,
+      label: `Validation benchmark ${index}`,
+    });
+  }
+}
+
+async function editValidationBenchmarkRecord(root, label) {
+  const file = path.join(root, 'records', 'rooms', 'validation-benchmark-000.json');
+  const record = JSON.parse(await readFile(file, 'utf8'));
+  record.label = label;
+  await writeJson(file, record);
+}
+
 async function certifyPerformanceEnvelope(tempRoot, pristine) {
   const runs = 5;
   const measureRepeated = (label, invoke) => {
@@ -1285,7 +1314,8 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
 
   const report = {
     targetsMs: { trivial: 300, lightweightProject: 500 },
-    note: 'Engineering observations only; certification does not fail on wall-clock thresholds.',
+    targetsRatio: { oneSourceValidationSpeedup: 2 },
+    note: 'Engineering observations only; certification does not fail on wall-clock thresholds or speedup targets.',
     cases: {
       nodeVersion: measureRepeated('Node version', () => runNode(['--json', '--version'])),
       scriptcVersion: measureRepeated('ScriptC version', () => runNative(['--json', '--version'])),
@@ -1326,6 +1356,9 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
   const scriptcValidateRoot = path.join(tempRoot, 'performance-scriptc-validate');
   await resetCase(pristine, nodeValidateRoot);
   await resetCase(pristine, scriptcValidateRoot);
+  await inflateValidationBenchmark(nodeValidateRoot);
+  await inflateValidationBenchmark(scriptcValidateRoot);
+  const profileEnvironment = { ...process.env, NOVELTEA_CLI_VALIDATION_PROFILE: '1' };
   const nodeCold = elapsedMilliseconds(() =>
     runNode(['--project', nodeValidateRoot, '--json', 'validate'], { cwd: nodeValidateRoot }),
   );
@@ -1334,6 +1367,24 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
     runNode(['--project', nodeValidateRoot, '--json', 'validate'], { cwd: nodeValidateRoot }),
   );
   requireSuccess('Node warm validate benchmark', nodeWarm.result);
+  await editValidationBenchmarkRecord(nodeValidateRoot, 'Node incremental change');
+  const nodeChanged = elapsedMilliseconds(() =>
+    runNode(['--project', nodeValidateRoot, '--json', 'validate'], {
+      cwd: nodeValidateRoot,
+      env: profileEnvironment,
+    }),
+  );
+  requireSuccess('Node one-source changed validate benchmark', nodeChanged.result);
+  await rm(path.join(nodeValidateRoot, '.noveltea', 'cache', 'authoring', 'current'), {
+    force: true,
+  });
+  const nodeForcedFull = elapsedMilliseconds(() =>
+    runNode(['--project', nodeValidateRoot, '--json', 'validate'], {
+      cwd: nodeValidateRoot,
+      env: profileEnvironment,
+    }),
+  );
+  requireSuccess('Node forced full validate benchmark', nodeForcedFull.result);
   const scriptcCold = elapsedMilliseconds(() =>
     runNative(['--project', scriptcValidateRoot, '--json', 'validate'], {
       cwd: scriptcValidateRoot,
@@ -1346,13 +1397,42 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
     }),
   );
   requireSuccess('ScriptC warm validate benchmark', scriptcWarm.result);
+  await editValidationBenchmarkRecord(scriptcValidateRoot, 'ScriptC incremental change');
+  const scriptcChanged = elapsedMilliseconds(() =>
+    runNative(['--project', scriptcValidateRoot, '--json', 'validate'], {
+      cwd: scriptcValidateRoot,
+      env: profileEnvironment,
+    }),
+  );
+  requireSuccess('ScriptC one-source changed validate benchmark', scriptcChanged.result);
+  await rm(path.join(scriptcValidateRoot, '.noveltea', 'cache', 'authoring', 'current'), {
+    force: true,
+  });
+  const scriptcForcedFull = elapsedMilliseconds(() =>
+    runNative(['--project', scriptcValidateRoot, '--json', 'validate'], {
+      cwd: scriptcValidateRoot,
+      env: profileEnvironment,
+    }),
+  );
+  requireSuccess('ScriptC forced full validate benchmark', scriptcForcedFull.result);
   report.cases.nodeValidate = {
     coldMs: Math.round(nodeCold.elapsed * 10) / 10,
     warmMs: Math.round(nodeWarm.elapsed * 10) / 10,
+    oneSourceChangedMs: Math.round(nodeChanged.elapsed * 10) / 10,
+    forcedFullMs: Math.round(nodeForcedFull.elapsed * 10) / 10,
+    oneSourceSpeedup: Math.round((nodeForcedFull.elapsed / nodeChanged.elapsed) * 100) / 100,
+    oneSourceWork: validationProfile(nodeChanged.result),
+    forcedFullWork: validationProfile(nodeForcedFull.result),
   };
   report.cases.scriptcValidate = {
     coldMs: Math.round(scriptcCold.elapsed * 10) / 10,
     warmMs: Math.round(scriptcWarm.elapsed * 10) / 10,
+    oneSourceChangedMs: Math.round(scriptcChanged.elapsed * 10) / 10,
+    forcedFullMs: Math.round(scriptcForcedFull.elapsed * 10) / 10,
+    oneSourceSpeedup:
+      Math.round((scriptcForcedFull.elapsed / scriptcChanged.elapsed) * 100) / 100,
+    oneSourceWork: validationProfile(scriptcChanged.result),
+    forcedFullWork: validationProfile(scriptcForcedFull.result),
   };
 
   process.stdout.write(`[performance] ${JSON.stringify(report)}\n`);
