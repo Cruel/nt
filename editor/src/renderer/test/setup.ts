@@ -157,7 +157,15 @@ Object.defineProperty(window, 'noveltea', {
       diagnostics: [],
     }),
     validateProject: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
-    listProjectSourceFiles: vi.fn().mockResolvedValue({ files: [] }),
+    listProjectSourceFiles: vi.fn().mockResolvedValue({ files: [], folders: [] }),
+    projectSourceUsages: vi.fn().mockResolvedValue({ usages: [] }),
+    mutateProjectSources: vi.fn().mockResolvedValue({ ok: true, success: true, changedPaths: [] }),
+    writeProjectSource: vi.fn().mockResolvedValue({
+      ok: true,
+      success: true,
+      sourceId: 'source',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+    }),
     readProjectTextSources: vi
       .fn()
       .mockImplementation(async (request: ReadProjectTextSourcesRequest) => ({

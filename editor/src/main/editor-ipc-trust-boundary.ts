@@ -289,6 +289,52 @@ export const listProjectSourceFilesArgumentsSchema = z.tuple([
     .strict(),
 ]);
 
+const sourcePathSchema = z.string().min(1).max(MAX_PROJECT_PATH_LENGTH);
+const sourceRevisionSchema = z.union([sha256DigestSchema, z.literal('absent')]);
+
+export const projectSourceUsagesArgumentsSchema = z.tuple([
+  z
+    .object({
+      projectSessionId: z.string().min(1).max(MAX_PROJECT_SESSION_ID_LENGTH),
+      path: sourcePathSchema,
+    })
+    .strict(),
+]);
+
+export const mutateProjectSourcesArgumentsSchema = z.tuple([
+  z
+    .object({
+      projectSessionId: z.string().min(1).max(MAX_PROJECT_SESSION_ID_LENGTH),
+      operation: z.discriminatedUnion('kind', [
+        z
+          .object({
+            kind: z.literal('create-file'),
+            path: sourcePathSchema,
+            fileKind: z.enum(['lua', 'shader']),
+          })
+          .strict(),
+        z.object({ kind: z.literal('create-folder'), path: sourcePathSchema }).strict(),
+        z
+          .object({ kind: z.literal('move'), fromPath: sourcePathSchema, toPath: sourcePathSchema })
+          .strict(),
+        z.object({ kind: z.literal('delete'), path: sourcePathSchema }).strict(),
+      ]),
+      expectedRevisions: z.record(sourcePathSchema, sourceRevisionSchema).optional(),
+    })
+    .strict(),
+]);
+
+export const writeProjectSourceArgumentsSchema = z.tuple([
+  z
+    .object({
+      projectSessionId: z.string().min(1).max(MAX_PROJECT_SESSION_ID_LENGTH),
+      sourceId: sourcePathSchema,
+      expectedRevision: sourceRevisionSchema,
+      text: z.string().max(PROJECT_TEXT_SOURCE_LIMITS.maxSourceBytes),
+    })
+    .strict(),
+]);
+
 export const readProjectTextSourcesArgumentsSchema = z.tuple([
   z
     .object({

@@ -107,6 +107,20 @@ localization requires them. Persisted `inline-lua` Script Module JSON is rejecte
 grants autorun behavior. `bootstrapModule` names the one Script Module imported synchronously in each
 fresh Project VM.
 
+Editor source-file mutation is path-identity based and main-process owned. `scripts/` and `shaders/`
+support source creation and freeform folders. Source writes use the exact persisted content hash as a
+compare-and-swap boundary. Rename/move commits physical source writes/deletes together with any
+NovelTea-owned semantic path repairs and recognized project-local shader-include rewrites through the
+workspace transaction journal. Folder moves apply one batched descendant path rewrite. Referenced
+delete refuses the operation and reports usages rather than deliberately committing broken semantic
+references. Generic Files operations do not move structurally owned Layout companion source.
+
+External source changes retain path identity: deletion plus creation at another path is not inferred to
+be a rename. Clean editor buffers adopt changed bytes; dirty buffers retain local bytes and record the
+external revision for explicit conflict resolution. Missing externally deleted typed shader/source
+usages are diagnosed. Source additions/removals/content changes also invalidate the author-facing Files
+and search snapshot without making freeform helper/include files semantic records.
+
 Assets remain complete Asset records in `records/assets/`; their project source bytes remain at the
 explicit Asset source path, normally under `assets/`. Project-local `workflows/` is owned by the
 ComfyUI workflow service and is not AuthoringProject input.

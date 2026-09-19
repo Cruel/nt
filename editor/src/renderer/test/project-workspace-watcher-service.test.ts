@@ -52,6 +52,8 @@ import {
   stopProjectWorkspaceWatcher,
 } from '../../main/services/project-workspace-watcher-service';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { shouldReconcileProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
 
@@ -151,6 +153,9 @@ describe('project workspace watcher policy', () => {
     ).toBe('asset');
     expect(classifyProjectWorkspaceWatchPath(root, '/project/records/rooms/hall.json')).toBe(
       'authoring',
+    );
+    expect(classifyProjectWorkspaceWatchPath(root, '/project/shaders/effects/main.sc')).toBe(
+      'source',
     );
     expect(classifyProjectWorkspaceWatchPath(root, '/project/notes.txt')).toBe('ignore');
     expect(
@@ -267,6 +272,122 @@ describe('project workspace watcher policy', () => {
     expect(send).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ authoringChangedPaths: ['records/rooms/hall.json'] }),
+    );
+  });
+
+  it('reports an externally deleted shader source against its typed Material usage', async () => {
+    const root = tempRoot();
+    const project = createAuthoringProject();
+    const material = defaultMaterialData('FX');
+    material.shader = { fragment: { kind: 'project', path: 'shaders/main.sc' } };
+    project.materials.fx = { id: 'fx', label: 'FX', data: material };
+    const snapshot = {
+      projectRoot: root,
+      project,
+      canonicalSourceFiles: [],
+      fileRevisions: {},
+      scriptSourcePaths: {},
+    };
+    const session = {
+      captureAuthoringFileStamps: vi.fn(async () => undefined),
+      knownAssetSourcePaths: vi.fn(() => []),
+      coherenceState: vi.fn(() => 'coherent'),
+      markResyncNeeded: vi.fn(),
+      runExclusive: vi.fn(async (callback: () => unknown) => callback()),
+      snapshot: vi.fn(() => snapshot),
+      readFreshRevision: vi.fn(async () => 'absent' as const),
+      requiresAuthoringReassembly: vi.fn(() => false),
+      resynchronizeAuthoring: vi.fn(),
+      recoverPendingTransactions: vi.fn(async () => ({ recovered: false, changedPaths: [] })),
+      reassemble: vi.fn(),
+      observeAssetRevisions: vi.fn(),
+      project: vi.fn(() => project),
+    } as never;
+    const send = vi.fn();
+    const owner = { isDestroyed: () => false, webContents: { send } } as never;
+
+    await startProjectWorkspaceWatcher(
+      owner,
+      'session-a',
+      root,
+      session,
+      () => true,
+      async () => undefined,
+    );
+    watcherHarness.emit('unlink', path.join(root, 'shaders', 'main.sc'));
+    await waitForWatcherFlush();
+
+    expect(send).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        sourceChangedPaths: ['shaders/main.sc'],
+        sourceDiagnostics: [
+          expect.objectContaining({
+            code: 'workspace.project-source.missing',
+            ownerPaths: ['/materials/fx'],
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('reports an externally deleted Layout script dependency without treating a create as a rename', async () => {
+    const root = tempRoot();
+    const project = createAuthoringProject();
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.dependencies.scripts = ['scripts/ui/hud.lua'];
+    layout.rml.sourceText =
+      '<rml><head><script src="scripts/ui/hud.lua"/></head><body></body></rml>';
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    const snapshot = {
+      projectRoot: root,
+      project,
+      canonicalSourceFiles: [],
+      fileRevisions: {},
+      scriptSourcePaths: {},
+    };
+    const session = {
+      captureAuthoringFileStamps: vi.fn(async () => undefined),
+      knownAssetSourcePaths: vi.fn(() => []),
+      coherenceState: vi.fn(() => 'coherent'),
+      markResyncNeeded: vi.fn(),
+      runExclusive: vi.fn(async (callback: () => unknown) => callback()),
+      snapshot: vi.fn(() => snapshot),
+      readFreshRevision: vi.fn(async () => 'absent' as const),
+      requiresAuthoringReassembly: vi.fn(() => false),
+      resynchronizeAuthoring: vi.fn(),
+      recoverPendingTransactions: vi.fn(async () => ({ recovered: false, changedPaths: [] })),
+      reassemble: vi.fn(),
+      observeAssetRevisions: vi.fn(),
+      project: vi.fn(() => project),
+    } as never;
+    const send = vi.fn();
+    const owner = { isDestroyed: () => false, webContents: { send } } as never;
+
+    await startProjectWorkspaceWatcher(
+      owner,
+      'session-a',
+      root,
+      session,
+      () => true,
+      async () => undefined,
+    );
+    watcherHarness.emit('unlink', path.join(root, 'scripts', 'ui', 'hud.lua'));
+    watcherHarness.emit('add', path.join(root, 'scripts', 'ui', 'replacement.lua'));
+    await waitForWatcherFlush();
+
+    expect(send).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        sourceChangedPaths: ['scripts/ui/hud.lua', 'scripts/ui/replacement.lua'],
+        sourceDiagnostics: [
+          expect.objectContaining({
+            code: 'workspace.project-source.missing',
+            path: '/scripts/ui/hud.lua',
+            ownerPaths: ['/layouts/hud', '/layouts/hud'],
+          }),
+        ],
+      }),
     );
   });
 

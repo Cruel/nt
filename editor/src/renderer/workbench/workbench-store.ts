@@ -47,6 +47,7 @@ import {
 
 interface WorkbenchStore extends WorkbenchState {
   openTab: (tab: WorkbenchTab, options?: OpenWorkbenchTabOptions) => void;
+  remapSourceTabs: (pathRemap: Readonly<Record<string, string>>) => void;
   activateTab: (groupId: string, tabId: string) => void;
   activateGroup: (groupId: string) => void;
   closeTab: (groupId: string, tabId: string) => void;
@@ -140,6 +141,31 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
         restoreWorkbenchTabState(next.groupsById[next.activeGroupId]?.activeTabId ?? tab.id);
       return toStoreState(next);
     }),
+  remapSourceTabs: (pathRemap) =>
+    set((state) => ({
+      ...state,
+      tabsById: Object.fromEntries(
+        Object.entries(state.tabsById).map(([tabId, tab]) => {
+          const sourceId = tab.resource?.kind === 'source' ? tab.resource.sourceId : undefined;
+          const nextSourceId = sourceId ? pathRemap[sourceId] : undefined;
+          if (!sourceId || !nextSourceId) return [tabId, tab];
+          return [
+            tabId,
+            {
+              ...tab,
+              title: nextSourceId.split('/').at(-1) ?? nextSourceId,
+              resource: {
+                ...tab.resource!,
+                stableId: `source:${nextSourceId}`,
+                sourceId: nextSourceId,
+                projectRelativePath: nextSourceId,
+                explorerNodeId: `file:${nextSourceId}`,
+              },
+            },
+          ];
+        }),
+      ),
+    })),
   activateTab: (groupId, tabId) =>
     set((state) => {
       const group = state.groupsById[groupId];

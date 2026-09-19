@@ -178,6 +178,46 @@ describe('incremental authoring graph service', () => {
     expect(reads).toHaveBeenCalledTimes(1);
   });
 
+  it('rebuilds source-derived dependency state when physical Project source content changes externally', async () => {
+    let text = 'return "foyer"';
+    let hash = `sha256:${createHash('sha256').update(text).digest('hex')}` as `sha256:${string}`;
+    const project = sourceProject(text, hash);
+    const reads = vi.fn(async (request: ReadProjectTextSourcesRequest) => ({
+      entries: request.entries.map((entry) => ({
+        status: 'ready' as const,
+        readKey: entry.readKey,
+        projectRelativePath: entry.projectRelativePath,
+        contentHash: hash,
+        text,
+        hadUtf8Bom: false,
+      })),
+    }));
+    const service = new AuthoringDependencyGraphService({
+      getProjectSessionId: () => 'session',
+      readProjectTextSources: reads,
+    });
+    const load = publication(null, project, 1, 'load', ['/']);
+    const first = await service.publish(load);
+    expect(
+      service
+        .currentSourceAnalysis('instance', 1, scriptKey('one'))
+        ?.flatMap((analysis) => analysis.literalOccurrences.map((literal) => literal.decodedValue)),
+    ).toContain('foyer');
+
+    text = 'return "external-source-marker"';
+    hash = `sha256:${createHash('sha256').update(text).digest('hex')}`;
+    const refreshed = await service.refreshProjectSources(load);
+
+    expect(reads).toHaveBeenCalledTimes(2);
+    expect(refreshed?.projectRevision).toBe(1);
+    expect(refreshed?.graphRevision).toBeGreaterThan(first?.graphRevision ?? 0);
+    expect(
+      service
+        .currentSourceAnalysis('instance', 1, scriptKey('one'))
+        ?.flatMap((analysis) => analysis.literalOccurrences.map((literal) => literal.decodedValue)),
+    ).toContain('external-source-marker');
+  });
+
   it('coalesces overlapping async mutations and publishes the latest revision with accumulated work', async () => {
     const text = 'return "foyer"';
     const hash = `sha256:${createHash('sha256').update(text).digest('hex')}` as const;

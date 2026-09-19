@@ -29,6 +29,13 @@ export function startAuthoringDependencyGraphService(): () => void {
   };
 }
 
+export function refreshAuthoringDependencyGraphProjectSources() {
+  const publication = useProjectStore.getState().lastMutationPublication;
+  return publication
+    ? authoringDependencyGraphService.refreshProjectSources(publication)
+    : Promise.resolve(null);
+}
+
 export function useCurrentAuthoringDependencyGraphSnapshot() {
   const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
   const projectRevision = useProjectStore((state) => state.projectRevision);

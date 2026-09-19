@@ -8,6 +8,9 @@ import { openProject } from '../../main/services/editor-tool-service';
 import { createProject } from '../../main/services/project-file-service';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../../shared/project-text-sources';
 import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { projectWorkspaceFiles } from '../../shared/project-workspace/project-workspace-service';
 
 const temporaryRoots: string[] = [];
 
@@ -478,6 +481,223 @@ describe('active Project session lifecycle', () => {
         expect.objectContaining({ projectRelativePath: 'records/internal/hidden.lua' }),
       ]),
     );
+  });
+
+  it('recreates an externally deleted mutable source only inside authorized source roots', async () => {
+    const project = await createWorkspace('source-recreate');
+    await fs.mkdir(path.join(project, 'scripts', 'helpers'), { recursive: true });
+    await fs.writeFile(path.join(project, 'scripts', 'helpers', 'recreate.lua'), 'return 1\n');
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const projectSessionId = attached.projectSessionId!;
+    await fs.rm(path.join(project, 'scripts', 'helpers', 'recreate.lua'));
+
+    const restored = await service.writeProjectSource({
+      projectSessionId,
+      sourceId: 'scripts/helpers/recreate.lua',
+      expectedRevision: 'absent',
+      text: 'return 2\n',
+    });
+
+    expect(restored.success).toBe(true);
+    expect(
+      await fs.readFile(path.join(project, 'scripts', 'helpers', 'recreate.lua'), 'utf8'),
+    ).toBe('return 2\n');
+    await expect(
+      service.writeProjectSource({
+        projectSessionId,
+        sourceId: 'records/layouts/hud/layout.rml',
+        expectedRevision: 'absent',
+        text: '<rml/>',
+      }),
+    ).resolves.toMatchObject({ success: false, error: 'Source file is unavailable.' });
+    await expect(
+      service.writeProjectSource({
+        projectSessionId,
+        sourceId: 'assets/escape.lua',
+        expectedRevision: 'absent',
+        text: 'return false',
+      }),
+    ).resolves.toMatchObject({ success: false, error: 'Source file is unavailable.' });
+  });
+
+  it('moves Script Module source atomically and refuses deleting a referenced source', async () => {
+    const project = await createWorkspace('source-script-move');
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const projectSessionId = attached.projectSessionId!;
+
+    const refused = await service.mutateProjectSources({
+      projectSessionId,
+      operation: { kind: 'delete', path: 'scripts/bootstrap.lua' },
+    });
+    expect(refused.success).toBe(false);
+    expect(refused.usages).toEqual([
+      expect.objectContaining({ kind: 'script-module', path: 'scripts/bootstrap.lua' }),
+    ]);
+
+    const moved = await service.mutateProjectSources({
+      projectSessionId,
+      operation: {
+        kind: 'move',
+        fromPath: 'scripts/bootstrap.lua',
+        toPath: 'scripts/core/bootstrap.lua',
+      },
+    });
+    expect(moved).toMatchObject({
+      success: true,
+      pathRemap: { 'scripts/bootstrap.lua': 'scripts/core/bootstrap.lua' },
+    });
+    await expect(fs.readFile(path.join(project, 'scripts', 'bootstrap.lua'))).rejects.toThrow();
+    expect(await fs.readFile(path.join(project, 'scripts', 'core', 'bootstrap.lua'), 'utf8')).toBe(
+      'return {}\n',
+    );
+    const record = JSON.parse(
+      await fs.readFile(path.join(project, 'records', 'scripts', 'bootstrap.json'), 'utf8'),
+    ) as { data: { source: { path: string } } };
+    expect(record.data.source.path).toBe('scripts/core/bootstrap.lua');
+    expect((await openProject(project)).success).toBe(true);
+  });
+
+  it('repairs Layout-owned script dependencies and recognized RML script sources', async () => {
+    const project = await createWorkspace('source-layout-script-move');
+    const opened = await openProject(project);
+    if (!opened.success || !opened.contentProject) throw new Error('Project fixture open failed.');
+    const authored = parseAuthoringProject(opened.contentProject);
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.dependencies.scripts = ['scripts/ui/hud.lua'];
+    layout.rml.sourceText =
+      '<rml><head><script src="project:/scripts/ui/hud.lua"/></head><body></body></rml>';
+    authored.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    const projected = projectWorkspaceFiles(
+      authored,
+      authored.editor,
+      opened.scriptSourcePaths ?? {},
+    );
+    await fs.mkdir(path.join(project, 'records', 'layouts', 'hud'), { recursive: true });
+    for (const relative of [
+      'records/layouts/hud/layout.json',
+      'records/layouts/hud/layout.rml',
+      'records/layouts/hud/layout.rcss',
+      'records/layouts/hud/layout.lua',
+    ]) {
+      const text = projected[relative];
+      if (text !== undefined) await fs.writeFile(path.join(project, relative), text);
+    }
+    await fs.mkdir(path.join(project, 'scripts', 'ui'), { recursive: true });
+    await fs.writeFile(path.join(project, 'scripts', 'ui', 'hud.lua'), 'return {}\n');
+
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const projectSessionId = attached.projectSessionId!;
+
+    const refused = await service.mutateProjectSources({
+      projectSessionId,
+      operation: { kind: 'delete', path: 'scripts/ui/hud.lua' },
+    });
+    expect(refused.success).toBe(false);
+    expect(refused.usages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'layout-script-dependency', path: 'scripts/ui/hud.lua' }),
+        expect.objectContaining({ kind: 'layout-rml-script', path: 'scripts/ui/hud.lua' }),
+      ]),
+    );
+
+    const moved = await service.mutateProjectSources({
+      projectSessionId,
+      operation: {
+        kind: 'move',
+        fromPath: 'scripts/ui/hud.lua',
+        toPath: 'scripts/ui/hud-renamed.lua',
+      },
+    });
+
+    expect(moved.success).toBe(true);
+    const layoutRecord = JSON.parse(
+      await fs.readFile(path.join(project, 'records', 'layouts', 'hud', 'layout.json'), 'utf8'),
+    ) as { data: { dependencies: { scripts: string[] } } };
+    expect(layoutRecord.data.dependencies.scripts).toEqual(['scripts/ui/hud-renamed.lua']);
+    expect(
+      await fs.readFile(path.join(project, 'records', 'layouts', 'hud', 'layout.rml'), 'utf8'),
+    ).toContain('project:/scripts/ui/hud-renamed.lua');
+    expect((await openProject(project)).success).toBe(true);
+  });
+
+  it('repairs Material shader paths and project-local includes when shader source moves', async () => {
+    const project = await createWorkspace('source-shader-move');
+    await fs.mkdir(path.join(project, 'shaders', 'effects'), { recursive: true });
+    await fs.writeFile(path.join(project, 'shaders', 'effects', 'main.sc'), 'void main() {}\n');
+    await fs.writeFile(
+      path.join(project, 'shaders', 'consumer.sc'),
+      '#include "effects/main.sc"\nvoid consume() {}\n',
+    );
+    await fs.mkdir(path.join(project, 'records', 'materials'), { recursive: true });
+    const data = defaultMaterialData('FX');
+    data.shader = { fragment: { kind: 'project', path: 'shaders/effects/main.sc' } };
+    await fs.writeFile(
+      path.join(project, 'records', 'materials', 'fx.json'),
+      `${JSON.stringify({ id: 'fx', label: 'FX', data }, null, 2)}\n`,
+    );
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const projectSessionId = attached.projectSessionId!;
+
+    const moved = await service.mutateProjectSources({
+      projectSessionId,
+      operation: {
+        kind: 'move',
+        fromPath: 'shaders/effects/main.sc',
+        toPath: 'shaders/effects/moved.sc',
+      },
+    });
+
+    expect(moved.success).toBe(true);
+    const material = JSON.parse(
+      await fs.readFile(path.join(project, 'records', 'materials', 'fx.json'), 'utf8'),
+    ) as { data: { shader: { fragment: { path: string } } } };
+    expect(material.data.shader.fragment.path).toBe('shaders/effects/moved.sc');
+    expect(await fs.readFile(path.join(project, 'shaders', 'consumer.sc'), 'utf8')).toContain(
+      '#include "effects/moved.sc"',
+    );
+    await expect(
+      fs.readFile(path.join(project, 'shaders', 'effects', 'main.sc')),
+    ).rejects.toThrow();
+    expect((await openProject(project)).success).toBe(true);
+  });
+
+  it('moves source folders as one descendant path rewrite', async () => {
+    const project = await createWorkspace('source-folder-move');
+    await fs.mkdir(path.join(project, 'scripts', 'helpers'), { recursive: true });
+    await fs.writeFile(path.join(project, 'scripts', 'helpers', 'a.lua'), 'return "a"\n');
+    await fs.writeFile(path.join(project, 'scripts', 'helpers', 'b.lua'), 'return "b"\n');
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const projectSessionId = attached.projectSessionId!;
+
+    const moved = await service.mutateProjectSources({
+      projectSessionId,
+      operation: { kind: 'move', fromPath: 'scripts/helpers', toPath: 'scripts/lib' },
+    });
+
+    expect(moved).toMatchObject({
+      success: true,
+      pathRemap: {
+        'scripts/helpers/a.lua': 'scripts/lib/a.lua',
+        'scripts/helpers/b.lua': 'scripts/lib/b.lua',
+      },
+    });
+    expect(await fs.readFile(path.join(project, 'scripts', 'lib', 'a.lua'), 'utf8')).toBe(
+      'return "a"\n',
+    );
+    expect(await fs.readFile(path.join(project, 'scripts', 'lib', 'b.lua'), 'utf8')).toBe(
+      'return "b"\n',
+    );
+    await expect(fs.stat(path.join(project, 'scripts', 'helpers'))).rejects.toThrow();
   });
 
   it('enforces the source limit against bytes observed after the metadata check', async () => {
