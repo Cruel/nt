@@ -69,6 +69,7 @@ export interface AuthoringValidationInstrumentation {
 }
 
 export interface ResidentCliProjectWorkspace extends ProjectWorkspaceService {
+  hasResidentSession(projectRoot: string): Promise<boolean>;
   openForMutation(
     projectRoot: string,
     options?: ProjectWorkspaceOpenOptions,
@@ -501,8 +502,12 @@ export async function runNovelTeaCli(
       ? await import('../shared/authoring-cache')
       : null;
   const cacheAdmissionStarted = Date.now();
+  const residentSessionAlreadyLoaded =
+    validationCache && residentProjectSession && options.residentWorkspace
+      ? await options.residentWorkspace.hasResidentSession(discovery.projectRoot)
+      : false;
   const authoringCacheAdmission =
-    options.forceAuthoringCacheRebuild || residentProjectSession
+    options.forceAuthoringCacheRebuild || residentSessionAlreadyLoaded
       ? null
       : await validationCache?.readAuthoringCacheAdmission(
           services.fileSystem,
@@ -533,13 +538,12 @@ export async function runNovelTeaCli(
   }
 
   const reusableAuthoring = authoringCacheAdmission?.reusable ?? null;
-  const validationBaseline =
-    residentProjectSession || reusableAuthoring
-      ? null
-      : await validationCache?.captureAuthoringSourceBaseline(
-          services.fileSystem,
-          discovery.projectRoot,
-        );
+  const validationBaseline = reusableAuthoring
+    ? null
+    : await validationCache?.captureAuthoringSourceBaseline(
+        services.fileSystem,
+        discovery.projectRoot,
+      );
   const { openCliProject } = await import('./semantic-project');
   const workspaceAdmissionStarted = Date.now();
   const opened = await openCliProject(activeWorkspace, discovery.projectRoot, {

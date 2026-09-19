@@ -1261,6 +1261,145 @@ async function certifyAuthoringCache(tempRoot, pristine) {
   process.stdout.write('[authoring-cache] cold/warm, parity, invalidation, recovery: PASS\n');
 }
 
+async function certifyDaemonAuthoringCacheResidency(tempRoot, pristine) {
+  const hydratedRoot = path.join(tempRoot, 'daemon-authoring-cache-hydration');
+  await resetCase(pristine, hydratedRoot);
+  const args = ['--project', hydratedRoot, '--json', 'validate'];
+  requireSuccess(
+    'daemon authoring cache seed',
+    runNative(args, {
+      cwd: hydratedRoot,
+      env: { ...process.env, NOVELTEA_NO_DAEMON: '1' },
+    }),
+  );
+
+  const roomPath = path.join(hydratedRoot, 'records/rooms/gallery.json');
+  const room = JSON.parse(await readFile(roomPath, 'utf8'));
+  room.label = `${room.label} hydrated`;
+  await writeJson(roomPath, room);
+  const hydrated = requireSuccess(
+    'daemon authoring cache hydration',
+    runNative(args, {
+      cwd: hydratedRoot,
+      env: {
+        ...process.env,
+        NOVELTEA_CLI_TRACE: '1',
+        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+      },
+    }),
+  );
+  if (!hydrated.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Stale authoring-cache validation did not route through the resident daemon.');
+  const hydratedProfile = validationProfile(hydrated);
+  if (
+    !hydratedProfile ||
+    hydratedProfile.sourceWork.reusedJsonSources <= 0 ||
+    hydratedProfile.sourceWork.wholeProjectSchemaParses !== 0
+  )
+    fail(
+      `Cold resident Project did not hydrate persistent authoring contributions: ${hydrated.stderr}`,
+    );
+
+  const exact = requireSuccess(
+    'daemon authoring static exact hit',
+    runNative(args, {
+      cwd: hydratedRoot,
+      env: {
+        ...process.env,
+        NOVELTEA_CLI_TRACE: '1',
+        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+      },
+    }),
+  );
+  if (!exact.stderr.includes('authoring cache hit: static/native validate path admitted'))
+    fail(`Exact authoring-cache validation did not stay static/native: ${exact.stderr}`);
+  if (
+    exact.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
+    validationProfile(exact)
+  )
+    fail('Exact authoring-cache validation contacted the daemon instead of returning statically.');
+
+  room.label = `${room.label} resident`;
+  await writeJson(roomPath, room);
+  const resident = requireSuccess(
+    'daemon authoring resident validation',
+    runNative(args, {
+      cwd: hydratedRoot,
+      env: {
+        ...process.env,
+        NOVELTEA_CLI_TRACE: '1',
+        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+      },
+    }),
+  );
+  const residentProfile = validationProfile(resident);
+  if (
+    !residentProfile ||
+    residentProfile.sourceWork.parsedJsonSources !== 1 ||
+    residentProfile.sourceWork.wholeProjectSchemaParses !== 0
+  )
+    fail(`Warm resident validation did not stay change-scoped: ${resident.stderr}`);
+
+  const projectPath = path.join(hydratedRoot, 'project.json');
+  const project = JSON.parse(await readFile(projectPath, 'utf8'));
+  project.entrypoint = { kind: 'room', id: 'missing-daemon-cache-room' };
+  await writeJson(projectPath, project);
+  const invalid = runNative(args, {
+    cwd: hydratedRoot,
+    env: {
+      ...process.env,
+      NOVELTEA_CLI_TRACE: '1',
+      NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+    },
+  });
+  if (invalid.status !== 4 || !validationProfile(invalid))
+    fail(
+      `Resident deterministic validation failure was not computed canonically: ${invalid.stderr}`,
+    );
+  const cachedInvalid = runNative(args, {
+    cwd: hydratedRoot,
+    env: { ...process.env, NOVELTEA_CLI_TRACE: '1' },
+  });
+  if (
+    cachedInvalid.status !== 4 ||
+    !cachedInvalid.stderr.includes('authoring cache hit: static/native validate path admitted') ||
+    cachedInvalid.stderr.includes('[scriptc-host] daemon invocation forwarding')
+  )
+    fail(
+      `Resident deterministic validation failure did not become a static cache hit: ${cachedInvalid.stderr}`,
+    );
+
+  const fallbackRoot = path.join(tempRoot, 'daemon-authoring-cache-fallback');
+  await resetCase(pristine, fallbackRoot);
+  const fallbackCacheRoot = path.join(fallbackRoot, '.noveltea/cache/authoring');
+  await mkdir(fallbackCacheRoot, { recursive: true });
+  await writeFile(path.join(fallbackCacheRoot, 'current'), '{broken');
+  const fallback = requireSuccess(
+    'daemon authoring canonical cold fallback',
+    runNative(['--project', fallbackRoot, '--json', 'validate'], {
+      cwd: fallbackRoot,
+      env: {
+        ...process.env,
+        NOVELTEA_CLI_TRACE: '1',
+        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+      },
+    }),
+  );
+  const fallbackProfile = validationProfile(fallback);
+  if (
+    !fallbackProfile ||
+    fallbackProfile.sourceWork.parsedJsonSources <= 0 ||
+    fallbackProfile.sourceWork.wholeProjectSchemaParses !== 1
+  )
+    fail(
+      `Unusable persistent state did not fall back to canonical cold admission: ${fallback.stderr}`,
+    );
+
+  process.stdout.write(
+    '[daemon-authoring-cache] static > resident > cold fallback ordering: PASS\n',
+  );
+}
+
 function certifyEditorAuthoringCacheSharing() {
   requireSuccess(
     'editor authoring-cache sharing integration',
@@ -2884,6 +3023,7 @@ async function main() {
     await certifyTypedShaders(tempRoot);
     await certifyRawShaderc(tempRoot);
     await certifyAuthoringCache(tempRoot, pristine);
+    await certifyDaemonAuthoringCacheResidency(tempRoot, pristine);
     certifyEditorAuthoringCacheSharing();
     const performance = await certifyPerformanceEnvelope(tempRoot, pristine);
     certifyScopedPreparationLazyBoundaries(pristine);
