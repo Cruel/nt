@@ -63,6 +63,7 @@ export const localizationReconcileCommand: CliCommandDefinition = {
     return {
       dryRun: !apply,
       mutation: apply,
+      mutationEffect: apply ? 'transactional-project' : undefined,
       async run(context) {
         const currentPlan = planLocalizationReconciliation(
           context.snapshot.project,
@@ -152,6 +153,7 @@ export const localizationReconcileCommand: CliCommandDefinition = {
             {
               operationLabel: 'cli localization reconcile',
               targetFiles: localizationFiles,
+              affectedPaths: ['/localization'],
               refreshAfterCommit: false,
             },
           );

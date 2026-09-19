@@ -3,6 +3,8 @@ import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/pro
 import type { ProjectSourceInventory } from '../shared/project-source-inventory';
 import type {
   LoadedProjectWorkspaceSnapshot,
+  ProjectWorkspaceOpenOptions,
+  ProjectWorkspaceOpenResult,
   ProjectWorkspaceService,
 } from '../shared/project-workspace/project-workspace-service';
 import { bootstrapNovelTeaCli, novelTeaCliUsageFailure } from './bootstrap';
@@ -67,7 +69,12 @@ export interface AuthoringValidationInstrumentation {
 }
 
 export interface ResidentCliProjectWorkspace extends ProjectWorkspaceService {
+  openForMutation(
+    projectRoot: string,
+    options?: ProjectWorkspaceOpenOptions,
+  ): Promise<ProjectWorkspaceOpenResult>;
   verifyReadAuthority(snapshot: LoadedProjectWorkspaceSnapshot): Promise<boolean>;
+  reconcileAfterOpaqueWrite(projectRoot: string): Promise<void>;
 }
 
 export interface RunNovelTeaCliOptions {
@@ -220,6 +227,17 @@ export async function runNovelTeaCli(
 
   if (globals.command[0] === 'comfyui') {
     const services = await workspaceServices();
+    const opaqueProjectRoot =
+      globals.command[1] === 'run' && options.residentWorkspace
+        ? globals.project
+          ? path.resolve(cwd, globals.project)
+          : await (async () => {
+              const { discoverProjectRoot } =
+                await import('../shared/project-workspace/project-workspace-discovery');
+              const discovered = await discoverProjectRoot(services.fileSystem, cwd);
+              return discovered.ok ? discovered.projectRoot : null;
+            })()
+        : null;
     try {
       const { runComfyUiCatalogCommand } = await import('./comfyui-catalog-commands');
       const comfyUiCatalog = await runComfyUiCatalogCommand({
@@ -248,6 +266,9 @@ export async function runNovelTeaCli(
         ],
         globals.json,
       );
+    } finally {
+      if (opaqueProjectRoot && options.residentWorkspace)
+        await options.residentWorkspace.reconcileAfterOpaqueWrite(opaqueProjectRoot);
     }
   }
 
@@ -471,16 +492,17 @@ export async function runNovelTeaCli(
   }
 
   const services = await workspaceServices();
+  const residentEligible = !command.mutation || command.mutationEffect !== undefined;
   const activeWorkspace =
-    !command.mutation && options.residentWorkspace ? options.residentWorkspace : services.workspace;
-  const residentProjectRead = activeWorkspace === options.residentWorkspace;
+    residentEligible && options.residentWorkspace ? options.residentWorkspace : services.workspace;
+  const residentProjectSession = activeWorkspace === options.residentWorkspace;
   const validationCache =
     globals.command[0] === 'validate' && nativeTools.validateFontCoverage
       ? await import('../shared/authoring-cache')
       : null;
   const cacheAdmissionStarted = Date.now();
   const authoringCacheAdmission =
-    options.forceAuthoringCacheRebuild || residentProjectRead
+    options.forceAuthoringCacheRebuild || residentProjectSession
       ? null
       : await validationCache?.readAuthoringCacheAdmission(
           services.fileSystem,
@@ -512,7 +534,7 @@ export async function runNovelTeaCli(
 
   const reusableAuthoring = authoringCacheAdmission?.reusable ?? null;
   const validationBaseline =
-    residentProjectRead || reusableAuthoring
+    residentProjectSession || reusableAuthoring
       ? null
       : await validationCache?.captureAuthoringSourceBaseline(
           services.fileSystem,
@@ -525,6 +547,12 @@ export async function runNovelTeaCli(
     reusableSourceContributions: reusableAuthoring?.sourceContributions,
     reusableValidationContributions: reusableAuthoring?.validationContributions,
     reusableDependencyState: reusableAuthoring?.dependencyState,
+    ...(command.mutationEffect === 'transactional-project' && options.residentWorkspace
+      ? {
+          openProject: (projectRoot, openOptions) =>
+            options.residentWorkspace!.openForMutation(projectRoot, openOptions),
+        }
+      : {}),
   });
   const workspaceAdmissionMs = Date.now() - workspaceAdmissionStarted;
   if (!opened.ok)
@@ -570,19 +598,26 @@ export async function runNovelTeaCli(
       )
         throw new AuthoringValidationAuthorityMismatchError();
     }
-    const semantic = await command.run({
-      cwd,
-      stdinJson,
-      fileSystem: services.fileSystem,
-      workspace: activeWorkspace,
-      snapshot: activeOpened.opened.snapshot,
-      nativeTools,
-      platformTools,
-      onPlatformProgress: options.onPlatformProgress,
-      forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
-    });
+    let semantic;
+    try {
+      semantic = await command.run({
+        cwd,
+        stdinJson,
+        fileSystem: services.fileSystem,
+        workspace: activeWorkspace,
+        snapshot: activeOpened.opened.snapshot,
+        nativeTools,
+        platformTools,
+        onPlatformProgress: options.onPlatformProgress,
+        forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
+      });
+    } finally {
+      if (command.mutationEffect === 'opaque' && options.residentWorkspace)
+        await options.residentWorkspace.reconcileAfterOpaqueWrite(discovery.projectRoot);
+    }
 
     if (
+      !command.mutation &&
       activeWorkspace === options.residentWorkspace &&
       !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))
     ) {

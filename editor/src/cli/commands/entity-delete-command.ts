@@ -21,7 +21,8 @@ export const entityDeleteCommand: CliCommandDefinition = {
     const allowPossibleSourceReferences = parsed.flags.has('--allow-possible-source-references');
     return {
       dryRun,
-      mutation: true,
+      mutation: !dryRun,
+      mutationEffect: dryRun ? undefined : 'transactional-project',
       run: ({ workspace, snapshot }) =>
         deleteEntity(workspace, snapshot, collection, id!, {
           dryRun,

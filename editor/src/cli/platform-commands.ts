@@ -155,6 +155,7 @@ export const platformExportCommand: CliCommandDefinition = {
     return {
       dryRun: parsed.flags.has('--check'),
       mutation: !parsed.flags.has('--check'),
+      mutationEffect: parsed.flags.has('--check') ? undefined : 'opaque',
       async run(context) {
         const settings = exactPlatformSettings(context.snapshot.project);
         const requestedProfile = parsed.values['--profile'];

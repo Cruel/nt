@@ -383,6 +383,136 @@ describe('NovelTea headless CLI', () => {
     expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
   });
 
+  it('advances a resident Project generation across transactional localization writes', async () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Hello")\n',
+    };
+    const value = fixture(project, true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    expect(
+      (
+        await runNovelTeaCli(['--json', 'validate'], {
+          ...options(value),
+          residentWorkspace,
+        })
+      ).exitCode,
+    ).toBe(0);
+
+    const synchronized = await runNovelTeaCli(['--json', 'localization', 'sync'], {
+      ...options(value),
+      residentWorkspace,
+    });
+    expect(synchronized.exitCode).toBe(0);
+    expect(JSON.parse(synchronized.stdout)).toMatchObject({ changed: true });
+    expect(await residentWorkspace.hasResidentSession(root)).toBe(true);
+
+    const instrumentation: Array<{
+      sourceWork: { parsedJsonSources: number; wholeProjectSchemaParses: number };
+    }> = [];
+    const validated = await runNovelTeaCli(['--json', 'validate'], {
+      ...options(value),
+      residentWorkspace,
+      onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
+    });
+    expect(validated.exitCode).toBe(0);
+    // The resident generation retains the one source parse performed while advancing the sync
+    // transaction; the following read must not fall back to a whole-Project schema parse.
+    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBe(1);
+    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
+  });
+
+  it('advances structural transactional writes without reopening the whole Project', async () => {
+    const value = fixture(validProject(), true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    expect(
+      (
+        await runNovelTeaCli(['--json', 'validate'], {
+          ...options(value),
+          residentWorkspace,
+        })
+      ).exitCode,
+    ).toBe(0);
+
+    const created = await runNovelTeaCli(['--json', 'entity', 'create', 'rooms', 'hallway'], {
+      ...options(value),
+      residentWorkspace,
+    });
+    expect(created.exitCode).toBe(0);
+    expect(await residentWorkspace.hasResidentSession(root)).toBe(true);
+    expect(await value.fileSystem.inspect(`${root}/.noveltea/editor/state.json`)).toBe('file');
+
+    const instrumentation: Array<{
+      sourceWork: { parsedJsonSources: number; wholeProjectSchemaParses: number };
+    }> = [];
+    const validated = await runNovelTeaCli(['--json', 'validate'], {
+      ...options(value),
+      residentWorkspace,
+      onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
+    });
+    expect(validated.exitCode).toBe(0);
+    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBe(1);
+    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
+  });
+
+  it('permits a resident transactional mutation around an unrelated invalid source overlay', async () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Hello")\n',
+    };
+    const value = fixture(project, true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    expect(
+      (
+        await runNovelTeaCli(['--json', 'validate'], {
+          ...options(value),
+          residentWorkspace,
+        })
+      ).exitCode,
+    ).toBe(0);
+
+    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.json`, '{ invalid json');
+    const synchronized = await runNovelTeaCli(['--json', 'localization', 'sync'], {
+      ...options(value),
+      residentWorkspace,
+    });
+    expect(synchronized.exitCode).toBe(0);
+    expect(JSON.parse(synchronized.stdout)).toMatchObject({ changed: true });
+    expect(await value.fileSystem.readText(`${root}/records/rooms/start.json`)).toBe(
+      '{ invalid json',
+    );
+    expect(await residentWorkspace.hasResidentSession(root)).toBe(true);
+  });
+
+  it('blocks a resident transactional mutation whose dependency overlaps an invalid source', async () => {
+    const value = fixture(validProject(), true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    expect(
+      (
+        await runNovelTeaCli(['--json', 'validate'], {
+          ...options(value),
+          residentWorkspace,
+        })
+      ).exitCode,
+    ).toBe(0);
+
+    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.json`, '{ invalid json');
+    const renamed = await runNovelTeaCli(
+      ['--json', 'entity', 'rename', 'rooms', 'start', 'renamed'],
+      {
+        ...options(value),
+        residentWorkspace,
+      },
+    );
+    expect(renamed.exitCode).toBe(5);
+    expect(JSON.parse(renamed.stdout).diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'WORKSPACE_INVALID_SOURCE_DEPENDENCY' }),
+    );
+    expect(await value.fileSystem.inspect(`${root}/records/rooms/renamed.json`)).toBe('missing');
+  });
+
   it('keeps localization discovery read-only until deterministic sync is requested', async () => {
     const project = validProject();
     project.scripts.bootstrap!.data.source = {

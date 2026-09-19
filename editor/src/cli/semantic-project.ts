@@ -16,6 +16,8 @@ import {
   projectWorkspaceFiles,
   type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceDependencyAnalysis,
+  type ProjectWorkspaceOpenOptions,
+  type ProjectWorkspaceOpenResult,
   type ProjectWorkspaceReusableDependencyState,
   type ProjectWorkspaceService,
   type ProjectWorkspaceSourceContributions,
@@ -99,12 +101,18 @@ export async function openCliProject(
     reusableSourceContributions?: ProjectWorkspaceSourceContributions;
     reusableValidationContributions?: readonly AuthoringValidationContribution[];
     reusableDependencyState?: ProjectWorkspaceReusableDependencyState;
+    openProject?: (
+      projectRoot: string,
+      options: ProjectWorkspaceOpenOptions,
+    ) => Promise<ProjectWorkspaceOpenResult>;
   }> = {},
 ): Promise<
   | Readonly<{ ok: true; opened: CliOpenedProject; diagnostics: readonly NovelTeaCliDiagnostic[] }>
   | Readonly<{ ok: false; diagnostics: readonly NovelTeaCliDiagnostic[] }>
 > {
-  const opened = await workspace.open(projectRoot, {
+  const opened = await (
+    options.openProject ?? ((root, openOptions) => workspace.open(root, openOptions))
+  )(projectRoot, {
     recoverTransactions: options.readOnly ? false : true,
     reusableSourceContributions: options.reusableSourceContributions,
     reusableValidationContributions: options.reusableValidationContributions,
@@ -248,8 +256,8 @@ export async function validateCliProject(
   const preflightStarted = Date.now();
   const preflight = workspace.preflightCompiledArtifact(snapshot);
   const diagnostics: NovelTeaCliDiagnostic[] = preflight.diagnostics.map((item) =>
-      cliDiagnostic(item.code, item.jsonPointer, item.message, item.severity),
-    );
+    cliDiagnostic(item.code, item.jsonPointer, item.message, item.severity),
+  );
   const preflightMs = Date.now() - preflightStarted;
   const dependencyStarted = Date.now();
   const dependencyAnalysis = await workspace.buildDependencyGraphAnalysis(snapshot);
@@ -434,7 +442,10 @@ export async function createEntity(
       candidate,
       candidate.editor,
       snapshot.scriptSourcePaths,
-      { operationLabel: `cli entity create ${collection}/${id}` },
+      {
+        operationLabel: `cli entity create ${collection}/${id}`,
+        affectedPaths: result.patches.map((patch) => patch.path),
+      },
     );
   }
   return { ok: true, diagnostics: [], fields: { collection, id, dryRun, plan } };
@@ -550,7 +561,10 @@ export async function renameEntity(
       candidate,
       candidate.editor,
       sourcePaths,
-      { operationLabel: `cli entity rename ${collection}/${fromId} -> ${toId}` },
+      {
+        operationLabel: `cli entity rename ${collection}/${fromId} -> ${toId}`,
+        affectedPaths: patches.map((patch) => patch.path),
+      },
     );
   }
   return {
@@ -686,7 +700,10 @@ export async function deleteEntity(
       candidate,
       candidate.editor,
       snapshot.scriptSourcePaths,
-      { operationLabel: `cli entity delete ${collection}/${id}` },
+      {
+        operationLabel: `cli entity delete ${collection}/${id}`,
+        affectedPaths: repair.plan.patches.map((patch) => patch.path),
+      },
     );
   }
   return {
