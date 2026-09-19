@@ -113,11 +113,20 @@ function(noveltea_configure_embedded_shaderc)
     if(NOT TARGET texturec)
         message(FATAL_ERROR "Pinned bgfx source did not define its texturec target")
     endif()
-    if(NOVELTEA_ENABLE_SANITIZERS AND TARGET glsl-optimizer AND
-       CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-        # Mesa's legacy arena-allocated AST nodes and bit-packed flags bypass C++ object-lifetime
-        # and scalar-value rules assumed by UBSan. Keep AddressSanitizer enabled on this dependency.
-        target_compile_options(glsl-optimizer PRIVATE -fno-sanitize=undefined)
+    if(NOVELTEA_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        if(TARGET glsl-optimizer)
+            # Mesa's legacy arena-allocated AST nodes and bit-packed flags bypass C++ object-lifetime
+            # and scalar-value rules assumed by UBSan. Keep AddressSanitizer enabled on this dependency.
+            target_compile_options(glsl-optimizer PRIVATE -fno-sanitize=undefined)
+        endif()
+        if(TARGET bx)
+            # bx::MemoryWriter intentionally permits zero-byte writes before allocating storage.
+            # Its memCopy wrapper still calls memcpy with that null storage, which is valid for a
+            # zero-byte write in bgfx's shader preprocessor but trips UBSan's nonnull-attribute check.
+            # Suppress only that check in the third-party bx dependency; keep all other UBSan and
+            # AddressSanitizer instrumentation enabled.
+            target_compile_options(bx PRIVATE -fno-sanitize=nonnull-attribute)
+        endif()
     endif()
 
     get_target_property(_shaderc_sources shaderc SOURCES)

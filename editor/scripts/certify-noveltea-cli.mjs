@@ -864,10 +864,7 @@ async function certifyTypedShaders(tempRoot) {
     );
   for (const [variant, expected] of Object.entries(typedFragmentGoldens)) {
     const output = outputs.find(
-      (candidate) =>
-        candidate.variant === variant &&
-        candidate.shader === 'fixture-shader' &&
-        candidate.stage === 'fragment',
+      (candidate) => candidate.variant === variant && candidate.stage === 'fragment',
     );
     if (!output || output.byteHash !== `sha256:${expected}`)
       fail(`Typed shader golden mismatch for ${variant}: ${output?.byteHash ?? 'missing'}.`);

@@ -106,6 +106,12 @@ constexpr std::uint64_t fnv_prime = 1099511628211ull;
     return out.str();
 }
 
+[[nodiscard]] std::string content_hash(std::string_view value)
+{
+    return "sha256:" +
+           core::sha256_hex(std::as_bytes(std::span(value.data(), value.size())));
+}
+
 [[nodiscard]] std::optional<std::string> read_text_file(const std::filesystem::path& path)
 {
     std::ifstream file(path, std::ios::binary);
@@ -1158,11 +1164,11 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                 for (const auto& dependency : stage.dependencies) {
                     dependencies.push_back(dependency.first);
                     dependency_revisions.push_back(
-                        {.identity = dependency.first, .content_hash = hash_hex(dependency.second)});
+                        {.identity = dependency.first, .content_hash = content_hash(dependency.second)});
                 }
                 dependencies.push_back(varying->identity);
                 dependency_revisions.push_back(
-                    {.identity = varying->identity, .content_hash = hash_hex(*varying_text)});
+                    {.identity = varying->identity, .content_hash = content_hash(*varying_text)});
                 result.outputs.push_back(ShaderSourceCompileOutput{
                     .stage = stage.stage,
                     .variant = variant.name,

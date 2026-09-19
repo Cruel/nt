@@ -319,6 +319,12 @@ TEST_CASE(
     REQUIRE(fragment != first.outputs.end());
     CHECK(std::find(fragment->dependencies.begin(), fragment->dependencies.end(),
                     "project:/shaders/shared.sc") != fragment->dependencies.end());
+    REQUIRE(fragment->dependency_revisions.size() == fragment->dependencies.size());
+    for (std::size_t index = 0; index < fragment->dependency_revisions.size(); ++index) {
+        CHECK(fragment->dependency_revisions[index].identity == fragment->dependencies[index]);
+        CHECK(fragment->dependency_revisions[index].content_hash.starts_with("sha256:"));
+        CHECK(fragment->dependency_revisions[index].content_hash.size() == 71);
+    }
     const auto first_key = fragment->cache_key;
     const auto first_identity = first.program_identity;
 

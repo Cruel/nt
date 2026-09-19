@@ -123,7 +123,7 @@ function sourceProgramIdForMaterial(
   const shaderId = initial.project.materials[materialId]?.shader;
   if (!shaderId) return null;
   if (initial.compilation.programs[shaderId]) return shaderId;
-  const marker = ':material:';
+  const marker = '-material-';
   const markerIndex = shaderId.indexOf(marker);
   if (markerIndex < 0) return null;
   const programId = shaderId.slice(0, markerIndex);

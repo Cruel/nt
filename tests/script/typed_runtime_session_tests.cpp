@@ -903,6 +903,8 @@ struct Fixture {
                      const std::function<void(nlohmann::json&)>& amend = {})
         : project(load_project(filename, amend)), runtime_budget(budget)
     {
+        sources.add("project:/scripts/layout.lua", "return { fixture = true }\n");
+        sources.add("project:/scripts/bootstrap.lua", "return {}\n");
         REQUIRE(runtime.initialize({&sources}));
         REQUIRE(runtime.execute("function initialize_fixture() end\n"
                                 "function after_enter_start() end\n"
@@ -922,7 +924,10 @@ struct Fixture {
                                 "function transition_label() return 'Transition' end\n",
                                 "typed-session-fixture"));
         REQUIRE(runtime.prepare_project_modules(project));
-        REQUIRE(runtime.run_project_bootstrap());
+        auto bootstrapped = runtime.run_project_bootstrap();
+        const auto bootstrap_error = bootstrapped ? std::string{} : bootstrapped.error().message;
+        INFO(bootstrap_error);
+        REQUIRE(static_cast<bool>(bootstrapped));
         REQUIRE(runtime.freeze_project_hooks());
         auto created = test_support::create_runtime_session(project, script_port, presentation,
                                                             saves, "en", runtime_budget);
@@ -962,7 +967,10 @@ void prepare_project_scripts(ScriptRuntime& runtime, const core::CompiledProject
     REQUIRE(
         runtime.execute("function initialize_fixture() end", "direct-session-bootstrap-fixture"));
     REQUIRE(runtime.prepare_project_modules(project));
-    REQUIRE(runtime.run_project_bootstrap());
+    auto bootstrapped = runtime.run_project_bootstrap();
+    const auto bootstrap_error = bootstrapped ? std::string{} : bootstrapped.error().message;
+    INFO(bootstrap_error);
+    REQUIRE(static_cast<bool>(bootstrapped));
     REQUIRE(runtime.freeze_project_hooks());
 }
 
@@ -2150,6 +2158,7 @@ TEST_CASE("failed Room recomposition republishes diagnostics with the prior comp
         {"source", {{"kind", "lua-expression"}, {"source", "return room_description()"}}}};
     auto project = decode_document(std::move(document), "room-recomposition-failure.json");
     test_support::MemoryScriptSource sources;
+    sources.add("project:/scripts/bootstrap.lua", "return {}\n");
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
     REQUIRE(scripts.execute("function room_description() return 'Stable room.' end",

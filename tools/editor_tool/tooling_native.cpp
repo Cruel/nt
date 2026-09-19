@@ -228,6 +228,7 @@ make_headless_running_game_input(nlohmann::json gameplay,
                 std::move(decoded_materials).error());
         }
         std::vector<std::string> variants;
+        std::set<std::string> binary_paths;
         for (const auto& shader : decoded_materials.value_if()->shaders) {
             for (const auto& stage : shader.stages) {
                 for (const auto& binary : stage.compiled) {
@@ -236,8 +237,10 @@ make_headless_running_game_input(nlohmann::json gameplay,
                         variants.push_back(binary.variant);
                     }
                     const auto package_path = runtime_package_entry_path(binary.path);
-                    entries.push_back({{"path", package_path}, {"size", 0}});
-                    files.push_back({package_path, 0, std::nullopt});
+                    if (binary_paths.insert(package_path).second) {
+                        entries.push_back({{"path", package_path}, {"size", 0}});
+                        files.push_back({package_path, 0, std::nullopt});
+                    }
                 }
             }
         }
@@ -270,6 +273,43 @@ make_headless_running_game_input(nlohmann::json gameplay,
                              .runtime_locale = std::move(runtime_locale)});
 }
 
+[[nodiscard]] bool contained_by_root(const std::filesystem::path& root,
+                                     const std::filesystem::path& path)
+{
+    std::error_code error;
+    const auto real_root = std::filesystem::weakly_canonical(root, error);
+    if (error)
+        return false;
+    const auto real_path = std::filesystem::weakly_canonical(path, error);
+    if (error)
+        return false;
+    const auto relative = std::filesystem::relative(real_path, real_root, error);
+    if (error || relative.empty() || relative.is_absolute())
+        return false;
+    return std::none_of(relative.begin(), relative.end(), [](const auto& part) { return part == ".."; });
+}
+
+[[nodiscard]] bool safe_project_relative_path(std::string_view value)
+{
+    if (value.empty() || value.front() == '/' || value.front() == '\\' ||
+        value.find('\\') != std::string_view::npos || value.find(':') != std::string_view::npos ||
+        value.find("//") != std::string_view::npos) {
+        return false;
+    }
+    std::size_t start = 0;
+    while (start <= value.size()) {
+        const auto slash = value.find('/', start);
+        const auto part = value.substr(
+            start, slash == std::string_view::npos ? std::string_view::npos : slash - start);
+        if (part.empty() || part == "." || part == "..")
+            return false;
+        if (slash == std::string_view::npos)
+            break;
+        start = slash + 1;
+    }
+    return true;
+}
+
 class ToolingScriptSource final : public noveltea::runtime::ScriptSourcePort {
 public:
     void add(std::string logical_path, std::string source)
@@ -277,15 +317,37 @@ public:
         m_sources.insert_or_assign(std::move(logical_path), std::move(source));
     }
 
+    [[nodiscard]] bool mount_project_root(const std::filesystem::path& root)
+    {
+        std::error_code error;
+        const auto canonical = std::filesystem::weakly_canonical(root, error);
+        if (error || canonical.empty() || !std::filesystem::is_directory(canonical, error) || error)
+            return false;
+        m_project_root = canonical;
+        return true;
+    }
+
     [[nodiscard]] Result<std::string, noveltea::runtime::ScriptSourceError>
     read_script_source(std::string_view logical_path) const override
     {
         const auto found = m_sources.find(std::string(logical_path));
-        if (found == m_sources.end()) {
-            return Result<std::string, noveltea::runtime::ScriptSourceError>::failure(
-                {"Script source not found: " + std::string(logical_path)});
+        if (found != m_sources.end())
+            return Result<std::string, noveltea::runtime::ScriptSourceError>::success(found->second);
+
+        constexpr std::string_view project_prefix = "project:/";
+        if (m_project_root && logical_path.starts_with(project_prefix)) {
+            const auto relative = logical_path.substr(project_prefix.size());
+            if (safe_project_relative_path(relative)) {
+                const auto candidate = *m_project_root / filesystem_path_from_utf8(relative);
+                if (contained_by_root(*m_project_root, candidate)) {
+                    if (const auto source = read_file(candidate))
+                        return Result<std::string, noveltea::runtime::ScriptSourceError>::success(
+                            *source);
+                }
+            }
         }
-        return Result<std::string, noveltea::runtime::ScriptSourceError>::success(found->second);
+        return Result<std::string, noveltea::runtime::ScriptSourceError>::failure(
+            {"Script source not found: " + std::string(logical_path)});
     }
 
     [[nodiscard]] Result<PersistableValue, std::string>
@@ -299,6 +361,7 @@ public:
 
 private:
     std::unordered_map<std::string, std::string> m_sources;
+    std::optional<std::filesystem::path> m_project_root;
 };
 
 Result<std::unique_ptr<noveltea::runtime::RunningGame>, Diagnostics>
@@ -561,6 +624,15 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         return fail("Request requires a playback spec.");
 
     ToolingScriptSource sources;
+    if (const auto root = request.find("projectRoot"); root != request.end() && !root->is_null()) {
+        if (!root->is_string())
+            return fail("Runtime Test projectRoot must be a string or null.");
+        const auto candidate =
+            filesystem_path_from_utf8(json_access::get_or<std::string>(*root, {}));
+        if (!sources.mount_project_root(candidate))
+            return fail("Runtime Test project root is unavailable.");
+    }
+
     noveltea::script::ScriptRuntime scripts;
     auto initialized = scripts.initialize({&sources});
     if (!initialized)
@@ -1061,7 +1133,7 @@ nlohmann::json run_test_suite(const nlohmann::json& request)
         return json_access::value_or(entry, "status", std::string{}) == "runnable";
     });
     if (has_runnable) {
-        const nlohmann::json preflight_request = {
+        nlohmann::json preflight_request = {
             {"project", *project},
             {"spec",
              {{"schema", "noveltea.editor.playback"},
@@ -1070,6 +1142,11 @@ nlohmann::json run_test_suite(const nlohmann::json& request)
               {"steps", nlohmann::json::array()},
               {"finalExpectations", nlohmann::json::array()}}},
         };
+        if (auto root = request.find("projectRoot"); root != request.end())
+            preflight_request["projectRoot"] = *root;
+        if (auto shader_metadata = request.find("shaderMaterialMetadata");
+            shader_metadata != request.end())
+            preflight_request["shaderMaterialMetadata"] = *shader_metadata;
         const auto preflight = run_compiled_playback(preflight_request);
         if (!json_access::value_or(preflight, "ok", false))
             return preflight;
