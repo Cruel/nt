@@ -1279,6 +1279,53 @@ describe('NovelTea headless CLI', () => {
     }
   });
 
+  it('routes authored semantic tests through the headless runner with project authority', async () => {
+    const project = validProject();
+    project.tests.semantic = {
+      id: 'semantic',
+      label: 'Semantic smoke',
+      data: defaultTestData('Semantic smoke'),
+    };
+    const value = fixture(project);
+    let headlessRequest: unknown;
+    const nativeTools: NovelTeaCliNativeToolService = {
+      async compileShaders() {
+        return { ok: true, success: true, diagnostics: [], outputs: [] };
+      },
+      async runHeadlessTest(request) {
+        headlessRequest = request;
+        return { ok: true, success: true };
+      },
+      async runUiTest() {
+        throw new Error('UI runner should not be used');
+      },
+      async exportPackage() {
+        return { ok: true, success: true };
+      },
+      async validateFontCoverage() {
+        return { ok: true, success: true, diagnostics: [] };
+      },
+      shaderc() {
+        return 0;
+      },
+      texturec() {
+        return 0;
+      },
+    };
+
+    const result = await runNovelTeaCli(
+      ['--json', 'test', 'run', 'semantic'],
+      options(value, root, nativeTools),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(headlessRequest).toMatchObject({
+      projectRoot: root,
+      shaderMaterialMetadata: null,
+      spec: { id: 'semantic' },
+    });
+  });
+
   it('routes authored selector-click tests through the UI runner with project authority', async () => {
     const project = validProject();
     const data = defaultTestData('UI smoke');
@@ -1407,6 +1454,58 @@ describe('NovelTea headless CLI', () => {
       exitCode: 2,
       diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'CLI_USAGE' })]),
     });
+  });
+
+  it('passes canonical source-program input to the native shaders compile operation', async () => {
+    const project = validProject();
+    project.materials.basic = {
+      id: 'basic',
+      label: 'Basic',
+      data: {
+        ...defaultMaterialData('Basic', 'engine-2d'),
+        shader: { fragment: { kind: 'project', path: 'shaders/basic.fs.sc' } },
+      },
+    };
+    const value = fixture(project);
+    let receivedShaderProject: unknown;
+    const nativeTools: NovelTeaCliNativeToolService = {
+      async compileShaders(shaderProject) {
+        receivedShaderProject = shaderProject;
+        return { ok: true, success: true, diagnostics: [], outputs: [] };
+      },
+      async runHeadlessTest() {
+        return {};
+      },
+      async runUiTest() {
+        return {};
+      },
+      async exportPackage() {
+        return {};
+      },
+      shaderc() {
+        return 0;
+      },
+      texturec() {
+        return 0;
+      },
+    };
+
+    const result = await runNovelTeaCli(
+      ['--json', 'shaders', 'compile', '--variant', 'essl-300'],
+      options(value, root, nativeTools),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(receivedShaderProject).toMatchObject({ schema: 'noveltea.shader-source-programs' });
+    const programs = Object.values(
+      (receivedShaderProject as { programs: Record<string, unknown> }).programs,
+    );
+    expect(programs).toEqual([
+      expect.objectContaining({
+        vertexSource: 'engine:/vs_quad.sc',
+        fragmentSource: 'project:/shaders/basic.fs.sc',
+      }),
+    ]);
   });
 
   it('uses the shared authoring pipeline and exact shader variants through the native service abstraction', async () => {

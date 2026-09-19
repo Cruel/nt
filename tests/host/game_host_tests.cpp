@@ -299,7 +299,12 @@ std::string minimal_compiled_project_fixture()
                              "minimal.json";
     std::ifstream file(path, std::ios::binary);
     REQUIRE(file.good());
-    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    const std::string text{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    auto project = nlohmann::json::parse(text, nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
+    project["resources"]["scripts"][0]["source"] =
+        {{"kind", "inline-lua"}, {"source", "return {}\n"}};
+    return project.dump();
 }
 
 std::string localized_dialogue_cue_compiled_project_fixture()

@@ -262,7 +262,7 @@ describe('canonical Material shader lowering', () => {
       reflectedInputs:
         stage === 'fragment'
           ? [{ name: 'u_time', kind: 'uniform', type: 'float', arraySize: 1 }]
-          : [],
+          : [{ name: 'u_modelViewProj', kind: 'uniform', type: 'mat4', arraySize: 1 }],
       cacheHit: false,
     });
 
@@ -271,9 +271,15 @@ describe('canonical Material shader lowering', () => {
     expect(shaderId).toBeDefined();
     expect(built.project.shaders[shaderId!]?.uniforms.u_time).toMatchObject({
       type: 'float',
-      binding: null,
       default: 0.5,
     });
+    expect(built.project.shaders[shaderId!]?.uniforms.u_time).not.toHaveProperty('binding');
+    expect(built.project.shaders[shaderId!]?.uniforms).not.toHaveProperty('u_modelViewProj');
+    expect(built.diagnostics).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining("'u_modelViewProj'") }),
+      ]),
+    );
     expect(built.project.materials.hotspot?.uniforms).toEqual({ u_time: 0.5 });
   });
 
@@ -326,9 +332,9 @@ describe('canonical Material shader lowering', () => {
     const secondShaderId = built.project.materials.second?.shader;
     expect(firstShaderId).not.toBe(secondShaderId);
     expect(built.project.shaders[firstShaderId!]?.uniforms.u_amount).toMatchObject({
-      binding: null,
       default: 0.25,
     });
+    expect(built.project.shaders[firstShaderId!]?.uniforms.u_amount).not.toHaveProperty('binding');
     expect(built.project.shaders[secondShaderId!]?.uniforms.u_amount).toMatchObject({
       binding: 'engine.time',
     });
@@ -419,7 +425,7 @@ describe('canonical Material shader lowering', () => {
     ]);
 
     const shaderId = built.project.materials.panel?.shader;
-    expect(shaderId).toMatch(new RegExp(`^${program}:material:panel$`, 'u'));
+    expect(shaderId).toMatch(new RegExp(`^${program}-material-panel$`, 'u'));
     expect(built.project.materials.panel).toMatchObject({
       shader: shaderId,
       uniforms: { u_amount: 0.75 },

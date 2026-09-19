@@ -58,7 +58,7 @@ const runtimeShaderUniformSchema = strict({
   type: z.enum(shaderUniformTypeValues),
   default: shaderUniformValueSchema.optional(),
   range: z.tuple([z.number().finite(), z.number().finite()]).optional(),
-  binding: z.enum(shaderInputBindingValues).nullable().optional(),
+  binding: z.enum(shaderInputBindingValues).optional(),
   editor: strict({ label: z.string() }).optional(),
 });
 const runtimeShaderRoleBindingSchema = strict({
@@ -230,6 +230,25 @@ function runtimeUniformValue(
 ): ShaderUniformValue | undefined {
   return value === undefined || value === null ? undefined : value;
 }
+const bgfxPredefinedUniformNames = new Set([
+  'u_viewRect',
+  'u_viewTexel',
+  'u_view',
+  'u_invView',
+  'u_proj',
+  'u_invProj',
+  'u_viewProj',
+  'u_invViewProj',
+  'u_model',
+  'u_modelView',
+  'u_modelViewProj',
+  'u_alphaRef4',
+]);
+
+function isBgfxPredefinedUniform(name: string): boolean {
+  return bgfxPredefinedUniformNames.has(name);
+}
+
 function reflectedType(type: string): ShaderUniformType | null {
   if (
     type === 'float' ||
@@ -341,15 +360,17 @@ function buildSourceProgramShaderDefinition(
   }
   const reflected = new Map<string, { kind: 'uniform' | 'sampled-image'; type: string }>();
   for (const output of outputs)
-    for (const input of output.reflectedInputs)
+    for (const input of output.reflectedInputs) {
+      if (input.kind === 'uniform' && isBgfxPredefinedUniform(input.name)) continue;
       reflected.set(input.name, { kind: input.kind, type: input.type });
+    }
   const uniforms: RuntimeShaderDefinition['uniforms'] = {};
   const samplers: RuntimeShaderDefinition['samplers'] = {};
   for (const [name, input] of reflected) {
     if (input.kind === 'sampled-image') samplers[name] = { type: 'texture2d', binding: null };
     else {
       const type = reflectedType(input.type);
-      if (type) uniforms[name] = { type, binding: null };
+      if (type) uniforms[name] = { type };
     }
   }
   return runtimeShaderDefinitionSchema.parse({
@@ -408,7 +429,7 @@ export async function buildShaderMaterialProject(
     };
     const program = custom ? await programKey(resolved) : `preset-${resolved.preset.id}`;
     if (custom) programs[program] = customProgramRequest(resolved);
-    const shaderId = custom ? `${program}:material:${materialId}` : program;
+    const shaderId = custom ? `${program}-material-${materialId}` : program;
     if (!shaders[shaderId]) {
       const built = buildRuntimeShader(
         materialId,
@@ -515,6 +536,7 @@ function buildRuntimeShader(
   const reflectionConflicts = new Set<string>();
   for (const output of outputs)
     for (const input of output.reflectedInputs ?? []) {
+      if (input.kind === 'uniform' && isBgfxPredefinedUniform(input.name)) continue;
       const existing = reflected.get(input.name);
       if (
         existing &&
@@ -615,7 +637,7 @@ function buildRuntimeShader(
         ...(presetCompatible && preset?.range
           ? { range: [...preset.range] as [number, number] }
           : {}),
-        binding,
+        ...(binding !== null ? { binding } : {}),
         ...(parameter?.editor?.label || (presetCompatible && preset?.label)
           ? { editor: { label: parameter?.editor?.label ?? preset?.label ?? name } }
           : {}),
@@ -647,7 +669,7 @@ function buildRuntimeShader(
         type: value.type,
         ...(value.default !== undefined ? { default: value.default } : {}),
         ...(value.range ? { range: [...value.range] as [number, number] } : {}),
-        binding: value.binding ?? null,
+        ...(value.binding !== undefined ? { binding: value.binding } : {}),
         ...(value.label ? { editor: { label: value.label } } : {}),
       };
     for (const [name, value] of Object.entries(resolved.preset.samplers))

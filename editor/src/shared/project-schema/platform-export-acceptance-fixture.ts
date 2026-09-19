@@ -3,8 +3,11 @@ import { defaultLayoutData } from './authoring-layouts';
 import { defaultMaterialData } from './authoring-materials';
 import { createAuthoringProject } from './authoring-project';
 import { defaultRoomData, roomAssetRef, roomMaterialRef, roomRoomRef } from './authoring-rooms';
+import { defaultFragmentShaderSource } from './authoring-shaders';
 
 export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION = '2026-07-11.1' as const;
+export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_PATH = 'shaders/fixture.fs.sc' as const;
+export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_SOURCE = defaultFragmentShaderSource;
 
 export function createPlatformExportAcceptanceFixture() {
   const project = createAuthoringProject({
@@ -17,6 +20,7 @@ export function createPlatformExportAcceptanceFixture() {
     ['backdrop', 'image', 'assets/images/backdrop.png'],
     ['body-font', 'font', 'assets/fonts/body.ttf'],
     ['theme-music', 'audio', 'assets/audio/theme.wav'],
+    ['startup-lua', 'text', 'assets/scripts/startup.lua'],
   ] as const;
   for (const [id, kind, assetPath] of assets) {
     const metadata =
@@ -37,7 +41,12 @@ export function createPlatformExportAcceptanceFixture() {
   project.materials['fixture-material'] = {
     id: 'fixture-material',
     label: 'Fixture Material',
-    data: defaultMaterialData('Fixture Material', 'engine-2d'),
+    data: {
+      ...defaultMaterialData('Fixture Material', 'engine-2d'),
+      shader: {
+        fragment: { kind: 'project', path: PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_PATH },
+      },
+    },
   };
   const layout = defaultLayoutData('Fixture HUD');
   layout.rml.sourceText = '<rml><body><p id="save-status">Ready</p></body></rml>';

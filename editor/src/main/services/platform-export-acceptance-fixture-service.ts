@@ -12,6 +12,8 @@ import { projectWorkspaceFiles } from '../../shared/project-workspace/project-wo
 import {
   createPlatformExportAcceptanceFixture,
   PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION,
+  PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_PATH,
+  PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_SOURCE,
 } from '../../shared/project-schema/platform-export-acceptance-fixture';
 
 export interface MaterializePlatformExportAcceptanceFixtureOptions {
@@ -178,6 +180,7 @@ export async function materializePlatformExportAcceptanceFixture(
     mkdir(path.join(projectRoot, 'assets/fonts'), { recursive: true }),
     mkdir(path.join(projectRoot, 'assets/audio'), { recursive: true }),
     mkdir(path.join(projectRoot, 'assets/scripts'), { recursive: true }),
+    mkdir(path.join(projectRoot, 'shaders'), { recursive: true }),
   ]);
   await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#553399' } })
     .png()
@@ -188,6 +191,10 @@ export async function materializePlatformExportAcceptanceFixture(
   await copyFile(options.fontSourcePath, path.join(projectRoot, 'assets/fonts/body.ttf'));
   await writeFile(path.join(projectRoot, 'assets/audio/theme.wav'), wavSilence());
   await writeFile(path.join(projectRoot, 'assets/scripts/startup.lua'), 'fixture_started = true\n');
+  await writeFile(
+    path.join(projectRoot, PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_PATH),
+    PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_SOURCE,
+  );
 
   const workspaceFiles = projectWorkspaceFiles(project, project.editor);
   await Promise.all(
