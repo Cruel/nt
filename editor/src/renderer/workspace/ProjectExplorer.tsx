@@ -41,6 +41,7 @@ import {
   diagnosticSeverityForRecord,
 } from '@/diagnostics/project-diagnostic-severity';
 import { useProjectStore } from '@/project/project-store';
+import { findProjectSourceByAssetId, useProjectSourceStore } from '@/project/project-source-store';
 import {
   MUTATION_SURFACE_ATTRIBUTIONS,
   recordSaveUnitId,
@@ -82,6 +83,7 @@ import {
   buildLocalizationTab,
   buildProjectChaptersTab,
   buildProjectSettingsTab,
+  buildProjectSourceTab,
   buildProjectTagsTab,
   buildTestsEditorTab,
   buildVariablesEditorTab,
@@ -102,8 +104,15 @@ import {
   type ProjectExplorerNode,
 } from './project-explorer-tree';
 import { recordTargetKey, useProjectExplorerStore } from './project-explorer-store';
+import {
+  buildProjectFilesTree,
+  filterProjectFiles,
+  projectFilesPlacementForSource,
+  type ProjectFilesNode,
+} from './project-files-tree';
 import { RecentProjectsList } from './WorkspaceDashboard';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import type { ProjectSourceUsage } from '../../shared/project-source-files';
 import { NewEntityWizardDialog } from '@/wizard/new-entity/NewEntityWizardDialog';
 
 type EntityAction = 'rename' | 'duplicate' | 'delete' | 'metadata';
@@ -133,6 +142,20 @@ interface HoverDetailsState {
   node: ProjectExplorerNode;
   x: number;
   y: number;
+}
+
+interface SourceContextMenuState {
+  node: ProjectFilesNode;
+  x: number;
+  y: number;
+}
+
+type SourceOperationAction = 'create-file' | 'create-folder' | 'rename' | 'move' | 'delete';
+
+interface SourceOperationDialogState {
+  action: SourceOperationAction;
+  node: ProjectFilesNode;
+  fileKind?: 'lua' | 'shader';
 }
 
 function recordForNode(
@@ -1314,9 +1337,321 @@ function ProjectExplorerItem({
   );
 }
 
+function ProjectSourceContextMenu({
+  state,
+  onClose,
+  openOperation,
+}: {
+  state: SourceContextMenuState | null;
+  onClose: () => void;
+  openOperation: (state: SourceOperationDialogState) => void;
+}) {
+  if (!state) return null;
+  const { node } = state;
+  const root = node.path.split('/')[0];
+  const sourceRoot = root === 'scripts' || root === 'shaders';
+  const structural = sourceRoot && node.path !== root;
+  const itemClass =
+    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50';
+  return (
+    <div
+      className="fixed z-50 min-w-44 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
+      style={{ left: state.x, top: state.y }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {node.kind === 'folder' && sourceRoot ? (
+        <>
+          <button
+            className={itemClass}
+            onClick={() => {
+              openOperation({
+                action: 'create-file',
+                node,
+                fileKind: root === 'scripts' ? 'lua' : 'shader',
+              });
+              onClose();
+            }}
+          >
+            <FilePlus2 className="h-3.5 w-3.5" />
+            New {root === 'scripts' ? 'Lua' : 'Shader'} File
+          </button>
+          <button
+            className={itemClass}
+            onClick={() => {
+              openOperation({ action: 'create-folder', node });
+              onClose();
+            }}
+          >
+            <FolderOpen className="h-3.5 w-3.5" /> New Folder
+          </button>
+        </>
+      ) : null}
+      {structural ? (
+        <>
+          <div className="my-1 h-px bg-border" />
+          <button
+            className={itemClass}
+            onClick={() => {
+              openOperation({ action: 'rename', node });
+              onClose();
+            }}
+          >
+            <FileCode className="h-3.5 w-3.5" /> Rename
+          </button>
+          <button
+            className={itemClass}
+            onClick={() => {
+              openOperation({ action: 'move', node });
+              onClose();
+            }}
+          >
+            <FolderOpen className="h-3.5 w-3.5" /> Move…
+          </button>
+          <button
+            className={`${itemClass} text-destructive`}
+            onClick={() => {
+              openOperation({ action: 'delete', node });
+              onClose();
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
+        </>
+      ) : null}
+      {!sourceRoot ? (
+        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+          This source is structurally owned and cannot be moved from Files.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ProjectSourceOperationDialog({
+  state,
+  onClose,
+}: {
+  state: SourceOperationDialogState | null;
+  onClose: () => void;
+}) {
+  const mutate = useProjectSourceStore((store) => store.mutate);
+  const findUsages = useProjectSourceStore((store) => store.usages);
+  const [value, setValue] = useState('');
+  const [usages, setUsages] = useState<readonly ProjectSourceUsage[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setError(null);
+    setUsages([]);
+    if (!state) return;
+    const parent = state.node.path.split('/').slice(0, -1).join('/');
+    if (state.action === 'create-file') {
+      const extension = state.fileKind === 'lua' ? '.lua' : '.sc';
+      setValue(`${state.node.path}/new-source${extension}`);
+    } else if (state.action === 'create-folder') setValue(`${state.node.path}/new-folder`);
+    else if (state.action === 'rename') setValue(state.node.label);
+    else if (state.action === 'move') setValue(state.node.path);
+    else setValue(parent);
+    if (state.action === 'delete')
+      void findUsages(state.node.path)
+        .then(setUsages)
+        .catch((cause) => {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        });
+  }, [findUsages, state]);
+
+  if (!state) return null;
+  const activeState = state;
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const parent = activeState.node.path.split('/').slice(0, -1).join('/');
+      const operation =
+        activeState.action === 'create-file'
+          ? ({
+              kind: 'create-file',
+              path: value.trim(),
+              fileKind: activeState.fileKind!,
+            } as const)
+          : activeState.action === 'create-folder'
+            ? ({ kind: 'create-folder', path: value.trim() } as const)
+            : activeState.action === 'rename'
+              ? ({
+                  kind: 'move',
+                  fromPath: activeState.node.path,
+                  toPath: parent ? `${parent}/${value.trim()}` : value.trim(),
+                } as const)
+              : activeState.action === 'move'
+                ? ({ kind: 'move', fromPath: activeState.node.path, toPath: value.trim() } as const)
+                : ({ kind: 'delete', path: activeState.node.path } as const);
+      const result = await mutate(operation);
+      if (!result.success) {
+        setUsages(result.usages ?? usages);
+        setError(result.error ?? 'Source operation failed.');
+        return;
+      }
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const title =
+    state.action === 'create-file'
+      ? `New ${state.fileKind === 'lua' ? 'Lua' : 'Shader'} File`
+      : state.action === 'create-folder'
+        ? 'New Folder'
+        : state.action === 'rename'
+          ? `Rename ${state.node.label}`
+          : state.action === 'move'
+            ? `Move ${state.node.label}`
+            : `Delete ${state.node.label}`;
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogPopup>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>
+          {state.action === 'delete'
+            ? 'Referenced source cannot be deleted. Review usages below before confirming.'
+            : 'Source operations are committed as one Project workspace transaction.'}
+        </DialogDescription>
+        <div className="space-y-3">
+          {state.action !== 'delete' ? (
+            <Input
+              aria-label="Source path"
+              value={value}
+              onChange={(event) => setValue(event.currentTarget.value)}
+            />
+          ) : null}
+          {usages.length > 0 ? (
+            <div className="max-h-40 space-y-1 overflow-auto rounded border p-2 text-xs">
+              {usages.map((usage, index) => (
+                <div key={`${usage.owner}:${usage.path}:${index}`}>
+                  <span className="font-mono">{usage.owner}</span>: {usage.detail}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {error ? <div className="text-xs text-destructive">{error}</div> : null}
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant={state.action === 'delete' ? 'destructive' : 'default'}
+              disabled={busy || (state.action === 'delete' && usages.length > 0)}
+              onClick={() => void submit()}
+            >
+              {state.action === 'delete' ? 'Delete' : 'Apply'}
+            </Button>
+          </div>
+        </div>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+function ProjectFilesItem({
+  node,
+  depth = 0,
+  onContextMenu,
+}: {
+  node: ProjectFilesNode;
+  depth?: number;
+  onContextMenu: (state: SourceContextMenuState) => void;
+}) {
+  const expandedNodeIds = useProjectExplorerStore((state) => state.expandedNodeIds);
+  const followExpandedNodeIds = useProjectExplorerStore((state) => state.followExpandedNodeIds);
+  const activeNodeId = useProjectExplorerStore((state) => state.activeNodeId);
+  const setActiveNodeId = useProjectExplorerStore((state) => state.setActiveNodeId);
+  const toggleExpanded = useProjectExplorerStore((state) => state.toggleExpanded);
+  const suppressFollowNodeId = useProjectExplorerStore((state) => state.suppressFollowNodeId);
+  const openTab = useWorkbenchStore((state) => state.openTab);
+  const manuallyExpanded = expandedNodeIds.includes(node.id);
+  const followExpanded = followExpandedNodeIds.includes(node.id);
+  const expanded = manuallyExpanded || followExpanded;
+  const canExpand = node.kind === 'folder' && Boolean(node.children?.length);
+  const Icon = node.kind === 'folder' ? FolderOpen : FileCode;
+
+  function openNode() {
+    setActiveNodeId(node.id);
+    if (node.kind === 'folder') {
+      if (!canExpand) return;
+      if (expanded) suppressFollowNodeId(node.id);
+      if (!followExpanded || manuallyExpanded) toggleExpanded(node.id);
+      return;
+    }
+    if (!node.source) return;
+    if (node.source.text) {
+      openTab(buildProjectSourceTab(node.source));
+      return;
+    }
+    const assetId = node.source.assetIds?.[0];
+    if (!assetId) return;
+    const tab = buildDefaultRecordTab({
+      id: `assets:${assetId}`,
+      label: assetId,
+      type: 'asset',
+      collection: 'assets',
+      entityId: assetId,
+    });
+    if (tab)
+      openTab({
+        ...tab,
+        resource: tab.resource ? { ...tab.resource, explorerNodeId: node.id } : tab.resource,
+      });
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        data-explorer-node-id={node.id}
+        className={`flex w-full min-w-0 items-center gap-1 rounded-sm px-2 py-1 text-left text-sm transition-colors hover:bg-accent ${
+          activeNodeId === node.id ? 'bg-accent text-accent-foreground' : ''
+        }`}
+        style={{ paddingLeft: `${8 + depth * 14}px` }}
+        onClick={openNode}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onContextMenu({ node, x: event.clientX, y: event.clientY });
+        }}
+      >
+        {canExpand ? (
+          expanded ? (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
+        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{node.label}</span>
+      </button>
+      {canExpand && expanded
+        ? node.children?.map((child) => (
+            <ProjectFilesItem
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              onContextMenu={onContextMenu}
+            />
+          ))
+        : null}
+    </div>
+  );
+}
+
 export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const scriptSourcePaths = useProjectStore((state) => state.scriptSourcePaths);
   const expandedNodeIds = useProjectExplorerStore((state) => state.expandedNodeIds);
@@ -1330,6 +1665,8 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const filterTags = useProjectExplorerStore((state) => state.filterTags);
   const showTagFilter = useProjectExplorerStore((state) => state.showTagFilter);
   const exactMatch = useProjectExplorerStore((state) => state.exactMatch);
+  const navigationMode = useProjectExplorerStore((state) => state.navigationMode);
+  const setNavigationMode = useProjectExplorerStore((state) => state.setNavigationMode);
   const chapters = useProjectExplorerStore((state) => state.chapters);
   const hydrateExplorer = useProjectExplorerStore((state) => state.hydrate);
   const setSearchQuery = useProjectExplorerStore((state) => state.setSearchQuery);
@@ -1345,6 +1682,11 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const clearFollowSuppressedNodeIds = useProjectExplorerStore(
     (state) => state.clearFollowSuppressedNodeIds,
   );
+  const sourceFiles = useProjectSourceStore((state) => state.files);
+  const sourceFolders = useProjectSourceStore((state) => state.folders);
+  const sourceTextById = useProjectSourceStore((state) => state.textById);
+  const refreshProjectSources = useProjectSourceStore((state) => state.refresh);
+  const clearProjectSources = useProjectSourceStore((state) => state.clear);
   const activeGroupId = useWorkbenchStore((state) => state.activeGroupId);
   const groupsById = useWorkbenchStore((state) => state.groupsById);
   const tabsById = useWorkbenchStore((state) => state.tabsById);
@@ -1353,8 +1695,13 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const [newEntityWizard, setNewEntityWizard] = useState<NewEntityWizardState | null>(null);
   const [alert, setAlert] = useState<ExplorerAlert | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [sourceContextMenu, setSourceContextMenu] = useState<SourceContextMenuState | null>(null);
+  const [sourceOperation, setSourceOperation] = useState<SourceOperationDialogState | null>(null);
   const [hoverDetails, setHoverDetails] = useState<HoverDetailsState | null>(null);
   const lastProjectKey = useRef<string | null>(null);
+  const restoredSourceRecoverySessionId = useRef<string | null>(null);
+  const lastFollowedActiveTabId = useRef<string | null>(null);
+  const observedInitialActiveTab = useRef(false);
 
   function hoverDetailsX() {
     return treeScrollRef.current?.getBoundingClientRect().right ?? null;
@@ -1372,6 +1719,34 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     hydrateExplorer(editorState.explorer, editorState.chapters);
   }, [hydrateExplorer, project, projectFilePath]);
 
+  useEffect(() => {
+    let active = true;
+    if (!project || !projectSessionId) {
+      restoredSourceRecoverySessionId.current = null;
+      clearProjectSources();
+      return () => {
+        active = false;
+      };
+    }
+    void refreshProjectSources(projectSessionId).then((loaded) => {
+      if (!loaded || !active || restoredSourceRecoverySessionId.current === projectSessionId)
+        return;
+      const currentProjectState = useProjectStore.getState();
+      if (
+        currentProjectState.projectSessionId !== projectSessionId ||
+        useProjectSourceStore.getState().projectSessionId !== projectSessionId ||
+        !currentProjectState.document
+      )
+        return;
+      const editorState = editorProjectStateFromProject(currentProjectState.document);
+      useProjectSourceStore.getState().restoreRecovery(editorState.sourceRecoveryById);
+      restoredSourceRecoverySessionId.current = projectSessionId;
+    });
+    return () => {
+      active = false;
+    };
+  }, [clearProjectSources, project, projectSessionId, refreshProjectSources]);
+
   const explorer = useMemo(
     () => ({
       expandedNodeIds,
@@ -1385,6 +1760,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       filterTags,
       showTagFilter,
       exactMatch,
+      navigationMode,
     }),
     [
       expandedNodeIds,
@@ -1394,6 +1770,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       groupUnassignedItems,
       hiddenCollectionKeys,
       hideEmptyCategories,
+      navigationMode,
       organizeByChapter,
       searchQuery,
       showInfoOnHover,
@@ -1453,6 +1830,14 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       project ? buildProjectExplorerTree(project, { explorer, chapters, visibleRecordKeys }) : [],
     [chapters, explorer, project, visibleRecordKeys],
   );
+  const filteredSourceFiles = useMemo(
+    () => filterProjectFiles(sourceFiles, sourceTextById, searchQuery, exactMatch),
+    [exactMatch, searchQuery, sourceFiles, sourceTextById],
+  );
+  const filesTree = useMemo(
+    () => buildProjectFilesTree(filteredSourceFiles, searchQuery.trim() ? [] : sourceFolders),
+    [filteredSourceFiles, searchQuery, sourceFolders],
+  );
   const activeTabId = groupsById[activeGroupId]?.activeTabId ?? null;
   const activeTab = useMemo(
     () => (activeTabId ? (tabsById[activeTabId] ?? null) : null),
@@ -1464,7 +1849,28 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   }, [activeTabId, clearFollowSuppressedNodeIds]);
 
   useEffect(() => {
-    if (!followActiveTab || !activeTab) {
+    if (!observedInitialActiveTab.current) {
+      observedInitialActiveTab.current = true;
+      lastFollowedActiveTabId.current = activeTabId;
+      return;
+    }
+    if (activeTabId === lastFollowedActiveTabId.current) return;
+    lastFollowedActiveTabId.current = activeTabId;
+    if (!activeTab) return;
+    if (activeTab.resource?.kind === 'source') {
+      setNavigationMode('files');
+      return;
+    }
+    if (activeTab.resource?.kind === 'record' && activeTab.resource.collection === 'assets') {
+      setNavigationMode('files');
+      return;
+    }
+    if (activeTab.resource?.kind === 'record' || activeTab.resource?.kind === 'project')
+      setNavigationMode('project');
+  }, [activeTab, activeTabId, setNavigationMode]);
+
+  useEffect(() => {
+    if (navigationMode !== 'project' || !followActiveTab || !activeTab) {
       setFollowExpandedNodeIds([]);
       return;
     }
@@ -1485,9 +1891,49 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     expandedNodeIds,
     followActiveTab,
     followSuppressedNodeIds,
+    navigationMode,
     setActiveNodeId,
     setFollowExpandedNodeIds,
     tree,
+  ]);
+
+  useEffect(() => {
+    if (navigationMode !== 'files' || !followActiveTab || !activeTab) return;
+    const source =
+      activeTab.resource?.kind === 'source' && activeTab.resource.sourceId
+        ? (sourceFiles.find((candidate) => candidate.id === activeTab.resource?.sourceId) ?? null)
+        : activeTab.resource?.kind === 'record' &&
+            activeTab.resource.collection === 'assets' &&
+            activeTab.resource.entityId
+          ? findProjectSourceByAssetId(sourceFiles, activeTab.resource.entityId)
+          : null;
+    if (!source) {
+      setActiveNodeId(null);
+      setFollowExpandedNodeIds([]);
+      return;
+    }
+    const placement = projectFilesPlacementForSource(filesTree, source.id);
+    if (!placement) {
+      setActiveNodeId(null);
+      setFollowExpandedNodeIds([]);
+      return;
+    }
+    setActiveNodeId(placement.node.id);
+    setFollowExpandedNodeIds(
+      placement.ancestorIds.filter(
+        (nodeId) => !expandedNodeIds.includes(nodeId) && !followSuppressedNodeIds.includes(nodeId),
+      ),
+    );
+  }, [
+    activeTab,
+    expandedNodeIds,
+    filesTree,
+    followActiveTab,
+    followSuppressedNodeIds,
+    navigationMode,
+    setActiveNodeId,
+    setFollowExpandedNodeIds,
+    sourceFiles,
   ]);
 
   useEffect(() => {
@@ -1502,7 +1948,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
         ?.scrollIntoView({ block: 'nearest' });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeNodeId, followActiveTab, tree]);
+  }, [activeNodeId, filesTree, followActiveTab, navigationMode, tree]);
 
   useEffect(() => {
     if (!project) return;
@@ -1557,9 +2003,11 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
         <SearchInput
           value={searchQuery}
           onValueChange={setSearchQuery}
-          placeholder="Search project"
-          aria-label="Search project"
-          clearAriaLabel="Clear project search"
+          placeholder={navigationMode === 'project' ? 'Search project' : 'Search files'}
+          aria-label={navigationMode === 'project' ? 'Search project' : 'Search files'}
+          clearAriaLabel={
+            navigationMode === 'project' ? 'Clear project search' : 'Clear file search'
+          }
           inputClassName="h-8 rounded-none border-0 border-b bg-transparent pr-24 text-xs focus-visible:ring-0"
           endActions={
             <>
@@ -1573,20 +2021,22 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
               >
                 <WholeWord className="size-3.5" />
               </button>
-              <button
-                type="button"
-                className={`flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${showTagFilter ? 'bg-accent text-accent-foreground' : ''}`}
-                aria-pressed={showTagFilter}
-                aria-label="Toggle tag filter"
-                title="Toggle tag filter"
-                onClick={() => setShowTagFilter(!showTagFilter)}
-              >
-                <Tags className="size-3.5" />
-              </button>
+              {navigationMode === 'project' ? (
+                <button
+                  type="button"
+                  className={`flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${showTagFilter ? 'bg-accent text-accent-foreground' : ''}`}
+                  aria-pressed={showTagFilter}
+                  aria-label="Toggle tag filter"
+                  title="Toggle tag filter"
+                  onClick={() => setShowTagFilter(!showTagFilter)}
+                >
+                  <Tags className="size-3.5" />
+                </button>
+              ) : null}
             </>
           }
         />
-        {showTagFilter ? (
+        {navigationMode === 'project' && showTagFilter ? (
           <TagInput
             className="text-xs [&>div:first-child]:min-h-8 [&>div:first-child]:rounded-none [&>div:first-child]:border-0 [&>div:first-child]:bg-transparent [&>div:first-child]:py-0 [&>div:first-child]:pl-2 [&>div:first-child]:pr-8 [&>div:first-child]:focus-within:ring-0"
             value={filterTags}
@@ -1596,32 +2046,68 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
             allowCreate={false}
           />
         ) : null}
-        {searchResponse?.diagnostics.length ? (
+        {navigationMode === 'project' && searchResponse?.diagnostics.length ? (
           <div className="text-xs text-destructive">{searchResponse.diagnostics[0]?.message}</div>
         ) : null}
       </div>
       <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto p-1">
-        {tree.map((node) => (
-          <ProjectExplorerItem
-            key={node.id}
-            node={node}
-            project={project}
-            onContextMenu={setContextMenu}
-            onHoverDetails={showInfoOnHover ? setHoverDetails : () => undefined}
-            getHoverDetailsX={hoverDetailsX}
-          />
-        ))}
-        {tree.length === 0 && isFiltering ? (
+        {navigationMode === 'project'
+          ? tree.map((node) => (
+              <ProjectExplorerItem
+                key={node.id}
+                node={node}
+                project={project}
+                onContextMenu={setContextMenu}
+                onHoverDetails={showInfoOnHover ? setHoverDetails : () => undefined}
+                getHoverDetailsX={hoverDetailsX}
+              />
+            ))
+          : filesTree.map((node) => (
+              <ProjectFilesItem key={node.id} node={node} onContextMenu={setSourceContextMenu} />
+            ))}
+        {navigationMode === 'project' && tree.length === 0 && isFiltering ? (
           <div className="p-3 text-xs text-muted-foreground">
             No project records match the current search.
           </div>
         ) : null}
+        {navigationMode === 'files' && filesTree.length === 0 ? (
+          <div className="p-3 text-xs text-muted-foreground">
+            {searchQuery.trim() ? 'No files match the current search.' : 'No author-managed files.'}
+          </div>
+        ) : null}
       </div>
-      {showInfoOnHover ? (
+      <div className="grid shrink-0 grid-cols-2 border-t p-1">
+        <Button
+          size="sm"
+          variant={navigationMode === 'project' ? 'secondary' : 'ghost'}
+          className="h-7 rounded-r-none"
+          onClick={() => setNavigationMode('project')}
+        >
+          Project
+        </Button>
+        <Button
+          size="sm"
+          variant={navigationMode === 'files' ? 'secondary' : 'ghost'}
+          className="h-7 rounded-l-none"
+          onClick={() => setNavigationMode('files')}
+        >
+          Files
+        </Button>
+      </div>
+      {navigationMode === 'project' && showInfoOnHover ? (
         <ProjectExplorerHoverDetails state={hoverDetails} project={project} />
       ) : null}
+      <ProjectSourceContextMenu
+        state={navigationMode === 'files' ? sourceContextMenu : null}
+        onClose={() => setSourceContextMenu(null)}
+        openOperation={setSourceOperation}
+      />
+      <ProjectSourceOperationDialog
+        state={sourceOperation}
+        onClose={() => setSourceOperation(null)}
+      />
       <ExplorerContextMenu
-        state={contextMenu}
+        state={navigationMode === 'project' ? contextMenu : null}
         project={project}
         onClose={() => setContextMenu(null)}
         openDialog={setDialogState}

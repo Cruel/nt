@@ -9,19 +9,24 @@ describe('shader compile store', () => {
     vi.mocked(window.noveltea.compileShaders).mockReset();
   });
 
-  it('invalidates prior verified outputs before a new compile and keeps them cleared on failure', async () => {
+  it('clears prior derived outputs before a new compile and keeps authoring state untouched on failure', async () => {
     useShaderCompileStore.setState({
-      authoringOutputs: [
+      outputs: [
         {
-          shader: 'old-shader',
+          program: 'old-program',
+          programIdentity: 'old-identity',
           stage: 'fragment',
           variant: 'glsl-330',
-          metadata: {
-            path: 'project:/shaders/bgfx/glsl-330/old-shader.fs.bin',
-            byteHash: `sha256:${'a'.repeat(64)}`,
-            byteSize: 4,
-            compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
-          },
+          sourceIdentity: 'project:/shaders/old.fs.sc',
+          dependencies: [],
+          dependencyRevisions: [],
+          outputPath: '/tmp/old.fs.bin',
+          runtimePath: 'project:/shaders/derived/glsl-330/old.fs.bin',
+          cacheKey: 'old-cache',
+          byteHash: `sha256:${'a'.repeat(64)}`,
+          byteSize: 4,
+          reflectedInputs: [],
+          cacheHit: false,
         },
       ],
     });
@@ -32,13 +37,16 @@ describe('shader compile store', () => {
       }),
     );
 
-    const compile = useShaderCompileStore
-      .getState()
-      .runCompile({}, { capturedFingerprints: {}, currentProject: () => null }, {});
+    const compile = useShaderCompileStore.getState().runCompile({
+      schema: 'noveltea.shader-source-programs',
+      programs: {},
+    });
 
+    expect(useShaderCompileStore.getState().outputs).toEqual([]);
     expect(useShaderCompileStore.getState().authoringOutputs).toEqual([]);
     rejectCompile(new Error('compile IPC failed'));
     await expect(compile).resolves.toMatchObject({ success: false });
+    expect(useShaderCompileStore.getState().outputs).toEqual([]);
     expect(useShaderCompileStore.getState().authoringOutputs).toEqual([]);
   });
 });

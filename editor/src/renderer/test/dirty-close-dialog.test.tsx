@@ -8,6 +8,7 @@ import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { ROOT_GROUP_ID } from '@/workbench/workbench-model';
 import { useProjectStore } from '@/project/project-store';
+import { useProjectSourceStore } from '@/project/project-source-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCommandStore } from '@/commands/command-store';
 import {
@@ -79,6 +80,7 @@ beforeEach(() => {
   useDraftDirtyStore.getState().resetDraftDirty();
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  useProjectSourceStore.getState().clear();
   clearWorkbenchTabStates();
   setLoadedEditorProjectState(emptyEditorProjectState());
   vi.clearAllMocks();
@@ -604,6 +606,90 @@ describe('dirty tab close guard', () => {
     expect(usePendingInputStore.getState().entriesBySaveUnitId).not.toHaveProperty(
       'project:settings',
     );
+  });
+
+  it('keeps a source tab open when newer edits remain after the submitted save completes', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+      projectSessionId: 'test-project-session',
+    });
+    const sourceId = 'scripts/helpers.lua';
+    const sourceTab: WorkbenchTab = {
+      id: `tab:source-file:${sourceId}`,
+      title: 'helpers.lua',
+      editorType: 'source-file',
+      resource: {
+        kind: 'source',
+        stableId: `source:${sourceId}`,
+        sourceId,
+        projectRelativePath: sourceId,
+      },
+    };
+    useProjectSourceStore.setState({
+      projectSessionId: 'test-project-session',
+      files: [
+        {
+          id: sourceId,
+          displayPath: sourceId,
+          projectRelativePath: sourceId,
+          kind: 'lua',
+          text: true,
+          contentHash: `sha256:${'a'.repeat(64)}`,
+        },
+      ],
+      textById: { [sourceId]: 'return submitted' },
+      buffersById: {
+        [sourceId]: {
+          text: 'return submitted',
+          baseText: 'return clean',
+          baseContentHash: `sha256:${'a'.repeat(64)}`,
+          dirty: true,
+          conflict: null,
+        },
+      },
+    });
+    useWorkbenchStore.getState().openTab(sourceTab);
+    useWorkbenchStore.getState().setTabDirty(sourceTab.id, true);
+    let resolveWrite!: (value: {
+      ok: boolean;
+      success: boolean;
+      sourceId: string;
+      contentHash: `sha256:${string}`;
+    }) => void;
+    vi.mocked(window.noveltea.writeProjectSource).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveWrite = resolve;
+        }),
+    );
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, sourceTab.id));
+    await user.click(await screen.findByText('Save'));
+    act(() => useProjectSourceStore.getState().setText(sourceId, 'return newer'));
+    resolveWrite({
+      ok: true,
+      success: true,
+      sourceId,
+      contentHash: `sha256:${'b'.repeat(64)}`,
+    });
+
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().statusMessage).toContain(
+        'changed again while it was being saved',
+      ),
+    );
+    expect(useWorkbenchStore.getState().tabsById[sourceTab.id]).toBeDefined();
+    expect(useProjectSourceStore.getState().buffersById[sourceId]).toMatchObject({
+      text: 'return newer',
+      baseText: 'return submitted',
+      dirty: true,
+    });
   });
 
   it("Don't Save removes the logical recovery overlay, including pending raw input", async () => {

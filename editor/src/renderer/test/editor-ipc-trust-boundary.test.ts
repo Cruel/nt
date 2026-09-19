@@ -324,7 +324,7 @@ describe('guarded editor IPC registrar', () => {
       shaderService,
     );
     const sessionId = '11111111-1111-4111-8111-111111111111';
-    const shaderProject = { schema: 'noveltea.shader-materials', shaders: {}, materials: {} };
+    const shaderProject = { schema: 'noveltea.shader-source-programs', programs: {} };
 
     await expect(ipcMain.invoke('preview-session', harness.event, sessionId)).resolves.toBe(
       sessionId,
@@ -333,6 +333,10 @@ describe('guarded editor IPC registrar', () => {
       ipcMain.invoke('compile-shaders', harness.event, sessionId, shaderProject, {
         forceRebuild: true,
         shaderVariants: ['glsl-330'],
+        sourceOverlays: {
+          'shaders/panel.sc': 'dirty entrypoint',
+          'shaders/common/color.sh': 'dirty include',
+        },
       }),
     ).resolves.toBe(sessionId);
 
@@ -342,6 +346,14 @@ describe('guarded editor IPC registrar', () => {
       ['compile-shaders', [sessionId, shaderProject, { projectRoot: '/alternate' }]],
       ['compile-shaders', [sessionId, { ...shaderProject, extra: true }, {}]],
       ['compile-shaders', [sessionId, shaderProject, { shaderVariants: ['x'.repeat(257)] }]],
+      [
+        'compile-shaders',
+        [sessionId, shaderProject, { sourceOverlays: { '../escape.sc': 'bad' } }],
+      ],
+      [
+        'compile-shaders',
+        [sessionId, shaderProject, { sourceOverlays: { 'scripts/not-shader.sc': 'bad' } }],
+      ],
       ['compile-shaders', [sessionId, shaderProject, {}, 'extra']],
     ] as const) {
       previewService.mockClear();

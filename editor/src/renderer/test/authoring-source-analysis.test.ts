@@ -31,7 +31,6 @@ import {
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
 import { defaultMapData } from '../../shared/project-schema/authoring-maps';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { sha256HexBytes, sha256HexUtf8 } from '../../shared/web-crypto';
@@ -314,24 +313,35 @@ describe('typed source registry and graph evidence', () => {
       properties: {},
       traits: [],
     } as never;
-    project.assets['script-file'] = {
-      id: 'script-file',
-      label: 'Script',
-      data: { kind: 'script', path: 'scripts/main.lua', extension: '.lua', contentHash: hash('1') },
-      properties: {},
-      traits: [],
-    } as never;
     project.scripts.main = {
       id: 'main',
       label: 'Main',
       data: {
         kind: 'script-module',
-        source: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'script-file' } } },
+        source: { kind: 'project-file', path: 'scripts/main.lua' },
       },
       properties: {},
       traits: [],
     } as never;
     return project;
+  }
+
+  function mainScriptSnapshot(text = `'shared'`, digit = '1'): LuaSourceSnapshot {
+    return {
+      entriesByAssetId: new Map(),
+      entriesByProjectPath: new Map([
+        [
+          'scripts/main.lua',
+          {
+            status: 'ready',
+            projectRelativePath: 'scripts/main.lua',
+            contentHash: hash(digit),
+            text,
+            hadUtf8Bom: false,
+          },
+        ],
+      ]),
+    };
   }
 
   it('projects Text.msg as an exact localization dependency instead of lexical string evidence', async () => {
@@ -346,7 +356,6 @@ describe('typed source registry and graph evidence', () => {
       source: `return { label = Text.msg("ui.start") }`,
     };
     delete project.scripts.main;
-    delete project.assets['script-file'];
     const graph = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',
       sources: { entriesByAssetId: new Map() },
@@ -365,23 +374,14 @@ describe('typed source registry and graph evidence', () => {
     expect(edges.some((edge) => edge.role === 'lua-possible-reference')).toBe(false);
   });
 
-  it('enumerates exact owners and excludes Shader source from Lua ownership', () => {
+  it('enumerates exact Lua owners without inventing Shader-record ownership', () => {
     const project = fixture();
-    project.shaders.effect = {
-      id: 'effect',
-      label: 'Effect',
-      data: { kind: 'shader', source: { sourceMode: 'inline', sourceText: `'shared'` } },
-      properties: {},
-      traits: [],
-    } as never;
     const sources = collectAuthoringLuaSources(project);
-    expect(sources.some((source) => source.contributionKey === 'record:shaders:effect')).toBe(
-      false,
-    );
+    expect(sources.some((source) => source.contributionKey.includes('shaders'))).toBe(false);
     expect(sources.map((source) => source.contributionKey)).toContain(
       `record:${JSON.stringify(['record', 'scripts', 'bootstrap'])}`,
     );
-    expect(collectAuthoringSourceRequirements(project)).toEqual(['script-file']);
+    expect(collectAuthoringSourceRequirements(project)).toEqual([]);
   });
 
   it('indexes asset-backed RCSS and RML cursor declarations for validation and refactor safety', async () => {
@@ -594,7 +594,7 @@ describe('typed source registry and graph evidence', () => {
     )!;
     const rebound = await bindAuthoringSourceOwner(descriptor, [artifact]);
     expect(artifact.literalOccurrences[0]).not.toHaveProperty('sourcePath');
-    expect(rebound.literalOccurrences[0]?.sourcePath).toBe('/scripts/main/data/source/asset/$ref');
+    expect(rebound.literalOccurrences[0]?.sourcePath).toBe('/scripts/main/data/source/path');
     project.scripts.renamed = {
       ...project.scripts.main,
       id: 'renamed',
@@ -607,9 +607,7 @@ describe('typed source registry and graph evidence', () => {
     const renamed = await bindAuthoringSourceOwner(renamedDescriptor, [artifact]);
     expect(renamed.sourceContentFingerprints).toEqual(rebound.sourceContentFingerprints);
     expect(renamed.ownerProjectionFingerprint).not.toBe(rebound.ownerProjectionFingerprint);
-    expect(renamed.literalOccurrences[0]?.sourcePath).toBe(
-      '/scripts/renamed/data/source/asset/$ref',
-    );
+    expect(renamed.literalOccurrences[0]?.sourcePath).toBe('/scripts/renamed/data/source/path');
     const changedArtifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'project:/scripts/main.lua',
       kind: 'lua',
@@ -624,21 +622,7 @@ describe('typed source registry and graph evidence', () => {
 
   it('adds ambiguous lexical tooling evidence only in enabled mode', async () => {
     const project = fixture();
-    const snapshot: LuaSourceSnapshot = {
-      entriesByAssetId: new Map([
-        [
-          'script-file',
-          {
-            status: 'ready',
-            assetId: 'script-file',
-            projectRelativePath: 'scripts/main.lua',
-            contentHash: hash('1'),
-            text: `'shared'`,
-            hadUtf8Bom: false,
-          },
-        ],
-      ]),
-    };
+    const snapshot = mainScriptSnapshot();
     const disabled = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
     const enabled = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',
@@ -665,21 +649,7 @@ describe('typed source registry and graph evidence', () => {
 
   it('allows a future recognizer to promote one occurrence without changing graph algorithms', async () => {
     const project = fixture();
-    const sources: LuaSourceSnapshot = {
-      entriesByAssetId: new Map([
-        [
-          'script-file',
-          {
-            status: 'ready',
-            assetId: 'script-file',
-            projectRelativePath: 'scripts/main.lua',
-            contentHash: hash('1'),
-            text: `local unrelated = 'shared'`,
-            hadUtf8Bom: false,
-          },
-        ],
-      ]),
-    };
+    const sources = mainScriptSnapshot(`local unrelated = 'shared'`);
     const recognizer: AuthoringSourceReferenceRecognizer = {
       id: 'test.future-reference',
       recognize: ({ occurrence }) =>
@@ -740,21 +710,7 @@ describe('typed source registry and graph evidence', () => {
     } as never;
     const graph = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',
-      sources: {
-        entriesByAssetId: new Map([
-          [
-            'script-file',
-            {
-              status: 'ready',
-              assetId: 'script-file',
-              projectRelativePath: 'scripts/main.lua',
-              contentHash: hash('1'),
-              text: `'shared'`,
-              hadUtf8Bom: false,
-            },
-          ],
-        ]),
-      },
+      sources: mainScriptSnapshot(),
     });
     const layoutEdges = [...graph.edgesById.values()].filter(
       (edge) =>
@@ -782,21 +738,7 @@ describe('typed source registry and graph evidence', () => {
       properties: {},
       traits: [],
     } as never;
-    const snapshot: LuaSourceSnapshot = {
-      entriesByAssetId: new Map([
-        [
-          'script-file',
-          {
-            status: 'ready',
-            assetId: 'script-file',
-            projectRelativePath: 'scripts/main.lua',
-            contentHash: hash('1'),
-            text: `'shared'`,
-            hadUtf8Bom: false,
-          },
-        ],
-      ]),
-    };
+    const snapshot = mainScriptSnapshot();
     const graph = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',
       sources: snapshot,
@@ -888,17 +830,12 @@ describe('typed source registry and graph evidence', () => {
 
   it('resolves declared external scripts and a cycle-safe transitive template closure', async () => {
     const project = fixture();
-    const asset = (
-      id: string,
-      kind: 'script' | 'text',
-      sourcePath: string,
-      contentHash: string,
-    ) => {
+    const asset = (id: string, sourcePath: string, contentHash: string) => {
       project.assets[id] = {
         id,
         label: id,
         data: {
-          kind,
+          kind: 'text',
           source: { type: 'project-file', path: sourcePath },
           aliases: [],
           extension: sourcePath.slice(sourcePath.lastIndexOf('.')),
@@ -909,12 +846,11 @@ describe('typed source registry and graph evidence', () => {
         traits: [],
       } as never;
     };
-    asset('hud-script', 'script', 'ui/scripts/hud.lua', hash('2'));
-    asset('base-template', 'text', 'ui/templates/base.rml', hash('3'));
-    asset('nested-template', 'text', 'ui/templates/nested.rml', hash('4'));
+    asset('base-template', 'ui/templates/base.rml', hash('3'));
+    asset('nested-template', 'ui/templates/nested.rml', hash('4'));
     const layout = defaultLayoutData('HUD', 'document');
-    layout.rml.sourceText = `<rml><head><script src="ui/scripts/hud.lua"/><link type="text/template" href="ui/templates/base.rml"/></head><body template="base"/></rml>`;
-    layout.dependencies.scripts = [{ $ref: { collection: 'assets', id: 'hud-script' } }];
+    layout.rml.sourceText = `<rml><head><script src="scripts/hud.lua"/><link type="text/template" href="ui/templates/base.rml"/></head><body template="base"/></rml>`;
+    layout.dependencies.scripts = ['scripts/hud.lua'];
     layout.dependencies.templates = [
       { $ref: { collection: 'assets', id: 'base-template' } },
       { $ref: { collection: 'assets', id: 'nested-template' } },
@@ -928,28 +864,6 @@ describe('typed source registry and graph evidence', () => {
     } as never;
     const snapshot: LuaSourceSnapshot = {
       entriesByAssetId: new Map([
-        [
-          'script-file',
-          {
-            status: 'ready',
-            assetId: 'script-file',
-            projectRelativePath: 'scripts/main.lua',
-            contentHash: hash('1'),
-            text: `'shared'`,
-            hadUtf8Bom: false,
-          },
-        ],
-        [
-          'hud-script',
-          {
-            status: 'ready',
-            assetId: 'hud-script',
-            projectRelativePath: 'ui/scripts/hud.lua',
-            contentHash: hash('2'),
-            text: `local room = 'shared'`,
-            hadUtf8Bom: false,
-          },
-        ],
         [
           'base-template',
           {
@@ -973,13 +887,34 @@ describe('typed source registry and graph evidence', () => {
           },
         ],
       ]),
+      entriesByProjectPath: new Map([
+        [
+          'scripts/main.lua',
+          {
+            status: 'ready',
+            projectRelativePath: 'scripts/main.lua',
+            contentHash: hash('1'),
+            text: `'shared'`,
+            hadUtf8Bom: false,
+          },
+        ],
+        [
+          'scripts/hud.lua',
+          {
+            status: 'ready',
+            projectRelativePath: 'scripts/hud.lua',
+            contentHash: hash('2'),
+            text: `local room = 'shared'`,
+            hadUtf8Bom: false,
+          },
+        ],
+      ]),
     };
     const analyses = (await analyzeAuthoringSources(project, snapshot)).get(
       `record:${JSON.stringify(['record', 'layouts', 'hud'])}`,
     )!;
     expect(analyses.flatMap((item) => item.sourceAssetIds).sort()).toEqual([
       'base-template',
-      'hud-script',
       'nested-template',
     ]);
     expect(
@@ -992,7 +927,7 @@ describe('typed source registry and graph evidence', () => {
         .flatMap((item) => item.literalOccurrences)
         .flatMap((item) => (item.sourceAssetId ? [item.sourceAssetId] : []))
         .sort((left, right) => left.localeCompare(right)),
-    ).toEqual(['base-template', 'hud-script', 'nested-template']);
+    ).toEqual(['base-template', 'nested-template']);
     expect(analyses.flatMap((item) => item.diagnostics)).toEqual([]);
     const graph = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',
@@ -1005,7 +940,7 @@ describe('typed source registry and graph evidence', () => {
           edge.evidence?.some(
             (evidence) =>
               evidence.kind === 'lua-occurrence' &&
-              evidence.occurrence.sourceAssetId === 'hud-script',
+              evidence.occurrence.sourceUrl === 'project:/scripts/hud.lua',
           ),
       ),
     ).toBe(true);
@@ -1041,17 +976,6 @@ describe('typed source registry and graph evidence', () => {
         project,
         {
           entriesByAssetId: new Map([
-            [
-              'script-file',
-              {
-                status: 'ready',
-                assetId: 'script-file',
-                projectRelativePath: 'scripts/main.lua',
-                contentHash: hash('1'),
-                text: `'shared'`,
-                hadUtf8Bom: false,
-              },
-            ],
             [
               'panel',
               {
@@ -1124,16 +1048,12 @@ describe('typed source registry and graph evidence', () => {
 
   it('indexes only exact source, localization, and property derivation dependencies', async () => {
     const project = fixture();
-    const addAsset = (
-      id: string,
-      path: string,
-      kind: 'script' | 'text' | 'shader-source' = 'text',
-    ) => {
+    const addAsset = (id: string, path: string) => {
       project.assets[id] = {
         id,
         label: id,
         data: {
-          kind,
+          kind: 'text',
           source: { type: 'project-file', path },
           aliases: [],
           contentHash: hash(id.length.toString().at(-1) ?? '1'),
@@ -1143,15 +1063,10 @@ describe('typed source registry and graph evidence', () => {
         traits: [],
       } as never;
     };
-    addAsset('script-file', 'scripts/main.lua', 'script');
     addAsset('layout-rml', 'ui/hud.rml');
     addAsset('layout-rcss', 'ui/hud.rcss');
-    addAsset('layout-lua', 'ui/hud.lua', 'script');
-    addAsset('external-script', 'ui/external.lua', 'script');
     addAsset('template-file', 'ui/panel.rml');
-    addAsset('unused-script', 'ui/unused.lua', 'script');
     addAsset('unused-template', 'ui/unused.rml');
-    addAsset('shader-file', 'shaders/effect.sc', 'shader-source');
 
     const layout = defaultLayoutData('HUD');
     layout.rml = {
@@ -1164,15 +1079,8 @@ describe('typed source registry and graph evidence', () => {
       sourceText: 'inactive inline RCSS',
       sourceAsset: { $ref: { collection: 'assets', id: 'layout-rcss' } },
     };
-    layout.lua = {
-      sourceMode: 'asset',
-      sourceText: 'inactive inline Lua',
-      sourceAsset: { $ref: { collection: 'assets', id: 'layout-lua' } },
-    };
-    layout.dependencies.scripts = [
-      { $ref: { collection: 'assets', id: 'external-script' } },
-      { $ref: { collection: 'assets', id: 'unused-script' } },
-    ];
+    layout.lua.sourceText = `'shared'`;
+    layout.dependencies.scripts = ['scripts/external.lua', 'scripts/unused.lua'];
     layout.dependencies.templates = [
       { $ref: { collection: 'assets', id: 'template-file' } },
       { $ref: { collection: 'assets', id: 'unused-template' } },
@@ -1213,21 +1121,6 @@ describe('typed source registry and graph evidence', () => {
       source: 'Hello',
     };
 
-    const shader = defaultShaderData('Effect');
-    shader.stages[0] = {
-      ...shader.stages[0]!,
-      sourceMode: 'asset',
-      sourceAsset: { $ref: { collection: 'assets', id: 'shader-file' } },
-      sourceText: 'inactive shader source',
-    };
-    project.shaders.effect = {
-      id: 'effect',
-      label: 'Effect',
-      data: shader,
-      properties: {},
-      traits: [],
-    } as never;
-
     const ready = (assetId: string, projectRelativePath: string, text: string, digit: string) =>
       ({
         status: 'ready',
@@ -1239,19 +1132,16 @@ describe('typed source registry and graph evidence', () => {
       }) as const;
     const snapshot: LuaSourceSnapshot = {
       entriesByAssetId: new Map([
-        ['script-file', ready('script-file', 'scripts/main.lua', `'shared'`, '1')],
         [
           'layout-rml',
           ready(
             'layout-rml',
             'ui/hud.rml',
-            `<rml><head><script src="external.lua"/><link type="text/template" href="panel.rml"/></head><body template="panel"/></rml>`,
+            `<rml><head><script src="project:/scripts/external.lua"/><link type="text/template" href="panel.rml"/></head><body template="panel"/></rml>`,
             '2',
           ),
         ],
-        ['layout-lua', ready('layout-lua', 'ui/hud.lua', `'shared'`, '3')],
         ['layout-rcss', ready('layout-rcss', 'ui/hud.rcss', '#hud { cursor: pointer; }', '8')],
-        ['external-script', ready('external-script', 'ui/external.lua', `'shared'`, '4')],
         [
           'template-file',
           ready(
@@ -1261,7 +1151,6 @@ describe('typed source registry and graph evidence', () => {
             '5',
           ),
         ],
-        ['unused-script', ready('unused-script', 'ui/unused.lua', `'unused'`, '6')],
         [
           'unused-template',
           ready(
@@ -1270,6 +1159,38 @@ describe('typed source registry and graph evidence', () => {
             `<template name="unused"><script>local x = 'unused'</script></template>`,
             '7',
           ),
+        ],
+      ]),
+      entriesByProjectPath: new Map([
+        [
+          'scripts/main.lua',
+          {
+            status: 'ready',
+            projectRelativePath: 'scripts/main.lua',
+            contentHash: hash('1'),
+            text: `'shared'`,
+            hadUtf8Bom: false,
+          },
+        ],
+        [
+          'scripts/external.lua',
+          {
+            status: 'ready',
+            projectRelativePath: 'scripts/external.lua',
+            contentHash: hash('4'),
+            text: `'shared'`,
+            hadUtf8Bom: false,
+          },
+        ],
+        [
+          'scripts/unused.lua',
+          {
+            status: 'ready',
+            projectRelativePath: 'scripts/unused.lua',
+            contentHash: hash('6'),
+            text: `'unused'`,
+            hadUtf8Bom: false,
+          },
         ],
       ]),
     };
@@ -1282,22 +1203,24 @@ describe('typed source registry and graph evidence', () => {
     const scriptKey = `record:${JSON.stringify(['record', 'scripts', 'main'])}`;
     const sourceKey = (assetId: string) =>
       serializeAuthoringDependencyDerivationDependency({ kind: 'source-asset', assetId });
-    for (const assetId of ['layout-rml', 'layout-lua', 'external-script', 'template-file'])
+    for (const assetId of ['layout-rml', 'template-file'])
       expect(contributionSet.contributionKeysByDerivationKey.get(sourceKey(assetId))).toContain(
         layoutKey,
       );
-    expect(contributionSet.contributionKeysByDerivationKey.get(sourceKey('script-file'))).toContain(
-      scriptKey,
-    );
+    const projectSourceKey = (path: string) =>
+      serializeAuthoringDependencyDerivationDependency({ kind: 'source-project-file', path });
+    expect(
+      contributionSet.contributionKeysByDerivationKey.get(projectSourceKey('scripts/main.lua')),
+    ).toContain(scriptKey);
+    expect(
+      contributionSet.contributionKeysByDerivationKey.get(projectSourceKey('scripts/external.lua')),
+    ).toContain(layoutKey);
     expect(contributionSet.contributionKeysByDerivationKey.get(sourceKey('layout-rcss'))).toContain(
       layoutKey,
     );
-    expect(contributionSet.contributionKeysByDerivationKey.has(sourceKey('shader-file'))).toBe(
-      false,
-    );
-    expect(contributionSet.contributionKeysByDerivationKey.has(sourceKey('unused-script'))).toBe(
-      false,
-    );
+    expect(
+      contributionSet.contributionKeysByDerivationKey.has(projectSourceKey('scripts/unused.lua')),
+    ).toBe(false);
     expect(contributionSet.contributionKeysByDerivationKey.has(sourceKey('unused-template'))).toBe(
       false,
     );
@@ -1326,21 +1249,7 @@ describe('typed source registry and graph evidence', () => {
 
   it('reprojects cached literals after symbol-only changes and derives the same owner contribution', async () => {
     const project = fixture();
-    const snapshot: LuaSourceSnapshot = {
-      entriesByAssetId: new Map([
-        [
-          'script-file',
-          {
-            status: 'ready',
-            assetId: 'script-file',
-            projectRelativePath: 'scripts/main.lua',
-            contentHash: hash('9'),
-            text: `'later'`,
-            hadUtf8Bom: false,
-          },
-        ],
-      ]),
-    };
+    const snapshot = mainScriptSnapshot(`'later'`, '9');
     const key = `record:${JSON.stringify(['record', 'scripts', 'main'])}`;
     const analyses = (
       await analyzeAuthoringSources(project, snapshot, undefined, new Set([key]))
@@ -1518,30 +1427,12 @@ describe('typed source registry and graph evidence', () => {
     expect(propertyEdges).toHaveLength(1);
     expect(propertyEdges[0]?.target.kind).toBe('record');
     expect(propertyEdges.every((edge) => edge.facets.includes('preview-ui'))).toBe(true);
-    const analyses = await analyzeAuthoringSources(
-      project,
-      {
-        entriesByAssetId: new Map([
-          [
-            'script-file',
-            {
-              status: 'ready',
-              assetId: 'script-file',
-              projectRelativePath: 'scripts/main.lua',
-              contentHash: hash('1'),
-              text: `'shared'`,
-              hadUtf8Bom: false,
-            },
-          ],
-        ]),
-      },
-      {
-        ...LUA_REFERENCE_ANALYSIS_LIMITS,
-        maxSnapshotBytes: 1,
-        maxSnapshotLiteralOccurrences: 1,
-        maxLiteralOccurrencesPerSemanticOwner: 1,
-      },
-    );
+    const analyses = await analyzeAuthoringSources(project, mainScriptSnapshot(), {
+      ...LUA_REFERENCE_ANALYSIS_LIMITS,
+      maxSnapshotBytes: 1,
+      maxSnapshotLiteralOccurrences: 1,
+      maxLiteralOccurrencesPerSemanticOwner: 1,
+    });
     expect(
       [...analyses.values()]
         .flat()
@@ -1676,25 +1567,12 @@ describe('typed source registry and graph evidence', () => {
 
   it('counts a Hook Registry module source once under its Script Module owner', async () => {
     const project = createAuthoringProject();
-    project.assets.shared = {
-      id: 'shared',
-      label: 'Shared source',
-      data: {
-        kind: 'script',
-        source: { type: 'project-file', path: 'scripts/shared.lua' },
-        aliases: [],
-        contentHash: hash('7'),
-        imageMetadata: null,
-      },
-      properties: {},
-      traits: [],
-    } as never;
     project.scripts.main = {
       id: 'main',
       label: 'Main',
       data: {
         kind: 'script-module',
-        source: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'shared' } } },
+        source: { kind: 'project-file', path: 'scripts/shared.lua' },
       },
       properties: {},
       traits: [],
@@ -1724,12 +1602,12 @@ describe('typed source registry and graph evidence', () => {
     const analyses = await analyzeAuthoringSources(
       project,
       {
-        entriesByAssetId: new Map([
+        entriesByAssetId: new Map(),
+        entriesByProjectPath: new Map([
           [
-            'shared',
+            'scripts/shared.lua',
             {
               status: 'ready',
-              assetId: 'shared',
               projectRelativePath: 'scripts/shared.lua',
               contentHash: hash('7'),
               text,
@@ -1781,21 +1659,7 @@ describe('typed source registry and graph evidence', () => {
         properties: {},
         traits: [],
       } as never;
-    const snapshot: LuaSourceSnapshot = {
-      entriesByAssetId: new Map([
-        [
-          'script-file',
-          {
-            status: 'ready',
-            assetId: 'script-file',
-            projectRelativePath: 'scripts/main.lua',
-            contentHash: hash('1'),
-            text: `'shared'`,
-            hadUtf8Bom: false,
-          },
-        ],
-      ]),
-    };
+    const snapshot = mainScriptSnapshot();
     const started = performance.now();
     const graph = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',

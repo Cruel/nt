@@ -8,10 +8,12 @@ describe('platform export acceptance fixture', () => {
   it('is one parseable cross-platform input with every required feature class', async () => {
     const project = parseAuthoringProject(createPlatformExportAcceptanceFixture());
     expect(Object.values(project.assets).map((record) => record.data.kind)).toEqual(
-      expect.arrayContaining(['image', 'font', 'audio', 'script']),
+      expect.arrayContaining(['image', 'font', 'audio']),
+    );
+    expect(Object.values(project.assets).map((record) => record.data.kind)).not.toEqual(
+      expect.arrayContaining(['script', 'shader-source']),
     );
     expect(Object.keys(project.layouts)).toHaveLength(1);
-    expect(Object.keys(project.shaders)).toHaveLength(1);
     expect(Object.keys(project.materials)).toHaveLength(1);
     expect(project.rooms.foyer?.data.exits).toHaveLength(1);
   });

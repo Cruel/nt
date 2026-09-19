@@ -193,8 +193,6 @@ enum class AssetKind : std::uint8_t {
     Font,
     Audio,
     Video,
-    Script,
-    ShaderSource,
     Text,
     Data,
     Binary
@@ -246,7 +244,7 @@ struct LayoutDependencies {
     std::vector<AssetId> fonts;
     std::vector<AssetId> images;
     std::vector<MaterialId> materials;
-    std::vector<AssetId> scripts;
+    std::vector<std::string> scripts;
     std::vector<AssetId> stylesheets;
     std::vector<AssetId> data;
 };
@@ -268,10 +266,10 @@ struct LayoutResource {
 struct InlineLuaSource {
     std::string source;
 };
-struct AssetScriptSource {
-    AssetId asset;
+struct ProjectFileScriptSource {
+    std::string path;
 };
-using ScriptSource = std::variant<InlineLuaSource, AssetScriptSource>;
+using ScriptSource = std::variant<InlineLuaSource, ProjectFileScriptSource>;
 struct ScriptResource {
     ScriptId id;
     ScriptSource source;

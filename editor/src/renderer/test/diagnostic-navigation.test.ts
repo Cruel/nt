@@ -78,7 +78,6 @@ function projectWithRecords(): AuthoringProject {
   };
   project.assets.logo = { id: 'logo', label: 'Logo', data: {} as never };
   project.materials.tint = { id: 'tint', label: 'Tint', data: {} as never };
-  project.shaders.flat = { id: 'flat', label: 'Flat', data: {} as never };
   project.variables.score = { id: 'score', label: 'Score', data: {} as never };
   return project;
 }
@@ -315,9 +314,7 @@ describe('diagnostic navigation', () => {
     expect(resolveProjectDiagnosticTarget(project, '/materials/tint/data')?.tab.editorType).toBe(
       'material-detail',
     );
-    expect(resolveProjectDiagnosticTarget(project, '/shaders/flat/data')?.tab.editorType).toBe(
-      'shader-detail',
-    );
+    expect(resolveProjectDiagnosticTarget(project, '/shaders/flat/data')).toBeNull();
     expect(
       resolveProjectDiagnosticTarget(project, '/variables/score/data/defaultValue'),
     ).toMatchObject({

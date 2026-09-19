@@ -35,9 +35,10 @@ import {
 } from '../../../../shared/project-schema/authoring-rooms';
 import { defaultSceneData } from '../../../../shared/project-schema/authoring-scenes';
 import {
-  defaultShaderData,
-  shaderRoleValues,
-} from '../../../../shared/project-schema/authoring-shaders';
+  materialPresetIdValues,
+  materialPresets,
+  type MaterialPresetId,
+} from '../../../../shared/project-schema/authoring-material-presets';
 import { defaultTestData } from '../../../../shared/project-schema/authoring-tests';
 import {
   defaultVariableData,
@@ -304,55 +305,30 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
     }),
   },
   {
-    collection: 'shaders',
-    category: 'presentation',
-    supportLevel: 'typed',
-    summary: 'Inline bgfx shader source metadata for material experiments.',
-    currentScope: 'Creates the current default vertex/fragment shader scaffold.',
-    ...visual('shaders'),
-    defaultOptions: () => ({ role: 'engine-2d' }),
-    renderOptions: ({ draft, setOption }) => (
-      <div className="space-y-1">
-        <Label>Primary role</Label>
-        <Select
-          value={String(draft.options.role ?? 'engine-2d')}
-          onValueChange={(value) => setOption('role', String(value))}
-        >
-          {shaderRoleValues.map((role) => (
-            <SelectItem key={role} value={role}>
-              {role}
-            </SelectItem>
-          ))}
-        </Select>
-      </div>
-    ),
-    buildPayload: ({ draft }) => {
-      const data = defaultShaderData(draft.basics.label);
-      data.roles = [String(draft.options.role ?? 'engine-2d') as (typeof data.roles)[number]];
-      return { data };
-    },
-  },
-  {
     collection: 'materials',
     category: 'presentation',
     supportLevel: 'typed',
-    summary: 'Material records bind shaders, uniforms, textures, and preview settings.',
-    currentScope: 'Creates a default engine-2d material with optional shader selection.',
+    summary: 'Material records derive from engine presets and sparse rendering overrides.',
+    currentScope: 'Creates a preset-backed Material without project shader files.',
     ...visual('materials'),
     defaultOptions: () => ({
-      shaderId: '__none__',
+      preset: 'engine-2d',
       previewGeometry: 'quad',
       previewBackground: 'checker',
     }),
-    renderOptions: ({ project, draft, setOption }) => (
+    renderOptions: ({ project: _project, draft, setOption }) => (
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1">
-          <Label>Shader</Label>
+          <Label>Preset</Label>
           <Select
-            value={String(draft.options.shaderId ?? '__none__')}
-            onValueChange={(value) => setOption('shaderId', String(value))}
+            value={String(draft.options.preset ?? 'engine-2d')}
+            onValueChange={(value) => setOption('preset', String(value))}
           >
-            {recordOptions(project.shaders, 'No shader')}
+            {materialPresetIdValues.map((presetId) => (
+              <SelectItem key={presetId} value={presetId}>
+                {materialPresets[presetId].label}
+              </SelectItem>
+            ))}
           </Select>
         </div>
         <div className="space-y-1">
@@ -384,14 +360,16 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
       </div>
     ),
     buildPayload: ({ draft }) => {
-      const shaderId = selected(draft.options.shaderId);
-      const data = defaultMaterialData(draft.basics.label, shaderId ?? undefined);
-      data.preview.geometry = String(
-        draft.options.previewGeometry ?? 'quad',
-      ) as typeof data.preview.geometry;
-      data.preview.background = String(
-        draft.options.previewBackground ?? 'checker',
-      ) as typeof data.preview.background;
+      const preset = String(draft.options.preset ?? 'engine-2d') as MaterialPresetId;
+      const data = defaultMaterialData(draft.basics.label, preset);
+      data.preview = {
+        geometry: String(draft.options.previewGeometry ?? 'quad') as NonNullable<
+          typeof data.preview
+        >['geometry'],
+        background: String(draft.options.previewBackground ?? 'checker') as NonNullable<
+          typeof data.preview
+        >['background'],
+      };
       return { data };
     },
   },

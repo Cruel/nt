@@ -21,12 +21,7 @@ import {
   renameEntityIdPatches,
   updateEntityMetadataPatches,
 } from '@/project/entity-operations';
-import {
-  applyShaderCompiledOutputsPatches,
-  replaceMaterialDataPatches,
-  replaceShaderDataPatches,
-  setMaterialBasePatches,
-} from '@/project/shader-material-operations';
+import { replaceMaterialDataPatches } from '@/project/shader-material-operations';
 import {
   replaceVariableDataPatches,
   setVariableDefaultValuePatches,
@@ -686,7 +681,7 @@ const importedAssetMetadataSchema = z.discriminatedUnion('kind', [
     imageMetadata: imageAssetMetadataSchema,
   }),
   importedAssetMetadataBaseSchema.extend({
-    kind: z.enum(['font', 'audio', 'script', 'shader-source', 'text', 'data', 'binary']),
+    kind: z.enum(['font', 'audio', 'video', 'text', 'data', 'binary']),
     imageMetadata: z.null(),
   }),
 ]);
@@ -707,12 +702,7 @@ const assetReimportSchema = z.object({
   asset: importedAssetMetadataSchema,
 });
 const assetDeleteSchema = z.object({ assetId: entityIdSchema, force: z.boolean().optional() });
-const shaderReplaceDataSchema = z.object({ shaderId: entityIdSchema, data: z.unknown() });
 const materialReplaceDataSchema = z.object({ materialId: entityIdSchema, data: z.unknown() });
-const materialSetBaseSchema = z.object({
-  materialId: entityIdSchema,
-  baseMaterialId: entityIdSchema.nullable(),
-});
 const variableReplaceDataSchema = z.object({ variableId: entityIdSchema, data: z.unknown() });
 const gameplayInstanceCollectionSchema = z.enum(['rooms', 'characters', 'interactables']);
 const gameplayInstanceArchetypeSchema = z.object({
@@ -984,21 +974,6 @@ const variableSetDefaultValueSchema = z.object({
   variableId: entityIdSchema,
   defaultValue: z.unknown(),
 });
-const shaderCompiledOutputSchema = z.object({
-  shader: z.string(),
-  stage: z.string(),
-  variant: z.string(),
-  metadata: z
-    .object({
-      path: z.string().regex(/^project:\/shaders\/bgfx\//),
-      byteHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-      byteSize: z.number().int().nonnegative().safe(),
-      compileInputFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-    })
-    .strict(),
-});
-const shaderApplyCompiledOutputsSchema = z.object({ outputs: z.array(shaderCompiledOutputSchema) });
-
 export const entityCreateRecordCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(createEntityRecordSchema, payload, (parsed) =>
     createEntityRecordPatches(document, parsed as never),
@@ -1267,24 +1242,9 @@ export const assetDeleteAssetCommand: CommandHandler = ({
     };
   });
 
-export const shaderReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(shaderReplaceDataSchema, payload, (parsed) =>
-    replaceShaderDataPatches(document, parsed as never),
-  );
-
-export const shaderApplyCompiledOutputsCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(shaderApplyCompiledOutputsSchema, payload, (parsed) =>
-    applyShaderCompiledOutputsPatches(document, parsed),
-  );
-
 export const materialReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(materialReplaceDataSchema, payload, (parsed) =>
     replaceMaterialDataPatches(document, parsed as never),
-  );
-
-export const materialSetBaseCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(materialSetBaseSchema, payload, (parsed) =>
-    setMaterialBasePatches(document, parsed),
   );
 
 export const variableReplaceDataCommand: CommandHandler = ({ document, payload }) =>
@@ -1761,10 +1721,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'asset.renameAlias': assetRenameAliasCommand,
     'asset.reimportFile': assetReimportFileCommand,
     'asset.deleteAsset': assetDeleteAssetCommand,
-    'shader.replaceData': shaderReplaceDataCommand,
-    'shader.applyCompiledOutputs': shaderApplyCompiledOutputsCommand,
     'material.replaceData': materialReplaceDataCommand,
-    'material.setBase': materialSetBaseCommand,
     'variable.replaceData': variableReplaceDataCommand,
     'variable.setType': variableSetTypeCommand,
     'variable.setDefaultValue': variableSetDefaultValueCommand,
@@ -1869,14 +1826,8 @@ export function labelForCommand(type: string): string {
       return 'Reimport asset';
     case 'asset.deleteAsset':
       return 'Delete asset';
-    case 'shader.replaceData':
-      return 'Update shader';
-    case 'shader.applyCompiledOutputs':
-      return 'Apply shader compile outputs';
     case 'material.replaceData':
       return 'Update material';
-    case 'material.setBase':
-      return 'Set base material';
     case 'variable.replaceData':
       return 'Update variable';
     case 'variable.setType':

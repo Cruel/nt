@@ -4,7 +4,7 @@ export type WorkbenchSplitDirection = 'horizontal' | 'vertical';
 
 export type WorkbenchDockEdge = 'left' | 'right' | 'top' | 'bottom';
 
-export type WorkbenchResourceKind = 'record' | 'preview' | 'tool' | 'project' | 'raw';
+export type WorkbenchResourceKind = 'record' | 'preview' | 'tool' | 'project' | 'source' | 'raw';
 
 export interface WorkbenchResource {
   kind: WorkbenchResourceKind;
@@ -13,6 +13,8 @@ export interface WorkbenchResource {
   entityId?: string;
   testId?: string;
   explorerNodeId?: string;
+  sourceId?: string;
+  projectRelativePath?: string;
   generationMode?: 'generate' | 'edit';
 }
 

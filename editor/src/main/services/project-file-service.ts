@@ -1274,16 +1274,31 @@ export async function saveProjectCopyAs(
     const editor = parseEditorProjectState((normalized as Record<string, unknown>).editor);
     assertAuthority?.();
     const sourcePaths = await workspaceService().open(sourceRoot);
+    const projectedScriptSourcePaths = sourcePaths.ok
+      ? { ...sourcePaths.snapshot.scriptSourcePaths, ...scriptSourcePaths }
+      : scriptSourcePaths;
     for (const [relativePath, text] of Object.entries(
       projectWorkspaceFiles(
         normalized as Parameters<typeof projectWorkspaceFiles>[0],
         editor,
-        sourcePaths.ok
-          ? { ...sourcePaths.snapshot.scriptSourcePaths, ...scriptSourcePaths }
-          : scriptSourcePaths,
+        projectedScriptSourcePaths,
       ),
     ))
       await writeContainedText(root, path.join(root, relativePath), text);
+    if (sourcePaths.ok) {
+      const normalizedProject = normalized as Parameters<typeof projectWorkspaceFiles>[0];
+      for (const [scriptId, record] of Object.entries(normalizedProject.scripts)) {
+        if (record.data.source.kind !== 'project-file') continue;
+        const sourceRelativePath =
+          sourcePaths.snapshot.scriptSourcePaths[scriptId] ?? record.data.source.path;
+        const targetRelativePath = projectedScriptSourcePaths[scriptId] ?? record.data.source.path;
+        await writeContainedText(
+          root,
+          path.join(root, targetRelativePath),
+          await fs.readFile(path.join(sourceRoot, sourceRelativePath), 'utf8'),
+        );
+      }
+    }
     const openedCopy = await workspaceService().open(root);
     if (!openedCopy.ok)
       throw new Error(openedCopy.diagnostics[0]?.message ?? 'Saved project copy is invalid.');

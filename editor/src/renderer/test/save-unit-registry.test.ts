@@ -26,7 +26,7 @@ const representativeResources: Record<string, WorkbenchResource> = {
   'asset-detail': recordResource('assets', 'logo'),
   'image-generation': { kind: 'tool', stableId: 'utility:image-generation' },
   'comfyui-workflows': { kind: 'tool', stableId: 'utility:comfyui-workflows' },
-  'shader-detail': recordResource('shaders', 'basic'),
+  'material-library': { kind: 'project', stableId: 'materials', collection: 'materials' },
   'material-detail': recordResource('materials', 'panel'),
   'layout-detail': recordResource('layouts', 'hud'),
   'archetype-detail': recordResource('archetypes', 'room-base'),
@@ -46,6 +46,17 @@ const representativeResources: Record<string, WorkbenchResource> = {
   traits: { kind: 'project', stableId: 'traits', collection: 'traits' },
   components: { kind: 'tool', stableId: 'utility:components' },
   settings: { kind: 'tool', stableId: 'utility:settings' },
+  'source-file': {
+    kind: 'source',
+    stableId: 'source:scripts/helpers.lua',
+    sourceId: 'scripts/helpers.lua',
+    projectRelativePath: 'scripts/helpers.lua',
+  },
+  'engine-shader-source': {
+    kind: 'source',
+    stableId: 'engine-source:engine:/vs_quad.sc',
+    sourceId: 'engine:/vs_quad.sc',
+  },
   'project-settings': { kind: 'project', stableId: 'project:settings' },
   localization: { kind: 'project', stableId: 'project:localization' },
   'platform-export': { kind: 'project', stableId: 'project:platform-export' },
@@ -109,6 +120,20 @@ describe('save-unit registry', () => {
     ).toMatchObject({
       status: 'savable',
       descriptor: { id: 'project:localization', ownedPaths: ['/localization'] },
+    });
+  });
+
+  it('treats project source editors as stable manual-save units', () => {
+    expect(
+      resolveSaveUnitForResource(representativeResources['source-file'], 'source-file', project),
+    ).toMatchObject({
+      status: 'savable',
+      descriptor: {
+        id: 'source-file:scripts/helpers.lua',
+        kind: 'source-file',
+        ownedPaths: [],
+        persistencePolicy: 'manual-save',
+      },
     });
   });
 

@@ -181,14 +181,14 @@ function ShaderOutputs({ result }: { result: PackageExportWorkflowResult }) {
       <div className="font-medium">Shader outputs</div>
       {result.shaderOutputs.map((output, index) => (
         <div
-          key={`${output.shader}-${output.stage}-${output.variant}-${index}`}
+          key={`${output.program}-${output.stage}-${output.variant}-${index}`}
           className="rounded border p-2 text-xs"
         >
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={output.cacheHit ? 'outline' : 'secondary'}>
               {output.cacheHit ? 'cache hit' : 'compiled'}
             </Badge>
-            <span className="font-mono">{output.shader}</span>
+            <span className="font-mono">{output.program}</span>
             <span className="font-mono text-muted-foreground">{output.stage}</span>
             <span className="font-mono text-muted-foreground">{output.variant}</span>
           </div>

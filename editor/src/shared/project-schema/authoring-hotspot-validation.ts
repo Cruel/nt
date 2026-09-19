@@ -1,9 +1,8 @@
 import { parseAssetData } from './authoring-assets';
 import { parseInteractableData, type InteractableData } from './authoring-interactables';
-import { parseMaterialData } from './authoring-materials';
+import { resolveMaterialData } from './authoring-materials';
 import type { AuthoringProject } from './authoring-project';
 import { parseRoomData } from './authoring-rooms';
-import { parseShaderData } from './authoring-shaders';
 import type { InteractionSubjectData } from './authoring-features';
 import type { HotspotHighlight } from './authoring-hotspots';
 
@@ -110,8 +109,7 @@ function validateHighlight(
 ): HotspotAuthoringDiagnostic[] {
   if (highlight.kind !== 'material') return [];
   const materialId = highlight.material.$ref.id;
-  const materialRecord = project.materials[materialId];
-  const material = materialRecord ? parseMaterialData(materialRecord.data) : null;
+  const material = resolveMaterialData(project, materialId).data;
   if (!material)
     return [
       diagnostic(
@@ -130,19 +128,6 @@ function validateHighlight(
         'hotspot.authoring.highlight.material-role',
       ),
     ];
-  const shaderId = material.shader?.$ref.id;
-  const shaderRecord = shaderId ? project.shaders[shaderId] : undefined;
-  const shader = shaderRecord ? parseShaderData(shaderRecord.data) : null;
-  if (!shader || !shader.roles.includes('hotspot-overlay'))
-    return [
-      diagnostic(
-        category,
-        `${path}/material/$ref`,
-        `Hotspot highlight Material '${materialId}' must reference a valid hotspot-overlay Shader.`,
-        'hotspot.authoring.highlight.shader-role',
-      ),
-    ];
-
   const diagnostics: HotspotAuthoringDiagnostic[] = [];
   const requiredUniforms = new Map([
     ['engine.hotspot_bounds', 'vec4'],
@@ -152,21 +137,23 @@ function validateHighlight(
     ['engine.hotspot_mask_dimensions', 'vec2'],
   ] as const);
   for (const [binding, type] of requiredUniforms) {
-    const matches = shader.uniforms.filter((uniform) => uniform.binding === binding);
+    const matches = Object.values(material.preset.uniforms).filter(
+      (uniform) => uniform.binding === binding,
+    );
     if (matches.length !== 1 || matches[0]?.type !== type)
       diagnostics.push(
         diagnostic(
           category,
           `${path}/material/$ref`,
-          `Hotspot Shader must declare exactly one '${binding}' uniform with type '${type}'.`,
+          `Hotspot Material contract must declare exactly one '${binding}' uniform with type '${type}'.`,
           'hotspot.authoring.highlight.uniform-interface',
         ),
       );
   }
-  const imageBindings = shader.samplers.filter(
+  const imageBindings = Object.values(material.preset.samplers).filter(
     (sampler) => sampler.binding === 'engine.hotspot_image',
   );
-  const maskBindings = shader.samplers.filter(
+  const maskBindings = Object.values(material.preset.samplers).filter(
     (sampler) => sampler.binding === 'engine.hotspot_mask',
   );
   const samplerCompatible =
@@ -178,8 +165,8 @@ function validateHighlight(
         category,
         `${path}/material/$ref`,
         mode === 'sprite-alpha'
-          ? "Default-alpha hotspot Shader must declare exactly one 'engine.hotspot_image' sampler and no 'engine.hotspot_mask' sampler."
-          : "Custom hotspot Shader must declare exactly one 'engine.hotspot_image' and one 'engine.hotspot_mask' sampler.",
+          ? "Default-alpha hotspot Material contract must declare exactly one 'engine.hotspot_image' sampler and no 'engine.hotspot_mask' sampler."
+          : "Custom hotspot Material contract must declare exactly one 'engine.hotspot_image' and one 'engine.hotspot_mask' sampler.",
         'hotspot.authoring.highlight.sampler-interface',
       ),
     );

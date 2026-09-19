@@ -938,7 +938,7 @@ describe('Project Asset embedded metadata inspection', () => {
     const fixture = tempProject(bytes);
     fixture.project.assets.generated!.data = {
       ...fixture.project.assets.generated!.data,
-      kind: 'script',
+      kind: 'data',
       imageMetadata: null,
     };
     const sessions = new ActiveProjectSessionService();
@@ -952,7 +952,7 @@ describe('Project Asset embedded metadata inspection', () => {
     await expect(service.inspect(sessionId, 'generated')).resolves.toMatchObject({
       ok: true,
       status: 'unsupported',
-      kind: 'script',
+      kind: 'data',
       groups: [],
     });
   });

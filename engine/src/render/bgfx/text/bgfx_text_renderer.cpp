@@ -91,6 +91,15 @@ struct ActiveTextDrawBatch {
     std::vector<uint16_t> indices;
 };
 
+std::optional<std::string_view> active_text_source_program(std::string_view vertex,
+                                                           std::string_view fragment)
+{
+    constexpr std::string_view prefix = "source-program:";
+    if (!vertex.starts_with(prefix) || vertex != fragment)
+        return std::nullopt;
+    return vertex.substr(prefix.size());
+}
+
 Color active_text_glow_color(Color base, float glow)
 {
     const float intensity = std::clamp(glow, 0.0f, 1.0f);
@@ -524,9 +533,16 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
             }
         }
         if ((!glyph.vertex_shader_id.empty() || !glyph.fragment_shader_id.empty()) && materials) {
-            const auto result = resolve_direct_shader_pair_program(
-                *materials, ShaderId(glyph.vertex_shader_id), ShaderId(glyph.fragment_shader_id),
-                programs ? programs->active_variant() : "");
+            const auto source_program =
+                active_text_source_program(glyph.vertex_shader_id, glyph.fragment_shader_id);
+            const auto result = source_program
+                                    ? resolve_source_shader_program(
+                                          *materials, *source_program, ShaderRole::ActiveText,
+                                          programs ? programs->active_variant() : "")
+                                    : resolve_direct_shader_pair_program(
+                                          *materials, ShaderId(glyph.vertex_shader_id),
+                                          ShaderId(glyph.fragment_shader_id),
+                                          programs ? programs->active_variant() : "");
             if (!result.ok()) {
                 const std::string key =
                     "shader:" + glyph.vertex_shader_id + "|" + glyph.fragment_shader_id;
@@ -770,9 +786,16 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
 
         if (batch.key.kind == ActiveTextBindingKind::DirectShaderPair && materials && programs) {
             std::vector<ShaderProgramDiagnostic> diagnostics;
-            const auto resolved = resolve_direct_shader_pair_program(
-                *materials, ShaderId(batch.key.vertex_shader_id),
-                ShaderId(batch.key.fragment_shader_id), programs->active_variant());
+            const auto source_program = active_text_source_program(batch.key.vertex_shader_id,
+                                                                   batch.key.fragment_shader_id);
+            const auto resolved =
+                source_program
+                    ? resolve_source_shader_program(*materials, *source_program,
+                                                    ShaderRole::ActiveText,
+                                                    programs->active_variant())
+                    : resolve_direct_shader_pair_program(
+                          *materials, ShaderId(batch.key.vertex_shader_id),
+                          ShaderId(batch.key.fragment_shader_id), programs->active_variant());
             if (resolved.program) {
                 const auto program = programs->load_program(*resolved.program, &diagnostics);
                 log_diagnostics("shader:" + batch.key.vertex_shader_id + "|" +

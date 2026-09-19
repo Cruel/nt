@@ -7,7 +7,6 @@ import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-ho
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 
 function imageAsset(overrides: Partial<{ hasAlpha: boolean; orientation: 1 | 6 }> = {}) {
@@ -28,23 +27,6 @@ function codes(project: ReturnType<typeof createAuthoringProject>) {
   return validateAuthoringProject(project)
     .map((item) => item.code)
     .filter(Boolean);
-}
-
-function hotspotShader() {
-  const shader = defaultShaderData('Hotspot');
-  shader.roles = ['hotspot-overlay'];
-  shader.uniforms = [
-    { name: 'u_bounds', type: 'vec4', binding: 'engine.hotspot_bounds' },
-    { name: 'u_hovered', type: 'bool', binding: 'engine.hotspot_hovered' },
-    { name: 'u_pressed', type: 'bool', binding: 'engine.hotspot_pressed' },
-    { name: 'u_image_size', type: 'vec2', binding: 'engine.hotspot_image_dimensions' },
-    { name: 'u_mask_size', type: 'vec2', binding: 'engine.hotspot_mask_dimensions' },
-  ];
-  shader.samplers = [
-    { name: 's_image', type: 'texture2d', binding: 'engine.hotspot_image' },
-    { name: 's_mask', type: 'texture2d', binding: 'engine.hotspot_mask' },
-  ];
-  return shader;
 }
 
 function primaryHotspot(item: ReturnType<typeof defaultInteractableData>) {
@@ -200,14 +182,14 @@ describe('hotspot semantic validation', () => {
     expect(codes(project)).not.toContain('hotspot.authoring.target.feature-missing');
   });
 
-  it('validates highlight Material role and exact hotspot Shader interfaces', () => {
+  it('validates hotspot highlight compatibility from the authoritative Material preset contract', () => {
     const project = createAuthoringProject();
     project.assets.image = { id: 'image', label: 'Image', data: imageAsset() };
-    project.shaders.hotspot = { id: 'hotspot', label: 'Hotspot', data: hotspotShader() };
-    const material = defaultMaterialData('Hotspot');
-    material.role = 'hotspot-overlay';
-    material.shader = { $ref: { collection: 'shaders', id: 'hotspot' } };
-    project.materials.hotspot = { id: 'hotspot', label: 'Hotspot', data: material };
+    project.materials.hotspot = {
+      id: 'hotspot',
+      label: 'Hotspot',
+      data: defaultMaterialData('Hotspot', 'hotspot-overlay-custom'),
+    };
     const item = defaultInteractableData('Item');
     item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
     primaryHotspot(item).highlight = {
@@ -217,15 +199,10 @@ describe('hotspot semantic validation', () => {
     project.interactables.item = { id: 'item', label: 'Item', data: item };
 
     expect(codes(project)).toContain('hotspot.authoring.highlight.sampler-interface');
-    project.shaders.hotspot.data.samplers = project.shaders.hotspot.data.samplers.filter(
-      (sampler) => sampler.binding !== 'engine.hotspot_mask',
-    );
+    project.materials.hotspot.data = defaultMaterialData('Hotspot', 'hotspot-overlay-alpha');
     expect(codes(project)).not.toContain('hotspot.authoring.highlight.sampler-interface');
-    project.shaders.hotspot.data.uniforms = project.shaders.hotspot.data.uniforms.filter(
-      (uniform) => uniform.binding !== 'engine.hotspot_pressed',
-    );
-    expect(codes(project)).toContain('hotspot.authoring.highlight.uniform-interface');
-    project.materials.hotspot.data.role = 'engine-2d';
+    expect(codes(project)).not.toContain('hotspot.authoring.highlight.uniform-interface');
+    project.materials.hotspot.data = defaultMaterialData('Hotspot', 'engine-2d');
     expect(codes(project)).toContain('hotspot.authoring.highlight.material-role');
   });
 });

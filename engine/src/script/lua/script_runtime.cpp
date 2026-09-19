@@ -866,18 +866,9 @@ ScriptRuntime::prepare_project_modules(const core::CompiledProject& project)
         if (const auto* inline_source =
                 std::get_if<core::compiled::InlineLuaSource>(&resource.source)) {
             module.source = inline_source->source;
-        } else if (const auto* asset_source =
-                       std::get_if<core::compiled::AssetScriptSource>(&resource.source)) {
-            const auto* asset = project.find_asset(asset_source->asset);
-            if (!asset) {
-                return Result::failure(make_error(ScriptErrorCode::LoadFailed,
-                                                  "Script Module '" + resource.id.text() +
-                                                      "' references a missing source Asset",
-                                                  "module:" + resource.id.text()));
-            }
-            module.asset_path = asset->path.find(":/") == std::string::npos
-                                    ? "project:/" + asset->path
-                                    : asset->path;
+        } else if (const auto* file_source =
+                       std::get_if<core::compiled::ProjectFileScriptSource>(&resource.source)) {
+            module.asset_path = file_source->path;
         }
         m_impl->project_modules.emplace(resource.id.text(), std::move(module));
     }

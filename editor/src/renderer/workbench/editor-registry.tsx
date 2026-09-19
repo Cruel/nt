@@ -20,6 +20,8 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
+import type { ProjectSourceFile } from '../../shared/project-source-files';
+import { projectSourceStableId } from '../../shared/project-source-files';
 import { visualForEditorType } from '@/workspace/collection-visuals';
 import type { WorkbenchTab } from './workbench-types';
 
@@ -122,16 +124,15 @@ export function buildAssetDetailTabForRecord(entityId: string, title = entityId)
   };
 }
 
-export function buildShaderDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+export function buildMaterialsEditorTab(): WorkbenchTab {
   return {
-    id: `tab:shader-detail:shaders:${entityId}`,
-    title,
-    editorType: 'shader-detail',
+    id: 'tab:materials',
+    title: 'Materials',
+    editorType: 'material-library',
     resource: {
-      kind: 'record',
-      stableId: `record:shaders:${entityId}`,
-      collection: 'shaders',
-      entityId,
+      kind: 'project',
+      stableId: 'materials',
+      collection: 'materials',
     },
   };
 }
@@ -361,6 +362,39 @@ export function buildImageGenerationTab(
   };
 }
 
+export function buildEngineShaderSourceTab(sourcePath: string, materialId?: string): WorkbenchTab {
+  const title = sourcePath.split('/').at(-1) ?? sourcePath;
+  const context = materialId ? `:material:${materialId}` : '';
+  return {
+    id: `tab:engine-shader-source:${sourcePath}${context}`,
+    title,
+    editorType: 'engine-shader-source',
+    resource: {
+      kind: 'tool',
+      stableId: `engine-shader-source:${sourcePath}${context}`,
+      sourceId: sourcePath,
+      collection: materialId ? 'materials' : undefined,
+      entityId: materialId,
+    },
+  };
+}
+
+export function buildProjectSourceTab(source: ProjectSourceFile): WorkbenchTab {
+  const title = source.displayPath.split('/').at(-1) ?? source.displayPath;
+  return {
+    id: `tab:source-file:${source.id}`,
+    title,
+    editorType: 'source-file',
+    resource: {
+      kind: 'source',
+      stableId: projectSourceStableId(source.id),
+      sourceId: source.id,
+      projectRelativePath: source.projectRelativePath,
+      explorerNodeId: `file:${source.id}`,
+    },
+  };
+}
+
 export function buildAssetsEditorTab(selectedId?: string): WorkbenchTab {
   return {
     id: 'tab:assets',
@@ -419,12 +453,11 @@ export function buildTraitsEditorTab(): WorkbenchTab {
 export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'variables') return buildVariablesEditorTab(node.entityId);
   if (node.collection === 'assets' && !node.entityId) return buildAssetsEditorTab();
+  if (node.collection === 'materials' && !node.entityId) return buildMaterialsEditorTab();
   if (node.collection === 'tests' && !node.entityId) return buildTestsEditorTab();
   const title = node.label || node.entityId;
   if (node.collection === 'assets' && node.entityId)
     return buildAssetDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'shaders' && node.entityId)
-    return buildShaderDetailTabForRecord(node.entityId, title);
   if (node.collection === 'materials' && node.entityId)
     return buildMaterialDetailTabForRecord(node.entityId, title);
   if (node.collection === 'layouts' && node.entityId)
@@ -581,7 +614,6 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'engine-preview') return MonitorPlay;
   if (editorType === 'image-generation') return Images;
   if (editorType === 'asset-detail' || editorType === 'asset-library') return Image;
-  if (editorType === 'shader-detail') return FileCode;
   if (editorType === 'material-detail') return Palette;
   if (editorType === 'layout-detail') return Layers;
   if (editorType === 'character-detail') return User;

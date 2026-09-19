@@ -12,6 +12,7 @@ import type { ProjectValidationDiagnostic } from '../../shared/project-schema/pr
 import { assetSourcePaths } from '../../shared/project-workspace/project-workspace-service';
 import { buildJsonPointer } from '../../shared/json-pointer';
 import type { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
+import { projectSourceUsages } from './project-source-file-service';
 
 export const PROJECT_WORKSPACE_WATCH_STABILITY_THRESHOLD_MS = 200;
 export const PROJECT_WORKSPACE_WATCH_POLL_INTERVAL_MS = 50;
@@ -24,6 +25,7 @@ interface ActiveWatcher {
   timer: NodeJS.Timeout | null;
   authoringChangedPaths: Set<string>;
   assetChangedPaths: Set<string>;
+  sourceChangedPaths: Set<string>;
   transactionObserved: boolean;
   assetSourcePaths: Set<string>;
   workspaceSession: ActiveProjectWorkspaceSession;
@@ -56,7 +58,12 @@ function isTemporaryPath(relative: string): boolean {
   return /(?:\.tmp|\.temp|\.swp|\.swo|\.bak)$/i.test(base);
 }
 
-export type ProjectWorkspaceWatchPathRoute = 'authoring' | 'asset' | 'transaction' | 'ignore';
+export type ProjectWorkspaceWatchPathRoute =
+  | 'authoring'
+  | 'asset'
+  | 'source'
+  | 'transaction'
+  | 'ignore';
 
 export function shouldIgnoreProjectWorkspaceWatchPath(
   projectRoot: string,
@@ -88,6 +95,7 @@ export function classifyProjectWorkspaceWatchPath(
     (assetPath) => relative === assetPath || assetPath.startsWith(`${relative}/`),
   );
   if (relative === 'assets' || relative.startsWith('assets/') || isKnownAssetSource) return 'asset';
+  if (relative === 'shaders' || relative.startsWith('shaders/')) return 'source';
   if (
     ['project.json', 'traits.json', 'editor.json'].includes(relative) ||
     relative === 'i18n' ||
@@ -266,16 +274,19 @@ async function flushWatcher(
   watcher.transactionObserved = false;
   const observedAuthoringChangedPaths = [...watcher.authoringChangedPaths].sort();
   const assetChangedPaths = [...watcher.assetChangedPaths].sort();
+  const sourceChangedPaths = [...watcher.sourceChangedPaths].sort();
   const needsResync = watcher.workspaceSession.coherenceState() === 'resync-needed';
   if (
     observedAuthoringChangedPaths.length === 0 &&
     assetChangedPaths.length === 0 &&
+    sourceChangedPaths.length === 0 &&
     !needsResync &&
     !transactionObserved
   )
     return;
   watcher.authoringChangedPaths.clear();
   watcher.assetChangedPaths.clear();
+  watcher.sourceChangedPaths.clear();
   let authoringChangedPaths: string[] = [];
   let authoring: ProjectWorkspaceWatchEvent['authoring'];
   try {
@@ -338,6 +349,7 @@ async function flushWatcher(
     observedAuthoringChangedPaths.forEach((relativePath) =>
       watcher.authoringChangedPaths.add(relativePath),
     );
+    sourceChangedPaths.forEach((relativePath) => watcher.sourceChangedPaths.add(relativePath));
     if (transactionObserved) watcher.transactionObserved = true;
     watcher.workspaceSession.markResyncNeeded();
     scheduleAutomaticWatcherRetry(owner, watcher, isSessionCurrent, refreshSession);
@@ -362,6 +374,34 @@ async function flushWatcher(
     watcher.assetSourcePaths,
     watcher.workspaceSession.project(),
   );
+  const sourceDiagnostics: ProjectValidationDiagnostic[] = [];
+  for (const relativePath of sourceChangedPaths) {
+    if (!relativePath.startsWith('shaders/') && !relativePath.startsWith('scripts/')) continue;
+    if ((await watcher.workspaceSession.readFreshRevision(relativePath)) !== 'absent') continue;
+    const usages = await projectSourceUsages(
+      watcher.projectRoot,
+      watcher.workspaceSession.snapshot(),
+      relativePath,
+    );
+    if (usages.length === 0) continue;
+    sourceDiagnostics.push({
+      code: 'workspace.project-source.missing',
+      severity: 'error',
+      category: 'Project source',
+      path: `/${relativePath}`,
+      message: `Referenced source '${relativePath}' is missing. Used by ${usages
+        .map((usage) => `${usage.owner} (${usage.detail})`)
+        .join(', ')}.`,
+      boundaries: ['authoring'],
+      ownerPaths: usages.map((usage) =>
+        usage.owner.startsWith('materials/') ||
+        usage.owner.startsWith('scripts/') ||
+        usage.owner.startsWith('layouts/')
+          ? `/${usage.owner}`
+          : `/${relativePath}`,
+      ),
+    });
+  }
   const assetDiagnostics: ProjectValidationDiagnostic[] = assetFileRevisions
     ? Object.entries(assetFileRevisions).flatMap(([relativePath, revision]) =>
         revision === 'absent' && watcher.assetSourcePaths.has(relativePath)
@@ -379,10 +419,15 @@ async function flushWatcher(
           : [],
       )
     : [];
-  if (authoringChangedPaths.length === 0 && publishedAssetChangedPaths.length === 0 && !authoring)
+  if (
+    authoringChangedPaths.length === 0 &&
+    publishedAssetChangedPaths.length === 0 &&
+    sourceChangedPaths.length === 0 &&
+    !authoring
+  )
     return;
   const changedPaths = [
-    ...new Set([...authoringChangedPaths, ...publishedAssetChangedPaths]),
+    ...new Set([...authoringChangedPaths, ...publishedAssetChangedPaths, ...sourceChangedPaths]),
   ].sort();
   const manifestPath = path.join(watcher.projectRoot, 'project.json');
   const project = authoring?.success ? watcher.workspaceSession.project() : null;
@@ -405,11 +450,17 @@ async function flushWatcher(
     changedPaths,
     authoringChangedPaths,
     assetChangedPaths: publishedAssetChangedPaths,
+    sourceChangedPaths,
+    ...(sourceDiagnostics.length > 0 ? { sourceDiagnostics } : {}),
     ...(assetFileRevisions ? { assetFileRevisions } : {}),
     ...(assetDiagnostics.length > 0 ? { assetDiagnostics } : {}),
     ...(authoring ? { authoring } : {}),
   } satisfies ProjectWorkspaceWatchEvent);
-  if (watcher.authoringChangedPaths.size === 0 && watcher.assetChangedPaths.size === 0)
+  if (
+    watcher.authoringChangedPaths.size === 0 &&
+    watcher.assetChangedPaths.size === 0 &&
+    watcher.sourceChangedPaths.size === 0
+  )
     watcher.automaticRetryUsed = false;
 }
 
@@ -433,8 +484,14 @@ function scheduleWatcher(
   );
   if (route === 'ignore') return;
   watcher.automaticRetryUsed = false;
+  const authorFacingSource =
+    relative.startsWith('scripts/') ||
+    relative.startsWith('shaders/') ||
+    /^records\/layouts\/[^/]+\/layout\.(?:rml|rcss|lua)$/u.test(relative);
+  if (authorFacingSource) watcher.sourceChangedPaths.add(relative);
   if (route === 'authoring') watcher.authoringChangedPaths.add(relative);
   else if (route === 'asset') watcher.assetChangedPaths.add(relative);
+  else if (route === 'source') watcher.sourceChangedPaths.add(relative);
   else if (route === 'transaction') watcher.transactionObserved = true;
   watcher.timer = scheduleProjectWorkspaceQuietFlush(watcher.timer, () =>
     invokeWatcherFlush(owner, watcher, isSessionCurrent, refreshSession),
@@ -489,6 +546,7 @@ export async function startProjectWorkspaceWatcher(
     timer: null,
     authoringChangedPaths: new Set(),
     assetChangedPaths: new Set(),
+    sourceChangedPaths: new Set(),
     transactionObserved: false,
     assetSourcePaths: knownAssetSourcePaths,
     workspaceSession,

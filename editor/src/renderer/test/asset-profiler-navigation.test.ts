@@ -3,7 +3,6 @@ import { resolveAssetProfilerIdentityTarget } from '@/asset-profiler/asset-profi
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 
 describe('asset profiler navigation', () => {
   it('resolves unique project assets, fonts, and materials', () => {
@@ -43,7 +42,7 @@ describe('asset profiler navigation', () => {
     });
   });
 
-  it('omits navigation when an asset path or shader program is ambiguous', () => {
+  it('omits navigation for ambiguous physical assets and derived shader programs', () => {
     const project = createAuthoringProject();
     const image = assetDataFromImportMetadata({
       kind: 'image',
@@ -52,16 +51,6 @@ describe('asset profiler navigation', () => {
     });
     project.assets.first = { id: 'first', label: 'First', data: image };
     project.assets.second = { id: 'second', label: 'Second', data: image };
-    project.shaders.vertex = {
-      id: 'vertex',
-      label: 'Vertex',
-      data: defaultShaderData('Vertex'),
-    };
-    project.shaders.fragment = {
-      id: 'fragment',
-      label: 'Fragment',
-      data: defaultShaderData('Fragment'),
-    };
 
     expect(
       resolveAssetProfilerIdentityTarget(project, 'image', 'project:/assets/images/shared.png'),
@@ -70,25 +59,8 @@ describe('asset profiler navigation', () => {
       resolveAssetProfilerIdentityTarget(
         project,
         'shader',
-        'direct_shader_pair|vertex|fragment|essl|vertex.sc|fragment.sc',
+        'source_program|program-identity|essl-300|project:/shaders/effect.fs.sc',
       ),
     ).toBeNull();
-  });
-
-  it('resolves a shader program only when one authored shader owns the key', () => {
-    const project = createAuthoringProject();
-    project.shaders.fragment = {
-      id: 'fragment',
-      label: 'Fragment',
-      data: defaultShaderData('Fragment'),
-    };
-
-    expect(
-      resolveAssetProfilerIdentityTarget(
-        project,
-        'shader',
-        'direct_shader_pair|engine-vertex|fragment|essl|engine.sc|fragment.sc',
-      ),
-    ).toMatchObject({ tab: { resource: { stableId: 'record:shaders:fragment' } } });
   });
 });

@@ -23,10 +23,6 @@ function kindLabel(kind: AssetData['kind']) {
       return 'Audio';
     case 'font':
       return 'Font';
-    case 'shader-source':
-      return 'Shader';
-    case 'script':
-      return 'Script';
     case 'text':
       return 'Text';
     case 'binary':

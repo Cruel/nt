@@ -2539,8 +2539,8 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                     diagnostics.push_back(error(
                         "editor_preview.invalid_manifest_identity",
                         "Authoring Asset resources require only assetId typed identity.", path));
-                constexpr std::array<std::string_view, 8> asset_kinds = {
-                    "image", "font", "audio", "script", "shader-source", "text", "data", "binary"};
+                constexpr std::array<std::string_view, 7> asset_kinds = {
+                    "image", "font", "audio", "video", "text", "data", "binary"};
                 if (std::ranges::find(asset_kinds, entry.kind) == asset_kinds.end())
                     diagnostics.push_back(error("editor_preview.invalid_asset_kind",
                                                 "Authoring Asset kind is unsupported.",
@@ -2559,6 +2559,17 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                     diagnostics.push_back(
                         error("editor_preview.invalid_alpha_coverage_requirement",
                               "Alpha coverage retention is valid only for image Assets.", path));
+            } else if (entry.source_kind == "project-source") {
+                const auto project_prefix = std::string_view{"project:/"};
+                const auto relative = entry.logical_path.starts_with(project_prefix)
+                                          ? entry.logical_path.substr(project_prefix.size())
+                                          : std::string{};
+                if (entry.asset_id || entry.shader_id || entry.shader_stage ||
+                    entry.shader_variant || entry.kind != "lua" || entry.sampling ||
+                    relative.empty() || entry.resource_id != "source:" + relative)
+                    diagnostics.push_back(error(
+                        "editor_preview.invalid_manifest_identity",
+                        "Project source resources require a canonical Lua path identity.", path));
             } else if (entry.source_kind == "shader-compiled-output") {
                 if (!entry.shader_id || !entry.shader_stage || !entry.shader_variant ||
                     entry.asset_id || entry.kind != "shader-binary" || entry.sampling ||
@@ -3994,17 +4005,22 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                         decoded.rml = std::move(*rml);
                     if (rcss)
                         decoded.rcss = std::move(*rcss);
-                    if (lua)
-                        decoded.lua = std::move(*lua);
+                    if (lua) {
+                        if (lua->kind == TypedEditorLayoutSourceComponent::Kind::LogicalAsset)
+                            diagnostics.push_back(error(
+                                "editor_preview.invalid_layout_lua_source",
+                                "Dedicated Layout Lua must be inline in focused preview data; Project file source is projected before preview.",
+                                path + "/source/lua"));
+                        else
+                            decoded.lua = std::move(*lua);
+                    }
                     if (decoded.rml.kind == TypedEditorLayoutSourceComponent::Kind::LogicalAsset &&
                         !decoded.source_url.empty() && decoded.source_url != decoded.rml.value)
                         diagnostics.push_back(
                             error("editor_preview.source_url_mismatch",
                                   "Asset-backed Layout sourceUrl must equal its RML logical path.",
                                   path + "/source/sourceUrl"));
-                    const bool dedicated_source_present =
-                        decoded.lua.kind == TypedEditorLayoutSourceComponent::Kind::LogicalAsset ||
-                        !decoded.lua.value.empty();
+                    const bool dedicated_source_present = !decoded.lua.value.empty();
                     if (decoded.contains_dedicated_lua_source != dedicated_source_present)
                         diagnostics.push_back(error(
                             "editor_preview.lua_presence_mismatch",
@@ -4109,7 +4125,7 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     exact_fields(*source, {"kind", "text"}, diagnostics, "/composition/source");
                     typed.source.inline_source = true;
                     typed.source.value = required_string(*source, "text", "/composition/source");
-                } else if (source_kind == "asset") {
+                } else if (source_kind == "project-file") {
                     exact_fields(*source, {"kind", "logicalPath"}, diagnostics,
                                  "/composition/source");
                     typed.source.inline_source = false;

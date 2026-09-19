@@ -1,4 +1,5 @@
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
@@ -8,11 +9,7 @@ import {
   parseScriptModuleData,
   scriptModuleLifecycleMetadata,
 } from '../../../shared/project-schema/authoring-script-modules';
-import {
-  authoringProjectFromDocument,
-  typedRef,
-  type AuthoringEditorProject,
-} from '@/editors/interactions/InteractionProgramEditor';
+import { authoringProjectFromDocument } from '@/editors/interactions/InteractionProgramEditor';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
 export function ScriptModuleEditor({ tab }: WorkbenchEditorProps) {
@@ -47,72 +44,50 @@ export function ScriptModuleEditor({ tab }: WorkbenchEditorProps) {
           </Badge>
         ) : null}
         {lifecycle.onGameReady === 'unknown' ? (
-          <Badge variant="outline">Lifecycle metadata resolved at runtime</Badge>
+          <Badge variant="outline">Lifecycle metadata resolved from source</Badge>
         ) : null}
       </div>
-      <ScriptModuleForm data={data} project={project} onChange={commit} />
-    </div>
-  );
-}
-
-function ScriptModuleForm({
-  data,
-  project,
-  onChange,
-}: {
-  data: NonNullable<ReturnType<typeof parseScriptModuleData>>;
-  project: AuthoringEditorProject;
-  onChange: (next: NonNullable<ReturnType<typeof parseScriptModuleData>>) => void;
-}) {
-  const scriptAssets = Object.entries(project.assets).filter(
-    ([, record]) => (record.data as { kind?: string }).kind === 'script',
-  );
-  return (
-    <div className="space-y-3">
-      <Label>Source</Label>
-      <Select
-        value={data.source.kind}
-        onValueChange={(kind) =>
-          onChange(
-            kind === 'asset' && scriptAssets[0]
-              ? {
-                  ...data,
-                  source: { kind: 'asset', asset: typedRef('assets', scriptAssets[0][0]) },
-                }
-              : { ...data, source: { kind: 'inline-lua', source: '' } },
-          )
-        }
-      >
-        <SelectItem value="inline-lua">Inline Lua</SelectItem>
-        <SelectItem value="asset" disabled={!scriptAssets.length}>
-          Script asset
-        </SelectItem>
-      </Select>
-      {data.source.kind === 'inline-lua' ? (
-        <textarea
-          className="min-h-64 w-full rounded border bg-background p-2 font-mono text-sm"
-          value={data.source.source}
-          onChange={(event) =>
-            onChange({ ...data, source: { kind: 'inline-lua', source: event.currentTarget.value } })
-          }
-        />
-      ) : (
+      <div className="space-y-3">
+        <Label>Source</Label>
         <Select
-          value={data.source.asset.$ref.id}
-          onValueChange={(assetId) =>
-            onChange({
-              ...data,
-              source: { kind: 'asset', asset: typedRef('assets', String(assetId)) },
-            })
+          value={data.source.kind}
+          onValueChange={(kind) =>
+            commit(
+              kind === 'project-file'
+                ? { ...data, source: { kind: 'project-file', path: `scripts/${id}.lua` } }
+                : { ...data, source: { kind: 'inline-lua', source: '' } },
+            )
           }
         >
-          {scriptAssets.map(([assetId, asset]) => (
-            <SelectItem key={assetId} value={assetId}>
-              {asset.label}
-            </SelectItem>
-          ))}
+          <SelectItem value="inline-lua">Inline Lua</SelectItem>
+          <SelectItem value="project-file">Project file</SelectItem>
         </Select>
-      )}
+        {data.source.kind === 'inline-lua' ? (
+          <textarea
+            className="min-h-64 w-full rounded border bg-background p-2 font-mono text-sm"
+            value={data.source.source}
+            onChange={(event) =>
+              commit({ ...data, source: { kind: 'inline-lua', source: event.currentTarget.value } })
+            }
+          />
+        ) : (
+          <div className="space-y-1">
+            <Label>Project-relative Lua path</Label>
+            <Input
+              value={data.source.path}
+              onChange={(event) =>
+                commit({
+                  ...data,
+                  source: { kind: 'project-file', path: event.currentTarget.value },
+                })
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              Source files must remain under scripts/ and use a .lua extension.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

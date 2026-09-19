@@ -337,19 +337,6 @@ nlohmann::json export_diagnostics_to_json(const std::vector<PackageExportDiagnos
     return result;
 }
 
-nlohmann::json
-material_diagnostics_to_json(const std::vector<noveltea::MaterialDiagnostic>& diagnostics)
-{
-    auto result = nlohmann::json::array();
-    for (const auto& diagnostic : diagnostics) {
-        result.push_back({{"severity", std::string(noveltea::to_string(diagnostic.severity))},
-                          {"code", std::string(noveltea::to_string(diagnostic.code))},
-                          {"path", diagnostic.path},
-                          {"message", diagnostic.message}});
-    }
-    return result;
-}
-
 nlohmann::json shader_compile_diagnostics_to_json(
     const std::vector<noveltea::ShaderCompileDiagnostic>& diagnostics)
 {
@@ -369,21 +356,52 @@ nlohmann::json shader_compile_diagnostics_to_json(
     return result;
 }
 
-nlohmann::json
-shader_compile_outputs_to_json(const std::vector<noveltea::ShaderCompileOutput>& outputs)
+nlohmann::json reflected_inputs_to_json(
+    const std::vector<noveltea::ShaderReflectedInput>& inputs)
 {
     auto result = nlohmann::json::array();
-    for (const auto& output : outputs) {
-        result.push_back({{"shader", output.shader.string()},
-                          {"stage", std::string(noveltea::to_string(output.stage))},
-                          {"variant", output.variant},
-                          {"sourcePath", filesystem_path_to_utf8(output.source_path)},
-                          {"outputPath", filesystem_path_to_utf8(output.output_path)},
-                          {"runtimePath", output.runtime_path},
-                          {"cacheKey", output.cache_key},
-                          {"byteHash", output.byte_hash},
-                          {"byteSize", output.byte_size},
-                          {"cacheHit", output.cache_hit}});
+    for (const auto& input : inputs) {
+        result.push_back({
+            {"name", input.name},
+            {"kind", input.kind == noveltea::ShaderReflectedInputKind::SampledImage
+                         ? "sampled-image"
+                         : "uniform"},
+            {"type", input.type},
+            {"arraySize", input.array_size},
+        });
+    }
+    return result;
+}
+
+nlohmann::json source_program_outputs_to_json(
+    std::string_view program,
+    const noveltea::ShaderSourceProgramCompileResult& compile_result)
+{
+    auto result = nlohmann::json::array();
+    for (const auto& output : compile_result.outputs) {
+        auto dependency_revisions = nlohmann::json::array();
+        for (const auto& dependency : output.dependency_revisions)
+            dependency_revisions.push_back(nlohmann::json::object(
+                {{"identity", dependency.identity}, {"contentHash", dependency.content_hash}}));
+        nlohmann::json item = {
+            {"program", program},
+            {"programIdentity", compile_result.program_identity},
+            {"stage", std::string(noveltea::to_string(output.stage))},
+            {"variant", output.variant},
+            {"sourceIdentity", output.source_identity},
+            {"dependencies", output.dependencies},
+            {"dependencyRevisions", std::move(dependency_revisions)},
+            {"outputPath", filesystem_path_to_utf8(output.output_path)},
+            {"runtimePath", output.runtime_path},
+            {"cacheKey", output.cache_key},
+            {"byteHash", output.byte_hash},
+            {"byteSize", output.byte_size},
+            {"reflectedInputs", reflected_inputs_to_json(output.reflected_inputs)},
+            {"cacheHit", output.cache_hit},
+        };
+        if (output.browser_payload)
+            item["browserPayload"] = *output.browser_payload;
+        result.push_back(std::move(item));
     }
     return result;
 }
@@ -689,6 +707,8 @@ shader_compile_options_from_json(const nlohmann::json& json,
         filesystem_path_from_utf8(json_access::value_or(json, "outputRoot", std::string{}));
     options.cache_root =
         filesystem_path_from_utf8(json_access::value_or(json, "cacheRoot", std::string{}));
+    options.engine_shader_root = filesystem_path_from_utf8(
+        json_access::value_or(json, "engineShaderRoot", std::string{}));
     options.force_rebuild = json_access::value_or(json, "forceRebuild", false);
 
     std::vector<std::string> variant_names;
@@ -702,31 +722,6 @@ shader_compile_options_from_json(const nlohmann::json& json,
 
     options.variants = noveltea::shader_compile_variants_from_names(variant_names, &diagnostics);
     return options;
-}
-
-std::optional<noveltea::ShaderMaterialProject>
-shader_project_from_request(const nlohmann::json& request, nlohmann::json& error_response)
-{
-    auto shader_project_json = request.find("shaderProject");
-    if (shader_project_json == request.end()) {
-        error_response = fail("Request requires shaderProject.");
-        return std::nullopt;
-    }
-
-    noveltea::ShaderMaterialProjectParseResult parsed;
-    if (shader_project_json->is_string()) {
-        parsed =
-            noveltea::parse_shader_material_project_json(shader_project_json->get<std::string>());
-    } else {
-        parsed = noveltea::parse_shader_material_project_json_value(*shader_project_json);
-    }
-
-    if (!parsed.project) {
-        error_response =
-            fail("Shader project parse failed.", material_diagnostics_to_json(parsed.diagnostics));
-        return std::nullopt;
-    }
-    return std::move(*parsed.project);
 }
 
 PackageExportOptions export_options_from_json(const nlohmann::json& json)
@@ -1173,22 +1168,50 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
     }
 
     if (command == "compile-shaders") {
-        nlohmann::json error_response;
-        auto shader_project = shader_project_from_request(request, error_response);
-        if (!shader_project)
-            return error_response;
+        const auto shader_project = request.find("shaderProject");
+        if (shader_project == request.end() || !shader_project->is_object())
+            return fail("Request requires shaderProject.");
 
         std::vector<noveltea::ShaderCompileDiagnostic> variant_diagnostics;
         auto options = shader_compile_options_from_json(
             json_access::value_or(request, "options", nlohmann::json::object()),
             variant_diagnostics);
         noveltea::ShaderCompilerService compiler;
-        auto result = compiler.compile_shader_project(*shader_project, options);
-        result.diagnostics.insert(result.diagnostics.end(), variant_diagnostics.begin(),
-                                  variant_diagnostics.end());
-        return ok({{"success", result.success()},
-                   {"outputs", shader_compile_outputs_to_json(result.outputs)},
-                   {"diagnostics", shader_compile_diagnostics_to_json(result.diagnostics)}});
+
+        if (json_access::value_or(*shader_project, "schema", std::string{}) !=
+            "noveltea.shader-source-programs")
+            return fail("Shader compilation requires canonical source-program input.");
+
+        const auto programs_it = shader_project->find("programs");
+        if (programs_it == shader_project->end() || !programs_it->is_object())
+            return fail("Shader source-program request requires programs.");
+
+        auto outputs = nlohmann::json::array();
+        std::vector<noveltea::ShaderCompileDiagnostic> diagnostics =
+            std::move(variant_diagnostics);
+        bool success = diagnostics.empty();
+        for (const auto& [program, value] : programs_it->items()) {
+            if (!value.is_object())
+                return fail("Shader source-program entry must be an object.");
+            noveltea::ShaderSourceProgramRequest source_request{
+                .vertex_source = json_access::value_or(value, "vertexSource", std::string{}),
+                .fragment_source = json_access::value_or(value, "fragmentSource", std::string{}),
+                .varying_definition =
+                    json_access::value_or(value, "varyingDefinition", std::string{}),
+                .interface_contract =
+                    json_access::value_or(value, "interfaceContract", std::string{}),
+            };
+            auto result = compiler.compile_source_program(source_request, options);
+            success = success && result.success();
+            auto serialized = source_program_outputs_to_json(program, result);
+            for (auto& output : serialized)
+                outputs.push_back(std::move(output));
+            diagnostics.insert(diagnostics.end(), result.diagnostics.begin(),
+                               result.diagnostics.end());
+        }
+        return ok({{"success", success},
+                   {"outputs", std::move(outputs)},
+                   {"diagnostics", shader_compile_diagnostics_to_json(diagnostics)}});
     }
 
     if (command == "export-package") {

@@ -9,6 +9,7 @@ import {
   resolveSaveUnitForTab,
 } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
+import { useProjectSourceStore } from '@/project/project-source-store';
 import { useDraftDirtyStore, serializeDraftDirtyState } from './draft-dirty-store';
 import { serializePendingInputs, usePendingInputStore } from './pending-input-store';
 import { useBottomPanelStore } from './bottom-panel-store';
@@ -481,12 +482,37 @@ export function buildEditorProjectStateSnapshot(
   const explorerStore = useProjectExplorerStore.getState();
   const currentEditorState = editorProjectStateFromProject(useProjectStore.getState().document);
   const tabStatesById = serializeWorkbenchTabStates(Object.keys(workbench?.tabsById ?? {}));
+  const sourceState = useProjectSourceStore.getState();
+  const sourceRecoveryById = Object.fromEntries(
+    Object.entries(sourceState.buffersById).flatMap(([sourceId, buffer]) => {
+      if (!buffer.dirty) return [];
+      const file = sourceState.files.find((candidate) => candidate.id === sourceId);
+      if (!file) return [];
+      return [
+        [
+          sourceId,
+          {
+            file: {
+              id: file.id,
+              displayPath: file.displayPath,
+              projectRelativePath: file.projectRelativePath,
+              kind: file.kind,
+            },
+            text: buffer.text,
+            baseText: buffer.baseText,
+            baseContentHash: buffer.baseContentHash,
+          },
+        ] as const,
+      ];
+    }),
+  );
   return {
     ...emptyEditorProjectState(),
     recovery:
       options.includeRecovery === false
         ? { sequence: 0, saveUnitsById: {} }
         : buildRecoveryEntries(),
+    sourceRecoveryById,
     previewLocale: currentEditorState.previewLocale,
     ...((currentEditorState.lastSuccessfulPlatformExportIdentity ??
     recoveryContext.editorState.lastSuccessfulPlatformExportIdentity)

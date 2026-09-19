@@ -32,7 +32,6 @@ import {
   defaultScriptModuleData,
   scriptModuleDataSchema,
 } from '../../shared/project-schema/authoring-script-modules';
-import { defaultShaderData, shaderDataSchema } from '../../shared/project-schema/authoring-shaders';
 import { defaultTestData, testDataSchema } from '../../shared/project-schema/authoring-tests';
 import {
   defaultVariableData,
@@ -66,7 +65,6 @@ describe('authoring schema strictness', () => {
     const layout = defaultLayoutData();
     const room = defaultRoomData();
     const scene = defaultSceneData();
-    const shader = defaultShaderData();
     const test = defaultTestData();
 
     const cases: Array<{ name: string; accepted: boolean }> = [
@@ -82,13 +80,6 @@ describe('authoring schema strictness', () => {
         name: 'variables',
         accepted: variableDataSchema.safeParse({ ...defaultVariableData(), unexpected: true })
           .success,
-      },
-      {
-        name: 'shaders',
-        accepted: shaderDataSchema.safeParse({
-          ...shader,
-          stages: [{ ...shader.stages[0], unexpected: true }],
-        }).success,
       },
       {
         name: 'materials',
