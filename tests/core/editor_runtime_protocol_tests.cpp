@@ -108,6 +108,21 @@ TEST_CASE("focused Room decoder admits the strict native contract")
     CHECK_FALSE(decode_editor_room_preview_document_text(open.dump()));
 }
 
+TEST_CASE("focused Room decoder admits project-file composition and rejects Asset spelling")
+{
+    auto project_file = focused_room_document();
+    project_file["composition"] = {{"moduleId", "compose"},
+                                   {"exportName", "compose"},
+                                   {"source",
+                                    {{"kind", "project-file"},
+                                     {"logicalPath", "project:/scripts/compose.lua"}}}};
+    CHECK(decode_editor_room_preview_document_text(project_file.dump()));
+
+    auto obsolete = project_file;
+    obsolete["composition"]["source"]["kind"] = "asset";
+    CHECK_FALSE(decode_editor_room_preview_document_text(obsolete.dump()));
+}
+
 TEST_CASE("focused Room decoder carries cursor settings and projected Hotspots")
 {
     auto document = focused_room_document();
@@ -206,6 +221,11 @@ TEST_CASE("focused Room decoder carries mounted Layout contracts with runtime de
     REQUIRE(layout.preview_inputs.size() == 1);
     CHECK(layout.preview_inputs.front().input.text() == "title");
     CHECK(std::get<std::string>(layout.preview_inputs.front().value) == "Status");
+
+    auto obsolete_lua = document;
+    obsolete_lua["layouts"][0]["source"]["lua"] =
+        {{"kind", "asset"}, {"logicalPath", "project:/scripts/ui/status.lua"}};
+    CHECK_FALSE(decode_editor_room_preview_document_text(obsolete_lua.dump()));
 
     document["layouts"][0]["contract"]["inputs"][0]["hasDefault"] = false;
     document["layouts"][0]["contract"]["inputs"][0]["defaultValue"] = nullptr;

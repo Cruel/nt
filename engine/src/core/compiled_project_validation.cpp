@@ -1904,7 +1904,10 @@ private:
             };
             source(layout.rml, path + "/rml");
             source(layout.rcss, path + "/rcss");
-            source(layout.lua, path + "/lua");
+            if (std::holds_alternative<AssetLayoutSource>(layout.lua))
+                error("compiled_project.invalid_layout_lua_source",
+                      "Layout Lua source must be inline in compiled data; Project file source is projected before compilation.",
+                      path + "/lua");
             auto assets = [&](const std::vector<AssetId>& values, std::string_view field) {
                 for (std::size_t dependency = 0; dependency < values.size(); ++dependency)
                     require(m_assets, values[dependency], "asset",

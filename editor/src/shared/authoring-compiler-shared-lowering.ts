@@ -444,13 +444,17 @@ function compileFeature(
   };
 }
 
-function compileLayoutSource(source: LayoutSourceData | LayoutLuaSourceData) {
+function compileLayoutSource(source: LayoutSourceData) {
   if (source.sourceMode === 'asset' && source.sourceAsset) {
     return {
       kind: 'asset' as const,
       asset: { kind: 'asset' as const, id: source.sourceAsset.$ref.id },
     };
   }
+  return { kind: 'inline' as const, text: source.sourceText };
+}
+
+function compileLayoutLuaSource(source: LayoutLuaSourceData) {
   return { kind: 'inline' as const, text: source.sourceText };
 }
 
@@ -566,7 +570,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         : {}),
       rml: compileRmlLayoutSource(project, id, data.rml, diagnostics),
       rcss: compileLayoutSource(data.rcss),
-      lua: compileLayoutSource(data.lua),
+      lua: compileLayoutLuaSource(data.lua),
       script: { enabled: data.script.enabled, namespace: data.script.namespace ?? null },
       mount: {
         defaultParent: data.mount.defaultParent ?? null,

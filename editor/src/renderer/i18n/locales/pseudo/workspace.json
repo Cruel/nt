@@ -1007,7 +1007,6 @@
     "orphanedTexture": "⟦Orphaned texture: {{name}}⟧",
     "remove": "⟦Remove⟧",
     "noTexture": "⟦No texture⟧",
-    "shaderRemoved": "⟦{{title}}: Shader records are no longer authoring resources. Open the shader source file from its Material instead.⟧",
     "commands": {
       "update": "⟦Update material⟧",
       "setPreset": "⟦Set Material Preset⟧",

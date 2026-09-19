@@ -1998,6 +1998,12 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
                     : std::nullopt;
     auto lua = lua_value ? decode_layout_source(decoder, *lua_value, pointer_child(pointer, "lua"))
                          : std::nullopt;
+    if (lua && std::holds_alternative<AssetLayoutSource>(*lua)) {
+        decoder.error("compiled_project.invalid_layout_lua_source",
+                      "Layout Lua source must be inline in compiled data; Project file source is projected before compilation.",
+                      pointer_child(pointer, "lua"));
+        lua.reset();
+    }
     std::optional<LayoutDependencies> dependencies;
     if (dependencies_value &&
         decoder.object(*dependencies_value, pointer_child(pointer, "dependencies"),

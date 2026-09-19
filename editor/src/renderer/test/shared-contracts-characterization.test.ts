@@ -26,7 +26,10 @@ import {
 } from '../../shared/project-schema/authoring-lua-analysis';
 import { conditionSchema, textSourceSchema } from '../../shared/project-schema/authoring-flow';
 import { defaultRoomData, roomDataSchema } from '../../shared/project-schema/authoring-rooms';
-import { roomPreviewDocumentSchema } from '../../shared/project-schema/room-preview';
+import {
+  focusedRoomLayoutDefinitionSchema,
+  roomPreviewDocumentSchema,
+} from '../../shared/project-schema/room-preview';
 import { defaultLayoutData, layoutDataSchema } from '../../shared/project-schema/authoring-layouts';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
@@ -421,8 +424,55 @@ describe('shared contracts characterization', () => {
         composition: { moduleId: 'compose', exportName: 'compose', source: { kind: 'inline' } },
       }),
     ).toThrow();
+    expect(
+      roomPreviewDocumentSchema.parse({
+        ...base,
+        composition: {
+          moduleId: 'compose',
+          exportName: 'compose',
+          source: { kind: 'project-file', logicalPath: 'project:/scripts/compose.lua' },
+        },
+      }).composition?.source,
+    ).toEqual({ kind: 'project-file', logicalPath: 'project:/scripts/compose.lua' });
+    expect(() =>
+      roomPreviewDocumentSchema.parse({
+        ...base,
+        composition: {
+          moduleId: 'compose',
+          exportName: 'compose',
+          source: { kind: 'asset', logicalPath: 'project:/scripts/compose.lua' },
+        },
+      }),
+    ).toThrow();
     const protocol = fs.readFileSync(path.resolve('src/shared/preview-protocol.ts'), 'utf8');
     expect(protocol).not.toContain('schemaVersion: 2');
+  });
+
+  it('rejects obsolete Asset-backed dedicated Lua in focused Layout preview contracts', () => {
+    const obsolete = {
+      instanceId: 'room-overlay:hud',
+      layoutId: 'hud',
+      mount: { kind: 'room-overlay', overlayId: 'hud', order: 0, visible: true },
+      source: {
+        kind: 'authored',
+        layoutKind: 'fragment',
+        templateId: 'layout-fragment-host-v1',
+        sourceUrl: 'project:/__noveltea_inline_layout_hud.rml',
+        defaultParent: null,
+        scopedStyles: true,
+        scriptNamespace: null,
+        rml: { kind: 'inline', text: '<div />' },
+        rcss: { kind: 'inline', text: '' },
+        lua: { kind: 'asset', logicalPath: 'project:/scripts/ui/hud.lua' },
+      },
+      scriptEnabled: true,
+      containsDedicatedLuaSource: true,
+      containsExecutableRmlLua: false,
+      contract: { inputs: [], signals: [], state: null },
+      scalePolicy: { ui: 'inherit', text: 'inherit' },
+    };
+
+    expect(focusedRoomLayoutDefinitionSchema.safeParse(obsolete).success).toBe(false);
   });
 
   it('adds Layout templates and fallback metadata without changing compiled gameplay bytes', () => {

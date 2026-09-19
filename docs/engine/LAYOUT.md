@@ -9,9 +9,9 @@ Layouts are the new engine's runtime UI authoring component. They should be refe
 ## Current Status
 
 Layouts are implemented as a typed authoring collection in the editor. The Layout editor supports
-file-backed or asset-backed RML/RCSS and file-backed, asset-backed, or absent Lua through the
-workspace-v1 persistence projection; its assembled internal model still uses the existing inline or
-asset source union. It also supports target selection, document/fragment modes, dependency lists,
+file-backed or asset-backed RML/RCSS and file-backed or absent dedicated Lua through the
+workspace-v1 persistence projection. Assembly reads Layout companion source into the semantic model
+used by compiler/editor consumers; Lua Asset source is not a canonical path. It also supports target selection, document/fragment modes, dependency lists,
 script metadata, mount metadata, default layout assignment, validation diagnostics, and live engine
 preview.
 
@@ -84,10 +84,10 @@ Each layout owns three source channels:
 - `lua` for layout-local event script code.
 
 In workspace-v1 projects, file-backed channels are ordinary companion files beside the Layout record:
-`layout.rml`, `layout.rcss`, and `layout.lua`. Layout JSON stores a strict `file`, `asset`, or (Lua
-only) `none` selector and never duplicates file text. Assembly adapts those files to the existing
-internal inline representation used by compiler and preview code. Dependency lists declare additional
-assets/materials needed by the layout.
+`layout.rml`, `layout.rcss`, and `layout.lua`. Layout JSON stores `file` or `asset` for RML/RCSS and
+`file` or `none` for dedicated Lua, and never duplicates file text. Assembly adapts companion files to
+the internal semantic representation used by compiler and preview code. Dependency lists declare
+additional assets, source scripts, and Materials needed by the Layout.
 
 All Layout RCSS is authored above NovelTea's universal RuntimeUI baseline. RuntimeUI implicitly
 applies the frozen RmlUi HTML4 baseline first, then the NovelTea-specific baseline, then template and
@@ -372,13 +372,13 @@ When an authored Layout is mounted inside focused Room preview, it uses that mou
 
 Layouts can reference:
 
-- assets for RML, RCSS, Lua source files;
-- image assets;
-- font assets;
-- stylesheet/text assets;
-- script assets;
-- JSON-backed data assets used through `Data.load(assetId)`;
-- material records;
+- Assets for RML and RCSS source files;
+- image Assets;
+- font Assets;
+- stylesheet/text Assets;
+- project script source paths under `scripts/`;
+- JSON-backed data Assets used through `Data.load(assetId)`;
+- Material records;
 - other layout records through project settings such as `settings.ui.systemLayouts.title` or `settings.ui.systemLayouts.game-hud`.
 
 Layout refs use:
@@ -415,14 +415,15 @@ Layout validation checks:
 - inline RCSS emptiness is warned;
 - asset source mode requires a source asset;
 - referenced source assets exist;
-- source asset extensions look appropriate for RML, RCSS, or Lua;
-- source asset kinds are text-like;
+- source Asset extensions look appropriate for RML or RCSS;
+- source Asset kinds are text-like;
 - fragment RML should not include document tags;
 - document RML should include `<rml>` and `<body>`;
 - Lua namespace shape;
 - Lua present while script execution disabled is informational;
 - duplicate dependency refs produce warnings;
-- image/font/stylesheet/script dependency kind or extension mismatches produce warnings;
+- image/font/stylesheet dependency kind or extension mismatches produce warnings;
+- script dependencies must use canonical `scripts/*.lua` project paths;
 - data dependencies must resolve to JSON-backed `data` Assets;
 - missing material dependencies are errors;
 - default layout setting points to an existing layout when configured.
@@ -584,7 +585,7 @@ not a provisional runtime-project manifest.
 
 ## Scripting Status
 
-Layouts can carry Lua source as inline text or an asset reference. Runtime interaction can use
+Layouts carry dedicated Lua from the workspace-owned `layout.lua` companion when enabled. Runtime interaction can use
 `noveltea` model callbacks through `data-event-*` or ordinary Lua-backed RmlUi events. Gameplay Lua
 handlers use the typed `Game.ui.*` input surface, shell documents use `Game.shell.*`, and authored
 gameplay presentation uses the typed

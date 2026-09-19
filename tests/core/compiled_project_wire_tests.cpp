@@ -915,6 +915,25 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         CHECK(diagnostic->json_pointer == "/resources/layouts/0/dependencies/data");
     }
 
+    SECTION("obsolete Asset-backed Layout Lua")
+    {
+        auto document = fixture("comprehensive");
+        auto* layout = path_member(document, {"resources", "layouts", "0"});
+        auto* assets = path_member(document, {"resources", "assets"});
+        REQUIRE(layout != nullptr);
+        REQUIRE(assets != nullptr);
+        REQUIRE(assets->is_array());
+        REQUIRE_FALSE(assets->empty());
+        const auto asset_id = (*assets)[0]["id"].get<std::string>();
+        (*layout)["lua"] = {
+            {"kind", "asset"},
+            {"asset", {{"kind", "asset"}, {"id", asset_id}}},
+        };
+        auto result = decode_shared_project(document, "comprehensive.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_layout_lua_source"));
+    }
+
     SECTION("wrong shared type")
     {
         auto document = fixture("minimal");

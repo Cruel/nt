@@ -176,10 +176,7 @@ function validateResourceClosure(project: CompiledProjectWire): CompiledDiagnost
       );
   }
   for (const scriptId of [...closure.scripts].sort()) {
-    // Script assets and compiled Script resources intentionally share the wire
-    // `kind: script` token. An ID present in the asset table is therefore an
-    // asset dependency, not a missing composition Script resource.
-    if (!availableScripts.has(scriptId) && !availableAssets.has(scriptId))
+    if (!availableScripts.has(scriptId))
       diagnostics.push(
         makeDiagnostic(
           'COMPILER_RESOURCE_SCRIPT_MISSING',

@@ -370,7 +370,7 @@ function characterVisual(
 
 function sourceComponent(
   project: AuthoringProject,
-  value: LayoutSourceData | LayoutLuaSourceData,
+  value: LayoutSourceData,
   options: Readonly<{ pseudoLocalizeMessages?: boolean }> = {},
 ) {
   if (value.sourceMode === 'inline')
@@ -386,6 +386,10 @@ function sourceComponent(
     kind: 'asset' as const,
     logicalPath: asset ? `project:/${asset.source.path}` : `project:/__missing/${assetId ?? ''}`,
   };
+}
+
+function luaSourceComponent(value: LayoutLuaSourceData) {
+  return { kind: 'inline' as const, text: value.sourceText };
 }
 
 function layoutHasExecutableRmlLua(
@@ -438,7 +442,7 @@ function buildLayouts(
       diagnostics.push(diagnostic(`/layouts/${layoutId}`, `Layout '${layoutId}' is invalid.`));
       return;
     }
-    const lua = sourceComponent(project, data.lua);
+    const lua = luaSourceComponent(data.lua);
     const rml = sourceComponent(project, data.rml, {
       pseudoLocalizeMessages: effectivePreviewLocale(project) === PSEUDO_PREVIEW_LOCALE,
     });
@@ -460,9 +464,7 @@ function buildLayouts(
       },
       scriptEnabled: data.script.enabled,
       containsDedicatedLuaSource:
-        lua.kind === 'inline'
-          ? new TextEncoder().encode(lua.text.replace(/^\uFEFF/, '')).byteLength > 0
-          : true,
+        new TextEncoder().encode(lua.text.replace(/^\uFEFF/, '')).byteLength > 0,
       containsExecutableRmlLua: layoutHasExecutableRmlLua(analyses, layoutId),
       contract: lowerLayoutContractForWire(data.contract),
       scalePolicy: data.scalePolicy ?? { ui: 'inherit', text: 'inherit' },
@@ -1281,7 +1283,7 @@ export async function buildFocusedRoomPreview(
           return {
             moduleId,
             exportName: compositionHook.exportName,
-            source: { kind: 'asset' as const, logicalPath: `project:/${source.path}` },
+            source: { kind: 'project-file' as const, logicalPath: `project:/${source.path}` },
           };
         })()
       : null,

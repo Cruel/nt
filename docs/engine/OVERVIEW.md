@@ -25,6 +25,7 @@ Read the specific component doc before changing its schema, commands, editor UI,
 - `docs/engine/LAYOUT.md` — authored RmlUi layouts, system layout roles, source files, preview, export, and runtime mounting.
 - `docs/engine/SHADER.md` — source-backed shader programs, compiler reflection, derived program identity, ActiveText direct programs, and runtime/export status; there is no authored Shader-record collection.
 - `docs/engine/MATERIAL.md` — Material Presets, single-parent sparse inheritance, source-backed shader overrides, reflected interfaces, preview, and runtime/export status.
+- `docs/engine/MATERIAL_AUTHORING_CUTOVER_CERTIFICATION.md` — final #292 cutover boundary and cross-seam certification evidence for the Material/preset/source-file architecture.
 - `docs/engine/VARIABLE.md` — project Variables/Global Properties, typed Property resolution, mutation, saves, and Lua APIs.
 - `docs/engine/TRAIT.md` — Property-backed Trait declarations, attachments, precedence, validation, discovery, and runtime behavior.
 - `docs/engine/GAMEPLAY_COMMAND.md` — shared typed Gameplay Commands, operands/results, atomic mutation groups, yielding boundaries, and reusable editor/runtime execution.

@@ -4005,17 +4005,22 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                         decoded.rml = std::move(*rml);
                     if (rcss)
                         decoded.rcss = std::move(*rcss);
-                    if (lua)
-                        decoded.lua = std::move(*lua);
+                    if (lua) {
+                        if (lua->kind == TypedEditorLayoutSourceComponent::Kind::LogicalAsset)
+                            diagnostics.push_back(error(
+                                "editor_preview.invalid_layout_lua_source",
+                                "Dedicated Layout Lua must be inline in focused preview data; Project file source is projected before preview.",
+                                path + "/source/lua"));
+                        else
+                            decoded.lua = std::move(*lua);
+                    }
                     if (decoded.rml.kind == TypedEditorLayoutSourceComponent::Kind::LogicalAsset &&
                         !decoded.source_url.empty() && decoded.source_url != decoded.rml.value)
                         diagnostics.push_back(
                             error("editor_preview.source_url_mismatch",
                                   "Asset-backed Layout sourceUrl must equal its RML logical path.",
                                   path + "/source/sourceUrl"));
-                    const bool dedicated_source_present =
-                        decoded.lua.kind == TypedEditorLayoutSourceComponent::Kind::LogicalAsset ||
-                        !decoded.lua.value.empty();
+                    const bool dedicated_source_present = !decoded.lua.value.empty();
                     if (decoded.contains_dedicated_lua_source != dedicated_source_present)
                         diagnostics.push_back(error(
                             "editor_preview.lua_presence_mismatch",
@@ -4120,7 +4125,7 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     exact_fields(*source, {"kind", "text"}, diagnostics, "/composition/source");
                     typed.source.inline_source = true;
                     typed.source.value = required_string(*source, "text", "/composition/source");
-                } else if (source_kind == "asset") {
+                } else if (source_kind == "project-file") {
                     exact_fields(*source, {"kind", "logicalPath"}, diagnostics,
                                  "/composition/source");
                     typed.source.inline_source = false;

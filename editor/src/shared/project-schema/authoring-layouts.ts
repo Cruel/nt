@@ -646,7 +646,7 @@ function validateAssetRefs(
   project: AuthoringProject,
   refs: LayoutAssetRef[],
   path: string,
-  expectedKind: 'image' | 'font' | 'stylesheet' | 'script' | 'data',
+  expectedKind: 'image' | 'font' | 'stylesheet' | 'data',
   diagnostics: LayoutSchemaDiagnostic[],
 ) {
   const seen = new Set<string>();
@@ -681,11 +681,6 @@ function validateAssetRefs(
     ) {
       diagnostics.push(
         diagnostic(refPath, `Stylesheet asset '${id}' has extension '${extension}'.`, 'warning'),
-      );
-    }
-    if (expectedKind === 'script' && extension && !['.lua', 'lua'].includes(extension)) {
-      diagnostics.push(
-        diagnostic(refPath, `Script asset '${id}' has extension '${extension}'.`, 'warning'),
       );
     }
   });
