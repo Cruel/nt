@@ -21,6 +21,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
+import { resolvePnpmInvocation } from './pnpm-invocation.mjs';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
@@ -88,9 +89,8 @@ function run(command, args, options = {}) {
 }
 
 function runPnpm(args, options = {}) {
-  const pnpmEntrypoint = process.env.npm_execpath;
-  if (pnpmEntrypoint) return run(process.execPath, [pnpmEntrypoint, ...args], options);
-  return run(isWindows ? 'pnpm.cmd' : 'pnpm', args, options);
+  const invocation = resolvePnpmInvocation(args);
+  return run(invocation.command, invocation.args, options);
 }
 
 function requireSuccess(label, result) {
