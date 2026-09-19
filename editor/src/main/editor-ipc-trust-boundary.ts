@@ -422,6 +422,10 @@ export const cancelImageThumbnailPrewarmArgumentsSchema = z.tuple([
 ]);
 
 const terminalSessionIdSchema = z.string().uuid().max(TERMINAL_LIMITS.sessionIdLength);
+export const terminalSessionArgumentsSchema = z.tuple([terminalSessionIdSchema]);
+export const terminalCloseArgumentsSchema = z.tuple([
+  z.object({ sessionId: terminalSessionIdSchema, force: z.boolean() }).strict(),
+]);
 export const terminalWriteArgumentsSchema = z.tuple([
   terminalSessionIdSchema,
   z.string().refine((value) => utf8ByteLength(value) <= TERMINAL_LIMITS.writeBytes),
