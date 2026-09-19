@@ -981,6 +981,12 @@
   },
   "materialEditor": {
     "missing": "Registro de Material não encontrado.",
+    "preview": {
+      "label": "Prévia do Material",
+      "webgl2Unavailable": "A prévia do Material requer WebGL2.",
+      "contextLost": "A prévia do Material está temporariamente indisponível.",
+      "renderFailed": "Falha ao renderizar a prévia do Material."
+    },
     "summary": "Contrato de Preset/herança de Material com substituições esparsas de parâmetros, texturas e fontes de shader.",
     "invalidData": "Os dados do Material são inválidos; os padrões canônicos são exibidos até você aplicar uma alteração.",
     "base": "Base",

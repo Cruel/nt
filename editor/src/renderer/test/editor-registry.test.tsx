@@ -56,9 +56,18 @@ describe('editor registry', () => {
     });
   });
 
-  it('marks derived embedded preview editors as dedicated while keeping editors active-only', () => {
+  it('keeps lightweight Material previews out of the engine host pool', () => {
+    const registration = defaultEditorRegistry.resolve('material-detail');
+    expect(registration).not.toBeNull();
+    expect(resolveEditorPolicies(registration!)).toEqual({
+      mountPolicy: 'active-only',
+      previewHostPolicy: 'none',
+      previewPersistence: undefined,
+    });
+  });
+
+  it('marks derived embedded engine preview editors as dedicated while keeping editors active-only', () => {
     const pooledDerivedEditorTypes = [
-      'material-detail',
       'layout-detail',
       'character-detail',
       'room-detail',

@@ -139,7 +139,9 @@ Old `shader` references, independently editable role fields, `baseMaterialId`, p
 
 The Material editor edits effective values with sparse overrides and provenance. It exposes the base preset/Material, effective contract, optional shader-source overrides, parameters, textures, and preview metadata. Renderer-owned inputs are displayed as runtime supplied. Orphaned configuration remains visible until explicitly removed.
 
-Custom-source Material previews compile the browser shader variant as derived state. Successful compiled outputs are staged into the preview filesystem; compilation failure retains the previous successful preview rather than pretending current invalid source rendered successfully.
+Material authoring previews use the lightweight workbench-group renderer described in `docs/editor/preview/MATERIAL_PREVIEW_RENDERER.md`, not a dedicated engine-preview iframe. Project-scoped CPU resources resolve effective Material data, reflected interfaces, browser shader payloads, and decoded image textures once per Project generation; each workbench group owns one shared WebGL2 renderer/context for all of its visible Material preview surfaces.
+
+Custom-source Material previews compile the `essl-300` browser shader variant as derived state. Preview geometry/background metadata selects the lightweight harness, while context-heavy roles use documented representative fixtures and full-engine previews remain authoritative for runtime composition.
 
 Shader compiler diagnostics attempt to navigate to the affected Material/source context. Richer physical source-file tabs and Files-mode navigation are implemented by the source-authoring work under the parent Material/Files specification.
 

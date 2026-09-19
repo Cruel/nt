@@ -941,6 +941,12 @@
   },
   "materialEditor": {
     "missing": "Material record not found.",
+    "preview": {
+      "label": "Material preview",
+      "webgl2Unavailable": "Material preview requires WebGL2.",
+      "contextLost": "Material preview is temporarily unavailable.",
+      "renderFailed": "Material preview rendering failed."
+    },
     "summary": "Material Preset/inheritance contract with sparse parameter, texture, and shader-source overrides.",
     "invalidData": "Material data is invalid; canonical defaults are shown until you apply a change.",
     "base": "Base",

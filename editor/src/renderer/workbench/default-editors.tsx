@@ -96,8 +96,6 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Material Detail',
     icon: Palette,
     component: MaterialEditor,
-    previewHostPolicy: 'dedicated-while-open',
-    previewPersistence: 'derived',
   },
   {
     type: 'layout-detail',

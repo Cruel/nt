@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
-import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
+import { MaterialPreview } from '@/material-preview/MaterialPreview';
+import { useMaterialPreviewResource } from '@/material-preview/material-preview-provider';
 import { useProjectStore } from '@/project/project-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
@@ -32,16 +33,7 @@ import {
   type ShaderUniformType,
   type ShaderUniformValue,
 } from '../../../shared/project-schema/authoring-shaders';
-import {
-  buildMaterialPreviewDocumentData,
-  buildShaderMaterialProject,
-  materialDerivedInterface,
-  materialPreviewRevision,
-  type MaterialDerivedInterface,
-} from '../../../shared/project-schema/shader-material-project';
-import { useShaderCompileStore } from '@/shaders/shader-compile-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import type { ShaderCompileOutput } from '../../../shared/editor-tooling';
 
 function updateMaterial(materialId: string, next: MaterialData, label: string) {
   return useCommandStore.getState().executeCommand({
@@ -95,56 +87,10 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
         .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
         .map(([id, asset]) => ({ id, label: asset.label }))
     : [];
-  const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
-  const [derivedInterface, setDerivedInterface] = useState<{
-    materialId: string;
-    value: MaterialDerivedInterface;
-  } | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    if (!project || !materialId) {
-      setPreviewData(null);
-      setDerivedInterface(null);
-      return () => {
-        active = false;
-      };
-    }
-    void (async () => {
-      const shaderProject = await buildShaderMaterialProject(project);
-      let outputs: ShaderCompileOutput[] = [];
-      if (Object.keys(shaderProject.compilation.programs).length > 0) {
-        const response = await useShaderCompileStore
-          .getState()
-          .runCompile(shaderProject.compilation, undefined, { shaderVariants: ['essl-300'] });
-        if (!response.success) return;
-        outputs = response.outputs;
-      }
-      const built = await buildShaderMaterialProject(project, outputs);
-      const next = await buildMaterialPreviewDocumentData(project, materialId, outputs);
-      if (active) {
-        setPreviewData(next);
-        const value = materialDerivedInterface(built.project, materialId);
-        setDerivedInterface(value ? { materialId, value } : null);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [project, materialId]);
+  const previewResource = useMaterialPreviewResource(materialId ?? null);
 
   if (!materialId || !record || !project)
     return <div className="p-4 text-sm text-muted-foreground">{t('materialEditor.missing')}</div>;
-
-  const revision = materialPreviewRevision(project, materialId);
-  const previewDocument = previewData
-    ? {
-        kind: 'material-preview' as const,
-        recordId: materialId,
-        revision,
-        data: previewData,
-      }
-    : undefined;
 
   function commit(next: MaterialData, label = t('materialEditor.commands.update')) {
     updateMaterial(materialId!, next, label);
@@ -181,8 +127,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
       ? `preset:${data.base.preset}`
       : `material:${data.base.material.$ref.id}`;
   const customSource = effective ? resolvedMaterialUsesCustomShader(effective) : false;
-  const currentDerivedInterface =
-    derivedInterface?.materialId === materialId ? derivedInterface.value : null;
+  const currentDerivedInterface = previewResource?.derivedInterface ?? null;
   const parameterDeclarations =
     currentDerivedInterface?.uniforms ?? (customSource ? {} : (effective?.preset.uniforms ?? {}));
   const textureDeclarations =
@@ -497,14 +442,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
           className="min-h-[420px] overflow-hidden rounded border bg-muted/20"
           data-workbench-anchor="material.preview"
         >
-          {previewDocument ? (
-            <DerivedPreviewPane
-              ownerTabId={tab.id}
-              previewMode="material"
-              previewDocument={previewDocument}
-              resetBeforeLoad
-            />
-          ) : null}
+          <MaterialPreview materialId={materialId} />
         </aside>
       </div>
     </div>
