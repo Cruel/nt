@@ -42,6 +42,7 @@ export interface RunNovelTeaCliOptions {
   readonly readStdinText?: () => string;
   readonly forceRuntimeCacheRebuild?: boolean;
   readonly forceAuthoringCacheRebuild?: boolean;
+  readonly skipAuthoringWholeResultCache?: boolean;
   readonly expectedAuthoringValidationInputs?: ProjectSourceInventory;
   readonly comfyUiWorkflowLibraryOptions?: WorkflowLibraryServiceOptions;
   readonly comfyUiAbortSignal?: AbortSignal;
@@ -420,13 +421,14 @@ export async function runNovelTeaCli(
     globals.command[0] === 'validate' && nativeTools.validateFontCoverage
       ? await import('../shared/authoring-cache')
       : null;
-  const cachedValidation = options.forceAuthoringCacheRebuild
-    ? null
-    : await validationCache?.readAuthoringCache(
-        services.fileSystem,
-        discovery.projectRoot,
-        options.expectedAuthoringValidationInputs ?? null,
-      );
+  const cachedValidation =
+    options.forceAuthoringCacheRebuild || options.skipAuthoringWholeResultCache
+      ? null
+      : await validationCache?.readAuthoringCache(
+          services.fileSystem,
+          discovery.projectRoot,
+          options.expectedAuthoringValidationInputs ?? null,
+        );
   if (cachedValidation) {
     const { editorDiagnostics, ...cachedEnvelope } = cachedValidation;
     if (!cachedValidation.success)

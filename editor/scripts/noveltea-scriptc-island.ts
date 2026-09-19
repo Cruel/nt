@@ -289,8 +289,9 @@ export async function runNovelTeaScriptcIsland(
       ...(agentKitPayload ? { agentKitPayload } : {}),
       readStdinText: () => invokeHost('read-stdin', ''),
       forceRuntimeCacheRebuild,
-      // An island validate is the canonical fallback, not a second chance to trust a rejected cache.
-      forceAuthoringCacheRebuild: true,
+      // A native whole-result miss must not become a second whole-result hit inside the island,
+      // but stale generations can still contribute individually proven source/validation work.
+      skipAuthoringWholeResultCache: true,
     });
     trace('application invocation completed');
     return result(commandResult.exitCode, commandResult.stdout, commandResult.stderr);

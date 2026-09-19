@@ -192,6 +192,17 @@ async function collectAssetFilesystemInventory(
     };
 
   const assetsReal = await fileSystem.realpath(assetsRoot);
+  const projectReal = await fileSystem.realpath(projectRoot);
+  if (!isContainedRelativePath(fileSystem.relativePath(projectReal, assetsReal)))
+    return {
+      ok: false,
+      result: failure(
+        'asset.audit.path_escape',
+        'assets',
+        'Asset directory resolves outside the project root.',
+      ),
+    };
+  const ancestorDirectories = new Set([assetsReal]);
   const inventory: Array<Readonly<{ projectRelativePath: string; kind: string }>> = [];
   const diagnostics: NovelTeaCliDiagnostic[] = [];
   const visit = async (directory: string): Promise<void> => {
@@ -215,7 +226,19 @@ async function collectAssetFilesystemInventory(
         continue;
       }
       if (kind === 'directory') {
+        if (ancestorDirectories.has(real)) {
+          diagnostics.push(
+            cliDiagnostic(
+              'asset.audit.path_cycle',
+              fileSystem.relativePath(projectRoot, absolute).replaceAll('\\', '/'),
+              'Asset directory resolves to an ancestor directory.',
+            ),
+          );
+          continue;
+        }
+        ancestorDirectories.add(real);
         await visit(absolute);
+        ancestorDirectories.delete(real);
         continue;
       }
       if (kind !== 'file') continue;
@@ -408,6 +431,23 @@ export async function prepareCliProject(
     const inventory = await collectAssetFilesystemInventory(fileSystem, projectRoot);
     if (!inventory.ok) return inventory.result;
     assetFilesystemInventory = inventory.inventory;
+  }
+
+  for (const record of Object.values(assets)) {
+    const asset = parseAssetData(record.data)!;
+    try {
+      await assertProjectWorkspacePathContained(
+        fileSystem,
+        projectRoot,
+        fileSystem.joinPath(projectRoot, asset.source.path),
+      );
+    } catch {
+      return failure(
+        'asset.audit.path_escape',
+        asset.source.path,
+        'Asset source path resolves outside the project root.',
+      );
+    }
   }
 
   return {

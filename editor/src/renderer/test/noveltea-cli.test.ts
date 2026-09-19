@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { posix } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
 import {
@@ -1115,6 +1116,75 @@ describe('NovelTea headless CLI', () => {
         }),
       ]),
     });
+  });
+
+  it('rejects an assets root that resolves outside the Project', async () => {
+    const value = fixture();
+    value.fileSystem.relativePath = posix.relative;
+    await value.fileSystem.writeTextAtomic(`${root}/assets/text/example.txt`, 'outside');
+    const realpath = value.fileSystem.realpath.bind(value.fileSystem);
+    value.fileSystem.realpath = async (pathValue: string) =>
+      pathValue.startsWith(`${root}/assets`)
+        ? pathValue.replace(root, '/outside')
+        : realpath(pathValue);
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).toBe(4);
+    expect(audit.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'asset.audit.path_escape', path: 'assets' }),
+    );
+  });
+
+  it('checks declared Asset source containment outside the conventional assets tree', async () => {
+    const value = fixture();
+    value.fileSystem.relativePath = posix.relative;
+    const source = `${root}/resources/example.txt`;
+    await value.fileSystem.writeTextAtomic(source, 'text');
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/assets/example.json`,
+      JSON.stringify({
+        id: 'example',
+        label: 'Example',
+        data: {
+          kind: 'text',
+          source: { type: 'project-file', path: 'resources/example.txt' },
+          aliases: [],
+          imageMetadata: null,
+        },
+      }),
+    );
+    const contained = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+    expect(contained.exitCode).toBe(0);
+
+    const realpath = value.fileSystem.realpath.bind(value.fileSystem);
+    value.fileSystem.realpath = async (pathValue: string) =>
+      pathValue === source ? '/outside/example.txt' : realpath(pathValue);
+    const escaped = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(escaped.exitCode).toBe(4);
+    expect(escaped.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'asset.audit.path_escape',
+        path: 'resources/example.txt',
+      }),
+    );
+  });
+
+  it('rejects directory cycles during Asset inventory traversal', async () => {
+    const value = fixture();
+    value.fileSystem.relativePath = posix.relative;
+    await value.fileSystem.writeTextAtomic(`${root}/assets/loop/example.txt`, 'text');
+    const realpath = value.fileSystem.realpath.bind(value.fileSystem);
+    value.fileSystem.realpath = async (pathValue: string) =>
+      pathValue === `${root}/assets/loop` ? `${root}/assets` : realpath(pathValue);
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).toBe(4);
+    expect(audit.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'asset.audit.path_cycle', path: 'assets/loop' }),
+    );
   });
 
   it('reports an Asset-directory symlink escape as a semantic audit failure', async () => {
