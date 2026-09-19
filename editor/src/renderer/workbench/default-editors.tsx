@@ -33,6 +33,7 @@ import { PlaceholderEntityEditor } from '@/editors/placeholder/PlaceholderEntity
 import { InteractionEditor } from '@/editors/interactions/InteractionEditor';
 import { MapEditor } from '@/editors/maps/MapEditor';
 import { ScriptModuleEditor } from '@/editors/scripts/ScriptModuleEditor';
+import { SourceFileEditor } from '@/editors/source/SourceFileEditor';
 import { VerbEditor } from '@/editors/verbs/VerbEditor';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import { SceneEditor } from '@/editors/scenes/SceneEditor';
@@ -185,6 +186,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Map Detail',
     icon: Puzzle,
     component: MapEditor,
+  },
+  {
+    type: 'source-file',
+    label: 'Source File',
+    icon: FileCode,
+    component: SourceFileEditor,
   },
   {
     type: 'script-module-detail',

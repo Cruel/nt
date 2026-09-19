@@ -157,6 +157,7 @@ Object.defineProperty(window, 'noveltea', {
       diagnostics: [],
     }),
     validateProject: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
+    listProjectSourceFiles: vi.fn().mockResolvedValue({ files: [] }),
     readProjectTextSources: vi
       .fn()
       .mockImplementation(async (request: ReadProjectTextSourcesRequest) => ({

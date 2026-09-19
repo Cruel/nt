@@ -109,6 +109,7 @@ const NON_CONTENT_EDITOR_TYPES = new Set([
   'comfyui-workflows',
   'components',
   'settings',
+  'source-file',
 ]);
 
 function canonicalPaths(paths: JsonPointer[]): JsonPointer[] {

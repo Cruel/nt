@@ -20,6 +20,8 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
+import type { ProjectSourceFile } from '../../shared/project-source-files';
+import { projectSourceStableId } from '../../shared/project-source-files';
 import { visualForEditorType } from '@/workspace/collection-visuals';
 import type { WorkbenchTab } from './workbench-types';
 
@@ -343,6 +345,22 @@ export function buildImageGenerationTab(
       collection: 'assets',
       entityId: options.sourceAssetId,
       generationMode: options.mode ?? 'generate',
+    },
+  };
+}
+
+export function buildProjectSourceTab(source: ProjectSourceFile): WorkbenchTab {
+  const title = source.displayPath.split('/').at(-1) ?? source.displayPath;
+  return {
+    id: `tab:source-file:${source.id}`,
+    title,
+    editorType: 'source-file',
+    resource: {
+      kind: 'source',
+      stableId: projectSourceStableId(source.id),
+      sourceId: source.id,
+      projectRelativePath: source.projectRelativePath,
+      explorerNodeId: `file:${source.id}`,
     },
   };
 }

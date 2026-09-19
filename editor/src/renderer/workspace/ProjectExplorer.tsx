@@ -41,6 +41,7 @@ import {
   diagnosticSeverityForRecord,
 } from '@/diagnostics/project-diagnostic-severity';
 import { useProjectStore } from '@/project/project-store';
+import { findProjectSourceByAssetId, useProjectSourceStore } from '@/project/project-source-store';
 import {
   MUTATION_SURFACE_ATTRIBUTIONS,
   recordSaveUnitId,
@@ -82,6 +83,7 @@ import {
   buildLocalizationTab,
   buildProjectChaptersTab,
   buildProjectSettingsTab,
+  buildProjectSourceTab,
   buildProjectTagsTab,
   buildTestsEditorTab,
   buildVariablesEditorTab,
@@ -102,6 +104,12 @@ import {
   type ProjectExplorerNode,
 } from './project-explorer-tree';
 import { recordTargetKey, useProjectExplorerStore } from './project-explorer-store';
+import {
+  buildProjectFilesTree,
+  filterProjectFiles,
+  projectFilesPlacementForSource,
+  type ProjectFilesNode,
+} from './project-files-tree';
 import { RecentProjectsList } from './WorkspaceDashboard';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { NewEntityWizardDialog } from '@/wizard/new-entity/NewEntityWizardDialog';
@@ -1314,9 +1322,85 @@ function ProjectExplorerItem({
   );
 }
 
+function ProjectFilesItem({ node, depth = 0 }: { node: ProjectFilesNode; depth?: number }) {
+  const expandedNodeIds = useProjectExplorerStore((state) => state.expandedNodeIds);
+  const followExpandedNodeIds = useProjectExplorerStore((state) => state.followExpandedNodeIds);
+  const activeNodeId = useProjectExplorerStore((state) => state.activeNodeId);
+  const setActiveNodeId = useProjectExplorerStore((state) => state.setActiveNodeId);
+  const toggleExpanded = useProjectExplorerStore((state) => state.toggleExpanded);
+  const suppressFollowNodeId = useProjectExplorerStore((state) => state.suppressFollowNodeId);
+  const openTab = useWorkbenchStore((state) => state.openTab);
+  const manuallyExpanded = expandedNodeIds.includes(node.id);
+  const followExpanded = followExpandedNodeIds.includes(node.id);
+  const expanded = manuallyExpanded || followExpanded;
+  const canExpand = node.kind === 'folder' && Boolean(node.children?.length);
+  const Icon = node.kind === 'folder' ? FolderOpen : FileCode;
+
+  function openNode() {
+    setActiveNodeId(node.id);
+    if (node.kind === 'folder') {
+      if (!canExpand) return;
+      if (expanded) suppressFollowNodeId(node.id);
+      if (!followExpanded || manuallyExpanded) toggleExpanded(node.id);
+      return;
+    }
+    if (!node.source) return;
+    if (node.source.text) {
+      openTab(buildProjectSourceTab(node.source));
+      return;
+    }
+    const assetId = node.source.assetIds?.[0];
+    if (!assetId) return;
+    const tab = buildDefaultRecordTab({
+      id: `assets:${assetId}`,
+      label: assetId,
+      type: 'asset',
+      collection: 'assets',
+      entityId: assetId,
+    });
+    if (tab)
+      openTab({
+        ...tab,
+        resource: tab.resource ? { ...tab.resource, explorerNodeId: node.id } : tab.resource,
+      });
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        data-explorer-node-id={node.id}
+        className={`flex w-full min-w-0 items-center gap-1 rounded-sm px-2 py-1 text-left text-sm transition-colors hover:bg-accent ${
+          activeNodeId === node.id ? 'bg-accent text-accent-foreground' : ''
+        }`}
+        style={{ paddingLeft: `${8 + depth * 14}px` }}
+        onClick={openNode}
+      >
+        {canExpand ? (
+          expanded ? (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
+        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{node.label}</span>
+      </button>
+      {canExpand && expanded
+        ? node.children?.map((child) => (
+            <ProjectFilesItem key={child.id} node={child} depth={depth + 1} />
+          ))
+        : null}
+    </div>
+  );
+}
+
 export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const scriptSourcePaths = useProjectStore((state) => state.scriptSourcePaths);
   const expandedNodeIds = useProjectExplorerStore((state) => state.expandedNodeIds);
@@ -1330,6 +1414,8 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const filterTags = useProjectExplorerStore((state) => state.filterTags);
   const showTagFilter = useProjectExplorerStore((state) => state.showTagFilter);
   const exactMatch = useProjectExplorerStore((state) => state.exactMatch);
+  const navigationMode = useProjectExplorerStore((state) => state.navigationMode);
+  const setNavigationMode = useProjectExplorerStore((state) => state.setNavigationMode);
   const chapters = useProjectExplorerStore((state) => state.chapters);
   const hydrateExplorer = useProjectExplorerStore((state) => state.hydrate);
   const setSearchQuery = useProjectExplorerStore((state) => state.setSearchQuery);
@@ -1345,6 +1431,10 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const clearFollowSuppressedNodeIds = useProjectExplorerStore(
     (state) => state.clearFollowSuppressedNodeIds,
   );
+  const sourceFiles = useProjectSourceStore((state) => state.files);
+  const sourceTextById = useProjectSourceStore((state) => state.textById);
+  const refreshProjectSources = useProjectSourceStore((state) => state.refresh);
+  const clearProjectSources = useProjectSourceStore((state) => state.clear);
   const activeGroupId = useWorkbenchStore((state) => state.activeGroupId);
   const groupsById = useWorkbenchStore((state) => state.groupsById);
   const tabsById = useWorkbenchStore((state) => state.tabsById);
@@ -1355,6 +1445,8 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [hoverDetails, setHoverDetails] = useState<HoverDetailsState | null>(null);
   const lastProjectKey = useRef<string | null>(null);
+  const lastFollowedActiveTabId = useRef<string | null>(null);
+  const observedInitialActiveTab = useRef(false);
 
   function hoverDetailsX() {
     return treeScrollRef.current?.getBoundingClientRect().right ?? null;
@@ -1372,6 +1464,14 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     hydrateExplorer(editorState.explorer, editorState.chapters);
   }, [hydrateExplorer, project, projectFilePath]);
 
+  useEffect(() => {
+    if (!project || !projectSessionId) {
+      clearProjectSources();
+      return;
+    }
+    void refreshProjectSources(projectSessionId);
+  }, [clearProjectSources, project, projectSessionId, refreshProjectSources]);
+
   const explorer = useMemo(
     () => ({
       expandedNodeIds,
@@ -1385,6 +1485,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       filterTags,
       showTagFilter,
       exactMatch,
+      navigationMode,
     }),
     [
       expandedNodeIds,
@@ -1394,6 +1495,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       groupUnassignedItems,
       hiddenCollectionKeys,
       hideEmptyCategories,
+      navigationMode,
       organizeByChapter,
       searchQuery,
       showInfoOnHover,
@@ -1453,6 +1555,14 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       project ? buildProjectExplorerTree(project, { explorer, chapters, visibleRecordKeys }) : [],
     [chapters, explorer, project, visibleRecordKeys],
   );
+  const filteredSourceFiles = useMemo(
+    () => filterProjectFiles(sourceFiles, sourceTextById, searchQuery, exactMatch),
+    [exactMatch, searchQuery, sourceFiles, sourceTextById],
+  );
+  const filesTree = useMemo(
+    () => buildProjectFilesTree(filteredSourceFiles),
+    [filteredSourceFiles],
+  );
   const activeTabId = groupsById[activeGroupId]?.activeTabId ?? null;
   const activeTab = useMemo(
     () => (activeTabId ? (tabsById[activeTabId] ?? null) : null),
@@ -1464,7 +1574,28 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   }, [activeTabId, clearFollowSuppressedNodeIds]);
 
   useEffect(() => {
-    if (!followActiveTab || !activeTab) {
+    if (!observedInitialActiveTab.current) {
+      observedInitialActiveTab.current = true;
+      lastFollowedActiveTabId.current = activeTabId;
+      return;
+    }
+    if (activeTabId === lastFollowedActiveTabId.current) return;
+    lastFollowedActiveTabId.current = activeTabId;
+    if (!activeTab) return;
+    if (activeTab.resource?.kind === 'source') {
+      setNavigationMode('files');
+      return;
+    }
+    if (activeTab.resource?.kind === 'record' && activeTab.resource.collection === 'assets') {
+      setNavigationMode('files');
+      return;
+    }
+    if (activeTab.resource?.kind === 'record' || activeTab.resource?.kind === 'project')
+      setNavigationMode('project');
+  }, [activeTab, activeTabId, setNavigationMode]);
+
+  useEffect(() => {
+    if (navigationMode !== 'project' || !followActiveTab || !activeTab) {
       setFollowExpandedNodeIds([]);
       return;
     }
@@ -1485,9 +1616,49 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     expandedNodeIds,
     followActiveTab,
     followSuppressedNodeIds,
+    navigationMode,
     setActiveNodeId,
     setFollowExpandedNodeIds,
     tree,
+  ]);
+
+  useEffect(() => {
+    if (navigationMode !== 'files' || !followActiveTab || !activeTab) return;
+    const source =
+      activeTab.resource?.kind === 'source' && activeTab.resource.sourceId
+        ? (sourceFiles.find((candidate) => candidate.id === activeTab.resource?.sourceId) ?? null)
+        : activeTab.resource?.kind === 'record' &&
+            activeTab.resource.collection === 'assets' &&
+            activeTab.resource.entityId
+          ? findProjectSourceByAssetId(sourceFiles, activeTab.resource.entityId)
+          : null;
+    if (!source) {
+      setActiveNodeId(null);
+      setFollowExpandedNodeIds([]);
+      return;
+    }
+    const placement = projectFilesPlacementForSource(filesTree, source.id);
+    if (!placement) {
+      setActiveNodeId(null);
+      setFollowExpandedNodeIds([]);
+      return;
+    }
+    setActiveNodeId(placement.node.id);
+    setFollowExpandedNodeIds(
+      placement.ancestorIds.filter(
+        (nodeId) => !expandedNodeIds.includes(nodeId) && !followSuppressedNodeIds.includes(nodeId),
+      ),
+    );
+  }, [
+    activeTab,
+    expandedNodeIds,
+    filesTree,
+    followActiveTab,
+    followSuppressedNodeIds,
+    navigationMode,
+    setActiveNodeId,
+    setFollowExpandedNodeIds,
+    sourceFiles,
   ]);
 
   useEffect(() => {
@@ -1502,7 +1673,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
         ?.scrollIntoView({ block: 'nearest' });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeNodeId, followActiveTab, tree]);
+  }, [activeNodeId, filesTree, followActiveTab, navigationMode, tree]);
 
   useEffect(() => {
     if (!project) return;
@@ -1557,9 +1728,11 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
         <SearchInput
           value={searchQuery}
           onValueChange={setSearchQuery}
-          placeholder="Search project"
-          aria-label="Search project"
-          clearAriaLabel="Clear project search"
+          placeholder={navigationMode === 'project' ? 'Search project' : 'Search files'}
+          aria-label={navigationMode === 'project' ? 'Search project' : 'Search files'}
+          clearAriaLabel={
+            navigationMode === 'project' ? 'Clear project search' : 'Clear file search'
+          }
           inputClassName="h-8 rounded-none border-0 border-b bg-transparent pr-24 text-xs focus-visible:ring-0"
           endActions={
             <>
@@ -1573,20 +1746,22 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
               >
                 <WholeWord className="size-3.5" />
               </button>
-              <button
-                type="button"
-                className={`flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${showTagFilter ? 'bg-accent text-accent-foreground' : ''}`}
-                aria-pressed={showTagFilter}
-                aria-label="Toggle tag filter"
-                title="Toggle tag filter"
-                onClick={() => setShowTagFilter(!showTagFilter)}
-              >
-                <Tags className="size-3.5" />
-              </button>
+              {navigationMode === 'project' ? (
+                <button
+                  type="button"
+                  className={`flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${showTagFilter ? 'bg-accent text-accent-foreground' : ''}`}
+                  aria-pressed={showTagFilter}
+                  aria-label="Toggle tag filter"
+                  title="Toggle tag filter"
+                  onClick={() => setShowTagFilter(!showTagFilter)}
+                >
+                  <Tags className="size-3.5" />
+                </button>
+              ) : null}
             </>
           }
         />
-        {showTagFilter ? (
+        {navigationMode === 'project' && showTagFilter ? (
           <TagInput
             className="text-xs [&>div:first-child]:min-h-8 [&>div:first-child]:rounded-none [&>div:first-child]:border-0 [&>div:first-child]:bg-transparent [&>div:first-child]:py-0 [&>div:first-child]:pl-2 [&>div:first-child]:pr-8 [&>div:first-child]:focus-within:ring-0"
             value={filterTags}
@@ -1596,32 +1771,57 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
             allowCreate={false}
           />
         ) : null}
-        {searchResponse?.diagnostics.length ? (
+        {navigationMode === 'project' && searchResponse?.diagnostics.length ? (
           <div className="text-xs text-destructive">{searchResponse.diagnostics[0]?.message}</div>
         ) : null}
       </div>
       <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto p-1">
-        {tree.map((node) => (
-          <ProjectExplorerItem
-            key={node.id}
-            node={node}
-            project={project}
-            onContextMenu={setContextMenu}
-            onHoverDetails={showInfoOnHover ? setHoverDetails : () => undefined}
-            getHoverDetailsX={hoverDetailsX}
-          />
-        ))}
-        {tree.length === 0 && isFiltering ? (
+        {navigationMode === 'project'
+          ? tree.map((node) => (
+              <ProjectExplorerItem
+                key={node.id}
+                node={node}
+                project={project}
+                onContextMenu={setContextMenu}
+                onHoverDetails={showInfoOnHover ? setHoverDetails : () => undefined}
+                getHoverDetailsX={hoverDetailsX}
+              />
+            ))
+          : filesTree.map((node) => <ProjectFilesItem key={node.id} node={node} />)}
+        {navigationMode === 'project' && tree.length === 0 && isFiltering ? (
           <div className="p-3 text-xs text-muted-foreground">
             No project records match the current search.
           </div>
         ) : null}
+        {navigationMode === 'files' && filesTree.length === 0 ? (
+          <div className="p-3 text-xs text-muted-foreground">
+            {searchQuery.trim() ? 'No files match the current search.' : 'No author-managed files.'}
+          </div>
+        ) : null}
       </div>
-      {showInfoOnHover ? (
+      <div className="grid shrink-0 grid-cols-2 border-t p-1">
+        <Button
+          size="sm"
+          variant={navigationMode === 'project' ? 'secondary' : 'ghost'}
+          className="h-7 rounded-r-none"
+          onClick={() => setNavigationMode('project')}
+        >
+          Project
+        </Button>
+        <Button
+          size="sm"
+          variant={navigationMode === 'files' ? 'secondary' : 'ghost'}
+          className="h-7 rounded-l-none"
+          onClick={() => setNavigationMode('files')}
+        >
+          Files
+        </Button>
+      </div>
+      {navigationMode === 'project' && showInfoOnHover ? (
         <ProjectExplorerHoverDetails state={hoverDetails} project={project} />
       ) : null}
       <ExplorerContextMenu
-        state={contextMenu}
+        state={navigationMode === 'project' ? contextMenu : null}
         project={project}
         onClose={() => setContextMenu(null)}
         openDialog={setDialogState}

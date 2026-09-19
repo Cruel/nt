@@ -223,6 +223,8 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.on(IPC_CHANNELS.EDITOR_CACHE_EPOCH_EVENT, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.EDITOR_CACHE_EPOCH_EVENT, listener);
   },
+  listProjectSourceFiles: (request) =>
+    invokeGuarded(IPC_CHANNELS.LIST_PROJECT_SOURCE_FILES, request),
   readProjectTextSources: (request) =>
     invokeGuarded(IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES, request),
   loadComfyUiUserConfig: () => ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LOAD_USER_CONFIG),

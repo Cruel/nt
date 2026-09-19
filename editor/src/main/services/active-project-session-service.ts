@@ -19,6 +19,11 @@ import {
   type ReadProjectTextSourcesRequest,
   type ReadProjectTextSourcesResponse,
 } from '../../shared/project-text-sources';
+import type {
+  ListProjectSourceFilesRequest,
+  ListProjectSourceFilesResponse,
+  ProjectSourceFile,
+} from '../../shared/project-source-files';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import type { LoadedProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
 import { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
@@ -228,6 +233,95 @@ export class ActiveProjectSessionService {
     ) {
       throw new Error('Project activation was superseded.');
     }
+  }
+
+  async listProjectSourceFiles(
+    request: ListProjectSourceFilesRequest,
+  ): Promise<ListProjectSourceFilesResponse> {
+    const active = this.active;
+    if (!active || request.projectSessionId !== active.id) {
+      throw new Error('Project session is stale or unknown.');
+    }
+
+    const files = new Map<string, ProjectSourceFile>();
+    const addTree = async (rootName: 'scripts' | 'shaders' | 'assets') => {
+      const root = path.join(active.root, rootName);
+      const visit = async (directory: string): Promise<void> => {
+        let entries: import('node:fs').Dirent[];
+        try {
+          entries = await fs.readdir(directory, { withFileTypes: true });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+          throw error;
+        }
+        for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+          const candidate = path.join(directory, entry.name);
+          const real = await fs.realpath(candidate);
+          const relativeReal = path.relative(active.root, real);
+          if (relativeReal.startsWith('..') || path.isAbsolute(relativeReal)) continue;
+          const stat = await fs.stat(real);
+          if (stat.isDirectory()) {
+            await visit(candidate);
+            continue;
+          }
+          if (!stat.isFile()) continue;
+          const projectRelativePath = path
+            .relative(active.root, candidate)
+            .split(path.sep)
+            .join('/');
+          if (rootName === 'scripts' && !projectRelativePath.endsWith('.lua')) continue;
+          const kind = rootName === 'scripts' ? 'lua' : rootName === 'shaders' ? 'shader' : 'asset';
+          files.set(projectRelativePath, {
+            id: projectRelativePath,
+            displayPath: projectRelativePath,
+            projectRelativePath,
+            kind,
+            text: kind !== 'asset',
+          });
+        }
+      };
+      await visit(root);
+    };
+
+    await Promise.all([addTree('scripts'), addTree('shaders'), addTree('assets')]);
+    if (this.active !== active) throw new Error('Project session is stale or unknown.');
+
+    for (const [assetId, asset] of active.assets) {
+      const current = files.get(asset.sourcePath);
+      if (!current) continue;
+      files.set(asset.sourcePath, {
+        ...current,
+        assetIds: Object.freeze([...(current.assetIds ?? []), assetId].sort()),
+      });
+    }
+
+    const snapshot = active.workspace?.snapshot();
+    if (snapshot) {
+      const canonical = new Set(snapshot.canonicalSourceFiles);
+      for (const [layoutId] of Object.entries(snapshot.project.layouts)) {
+        for (const channel of ['rml', 'rcss', 'lua'] as const) {
+          const physicalPath = `records/layouts/${layoutId}/layout.${channel}`;
+          if (!canonical.has(physicalPath)) continue;
+          const displayPath = `layouts/${layoutId}/layout.${channel}`;
+          files.set(displayPath, {
+            id: displayPath,
+            displayPath,
+            projectRelativePath: physicalPath,
+            kind: `layout-${channel}`,
+            text: true,
+            layout: { id: layoutId, channel },
+          });
+        }
+      }
+    }
+
+    return {
+      files: Object.freeze(
+        [...files.values()].sort((left, right) =>
+          left.displayPath.localeCompare(right.displayPath),
+        ),
+      ),
+    };
   }
 
   async read(request: ReadProjectTextSourcesRequest): Promise<ReadProjectTextSourcesResponse> {
