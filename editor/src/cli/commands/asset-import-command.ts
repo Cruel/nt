@@ -316,7 +316,6 @@ export const assetImportCommand: CliCommandDefinition = {
     return {
       dryRun,
       mutation: !dryRun,
-      mutationEffect: dryRun ? undefined : 'transactional-project',
       run: (context) => importAssets(context, parsed.positionals, dryRun),
     };
   },

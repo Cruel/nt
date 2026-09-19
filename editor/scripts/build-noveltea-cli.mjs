@@ -76,6 +76,7 @@ const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-isl
 const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
 const hostProcessSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-process.ts');
 const staticContractsSource = path.join(editorRoot, 'src', 'cli', 'static-contracts.ts');
+const commandRoutingSource = path.join(editorRoot, 'src', 'cli', 'command-routing.ts');
 const productVersionSource = path.join(editorRoot, 'src', 'shared', 'product-version.ts');
 
 if (process.argv.length > 2)
@@ -437,9 +438,11 @@ try {
   const stagedHost = path.join(stageRoot, 'noveltea-scriptc-host.ts');
   const stagedHostProcess = path.join(stageRoot, 'noveltea-scriptc-process.ts');
   const stagedStaticContracts = path.join(stageRoot, 'static-contracts.ts');
+  const stagedCommandRouting = path.join(stageRoot, 'command-routing.ts');
   const stagedProductVersion = path.join(stageRoot, 'product-version.ts');
   const stagedHostSource = (await readFile(hostSource, 'utf8'))
     .replace('../src/cli/static-contracts', './static-contracts')
+    .replace('../src/cli/command-routing', './command-routing')
     .replaceAll(
       '// @ts-expect-error The private island package is materialized only during release staging.',
       '',
@@ -452,6 +455,7 @@ try {
     .replace('__NOVELTEA_VERSION__', JSON.stringify(productVersion))
     .replace('__NOVELTEA_BUILD_IDENTITY__', JSON.stringify(buildIdentity));
   await writeFile(stagedStaticContracts, stagedStaticContractsSource);
+  await cp(commandRoutingSource, stagedCommandRouting);
   await writeFile(stagedProductVersion, stagedProductVersionSource);
   await cp(hostProcessSource, stagedHostProcess);
   await writeFile(stagedHost, stagedHostSource);

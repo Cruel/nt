@@ -22,7 +22,6 @@ export const entityDeleteCommand: CliCommandDefinition = {
     return {
       dryRun,
       mutation: !dryRun,
-      mutationEffect: dryRun ? undefined : 'transactional-project',
       run: ({ workspace, snapshot }) =>
         deleteEntity(workspace, snapshot, collection, id!, {
           dryRun,

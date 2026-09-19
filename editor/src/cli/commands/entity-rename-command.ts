@@ -20,7 +20,6 @@ export const entityRenameCommand: CliCommandDefinition = {
     return {
       dryRun,
       mutation: !dryRun,
-      mutationEffect: dryRun ? undefined : 'transactional-project',
       run: ({ workspace, snapshot }) =>
         renameEntity(workspace, snapshot, collection, fromId!, toId!, {
           dryRun,

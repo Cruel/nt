@@ -8,6 +8,7 @@ import type {
   ProjectWorkspaceService,
 } from '../shared/project-workspace/project-workspace-service';
 import { bootstrapNovelTeaCli, novelTeaCliUsageFailure } from './bootstrap';
+import { classifyNovelTeaCliCommand } from './command-routing';
 import {
   cliDiagnostic,
   formatCliResult,
@@ -173,6 +174,12 @@ export async function runNovelTeaCli(
   const bootstrap = bootstrapNovelTeaCli(argv);
   if (bootstrap.complete) return bootstrap.result;
   const globals = bootstrap.globals;
+  const routing = classifyNovelTeaCliCommand(globals.command);
+  if (!routing)
+    return novelTeaCliUsageFailure(
+      `Unknown command path '${globals.command.join(' ')}'.`,
+      globals.json,
+    );
 
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const platformTools = options.platformTools ?? unavailablePlatformTools;
@@ -209,7 +216,7 @@ export async function runNovelTeaCli(
     const services = await workspaceServices();
     const { runNovelTeaProjectBundleCli } = await import('./project-bundle-cli');
     const bundleWorkspace =
-      globals.command[1] === 'export' && options.residentWorkspace
+      routing.projectAccess === 'read' && options.residentWorkspace
         ? options.residentWorkspace
         : services.workspace;
     const projectBundle = await runNovelTeaProjectBundleCli(
@@ -229,7 +236,7 @@ export async function runNovelTeaCli(
   if (globals.command[0] === 'comfyui') {
     const services = await workspaceServices();
     const opaqueProjectRoot =
-      globals.command[1] === 'run' && options.residentWorkspace
+      routing.projectAccess === 'opaque-write' && options.residentWorkspace
         ? globals.project
           ? path.resolve(cwd, globals.project)
           : await (async () => {
@@ -247,7 +254,10 @@ export async function runNovelTeaCli(
         json: globals.json,
         cwd,
         fileSystem: services.fileSystem,
-        workspace: services.workspace,
+        workspace:
+          routing.projectAccess === 'opaque-write' && options.residentWorkspace
+            ? options.residentWorkspace
+            : services.workspace,
         libraryOptions: options.comfyUiWorkflowLibraryOptions,
         abortSignal: options.comfyUiAbortSignal,
         onRunProgress: options.onComfyUiProgress,
@@ -395,14 +405,7 @@ export async function runNovelTeaCli(
   }
 
   let stdinJson: unknown;
-  if (
-    (globals.command.length === 2 &&
-      globals.command[0] === 'test' &&
-      (globals.command[1] === 'run-spec' || globals.command[1] === 'run-ui-spec')) ||
-    (globals.command[0] === 'localization' &&
-      globals.command[1] === 'reconcile' &&
-      globals.command.includes('--apply'))
-  ) {
+  if (routing.stdin === 'json') {
     try {
       const stdinText = options.stdinText ?? options.readStdinText?.();
       if (!stdinText || stdinText.trim() === '')
@@ -493,9 +496,10 @@ export async function runNovelTeaCli(
   }
 
   const services = await workspaceServices();
-  const residentEligible = !command.mutation || command.mutationEffect !== undefined;
   const activeWorkspace =
-    residentEligible && options.residentWorkspace ? options.residentWorkspace : services.workspace;
+    routing.projectAccess !== 'none' && options.residentWorkspace
+      ? options.residentWorkspace
+      : services.workspace;
   const residentProjectSession = activeWorkspace === options.residentWorkspace;
   const validationCache =
     globals.command[0] === 'validate' && nativeTools.validateFontCoverage
@@ -551,7 +555,7 @@ export async function runNovelTeaCli(
     reusableSourceContributions: reusableAuthoring?.sourceContributions,
     reusableValidationContributions: reusableAuthoring?.validationContributions,
     reusableDependencyState: reusableAuthoring?.dependencyState,
-    ...(command.mutationEffect === 'transactional-project' && options.residentWorkspace
+    ...(routing.projectAccess === 'transactional-write' && options.residentWorkspace
       ? {
           openProject: (projectRoot, openOptions) =>
             options.residentWorkspace!.openForMutation(projectRoot, openOptions),
@@ -616,12 +620,12 @@ export async function runNovelTeaCli(
         forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
       });
     } finally {
-      if (command.mutationEffect === 'opaque' && options.residentWorkspace)
+      if (routing.projectAccess === 'opaque-write' && options.residentWorkspace)
         await options.residentWorkspace.reconcileAfterOpaqueWrite(discovery.projectRoot);
     }
 
     if (
-      !command.mutation &&
+      routing.projectAccess === 'read' &&
       activeWorkspace === options.residentWorkspace &&
       !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))
     ) {
