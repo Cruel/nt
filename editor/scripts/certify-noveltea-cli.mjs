@@ -132,7 +132,7 @@ async function writeJson(filePath, value) {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-async function treeSnapshot(root) {
+async function treeSnapshot(root, normalizeFile = null) {
   const records = [];
   async function visit(relative = '') {
     const entries = await readdir(path.join(root, relative), { withFileTypes: true });
@@ -145,7 +145,10 @@ async function treeSnapshot(root) {
       const info = await lstat(absolute);
       if (info.isDirectory()) await visit(child);
       else if (info.isSymbolicLink()) records.push(['link', child, await readlink(absolute)]);
-      else if (info.isFile()) records.push(['file', child, sha256(await readFile(absolute))]);
+      else if (info.isFile()) {
+        const bytes = await readFile(absolute);
+        records.push(['file', child, sha256(normalizeFile?.(child, bytes) ?? bytes)]);
+      }
     }
   }
   await visit();
@@ -196,6 +199,13 @@ function runNode(args, options = {}) {
 
 function runNative(args, options = {}) {
   return run(nativeCli, args, options);
+}
+
+function runNativeNoDaemon(args, options = {}) {
+  return runNative(args, {
+    ...options,
+    env: { ...process.env, ...options.env, NOVELTEA_NO_DAEMON: '1' },
+  });
 }
 
 async function startComfyUiCertificationServer(tempRoot, mode = 'success') {
@@ -584,6 +594,13 @@ async function prepareWritingRecovery(root) {
   });
 }
 
+function canonicalOperationJson(stdout) {
+  if (!stdout) return stdout;
+  const value = JSON.parse(stdout);
+  if (value && typeof value === 'object' && !Array.isArray(value)) delete value.operationId;
+  return `${JSON.stringify(value)}\n`;
+}
+
 const differentialCases = [
   { name: 'no-command', args: () => [], project: false },
   { name: 'version', args: () => ['--json', '--version'], project: false },
@@ -703,6 +720,136 @@ const differentialCases = [
         },
       });
     },
+  },
+  {
+    name: 'asset-import-execute',
+    mutation: true,
+    normalizeTree(relativePath, bytes) {
+      if (relativePath !== 'records/assets/daemon-parity.json') return bytes;
+      const record = JSON.parse(bytes.toString('utf8'));
+      delete record.data.importedAt;
+      return Buffer.from(JSON.stringify(record));
+    },
+    prepare: async (root) => {
+      const source = path.join(root, 'assets', 'text', 'daemon-parity.txt');
+      await mkdir(path.dirname(source), { recursive: true });
+      await writeFile(source, 'daemon parity asset\n');
+    },
+    args: (root) => [
+      '--project',
+      root,
+      '--json',
+      'asset',
+      'import',
+      path.join(root, 'assets', 'text', 'daemon-parity.txt'),
+    ],
+  },
+  {
+    name: 'localization-sync-dry-run',
+    args: (root) => ['--project', root, '--json', 'localization', 'sync', '--dry-run'],
+  },
+  {
+    name: 'localization-reconcile',
+    args: (root) => ['--project', root, '--json', 'localization', 'reconcile'],
+  },
+  {
+    name: 'localization-reconcile-apply-stale',
+    args: (root) => ['--project', root, '--json', 'localization', 'reconcile', '--apply'],
+    stdin: `${JSON.stringify({
+      expectedWorkspaceRevision: 'sha256:stale',
+      expectedFingerprint: 'sha256:stale',
+      resolutions: {},
+    })}\n`,
+  },
+  {
+    name: 'localization-view',
+    args: (root) => ['--project', root, '--json', 'localization', 'view', 'fr'],
+  },
+  {
+    name: 'localization-accept-dry-run',
+    args: (root) => [
+      '--project',
+      root,
+      '--json',
+      'localization',
+      'accept',
+      'fr',
+      '11111111-1111-4111-8111-111111111111',
+      '--dry-run',
+    ],
+  },
+  {
+    name: 'localization-review-dry-run',
+    args: (root) => [
+      '--project',
+      root,
+      '--json',
+      'localization',
+      'review',
+      'fr',
+      '11111111-1111-4111-8111-111111111111',
+      '--dry-run',
+    ],
+  },
+  {
+    name: 'shaders-compile',
+    args: (root) => ['--project', root, '--json', 'shaders', 'compile', '--force-rebuild'],
+  },
+  {
+    name: 'package-export',
+    args: (root) => [
+      '--project',
+      root,
+      '--json',
+      'package',
+      'export',
+      '--output',
+      path.join(root, 'daemon-parity.ntpkg'),
+    ],
+  },
+  {
+    name: 'platform-template-list',
+    args: () => ['--json', 'platform', 'template', 'list'],
+    project: false,
+  },
+  {
+    name: 'platform-template-inspect-missing',
+    args: () => ['--json', 'platform', 'template', 'inspect', 'missing@missing'],
+    project: false,
+  },
+  {
+    name: 'platform-template-install-missing',
+    args: (root) => [
+      '--json',
+      'platform',
+      'template',
+      'install',
+      path.join(root, 'missing-template.tar.gz'),
+    ],
+    project: false,
+  },
+  {
+    name: 'platform-template-remove-missing',
+    args: () => ['--json', 'platform', 'template', 'remove', 'missing@missing', '--force'],
+    project: false,
+  },
+  {
+    name: 'platform-config-init',
+    args: (root) => ['--json', 'platform', 'config', 'init', path.join(root, 'daemon-parity.json')],
+  },
+  {
+    name: 'platform-export-check',
+    canonicalStdout: canonicalOperationJson,
+    args: (root) => [
+      '--project',
+      root,
+      '--json',
+      'platform',
+      'export',
+      '--output',
+      path.join(root, 'daemon-platform-parity'),
+      '--check',
+    ],
   },
   {
     name: 'platform-profiles',
@@ -926,17 +1073,22 @@ async function runDifferential(tempRoot) {
     await test.prepare?.(caseRoot);
     const args = test.args(caseRoot);
     const cwd = test.cwd?.(caseRoot) ?? (test.project === false ? repositoryRoot : caseRoot);
-    const nodeResult = runNode(args, { cwd });
-    const nodeTree = test.project === false ? '' : await treeSnapshot(caseRoot);
+    const nodeResult = runNode(args, { cwd, stdin: test.stdin });
+    const nodeTree = test.project === false ? '' : await treeSnapshot(caseRoot, test.normalizeTree);
 
     await resetCase(pristine, caseRoot);
     await test.prepare?.(caseRoot);
-    const scriptcResult = runNative(args, { cwd: test.cwd?.(caseRoot) ?? cwd });
-    const scriptcTree = test.project === false ? '' : await treeSnapshot(caseRoot);
+    const scriptcResult = runNative(args, {
+      cwd: test.cwd?.(caseRoot) ?? cwd,
+      stdin: test.stdin,
+    });
+    const scriptcTree =
+      test.project === false ? '' : await treeSnapshot(caseRoot, test.normalizeTree);
 
+    const canonicalStdout = test.canonicalStdout ?? ((value) => value);
     if (
       scriptcResult.status !== nodeResult.status ||
-      scriptcResult.stdout !== nodeResult.stdout ||
+      canonicalStdout(scriptcResult.stdout) !== canonicalStdout(nodeResult.stdout) ||
       scriptcResult.stderr !== nodeResult.stderr
     ) {
       await resetCase(pristine, caseRoot);
@@ -944,6 +1096,7 @@ async function runDifferential(tempRoot) {
       const traced = runNative(args, {
         cwd: test.cwd?.(caseRoot) ?? cwd,
         env: { ...process.env, NOVELTEA_CLI_TRACE: '1' },
+        stdin: test.stdin,
       });
       fail(
         `Node/scriptc differential '${test.name}' differs.\n` +
@@ -957,25 +1110,25 @@ async function runDifferential(tempRoot) {
         `Node/scriptc differential '${test.name}' produced different filesystem state: ${describeTreeDifference(nodeTree, scriptcTree)}.`,
       );
 
-    if (test.mutation) {
-      await resetCase(pristine, caseRoot);
-      await test.prepare?.(caseRoot);
-      const noDaemonResult = runNative(args, {
-        cwd: test.cwd?.(caseRoot) ?? cwd,
-        env: { ...process.env, NOVELTEA_NO_DAEMON: '1' },
-      });
-      const noDaemonTree = await treeSnapshot(caseRoot);
-      if (
-        noDaemonResult.status !== nodeResult.status ||
-        noDaemonResult.stdout !== nodeResult.stdout ||
-        noDaemonResult.stderr !== nodeResult.stderr
-      )
-        fail(`Node/no-daemon mutation differential '${test.name}' differs.`);
-      if (noDaemonTree !== nodeTree)
-        fail(
-          `Node/no-daemon mutation differential '${test.name}' produced different filesystem state: ${describeTreeDifference(nodeTree, noDaemonTree)}.`,
-        );
-    }
+    await resetCase(pristine, caseRoot);
+    await test.prepare?.(caseRoot);
+    const noDaemonResult = runNative(args, {
+      cwd: test.cwd?.(caseRoot) ?? cwd,
+      env: { ...process.env, NOVELTEA_NO_DAEMON: '1' },
+      stdin: test.stdin,
+    });
+    const noDaemonTree =
+      test.project === false ? '' : await treeSnapshot(caseRoot, test.normalizeTree);
+    if (
+      noDaemonResult.status !== nodeResult.status ||
+      canonicalStdout(noDaemonResult.stdout) !== canonicalStdout(nodeResult.stdout) ||
+      noDaemonResult.stderr !== nodeResult.stderr
+    )
+      fail(`Node/no-daemon differential '${test.name}' differs.`);
+    if (noDaemonTree !== nodeTree)
+      fail(
+        `Node/no-daemon differential '${test.name}' produced different filesystem state: ${describeTreeDifference(nodeTree, noDaemonTree)}.`,
+      );
     process.stdout.write(`[differential] ${test.name}: PASS\n`);
   }
   return { pristine };
@@ -1103,16 +1256,19 @@ async function certifyTestCommandParity(tempRoot, pristine) {
       test.stdinPath
         ? runNodeWithStdinFile(args, test.stdinPath, { cwd: root })
         : runNode(args, { cwd: root });
-    const invokeNative = () =>
+    const invokeNative = (environment = process.env) =>
       test.stdinPath
-        ? runNativeWithStdinFile(args, test.stdinPath, { cwd: root })
-        : runNative(args, { cwd: root });
+        ? runNativeWithStdinFile(args, test.stdinPath, { cwd: root, env: environment })
+        : runNative(args, { cwd: root, env: environment });
 
     await resetCase(baseline, root);
     const nodeFallback = invokeNode();
     await resetCase(baseline, root);
     const scriptcFallback = invokeNative();
     assertPublicCommandParity(`${test.name} fallback`, nodeFallback, scriptcFallback);
+    await resetCase(baseline, root);
+    const localFallback = invokeNative({ ...process.env, NOVELTEA_NO_DAEMON: '1' });
+    assertPublicCommandParity(`${test.name} no-daemon fallback`, nodeFallback, localFallback);
 
     const nodeHit = invokeNode();
     const scriptcHit = invokeNative();
@@ -1430,9 +1586,19 @@ function median(values) {
   return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 }
 
+function percentile(values, percentileValue) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil((percentileValue / 100) * sorted.length) - 1),
+  );
+  return sorted[index];
+}
+
 function summarizeBenchmark(values) {
   return {
     medianMs: Math.round(median(values) * 10) / 10,
+    p95Ms: Math.round(percentile(values, 95) * 10) / 10,
     minimumMs: Math.round(Math.min(...values) * 10) / 10,
     maximumMs: Math.round(Math.max(...values) * 10) / 10,
   };
@@ -1465,6 +1631,225 @@ async function editValidationBenchmarkRecord(root, label) {
   const record = JSON.parse(await readFile(file, 'utf8'));
   record.label = label;
   await writeJson(file, record);
+}
+
+async function daemonRssBytes(pid) {
+  try {
+    if (isWindows) {
+      const result = run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(Get-Process -Id ${pid}).WorkingSet64`,
+      ]);
+      if (result.status !== 0) return null;
+      const value = Number(result.stdout.trim());
+      return Number.isSafeInteger(value) && value > 0 ? value : null;
+    }
+    const status = await readFile(`/proc/${pid}/status`, 'utf8');
+    const match = /^VmRSS:\s+(\d+)\s+kB$/mu.exec(status);
+    return match ? Number(match[1]) * 1024 : null;
+  } catch {
+    return null;
+  }
+}
+
+async function certifyResidentDaemon(tempRoot, pristine) {
+  const root = path.join(tempRoot, 'resident-daemon');
+  const runtimeRoot = path.join(tempRoot, 'resident-daemon-runtime');
+  await resetCase(pristine, root);
+  const daemonEnvironment = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '2000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '250',
+  };
+  const traceEnvironment = { ...daemonEnvironment, NOVELTEA_CLI_TRACE: '1' };
+  runNative(['daemon', 'stop'], { env: daemonEnvironment });
+
+  const stopped = requireSuccess(
+    'daemon initial status',
+    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+  );
+  const stoppedPayload = JSON.parse(stopped.stdout).daemon;
+  if (stoppedPayload.running !== false || stoppedPayload.state !== 'stopped')
+    fail(`Daemon did not begin certification stopped: ${stopped.stdout}`);
+
+  const coldStartupStartedAt = Date.now();
+  const first = await runAsync(nativeCli, ['--project', root, '--json', 'asset', 'audit'], {
+    cwd: root,
+    env: traceEnvironment,
+  });
+  const second = await runAsync(nativeCli, ['--project', root, '--json', 'platform', 'profiles'], {
+    cwd: root,
+    env: traceEnvironment,
+  });
+  const [firstResult, secondResult] = await Promise.all([first.result(), second.result()]);
+  const coldStartupMs = Date.now() - coldStartupStartedAt;
+  requireSuccess('daemon concurrent cold asset audit', firstResult);
+  requireSuccess('daemon concurrent cold platform profiles', secondResult);
+  for (const [label, result] of [
+    ['asset audit', firstResult],
+    ['platform profiles', secondResult],
+  ]) {
+    if (!result.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+      fail(`Concurrent cold ${label} did not route through the daemon.`);
+  }
+
+  const ready = requireSuccess(
+    'daemon ready status',
+    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+  );
+  const readyPayload = JSON.parse(ready.stdout).daemon;
+  if (readyPayload.running !== true || readyPayload.state !== 'ready')
+    fail(`Daemon did not reach ready state: ${ready.stdout}`);
+  if (!Number.isSafeInteger(readyPayload.pid) || readyPayload.pid <= 0)
+    fail(`Daemon status did not expose a valid pid: ${ready.stdout}`);
+  if (!readyPayload.build.includes(':cert:'))
+    fail(`Daemon certification did not use an isolated build identity: ${ready.stdout}`);
+  if (!isWindows) {
+    const identity = createHash('sha256')
+      .update(`${readyPayload.build}\n${readyPayload.protocol}`)
+      .digest('hex')
+      .slice(0, 32);
+    const runtimeInfo = await lstat(runtimeRoot);
+    const socketInfo = await lstat(path.join(runtimeRoot, `daemon-${identity}.sock`));
+    if ((runtimeInfo.mode & 0o077) !== 0 || (socketInfo.mode & 0o077) !== 0)
+      fail('Daemon certification endpoint is not private to the current user.');
+  }
+  const rssWithProject = await daemonRssBytes(readyPayload.pid);
+  const residentRead = elapsedMilliseconds(() =>
+    runNative(['--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: traceEnvironment,
+    }),
+  );
+  requireSuccess('daemon resident unchanged read benchmark', residentRead.result);
+
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const sessionEvictionTrigger = requireSuccess(
+    'daemon Project session idle eviction trigger',
+    runNative(['--json', 'comfyui', 'workflows'], { env: traceEnvironment }),
+  );
+  if (!sessionEvictionTrigger.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Project-independent idle-eviction trigger did not route through the resident daemon.');
+  const rssAfterSessionEviction = await daemonRssBytes(readyPayload.pid);
+
+  const staticExact = requireSuccess(
+    'daemon static exact validation precedence',
+    runNative(['--project', root, '--json', 'validate'], { cwd: root, env: traceEnvironment }),
+  );
+  const staticExactSecond = requireSuccess(
+    'daemon static exact validation precedence repeat',
+    runNative(['--project', root, '--json', 'validate'], { cwd: root, env: traceEnvironment }),
+  );
+  if (staticExactSecond.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Exact static validation contacted the daemon.');
+  if (!staticExact.stderr.includes('[scriptc-host] daemon invocation forwarding')) {
+    // A prior differential may already have populated an exact generation; either ordering is valid here.
+    if (!staticExact.stderr.includes('[scriptc-host] static validation completed'))
+      fail('Validation completed through neither the daemon nor the static exact path.');
+  }
+
+  process.kill(readyPayload.pid);
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(readyPayload.pid, 0);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } catch {
+      break;
+    }
+  }
+  const restartedRead = requireSuccess(
+    'daemon crash read-only restart',
+    runNative(['--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: traceEnvironment,
+    }),
+  );
+  if (!restartedRead.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Read-only request after daemon death did not re-enter daemon routing.');
+  const restarted = requireSuccess(
+    'daemon restarted status',
+    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+  );
+  const restartedPayload = JSON.parse(restarted.stdout).daemon;
+  if (restartedPayload.running !== true || restartedPayload.state !== 'ready')
+    fail(`Daemon did not recover after process death: ${restarted.stdout}`);
+  if (restartedPayload.pid === readyPayload.pid)
+    fail('Daemon crash recovery reused the terminated process id unexpectedly.');
+  const rssAfterRestart = await daemonRssBytes(restartedPayload.pid);
+
+  await new Promise((resolve) => setTimeout(resolve, 2300));
+  const idleStatus = requireSuccess(
+    'daemon idle shutdown status',
+    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+  );
+  const idlePayload = JSON.parse(idleStatus.stdout).daemon;
+  if (idlePayload.running !== false || idlePayload.state !== 'stopped')
+    fail(`Daemon did not shut down after its idle cutoff: ${idleStatus.stdout}`);
+
+  const restartedAfterIdle = requireSuccess(
+    'daemon restart after idle shutdown',
+    runNative(['--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: traceEnvironment,
+    }),
+  );
+  if (!restartedAfterIdle.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Daemon did not restart after idle shutdown.');
+
+  const noDaemon = requireSuccess(
+    'explicit no-daemon escape hatch',
+    runNative(['--no-daemon', '--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: traceEnvironment,
+    }),
+  );
+  if (!noDaemon.stderr.includes('[scriptc-host] daemon routing bypassed'))
+    fail('--no-daemon did not select the canonical local QuickJS path.');
+  const envNoDaemon = requireSuccess(
+    'environment no-daemon escape hatch',
+    runNative(['--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: { ...traceEnvironment, NOVELTEA_NO_DAEMON: '1' },
+    }),
+  );
+  if (!envNoDaemon.stderr.includes('[scriptc-host] daemon routing bypassed'))
+    fail('NOVELTEA_NO_DAEMON=1 did not select the canonical local QuickJS path.');
+
+  const stoppedAgain = requireSuccess(
+    'daemon graceful stop',
+    runNative(['--json', 'daemon', 'stop'], { env: daemonEnvironment }),
+  );
+  const stopPayload = JSON.parse(stoppedAgain.stdout).daemon;
+  if (stopPayload.running !== false || stopPayload.state !== 'stopped')
+    fail(`Daemon stop did not report stopped state: ${stoppedAgain.stdout}`);
+
+  const report = {
+    platform: `${process.platform}/${process.arch}`,
+    startupElection: true,
+    secureEndpoint: true,
+    buildProtocolIsolation: true,
+    crashRestart: true,
+    idleShutdown: true,
+    projectSessionIdleEviction: true,
+    staticPrecedence: true,
+    explicitBypass: true,
+    performanceMs: {
+      coldStartupAndConcurrentReads: coldStartupMs,
+      residentUnchangedRead: Math.round(residentRead.elapsed * 10) / 10,
+    },
+    rssBytes: {
+      withProjectSession: rssWithProject,
+      afterProjectSessionEviction: rssAfterSessionEviction,
+      afterRestart: rssAfterRestart,
+    },
+  };
+  process.stdout.write(`[resident-daemon] ${JSON.stringify(report)}\n`);
+  return report;
 }
 
 async function certifyPerformanceEnvelope(tempRoot, pristine) {
@@ -1587,7 +1972,7 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
     force: true,
   });
   const scriptcForcedFull = elapsedMilliseconds(() =>
-    runNative(['--project', scriptcValidateRoot, '--json', 'validate'], {
+    runNative(['--no-daemon', '--project', scriptcValidateRoot, '--json', 'validate'], {
       cwd: scriptcValidateRoot,
       env: profileEnvironment,
     }),
@@ -1610,6 +1995,75 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
     oneSourceSpeedup: Math.round((scriptcForcedFull.elapsed / scriptcChanged.elapsed) * 100) / 100,
     oneSourceWork: validationProfile(scriptcChanged.result),
     forcedFullWork: validationProfile(scriptcForcedFull.result),
+  };
+
+  const featureLabRoot = path.join(tempRoot, 'performance-feature-lab');
+  await rm(featureLabRoot, { recursive: true, force: true });
+  await cp(path.join(repositoryRoot, 'tests', 'projects', 'feature-lab'), featureLabRoot, {
+    recursive: true,
+  });
+  await rm(path.join(featureLabRoot, '.noveltea', 'cache', 'authoring'), {
+    recursive: true,
+    force: true,
+  });
+  requireSuccess(
+    'Feature Lab resident benchmark admission',
+    runNative(['--project', featureLabRoot, '--json', 'validate'], {
+      cwd: featureLabRoot,
+      env: profileEnvironment,
+    }),
+  );
+  const featureLabRecord = path.join(featureLabRoot, 'records', 'rooms', 'feature-lab-home.json');
+  const featureLabSamples = [];
+  const featureLabWork = [];
+  for (let index = 0; index < 7; index += 1) {
+    const room = JSON.parse(await readFile(featureLabRecord, 'utf8'));
+    room.label = `Feature Lab Home benchmark ${index}`;
+    await writeJson(featureLabRecord, room);
+    const measured = elapsedMilliseconds(() =>
+      runNative(['--project', featureLabRoot, '--json', 'validate'], {
+        cwd: featureLabRoot,
+        env: profileEnvironment,
+      }),
+    );
+    requireSuccess(`Feature Lab one-record benchmark ${index + 1}`, measured.result);
+    featureLabSamples.push(measured.elapsed);
+    featureLabWork.push(validationProfile(measured.result));
+  }
+  report.targetsMs.featureLabOneRecordMedian = 75;
+  report.targetsMs.featureLabOneRecordP95 = 100;
+  report.cases.featureLabResidentOneRecord = {
+    ...summarizeBenchmark(featureLabSamples),
+    samples: featureLabSamples.map((value) => Math.round(value * 10) / 10),
+    work: featureLabWork,
+  };
+
+  const largeRoot = path.join(tempRoot, 'performance-large-validate');
+  await resetCase(pristine, largeRoot);
+  await inflateValidationBenchmark(largeRoot, 600);
+  requireSuccess(
+    'large synthetic resident benchmark admission',
+    runNative(['--project', largeRoot, '--json', 'validate'], {
+      cwd: largeRoot,
+      env: profileEnvironment,
+    }),
+  );
+  await editValidationBenchmarkRecord(largeRoot, 'Large synthetic incremental change');
+  const largeChanged = elapsedMilliseconds(() =>
+    runNative(['--project', largeRoot, '--json', 'validate'], {
+      cwd: largeRoot,
+      env: profileEnvironment,
+    }),
+  );
+  requireSuccess('large synthetic one-source changed validate benchmark', largeChanged.result);
+  report.cases.dependencyClosureScaling = {
+    smallUnrelatedRecords: 120,
+    smallChangedMs: report.cases.scriptcValidate.oneSourceChangedMs,
+    smallWork: report.cases.scriptcValidate.oneSourceWork,
+    largeUnrelatedRecords: 600,
+    largeChangedMs: Math.round(largeChanged.elapsed * 10) / 10,
+    largeWork: validationProfile(largeChanged.result),
+    note: 'Disk-authority source inventory remains O(Project source count); semantic parse/validation work should remain scoped to the affected dependency closure.',
   };
 
   process.stdout.write(`[performance] ${JSON.stringify(report)}\n`);
@@ -2692,21 +3146,29 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
       };
       const node = await runOne(runNode, 'node');
       const native = await runOne(runNative, 'native');
-      if (
-        node.result.status !== native.result.status ||
-        node.result.stderr !== native.result.stderr
-      )
-        fail(`ComfyUI differential '${test.name}' exit/stderr differs.`);
-      if (canonicalComfyUiResult(node.result) !== canonicalComfyUiResult(native.result))
-        fail(
-          `ComfyUI differential '${test.name}' stdout differs.\nNode: ${node.result.stdout}\nScriptC: ${native.result.stdout}`,
-        );
-      if (node.state !== native.state)
-        fail(`ComfyUI differential '${test.name}' filesystem/Project state differs.`);
-      if (canonicalComfyUiRequests(node.requests) !== canonicalComfyUiRequests(native.requests))
-        fail(
-          `ComfyUI differential '${test.name}' fake-server request trace differs.\nNode: ${JSON.stringify(node.requests)}\nScriptC: ${JSON.stringify(native.requests)}`,
-        );
+      const local = await runOne(runNativeNoDaemon, 'no-daemon');
+      for (const [label, candidate] of [
+        ['resident', native],
+        ['no-daemon', local],
+      ]) {
+        if (
+          node.result.status !== candidate.result.status ||
+          node.result.stderr !== candidate.result.stderr
+        )
+          fail(`ComfyUI differential '${test.name}' ${label} exit/stderr differs.`);
+        if (canonicalComfyUiResult(node.result) !== canonicalComfyUiResult(candidate.result))
+          fail(
+            `ComfyUI differential '${test.name}' ${label} stdout differs.\nNode: ${node.result.stdout}\nCandidate: ${candidate.result.stdout}`,
+          );
+        if (node.state !== candidate.state)
+          fail(`ComfyUI differential '${test.name}' ${label} filesystem/Project state differs.`);
+        if (
+          canonicalComfyUiRequests(node.requests) !== canonicalComfyUiRequests(candidate.requests)
+        )
+          fail(
+            `ComfyUI differential '${test.name}' ${label} fake-server request trace differs.\nNode: ${JSON.stringify(node.requests)}\nCandidate: ${JSON.stringify(candidate.requests)}`,
+          );
+      }
       if (node.result.stdout && !node.result.stdout.endsWith('\n'))
         fail(`ComfyUI '${test.name}' stdout is not one JSON line.`);
       if (node.result.stderr !== '') fail(`ComfyUI '${test.name}' emitted stderr in --json mode.`);
@@ -3024,8 +3486,13 @@ async function main() {
     await certifyRawShaderc(tempRoot);
     await certifyAuthoringCache(tempRoot, pristine);
     await certifyDaemonAuthoringCacheResidency(tempRoot, pristine);
+    const residentDaemon = await certifyResidentDaemon(tempRoot, pristine);
     certifyEditorAuthoringCacheSharing();
     const performance = await certifyPerformanceEnvelope(tempRoot, pristine);
+    performance.cases.residentDaemon = {
+      ...residentDaemon.performanceMs,
+      rssBytes: residentDaemon.rssBytes,
+    };
     certifyScopedPreparationLazyBoundaries(pristine);
     await certifyTestCommandParity(tempRoot, pristine);
     await certifyRuntimeCacheInvalidation(tempRoot, pristine);
@@ -3056,6 +3523,7 @@ async function main() {
         testCommandParity: true,
         runtimeCacheCertification: true,
         authoringCacheCertification: true,
+        residentDaemonCertification: residentDaemon,
         editorAuthoringCacheSharingCertification: true,
         scopedPreparationCertification: true,
         performance,

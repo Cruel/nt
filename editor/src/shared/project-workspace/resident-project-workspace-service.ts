@@ -96,6 +96,7 @@ type ResidentEntry = {
   readonly canonicalRoot: string;
   readonly session: ResidentProjectWorkspaceSession;
   authority: ProjectSourceInventory;
+  lastUsedAtMilliseconds: number;
 };
 
 type SnapshotBinding = Readonly<{
@@ -176,6 +177,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
   }
 
   private bindSnapshot(entry: ResidentEntry, snapshot: LoadedProjectWorkspaceSnapshot): void {
+    entry.lastUsedAtMilliseconds = Date.now();
     this.snapshotBindings.set(snapshot, { entry, canonicalSnapshot: snapshot });
   }
 
@@ -222,7 +224,12 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         createWorkspaceService: this.createSessionWorkspace,
       });
       await session.captureAuthoringFileStamps();
-      const entry: ResidentEntry = { canonicalRoot, session, authority };
+      const entry: ResidentEntry = {
+        canonicalRoot,
+        session,
+        authority,
+        lastUsedAtMilliseconds: Date.now(),
+      };
       this.sessions.set(canonicalRoot, entry);
       this.bindSnapshot(entry, opened.snapshot);
       return opened;
@@ -566,6 +573,18 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       this.residentFileSystem.resolvePath(projectRoot),
     );
     return canonicalRoot !== null && this.sessions.has(canonicalRoot);
+  }
+
+  evictIdleSessions(maxIdleMilliseconds: number, nowMilliseconds = Date.now()): number {
+    if (!Number.isFinite(maxIdleMilliseconds) || maxIdleMilliseconds <= 0) return 0;
+    let evicted = 0;
+    for (const [canonicalRoot, entry] of this.sessions) {
+      if (nowMilliseconds - entry.lastUsedAtMilliseconds < maxIdleMilliseconds) continue;
+      entry.session.markResyncNeeded();
+      this.sessions.delete(canonicalRoot);
+      evicted += 1;
+    }
+    return evicted;
   }
 
   async verifyReadAuthority(snapshot: LoadedProjectWorkspaceSnapshot): Promise<boolean> {

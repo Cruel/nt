@@ -303,6 +303,26 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(await workspace.hasResidentSession(alias)).toBe(true);
   });
 
+  it('evicts resident Project sessions after their idle cutoff', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const workspace = new ResidentProjectWorkspaceService(fileSystem);
+    const opened = await workspace.open(ROOT);
+    expect(opened.ok).toBe(true);
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+
+    expect(workspace.evictIdleSessions(60_000, Date.now())).toBe(0);
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+    expect(workspace.evictIdleSessions(1, Date.now() + 60_000)).toBe(1);
+    expect(await workspace.hasResidentSession(ROOT)).toBe(false);
+  });
+
   it('retains the coherent generation across an invalid overlay and repairs incrementally', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.rooms.foyer = {
