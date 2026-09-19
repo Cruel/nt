@@ -6,7 +6,9 @@ import {
   type MaterialPreviewResourceDependencies,
 } from '@/material-preview/material-preview-resources';
 import {
+  createWebGlMaterialPreviewBackend,
   MaterialPreviewGroupRenderer,
+  MaterialPreviewShaderProgramError,
   type MaterialPreviewBackend,
   type MaterialPreviewBackendFactoryOptions,
   type MaterialPreviewScheduler,
@@ -67,6 +69,100 @@ function manualScheduler() {
   };
 }
 
+function fakeWebGlContext() {
+  const uniforms = [
+    { name: 'u_time', type: 0x8b52 },
+    { name: 'u_useTexture', type: 0x8b52 },
+    { name: 'u_modelViewProj', type: 0x8b5c },
+  ];
+  const gl = {
+    VERTEX_SHADER: 0x8b31,
+    FRAGMENT_SHADER: 0x8b30,
+    COMPILE_STATUS: 0x8b81,
+    LINK_STATUS: 0x8b82,
+    ACTIVE_UNIFORMS: 0x8b86,
+    FLOAT: 0x1406,
+    FLOAT_VEC2: 0x8b50,
+    FLOAT_VEC3: 0x8b51,
+    FLOAT_VEC4: 0x8b52,
+    FLOAT_MAT4: 0x8b5c,
+    INT: 0x1404,
+    BOOL: 0x8b56,
+    SAMPLER_2D: 0x8b5e,
+    ARRAY_BUFFER: 0x8892,
+    STATIC_DRAW: 0x88e4,
+    TEXTURE0: 0x84c0,
+    TEXTURE_2D: 0x0de1,
+    TEXTURE_MIN_FILTER: 0x2801,
+    TEXTURE_MAG_FILTER: 0x2800,
+    TEXTURE_WRAP_S: 0x2802,
+    TEXTURE_WRAP_T: 0x2803,
+    NEAREST: 0x2600,
+    LINEAR: 0x2601,
+    REPEAT: 0x2901,
+    CLAMP_TO_EDGE: 0x812f,
+    UNPACK_PREMULTIPLY_ALPHA_WEBGL: 0x9241,
+    RGBA: 0x1908,
+    UNSIGNED_BYTE: 0x1401,
+    COLOR_BUFFER_BIT: 0x4000,
+    BLEND: 0x0be2,
+    ONE: 1,
+    ONE_MINUS_SRC_ALPHA: 0x0303,
+    TRIANGLE_STRIP: 5,
+    createShader: vi.fn(() => ({ source: '' })),
+    shaderSource: vi.fn((shader: { source: string }, source: string) => {
+      shader.source = source;
+    }),
+    compileShader: vi.fn(),
+    getShaderParameter: vi.fn((shader: { source: string }) => !shader.source.includes('BROKEN')),
+    getShaderInfoLog: vi.fn(() => 'broken preview shader'),
+    deleteShader: vi.fn(),
+    createProgram: vi.fn(() => ({})),
+    attachShader: vi.fn(),
+    linkProgram: vi.fn(),
+    getProgramParameter: vi.fn((_program: object, parameter: number) =>
+      parameter === 0x8b82 ? true : parameter === 0x8b86 ? uniforms.length : 0,
+    ),
+    getProgramInfoLog: vi.fn(() => ''),
+    deleteProgram: vi.fn(),
+    getActiveUniform: vi.fn((_program: object, index: number) =>
+      uniforms[index] ? { ...uniforms[index], size: 1 } : null,
+    ),
+    getUniformLocation: vi.fn((_program: object, name: string) => ({ name })),
+    uniform1i: vi.fn(),
+    uniform1f: vi.fn(),
+    uniform2fv: vi.fn(),
+    uniform3fv: vi.fn(),
+    uniform4fv: vi.fn(),
+    uniformMatrix4fv: vi.fn(),
+    createBuffer: vi.fn(() => ({})),
+    bindBuffer: vi.fn(),
+    bufferData: vi.fn(),
+    getAttribLocation: vi.fn((_program: object, name: string) =>
+      name === 'a_position' ? 0 : name === 'a_texcoord0' ? 1 : name === 'a_color0' ? 2 : -1,
+    ),
+    enableVertexAttribArray: vi.fn(),
+    vertexAttribPointer: vi.fn(),
+    createTexture: vi.fn(() => ({})),
+    activeTexture: vi.fn(),
+    bindTexture: vi.fn(),
+    texParameteri: vi.fn(),
+    pixelStorei: vi.fn(),
+    texImage2D: vi.fn(),
+    viewport: vi.fn(),
+    clearColor: vi.fn(),
+    clear: vi.fn(),
+    useProgram: vi.fn(),
+    enable: vi.fn(),
+    blendFunc: vi.fn(),
+    drawArrays: vi.fn(),
+    deleteBuffer: vi.fn(),
+    deleteTexture: vi.fn(),
+    getExtension: vi.fn(() => null),
+  };
+  return gl;
+}
+
 function fakeBackendFactory() {
   const renders: Array<{
     surface: MaterialPreviewSurfaceState;
@@ -85,6 +181,7 @@ function fakeBackendFactory() {
           time,
         }),
       ),
+      invalidateProjectResources: vi.fn(),
       reset: vi.fn(),
       dispose: vi.fn(),
     };
@@ -154,6 +251,35 @@ describe('Material preview Project resources', () => {
     await Promise.all([resources.getMaterial('panel'), resources.getMaterial('badge')]);
 
     expect(compileShaders).toHaveBeenCalledTimes(1);
+  });
+
+  it('compiles only the ordinary Material preview that is actually requested', async () => {
+    const project = materialProject();
+    project.materials.panel!.data = {
+      ...defaultMaterialData('Panel'),
+      shader: { fragment: { kind: 'project' as const, path: 'shaders/panel.sc' } },
+    };
+    project.materials.badge = {
+      id: 'badge',
+      label: 'Badge',
+      data: {
+        ...defaultMaterialData('Badge'),
+        shader: { fragment: { kind: 'project' as const, path: 'shaders/badge.sc' } },
+      },
+    };
+    const compileShaders = vi.fn().mockResolvedValue([]);
+    const resources = createResources({ compileShaders });
+    resources.updateProject(project, 'session|persisted');
+
+    await resources.getMaterial('panel');
+
+    expect(compileShaders).toHaveBeenCalledTimes(1);
+    const [compilation] = compileShaders.mock.calls[0]!;
+    expect(
+      Object.values(
+        (compilation as { programs: Record<string, { fragmentSource: string }> }).programs,
+      ),
+    ).toEqual([expect.objectContaining({ fragmentSource: 'project:/shaders/panel.sc' })]);
   });
 
   it('limits source-workspace compilation to programs required by attached Material previews', async () => {
@@ -296,6 +422,174 @@ describe('Material preview Project resources', () => {
 });
 
 describe('Material preview workbench-group renderer', () => {
+  it('supplies the compiled quad interface with vertex color, transform, and correctly typed vec4 engine uniforms', async () => {
+    const gl = fakeWebGlContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlMaterialPreviewBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    expect(backend).not.toBeNull();
+    const resources = createResources();
+    resources.updateProject(materialProject());
+    const base = await resources.getMaterial('panel');
+    expect(base).not.toBeNull();
+    const resource = {
+      ...base!,
+      vertexShaderSource: '#version 300 es\nvoid main() {}',
+      fragmentShaderSource: '#version 300 es\nvoid main() {}',
+    };
+
+    backend!.render(surface('panel'), resource, 2.5);
+
+    expect(gl.getAttribLocation).toHaveBeenCalledWith(expect.anything(), 'a_color0');
+    expect(gl.vertexAttribPointer).toHaveBeenCalledWith(2, 4, gl.FLOAT, false, 0, 0);
+    expect(gl.uniformMatrix4fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_modelViewProj' }),
+      false,
+      expect.any(Float32Array),
+    );
+    expect(gl.uniform4fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_time' }),
+      [2.5, 0, 0, 0],
+    );
+    expect(gl.uniform4fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_useTexture' }),
+      [1, 0, 0, 0],
+    );
+  });
+
+  it('reports an initial WebGL shader failure without rendering an unrelated fallback', async () => {
+    const gl = fakeWebGlContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlMaterialPreviewBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    const resources = createResources();
+    resources.updateProject(materialProject());
+    const base = await resources.getMaterial('panel');
+    const broken = {
+      ...base!,
+      vertexShaderSource: '#version 300 es\nvoid main() {}',
+      fragmentShaderSource: 'BROKEN',
+    };
+
+    expect(() => backend!.render(surface('panel'), broken, 0)).toThrow('broken preview shader');
+    expect(gl.drawArrays).not.toHaveBeenCalled();
+  });
+
+  it('renders the last good WebGL program on a shader failure and reports the actual compile error', async () => {
+    const gl = fakeWebGlContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlMaterialPreviewBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    const resources = createResources();
+    resources.updateProject(materialProject());
+    const base = await resources.getMaterial('panel');
+    const valid = {
+      ...base!,
+      vertexShaderSource: '#version 300 es\nvoid main() {}',
+      fragmentShaderSource: '#version 300 es\nvoid main() {}',
+    };
+    backend!.render(surface('panel'), valid, 0);
+    const broken = { ...valid, fragmentShaderSource: 'BROKEN' };
+
+    expect(() => backend!.render(surface('panel'), broken, 1)).toThrow('broken preview shader');
+    const compileCountAfterFailure = vi.mocked(gl.compileShader).mock.calls.length;
+    expect(() => backend!.render(surface('panel'), broken, 2)).toThrow('broken preview shader');
+    expect(gl.drawArrays).toHaveBeenCalledTimes(3);
+    expect(gl.createProgram).toHaveBeenCalledTimes(1);
+    expect(gl.compileShader).toHaveBeenCalledTimes(compileCountAfterFailure);
+  });
+
+  it('preserves the last-good WebGL program across ordinary Project resource invalidation', async () => {
+    const gl = fakeWebGlContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlMaterialPreviewBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    const resources = createResources();
+    resources.updateProject(materialProject());
+    const base = await resources.getMaterial('panel');
+    const valid = {
+      ...base!,
+      vertexShaderSource: '#version 300 es\nvoid main() {}',
+      fragmentShaderSource: '#version 300 es\nvoid main() {}',
+    };
+    backend!.render(surface('panel'), valid, 0);
+
+    backend!.invalidateProjectResources();
+    const broken = { ...valid, fragmentShaderSource: 'BROKEN' };
+
+    expect(() => backend!.render(surface('panel'), broken, 1)).toThrow('broken preview shader');
+    expect(gl.drawArrays).toHaveBeenCalledTimes(2);
+    expect(gl.deleteProgram).not.toHaveBeenCalled();
+  });
+
+  it('selects cached shader-failure fallbacks independently for each Material', async () => {
+    const gl = fakeWebGlContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlMaterialPreviewBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    const resources = createResources();
+    resources.updateProject(materialProject());
+    const base = await resources.getMaterial('panel');
+    const first = {
+      ...base!,
+      materialId: 'first',
+      vertexShaderSource: '#version 300 es\n// first vertex\nvoid main() {}',
+      fragmentShaderSource: '#version 300 es\n// first fragment\nvoid main() {}',
+    };
+    const second = {
+      ...base!,
+      materialId: 'second',
+      vertexShaderSource: '#version 300 es\n// second vertex\nvoid main() {}',
+      fragmentShaderSource: '#version 300 es\n// second fragment\nvoid main() {}',
+    };
+    backend!.render(surface('first'), first, 0);
+    backend!.render(surface('second'), second, 0);
+    const firstProgram = vi.mocked(gl.useProgram).mock.calls[0]?.[0];
+    const secondProgram = vi.mocked(gl.useProgram).mock.calls[1]?.[0];
+    expect(firstProgram).not.toBe(secondProgram);
+
+    const brokenVertex = '#version 300 es\n// shared broken request\nvoid main() {}';
+    const brokenFirst = {
+      ...first,
+      vertexShaderSource: brokenVertex,
+      fragmentShaderSource: 'BROKEN shared failure',
+    };
+    const brokenSecond = {
+      ...second,
+      vertexShaderSource: brokenVertex,
+      fragmentShaderSource: 'BROKEN shared failure',
+    };
+    expect(() => backend!.render(surface('first'), brokenFirst, 1)).toThrow(
+      'broken preview shader',
+    );
+    expect(() => backend!.render(surface('second'), brokenSecond, 1)).toThrow(
+      'broken preview shader',
+    );
+
+    expect(vi.mocked(gl.useProgram).mock.calls[2]?.[0]).toBe(firstProgram);
+    expect(vi.mocked(gl.useProgram).mock.calls[3]?.[0]).toBe(secondProgram);
+  });
+
   it('uses one backend and one scheduler for multiple surfaces while preserving independent surface state', async () => {
     const resources = createResources();
     resources.updateProject(materialProject());
@@ -384,9 +678,15 @@ describe('Material preview workbench-group renderer', () => {
     second.dispose();
   });
 
-  it('does not schedule hidden-only surfaces and resumes when one becomes visible', async () => {
-    const resources = createResources();
-    resources.updateProject(materialProject());
+  it('does not compile or schedule hidden-only surfaces and resumes when one becomes visible', async () => {
+    const project = materialProject();
+    project.materials.panel!.data = {
+      ...defaultMaterialData('Panel'),
+      shader: { fragment: { kind: 'project', path: 'shaders/panel.sc' } },
+    };
+    const compileShaders = vi.fn().mockResolvedValue([]);
+    const resources = createResources({ compileShaders });
+    resources.updateProject(project);
     const clock = manualScheduler();
     const backend = fakeBackendFactory();
     const renderer = new MaterialPreviewGroupRenderer(resources, backend.factory, clock.scheduler);
@@ -394,9 +694,60 @@ describe('Material preview workbench-group renderer', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(clock.pending).toBe(0);
+    expect(compileShaders).not.toHaveBeenCalled();
 
     registration.update(surface('panel', true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(clock.pending).toBe(1);
+    expect(compileShaders).toHaveBeenCalledTimes(1);
+    renderer.dispose();
+  });
+
+  it('keeps shader failure state isolated per preview surface', async () => {
+    const resources = createResources();
+    resources.updateProject(materialProject());
+    await resources.getMaterial('panel');
+    const clock = manualScheduler();
+    const backend: MaterialPreviewBackend = {
+      render: vi.fn((nextSurface) => {
+        if (nextSurface.width === 160)
+          throw new MaterialPreviewShaderProgramError(true, 'panel compile failed');
+      }),
+      invalidateProjectResources: vi.fn(),
+      reset: vi.fn(),
+      dispose: vi.fn(),
+    };
+    const renderer = new MaterialPreviewGroupRenderer(resources, () => backend, clock.scheduler);
+    const firstStatus = vi.fn();
+    const secondStatus = vi.fn();
+    renderer.registerSurface({ ...surface('panel'), onShaderProgramStatus: firstStatus });
+    renderer.registerSurface({
+      ...surface('panel'),
+      width: 320,
+      onShaderProgramStatus: secondStatus,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    clock.flush();
+
+    expect(firstStatus).toHaveBeenCalledWith({ stale: true, message: 'panel compile failed' });
+    expect(secondStatus).toHaveBeenCalledWith({ stale: false, message: null });
+    expect(renderer.status).toEqual({ available: true, code: null, message: null });
+    renderer.dispose();
+  });
+
+  it('invalidates Project GPU resources without clearing retained shader programs', () => {
+    const resources = createResources();
+    resources.updateProject(materialProject());
+    const clock = manualScheduler();
+    const backend = fakeBackendFactory();
+    const renderer = new MaterialPreviewGroupRenderer(resources, backend.factory, clock.scheduler);
+    renderer.registerSurface(surface('panel'));
+
+    renderer.invalidateProjectResources();
+
+    expect(backend.backends[0]?.invalidateProjectResources).toHaveBeenCalledTimes(1);
+    expect(backend.backends[0]?.reset).not.toHaveBeenCalled();
     renderer.dispose();
   });
 

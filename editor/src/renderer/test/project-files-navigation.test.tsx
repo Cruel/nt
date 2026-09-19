@@ -6,11 +6,13 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import type { ProjectSourceFile } from '../../shared/project-source-files';
 import { searchProjectSourceFiles } from '../../shared/project-search/project-source-search';
 import { useProjectStore } from '@/project/project-store';
+import { toJsonValue } from '@/project/json-value';
 import { useProjectSourceStore } from '@/project/project-source-store';
 import { ProjectExplorer } from '@/workspace/ProjectExplorer';
 import { useProjectExplorerStore } from '@/workspace/project-explorer-store';
 import { buildProjectSourceTab, buildRoomDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { buildEditorProjectStateSnapshot } from '@/workbench/project-editor-state';
 import {
   buildCommandPaletteItems,
   searchCommandPaletteItems,
@@ -91,6 +93,217 @@ describe('project Files navigation', () => {
     expect(useProjectExplorerStore.getState().serializeExplorer().navigationMode).toBe('files');
   });
 
+  it('does not restore obsolete source recovery after switching Projects during source loading', async () => {
+    const firstSession = '11111111-1111-4111-8111-111111111111';
+    const secondSession = '22222222-2222-4222-8222-222222222222';
+    const oldSourceId = helperSource.id;
+    const secondSource: ProjectSourceFile = {
+      id: 'scripts/second.lua',
+      displayPath: 'scripts/second.lua',
+      projectRelativePath: 'scripts/second.lua',
+      kind: 'lua',
+      text: true,
+    };
+    let resolveFirstList!: (value: { files: readonly ProjectSourceFile[] }) => void;
+    vi.mocked(window.noveltea.listProjectSourceFiles).mockImplementation(({ projectSessionId }) => {
+      if (projectSessionId === firstSession)
+        return new Promise((resolve) => {
+          resolveFirstList = resolve;
+        });
+      return Promise.resolve({ files: [secondSource] });
+    });
+    vi.mocked(window.noveltea.readProjectTextSources).mockImplementation(async (request) => ({
+      entries: request.entries.map((entry) => ({
+        status: 'ready' as const,
+        readKey: entry.readKey,
+        projectRelativePath: entry.projectRelativePath,
+        contentHash: `sha256:${'b'.repeat(64)}` as const,
+        text: entry.readKey === secondSource.id ? 'return second disk' : 'return first disk',
+        hadUtf8Bom: false,
+      })),
+    }));
+
+    const firstProject = createAuthoringProject();
+    firstProject.editor.sourceRecoveryById = {
+      [oldSourceId]: {
+        file: {
+          id: oldSourceId,
+          displayPath: oldSourceId,
+          projectRelativePath: oldSourceId,
+          kind: 'lua',
+        },
+        text: 'return obsolete recovery',
+        baseText: 'return first disk',
+        baseContentHash: `sha256:${'a'.repeat(64)}`,
+      },
+    };
+    expect(
+      useProjectStore.getState().loadProjectDocument({
+        document: firstProject,
+        savedDocument: firstProject,
+        projectPath: '/mock/first',
+        projectFilePath: '/mock/first/project.json',
+        projectSessionId: firstSession,
+      }),
+    ).toBe(true);
+    render(<ProjectExplorer nodes={[]} />);
+    await waitFor(() =>
+      expect(window.noveltea.listProjectSourceFiles).toHaveBeenCalledWith({
+        projectSessionId: firstSession,
+      }),
+    );
+
+    const secondProject = createAuthoringProject();
+    act(() => {
+      expect(
+        useProjectStore.getState().loadProjectDocument({
+          document: secondProject,
+          savedDocument: secondProject,
+          projectPath: '/mock/second',
+          projectFilePath: '/mock/second/project.json',
+          projectSessionId: secondSession,
+        }),
+      ).toBe(true);
+    });
+    await waitFor(() =>
+      expect(useProjectSourceStore.getState()).toMatchObject({
+        projectSessionId: secondSession,
+        textById: { [secondSource.id]: 'return second disk' },
+      }),
+    );
+
+    resolveFirstList({ files: [helperSource] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useProjectSourceStore.getState().projectSessionId).toBe(secondSession);
+    expect(useProjectSourceStore.getState().buffersById).not.toHaveProperty(oldSourceId);
+    expect(useProjectSourceStore.getState().buffersById[secondSource.id]).toMatchObject({
+      text: 'return second disk',
+      dirty: false,
+      conflict: null,
+    });
+  });
+
+  it('coalesces concurrent source refreshes onto the actual in-flight load', async () => {
+    let resolveList!: (value: { files: readonly ProjectSourceFile[] }) => void;
+    vi.mocked(window.noveltea.listProjectSourceFiles).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+
+    const first = useProjectSourceStore.getState().refresh('session-coalesced');
+    const second = useProjectSourceStore.getState().refresh('session-coalesced');
+
+    expect(second).toBe(first);
+    expect(window.noveltea.listProjectSourceFiles).toHaveBeenCalledTimes(1);
+    expect(useProjectSourceStore.getState().loading).toBe(true);
+
+    resolveList({ files: [helperSource] });
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    expect(useProjectSourceStore.getState()).toMatchObject({
+      projectSessionId: 'session-coalesced',
+      loading: false,
+      error: null,
+    });
+  });
+
+  it('waits for initial source loading before restoring same-session recovery', async () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    let resolveList!: (value: { files: readonly ProjectSourceFile[] }) => void;
+    vi.mocked(window.noveltea.listProjectSourceFiles).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+    vi.mocked(window.noveltea.readProjectTextSources).mockImplementation(async (request) => ({
+      entries: request.entries.map((entry) => ({
+        status: 'ready' as const,
+        readKey: entry.readKey,
+        projectRelativePath: entry.projectRelativePath,
+        contentHash: `sha256:${'a'.repeat(64)}` as const,
+        text: 'return disk baseline',
+        hadUtf8Bom: false,
+      })),
+    }));
+
+    const project = loadProject('project', (next) => {
+      next.editor.sourceRecoveryById = {
+        [helperSource.id]: {
+          file: {
+            id: helperSource.id,
+            displayPath: helperSource.displayPath,
+            projectRelativePath: helperSource.projectRelativePath,
+            kind: helperSource.kind,
+          },
+          text: 'return initial recovery',
+          baseText: 'return disk baseline',
+          baseContentHash: `sha256:${'a'.repeat(64)}`,
+        },
+      };
+    });
+    render(<ProjectExplorer nodes={[]} />);
+    await waitFor(() =>
+      expect(window.noveltea.listProjectSourceFiles).toHaveBeenCalledWith({
+        projectSessionId: sessionId,
+      }),
+    );
+
+    const updated = structuredClone(project);
+    updated.editor.sourceRecoveryById[helperSource.id]!.text = 'return latest recovery';
+    act(() => {
+      expect(useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(updated), 0)).toBe(
+        true,
+      );
+    });
+    await Promise.resolve();
+    expect(useProjectSourceStore.getState().buffersById).not.toHaveProperty(helperSource.id);
+
+    resolveList({ files: [helperSource] });
+    await waitFor(() =>
+      expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
+        text: 'return latest recovery',
+        baseText: 'return disk baseline',
+        dirty: true,
+        conflict: null,
+      }),
+    );
+    expect(window.noveltea.listProjectSourceFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not restore source recovery when the initial source load fails', async () => {
+    vi.mocked(window.noveltea.listProjectSourceFiles).mockRejectedValueOnce(
+      new Error('source inventory unavailable'),
+    );
+    loadProject('project', (project) => {
+      project.editor.sourceRecoveryById = {
+        [helperSource.id]: {
+          file: {
+            id: helperSource.id,
+            displayPath: helperSource.displayPath,
+            projectRelativePath: helperSource.projectRelativePath,
+            kind: helperSource.kind,
+          },
+          text: 'return should not restore',
+          baseText: 'return disk baseline',
+          baseContentHash: `sha256:${'a'.repeat(64)}`,
+        },
+      };
+    });
+
+    render(<ProjectExplorer nodes={[]} />);
+
+    await waitFor(() =>
+      expect(useProjectSourceStore.getState()).toMatchObject({
+        loading: false,
+        error: 'source inventory unavailable',
+      }),
+    );
+    expect(useProjectSourceStore.getState().buffersById).not.toHaveProperty(helperSource.id);
+  });
+
   it('restores a persisted manual navigation mode until the active tab changes', async () => {
     loadProject('files');
     act(() =>
@@ -153,6 +366,59 @@ describe('project Files navigation', () => {
         externalText: 'return 3',
         externalContentHash: diskHash,
       },
+    });
+  });
+
+  it('persists dirty source buffers in editor recovery and restores them against the disk baseline', async () => {
+    loadProject();
+    await useProjectSourceStore.getState().refresh('session-source');
+    useProjectSourceStore.getState().setText(helperSource.id, 'return recovered local');
+    const recovered = buildEditorProjectStateSnapshot().sourceRecoveryById;
+    expect(recovered[helperSource.id]).toMatchObject({
+      text: 'return recovered local',
+      baseText: 'return unreferenced_magic_helper()',
+    });
+
+    useProjectSourceStore.getState().clear();
+    await useProjectSourceStore.getState().refresh('session-source');
+    useProjectSourceStore.getState().restoreRecovery(recovered);
+
+    expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
+      text: 'return recovered local',
+      baseText: 'return unreferenced_magic_helper()',
+      dirty: true,
+      conflict: null,
+    });
+  });
+
+  it('keeps edits made while a source save is in flight dirty against the submitted baseline', async () => {
+    await useProjectSourceStore.getState().refresh('session-source');
+    useProjectSourceStore.getState().setText(helperSource.id, 'return submitted');
+    let resolveWrite!: (
+      value: Awaited<ReturnType<typeof window.noveltea.writeProjectSource>>,
+    ) => void;
+    vi.mocked(window.noveltea.writeProjectSource).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveWrite = resolve;
+        }),
+    );
+
+    const saving = useProjectSourceStore.getState().save(helperSource.id);
+    useProjectSourceStore.getState().setText(helperSource.id, 'return typed while saving');
+    resolveWrite({
+      ok: true,
+      success: true,
+      sourceId: helperSource.id,
+      contentHash: `sha256:${'d'.repeat(64)}`,
+    });
+
+    await expect(saving).resolves.toBe(true);
+    expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
+      text: 'return typed while saving',
+      baseText: 'return submitted',
+      dirty: true,
+      conflict: null,
     });
   });
 

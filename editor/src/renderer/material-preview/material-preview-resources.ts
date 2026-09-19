@@ -116,6 +116,20 @@ function previewOptionsKey(options: MaterialPreviewProjectOptions): string {
   });
 }
 
+function sourceProgramIdForMaterial(
+  initial: ShaderMaterialProjectBuildResult,
+  materialId: string,
+): string | null {
+  const shaderId = initial.project.materials[materialId]?.shader;
+  if (!shaderId) return null;
+  if (initial.compilation.programs[shaderId]) return shaderId;
+  const marker = ':material:';
+  const markerIndex = shaderId.indexOf(marker);
+  if (markerIndex < 0) return null;
+  const programId = shaderId.slice(0, markerIndex);
+  return initial.compilation.programs[programId] ? programId : null;
+}
+
 function scopedCompilation(
   initial: ShaderMaterialProjectBuildResult,
   materialIds: readonly string[] | undefined,
@@ -123,8 +137,8 @@ function scopedCompilation(
   if (!materialIds) return initial.compilation;
   const programIds = new Set(
     materialIds.flatMap((materialId) => {
-      const shader = initial.project.materials[materialId]?.shader;
-      return shader && initial.compilation.programs[shader] ? [shader] : [];
+      const programId = sourceProgramIdForMaterial(initial, materialId);
+      return programId ? [programId] : [];
     }),
   );
   return {
@@ -144,7 +158,8 @@ export class MaterialPreviewProjectResources {
   private projectOptions: MaterialPreviewProjectOptions = {};
   private projectOptionsKey = previewOptionsKey({});
   private projectGeneration = 0;
-  private projectSnapshot: Promise<MaterialPreviewProjectSnapshot | null> | null = null;
+  private projectBuild: Promise<ShaderMaterialProjectBuildResult> | null = null;
+  private projectSnapshots = new Map<string, Promise<MaterialPreviewProjectSnapshot | null>>();
   private materialCache = new Map<string, Promise<MaterialPreviewResource | null>>();
   private decodedTextures = new Map<string, Promise<MaterialPreviewTextureResource>>();
   private lastGoodOutputsByProgram = new Map<string, readonly ShaderCompileOutput[]>();
@@ -174,7 +189,8 @@ export class MaterialPreviewProjectResources {
     this.projectOptions = options;
     this.projectOptionsKey = optionsKey;
     this.projectGeneration += 1;
-    this.projectSnapshot = null;
+    this.projectBuild = null;
+    this.projectSnapshots.clear();
     this.materialCache.clear();
     this.decodedTextures.clear();
   }
@@ -193,14 +209,19 @@ export class MaterialPreviewProjectResources {
     return promise;
   }
 
-  private getProjectSnapshot(
+  private async getProjectSnapshot(
     project: AuthoringProject,
     generation: number,
+    requestedMaterialIds: readonly string[],
   ): Promise<MaterialPreviewProjectSnapshot | null> {
-    if (this.projectSnapshot) return this.projectSnapshot;
-    this.projectSnapshot = (async () => {
-      const initial = await buildShaderMaterialProject(project);
-      const compilation = scopedCompilation(initial, this.projectOptions.materialIds);
+    const materialIds = this.projectOptions.materialIds ?? requestedMaterialIds;
+    this.projectBuild ??= buildShaderMaterialProject(project);
+    const initial = await this.projectBuild;
+    const compilation = scopedCompilation(initial, materialIds);
+    const snapshotKey = Object.keys(compilation.programs).sort().join('\u0000');
+    const cached = this.projectSnapshots.get(snapshotKey);
+    if (cached) return cached;
+    const snapshot = (async () => {
       const requestedPrograms = Object.keys(compilation.programs);
       let outputs: readonly ShaderCompileOutput[] = [];
       let compileDiagnostics: readonly ShaderCompileDiagnostic[] = [];
@@ -240,7 +261,8 @@ export class MaterialPreviewProjectResources {
       if (generation !== this.projectGeneration || project !== this.project) return null;
       return { generation, project, built, outputs, compileDiagnostics, stalePrograms };
     })();
-    return this.projectSnapshot;
+    this.projectSnapshots.set(snapshotKey, snapshot);
+    return snapshot;
   }
 
   private async buildMaterial(
@@ -251,15 +273,15 @@ export class MaterialPreviewProjectResources {
     if (!project) return null;
     const resolution = resolveMaterialData(project, materialId);
     if (!resolution.data) return null;
-    const snapshot = await this.getProjectSnapshot(project, generation);
+    const snapshot = await this.getProjectSnapshot(project, generation, [materialId]);
     if (!snapshot) return null;
 
-    const runtimeMaterial = snapshot.built.project.materials[materialId];
-    const customOutputs = runtimeMaterial
+    const sourceProgramId = sourceProgramIdForMaterial(snapshot.built, materialId);
+    const customOutputs = sourceProgramId
       ? snapshot.outputs.filter(
           (output) =>
             output.variant === 'essl-300' &&
-            output.program === runtimeMaterial.shader &&
+            output.program === sourceProgramId &&
             typeof output.browserPayload === 'string',
         )
       : [];
@@ -290,7 +312,7 @@ export class MaterialPreviewProjectResources {
       textures,
       diagnostics: [...resolution.diagnostics, ...snapshot.built.diagnostics],
       compileDiagnostics: snapshot.compileDiagnostics,
-      stale: runtimeMaterial ? snapshot.stalePrograms.has(runtimeMaterial.shader) : false,
+      stale: sourceProgramId ? snapshot.stalePrograms.has(sourceProgramId) : false,
     };
   }
 

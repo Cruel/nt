@@ -44,7 +44,7 @@ bgfx::ProgramHandle
 BgfxShaderProgramCache::load_program(const ShaderProgramResolution& resolution,
                                      std::vector<ShaderProgramDiagnostic>* diagnostics)
 {
-    const std::string key = shader_program_cache_key(resolution.key);
+    const std::string key = shader_program_binary_cache_key(resolution);
     if (const auto found = m_programs.find(key); found != m_programs.end())
         return found->second;
 

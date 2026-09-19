@@ -19,6 +19,7 @@ export interface MaterialPreviewSurfaceState {
   pointer: MaterialPreviewPointerState;
   resources?: MaterialPreviewProjectResources;
   parameterOverrides?: Readonly<Record<string, ShaderUniformValue>>;
+  onShaderProgramStatus?: (status: { stale: boolean; message: string | null }) => void;
 }
 
 export interface MaterialPreviewGroupRendererStatus {
@@ -39,6 +40,7 @@ export interface MaterialPreviewBackend {
     resource: MaterialPreviewResource,
     timeSeconds: number,
   ) => void;
+  invalidateProjectResources: () => void;
   reset: () => void;
   dispose: () => void;
 }
@@ -147,6 +149,31 @@ function paintCheckerBackground(context: CanvasRenderingContext2D, width: number
   }
 }
 
+function uniformType(
+  gl: WebGL2RenderingContext,
+  program: WebGLProgram,
+  name: string,
+): number | null {
+  const count = Number(gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS) ?? 0);
+  for (let index = 0; index < count; index += 1) {
+    const info = gl.getActiveUniform(program, index);
+    if (info && info.name.replace(/\[0\]$/u, '') === name) return info.type;
+  }
+  return null;
+}
+
+function numericVector(value: unknown): number[] | null {
+  if (typeof value === 'boolean') return [value ? 1 : 0];
+  if (typeof value === 'number') return [value];
+  if (Array.isArray(value) && value.every((entry) => typeof entry === 'number')) return value;
+  if (value && typeof value === 'object') {
+    const color = value as Partial<Record<'r' | 'g' | 'b' | 'a', unknown>>;
+    if ([color.r, color.g, color.b, color.a].every((item) => typeof item === 'number'))
+      return [color.r, color.g, color.b, color.a] as number[];
+  }
+  return null;
+}
+
 function setUniformValue(
   gl: WebGL2RenderingContext,
   program: WebGLProgram,
@@ -154,23 +181,38 @@ function setUniformValue(
   value: unknown,
 ) {
   const location = gl.getUniformLocation(program, name);
-  if (!location) return;
-  if (typeof value === 'boolean') gl.uniform1i(location, value ? 1 : 0);
-  else if (typeof value === 'number') gl.uniform1f(location, value);
-  else if (Array.isArray(value)) {
-    if (value.length === 2) gl.uniform2fv(location, value as [number, number]);
-    else if (value.length === 3) gl.uniform3fv(location, value as [number, number, number]);
-    else if (value.length === 4) gl.uniform4fv(location, value as [number, number, number, number]);
-  } else if (value && typeof value === 'object') {
-    const color = value as Partial<Record<'r' | 'g' | 'b' | 'a', unknown>>;
-    if ([color.r, color.g, color.b, color.a].every((item) => typeof item === 'number')) {
-      gl.uniform4fv(location, [color.r, color.g, color.b, color.a] as [
-        number,
-        number,
-        number,
-        number,
-      ]);
-    }
+  if (location === null) return;
+  const values = numericVector(value);
+  if (!values) return;
+  const type = uniformType(gl, program, name);
+  const component = (index: number) => values[index] ?? 0;
+  if (type === gl.FLOAT_VEC4)
+    gl.uniform4fv(location, [component(0), component(1), component(2), component(3)]);
+  else if (type === gl.FLOAT_VEC3)
+    gl.uniform3fv(location, [component(0), component(1), component(2)]);
+  else if (type === gl.FLOAT_VEC2) gl.uniform2fv(location, [component(0), component(1)]);
+  else if (type === gl.INT || type === gl.BOOL || type === gl.SAMPLER_2D)
+    gl.uniform1i(location, Math.trunc(component(0)));
+  else if (type === gl.FLOAT || type === null) gl.uniform1f(location, component(0));
+}
+
+function setIdentityTransform(gl: WebGL2RenderingContext, program: WebGLProgram) {
+  const location = gl.getUniformLocation(program, 'u_modelViewProj');
+  if (location === null) return;
+  gl.uniformMatrix4fv(
+    location,
+    false,
+    new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+  );
+}
+
+export class MaterialPreviewShaderProgramError extends Error {
+  constructor(
+    readonly stale: boolean,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'MaterialPreviewShaderProgramError';
   }
 }
 
@@ -178,10 +220,17 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
   private readonly canvas: HTMLCanvasElement;
   private readonly gl: WebGL2RenderingContext;
   private readonly programCache = new Map<string, WebGLProgram>();
+  private readonly programFailureCache = new Map<string, string>();
+  private readonly lastGoodProgramByMaterialId = new Map<string, WebGLProgram>();
   private readonly textureCache = new Map<string, WebGLTexture>();
   private readonly geometryCache = new Map<
     MaterialPreviewResource['resolved']['preview']['geometry'],
-    { positionBuffer: WebGLBuffer; texcoordBuffer: WebGLBuffer; count: number }
+    {
+      positionBuffer: WebGLBuffer;
+      texcoordBuffer: WebGLBuffer;
+      colorBuffer: WebGLBuffer;
+      count: number;
+    }
   >();
 
   constructor(options: MaterialPreviewBackendFactoryOptions) {
@@ -226,16 +275,33 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
         : FALLBACK_FRAGMENT_SOURCE);
     const programKey = `${vertexSource}\u0000${fragmentSource}`;
     let program = this.programCache.get(programKey);
-    if (!program) {
+    let shaderProgramError: MaterialPreviewShaderProgramError | null = null;
+    const cachedFailure = this.programFailureCache.get(programKey);
+    if (!program && cachedFailure) {
+      const lastGood = this.lastGoodProgramByMaterialId.get(resource.materialId) ?? null;
+      if (!lastGood) throw new MaterialPreviewShaderProgramError(false, cachedFailure);
+      program = lastGood;
+      shaderProgramError = new MaterialPreviewShaderProgramError(true, cachedFailure);
+    } else if (!program) {
       try {
         program = createProgram(gl, vertexSource, fragmentSource);
-      } catch {
-        program = createProgram(gl, FALLBACK_VERTEX_SOURCE, FALLBACK_FRAGMENT_SOURCE);
+        this.programCache.set(programKey, program);
+        this.programFailureCache.delete(programKey);
+        this.lastGoodProgramByMaterialId.set(resource.materialId, program);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'WebGL shader compilation failed.';
+        const lastGood = this.lastGoodProgramByMaterialId.get(resource.materialId) ?? null;
+        this.programFailureCache.set(programKey, message);
+        if (!lastGood) throw new MaterialPreviewShaderProgramError(false, message);
+        program = lastGood;
+        shaderProgramError = new MaterialPreviewShaderProgramError(true, message);
       }
-      this.programCache.set(programKey, program);
+    } else {
+      this.lastGoodProgramByMaterialId.set(resource.materialId, program);
     }
     gl.useProgram(program);
     const geometry = this.bindGeometry(program, resource.resolved.preview.geometry);
+    setIdentityTransform(gl, program);
 
     const textureEntries = Object.entries(resource.textures);
     let textureUnit = 0;
@@ -289,6 +355,12 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
       }
       target.drawImage(this.canvas, 0, 0, width, height);
     }
+    if (shaderProgramError) throw shaderProgramError;
+  }
+
+  invalidateProjectResources() {
+    for (const texture of this.textureCache.values()) this.gl.deleteTexture(texture);
+    this.textureCache.clear();
   }
 
   reset() {
@@ -297,8 +369,11 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
     for (const geometry of this.geometryCache.values()) {
       this.gl.deleteBuffer(geometry.positionBuffer);
       this.gl.deleteBuffer(geometry.texcoordBuffer);
+      this.gl.deleteBuffer(geometry.colorBuffer);
     }
     this.programCache.clear();
+    this.programFailureCache.clear();
+    this.lastGoodProgramByMaterialId.clear();
     this.textureCache.clear();
     this.geometryCache.clear();
   }
@@ -327,15 +402,19 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
         1 - inset,
       ]);
       const texcoords = new Float32Array([0, 1, 1, 1, 0, 0, 1, 0]);
+      const colors = new Float32Array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
       const positionBuffer = gl.createBuffer();
       const texcoordBuffer = gl.createBuffer();
-      if (!positionBuffer || !texcoordBuffer)
+      const colorBuffer = gl.createBuffer();
+      if (!positionBuffer || !texcoordBuffer || !colorBuffer)
         throw new Error('Unable to allocate preview geometry.');
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, texcoords, gl.STATIC_DRAW);
-      cached = { positionBuffer, texcoordBuffer, count: 4 };
+      gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+      cached = { positionBuffer, texcoordBuffer, colorBuffer, count: 4 };
       this.geometryCache.set(geometry, cached);
     }
     const positionLocation = gl.getAttribLocation(program, 'a_position');
@@ -349,6 +428,12 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
       gl.bindBuffer(gl.ARRAY_BUFFER, cached.texcoordBuffer);
       gl.enableVertexAttribArray(texcoordLocation);
       gl.vertexAttribPointer(texcoordLocation, 2, gl.FLOAT, false, 0, 0);
+    }
+    const colorLocation = gl.getAttribLocation(program, 'a_color0');
+    if (colorLocation >= 0) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, cached.colorBuffer);
+      gl.enableVertexAttribArray(colorLocation);
+      gl.vertexAttribPointer(colorLocation, 4, gl.FLOAT, false, 0, 0);
     }
     return cached;
   }
@@ -435,7 +520,7 @@ export class MaterialPreviewGroupRenderer {
     const token = {};
     this.surfaces.set(token, { state, resource: null, resourceGeneration: -1 });
     this.ensureBackend();
-    void this.refreshSurface(token);
+    if (state.visible) void this.refreshSurface(token);
     this.schedule();
     return {
       update: (next: MaterialPreviewSurfaceState) => {
@@ -443,6 +528,7 @@ export class MaterialPreviewGroupRenderer {
         if (!registered) return;
         const previousResources = registered.state.resources ?? this.resources;
         const nextResources = next.resources ?? this.resources;
+        const becameVisible = !registered.state.visible && next.visible;
         const resourceChanged =
           registered.state.materialId !== next.materialId ||
           previousResources !== nextResources ||
@@ -451,8 +537,8 @@ export class MaterialPreviewGroupRenderer {
         if (resourceChanged) {
           registered.resource = null;
           registered.resourceGeneration = -1;
-          void this.refreshSurface(token);
         }
+        if (next.visible && (resourceChanged || becameVisible)) void this.refreshSurface(token);
         this.schedule();
       },
       unregister: () => {
@@ -466,12 +552,12 @@ export class MaterialPreviewGroupRenderer {
   }
 
   invalidateProjectResources() {
-    this.backend?.reset();
+    this.backend?.invalidateProjectResources();
     this.renderFailed = false;
     for (const [token, registered] of this.surfaces) {
       registered.resource = null;
       registered.resourceGeneration = -1;
-      void this.refreshSurface(token);
+      if (registered.state.visible) void this.refreshSurface(token);
     }
     this.schedule();
   }
@@ -488,7 +574,7 @@ export class MaterialPreviewGroupRenderer {
 
   private async refreshSurface(token: object) {
     const registered = this.surfaces.get(token);
-    if (!registered) return;
+    if (!registered || !registered.state.visible) return;
     const resources = registered.state.resources ?? this.resources;
     const generation = resources.generation;
     const materialId = registered.state.materialId;
@@ -496,6 +582,7 @@ export class MaterialPreviewGroupRenderer {
     const current = this.surfaces.get(token);
     if (
       !current ||
+      !current.state.visible ||
       current.state.materialId !== materialId ||
       (current.state.resources ?? this.resources) !== resources ||
       generation !== resources.generation
@@ -535,12 +622,20 @@ export class MaterialPreviewGroupRenderer {
       if (registered.resource) {
         try {
           this.backend.render(registered.state, registered.resource, timestamp / 1000);
-        } catch {
+          registered.state.onShaderProgramStatus?.({ stale: false, message: null });
+        } catch (error) {
+          if (error instanceof MaterialPreviewShaderProgramError) {
+            registered.state.onShaderProgramStatus?.({
+              stale: error.stale,
+              message: error.message,
+            });
+            continue;
+          }
           this.renderFailed = true;
           this.setStatus({
             available: false,
             code: 'material-preview.render-failed',
-            message: 'Material preview rendering failed.',
+            message: error instanceof Error ? error.message : 'Material preview rendering failed.',
           });
           return;
         }

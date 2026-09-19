@@ -123,6 +123,20 @@ describe('save-unit registry', () => {
     });
   });
 
+  it('treats project source editors as stable manual-save units', () => {
+    expect(
+      resolveSaveUnitForResource(representativeResources['source-file'], 'source-file', project),
+    ).toMatchObject({
+      status: 'savable',
+      descriptor: {
+        id: 'source-file:scripts/helpers.lua',
+        kind: 'source-file',
+        ownedPaths: [],
+        persistencePolicy: 'manual-save',
+      },
+    });
+  });
+
   it('distinguishes collection-wide editors, non-content tools, and unsupported editors', () => {
     const variables = resolveSaveUnitForResource(
       representativeResources.variables,

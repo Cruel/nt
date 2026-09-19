@@ -5,6 +5,7 @@ import {
   DebouncedShaderPreviewCompiler,
   discoverShaderSourceMaterialUsages,
   shaderSourceOverlays,
+  shaderSourcePreviewAuthorityKey,
 } from '@/shaders/shader-source-preview';
 import {
   parseShaderSourceTabState,
@@ -50,6 +51,28 @@ describe('shader source preview discovery', () => {
     expect(usages.direct).toEqual([]);
     expect(usages.transitive.map((usage) => usage.materialId)).toEqual(['badge', 'panel']);
     expect(usages.affectedMaterialIds).toEqual(['badge', 'panel']);
+  });
+
+  it('matches compiler include directive syntax without treating commented text as a dependency', () => {
+    const project = createAuthoringProject();
+    project.materials.spaced = {
+      id: 'spaced',
+      label: 'Spaced',
+      data: customMaterial('Spaced', 'shaders/spaced.fs.sc'),
+    };
+    project.materials.commented = {
+      id: 'commented',
+      label: 'Commented',
+      data: customMaterial('Commented', 'shaders/commented.fs.sc'),
+    };
+
+    const usages = discoverShaderSourceMaterialUsages(project, 'shaders/common/color.sh', {
+      'shaders/spaced.fs.sc': '# include "common/color.sh"\nvoid main() {}',
+      'shaders/commented.fs.sc': '// #include "common/color.sh"\nvoid main() {}',
+      'shaders/common/color.sh': 'vec4 tint(vec4 c) { return c; }',
+    });
+
+    expect(usages.transitive.map((usage) => usage.materialId)).toEqual(['spaced']);
   });
 
   it('reports a direct consumer separately even when another Material reaches the same source transitively', () => {
@@ -113,6 +136,28 @@ describe('shader source preview discovery', () => {
       'shaders/panel.fs.sc': 'dirty shader',
       'shaders/common/color.sh': 'dirty include',
     });
+  });
+
+  it('invalidates source-tab preview authority when a clean persisted shader dependency changes', () => {
+    const files = [
+      {
+        id: 'shaders/panel.fs.sc',
+        kind: 'shader' as const,
+        contentHash: `sha256:${'a'.repeat(64)}` as const,
+      },
+      {
+        id: 'shaders/common.sc',
+        kind: 'shader' as const,
+        contentHash: `sha256:${'b'.repeat(64)}` as const,
+      },
+    ];
+    const first = shaderSourcePreviewAuthorityKey(['panel'], {}, files);
+    const second = shaderSourcePreviewAuthorityKey(['panel'], {}, [
+      files[0]!,
+      { ...files[1]!, contentHash: `sha256:${'c'.repeat(64)}` as const },
+    ]);
+
+    expect(second).not.toBe(first);
   });
 
   it('debounces rapid preview compilation and resolves superseded generations from the latest run', async () => {

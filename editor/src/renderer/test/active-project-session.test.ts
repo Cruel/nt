@@ -669,6 +669,133 @@ describe('active Project session lifecycle', () => {
     expect((await openProject(project)).success).toBe(true);
   });
 
+  it('uses compiler-equivalent shader-root fallback when discovering and repairing includes', async () => {
+    const project = await createWorkspace('source-shader-root-include');
+    await fs.mkdir(path.join(project, 'shaders', 'effects'), { recursive: true });
+    await fs.writeFile(
+      path.join(project, 'shaders', 'common.sc'),
+      'vec4 common() { return vec4(1.0); }\n',
+    );
+    await fs.writeFile(
+      path.join(project, 'shaders', 'effects', 'main.sc'),
+      '# include "common.sc"\nvoid main() {}\n',
+    );
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const projectSessionId = attached.projectSessionId!;
+
+    await expect(
+      service.mutateProjectSources({
+        projectSessionId,
+        operation: { kind: 'delete', path: 'shaders/common.sc' },
+      }),
+    ).resolves.toMatchObject({
+      success: false,
+      usages: [
+        expect.objectContaining({
+          kind: 'shader-include',
+          owner: 'shaders/effects/main.sc',
+          path: 'shaders/common.sc',
+        }),
+      ],
+    });
+
+    const moved = await service.mutateProjectSources({
+      projectSessionId,
+      operation: {
+        kind: 'move',
+        fromPath: 'shaders/common.sc',
+        toPath: 'shaders/lib/common.sc',
+      },
+    });
+    expect(moved.success).toBe(true);
+    expect(
+      await fs.readFile(path.join(project, 'shaders', 'effects', 'main.sc'), 'utf8'),
+    ).toContain('# include "../lib/common.sc"');
+  });
+
+  it('prefers a consumer-local shader include over the shader-root fallback', async () => {
+    const project = await createWorkspace('source-shader-local-include-precedence');
+    await fs.mkdir(path.join(project, 'shaders', 'effects'), { recursive: true });
+    await fs.writeFile(
+      path.join(project, 'shaders', 'common.sc'),
+      'vec4 root_common() { return vec4(1.0); }\n',
+    );
+    await fs.writeFile(
+      path.join(project, 'shaders', 'effects', 'common.sc'),
+      'vec4 local_common() { return vec4(1.0); }\n',
+    );
+    await fs.writeFile(
+      path.join(project, 'shaders', 'effects', 'main.sc'),
+      '#include "common.sc"\nvoid main() {}\n',
+    );
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const projectSessionId = attached.projectSessionId!;
+
+    await expect(
+      service.mutateProjectSources({
+        projectSessionId,
+        operation: { kind: 'delete', path: 'shaders/common.sc' },
+      }),
+    ).resolves.toMatchObject({ success: true });
+    await expect(
+      service.mutateProjectSources({
+        projectSessionId,
+        operation: { kind: 'delete', path: 'shaders/effects/common.sc' },
+      }),
+    ).resolves.toMatchObject({
+      success: false,
+      usages: [
+        expect.objectContaining({
+          kind: 'shader-include',
+          owner: 'shaders/effects/main.sc',
+          path: 'shaders/effects/common.sc',
+        }),
+      ],
+    });
+  });
+
+  it('rewrites relative includes when making a project shader Material-specific', async () => {
+    const project = await createWorkspace('material-shader-copy-relative-include');
+    await fs.mkdir(path.join(project, 'shaders', 'shared'), { recursive: true });
+    await fs.writeFile(
+      path.join(project, 'shaders', 'shared', 'helper.sc'),
+      'vec4 helper() { return vec4(1.0); }\n',
+    );
+    await fs.writeFile(
+      path.join(project, 'shaders', 'shared', 'main.sc'),
+      '#include "./helper.sc"\nvoid main() {}\n',
+    );
+    await fs.mkdir(path.join(project, 'records', 'materials'), { recursive: true });
+    const data = defaultMaterialData('Panel', 'engine-2d');
+    data.shader = { fragment: { kind: 'project', path: 'shaders/shared/main.sc' } };
+    await fs.writeFile(
+      path.join(project, 'records', 'materials', 'panel.json'),
+      `${JSON.stringify({ id: 'panel', label: 'Panel', data }, null, 2)}\n`,
+    );
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+
+    const copied = await service.mutateProjectSources({
+      projectSessionId: attached.projectSessionId!,
+      operation: {
+        kind: 'material-shader-copy',
+        materialId: 'panel',
+        stage: 'fragment',
+        sourceIdentity: 'project:/shaders/shared/main.sc',
+      },
+    });
+
+    expect(copied.success).toBe(true);
+    expect(
+      await fs.readFile(path.join(project, 'shaders', 'materials', 'panel', 'fs.sc'), 'utf8'),
+    ).toContain('#include "../../shared/helper.sc"');
+  });
+
   it('customizes one Material shader stage atomically from built-in source', async () => {
     const project = await createWorkspace('material-shader-copy');
     await fs.mkdir(path.join(project, 'records', 'materials'), { recursive: true });

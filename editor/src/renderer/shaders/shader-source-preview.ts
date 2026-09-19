@@ -49,7 +49,7 @@ function includeTargets(
   knownPaths: ReadonlySet<string>,
 ): string[] {
   const targets = new Set<string>();
-  for (const match of text.matchAll(/#include\s*[<"]([^">]+)[">]/gu)) {
+  for (const match of text.matchAll(/^\s*#\s*include\s*[<"]([^">]+)[">]/gmu)) {
     const include = match[1]?.trim();
     if (!include || include === 'bgfx_shader.sh' || include === 'bgfx_compute.sh') continue;
     if (include.startsWith('engine:/')) continue;
@@ -151,6 +151,22 @@ export class DebouncedShaderPreviewCompiler<T> {
     for (const { reject } of pending)
       reject(new Error('Shader preview compilation was cancelled.'));
   }
+}
+
+export function shaderSourcePreviewAuthorityKey(
+  attachedMaterialIds: readonly string[],
+  overlays: Readonly<Record<string, string>>,
+  files: readonly Pick<ProjectSourceFile, 'id' | 'kind' | 'contentHash'>[],
+): string {
+  const persistedShaderRevisions = files
+    .filter((file) => file.kind === 'shader')
+    .map((file) => `${file.id}:${file.contentHash ?? 'absent'}`)
+    .sort();
+  return JSON.stringify({
+    attachedMaterialIds: [...attachedMaterialIds],
+    overlays,
+    persistedShaderRevisions,
+  });
 }
 
 export function shaderSourceOverlays(

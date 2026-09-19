@@ -27,6 +27,7 @@ import {
 interface MaterialPreviewProjectContextValue {
   resources: MaterialPreviewProjectResources;
   generation: number;
+  scopeKey: string | null;
 }
 
 const ProjectResourcesContext = createContext<MaterialPreviewProjectContextValue | null>(null);
@@ -69,7 +70,11 @@ export function MaterialPreviewProjectProvider({ children }: { children: ReactNo
     scopeKey: projectSessionId,
   });
   const generation = resources.generation;
-  const value = useMemo(() => ({ resources, generation }), [generation, resources]);
+  const scopeKey = projectSessionId;
+  const value = useMemo(
+    () => ({ resources, generation, scopeKey }),
+    [generation, resources, scopeKey],
+  );
   return (
     <ProjectResourcesContext.Provider value={value}>{children}</ProjectResourcesContext.Provider>
   );
@@ -122,11 +127,11 @@ export function MaterialPreviewGroupProvider({
   backendFactory?: MaterialPreviewBackendFactory;
   scheduler?: MaterialPreviewScheduler;
 }) {
-  const { resources, generation } = useMaterialPreviewProjectContext();
-  const renderer = useMemo(
-    () => new MaterialPreviewGroupRenderer(resources, backendFactory, scheduler),
-    [backendFactory, resources, scheduler],
-  );
+  const { resources, generation, scopeKey } = useMaterialPreviewProjectContext();
+  const renderer = useMemo(() => {
+    void scopeKey;
+    return new MaterialPreviewGroupRenderer(resources, backendFactory, scheduler);
+  }, [backendFactory, resources, scheduler, scopeKey]);
   useEffect(() => {
     renderer.invalidateProjectResources();
   }, [generation, renderer]);

@@ -269,6 +269,22 @@ export const editorRecoveryStateSchema = z
   })
   .strict();
 
+export const editorSourceRecoveryEntrySchema = z
+  .object({
+    file: z
+      .object({
+        id: z.string().min(1),
+        displayPath: z.string().min(1),
+        projectRelativePath: z.string().min(1),
+        kind: z.enum(['lua', 'shader', 'asset', 'layout-rml', 'layout-rcss', 'layout-lua']),
+      })
+      .strict(),
+    text: z.string(),
+    baseText: z.string(),
+    baseContentHash: editorRecoveryFileRevisionSchema,
+  })
+  .strict();
+
 export const lastSuccessfulPlatformExportIdentitySchema = z
   .object({
     applicationId: z.string().min(1),
@@ -285,6 +301,7 @@ export const editorProjectStateSchema = z
   .object({
     schema: z.literal(EDITOR_PROJECT_STATE_SCHEMA),
     recovery: editorRecoveryStateSchema.default({ sequence: 0, saveUnitsById: {} }),
+    sourceRecoveryById: z.record(z.string().min(1), editorSourceRecoveryEntrySchema).default({}),
     lastSuccessfulPlatformExportIdentity: lastSuccessfulPlatformExportIdentitySchema.optional(),
     previewLocale: z.string().trim().min(1).nullable().default(null),
     workbench: editorWorkbenchStateSchema.optional(),
@@ -309,6 +326,7 @@ export type EditorRecoveryPatch = z.infer<typeof editorRecoveryPatchSchema>;
 export type EditorRecoverySaveUnit = z.infer<typeof editorRecoverySaveUnitSchema>;
 export type EditorRecoveryExternalConflict = z.infer<typeof editorRecoveryExternalConflictSchema>;
 export type EditorRecoveryState = z.infer<typeof editorRecoveryStateSchema>;
+export type EditorSourceRecoveryEntry = z.infer<typeof editorSourceRecoveryEntrySchema>;
 export type EditorPendingRawInput = z.infer<typeof editorPendingRawInputSchema>;
 export type EditorProjectState = z.infer<typeof editorProjectStateSchema>;
 export type SerializedWorkbenchState = z.infer<typeof editorWorkbenchStateSchema>;
@@ -353,6 +371,7 @@ export function emptyEditorProjectState(): EditorProjectState {
   return {
     schema: EDITOR_PROJECT_STATE_SCHEMA,
     recovery: { sequence: 0, saveUnitsById: {} },
+    sourceRecoveryById: {},
     previewLocale: null,
     explorer: emptyEditorExplorerState(),
     chapters: emptyEditorChaptersState(),

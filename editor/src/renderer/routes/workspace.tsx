@@ -292,13 +292,18 @@ export function WorkspacePage() {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const projectDirty = useProjectStore(selectProjectDirty);
+  const sourceBuffersById = useProjectSourceStore((state) => state.buffersById);
+  const hasSourceDirty = Object.values(sourceBuffersById).some((buffer) => buffer.dirty);
+  const hasPersistedSourceRecovery = project
+    ? Object.keys(editorProjectStateFromProject(project).sourceRecoveryById).length > 0
+    : false;
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
   const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
   const hasPendingInput = Object.values(pendingInputEntries).some(
     (byPath) => Object.keys(byPath).length > 0,
   );
-  const saveDirty = projectDirty || hasDraftDirty || hasPendingInput;
+  const saveDirty = projectDirty || hasSourceDirty || hasDraftDirty || hasPendingInput;
   const isSaving = useProjectStore((state) => state.isSaving);
   const loadProjectDocument = useProjectStore((state) => state.loadProjectDocument);
   const clearProjectDocument = useProjectStore((state) => state.clearProject);
@@ -1196,7 +1201,11 @@ export function WorkspacePage() {
     if (
       !projectContentSnapshot ||
       !projectFilePath ||
-      (!projectDirty && !hasDraftDirty && !hasPendingInput)
+      (!projectDirty &&
+        !hasSourceDirty &&
+        !hasPersistedSourceRecovery &&
+        !hasDraftDirty &&
+        !hasPendingInput)
     )
       return;
     const timer = window.setTimeout(() => {
@@ -1213,8 +1222,11 @@ export function WorkspacePage() {
     draftEntries,
     hasDraftDirty,
     hasPendingInput,
+    hasPersistedSourceRecovery,
+    hasSourceDirty,
     pendingInputEntries,
     projectContentSnapshot,
+    sourceBuffersById,
     projectDirty,
     projectFilePath,
   ]);

@@ -110,7 +110,6 @@ const NON_CONTENT_EDITOR_TYPES = new Set([
   'comfyui-workflows',
   'components',
   'settings',
-  'source-file',
   'engine-shader-source',
 ]);
 
@@ -169,6 +168,14 @@ export function structuralSaveUnitId(collection: string): SaveUnitId {
   return `structure:${collection}`;
 }
 
+export function sourceSaveUnitId(sourceId: string): SaveUnitId {
+  return `source-file:${sourceId}`;
+}
+
+export function sourceIdFromSaveUnitId(saveUnitId: SaveUnitId): string | null {
+  return saveUnitId.startsWith('source-file:') ? saveUnitId.slice('source-file:'.length) : null;
+}
+
 export function manualSaveAttribution(originSaveUnitId: SaveUnitId): SaveUnitCommandAttribution {
   return { originSaveUnitId, persistencePolicy: 'manual-save' };
 }
@@ -220,6 +227,22 @@ export function resolveSaveUnitForResource(
           buildJsonPointer([resource.collection, resource.entityId]),
           buildJsonPointer(['editor', 'recordMetadata', resource.collection, resource.entityId]),
         ],
+        resource,
+        editorType,
+        tabId,
+      }),
+    };
+  }
+
+  if (editorType === 'source-file') {
+    if (!resource?.sourceId) {
+      return unsupported(resource, editorType, 'Source editor is missing its source-file ID.');
+    }
+    return {
+      status: 'savable',
+      descriptor: descriptor({
+        id: sourceSaveUnitId(resource.sourceId),
+        kind: 'source-file',
         resource,
         editorType,
         tabId,

@@ -90,6 +90,7 @@ resolve_source_shader_program(const ShaderMaterialProject& project,
                               std::string_view active_variant);
 
 [[nodiscard]] std::string shader_program_cache_key(const ShaderProgramKey& key);
+[[nodiscard]] std::string shader_program_binary_cache_key(const ShaderProgramResolution& resolution);
 [[nodiscard]] std::string expected_shader_binary_path(const ShaderId& shader_id, ShaderStage stage,
                                                       std::string_view variant);
 

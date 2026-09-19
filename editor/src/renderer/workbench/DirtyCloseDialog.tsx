@@ -108,18 +108,6 @@ export function DirtyCloseDialog() {
           }
         }
       }
-      for (const { tab: dirtyTab } of dirtyTabStates) {
-        if (dirtyTab.resource?.kind !== 'source' || !dirtyTab.resource.sourceId) continue;
-        const saved = await useProjectSourceStore.getState().save(dirtyTab.resource.sourceId);
-        if (!saved) {
-          const message =
-            useProjectSourceStore.getState().error ??
-            'Source save failed. Resolve any external conflict before closing.';
-          setProjectSaveError(message);
-          setStatusMessage(message);
-          return;
-        }
-      }
       const saveUnitIds = [
         ...new Set(
           dirtyTabStates
@@ -135,6 +123,14 @@ export function DirtyCloseDialog() {
           setProjectSaveError(message);
           setStatusMessage(message);
           setDiagnostics(result.diagnostics);
+          addTimelineEntry({ source: 'command', message, detail: result });
+          return;
+        }
+        if (result.remainingDirtySaveUnitIds.includes(saveUnitId)) {
+          const message =
+            'This item changed again while it was being saved. Save the newer edits before closing.';
+          setProjectSaveError(message);
+          setStatusMessage(message);
           addTimelineEntry({ source: 'command', message, detail: result });
           return;
         }
