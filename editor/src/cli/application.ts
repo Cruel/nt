@@ -1,7 +1,10 @@
 import path from 'node:path';
 import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
 import type { ProjectSourceInventory } from '../shared/project-source-inventory';
-import type { ProjectWorkspaceService } from '../shared/project-workspace/project-workspace-service';
+import type {
+  LoadedProjectWorkspaceSnapshot,
+  ProjectWorkspaceService,
+} from '../shared/project-workspace/project-workspace-service';
 import { bootstrapNovelTeaCli, novelTeaCliUsageFailure } from './bootstrap';
 import {
   cliDiagnostic,
@@ -63,10 +66,15 @@ export interface AuthoringValidationInstrumentation {
   }>;
 }
 
+export interface ResidentCliProjectWorkspace extends ProjectWorkspaceService {
+  verifyReadAuthority(snapshot: LoadedProjectWorkspaceSnapshot): Promise<boolean>;
+}
+
 export interface RunNovelTeaCliOptions {
   readonly cwd?: string;
   readonly fileSystem?: ProjectWorkspaceFileSystem;
   readonly workspace?: ProjectWorkspaceService;
+  readonly residentWorkspace?: ResidentCliProjectWorkspace;
   readonly nativeTools?: NovelTeaCliNativeToolService;
   readonly platformTools?: NovelTeaCliPlatformToolService;
   readonly onPlatformProgress?: (stage: string, message: string) => void;
@@ -85,6 +93,8 @@ export interface RunNovelTeaCliOptions {
   readonly comfyUiWorkflowLibraryOptions?: WorkflowLibraryServiceOptions;
   readonly comfyUiAbortSignal?: AbortSignal;
   readonly onComfyUiProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
+  /** Internal bounded retry counter for resident read authority races. */
+  readonly residentReadAttempt?: number;
 }
 
 const unavailableNativeTools: NovelTeaCliNativeToolService = {
@@ -190,10 +200,14 @@ export async function runNovelTeaCli(
   ) {
     const services = await workspaceServices();
     const { runNovelTeaProjectBundleCli } = await import('./project-bundle-cli');
+    const bundleWorkspace =
+      globals.command[1] === 'export' && options.residentWorkspace
+        ? options.residentWorkspace
+        : services.workspace;
     const projectBundle = await runNovelTeaProjectBundleCli(
       globals,
       services.fileSystem,
-      services.workspace,
+      bundleWorkspace,
       cwd,
     );
     if (projectBundle) return projectBundle;
@@ -457,20 +471,24 @@ export async function runNovelTeaCli(
   }
 
   const services = await workspaceServices();
+  const activeWorkspace =
+    !command.mutation && options.residentWorkspace ? options.residentWorkspace : services.workspace;
+  const residentProjectRead = activeWorkspace === options.residentWorkspace;
   const validationCache =
     globals.command[0] === 'validate' && nativeTools.validateFontCoverage
       ? await import('../shared/authoring-cache')
       : null;
   const cacheAdmissionStarted = Date.now();
-  const authoringCacheAdmission = options.forceAuthoringCacheRebuild
-    ? null
-    : await validationCache?.readAuthoringCacheAdmission(
-        services.fileSystem,
-        discovery.projectRoot,
-        options.expectedAuthoringValidationInputs ?? null,
-        options.skipAuthoringWholeResultCache ?? false,
-        options.precomputedAuthoringCacheInventory ?? null,
-      );
+  const authoringCacheAdmission =
+    options.forceAuthoringCacheRebuild || residentProjectRead
+      ? null
+      : await validationCache?.readAuthoringCacheAdmission(
+          services.fileSystem,
+          discovery.projectRoot,
+          options.expectedAuthoringValidationInputs ?? null,
+          options.skipAuthoringWholeResultCache ?? false,
+          options.precomputedAuthoringCacheInventory ?? null,
+        );
   const cacheAdmissionMs = Date.now() - cacheAdmissionStarted;
   const cachedValidation = options.skipAuthoringWholeResultCache
     ? null
@@ -493,15 +511,16 @@ export async function runNovelTeaCli(
   }
 
   const reusableAuthoring = authoringCacheAdmission?.reusable ?? null;
-  const validationBaseline = reusableAuthoring
-    ? null
-    : await validationCache?.captureAuthoringSourceBaseline(
-        services.fileSystem,
-        discovery.projectRoot,
-      );
+  const validationBaseline =
+    residentProjectRead || reusableAuthoring
+      ? null
+      : await validationCache?.captureAuthoringSourceBaseline(
+          services.fileSystem,
+          discovery.projectRoot,
+        );
   const { openCliProject } = await import('./semantic-project');
   const workspaceAdmissionStarted = Date.now();
-  const opened = await openCliProject(services.workspace, discovery.projectRoot, {
+  const opened = await openCliProject(activeWorkspace, discovery.projectRoot, {
     readOnly: command.dryRun,
     reusableSourceContributions: reusableAuthoring?.sourceContributions,
     reusableValidationContributions: reusableAuthoring?.validationContributions,
@@ -524,7 +543,7 @@ export async function runNovelTeaCli(
       reusableAuthoring?.inventory ?? null,
     );
     if (reusableAuthoring && !validationInputs) {
-      const freshOpened = await openCliProject(services.workspace, discovery.projectRoot, {
+      const freshOpened = await openCliProject(activeWorkspace, discovery.projectRoot, {
         readOnly: command.dryRun,
       });
       if (!freshOpened.ok)
@@ -555,13 +574,22 @@ export async function runNovelTeaCli(
       cwd,
       stdinJson,
       fileSystem: services.fileSystem,
-      workspace: services.workspace,
+      workspace: activeWorkspace,
       snapshot: activeOpened.opened.snapshot,
       nativeTools,
       platformTools,
       onPlatformProgress: options.onPlatformProgress,
       forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
     });
+
+    if (
+      activeWorkspace === options.residentWorkspace &&
+      !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))
+    ) {
+      const retry = options.residentReadAttempt ?? 0;
+      if (retry < 2) return runNovelTeaCli(argv, { ...options, residentReadAttempt: retry + 1 });
+      throw new AuthoringValidationAuthorityMismatchError();
+    }
 
     const diagnosticProjectionStarted = Date.now();
     const diagnostics = [...activeOpened.diagnostics, ...semantic.diagnostics];

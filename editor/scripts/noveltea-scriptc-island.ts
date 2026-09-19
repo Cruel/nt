@@ -7,6 +7,18 @@ import type {
 import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
 import type { ScriptcHostInvoke } from './noveltea-scriptc-path-metadata';
 
+let residentInvokeHost: ScriptcHostInvoke | null = null;
+let residentFileSystem:
+  | import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem
+  | undefined;
+let residentWorkspace:
+  | import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectWorkspaceService
+  | undefined;
+const invokeResidentHost: ScriptcHostInvoke = (operation, request) => {
+  if (!residentInvokeHost) throw new Error('Resident ScriptC host is unavailable.');
+  return residentInvokeHost(operation, request);
+};
+
 function trace(message: string): void {
   if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-island] ${message}\n`);
 }
@@ -161,6 +173,7 @@ export interface ScriptcInvocationContext {
   readonly cwd?: string;
   readonly environment?: Readonly<Record<string, string>>;
   readonly cancellationProbe?: () => boolean;
+  readonly residentProjectSessions?: boolean;
 }
 
 export async function runNovelTeaScriptcIsland(
@@ -207,6 +220,7 @@ async function runNovelTeaScriptcIslandScoped(
       } as import('../src/shared/project-source-inventory').ProjectSourceInventory)
     : undefined;
   const environment = invocationContext.environment ?? process.env;
+  if (invocationContext.residentProjectSessions) residentInvokeHost = invokeHost;
   const cancellationCertification =
     environment.NOVELTEA_CLI_CERTIFICATION === '1' && argv[0] === '__comfyui-cancel-certification';
   const effectiveArgv = cancellationCertification ? argv.slice(1) : argv;
@@ -265,9 +279,16 @@ async function runNovelTeaScriptcIslandScoped(
       import('./noveltea-scriptc-path-metadata'),
     ]);
     trace('scoped filesystem import completed');
-    fileSystem = fileSystemModule.createNodeProjectWorkspaceFileSystem(
-      metadataModule.createScriptcPathMetadataReader(invokeHost),
-    );
+    if (invocationContext.residentProjectSessions && residentFileSystem)
+      fileSystem = residentFileSystem;
+    else {
+      fileSystem = fileSystemModule.createNodeProjectWorkspaceFileSystem(
+        metadataModule.createScriptcPathMetadataReader(
+          invocationContext.residentProjectSessions ? invokeResidentHost : invokeHost,
+        ),
+      );
+      if (invocationContext.residentProjectSessions) residentFileSystem = fileSystem;
+    }
     if (!scopedProjectPreparation) {
       trace('workspace services import starting');
       const [serviceModule, transactionModule, cryptoModule] = await Promise.all([
@@ -278,20 +299,31 @@ async function runNovelTeaScriptcIslandScoped(
       cryptoModule.configureSha256BytesImplementation(async (bytes) =>
         createHash('sha256').update(bytes).digest('hex'),
       );
-      workspace = new serviceModule.ProjectWorkspaceService(
-        fileSystem,
-        new transactionModule.ProjectWorkspaceTransactionService(
-          fileSystem,
-          {
-            async isProcessAlive(pid) {
-              const value = invokeHost('process-alive', String(pid));
-              return value === 'true' ? true : value === 'false' ? false : null;
+      const createWorkspace = (
+        workspaceFileSystem: import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem,
+      ) =>
+        new serviceModule.ProjectWorkspaceService(
+          workspaceFileSystem,
+          new transactionModule.ProjectWorkspaceTransactionService(
+            workspaceFileSystem,
+            {
+              async isProcessAlive(pid) {
+                const value = (
+                  invocationContext.residentProjectSessions ? invokeResidentHost : invokeHost
+                )('process-alive', String(pid));
+                return value === 'true' ? true : value === 'false' ? false : null;
+              },
             },
-          },
-          process.pid,
-          randomUUID,
-        ),
-      );
+            process.pid,
+            randomUUID,
+          ),
+        );
+      workspace = createWorkspace(fileSystem);
+      if (invocationContext.residentProjectSessions && !residentWorkspace) {
+        const { ResidentProjectWorkspaceService } =
+          await import('../src/shared/project-workspace/resident-project-workspace-service');
+        residentWorkspace = new ResidentProjectWorkspaceService(fileSystem, createWorkspace);
+      }
     }
   }
 
@@ -325,6 +357,7 @@ async function runNovelTeaScriptcIslandScoped(
       }, 25)
     : null;
   try {
+    let validationProfileText = '';
     trace('application import starting');
     const { runNovelTeaCli } = await import('../src/cli/application');
     trace('application import completed');
@@ -333,6 +366,9 @@ async function runNovelTeaScriptcIslandScoped(
       ...(invocationContext.cwd ? { cwd: invocationContext.cwd } : {}),
       ...(fileSystem ? { fileSystem } : {}),
       ...(workspace ? { workspace } : {}),
+      ...(invocationContext.residentProjectSessions && residentWorkspace
+        ? { residentWorkspace }
+        : {}),
       nativeTools,
       ...(platformTools ? { platformTools } : {}),
       ...(embeddedBuiltInFiles ? { comfyUiWorkflowLibraryOptions: { embeddedBuiltInFiles } } : {}),
@@ -346,12 +382,17 @@ async function runNovelTeaScriptcIslandScoped(
       ...(precomputedAuthoringCacheInventory ? { precomputedAuthoringCacheInventory } : {}),
       onAuthoringValidationInstrumentation:
         environment.NOVELTEA_CLI_VALIDATION_PROFILE === '1'
-          ? (instrumentation) =>
-              process.stderr.write(`[validation-profile] ${JSON.stringify(instrumentation)}\n`)
+          ? (instrumentation) => {
+              validationProfileText = `[validation-profile] ${JSON.stringify(instrumentation)}\n`;
+            }
           : undefined,
     });
     trace('application invocation completed');
-    return result(commandResult.exitCode, commandResult.stdout, commandResult.stderr);
+    return result(
+      commandResult.exitCode,
+      commandResult.stdout,
+      `${validationProfileText}${commandResult.stderr}`,
+    );
   } finally {
     if (cancellationTimer) clearTimeout(cancellationTimer);
     if (cancellationPoll) clearInterval(cancellationPoll);

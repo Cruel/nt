@@ -48,6 +48,7 @@ import {
   NOVELTEA_AGENT_BOOTSTRAP_START,
   NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
   ProjectWorkspaceService,
+  ResidentProjectWorkspaceService,
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
 
@@ -63,14 +64,14 @@ function validProject() {
   return project;
 }
 
-function fixture(project: AuthoringProject = validProject()) {
+function fixture(project: AuthoringProject = validProject(), pathMetadata = false) {
   const files = Object.fromEntries(
     Object.entries(projectWorkspaceFiles(project, project.editor)).map(([file, text]) => [
       `${root}/${file}`,
       text,
     ]),
   );
-  const fileSystem = new InMemoryProjectWorkspaceFileSystem(files);
+  const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata });
   const workspace = new ProjectWorkspaceService(fileSystem);
   return { project, fileSystem, workspace };
 }
@@ -350,6 +351,36 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(result.stdout).diagnostics).toContainEqual(
       expect.objectContaining({ code: 'localization.review.invalid' }),
     );
+  });
+
+  it('uses resident Project generations across standalone read commands', async () => {
+    const value = fixture(validProject(), true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    const instrumentation: Array<{
+      sourceWork: { parsedJsonSources: number; wholeProjectSchemaParses: number };
+    }> = [];
+    const first = await runNovelTeaCli(['--json', 'validate'], {
+      ...options(value),
+      residentWorkspace,
+      onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
+    });
+    expect(first.exitCode).toBe(0);
+
+    const changed = structuredClone(value.project);
+    changed.rooms.start.label = 'Changed Start';
+    const changedFiles = projectWorkspaceFiles(changed, changed.editor);
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/rooms/start.json`,
+      changedFiles['records/rooms/start.json']!,
+    );
+    const second = await runNovelTeaCli(['--json', 'validate'], {
+      ...options(value),
+      residentWorkspace,
+      onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
+    });
+    expect(second.exitCode).toBe(0);
+    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBe(1);
+    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
   });
 
   it('keeps localization discovery read-only until deterministic sync is requested', async () => {

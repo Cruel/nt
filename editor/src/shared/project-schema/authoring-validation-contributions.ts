@@ -16,6 +16,13 @@ export interface AuthoringValidationContribution {
 
 export interface AuthoringValidationReuse {
   readonly contributions: readonly AuthoringValidationContribution[];
+  /**
+   * When a resident generation knows the exact physical files that changed, contributions whose
+   * admitted source revisions do not intersect that set are reusable without re-resolving their
+   * logical input paths. Structural inventory changes must omit this hint and use the conservative
+   * path-resolution proof.
+   */
+  readonly changedSourcePaths?: ReadonlySet<string>;
   readonly resolveInputs: (
     paths: readonly string[],
   ) => AuthoringValidationContribution['sourceRevisions'] | null;
@@ -96,6 +103,14 @@ export function authoringValidationChecks(reuse?: AuthoringValidationReuse, scop
     key = `${scope}:${key}`;
     const prior = previous.get(key);
     if (prior && reuse) {
+      if (
+        reuse.changedSourcePaths &&
+        prior.sourceRevisions.every((revision) => !reuse.changedSourcePaths!.has(revision.path))
+      ) {
+        contributions.push(prior);
+        work.reused++;
+        return prior.diagnostics;
+      }
       const current = reuse.resolveInputs(prior.inputPaths);
       if (current && JSON.stringify(current) === JSON.stringify(prior.sourceRevisions)) {
         contributions.push(prior);

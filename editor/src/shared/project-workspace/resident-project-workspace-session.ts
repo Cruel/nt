@@ -287,6 +287,7 @@ export class ResidentProjectWorkspaceSession {
   private readonly workspace: ProjectWorkspaceService;
   private snapshotValue: LoadedProjectWorkspaceSnapshot;
   private editorStateValue: EditorProjectState;
+  private openedValue: Extract<ProjectWorkspaceOpenResult, { ok: true }> | null;
   private mutationTail: Promise<void> = Promise.resolve();
   private coherenceValue: ResidentProjectWorkspaceCoherence = 'coherent';
   private readonly authoringFileStamps = new Map<string, AuthoringFileStamp | null>();
@@ -296,9 +297,11 @@ export class ResidentProjectWorkspaceSession {
     snapshot: LoadedProjectWorkspaceSnapshot,
     editorState: EditorProjectState,
     host: ResidentProjectWorkspaceSessionHost,
+    opened: Extract<ProjectWorkspaceOpenResult, { ok: true }> | null = null,
   ) {
     this.snapshotValue = snapshot;
     this.editorStateValue = editorState;
+    this.openedValue = opened;
     this.fileSystem = new ResidentProjectWorkspaceFileSystem(host.fileSystem);
     this.workspace = host.createWorkspaceService
       ? host.createWorkspaceService(this.fileSystem)
@@ -310,7 +313,7 @@ export class ResidentProjectWorkspaceSession {
     opened: Extract<ProjectWorkspaceOpenResult, { ok: true }>,
     host: ResidentProjectWorkspaceSessionHost,
   ): ResidentProjectWorkspaceSession {
-    return new ResidentProjectWorkspaceSession(opened.snapshot, opened.editorState, host);
+    return new ResidentProjectWorkspaceSession(opened.snapshot, opened.editorState, host, opened);
   }
 
   static fromSnapshotWithHost(
@@ -333,6 +336,10 @@ export class ResidentProjectWorkspaceSession {
     return this.snapshotValue;
   }
 
+  openedGeneration(): Extract<ProjectWorkspaceOpenResult, { ok: true }> | null {
+    return this.openedValue;
+  }
+
   editorState(): EditorProjectState {
     return this.editorStateValue;
   }
@@ -351,6 +358,13 @@ export class ResidentProjectWorkspaceSession {
 
   markResyncNeeded(): void {
     this.coherenceValue = 'resync-needed';
+  }
+
+  recordInvalidAuthoringSources(relativePaths: readonly string[]): void {
+    if (relativePaths.length === 0) this.invalidAuthoringSourcePaths.add('*');
+    else
+      relativePaths.forEach((relativePath) => this.invalidAuthoringSourcePaths.add(relativePath));
+    this.coherenceValue = 'invalid';
   }
 
   invalidAuthoringSources(): readonly string[] {
@@ -433,7 +447,15 @@ export class ResidentProjectWorkspaceSession {
       throw new Error('Active workspace snapshot belongs to a different project root.');
     this.snapshotValue = snapshot;
     this.editorStateValue = editorState;
+    this.openedValue = null;
     this.fileSystem.seed(snapshot);
+  }
+
+  adoptOpened(opened: Extract<ProjectWorkspaceOpenResult, { ok: true }>): void {
+    this.adopt(opened.snapshot, opened.editorState);
+    this.openedValue = opened;
+    this.invalidAuthoringSourcePaths.clear();
+    this.coherenceValue = 'coherent';
   }
 
   private async fileStamp(relativePath: string): Promise<AuthoringFileStamp | null> {

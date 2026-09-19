@@ -1,5 +1,8 @@
 import { sha256PrefixedBytes } from '../web-crypto';
-import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
+import type {
+  ProjectWorkspaceFileSystem,
+  ProjectWorkspacePathMetadata,
+} from './project-workspace-file-system';
 
 function normalize(value: string): string {
   const parts: string[] = [];
@@ -15,8 +18,31 @@ function normalize(value: string): string {
 export class InMemoryProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
   private readonly files = new Map<string, Uint8Array>();
   private readonly directories = new Set<string>(['/']);
+  private readonly mtimes = new Map<string, string>();
+  private clock = 1n;
+  readonly readPathMetadata?: (path: string) => Promise<ProjectWorkspacePathMetadata>;
 
-  constructor(initialFiles: Readonly<Record<string, string>> = {}) {
+  constructor(
+    initialFiles: Readonly<Record<string, string>> = {},
+    options: Readonly<{ pathMetadata?: boolean }> = {},
+  ) {
+    if (options.pathMetadata)
+      this.readPathMetadata = async (value) => {
+        const normalized = normalize(value);
+        const bytes = this.files.get(normalized);
+        if (bytes)
+          return {
+            kind: 'file',
+            byteSize: bytes.byteLength,
+            mtimeNanoseconds: this.mtimes.get(normalized) ?? '0',
+          };
+        if (
+          this.directories.has(normalized) ||
+          [...this.files.keys()].some((file) => file.startsWith(`${normalized}/`))
+        )
+          return { kind: 'directory' };
+        return { kind: 'missing' };
+      };
     for (const [file, content] of Object.entries(initialFiles))
       this.putFile(normalize(file), new TextEncoder().encode(content));
   }
@@ -154,5 +180,6 @@ export class InMemoryProjectWorkspaceFileSystem implements ProjectWorkspaceFileS
   private putFile(value: string, bytes: Uint8Array) {
     this.addDirectory(this.dirname(value));
     this.files.set(value, bytes);
+    this.mtimes.set(value, (this.clock++).toString());
   }
 }
