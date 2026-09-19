@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { parseMaterialData } from '../../shared/project-schema/authoring-materials';
+import { builtInMaterialShaderSource } from '../../shared/project-schema/authoring-material-preset-sources';
+import { PROJECT_TEXT_SOURCE_LIMITS } from '../../shared/project-text-sources';
 import type {
   ProjectSourceExpectedRevision,
   ProjectSourceStructuralOperation,
@@ -90,6 +93,37 @@ function validateFileKind(pathValue: string, kind: 'lua' | 'shader'): void {
 
 function sourceTemplate(kind: 'lua' | 'shader'): string {
   return kind === 'lua' ? '-- NovelTea Lua source\n' : '#include "bgfx_shader.sh"\n\n';
+}
+
+function materialShaderCopyPath(materialId: string, stage: 'vertex' | 'fragment' | 'varying') {
+  const suffix = stage === 'vertex' ? 'vs' : stage === 'fragment' ? 'fs' : 'varying';
+  return `shaders/materials/${materialId}/${suffix}.sc`;
+}
+
+async function materialShaderSourceText(
+  root: string,
+  sourceIdentity: string,
+): Promise<string | null> {
+  if (sourceIdentity.startsWith('engine:/')) return builtInMaterialShaderSource(sourceIdentity);
+  if (!sourceIdentity.startsWith('project:/')) return null;
+  const relative = sourceIdentity.slice('project:/'.length);
+  if (!relative.startsWith('shaders/')) return null;
+  assertSourcePath(relative);
+  const [rootRealPath, sourceRealPath] = await Promise.all([
+    fs.realpath(root),
+    fs.realpath(path.join(root, relative)),
+  ]);
+  const relativeRealPath = path.relative(rootRealPath, sourceRealPath);
+  if (relativeRealPath.startsWith('..') || path.isAbsolute(relativeRealPath))
+    throw new ProjectWorkspaceMutationError(
+      'WORKSPACE_PATH_INVALID',
+      `Shader source '${sourceIdentity}' resolves outside the active Project.`,
+      relative,
+    );
+  const stat = await fs.stat(sourceRealPath);
+  if (!stat.isFile() || stat.size > PROJECT_TEXT_SOURCE_LIMITS.maxSourceBytes)
+    throw new Error(`Shader source '${sourceIdentity}' is unavailable or too large.`);
+  return fs.readFile(sourceRealPath, 'utf8');
 }
 
 function revision(bytes: Uint8Array): `sha256:${string}` {
@@ -431,6 +465,77 @@ export async function mutateProjectSources(
           ],
         });
         return { ok: true, success: true, changedPaths: [operation.path] };
+      }
+      if (operation.kind === 'material-shader-copy') {
+        const material = snapshot.project.materials[operation.materialId];
+        const data = parseMaterialData(material?.data);
+        if (!material || !data)
+          throw new Error(`Material '${operation.materialId}' is unavailable or invalid.`);
+        const sourceIdentity = operation.sourceIdentity;
+        const sourceText = await materialShaderSourceText(root, sourceIdentity);
+        if (sourceText === null)
+          throw new Error(`Shader source '${sourceIdentity}' cannot be copied.`);
+        const preferredDestination = materialShaderCopyPath(operation.materialId, operation.stage);
+        let destination = preferredDestination;
+        let copyIndex = 2;
+        while (
+          sourceIdentity === `project:/${destination}` ||
+          (await fileSystem.inspect(fileSystem.joinPath(root, destination))) !== 'missing'
+        ) {
+          destination = preferredDestination.replace(/\.sc$/u, `-${copyIndex}.sc`);
+          copyIndex += 1;
+        }
+        assertSourcePath(destination);
+        const candidate = structuredClone(snapshot.project);
+        const candidateData = parseMaterialData(candidate.materials[operation.materialId]?.data);
+        if (!candidateData)
+          throw new Error(`Material '${operation.materialId}' is unavailable or invalid.`);
+        candidateData.shader = {
+          ...candidateData.shader,
+          [operation.stage]: { kind: 'project', path: destination },
+        };
+        candidate.materials[operation.materialId]!.data = candidateData;
+        const targetFiles = changedProjectionTargets(
+          snapshot,
+          candidate,
+          snapshot.scriptSourcePaths,
+        );
+        const expectedFileRevisions = Object.fromEntries(
+          targetFiles.map((file) => [
+            file,
+            snapshot.fileRevisions[file]?.contentHash ?? PROJECT_WORKSPACE_ABSENT_REVISION,
+          ]),
+        );
+        const written = await session
+          .service()
+          .write(
+            root,
+            snapshot.workspaceRevision,
+            candidate,
+            session.editorState(),
+            snapshot.scriptSourcePaths,
+            {
+              expectedFileRevisions,
+              targetFiles,
+              operationLabel: `customize Material shader ${operation.materialId}:${operation.stage}`,
+              extraTargets: [
+                {
+                  path: destination,
+                  operation: 'write',
+                  expectedRevision: PROJECT_WORKSPACE_ABSENT_REVISION,
+                  bytes: encoder.encode(sourceText),
+                },
+              ],
+              preflightSnapshot: snapshot,
+            },
+          );
+        session.adopt(written.snapshot, session.editorState());
+        return {
+          ok: true,
+          success: true,
+          changedPaths: [...new Set([...targetFiles, destination])].sort(),
+          createdSourceIds: [destination],
+        };
       }
       if (operation.kind === 'delete') {
         assertSourcePath(operation.path);

@@ -124,6 +124,19 @@ export function buildAssetDetailTabForRecord(entityId: string, title = entityId)
   };
 }
 
+export function buildMaterialsEditorTab(): WorkbenchTab {
+  return {
+    id: 'tab:materials',
+    title: 'Materials',
+    editorType: 'material-library',
+    resource: {
+      kind: 'project',
+      stableId: 'materials',
+      collection: 'materials',
+    },
+  };
+}
+
 export function buildMaterialDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
   return {
     id: `tab:material-detail:materials:${entityId}`,
@@ -349,6 +362,23 @@ export function buildImageGenerationTab(
   };
 }
 
+export function buildEngineShaderSourceTab(sourcePath: string, materialId?: string): WorkbenchTab {
+  const title = sourcePath.split('/').at(-1) ?? sourcePath;
+  const context = materialId ? `:material:${materialId}` : '';
+  return {
+    id: `tab:engine-shader-source:${sourcePath}${context}`,
+    title,
+    editorType: 'engine-shader-source',
+    resource: {
+      kind: 'tool',
+      stableId: `engine-shader-source:${sourcePath}${context}`,
+      sourceId: sourcePath,
+      collection: materialId ? 'materials' : undefined,
+      entityId: materialId,
+    },
+  };
+}
+
 export function buildProjectSourceTab(source: ProjectSourceFile): WorkbenchTab {
   const title = source.displayPath.split('/').at(-1) ?? source.displayPath;
   return {
@@ -423,6 +453,7 @@ export function buildTraitsEditorTab(): WorkbenchTab {
 export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'variables') return buildVariablesEditorTab(node.entityId);
   if (node.collection === 'assets' && !node.entityId) return buildAssetsEditorTab();
+  if (node.collection === 'materials' && !node.entityId) return buildMaterialsEditorTab();
   if (node.collection === 'tests' && !node.entityId) return buildTestsEditorTab();
   const title = node.label || node.entityId;
   if (node.collection === 'assets' && node.entityId)

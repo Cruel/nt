@@ -326,6 +326,15 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
       set({ error: result.error ?? 'Source operation failed.' });
       return result;
     }
+    if (operation.kind === 'material-shader-copy' && result.createdSourceIds?.[0]) {
+      useProjectStore
+        .getState()
+        .applyCommittedMaterialShaderCopy(
+          operation.materialId,
+          operation.stage,
+          result.createdSourceIds[0],
+        );
+    }
     if (result.pathRemap) {
       useProjectStore.getState().applyCommittedSourcePathRemap(result.pathRemap);
       useWorkbenchStore.getState().remapSourceTabs(result.pathRemap);

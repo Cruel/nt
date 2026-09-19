@@ -315,6 +315,14 @@ export const mutateProjectSourcesArgumentsSchema = z.tuple([
           .strict(),
         z.object({ kind: z.literal('create-folder'), path: sourcePathSchema }).strict(),
         z
+          .object({
+            kind: z.literal('material-shader-copy'),
+            materialId: z.string().min(1).max(256),
+            stage: z.enum(['vertex', 'fragment', 'varying']),
+            sourceIdentity: sourcePathSchema,
+          })
+          .strict(),
+        z
           .object({ kind: z.literal('move'), fromPath: sourcePathSchema, toPath: sourcePathSchema })
           .strict(),
         z.object({ kind: z.literal('delete'), path: sourcePathSchema }).strict(),

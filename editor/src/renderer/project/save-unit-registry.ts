@@ -21,6 +21,7 @@ export const PROJECT_SETTINGS_OWNED_PATHS: JsonPointer[] = [
 
 export const SAVE_UNIT_IDS = {
   assetCollection: 'collection:assets',
+  materialCollection: 'collection:materials',
   testCollection: 'collection:tests',
   variableCollection: 'collection:variables',
   traitCollection: 'collection:traits',
@@ -110,6 +111,7 @@ const NON_CONTENT_EDITOR_TYPES = new Set([
   'components',
   'settings',
   'source-file',
+  'engine-shader-source',
 ]);
 
 function canonicalPaths(paths: JsonPointer[]): JsonPointer[] {
@@ -228,13 +230,15 @@ export function resolveSaveUnitForResource(
   const collectionEditor =
     editorType === 'asset-library'
       ? { id: SAVE_UNIT_IDS.assetCollection, path: '/assets', collection: 'assets' }
-      : editorType === 'test-suite'
-        ? { id: SAVE_UNIT_IDS.testCollection, path: '/tests', collection: 'tests' }
-        : editorType === 'variables'
-          ? { id: SAVE_UNIT_IDS.variableCollection, path: '/variables', collection: 'variables' }
-          : editorType === 'traits'
-            ? { id: SAVE_UNIT_IDS.traitCollection, path: '/traits', collection: 'traits' }
-            : null;
+      : editorType === 'material-library'
+        ? { id: SAVE_UNIT_IDS.materialCollection, path: '/materials', collection: 'materials' }
+        : editorType === 'test-suite'
+          ? { id: SAVE_UNIT_IDS.testCollection, path: '/tests', collection: 'tests' }
+          : editorType === 'variables'
+            ? { id: SAVE_UNIT_IDS.variableCollection, path: '/variables', collection: 'variables' }
+            : editorType === 'traits'
+              ? { id: SAVE_UNIT_IDS.traitCollection, path: '/traits', collection: 'traits' }
+              : null;
   if (collectionEditor) {
     return {
       status: 'savable',

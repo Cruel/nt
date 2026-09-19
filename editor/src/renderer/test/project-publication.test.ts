@@ -5,6 +5,11 @@ import {
   classifyAssetReverseDependencies,
   classifyAuthoringGraphMutation,
 } from '../../shared/authoring-graph-input-classifier';
+import {
+  createAuthoringProject,
+  isAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 
 describe('authoritative project publication', () => {
   beforeEach(() => {
@@ -97,6 +102,55 @@ describe('authoritative project publication', () => {
         kind: 'external',
         affectedPaths: ['/rooms/foyer', '/rooms/hall'],
       },
+    });
+  });
+
+  it('merges an auto-committed Material shader copy without discarding unrelated dirty Material edits', () => {
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'postprocess-tint'),
+    };
+    expect(
+      useProjectStore.getState().loadProjectDocument({
+        document: project,
+        savedDocument: project,
+        projectPath: '/mock',
+        projectFilePath: '/mock/project.json',
+      }),
+    ).toBe(true);
+    const edited = {
+      ...defaultMaterialData('Panel', 'postprocess-tint'),
+      parameters: { u_tint: { value: [0.2, 0.3, 0.4, 1] as [number, number, number, number] } },
+    };
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'material.replaceData',
+        payload: { materialId: 'panel', data: edited },
+        originSaveUnitId: 'record:materials:panel',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+
+    expect(
+      useProjectStore
+        .getState()
+        .applyCommittedMaterialShaderCopy('panel', 'fragment', 'shaders/materials/panel/fs.sc'),
+    ).toBe(true);
+
+    const state = useProjectStore.getState();
+    expect(isAuthoringProject(state.document)).toBe(true);
+    expect(isAuthoringProject(state.savedDocument)).toBe(true);
+    if (!isAuthoringProject(state.document) || !isAuthoringProject(state.savedDocument))
+      throw new Error('Expected valid Project state.');
+    expect(state.document.materials.panel.data).toMatchObject({
+      parameters: { u_tint: { value: [0.2, 0.3, 0.4, 1] } },
+      shader: { fragment: { kind: 'project', path: 'shaders/materials/panel/fs.sc' } },
+    });
+    expect(state.savedDocument.materials.panel.data).toMatchObject({
+      parameters: {},
+      shader: { fragment: { kind: 'project', path: 'shaders/materials/panel/fs.sc' } },
     });
   });
 

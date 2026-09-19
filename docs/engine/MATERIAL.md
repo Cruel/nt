@@ -137,13 +137,21 @@ Old `shader` references, independently editable role fields, `baseMaterialId`, p
 
 ## Editor Behavior
 
-The Material editor edits effective values with sparse overrides and provenance. It exposes the base preset/Material, effective contract, optional shader-source overrides, parameters, textures, and preview metadata. Renderer-owned inputs are displayed as runtime supplied. Orphaned configuration remains visible until explicitly removed.
+The collective **Materials** Project destination is a searchable visual library. Material cards use the lightweight live preview renderer and open the selected Material in its own focused workbench tab; creation reuses the typed New Entity flow. Live cards are controlled by the persisted editor-wide **Live previews** preference, which defaults enabled and is not Project authoring data.
+
+The focused Material editor edits effective values with sparse overrides and explicit provenance. Base selection includes built-in presets plus only cycle-safe Material parents. Effective parameters and textures show whether their value comes from the terminal preset, a base Material, or the current Material. Editing an inherited value creates a local sparse override; Reset deletes that local override and reveals the inherited value again. Changing the base contract retains authored named parameter/texture values and editor metadata, so incompatible entries remain diagnosable orphaned configuration rather than being deleted. Orphaned entries expose both cleanup and explicit rebind actions.
+
+Role is read-only and comes from the terminal preset. Reflected shader inputs drive the focused parameter/texture controls for custom Materials; preset metadata and authored editor metadata decorate those inputs with labels, ranges, and control intent. Engine-bound inputs are displayed as runtime supplied rather than editable occurrence values.
+
+Preset-backed Materials expose their effective `engine:/` shader implementation without creating Project files. Built-in source opens in a read-only source tab that is deliberately outside the Files tree. **Customize Shader** copies only the selected effective stage/interface source into `shaders/materials/<material-id>/` and switches that Material stage to the new Project source in the same workspace transaction. The transaction is bound to the exact effective source identity shown by the editor, so an unsaved preset/base edit cannot cause the saved baseline's older preset source to be copied accidentally. The renderer reconciles the committed shader-path change into both its saved baseline and working document without discarding unrelated dirty Material edits. Once detached, the copied file is ordinary Project-owned source and is not rewritten by engine preset changes.
+
+Project-backed shader rows open normal source tabs. The editor derives affected Material counts from effective resolution, including inherited users, and offers **Make Material-specific copy** when an entrypoint is shared or inherited. Source moves/deletes continue to use the usage-aware Files transaction boundary.
 
 Material authoring previews use the lightweight workbench-group renderer described in `docs/editor/preview/MATERIAL_PREVIEW_RENDERER.md`, not a dedicated engine-preview iframe. Project-scoped CPU resources resolve effective Material data, reflected interfaces, browser shader payloads, and decoded image textures once per Project generation; each workbench group owns one shared WebGL2 renderer/context for all of its visible Material preview surfaces.
 
-Custom-source Material previews compile the `essl-300` browser shader variant as derived state. Preview geometry/background metadata selects the lightweight harness, while context-heavy roles use documented representative fixtures and full-engine previews remain authoritative for runtime composition.
+Custom-source Material previews compile the `essl-300` browser shader variant as derived state. Preview geometry/background metadata selects the lightweight harness, while context-heavy roles use documented representative fixtures and full-engine previews remain authoritative for runtime composition. Unsaved shader-buffer overlay compilation and source-tab comparison sets are owned by the subsequent shader-source-preview ticket rather than the focused Material editor.
 
-Shader compiler diagnostics attempt to navigate to the affected Material/source context. Richer physical source-file tabs and Files-mode navigation are implemented by the source-authoring work under the parent Material/Files specification.
+Shader compiler diagnostics attempt to navigate to the affected Material/source context. Physical Project shader source remains a normal Files resource; built-in preset source is inspectable but never appears as a Project Files node.
 
 ## Runtime and Package Behavior
 

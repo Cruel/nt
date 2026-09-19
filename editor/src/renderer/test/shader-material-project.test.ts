@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vite-plus/test';
 import type { ShaderCompileOutput } from '../../shared/editor-tooling';
 import {
   defaultMaterialData,
+  materialCanInheritFrom,
+  materialDataWithBase,
   resolveMaterialData,
   validateMaterialData,
 } from '../../shared/project-schema/authoring-materials';
@@ -126,6 +128,53 @@ describe('canonical Material shader lowering', () => {
         item.message.includes('cycle'),
       ),
     ).toBe(true);
+  });
+
+  it('preserves authored semantic values and editor metadata when changing Material base contracts', () => {
+    const data = {
+      ...defaultMaterialData('Tinted', 'postprocess-tint'),
+      parameters: {
+        u_tint: {
+          value: [0.2, 0.3, 0.4, 1] as [number, number, number, number],
+          editor: { label: 'Accent', control: 'color' as const },
+        },
+        legacy_amount: { value: 0.5, editor: { range: [0, 1] as [number, number] } },
+      },
+    };
+
+    const changed = materialDataWithBase(data, { kind: 'preset', preset: 'engine-2d' });
+
+    expect(changed.base).toEqual({ kind: 'preset', preset: 'engine-2d' });
+    expect(changed.parameters).toEqual(data.parameters);
+  });
+
+  it('rejects descendant bases before they can create a Material inheritance cycle', () => {
+    const project = createAuthoringProject();
+    project.materials.base = {
+      id: 'base',
+      label: 'Base',
+      data: defaultMaterialData('Base'),
+    };
+    project.materials.child = {
+      id: 'child',
+      label: 'Child',
+      data: {
+        ...defaultMaterialData('Child'),
+        base: { kind: 'material', material: { $ref: { collection: 'materials', id: 'base' } } },
+      },
+    };
+    project.materials.grandchild = {
+      id: 'grandchild',
+      label: 'Grandchild',
+      data: {
+        ...defaultMaterialData('Grandchild'),
+        base: { kind: 'material', material: { $ref: { collection: 'materials', id: 'child' } } },
+      },
+    };
+
+    expect(materialCanInheritFrom(project, 'base', 'child')).toBe(false);
+    expect(materialCanInheritFrom(project, 'base', 'grandchild')).toBe(false);
+    expect(materialCanInheritFrom(project, 'grandchild', 'base')).toBe(true);
   });
 
   it('retains orphaned configuration diagnostically and separates engine-owned values', () => {

@@ -50,6 +50,12 @@ export interface ProjectSourceUsage {
 export type ProjectSourceStructuralOperation =
   | { kind: 'create-file'; path: string; fileKind: 'lua' | 'shader' }
   | { kind: 'create-folder'; path: string }
+  | {
+      kind: 'material-shader-copy';
+      materialId: string;
+      stage: 'vertex' | 'fragment' | 'varying';
+      sourceIdentity: string;
+    }
   | { kind: 'move'; fromPath: string; toPath: string }
   | { kind: 'delete'; path: string };
 
@@ -66,6 +72,7 @@ export interface ProjectSourceStructuralResponse {
   usages?: readonly ProjectSourceUsage[];
   pathRemap?: Readonly<Record<string, string>>;
   changedPaths?: readonly string[];
+  createdSourceIds?: readonly string[];
 }
 
 export interface ProjectSourceWriteRequest {
