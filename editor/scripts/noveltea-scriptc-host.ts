@@ -22,6 +22,7 @@ let nativeCallSequence = 0;
 let nativeResponseRoot: string | null = null;
 let cachedStdin: string | null = null;
 let forceRuntimeCacheRebuild = false;
+let authoringCacheInventoryHint = '';
 
 function trace(message: string): void {
   if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-host] ${message}\n`);
@@ -294,7 +295,17 @@ function staticValidationPath(argv: readonly string[]): HostResult | null {
       buildIdentity: `${NOVELTEA_CLI_VERSION}:${NOVELTEA_CLI_BUILD_IDENTITY}`,
     });
     trace(`authoring cache ${probe?.status ?? 'unusable'}: ${probe?.reason ?? 'probe-failed'}`);
-    if (!probe || probe.ok !== true || probe.status !== 'hit') return null;
+    if (!probe || probe.ok !== true || probe.status !== 'hit') {
+      if (
+        probe?.status === 'stale' &&
+        probe.currentInputs &&
+        typeof probe.currentInputs.length === 'number'
+      ) {
+        const currentInputs: any = probe.currentInputs;
+        authoringCacheInventoryHint = JSON.stringify(currentInputs);
+      }
+      return null;
+    }
     const result: any = probe.result;
     const diagnostics: StaticDiagnostic[] = [];
     for (const item of result.diagnostics) {
@@ -699,6 +710,7 @@ async function main(): Promise<void> {
         JSON.stringify(argv),
         invokeHost,
         forceRuntimeCacheRebuild,
+        authoringCacheInventoryHint,
       );
       trace('dynamic island invocation completed');
       const response = JSON.parse(responseText) as [number, string, string];

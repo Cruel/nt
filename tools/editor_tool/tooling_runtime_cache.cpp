@@ -206,26 +206,32 @@ Json path_metadata(const std::filesystem::path& path)
                        nullptr, false);
 }
 
-bool metadata_matches(const std::filesystem::path& root, const Json& entry)
+std::optional<Json> current_metadata_entry(const std::filesystem::path& root, const Json& entry)
 {
     if (!entry.is_object() || !entry.contains("path") || !entry["path"].is_string() ||
         !entry.contains("byteSize") || !entry["byteSize"].is_number_unsigned() ||
         !entry.contains("mtimeNanoseconds") || !entry["mtimeNanoseconds"].is_string())
-        return false;
+        return std::nullopt;
     const auto relative = entry["path"].get<std::string>();
     if (!safe_relative(relative))
-        return false;
+        return std::nullopt;
     const auto absolute = root / std::filesystem::path(relative);
     if (!contained_by_root(root, absolute))
-        return false;
+        return std::nullopt;
     const auto metadata = path_metadata(absolute);
     const auto ok = bool_field(metadata, "ok");
     const auto kind = string_field(metadata, "kind");
     const auto byte_size = unsigned_field(metadata, "byteSize");
     const auto mtime = string_field(metadata, "mtimeNanoseconds");
-    return !metadata.is_discarded() && ok && *ok && kind && *kind == "file" && byte_size &&
-           *byte_size == entry["byteSize"].get<std::uint64_t>() && mtime &&
-           *mtime == entry["mtimeNanoseconds"].get<std::string>();
+    if (metadata.is_discarded() || !ok || !*ok || !kind || *kind != "file" || !byte_size || !mtime)
+        return std::nullopt;
+    return Json{{"path", relative}, {"byteSize", *byte_size}, {"mtimeNanoseconds", *mtime}};
+}
+
+bool metadata_matches(const std::filesystem::path& root, const Json& entry)
+{
+    const auto current = current_metadata_entry(root, entry);
+    return current && *current == entry;
 }
 
 bool excluded(std::string_view relative, const Json& prefixes)
@@ -746,21 +752,38 @@ Json probe_authoring(const Json& request)
     if (manifest["discoveryScopes"] != scopes)
         return response("stale", "discovery-contract-changed");
     std::set<std::string> inputs;
+    Json current_inputs = Json::array();
+    bool metadata_changed = false;
     std::string previous;
     for (const auto& input : manifest["inputs"]) {
-        if (!input.is_object() || input.size() != 3 || !metadata_matches(root, input))
-            return response("stale", "input-metadata-changed");
+        if (!input.is_object() || input.size() != 3 || !input.contains("path") ||
+            !input["path"].is_string() || !input.contains("byteSize") ||
+            !input["byteSize"].is_number_unsigned() || !input.contains("mtimeNanoseconds") ||
+            !input["mtimeNanoseconds"].is_string())
+            return response("unusable", "manifest-input-invalid");
         const auto relative = input["path"].get<std::string>();
+        if (!safe_relative(relative))
+            return response("unusable", "manifest-input-invalid");
         if (relative <= previous)
             return response("unusable", "input-order-invalid");
         previous = relative;
         inputs.insert(relative);
+        const auto current = current_metadata_entry(root, input);
+        if (!current)
+            return response("stale", "input-metadata-changed");
+        current_inputs.push_back(*current);
+        metadata_changed = metadata_changed || *current != input;
     }
     if (!inputs.contains("project.json") || !inputs.contains("editor.json") ||
         !inputs.contains("traits.json"))
         return response("unusable", "manifest-inputs-invalid");
     if (!discovery_matches(root, scopes, inputs) || !authoring_workspace_settled(root))
         return response("stale", "discovery-inputs-changed");
+    if (metadata_changed) {
+        auto result = response("stale", "input-metadata-changed");
+        result["currentInputs"] = std::move(current_inputs);
+        return result;
+    }
     auto result = response("hit", "current-authoring-generation-valid");
     result["result"] = Json{{"success", manifest["result"]["success"]},
                             {"exitCode", manifest["result"]["exitCode"]},

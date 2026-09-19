@@ -16,8 +16,10 @@ import {
   projectWorkspaceFiles,
   type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceDependencyAnalysis,
+  type ProjectWorkspaceReusableDependencyState,
   type ProjectWorkspaceService,
   type ProjectWorkspaceSourceContributions,
+  type ProjectWorkspaceSourceWork,
 } from '../shared/project-workspace/project-workspace-service';
 import { applyJsonPatch, type JsonPatchOperation } from '../renderer/project/json-patch';
 import { toJsonValue } from '../renderer/project/json-value';
@@ -41,6 +43,8 @@ export interface CliOpenedProject {
   readonly editorState: LoadedProjectWorkspaceSnapshot['project']['editor'];
   readonly sourceContributions: ProjectWorkspaceSourceContributions;
   readonly validationContributions: readonly AuthoringValidationContribution[];
+  readonly validationWork: Readonly<{ executed: number; reused: number }>;
+  readonly sourceWork: ProjectWorkspaceSourceWork;
   readonly authoringDiagnostics: readonly ProjectValidationDiagnostic[];
 }
 
@@ -51,6 +55,19 @@ export interface CliMutationPlan {
   readonly referenceRepairs: readonly string[];
 }
 
+export interface CliAuthoringValidationMetrics {
+  readonly preflightMs: number;
+  readonly dependencyMs: number;
+  readonly nativeMs: number;
+  readonly dependencyWork: ProjectWorkspaceDependencyAnalysis['work'];
+  readonly compilerWork: Readonly<{
+    wholeProjectNormalizations: number;
+    linkBuilds: number;
+    artifactLowerings: number;
+    serializations: number;
+  }>;
+}
+
 export interface CliSemanticResult {
   readonly ok: boolean;
   readonly diagnostics: readonly NovelTeaCliDiagnostic[];
@@ -58,6 +75,7 @@ export interface CliSemanticResult {
   readonly humanSuccess?: string;
   readonly exitCode?: NovelTeaCliExitCode;
   readonly authoringDependencyAnalysis?: ProjectWorkspaceDependencyAnalysis;
+  readonly authoringValidationMetrics?: CliAuthoringValidationMetrics;
 }
 
 function workspaceDiagnosticCode(message: string, fallback = 'WORKSPACE_SOURCE_READ'): string {
@@ -80,6 +98,7 @@ export async function openCliProject(
     readOnly?: boolean;
     reusableSourceContributions?: ProjectWorkspaceSourceContributions;
     reusableValidationContributions?: readonly AuthoringValidationContribution[];
+    reusableDependencyState?: ProjectWorkspaceReusableDependencyState;
   }> = {},
 ): Promise<
   | Readonly<{ ok: true; opened: CliOpenedProject; diagnostics: readonly NovelTeaCliDiagnostic[] }>
@@ -89,6 +108,7 @@ export async function openCliProject(
     recoverTransactions: options.readOnly ? false : true,
     reusableSourceContributions: options.reusableSourceContributions,
     reusableValidationContributions: options.reusableValidationContributions,
+    reusableDependencyState: options.reusableDependencyState,
   });
   if (!opened.ok) {
     return {
@@ -110,6 +130,8 @@ export async function openCliProject(
       editorState: opened.snapshot.project.editor,
       sourceContributions: opened.sourceContributions,
       validationContributions: opened.validationContributions,
+      validationWork: opened.validationWork,
+      sourceWork: opened.sourceWork,
       authoringDiagnostics: opened.diagnostics,
     },
     diagnostics: opened.diagnostics.map((item) =>
@@ -223,12 +245,16 @@ export async function validateCliProject(
   snapshot: LoadedProjectWorkspaceSnapshot,
   nativeTools: NovelTeaCliNativeToolService,
 ): Promise<CliSemanticResult> {
-  const diagnostics: NovelTeaCliDiagnostic[] = workspace
-    .publishCompiledArtifact(snapshot)
-    .diagnostics.map((item) =>
+  const preflightStarted = Date.now();
+  const preflight = workspace.preflightCompiledArtifact(snapshot);
+  const diagnostics: NovelTeaCliDiagnostic[] = preflight.diagnostics.map((item) =>
       cliDiagnostic(item.code, item.jsonPointer, item.message, item.severity),
     );
+  const preflightMs = Date.now() - preflightStarted;
+  const dependencyStarted = Date.now();
   const dependencyAnalysis = await workspace.buildDependencyGraphAnalysis(snapshot);
+  const dependencyMs = Date.now() - dependencyStarted;
+  const nativeStarted = Date.now();
   diagnostics.push(
     ...dependencyAnalysis.graph.diagnostics.map((item) =>
       cliDiagnostic(item.code, item.path, item.message, item.severity, {
@@ -324,6 +350,34 @@ export async function validateCliProject(
     diagnostics,
     fields: { projectRoot: snapshot.projectRoot },
     authoringDependencyAnalysis: dependencyAnalysis,
+    authoringValidationMetrics: {
+      preflightMs,
+      dependencyMs,
+      nativeMs: Date.now() - nativeStarted,
+      dependencyWork: dependencyAnalysis.work,
+      compilerWork: {
+        wholeProjectNormalizations: preflight.stages.some(
+          (stage) => stage.name === 'normalize' && stage.status === 'completed',
+        )
+          ? 1
+          : 0,
+        linkBuilds: preflight.stages.some(
+          (stage) => stage.name === 'link' && stage.status === 'completed',
+        )
+          ? 1
+          : 0,
+        artifactLowerings: preflight.stages.some(
+          (stage) => stage.name === 'lower' && stage.status === 'completed',
+        )
+          ? 1
+          : 0,
+        serializations: preflight.stages.some(
+          (stage) => stage.name === 'serialize' && stage.status === 'completed',
+        )
+          ? 1
+          : 0,
+      },
+    },
   };
 }
 

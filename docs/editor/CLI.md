@@ -236,11 +236,20 @@ state never changes freshly computed diagnostics. Native tooling failures are no
 Cached semantic errors, warnings, informational findings, locations, ordering, exit status, and human
 or JSON formatting retain ordinary validation semantics. When the whole-result static/native hit is
 not available but the prior generation is otherwise reusable, TypeScript validation reuses exact
-per-source assembly contributions and per-check semantic contributions whose recorded Project input
-paths still resolve to the same source revisions. Checks affected by changed sources rerun; unaffected
-findings are reused. Added, deleted, reclassified, or otherwise uncertain source inventory falls back
-to fresh validation rather than risking stale semantics. `NOVELTEA_CLI_TRACE=1` exposes standalone
-admission/fallback and island-import traces without adding routine cache fields to validation output.
+per-source assembly contributions, per-check semantic contributions, dependency-graph contributions,
+and source-analysis products whose recorded Project inputs still resolve to the same source revisions.
+Only changed source fragments are reparsed/reprojected; dependency contributions are rederived only for
+invalidated owners while unaffected contributions are assembled from the previous generation. The
+validation-only compiler preflight consumes the already-admitted semantic result and deliberately skips
+whole-Project schema normalization, compiler link-graph construction, lowering, wire assembly, and
+serialization. Actual compile/export/package boundaries continue to use the canonical full compiler.
+Added, deleted, reclassified, or otherwise uncertain source inventory falls back to fresh validation
+rather than risking stale semantics. Stale-cache admission captures one candidate inventory before
+assembly and proves that same physical generation again before publication instead of performing
+independent duplicate pre-admission inventory sweeps. `NOVELTEA_CLI_TRACE=1` exposes standalone
+admission/fallback and island-import traces without adding routine cache fields to validation output;
+`NOVELTEA_CLI_VALIDATION_PROFILE=1` is an engineering/certification-only trace that emits phase timings
+and useful-work counts on stderr and does not alter normal validation output.
 Clean saved editor validation uses this same disk-authoritative `validate` path, so an eligible editor
 validation may consume or publish the same generation used by later CLI validation. The renderer marks
 validation session-local whenever Project content, draft state, or pending field input is dirty. The

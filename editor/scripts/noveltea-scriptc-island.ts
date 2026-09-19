@@ -161,8 +161,14 @@ export async function runNovelTeaScriptcIsland(
   argvText: string,
   invokeHost: ScriptcHostInvoke,
   forceRuntimeCacheRebuild = false,
+  authoringCacheInventoryText = '',
 ): Promise<string> {
   const argv = JSON.parse(argvText) as string[];
+  const precomputedAuthoringCacheInventory = authoringCacheInventoryText
+    ? ({
+        entries: JSON.parse(authoringCacheInventoryText),
+      } as import('../src/shared/project-source-inventory').ProjectSourceInventory)
+    : undefined;
   const cancellationCertification =
     process.env.NOVELTEA_CLI_CERTIFICATION === '1' && argv[0] === '__comfyui-cancel-certification';
   const effectiveArgv = cancellationCertification ? argv.slice(1) : argv;
@@ -292,6 +298,12 @@ export async function runNovelTeaScriptcIsland(
       // A native whole-result miss must not become a second whole-result hit inside the island,
       // but stale generations can still contribute individually proven source/validation work.
       skipAuthoringWholeResultCache: true,
+      ...(precomputedAuthoringCacheInventory ? { precomputedAuthoringCacheInventory } : {}),
+      onAuthoringValidationInstrumentation:
+        process.env.NOVELTEA_CLI_VALIDATION_PROFILE === '1'
+          ? (instrumentation) =>
+              process.stderr.write(`[validation-profile] ${JSON.stringify(instrumentation)}\n`)
+          : undefined,
     });
     trace('application invocation completed');
     return result(commandResult.exitCode, commandResult.stdout, commandResult.stderr);
