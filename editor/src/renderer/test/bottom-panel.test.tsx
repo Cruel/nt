@@ -35,6 +35,34 @@ beforeEach(() => {
 });
 
 describe('BottomPanel', () => {
+  it('shows only globally available panels without a Project and falls back deterministically', () => {
+    useProjectStore.getState().clearProject();
+    useBottomPanelStore.getState().hydrate({ visible: true, activePanelId: 'problems' });
+
+    render(<BottomPanel />);
+
+    expect(screen.getByRole('button', { name: 'Output' })).toHaveClass(
+      'bg-accent',
+      'text-accent-foreground',
+    );
+    expect(screen.getByText('No output entries yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Problems/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Preview Events' })).not.toBeInTheDocument();
+    expect(useBottomPanelStore.getState().serialize()).toEqual({
+      visible: true,
+      activePanelId: 'problems',
+      sizePercent: 30,
+    });
+  });
+
+  it('keeps Project-oriented panels available while a Project is open', () => {
+    render(<BottomPanel />);
+
+    expect(screen.getByRole('button', { name: /Problems/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Output' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview Events' })).toBeInTheDocument();
+  });
+
   it('opens resolvable problem diagnostics through workbench navigation', () => {
     useWorkspaceStore.getState().setDiagnostics([
       {

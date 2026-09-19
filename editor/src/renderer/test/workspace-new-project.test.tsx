@@ -179,6 +179,20 @@ beforeEach(() => {
 });
 
 describe('WorkspacePage new project modal', () => {
+  it('keeps the bottom-panel host available and toggleable without a Project', () => {
+    useBottomPanelStore.getState().setVisible(false);
+
+    render(<WorkspacePage />);
+
+    expect(screen.getByTestId('bottom-panel')).toBeInTheDocument();
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'toggle-bottom-panel' }),
+      );
+    });
+    expect(useBottomPanelStore.getState().visible).toBe(true);
+  });
+
   it('requires confirmation for a startup Project handoff and opens the imported Project after confirmation', async () => {
     vi.mocked(window.noveltea.takePendingProjectImport)
       .mockResolvedValueOnce({
