@@ -35,14 +35,21 @@ interface NovelTeaElectronApiContract {
   toggleMaximizeAppWindow(): Promise<boolean>;
   requestAppWindowExit(): Promise<void>;
   completeAppWindowExit(): Promise<void>;
-  onAppWindowBeforeClose(callback: () => void): () => void;
+  onAppWindowBeforeClose(
+    callback: (request: import('./terminal').TerminalWindowCloseRequest) => void,
+  ): () => void;
   onEditorShortcut(callback: (command: EditorShortcutCommand) => void): () => void;
   isAppWindowMaximized(): Promise<boolean>;
   setNativeWindowFrame(nativeFrame: boolean): Promise<AppInfo>;
-  ensureTerminalSession(): Promise<import('./terminal').TerminalSessionSnapshot>;
+  ensureTerminalState(): Promise<import('./terminal').TerminalHostSnapshot>;
+  createTerminalSession(): Promise<import('./terminal').TerminalHostSnapshot>;
+  selectTerminalSession(sessionId: string): Promise<import('./terminal').TerminalHostSnapshot>;
+  closeTerminalSession(
+    request: import('./terminal').TerminalCloseRequest,
+  ): Promise<import('./terminal').TerminalCloseResult>;
+  relaunchTerminalSession(sessionId: string): Promise<import('./terminal').TerminalHostSnapshot>;
   writeTerminal(sessionId: string, data: string): Promise<void>;
   resizeTerminal(request: import('./terminal').TerminalResizeRequest): Promise<void>;
-  retryTerminalSession(): Promise<import('./terminal').TerminalSessionSnapshot>;
   onTerminalEvent(callback: (event: import('./terminal').TerminalEvent) => void): () => void;
   getEnginePreviewSession(projectSessionId: string): Promise<EnginePreviewSession>;
   reloadEnginePreview(projectSessionId: string): Promise<EnginePreviewSession>;

@@ -30,7 +30,9 @@ import {
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
   stagePlatformExportArgumentsSchema,
+  terminalCloseArgumentsSchema,
   terminalResizeArgumentsSchema,
+  terminalSessionArgumentsSchema,
   terminalWriteArgumentsSchema,
   type EditorIpcEvent,
   type EditorIpcMain,
@@ -659,10 +661,12 @@ describe('guarded editor IPC registrar', () => {
     ).toBe(false);
   });
 
-  it('strictly admits terminal lifecycle requests without renderer shell or cwd authority', async () => {
+  it('strictly admits multi-terminal lifecycle requests without renderer shell or cwd authority', async () => {
     const ipcMain = new FakeIpcMain();
     const harness = trustedHarness();
-    const ensureService = vi.fn(() => 'created');
+    const noArgumentService = vi.fn(() => 'ok');
+    const sessionService = vi.fn((sessionId: string) => sessionId);
+    const closeService = vi.fn((request: unknown) => request);
     const writeService = vi.fn((sessionId: string, data: string) => ({ sessionId, data }));
     const resizeService = vi.fn((request: unknown) => request);
     const registrar = createGuardedIpcRegistrar({
@@ -670,10 +674,24 @@ describe('guarded editor IPC registrar', () => {
       getOwner: () => harness.window,
       documentPolicy: createEditorDocumentPolicy(),
     });
+    for (const channel of ['terminal-ensure-state', 'terminal-create-session']) {
+      registrar.handle(
+        channel,
+        (arguments_) => noArgumentsSchema.parse(arguments_),
+        noArgumentService,
+      );
+    }
+    for (const channel of ['terminal-select-session', 'terminal-relaunch-session']) {
+      registrar.handle(
+        channel,
+        (arguments_) => terminalSessionArgumentsSchema.parse(arguments_),
+        sessionService,
+      );
+    }
     registrar.handle(
-      'terminal-ensure',
-      (arguments_) => noArgumentsSchema.parse(arguments_),
-      ensureService,
+      'terminal-close-session',
+      (arguments_) => terminalCloseArgumentsSchema.parse(arguments_),
+      closeService,
     );
     registrar.handle(
       'terminal-write',
@@ -687,20 +705,28 @@ describe('guarded editor IPC registrar', () => {
     );
 
     const sessionId = '00000000-0000-4000-8000-000000000001';
-    await expect(ipcMain.invoke('terminal-ensure', harness.event)).resolves.toBe('created');
+    await expect(ipcMain.invoke('terminal-ensure-state', harness.event)).resolves.toBe('ok');
+    await expect(ipcMain.invoke('terminal-create-session', harness.event)).resolves.toBe('ok');
+    await expect(ipcMain.invoke('terminal-select-session', harness.event, sessionId)).resolves.toBe(
+      sessionId,
+    );
+    await expect(
+      ipcMain.invoke('terminal-close-session', harness.event, { sessionId, force: false }),
+    ).resolves.toEqual({ sessionId, force: false });
     await expect(
       ipcMain.invoke('terminal-write', harness.event, sessionId, 'echo hi\r'),
-    ).resolves.toEqual({
-      sessionId,
-      data: 'echo hi\r',
-    });
+    ).resolves.toEqual({ sessionId, data: 'echo hi\r' });
     await expect(
       ipcMain.invoke('terminal-resize', harness.event, { sessionId, columns: 120, rows: 40 }),
     ).resolves.toEqual({ sessionId, columns: 120, rows: 40 });
 
     for (const [channel, arguments_] of [
-      ['terminal-ensure', [{ shell: '/bin/bash' }]],
-      ['terminal-ensure', [{ cwd: '/tmp' }]],
+      ['terminal-ensure-state', [{ shell: '/bin/bash' }]],
+      ['terminal-create-session', [{ cwd: '/tmp' }]],
+      ['terminal-select-session', ['not-a-session']],
+      ['terminal-relaunch-session', ['not-a-session']],
+      ['terminal-close-session', [{ sessionId, force: false, cwd: '/tmp' }]],
+      ['terminal-close-session', [{ sessionId }]],
       ['terminal-write', [sessionId, 'x'.repeat(64 * 1024 + 1)]],
       ['terminal-write', ['not-a-session', 'echo']],
       ['terminal-resize', [{ sessionId, columns: 0, rows: 24 }]],

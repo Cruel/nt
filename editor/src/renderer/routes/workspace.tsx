@@ -1181,8 +1181,14 @@ export function WorkspacePage() {
   ]);
 
   useEffect(() =>
-    window.noveltea.onAppWindowBeforeClose(() => {
+    window.noveltea.onAppWindowBeforeClose((request) => {
       if (completingWindowClose.current) return;
+      if (
+        request.terminalRiskCount > 0 &&
+        !window.confirm(t('terminal.shutdownRisk', { count: request.terminalRiskCount }))
+      ) {
+        return;
+      }
       completingWindowClose.current = true;
       void (async () => {
         if (!(await flushProjectEditorMetadata('window-close'))) {

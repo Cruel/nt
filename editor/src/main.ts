@@ -8,6 +8,7 @@ import {
   screen,
   protocol,
   session,
+  powerMonitor,
 } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -189,7 +190,9 @@ import {
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
+  terminalCloseArgumentsSchema,
   terminalResizeArgumentsSchema,
+  terminalSessionArgumentsSchema,
   terminalWriteArgumentsSchema,
   validateProjectArgumentsSchema,
 } from './main/editor-ipc-trust-boundary';
@@ -300,6 +303,7 @@ const activeProjectSessions = new ActiveProjectSessionService();
 const terminalService = new TerminalService({
   pty: createNodePtyAdapter(),
   resolveProjectRoot: () => activeProjectSessions.currentProjectRoot(),
+  resolveProjectOrigin: () => activeProjectSessions.currentProjectIdentity(),
   resolveFallbackCwd: resolveConfiguredTerminalFallbackCwd,
   resolveDefaultProjectDirectory: getDefaultProjectDirectory,
   resolveShell: resolveDefaultTerminalShell,
@@ -350,6 +354,7 @@ const MAX_ZOOM_FACTOR = 2;
 let currentNativeWindowFrame = process.platform === 'linux';
 let currentFramelessWindow = !currentNativeWindowFrame;
 let appWindowExitConfirmed = false;
+let operatingSystemShutdown = false;
 
 const EDITOR_MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -531,10 +536,10 @@ function getDefaultProjectDirectory() {
 }
 
 async function resolveConfiguredTerminalFallbackCwd(): Promise<string | null> {
-  const preferences = await loadNovelTeaUserPreferences();
-  const candidate = preferences.terminalFallbackCwd;
-  if (typeof candidate !== 'string' || candidate.trim() === '') return null;
   try {
+    const preferences = await loadNovelTeaUserPreferences();
+    const candidate = preferences.terminalFallbackCwd;
+    if (typeof candidate !== 'string' || candidate.trim() === '') return null;
     const real = await fs.promises.realpath(path.resolve(candidate));
     return (await fs.promises.stat(real)).isDirectory() ? real : null;
   } catch {
@@ -613,6 +618,8 @@ function installApplicationMenu() {
 }
 
 function createWindow(): BrowserWindow {
+  appWindowExitConfirmed = false;
+  operatingSystemShutdown = false;
   const windowSettings = readEditorWindowSettings();
   const savedBounds = validSavedBounds(windowSettings.bounds);
   currentNativeWindowFrame = readNativeWindowFrameSetting();
@@ -678,16 +685,29 @@ function createWindow(): BrowserWindow {
     },
     editorDocumentPolicy,
   );
+  mainWindow.on('query-session-end', () => {
+    operatingSystemShutdown = true;
+    terminalService.dispose();
+  });
   mainWindow.on('close', (event) => {
-    if (appWindowExitConfirmed || mainWindow?.webContents.isDestroyed()) return;
+    if (
+      operatingSystemShutdown ||
+      appWindowExitConfirmed ||
+      mainWindow?.webContents.isDestroyed()
+    ) {
+      return;
+    }
+    const terminalRiskCount = terminalService.shutdownRiskCount();
     event.preventDefault();
-    mainWindow?.webContents.send(IPC_CHANNELS.APP_WINDOW_BEFORE_CLOSE);
-    setTimeout(() => {
-      if (!appWindowExitConfirmed && mainWindow && !mainWindow.isDestroyed()) {
-        appWindowExitConfirmed = true;
-        mainWindow.close();
-      }
-    }, 5000);
+    mainWindow?.webContents.send(IPC_CHANNELS.APP_WINDOW_BEFORE_CLOSE, { terminalRiskCount });
+    if (terminalRiskCount === 0) {
+      setTimeout(() => {
+        if (!appWindowExitConfirmed && mainWindow && !mainWindow.isDestroyed()) {
+          appWindowExitConfirmed = true;
+          mainWindow.close();
+        }
+      }, 5000);
+    }
   });
   installWindowShortcuts(mainWindow);
 
@@ -701,6 +721,12 @@ function createWindow(): BrowserWindow {
 }
 
 void app.whenReady().then(async () => {
+  if (process.platform !== 'win32') {
+    powerMonitor.on('shutdown', () => {
+      operatingSystemShutdown = true;
+      terminalService.dispose();
+    });
+  }
   await imageThumbnailService.removeObsoleteCacheVersions();
   protocol.handle(
     IMAGE_THUMBNAIL_SCHEME,
@@ -915,6 +941,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.COMPLETE_APP_WINDOW_EXIT,
     (arguments_) => noArgumentsSchema.parse(arguments_),
     () => {
+      terminalService.dispose();
       appWindowExitConfirmed = true;
       mainWindow?.close();
     },
@@ -938,9 +965,33 @@ void app.whenReady().then(async () => {
   );
 
   guardedIpc.handle(
-    IPC_CHANNELS.TERMINAL_ENSURE_SESSION,
+    IPC_CHANNELS.TERMINAL_ENSURE_STATE,
     (arguments_) => noArgumentsSchema.parse(arguments_),
-    () => terminalService.ensureSession(),
+    () => terminalService.ensureState(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_CREATE_SESSION,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => terminalService.createSession(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_SELECT_SESSION,
+    (arguments_) => terminalSessionArgumentsSchema.parse(arguments_),
+    (sessionId) => terminalService.selectSession(sessionId),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_CLOSE_SESSION,
+    (arguments_) => terminalCloseArgumentsSchema.parse(arguments_),
+    (request) => terminalService.closeSession(request.sessionId, request.force),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_RELAUNCH_SESSION,
+    (arguments_) => terminalSessionArgumentsSchema.parse(arguments_),
+    (sessionId) => terminalService.relaunchSession(sessionId),
   );
 
   guardedIpc.handle(
@@ -953,12 +1004,6 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.TERMINAL_RESIZE,
     (arguments_) => terminalResizeArgumentsSchema.parse(arguments_),
     (request) => terminalService.resize(request.sessionId, request.columns, request.rows),
-  );
-
-  guardedIpc.handle(
-    IPC_CHANNELS.TERMINAL_RETRY,
-    (arguments_) => noArgumentsSchema.parse(arguments_),
-    () => terminalService.retrySession(),
   );
 
   guardedIpc.handle(

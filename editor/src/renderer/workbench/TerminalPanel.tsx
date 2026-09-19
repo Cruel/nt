@@ -1,22 +1,33 @@
-import { useEffect, useRef, useState } from 'react';
-import { Terminal } from '@xterm/xterm';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { Terminal } from '@xterm/xterm';
+import { Plus, X } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import { Button } from '@/components/ui/button';
-import type { TerminalSessionSnapshot } from '../../shared/terminal';
+import type { TerminalHostSnapshot, TerminalSessionSnapshot } from '../../shared/terminal';
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Terminal could not be started.';
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 export function TerminalPanel() {
+  const { t } = useTranslation('workspace');
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const [session, setSession] = useState<TerminalSessionSnapshot | null>(null);
+  const [terminalState, setTerminalState] = useState<TerminalHostSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [requestError, setRequestError] = useState<string | null>(null);
+
+  const selectedSession = useMemo(
+    () =>
+      terminalState?.sessions.find((session) => session.id === terminalState.selectedSessionId) ??
+      null,
+    [terminalState],
+  );
 
   useEffect(() => {
     const host = hostRef.current;
@@ -38,6 +49,7 @@ export function TerminalPanel() {
     );
     terminal.open(host);
     terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
 
     let disposed = false;
     let lastColumns = 0;
@@ -62,37 +74,41 @@ export function TerminalPanel() {
       if (sessionId) void window.noveltea.writeTerminal(sessionId, data);
     });
     const removeTerminalListener = window.noveltea.onTerminalEvent((event) => {
-      if (event.sessionId !== sessionIdRef.current) return;
-      if (event.kind === 'output') {
+      if (event.sessionId === sessionIdRef.current && event.kind === 'output') {
         terminal.write(event.data);
-        return;
       }
-      setSession((current) => {
-        if (!current || current.id !== event.sessionId) return current;
-        if (event.kind === 'exit') {
-          return { ...current, status: 'exited', exitCode: event.exitCode };
-        }
-        return { ...current, status: 'error', error: event.message };
+      if (event.kind === 'output') return;
+      setTerminalState((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          sessions: current.sessions.map((session) => {
+            if (session.id !== event.sessionId) return session;
+            if (event.kind === 'exit') {
+              return {
+                ...session,
+                status: 'exited',
+                commandState: 'idle',
+                exitCode: event.exitCode,
+              };
+            }
+            return { ...session, status: 'error', commandState: 'idle', error: event.message };
+          }),
+        };
       });
     });
 
     void window.noveltea
-      .ensureTerminalSession()
+      .ensureTerminalState()
       .then((snapshot) => {
         if (disposed) return;
-        sessionIdRef.current = snapshot.id;
-        setSession(snapshot);
+        setTerminalState(snapshot);
         setRequestError(null);
         setLoading(false);
-        if (snapshot.output) terminal.write(snapshot.output);
-        requestAnimationFrame(() => {
-          fitAndResize();
-          terminal.focus();
-        });
       })
       .catch((error: unknown) => {
         if (disposed) return;
-        setRequestError(errorMessage(error));
+        setRequestError(errorMessage(error, t('terminal.failed')));
         setLoading(false);
       });
 
@@ -103,53 +119,193 @@ export function TerminalPanel() {
       removeTerminalListener();
       terminal.dispose();
       terminalRef.current = null;
+      fitAddonRef.current = null;
       sessionIdRef.current = null;
     };
   }, []);
 
-  async function retry() {
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal || !selectedSession) return;
+    sessionIdRef.current = selectedSession.id;
+    terminal.reset();
+    if (selectedSession.output) terminal.write(selectedSession.output);
+    requestAnimationFrame(() => {
+      fitAddonRef.current?.fit();
+      void window.noveltea.resizeTerminal({
+        sessionId: selectedSession.id,
+        columns: terminal.cols,
+        rows: terminal.rows,
+      });
+      terminal.focus();
+    });
+  }, [selectedSession?.id]);
+
+  async function selectSession(sessionId: string) {
+    if (sessionId === terminalState?.selectedSessionId) {
+      terminalRef.current?.focus();
+      return;
+    }
+    setRequestError(null);
+    try {
+      setTerminalState(await window.noveltea.selectTerminalSession(sessionId));
+    } catch (error) {
+      setRequestError(errorMessage(error, t('terminal.failed')));
+    }
+  }
+
+  async function createSession() {
+    setRequestError(null);
+    try {
+      setTerminalState(await window.noveltea.createTerminalSession());
+    } catch (error) {
+      setRequestError(errorMessage(error, t('terminal.failed')));
+    }
+  }
+
+  async function closeSession(session: TerminalSessionSnapshot) {
+    setRequestError(null);
+    try {
+      let result = await window.noveltea.closeTerminalSession({
+        sessionId: session.id,
+        force: false,
+      });
+      if (result.requiresConfirmation) {
+        const confirmed = window.confirm(t('terminal.closeRisk', { label: session.label }));
+        if (!confirmed) return;
+        result = await window.noveltea.closeTerminalSession({ sessionId: session.id, force: true });
+      }
+      setTerminalState(result.state);
+    } catch (error) {
+      setRequestError(errorMessage(error, t('terminal.failed')));
+    }
+  }
+
+  async function relaunch() {
+    if (!selectedSession) return;
     setLoading(true);
     setRequestError(null);
     try {
-      const snapshot = await window.noveltea.retryTerminalSession();
-      sessionIdRef.current = snapshot.id;
-      setSession(snapshot);
-      terminalRef.current?.reset();
-      if (snapshot.output) terminalRef.current?.write(snapshot.output);
+      setTerminalState(await window.noveltea.relaunchTerminalSession(selectedSession.id));
       terminalRef.current?.focus();
     } catch (error) {
-      setRequestError(errorMessage(error));
+      setRequestError(errorMessage(error, t('terminal.failed')));
     } finally {
       setLoading(false);
     }
   }
 
-  const failure = requestError ?? (session?.status === 'error' ? session.error : null);
+  async function retryFailure() {
+    setLoading(true);
+    setRequestError(null);
+    try {
+      const nextState = selectedSession
+        ? await window.noveltea.relaunchTerminalSession(selectedSession.id)
+        : await window.noveltea.ensureTerminalState();
+      setTerminalState(nextState);
+      terminalRef.current?.focus();
+    } catch (error) {
+      setRequestError(errorMessage(error, t('terminal.failed')));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const failure =
+    requestError ?? (selectedSession?.status === 'error' ? selectedSession.error : null);
 
   return (
-    <div className="relative h-full min-h-[180px] bg-background" data-terminal-panel>
-      <div ref={hostRef} className="h-full min-h-[180px] w-full p-2" data-terminal-viewport />
-      {loading ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/80 text-xs text-muted-foreground">
-          Starting terminal…
+    <div className="flex h-full min-h-[180px] flex-col bg-background" data-terminal-panel>
+      <div
+        className="flex h-9 shrink-0 items-center gap-1 border-b px-1"
+        data-terminal-tabs
+        role="tablist"
+        aria-label={t('bottomPanel.labels.terminal')}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+          {terminalState?.sessions.map((session) => {
+            const selected = session.id === terminalState.selectedSessionId;
+            return (
+              <div
+                key={session.id}
+                className={
+                  selected
+                    ? 'flex h-7 shrink-0 items-center rounded-sm bg-muted text-foreground'
+                    : 'flex h-7 shrink-0 items-center rounded-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                }
+                data-terminal-tab={session.id}
+                data-selected={selected ? 'true' : 'false'}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  className="h-full px-2 text-xs"
+                  onClick={() => void selectSession(session.id)}
+                >
+                  {session.label}
+                </button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="mr-0.5 size-6"
+                  aria-label={t('terminal.close', { label: session.label })}
+                  onClick={() => void closeSession(session)}
+                >
+                  <X className="size-3" />
+                </Button>
+              </div>
+            );
+          })}
         </div>
-      ) : null}
-      {failure ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/95 p-6">
-          <div className="max-w-xl rounded border bg-card p-4 text-sm shadow-sm">
-            <div className="font-medium">Terminal failed to start</div>
-            <p className="mt-1 break-words text-xs text-muted-foreground">{failure}</p>
-            <Button className="mt-3" size="sm" onClick={() => void retry()}>
-              Retry
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7 shrink-0"
+          aria-label={t('terminal.new')}
+          onClick={() => void createSession()}
+        >
+          <Plus className="size-4" />
+        </Button>
+      </div>
+      <div className="relative min-h-0 flex-1">
+        <div ref={hostRef} className="h-full w-full p-2" data-terminal-viewport />
+        {loading ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/80 text-xs text-muted-foreground">
+            {t('terminal.starting')}
+          </div>
+        ) : null}
+        {failure ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/95 p-6">
+            <div className="max-w-xl rounded border bg-card p-4 text-sm shadow-sm">
+              <div className="font-medium">{t('terminal.failed')}</div>
+              <p className="mt-1 break-words text-xs text-muted-foreground">{failure}</p>
+              <Button className="mt-3" size="sm" onClick={() => void retryFailure()}>
+                {t('terminal.retry')}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {selectedSession?.status === 'exited' ? (
+          <div className="absolute bottom-2 right-3 flex items-center gap-2 rounded bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+            <span>
+              {selectedSession.exitCode === null
+                ? t('terminal.exited')
+                : t('terminal.exitedWithCode', { code: selectedSession.exitCode })}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => void relaunch()}
+            >
+              {t('terminal.relaunch')}
             </Button>
           </div>
-        </div>
-      ) : null}
-      {session?.status === 'exited' ? (
-        <div className="pointer-events-none absolute bottom-2 right-3 rounded bg-muted px-2 py-1 text-[11px] text-muted-foreground">
-          Terminal exited{session.exitCode === null ? '' : ` (${session.exitCode})`}
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }

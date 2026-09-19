@@ -83,6 +83,19 @@
     "lastCommandDiagnostics": "⟦Last command diagnostics⟧",
     "toggle": "⟦Toggle Bottom Panel⟧"
   },
+  "terminal": {
+    "new": "⟦New Terminal⟧",
+    "close": "⟦Close {{label}}⟧",
+    "closeRisk": "⟦{{label}} may have a running command. Close it and terminate the process?⟧",
+    "starting": "⟦Starting terminal…⟧",
+    "failed": "⟦Terminal failed to start⟧",
+    "retry": "⟦Retry⟧",
+    "exited": "⟦Terminal exited⟧",
+    "exitedWithCode": "⟦Terminal exited ({{code}})⟧",
+    "relaunch": "⟦Relaunch⟧",
+    "shutdownRisk_one": "⟦{{count}} terminal may have a running command. Exit NovelTea and terminate it?⟧",
+    "shutdownRisk_other": "⟦{{count}} terminals may have running commands. Exit NovelTea and terminate them?⟧"
+  },
   "externalConflict": {
     "title": "⟦External changes conflict with unsaved edits⟧",
     "description": "⟦Disk and the editor both changed {{saveUnitId}}. Ordinary Save is blocked until you choose which version wins for this save unit.⟧",

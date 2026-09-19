@@ -1049,7 +1049,7 @@ describe('WorkspacePage new project modal', () => {
       projectFilePath: '/mock/project/project.json',
       project,
     });
-    let beforeClose: (() => void) | null = null;
+    let beforeClose: ((request: { terminalRiskCount: number }) => void) | null = null;
     vi.mocked(window.noveltea.onAppWindowBeforeClose).mockImplementation((callback) => {
       beforeClose = callback;
       return () => undefined;
@@ -1062,11 +1062,36 @@ describe('WorkspacePage new project modal', () => {
     });
 
     render(<WorkspacePage />);
-    act(() => beforeClose?.());
+    act(() => beforeClose?.({ terminalRiskCount: 0 }));
 
     await waitFor(() => expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalled());
     expect(window.noveltea.completeAppWindowExit).not.toHaveBeenCalled();
     expect(useProjectStore.getState().document).not.toBeNull();
+  });
+
+  it('uses one aggregated confirmation before completing exit with risky terminal sessions', async () => {
+    let beforeClose: ((request: { terminalRiskCount: number }) => void) | null = null;
+    vi.mocked(window.noveltea.onAppWindowBeforeClose).mockImplementation((callback) => {
+      beforeClose = callback;
+      return () => undefined;
+    });
+    const confirm = vi
+      .spyOn(window, 'confirm')
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+
+    render(<WorkspacePage />);
+    act(() => beforeClose?.({ terminalRiskCount: 2 }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(window.noveltea.completeAppWindowExit).not.toHaveBeenCalled();
+
+    act(() => beforeClose?.({ terminalRiskCount: 2 }));
+    await waitFor(() => expect(window.noveltea.completeAppWindowExit).toHaveBeenCalledOnce());
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(confirm).toHaveBeenLastCalledWith(
+      '2 terminals may have running commands. Exit NovelTea and terminate them?',
+    );
+    confirm.mockRestore();
   });
 
   it('debounces automatic recovery metadata writes after content becomes dirty', async () => {

@@ -4,7 +4,11 @@ import { BottomPanel } from '@/workbench/BottomPanel';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { TerminalEvent } from '../../shared/terminal';
+import type {
+  TerminalEvent,
+  TerminalHostSnapshot,
+  TerminalSessionSnapshot,
+} from '../../shared/terminal';
 
 const terminalMock = vi.hoisted(() => ({
   onData: null as ((data: string) => void) | null,
@@ -45,17 +49,33 @@ vi.mock('@xterm/addon-fit', () => ({
   },
 }));
 
-vi.mock('@xterm/addon-web-links', () => ({
-  WebLinksAddon: class {},
-}));
+vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }));
 
-const runningSession = {
-  id: '00000000-0000-4000-8000-000000000001',
-  status: 'running' as const,
-  initialCwd: '/mock/project',
-  output: '',
-  error: null,
-  exitCode: null,
+function session(
+  sequence: number,
+  overrides: Partial<TerminalSessionSnapshot> = {},
+): TerminalSessionSnapshot {
+  return {
+    id: `00000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`,
+    label: `Terminal ${sequence}`,
+    sequence,
+    status: 'running',
+    commandState: 'unknown',
+    initialCwd: '/mock/project',
+    lastKnownCwd: '/mock/project',
+    createdAt: `2026-09-19T12:00:0${sequence}.000Z`,
+    originProject: { id: 'project', name: 'Project' },
+    output: '',
+    error: null,
+    exitCode: null,
+    ...overrides,
+  };
+}
+
+const terminal1 = session(1);
+const initialState: TerminalHostSnapshot = {
+  sessions: [terminal1],
+  selectedSessionId: terminal1.id,
 };
 
 beforeEach(() => {
@@ -66,84 +86,159 @@ beforeEach(() => {
   terminalMock.focusCount = 0;
   terminalMock.fitCount = 0;
   useProjectStore.getState().clearProject();
-  useBottomPanelStore.getState().hydrate({
-    visible: true,
-    activePanelId: 'output',
-    sizePercent: 30,
+  useBottomPanelStore
+    .getState()
+    .hydrate({ visible: true, activePanelId: 'output', sizePercent: 30 });
+  vi.mocked(window.noveltea.ensureTerminalState).mockResolvedValue(initialState);
+  vi.mocked(window.noveltea.createTerminalSession).mockResolvedValue(initialState);
+  vi.mocked(window.noveltea.selectTerminalSession).mockResolvedValue(initialState);
+  vi.mocked(window.noveltea.closeTerminalSession).mockResolvedValue({
+    state: initialState,
+    requiresConfirmation: false,
   });
-  vi.mocked(window.noveltea.ensureTerminalSession).mockResolvedValue(runningSession);
-  vi.mocked(window.noveltea.retryTerminalSession).mockResolvedValue({
-    ...runningSession,
-    id: '00000000-0000-4000-8000-000000000002',
-  });
+  vi.mocked(window.noveltea.relaunchTerminalSession).mockResolvedValue(initialState);
   vi.mocked(window.noveltea.onTerminalEvent).mockReturnValue(() => {});
 });
 
 describe('Terminal bottom panel', () => {
   it('is globally available but creates the first PTY lazily only when selected', async () => {
     render(<BottomPanel />);
-
     expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument();
-    expect(window.noveltea.ensureTerminalSession).not.toHaveBeenCalled();
+    expect(window.noveltea.ensureTerminalState).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
-
-    await waitFor(() => expect(window.noveltea.ensureTerminalSession).toHaveBeenCalledOnce());
-    expect(document.querySelector('[data-terminal-viewport]')).toBeInTheDocument();
+    await waitFor(() => expect(window.noveltea.ensureTerminalState).toHaveBeenCalledOnce());
+    expect(screen.getByRole('button', { name: 'New Terminal' })).toBeInTheDocument();
+    expect(screen.getByText('Terminal 1')).toBeInTheDocument();
   });
 
-  it('routes xterm input/output and fitted viewport dimensions through terminal IPC', async () => {
+  it('routes selected xterm input/output and fitted dimensions through terminal IPC', async () => {
     let terminalEvent: ((event: TerminalEvent) => void) | null = null;
     vi.mocked(window.noveltea.onTerminalEvent).mockImplementation((callback) => {
       terminalEvent = callback;
       return () => {};
     });
     useBottomPanelStore.getState().setActivePanelId('terminal');
-
     render(<BottomPanel />);
-    await waitFor(() => expect(window.noveltea.ensureTerminalSession).toHaveBeenCalledOnce());
-
-    act(() => terminalMock.onData?.('echo hello\r'));
-    expect(window.noveltea.writeTerminal).toHaveBeenCalledWith(runningSession.id, 'echo hello\r');
-
-    act(() => terminalEvent?.({ kind: 'output', sessionId: runningSession.id, data: 'hello\r\n' }));
-    expect(terminalMock.writes).toContain('hello\r\n');
-
     await waitFor(() =>
       expect(window.noveltea.resizeTerminal).toHaveBeenCalledWith({
-        sessionId: runningSession.id,
+        sessionId: terminal1.id,
         columns: 100,
         rows: 30,
       }),
     );
+
+    act(() => terminalMock.onData?.('echo hello\r'));
+    expect(window.noveltea.writeTerminal).toHaveBeenCalledWith(terminal1.id, 'echo hello\r');
+    act(() => terminalEvent?.({ kind: 'output', sessionId: terminal1.id, data: 'hello\r\n' }));
+    expect(terminalMock.writes).toContain('hello\r\n');
   });
 
-  it('keeps the selected terminal alive across Project context changes', async () => {
+  it('creates and selects multiple left-aligned terminal tabs without coupling selection to Project changes', async () => {
+    const terminal2 = session(2, {
+      initialCwd: '/mock/second-project',
+      lastKnownCwd: '/mock/second-project',
+      originProject: { id: 'second', name: 'Second' },
+    });
+    const twoSessions = { sessions: [terminal1, terminal2], selectedSessionId: terminal2.id };
+    vi.mocked(window.noveltea.createTerminalSession).mockResolvedValue(twoSessions);
+    vi.mocked(window.noveltea.selectTerminalSession).mockResolvedValue({
+      sessions: [terminal1, terminal2],
+      selectedSessionId: terminal1.id,
+    });
     useBottomPanelStore.getState().setActivePanelId('terminal');
     const view = render(<BottomPanel />);
-    await waitFor(() => expect(window.noveltea.ensureTerminalSession).toHaveBeenCalledOnce());
+    await screen.findByText('Terminal 1');
 
-    const project = createAuthoringProject();
+    fireEvent.click(screen.getByRole('button', { name: 'New Terminal' }));
+    expect(await screen.findByText('Terminal 2')).toBeInTheDocument();
+    expect(window.noveltea.createTerminalSession).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByText('Terminal 1'));
+    await waitFor(() =>
+      expect(window.noveltea.selectTerminalSession).toHaveBeenCalledWith(terminal1.id),
+    );
+
     act(() => {
       useProjectStore.getState().loadProjectDocument({
-        document: project,
-        projectPath: '/mock/second-project',
-        projectFilePath: '/mock/second-project/project.json',
+        document: createAuthoringProject(),
+        projectPath: '/mock/other',
+        projectFilePath: '/mock/other/project.json',
       });
     });
     view.rerender(<BottomPanel />);
-    expect(window.noveltea.ensureTerminalSession).toHaveBeenCalledOnce();
-
-    act(() => useProjectStore.getState().clearProject());
-    view.rerender(<BottomPanel />);
-    expect(window.noveltea.ensureTerminalSession).toHaveBeenCalledOnce();
-    expect(document.querySelector('[data-terminal-viewport]')).toBeInTheDocument();
+    expect(window.noveltea.ensureTerminalState).toHaveBeenCalledOnce();
   });
 
-  it('reconstructs buffered output after panel remount without requesting PTY termination', async () => {
-    vi.mocked(window.noveltea.ensureTerminalSession).mockResolvedValue({
-      ...runningSession,
-      output: 'background output\r\n',
+  it('asks once before closing a running/unknown terminal and then forces the requested close', async () => {
+    const terminal2 = session(2);
+    const twoSessions = { sessions: [terminal1, terminal2], selectedSessionId: terminal1.id };
+    vi.mocked(window.noveltea.ensureTerminalState).mockResolvedValue(twoSessions);
+    vi.mocked(window.noveltea.closeTerminalSession)
+      .mockResolvedValueOnce({ state: twoSessions, requiresConfirmation: true })
+      .mockResolvedValueOnce({
+        state: { sessions: [terminal2], selectedSessionId: terminal2.id },
+        requiresConfirmation: false,
+      });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Terminal 1' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    expect(window.noveltea.closeTerminalSession).toHaveBeenNthCalledWith(1, {
+      sessionId: terminal1.id,
+      force: false,
+    });
+    expect(window.noveltea.closeTerminalSession).toHaveBeenNthCalledWith(2, {
+      sessionId: terminal1.id,
+      force: true,
+    });
+    expect(await screen.findByText('Terminal 2')).toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it('retains exited output and offers same-session Relaunch', async () => {
+    const exited = session(1, {
+      status: 'exited',
+      commandState: 'idle',
+      output: 'done\r\n',
+      exitCode: 7,
+    });
+    vi.mocked(window.noveltea.ensureTerminalState).mockResolvedValue({
+      sessions: [exited],
+      selectedSessionId: exited.id,
+    });
+    vi.mocked(window.noveltea.relaunchTerminalSession).mockResolvedValue(initialState);
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+
+    expect(await screen.findByText('Terminal exited (7)')).toBeInTheDocument();
+    await waitFor(() => expect(terminalMock.writes).toContain('done\r\n'));
+    fireEvent.click(screen.getByRole('button', { name: 'Relaunch' }));
+    await waitFor(() =>
+      expect(window.noveltea.relaunchTerminalSession).toHaveBeenCalledWith(exited.id),
+    );
+  });
+
+  it('retries host creation when failure occurs before any session exists', async () => {
+    vi.mocked(window.noveltea.ensureTerminalState)
+      .mockRejectedValueOnce(new Error('cwd unavailable'))
+      .mockResolvedValueOnce(initialState);
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+
+    expect(await screen.findByText('cwd unavailable')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(window.noveltea.ensureTerminalState).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('Terminal 1')).toBeInTheDocument();
+  });
+
+  it('reconstructs buffered output after panel remount from the window-owned host state', async () => {
+    vi.mocked(window.noveltea.ensureTerminalState).mockResolvedValue({
+      sessions: [session(1, { output: 'background output\r\n' })],
+      selectedSessionId: terminal1.id,
     });
     useBottomPanelStore.getState().setActivePanelId('terminal');
     render(<BottomPanel />);
@@ -151,28 +246,6 @@ describe('Terminal bottom panel', () => {
 
     act(() => useBottomPanelStore.getState().setActivePanelId('output'));
     act(() => useBottomPanelStore.getState().setActivePanelId('terminal'));
-
-    await waitFor(() => expect(window.noveltea.ensureTerminalSession).toHaveBeenCalledTimes(2));
-    expect(terminalMock.writes.filter((entry) => entry === 'background output\r\n')).toHaveLength(
-      2,
-    );
-  });
-
-  it('keeps spawn failures visible and retries from the same surface', async () => {
-    vi.mocked(window.noveltea.ensureTerminalSession).mockResolvedValue({
-      ...runningSession,
-      status: 'error',
-      error: 'native PTY unavailable',
-    });
-    useBottomPanelStore.getState().setActivePanelId('terminal');
-
-    render(<BottomPanel />);
-    expect(await screen.findByText('native PTY unavailable')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect(window.noveltea.retryTerminalSession).toHaveBeenCalledOnce());
-    await waitFor(() =>
-      expect(screen.queryByText('native PTY unavailable')).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(window.noveltea.ensureTerminalState).toHaveBeenCalledTimes(2));
   });
 });

@@ -5,6 +5,7 @@ import {
   type TerminalPtyAdapter,
   type TerminalPtyProcess,
 } from '../../main/services/terminal-service';
+import { terminalSessionRequiresCloseConfirmation } from '../../shared/terminal';
 
 function fakeProcess() {
   let onData: ((data: string) => void) | null = null;
@@ -41,27 +42,51 @@ function fakeProcess() {
 
 type SpawnOptions = Parameters<TerminalPtyAdapter['spawn']>[0];
 
+function serviceOptions(spawn: TerminalPtyAdapter['spawn']) {
+  return {
+    pty: { spawn },
+    resolveProjectRoot: () => null as string | null,
+    resolveProjectOrigin: () => null,
+    resolveFallbackCwd: async () => null,
+    resolveDefaultProjectDirectory: () => '/documents/NovelTea',
+    resolveShell: () => '/bin/sh',
+    emit: vi.fn(),
+  };
+}
+
 describe('TerminalService', () => {
-  it('uses Project root authority first and routes PTY I/O without renderer cwd/shell input', async () => {
+  it('creates the first terminal lazily with immutable trusted creation metadata and routes PTY I/O', async () => {
     const pty = fakeProcess();
     const spawn = vi.fn((_options: SpawnOptions) => pty.process);
     const events: unknown[] = [];
+    const options = serviceOptions(spawn);
     const service = new TerminalService({
-      pty: { spawn },
+      ...options,
       resolveProjectRoot: () => '/project/root',
-      resolveFallbackCwd: vi.fn(async () => '/fallback'),
-      resolveDefaultProjectDirectory: () => '/documents/NovelTea',
+      resolveProjectOrigin: () => ({ id: 'story', name: 'Story' }),
       resolveShell: () => '/bin/bash',
       env: { PATH: '/usr/bin', HOME: '/home/test' },
       emit: (event) => events.push(event),
       sessionId: () => 'terminal-1',
+      now: () => new Date('2026-09-19T12:00:00.000Z'),
     });
 
-    const session = await service.ensureSession();
-    expect(session).toMatchObject({
-      id: 'terminal-1',
-      initialCwd: '/project/root',
-      status: 'running',
+    const state = await service.ensureState();
+    expect(state).toMatchObject({
+      selectedSessionId: 'terminal-1',
+      sessions: [
+        {
+          id: 'terminal-1',
+          label: 'Terminal 1',
+          sequence: 1,
+          initialCwd: '/project/root',
+          lastKnownCwd: '/project/root',
+          createdAt: '2026-09-19T12:00:00.000Z',
+          originProject: { id: 'story', name: 'Story' },
+          status: 'running',
+          commandState: 'unknown',
+        },
+      ],
     });
     expect(spawn).toHaveBeenCalledWith({
       shell: '/bin/bash',
@@ -78,10 +103,10 @@ describe('TerminalService', () => {
 
     pty.emitData('hello\r\n');
     expect(events).toContainEqual({ kind: 'output', sessionId: 'terminal-1', data: 'hello\r\n' });
-    expect((await service.ensureSession()).output).toBe('hello\r\n');
+    expect((await service.ensureState()).sessions[0]?.output).toBe('hello\r\n');
   });
 
-  it('coalesces concurrent first-use creation into one PTY session', async () => {
+  it('coalesces concurrent first use into one PTY', async () => {
     const pty = fakeProcess();
     const deferred: { resolve?: (process: TerminalPtyProcess) => void } = {};
     const spawn = vi.fn(
@@ -91,57 +116,134 @@ describe('TerminalService', () => {
         }),
     );
     const service = new TerminalService({
-      pty: { spawn },
-      resolveProjectRoot: () => '/project/root',
-      resolveFallbackCwd: async () => null,
-      resolveDefaultProjectDirectory: () => '/documents/NovelTea',
-      resolveShell: () => '/bin/sh',
-      emit: () => {},
+      ...serviceOptions(spawn),
       sessionId: () => 'terminal-1',
     });
 
-    const first = service.ensureSession();
-    const second = service.ensureSession();
-    await Promise.resolve();
-    expect(spawn).toHaveBeenCalledOnce();
-
+    const first = service.ensureState();
+    const second = service.ensureState();
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
     deferred.resolve?.(pty.process);
-    await expect(first).resolves.toMatchObject({ id: 'terminal-1' });
-    await expect(second).resolves.toMatchObject({ id: 'terminal-1' });
+    await expect(first).resolves.toMatchObject({ selectedSessionId: 'terminal-1' });
+    await expect(second).resolves.toMatchObject({ selectedSessionId: 'terminal-1' });
     expect(spawn).toHaveBeenCalledOnce();
   });
 
-  it('uses configured fallback without a Project, then the default Project directory', async () => {
-    const first = fakeProcess();
-    const firstSpawn = vi.fn((_options: SpawnOptions) => first.process);
-    const fallbackService = new TerminalService({
-      pty: { spawn: firstSpawn },
-      resolveProjectRoot: () => null,
-      resolveFallbackCwd: async () => '/terminal/fallback',
-      resolveDefaultProjectDirectory: () => '/documents/NovelTea',
-      resolveShell: () => '/bin/sh',
-      emit: () => {},
-      sessionId: () => 'fallback',
+  it('keeps sessions across Project switches and gives new sessions monotonic labels and current origins', async () => {
+    const processes = [fakeProcess(), fakeProcess(), fakeProcess()];
+    let spawnIndex = 0;
+    const spawn = vi.fn((_options: SpawnOptions) => processes[spawnIndex++]!.process);
+    let projectRoot: string | null = '/project/one';
+    let origin = { id: 'one', name: 'One' };
+    let nextId = 0;
+    const service = new TerminalService({
+      ...serviceOptions(spawn),
+      resolveProjectRoot: () => projectRoot,
+      resolveProjectOrigin: () => (projectRoot ? origin : null),
+      sessionId: () => `terminal-${++nextId}`,
     });
-    await fallbackService.ensureSession();
-    expect(firstSpawn.mock.calls[0]?.[0].cwd).toBe('/terminal/fallback');
 
-    const second = fakeProcess();
-    const secondSpawn = vi.fn((_options: SpawnOptions) => second.process);
-    const defaultService = new TerminalService({
-      pty: { spawn: secondSpawn },
-      resolveProjectRoot: () => null,
-      resolveFallbackCwd: async () => null,
-      resolveDefaultProjectDirectory: () => '/documents/NovelTea',
-      resolveShell: () => '/bin/sh',
-      emit: () => {},
-      sessionId: () => 'default',
+    const first = await service.ensureState();
+    expect(first.sessions[0]).toMatchObject({
+      label: 'Terminal 1',
+      initialCwd: '/project/one',
+      originProject: { id: 'one', name: 'One' },
     });
-    await defaultService.ensureSession();
-    expect(secondSpawn.mock.calls[0]?.[0].cwd).toBe('/documents/NovelTea');
+
+    projectRoot = '/project/two';
+    origin = { id: 'two', name: 'Two' };
+    const second = await service.createSession();
+    expect(second.sessions).toHaveLength(2);
+    expect(second.selectedSessionId).toBe('terminal-2');
+    expect(second.sessions[0]).toMatchObject({ initialCwd: '/project/one', label: 'Terminal 1' });
+    expect(second.sessions[1]).toMatchObject({
+      initialCwd: '/project/two',
+      label: 'Terminal 2',
+      originProject: { id: 'two', name: 'Two' },
+    });
+
+    service.selectSession('terminal-1');
+    projectRoot = null;
+    const selected = await service.ensureState();
+    expect(selected.selectedSessionId).toBe('terminal-1');
+    expect(spawn).toHaveBeenCalledTimes(2);
   });
 
-  it('retains spawn failures as an actionable session and retries', async () => {
+  it('retains exited scrollback, relaunches in place, and replaces the final closed session', async () => {
+    const first = fakeProcess();
+    const relaunched = fakeProcess();
+    const replacement = fakeProcess();
+    const processes = [first, relaunched, replacement];
+    let spawnIndex = 0;
+    let nextId = 0;
+    const service = new TerminalService({
+      ...serviceOptions(() => processes[spawnIndex++]!.process),
+      sessionId: () => `terminal-${++nextId}`,
+    });
+
+    await service.ensureState();
+    first.emitData('done\r\n');
+    first.emitExit(7);
+    const exited = await service.ensureState();
+    expect(exited.sessions[0]).toMatchObject({
+      id: 'terminal-1',
+      status: 'exited',
+      commandState: 'idle',
+      exitCode: 7,
+      output: 'done\r\n',
+    });
+
+    const relaunchedState = await service.relaunchSession('terminal-1');
+    expect(relaunchedState.sessions[0]).toMatchObject({
+      id: 'terminal-1',
+      label: 'Terminal 1',
+      status: 'running',
+      output: 'done\r\n',
+    });
+
+    relaunched.emitExit(0);
+    const closeResult = await service.closeSession('terminal-1', false);
+    expect(closeResult.requiresConfirmation).toBe(false);
+    expect(closeResult.state).toMatchObject({
+      selectedSessionId: 'terminal-2',
+      sessions: [{ id: 'terminal-2', label: 'Terminal 2', sequence: 2 }],
+    });
+  });
+
+  it('requires confirmation for running/unknown sessions and kills all owned PTYs on confirmed teardown', async () => {
+    const first = fakeProcess();
+    const second = fakeProcess();
+    const nextWindow = fakeProcess();
+    const processes = [first, second, nextWindow];
+    let spawnIndex = 0;
+    let nextId = 0;
+    const service = new TerminalService({
+      ...serviceOptions(() => processes[spawnIndex++]!.process),
+      sessionId: () => `terminal-${++nextId}`,
+    });
+
+    await service.ensureState();
+    await service.createSession();
+    expect(service.shutdownRiskCount()).toBe(2);
+
+    const guarded = await service.closeSession('terminal-1', false);
+    expect(guarded.requiresConfirmation).toBe(true);
+    expect(guarded.state.sessions).toHaveLength(2);
+    expect(first.kill).not.toHaveBeenCalled();
+
+    const forced = await service.closeSession('terminal-1', true);
+    expect(forced.requiresConfirmation).toBe(false);
+    expect(first.kill).toHaveBeenCalledOnce();
+    expect(forced.state.sessions).toHaveLength(1);
+
+    service.dispose();
+    expect(second.kill).toHaveBeenCalledOnce();
+
+    const nextWindowState = await service.ensureState();
+    expect(nextWindowState.sessions).toMatchObject([{ label: 'Terminal 1', sequence: 1 }]);
+  });
+
+  it('retains spawn failures as actionable sessions and relaunches the same identity', async () => {
     const healthy = fakeProcess();
     const spawn = vi
       .fn(
@@ -149,80 +251,65 @@ describe('TerminalService', () => {
           healthy.process,
       )
       .mockRejectedValueOnce(new Error('native PTY unavailable'));
-    const events: unknown[] = [];
-    let next = 0;
     const service = new TerminalService({
-      pty: { spawn },
-      resolveProjectRoot: () => null,
-      resolveFallbackCwd: async () => null,
-      resolveDefaultProjectDirectory: () => '/documents/NovelTea',
-      resolveShell: () => '/bin/sh',
-      emit: (event) => events.push(event),
-      sessionId: () => `terminal-${++next}`,
+      ...serviceOptions(spawn),
+      sessionId: () => 'terminal-1',
     });
 
-    expect(await service.ensureSession()).toMatchObject({
+    expect((await service.ensureState()).sessions[0]).toMatchObject({
       id: 'terminal-1',
       status: 'error',
+      commandState: 'idle',
       error: 'native PTY unavailable',
     });
-    expect(events).toContainEqual({
-      kind: 'error',
-      sessionId: 'terminal-1',
-      message: 'native PTY unavailable',
-    });
+    expect(service.shutdownRiskCount()).toBe(0);
 
-    expect(await service.retrySession()).toMatchObject({
-      id: 'terminal-2',
+    expect((await service.relaunchSession('terminal-1')).sessions[0]).toMatchObject({
+      id: 'terminal-1',
+      label: 'Terminal 1',
       status: 'running',
-      initialCwd: '/documents/NovelTea',
     });
   });
 
-  it('keeps a session independent of Project changes and kills it only when disposed', async () => {
-    const pty = fakeProcess();
-    let projectRoot: string | null = '/project/one';
-    const spawn = vi.fn((_options: SpawnOptions) => pty.process);
-    const service = new TerminalService({
-      pty: { spawn },
-      resolveProjectRoot: () => projectRoot,
-      resolveFallbackCwd: async () => null,
-      resolveDefaultProjectDirectory: () => '/documents/NovelTea',
-      resolveShell: () => '/bin/sh',
-      emit: () => {},
-      sessionId: () => 'terminal-1',
+  it('uses configured fallback without a Project, then the default Project directory', async () => {
+    const first = fakeProcess();
+    const firstSpawn = vi.fn((_options: SpawnOptions) => first.process);
+    const fallbackService = new TerminalService({
+      ...serviceOptions(firstSpawn),
+      resolveFallbackCwd: async () => '/terminal/fallback',
+      sessionId: () => 'fallback',
     });
+    await fallbackService.ensureState();
+    expect(firstSpawn.mock.calls[0]?.[0].cwd).toBe('/terminal/fallback');
 
-    await service.ensureSession();
-    projectRoot = '/project/two';
-    expect(await service.ensureSession()).toMatchObject({ initialCwd: '/project/one' });
-    expect(spawn).toHaveBeenCalledTimes(1);
-    expect(pty.kill).not.toHaveBeenCalled();
-
-    service.dispose();
-    expect(pty.kill).toHaveBeenCalledOnce();
+    const second = fakeProcess();
+    const secondSpawn = vi.fn((_options: SpawnOptions) => second.process);
+    const defaultService = new TerminalService({
+      ...serviceOptions(secondSpawn),
+      sessionId: () => 'default',
+    });
+    await defaultService.ensureState();
+    expect(secondSpawn.mock.calls[0]?.[0].cwd).toBe('/documents/NovelTea');
   });
+});
 
-  it('retains exited output and status for later remounts', async () => {
-    const pty = fakeProcess();
-    const service = new TerminalService({
-      pty: { spawn: () => pty.process },
-      resolveProjectRoot: () => null,
-      resolveFallbackCwd: async () => null,
-      resolveDefaultProjectDirectory: () => '/documents/NovelTea',
-      resolveShell: () => '/bin/sh',
-      emit: () => {},
-      sessionId: () => 'terminal-1',
-    });
-    await service.ensureSession();
-    pty.emitData('done\r\n');
-    pty.emitExit(7);
-
-    expect(await service.ensureSession()).toMatchObject({
-      status: 'exited',
-      exitCode: 7,
-      output: 'done\r\n',
-    });
+describe('terminal close confirmation policy', () => {
+  it('allows idle/exited sessions to close immediately and protects running/unknown work', () => {
+    expect(
+      terminalSessionRequiresCloseConfirmation({ status: 'running', commandState: 'idle' }),
+    ).toBe(false);
+    expect(
+      terminalSessionRequiresCloseConfirmation({ status: 'running', commandState: 'running' }),
+    ).toBe(true);
+    expect(
+      terminalSessionRequiresCloseConfirmation({ status: 'running', commandState: 'unknown' }),
+    ).toBe(true);
+    expect(
+      terminalSessionRequiresCloseConfirmation({ status: 'exited', commandState: 'idle' }),
+    ).toBe(false);
+    expect(
+      terminalSessionRequiresCloseConfirmation({ status: 'error', commandState: 'idle' }),
+    ).toBe(false);
   });
 });
 

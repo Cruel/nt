@@ -31,8 +31,9 @@ const api: NovelTeaElectronApi = {
   toggleMaximizeAppWindow: () => invokeGuarded(IPC_CHANNELS.TOGGLE_MAXIMIZE_APP_WINDOW),
   requestAppWindowExit: () => invokeGuarded(IPC_CHANNELS.REQUEST_APP_WINDOW_EXIT),
   completeAppWindowExit: () => invokeGuarded(IPC_CHANNELS.COMPLETE_APP_WINDOW_EXIT),
-  onAppWindowBeforeClose: (callback: () => void) => {
-    const listener = () => callback();
+  onAppWindowBeforeClose: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: unknown) =>
+      callback(request as never);
     ipcRenderer.on(IPC_CHANNELS.APP_WINDOW_BEFORE_CLOSE, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.APP_WINDOW_BEFORE_CLOSE, listener);
   },
@@ -45,10 +46,15 @@ const api: NovelTeaElectronApi = {
   isAppWindowMaximized: () => invokeGuarded(IPC_CHANNELS.IS_APP_WINDOW_MAXIMIZED),
   setNativeWindowFrame: (nativeFrame: boolean) =>
     invokeGuarded(IPC_CHANNELS.SET_NATIVE_WINDOW_FRAME, nativeFrame),
-  ensureTerminalSession: () => invokeGuarded(IPC_CHANNELS.TERMINAL_ENSURE_SESSION),
+  ensureTerminalState: () => invokeGuarded(IPC_CHANNELS.TERMINAL_ENSURE_STATE),
+  createTerminalSession: () => invokeGuarded(IPC_CHANNELS.TERMINAL_CREATE_SESSION),
+  selectTerminalSession: (sessionId) =>
+    invokeGuarded(IPC_CHANNELS.TERMINAL_SELECT_SESSION, sessionId),
+  closeTerminalSession: (request) => invokeGuarded(IPC_CHANNELS.TERMINAL_CLOSE_SESSION, request),
+  relaunchTerminalSession: (sessionId) =>
+    invokeGuarded(IPC_CHANNELS.TERMINAL_RELAUNCH_SESSION, sessionId),
   writeTerminal: (sessionId, data) => invokeGuarded(IPC_CHANNELS.TERMINAL_WRITE, sessionId, data),
   resizeTerminal: (request) => invokeGuarded(IPC_CHANNELS.TERMINAL_RESIZE, request),
-  retryTerminalSession: () => invokeGuarded(IPC_CHANNELS.TERMINAL_RETRY),
   onTerminalEvent: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, event: unknown) =>
       callback(event as never);
