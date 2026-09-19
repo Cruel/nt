@@ -174,6 +174,7 @@ export interface ScriptcInvocationContext {
   readonly environment?: Readonly<Record<string, string>>;
   readonly cancellationProbe?: () => boolean;
   readonly residentProjectSessions?: boolean;
+  readonly projectSessionIdleMs?: number;
 }
 
 export async function runNovelTeaScriptcIsland(
@@ -220,7 +221,13 @@ async function runNovelTeaScriptcIslandScoped(
       } as import('../src/shared/project-source-inventory').ProjectSourceInventory)
     : undefined;
   const environment = invocationContext.environment ?? process.env;
-  if (invocationContext.residentProjectSessions) residentInvokeHost = invokeHost;
+  if (invocationContext.residentProjectSessions) {
+    residentInvokeHost = invokeHost;
+    if (residentWorkspace && invocationContext.projectSessionIdleMs) {
+      const evicted = residentWorkspace.evictIdleSessions(invocationContext.projectSessionIdleMs);
+      if (evicted > 0) trace(`resident Project idle eviction: ${String(evicted)}`);
+    }
+  }
   const cancellationCertification =
     environment.NOVELTEA_CLI_CERTIFICATION === '1' && argv[0] === '__comfyui-cancel-certification';
   const effectiveArgv = cancellationCertification ? argv.slice(1) : argv;

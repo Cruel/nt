@@ -3,6 +3,7 @@ export interface ScriptcInvocationContext {
   readonly environment?: Readonly<Record<string, string>>;
   readonly cancellationProbe?: () => boolean;
   readonly residentProjectSessions?: boolean;
+  readonly projectSessionIdleMs?: number;
 }
 
 export declare function runNovelTeaScriptcIsland(

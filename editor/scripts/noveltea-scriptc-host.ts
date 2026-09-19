@@ -637,27 +637,60 @@ type DaemonStatusCore = Readonly<{
   pid: number | null;
 }>;
 
+type DaemonBrokerContext = Readonly<{
+  build: string;
+  protocol: number;
+  daemonIdleMs?: number;
+  projectSessionIdleMs?: number;
+  runtimeRoot?: string;
+}>;
+
+function certificationPositiveInteger(name: string): number | undefined {
+  if (process.env.NOVELTEA_CLI_CERTIFICATION !== '1') return undefined;
+  const text = process.env[name];
+  if (!text) return undefined;
+  const value = Number(text);
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function daemonBrokerContext(): DaemonBrokerContext {
+  const certification = process.env.NOVELTEA_CLI_CERTIFICATION === '1';
+  const suffix = certification ? process.env.NOVELTEA_CLI_CERTIFICATION_DAEMON_ID : undefined;
+  const runtimeRoot = certification
+    ? process.env.NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT
+    : undefined;
+  return {
+    build: suffix ? `${NOVELTEA_CLI_BUILD_IDENTITY}:cert:${suffix}` : NOVELTEA_CLI_BUILD_IDENTITY,
+    protocol: NOVELTEA_DAEMON_PROTOCOL_VERSION,
+    daemonIdleMs: certificationPositiveInteger('NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS'),
+    projectSessionIdleMs: certificationPositiveInteger(
+      'NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS',
+    ),
+    runtimeRoot: runtimeRoot || undefined,
+  };
+}
+
 function daemonNativeRequest(action: string): DaemonNativeResponse {
+  const context = daemonBrokerContext();
   return JSON.parse(
     invokeHost(
       'daemon',
       JSON.stringify({
+        ...context,
         action,
-        build: NOVELTEA_CLI_BUILD_IDENTITY,
-        protocol: NOVELTEA_DAEMON_PROTOCOL_VERSION,
       }),
     ),
   ) as DaemonNativeResponse;
 }
 
 function daemonEnsureNativeRequest(): DaemonNativeResponse {
+  const context = daemonBrokerContext();
   return JSON.parse(
     invokeHost(
       'daemon',
       JSON.stringify({
+        ...context,
         action: 'ensure',
-        build: NOVELTEA_CLI_BUILD_IDENTITY,
-        protocol: NOVELTEA_DAEMON_PROTOCOL_VERSION,
         startupTimeoutMs: 2000,
       }),
     ),
@@ -666,13 +699,13 @@ function daemonEnsureNativeRequest(): DaemonNativeResponse {
 
 function daemonRequestNative(request: DaemonRequestContext): DaemonNativeResponse {
   daemonRequestSequence += 1;
+  const context = daemonBrokerContext();
   return JSON.parse(
     invokeHost(
       'daemon',
       JSON.stringify({
+        ...context,
         action: 'request',
-        build: NOVELTEA_CLI_BUILD_IDENTITY,
-        protocol: NOVELTEA_DAEMON_PROTOCOL_VERSION,
         requestId: `cli-${String(process.pid)}-${String(Date.now())}-${String(daemonRequestSequence)}`,
         method: 'invoke',
         payload: request,
@@ -777,6 +810,7 @@ type HiddenDaemonBrokerInvocation = Readonly<{
   protocol: number;
   daemonIdleMs: number;
   projectSessionIdleMs: number;
+  runtimeRoot?: string;
 }>;
 
 function hiddenDaemonBrokerInvocation(
@@ -787,6 +821,7 @@ function hiddenDaemonBrokerInvocation(
   let protocolText = '';
   let daemonIdleText = '';
   let projectSessionIdleText = '';
+  let runtimeRoot = '';
   for (let index = 1; index < argv.length; index += 2) {
     const key = argv[index];
     const value = argv[index + 1];
@@ -796,13 +831,14 @@ function hiddenDaemonBrokerInvocation(
     else if (key === '--daemon-idle-ms' && daemonIdleText === '') daemonIdleText = value;
     else if (key === '--project-session-idle-ms' && projectSessionIdleText === '')
       projectSessionIdleText = value;
+    else if (key === '--daemon-runtime-root' && runtimeRoot === '') runtimeRoot = value;
     else return null;
   }
   const protocol = Number(protocolText);
   const daemonIdleMs = Number(daemonIdleText);
   const projectSessionIdleMs = Number(projectSessionIdleText);
   if (
-    build !== NOVELTEA_CLI_BUILD_IDENTITY ||
+    build !== daemonBrokerContext().build ||
     protocol !== NOVELTEA_DAEMON_PROTOCOL_VERSION ||
     !Number.isSafeInteger(daemonIdleMs) ||
     daemonIdleMs <= 0 ||
@@ -810,7 +846,13 @@ function hiddenDaemonBrokerInvocation(
     projectSessionIdleMs <= 0
   )
     return null;
-  return { build, protocol, daemonIdleMs, projectSessionIdleMs };
+  return {
+    build,
+    protocol,
+    daemonIdleMs,
+    projectSessionIdleMs,
+    runtimeRoot: runtimeRoot || undefined,
+  };
 }
 
 function hiddenDaemonNativeRequest(
@@ -830,6 +872,7 @@ function hiddenDaemonNativeRequest(
         protocol: invocation.protocol,
         daemonIdleMs: invocation.daemonIdleMs,
         projectSessionIdleMs: invocation.projectSessionIdleMs,
+        runtimeRoot: invocation.runtimeRoot,
         token,
         requestOk,
         result,
@@ -957,6 +1000,7 @@ async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): 
             cwd: payload.cwd,
             environment: payload.environment,
             residentProjectSessions: true,
+            projectSessionIdleMs: invocation.projectSessionIdleMs,
             cancellationProbe: () => {
               const status = hiddenDaemonNativeRequest('serve-cancelled', invocation, token);
               return status.cancelled === true;

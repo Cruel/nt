@@ -21,8 +21,34 @@ function sortedEntries<T>(record: Readonly<Record<string, T>>): [string, T][] {
   );
 }
 
+const localeAutonyms: Readonly<Record<string, string>> = Object.freeze({
+  ar: 'العربية',
+  de: 'Deutsch',
+  en: 'English',
+  es: 'español',
+  fr: 'français',
+  he: 'עברית',
+  hi: 'हिन्दी',
+  it: 'italiano',
+  ja: '日本語',
+  ko: '한국어',
+  nl: 'Nederlands',
+  pl: 'polski',
+  pt: 'português',
+  ru: 'русский',
+  sv: 'svenska',
+  tr: 'Türkçe',
+  uk: 'українська',
+  vi: 'Tiếng Việt',
+  zh: '中文',
+});
+
+function deterministicLocaleAutonym(locale: string): string {
+  return localeAutonyms[locale.toLowerCase().split('-')[0] ?? ''] ?? locale;
+}
+
 function localePresentationMetadata(locale: string, displayNameOverride?: string) {
-  let nativeName = locale;
+  const nativeName = deterministicLocaleAutonym(locale);
   let rightToLeft = false;
   const pluralCategories = cldrCardinalCategories(locale);
   const pluralRules = cldrCardinalRules(locale);
@@ -34,7 +60,6 @@ function localePresentationMetadata(locale: string, displayNameOverride?: string
     digits: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
   };
   try {
-    nativeName = new Intl.DisplayNames([locale], { type: 'language' }).of(locale) ?? locale;
     const script = new Intl.Locale(locale).maximize().script;
     rightToLeft = Boolean(
       script && ['Adlm', 'Arab', 'Hebr', 'Nkoo', 'Rohg', 'Syrc', 'Thaa'].includes(script),
