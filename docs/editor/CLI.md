@@ -250,6 +250,11 @@ or JSON formatting retain ordinary validation semantics. When the whole-result s
 not available but the prior generation is otherwise reusable, TypeScript validation reuses exact
 per-source assembly contributions, per-check semantic contributions, dependency-graph contributions,
 and source-analysis products whose recorded Project inputs still resolve to the same source revisions.
+For normal standalone daemon execution, a cold resident Project session may hydrate from those same
+reusable contributions. Once the Project is resident, that in-memory generation remains authoritative;
+the persistent cache is consulted again only when a new cold session needs admission. A resident
+validation publishes the ordinary immutable cache generation only after proving the exact physical
+source generation, and failed best-effort persistence does not affect the returned validation result.
 Only changed source fragments are reparsed/reprojected; dependency contributions are rederived only for
 invalidated owners while unaffected contributions are assembled from the previous generation. The
 validation-only compiler preflight consumes the already-admitted semantic result and deliberately skips
