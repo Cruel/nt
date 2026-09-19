@@ -53,6 +53,7 @@ Deep links and diagnostic navigation are currently described by `AGENT_GUIDE.md`
 
 - `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md` — preview iframe protocol, MessageChannel handshake, IPC, security, commands, events, and preview-managed authoring surfaces.
 - `docs/editor/preview/PREVIEW_AND_TEST_PLAYBACK.md` — current preview and authoring-test playback direction.
+- `docs/editor/preview/MATERIAL_PREVIEW_RENDERER.md` — lightweight Project/group Material preview ownership, WebGL2 lifecycle, representative harnesses, and failure behavior.
 - `docs/editor/preview/ASSET_PROFILER_HANDOFF.md` — implemented Asset Performance ownership,
   snapshot/delta schema, retention, polling/store behavior, and Overview/Issues/Assets scope.
 - `docs/editor/preview/ASSET_PROFILER_VERIFICATION.md` — final matrix, optimized stress measurements,

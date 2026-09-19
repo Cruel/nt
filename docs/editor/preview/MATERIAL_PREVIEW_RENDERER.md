@@ -1,0 +1,77 @@
+# Material Preview Renderer
+
+## Purpose
+
+Material libraries, selectors, source previews, and the Material editor use a lightweight renderer for live authoring previews. These previews are intentionally separate from the full engine preview: they provide fast, Web-backend-oriented Material feedback without creating an engine iframe or WebGL context per preview surface.
+
+The ownership model has two levels:
+
+- one Project-scoped CPU resource authority shared by the whole workbench;
+- one WebGL2 renderer/context per workbench group, shared by every Material preview surface in that group.
+
+A full engine preview remains authoritative when gameplay state, exact scene composition, text layout, RmlUi layout, postprocess ordering, or another contextual runtime contract matters.
+
+## Project-Scoped Resources
+
+`MaterialPreviewProjectResources` owns context-independent preview inputs. For one Project generation it:
+
+- resolves effective Material inheritance, preset metadata, preview geometry/background, parameters, textures, and provenance;
+- builds one derived shader/material Project snapshot for all Material previews;
+- requests the `essl-300` browser shader variant once for the generation when custom source programs are present;
+- exposes reflected Material interfaces and browser shader payloads without writing derived state into the Project;
+- resolves Material texture Asset references, aliases, and `project:/` URIs to registered image Assets;
+- decodes each referenced image once and shares that decoded CPU resource across groups;
+- invalidates the derived snapshot and decoded resource cache when Project authority advances.
+
+This layer owns no WebGL handles. Side-by-side workbench groups therefore reuse the same resolved/decoded Project inputs while keeping their GPU state independent.
+
+## Workbench-Group Renderer
+
+Each rendered workbench group owns one `MaterialPreviewGroupRenderer`. Its WebGL2 backend is created lazily when the first Material preview surface registers. All registered surfaces in the group share:
+
+- one WebGL2 context and scratch render canvas;
+- program, texture, and geometry-buffer caches;
+- one requestAnimationFrame scheduler and animation clock;
+- one context-loss/recovery boundary.
+
+A `MaterialPreview` surface owns only its visible canvas, measured size, visibility, Material ID, and pointer state. It registers and unregisters with the group renderer; it never creates a WebGL context. The group renderer renders each visible surface into its shared WebGL scratch target and copies the resulting frame into that surface's canvas. This keeps independent surface sizing and interaction without requiring an atlas or an editor-wide overlay canvas.
+
+Visible previews are live by default and receive the same group-frame timestamp. Intersection visibility suspends offscreen surfaces; when every registered surface is hidden, the group stops scheduling frames. Static-Material detection is intentionally not required.
+
+Project invalidation clears the group's GPU caches before refreshed Project resources are consumed, preventing stale programs or textures from crossing generations.
+
+## Preview Harnesses
+
+The effective Material `preview.geometry` and `preview.background` metadata selects the representative harness. Preset defaults currently provide `quad`, `rounded-rect`, `sprite`, and `glyphs` geometries plus transparent, checker, dark, and light backgrounds. Material overrides flow through normal inheritance resolution.
+
+Custom source-backed Materials use the compiler's `essl-300` browser payload when available, so their shader source runs through the same Web shader compilation path used for browser-facing derived artifacts. The lightweight harness supplies effective author-settable values plus common engine inputs such as time, preview bounds, and hotspot pointer state.
+
+Built-in/common 2D Materials use the lightweight WebGL harness with the canonical sampler, uniform, blend, texture, and effective-value semantics. Context-heavy roles deliberately use representative fixtures:
+
+- ActiveText uses the glyphs harness; it does not reproduce shaping, dialogue state, or the full text renderer.
+- RmlUi decorator Materials use a rounded-rectangle fixture rather than an RmlUi document/layout pass.
+- hotspot Materials use the sprite fixture and per-surface pointer state for hover/press inputs.
+- postprocess Materials use a representative quad rather than the complete composed game viewport and postprocess chain.
+
+Add new role-specific fixtures by extending the harness selection from effective Material metadata. Do not move runtime/game state ownership into this preview subsystem merely to make a thumbnail more realistic.
+
+## Failure and Recovery
+
+WebGL2 initialization failure is stable for the owning group and surfaces a `material-preview.webgl2-unavailable` diagnostic state. A render failure surfaces `material-preview.render-failed`. Neither case automatically launches a full engine preview.
+
+WebGL context loss is handled once by the group renderer. The surface canvases and editor/tab state remain mounted. On restoration, shared GPU state is rebuilt centrally and live surfaces resume on the existing group clock. The temporary state uses `material-preview.context-lost`.
+
+## Implementation
+
+Primary files:
+
+```text
+editor/src/renderer/material-preview/material-preview-resources.ts
+editor/src/renderer/material-preview/material-preview-renderer.ts
+editor/src/renderer/material-preview/material-preview-provider.tsx
+editor/src/renderer/material-preview/MaterialPreview.tsx
+editor/src/renderer/workbench/Workbench.tsx
+editor/src/renderer/editors/materials/MaterialEditor.tsx
+```
+
+Provider-level coverage is in `editor/src/renderer/test/material-preview-renderer.test.ts`; Material-editor surface integration is covered by `shader-material-preview-pooling.test.tsx`.
