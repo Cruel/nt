@@ -119,7 +119,10 @@ describe('persistent CLI validation', () => {
     const room = JSON.parse(await readFile(file, 'utf8'));
     room.label = 'Changed';
     await writeFile(file, JSON.stringify(room));
-    const incremental = await runNovelTeaCli(['--json', 'validate'], options);
+    const incremental = await runNovelTeaCli(['--json', 'validate'], {
+      ...options,
+      skipAuthoringWholeResultCache: true,
+    });
     const fresh = await runNovelTeaCli(['--json', 'validate'], {
       ...options,
       forceAuthoringCacheRebuild: true,
