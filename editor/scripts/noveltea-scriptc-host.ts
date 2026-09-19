@@ -7,6 +7,7 @@ import {
   NOVELTEA_CLI_HELP,
   NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
   NOVELTEA_CLI_VERSION,
+  NOVELTEA_DAEMON_PROTOCOL_VERSION,
 } from '../src/cli/static-contracts';
 import { runNovelTeaScriptcProcess } from './noveltea-scriptc-process';
 
@@ -581,6 +582,235 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
   );
 }
 
+type DaemonNativeResponse = Readonly<{
+  ok?: boolean;
+  running?: boolean;
+  state?: string;
+  build?: string;
+  protocol?: number;
+  pid?: number | null;
+  stopped?: boolean;
+  started?: boolean;
+  error?: string;
+}>;
+
+type DaemonStatusCore = Readonly<{
+  running: boolean;
+  state: string;
+  build: string;
+  protocol: number;
+  pid: number | null;
+}>;
+
+function daemonNativeRequest(action: string): DaemonNativeResponse {
+  return JSON.parse(
+    invokeHost(
+      'daemon',
+      JSON.stringify({
+        action,
+        build: NOVELTEA_CLI_BUILD_IDENTITY,
+        protocol: NOVELTEA_DAEMON_PROTOCOL_VERSION,
+      }),
+    ),
+  ) as DaemonNativeResponse;
+}
+
+function daemonEnsureNativeRequest(): DaemonNativeResponse {
+  return JSON.parse(
+    invokeHost(
+      'daemon',
+      JSON.stringify({
+        action: 'ensure',
+        build: NOVELTEA_CLI_BUILD_IDENTITY,
+        protocol: NOVELTEA_DAEMON_PROTOCOL_VERSION,
+        startupTimeoutMs: 2000,
+      }),
+    ),
+  ) as DaemonNativeResponse;
+}
+
+function daemonStatusCore(result: DaemonNativeResponse): DaemonStatusCore {
+  return {
+    running: result.running === true,
+    state: typeof result.state === 'string' ? result.state : 'stopped',
+    build: typeof result.build === 'string' ? result.build : NOVELTEA_CLI_BUILD_IDENTITY,
+    protocol:
+      typeof result.protocol === 'number' ? result.protocol : NOVELTEA_DAEMON_PROTOCOL_VERSION,
+    pid: typeof result.pid === 'number' ? result.pid : null,
+  };
+}
+
+function staticDaemonPath(argv: readonly string[]): HostResult | null {
+  let json = false;
+  let project = false;
+  let index = 0;
+  while (index < argv.length && argv[index]!.startsWith('--')) {
+    const argument = argv[index]!;
+    if (argument === '--json') {
+      if (json) return null;
+      json = true;
+      index += 1;
+      continue;
+    }
+    if (argument === '--project') {
+      if (project) return null;
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) return null;
+      project = true;
+      index += 2;
+      continue;
+    }
+    return null;
+  }
+  if (argv[index] !== 'daemon') return null;
+  if (project)
+    return formatStaticUsageError(json, "The 'daemon' command does not accept --project.");
+  const operation = argv[index + 1];
+  if ((operation !== 'status' && operation !== 'stop') || index + 2 !== argv.length)
+    return formatStaticUsageError(json, 'Usage: noveltea daemon <status|stop>');
+
+  const response = daemonNativeRequest(operation);
+  if (response?.ok === false) {
+    const message =
+      typeof response.error === 'string'
+        ? response.error
+        : 'NovelTea daemon broker operation failed.';
+    if (json)
+      return [
+        70,
+        `${JSON.stringify({
+          success: false,
+          exitCode: 70,
+          diagnostics: [{ code: 'DAEMON_BROKER', severity: 'error', path: '/', message }],
+          daemon: daemonStatusCore(response),
+          protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
+        })}\n`,
+        '',
+      ];
+    return [70, '', `[error] DAEMON_BROKER /: ${message}\n`];
+  }
+
+  const daemon = daemonStatusCore(response);
+  if (json)
+    return [
+      0,
+      `${JSON.stringify({
+        success: true,
+        exitCode: 0,
+        diagnostics: [],
+        daemon,
+        protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
+      })}\n`,
+      '',
+    ];
+  if (operation === 'stop')
+    return [
+      0,
+      response?.stopped === true
+        ? 'NovelTea daemon stopped.\n'
+        : 'NovelTea daemon is not running.\n',
+      '',
+    ];
+  return [
+    0,
+    daemon.running
+      ? `NovelTea daemon: ${String(daemon.state)} (pid ${String(daemon.pid)}, build ${String(daemon.build)}, protocol ${String(daemon.protocol)}).\n`
+      : `NovelTea daemon: stopped (build ${String(daemon.build)}, protocol ${String(daemon.protocol)}).\n`,
+    '',
+  ];
+}
+
+type HiddenDaemonBrokerInvocation = Readonly<{
+  build: string;
+  protocol: number;
+  daemonIdleMs: number;
+  projectSessionIdleMs: number;
+}>;
+
+function hiddenDaemonBrokerInvocation(
+  argv: readonly string[],
+): HiddenDaemonBrokerInvocation | null {
+  if (argv[0] !== '__daemon-broker') return null;
+  let build = '';
+  let protocolText = '';
+  let daemonIdleText = '';
+  let projectSessionIdleText = '';
+  for (let index = 1; index < argv.length; index += 2) {
+    const key = argv[index];
+    const value = argv[index + 1];
+    if (!key || !value) return null;
+    if (key === '--daemon-build' && build === '') build = value;
+    else if (key === '--daemon-protocol' && protocolText === '') protocolText = value;
+    else if (key === '--daemon-idle-ms' && daemonIdleText === '') daemonIdleText = value;
+    else if (key === '--project-session-idle-ms' && projectSessionIdleText === '')
+      projectSessionIdleText = value;
+    else return null;
+  }
+  const protocol = Number(protocolText);
+  const daemonIdleMs = Number(daemonIdleText);
+  const projectSessionIdleMs = Number(projectSessionIdleText);
+  if (
+    build !== NOVELTEA_CLI_BUILD_IDENTITY ||
+    protocol !== NOVELTEA_DAEMON_PROTOCOL_VERSION ||
+    !Number.isSafeInteger(daemonIdleMs) ||
+    daemonIdleMs <= 0 ||
+    !Number.isSafeInteger(projectSessionIdleMs) ||
+    projectSessionIdleMs <= 0
+  )
+    return null;
+  return { build, protocol, daemonIdleMs, projectSessionIdleMs };
+}
+
+function hiddenDaemonNativeRequest(
+  action: string,
+  invocation: HiddenDaemonBrokerInvocation,
+): DaemonNativeResponse {
+  return JSON.parse(
+    invokeHost(
+      'daemon',
+      JSON.stringify({
+        action,
+        build: invocation.build,
+        protocol: invocation.protocol,
+        daemonIdleMs: invocation.daemonIdleMs,
+        projectSessionIdleMs: invocation.projectSessionIdleMs,
+      }),
+    ),
+  ) as DaemonNativeResponse;
+}
+
+async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): Promise<number> {
+  const started = hiddenDaemonNativeRequest('serve-start', invocation);
+  if (started.ok !== true) {
+    const message =
+      typeof started.error === 'string' ? started.error : 'Failed to start NovelTea daemon broker.';
+    throw new Error(message);
+  }
+  trace('daemon broker reachable in starting state');
+  try {
+    trace('daemon QuickJS initialization starting');
+    // @ts-expect-error The private island package is materialized only during release staging.
+    await import('noveltea-scriptc-island');
+    trace('daemon QuickJS initialization completed');
+    const ready = hiddenDaemonNativeRequest('serve-ready', invocation);
+    if (ready.ok !== true) {
+      const message =
+        typeof ready.error === 'string' ? ready.error : 'Failed to mark NovelTea daemon ready.';
+      throw new Error(message);
+    }
+    const waited = hiddenDaemonNativeRequest('serve-wait', invocation);
+    if (waited.ok !== true) {
+      const message =
+        typeof waited.error === 'string' ? waited.error : 'NovelTea daemon broker failed.';
+      throw new Error(message);
+    }
+    return 0;
+  } catch (error) {
+    hiddenDaemonNativeRequest('serve-abort', invocation);
+    throw error;
+  }
+}
+
 function staticNativePath(argv: readonly string[]): HostResult | null {
   let project = false;
   let index = 0;
@@ -692,8 +922,20 @@ async function main(): Promise<void> {
   try {
     // scriptc's argv slice throws when the process has no user arguments.
     const argv = process.argv.length > 2 ? process.argv.slice(2) : [];
+    const daemonInvocation = hiddenDaemonBrokerInvocation(argv);
+    if (daemonInvocation) {
+      exitCode = await runHiddenDaemonBroker(daemonInvocation);
+      return;
+    }
+    if (argv.length === 1 && argv[0] === '__daemon-ensure') {
+      const ensured = daemonEnsureNativeRequest();
+      process.stdout.write(`${JSON.stringify(ensured)}\n`);
+      exitCode = ensured.ok === false ? 70 : 0;
+      return;
+    }
     const fastPath =
       staticFastPath(argv) ??
+      staticDaemonPath(argv) ??
       staticValidationPath(argv) ??
       staticTestPath(argv) ??
       staticNativePath(argv);
