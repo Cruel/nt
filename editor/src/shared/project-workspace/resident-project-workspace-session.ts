@@ -442,6 +442,11 @@ export class ResidentProjectWorkspaceSession {
       this.fileSystem.invalidate(this.snapshotValue.projectRoot, relativePath);
   }
 
+  invalidateCachedProjectState(): void {
+    this.fileSystem.invalidate(this.snapshotValue.projectRoot, '');
+    this.fileSystem.invalidateInventory();
+  }
+
   adopt(snapshot: LoadedProjectWorkspaceSnapshot, editorState: EditorProjectState): void {
     if (snapshot.projectRoot !== this.snapshotValue.projectRoot)
       throw new Error('Active workspace snapshot belongs to a different project root.');
@@ -451,11 +456,20 @@ export class ResidentProjectWorkspaceSession {
     this.fileSystem.seed(snapshot);
   }
 
-  adoptOpened(opened: Extract<ProjectWorkspaceOpenResult, { ok: true }>): void {
+  adoptOpened(
+    opened: Extract<ProjectWorkspaceOpenResult, { ok: true }>,
+    options: Readonly<{ preserveInvalidOverlay?: boolean }> = {},
+  ): void {
+    const invalidAuthoringSourcePaths = options.preserveInvalidOverlay
+      ? [...this.invalidAuthoringSourcePaths]
+      : [];
     this.adopt(opened.snapshot, opened.editorState);
     this.openedValue = opened;
     this.invalidAuthoringSourcePaths.clear();
-    this.coherenceValue = 'coherent';
+    invalidAuthoringSourcePaths.forEach((relativePath) =>
+      this.invalidAuthoringSourcePaths.add(relativePath),
+    );
+    this.coherenceValue = invalidAuthoringSourcePaths.length > 0 ? 'invalid' : 'coherent';
   }
 
   private async fileStamp(relativePath: string): Promise<AuthoringFileStamp | null> {

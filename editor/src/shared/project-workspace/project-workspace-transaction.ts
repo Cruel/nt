@@ -56,7 +56,8 @@ export class ProjectWorkspaceMutationError extends Error {
       | 'WORKSPACE_BUSY'
       | 'WORKSPACE_REVISION_CONFLICT'
       | 'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT'
-      | 'WORKSPACE_PATH_INVALID',
+      | 'WORKSPACE_PATH_INVALID'
+      | 'WORKSPACE_INVALID_SOURCE_DEPENDENCY',
     message: string,
     readonly targetPath?: string,
   ) {

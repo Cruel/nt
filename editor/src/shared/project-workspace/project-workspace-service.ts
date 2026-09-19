@@ -1233,6 +1233,9 @@ export interface ProjectWorkspaceWriteOptions {
   readonly targetFiles?: readonly string[];
   readonly operationLabel?: string;
   readonly extraTargets?: readonly ProjectWorkspaceTransactionTargetInput[];
+  /** Semantic mutation ownership used by resident-session dependency safety. */
+  readonly saveUnitIds?: readonly string[];
+  readonly affectedPaths?: readonly string[];
   readonly preflightSnapshot?: LoadedProjectWorkspaceSnapshot;
   /** Active editor sessions already own coherent state and can adopt the committed projection. */
   readonly refreshAfterCommit?: boolean;
@@ -1623,6 +1626,175 @@ export class ProjectWorkspaceService {
       snapshot,
       diagnostics: validation.diagnostics,
       editorState: project.editor,
+      repairs: [],
+      contentProject,
+      savedContentProject: contentProject,
+      sourceContributions: Object.freeze(sourceContributions),
+      validationContributions: validation.contributions,
+      validationWork: validation.work,
+      sourceWork: {
+        parsedJsonSources,
+        reusedJsonSources: 0,
+        readTextSources,
+        reusedTextSources: 0,
+        projectedJsonSources: 0,
+        wholeProjectSchemaParses: 0,
+      },
+    };
+  }
+
+  /**
+   * Advance semantic products from a NovelTea-controlled committed snapshot without reopening the
+   * Project. The committed projection is already schema-admitted by the mutation command; this
+   * method rebuilds only source/validation products whose physical ownership changed.
+   */
+  advanceCommittedSnapshot(
+    base: Extract<ProjectWorkspaceOpenResult, { ok: true }>,
+    committedSnapshot: LoadedProjectWorkspaceSnapshot,
+    changedPaths: readonly string[],
+  ): ProjectWorkspaceOpenResult | null {
+    if (base.snapshot.projectRoot !== committedSnapshot.projectRoot) return null;
+    const files = projectWorkspaceFiles(
+      committedSnapshot.project,
+      committedSnapshot.project.editor,
+      committedSnapshot.scriptSourcePaths,
+    );
+    const sourceContributions = { ...base.sourceContributions };
+    const changedOwnerPaths = new Map<string, readonly string[]>();
+    let parsedJsonSources = 0;
+    let readTextSources = 0;
+
+    for (const relativePath of [...new Set(changedPaths)].sort(
+      compareProjectWorkspaceUnicodeCodePoints,
+    )) {
+      const prior = base.sourceContributions[relativePath];
+      const text = files[relativePath];
+      const revision = committedSnapshot.fileRevisions[relativePath];
+      if (text === undefined || !revision) {
+        if (prior) changedOwnerPaths.set(relativePath, prior.ownerPaths);
+        delete sourceContributions[relativePath];
+        continue;
+      }
+      const ownerPaths = sourceContributionOwnerPaths(
+        relativePath,
+        committedSnapshot.scriptSourcePaths,
+      );
+      changedOwnerPaths.set(relativePath, ownerPaths);
+      if (relativePath.endsWith('.json')) {
+        parsedJsonSources += 1;
+        sourceContributions[relativePath] = Object.freeze({
+          path: relativePath,
+          ...revision,
+          kind: 'json' as const,
+          parsed: JSON.parse(text) as unknown,
+          schemaValid: true as const,
+          ownerPaths,
+          localDiagnostics: Object.freeze([]),
+        });
+      } else {
+        readTextSources += 1;
+        sourceContributions[relativePath] = Object.freeze({
+          path: relativePath,
+          ...revision,
+          kind: 'text' as const,
+          text,
+          schemaValid: true as const,
+          ownerPaths,
+          localDiagnostics: Object.freeze([]),
+        });
+      }
+    }
+
+    const sourceOwnerPathIndex = buildSourceOwnerPathIndex(
+      new Map(
+        Object.entries(sourceContributions).map(([file, contribution]) => [
+          file,
+          contribution.ownerPaths,
+        ]),
+      ),
+    );
+    const validation = validateAdmittedAuthoringProject(committedSnapshot.project, {
+      contributions: base.validationContributions,
+      changedSourcePaths: new Set(changedPaths),
+      resolveInputs: (paths) => {
+        if (paths.some((path) => path === '/' || path === '/editor' || path.startsWith('/editor/')))
+          return null;
+        const resolvedFiles = new Set<string>();
+        for (const path of paths) {
+          const overlappingFiles = sourceOwnerPathIndex.overlappingFiles(path);
+          for (const file of overlappingFiles) resolvedFiles.add(file);
+          const collection = path.split('/')[1] ?? '';
+          if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
+            for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
+              resolvedFiles.add(file);
+          } else if (overlappingFiles.length === 0) resolvedFiles.add('project.json');
+        }
+        return [...resolvedFiles].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
+          path,
+          contentHash: committedSnapshot.fileRevisions[path]!.contentHash,
+        }));
+      },
+    });
+    const changedLocalDiagnostics = sourceLocalDiagnostics(
+      validation.diagnostics,
+      changedOwnerPaths,
+    );
+    for (const [relativePath, ownerPaths] of changedOwnerPaths) {
+      const contribution = sourceContributions[relativePath];
+      if (!contribution) continue;
+      sourceContributions[relativePath] = Object.freeze({
+        ...contribution,
+        ownerPaths,
+        localDiagnostics: Object.freeze([...(changedLocalDiagnostics.get(relativePath) ?? [])]),
+      });
+    }
+
+    this.snapshotValidators.set(committedSnapshot, () => validation.diagnostics);
+    this.snapshotSourceOwnerIndexes.set(committedSnapshot, sourceOwnerPathIndex);
+    const dependencyReuse = this.snapshotDependencyReuse.get(base.snapshot);
+    if (dependencyReuse) {
+      const priorAnalysis = this.snapshotDependencyAnalysis.get(base.snapshot);
+      const impactedOwnerPaths = new Set(changedOwnerPaths.values().flatMap((paths) => [...paths]));
+      if (priorAnalysis) {
+        const roots = [...impactedOwnerPaths].flatMap((path) =>
+          findAuthoringDependencyOwnersByPath(priorAnalysis.graph, path),
+        );
+        for (const node of authoringDependencyReverseImpactClosure(
+          priorAnalysis.graph,
+          roots.map((node) => node.key),
+        ))
+          impactedOwnerPaths.add(node.owningPath);
+      }
+      const invalidContributionKeys = new Set(
+        (dependencyReuse.contributions ?? [])
+          .filter((contribution) =>
+            [...impactedOwnerPaths].some((path) =>
+              jsonPointersOverlap(path, contribution.ownerPath),
+            ),
+          )
+          .map((contribution) => contribution.key),
+      );
+      this.snapshotDependencyReuse.set(committedSnapshot, {
+        contributions: dependencyReuse.contributions?.filter(
+          (contribution) => !invalidContributionKeys.has(contribution.key),
+        ),
+        sourceAnalyses: dependencyReuse.sourceAnalyses
+          ? new Map(
+              [...dependencyReuse.sourceAnalyses].filter(
+                ([key]) => !invalidContributionKeys.has(key),
+              ),
+            )
+          : undefined,
+        externalSourceRevisions: dependencyReuse.externalSourceRevisions,
+      });
+    }
+
+    const contentProject = stripEditorProjectState(committedSnapshot.project);
+    return {
+      ok: true,
+      snapshot: committedSnapshot,
+      diagnostics: validation.diagnostics,
+      editorState: committedSnapshot.project.editor,
       repairs: [],
       contentProject,
       savedContentProject: contentProject,

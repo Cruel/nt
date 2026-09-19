@@ -152,6 +152,17 @@ async function treeSnapshot(root) {
   return JSON.stringify(records);
 }
 
+function describeTreeDifference(expectedJson, actualJson) {
+  const expected = JSON.parse(expectedJson);
+  const actual = JSON.parse(actualJson);
+  const count = Math.max(expected.length, actual.length);
+  for (let index = 0; index < count; index += 1) {
+    if (JSON.stringify(expected[index]) !== JSON.stringify(actual[index]))
+      return `first difference at ${index}: expected=${JSON.stringify(expected[index])} actual=${JSON.stringify(actual[index])}`;
+  }
+  return 'tree snapshots differ';
+}
+
 async function materializeFixture(root) {
   await rm(root, { recursive: true, force: true });
   const result = run(process.execPath, [fixtureTool, '--root', root, '--target', 'web']);
@@ -769,6 +780,7 @@ const differentialCases = [
   },
   {
     name: 'create-execute',
+    mutation: true,
     args: (root) => ['--project', root, '--json', 'entity', 'create', 'rooms', 'hallway'],
   },
   {
@@ -802,6 +814,7 @@ const differentialCases = [
   },
   {
     name: 'rename-allowed-execute',
+    mutation: true,
     args: (root) => [
       '--project',
       root,
@@ -835,6 +848,7 @@ const differentialCases = [
   },
   {
     name: 'delete-force-execute',
+    mutation: true,
     args: (root) => [
       '--project',
       root,
@@ -939,7 +953,29 @@ async function runDifferential(tempRoot) {
       );
     }
     if (scriptcTree !== nodeTree)
-      fail(`Node/scriptc differential '${test.name}' produced different filesystem state.`);
+      fail(
+        `Node/scriptc differential '${test.name}' produced different filesystem state: ${describeTreeDifference(nodeTree, scriptcTree)}.`,
+      );
+
+    if (test.mutation) {
+      await resetCase(pristine, caseRoot);
+      await test.prepare?.(caseRoot);
+      const noDaemonResult = runNative(args, {
+        cwd: test.cwd?.(caseRoot) ?? cwd,
+        env: { ...process.env, NOVELTEA_NO_DAEMON: '1' },
+      });
+      const noDaemonTree = await treeSnapshot(caseRoot);
+      if (
+        noDaemonResult.status !== nodeResult.status ||
+        noDaemonResult.stdout !== nodeResult.stdout ||
+        noDaemonResult.stderr !== nodeResult.stderr
+      )
+        fail(`Node/no-daemon mutation differential '${test.name}' differs.`);
+      if (noDaemonTree !== nodeTree)
+        fail(
+          `Node/no-daemon mutation differential '${test.name}' produced different filesystem state: ${describeTreeDifference(nodeTree, noDaemonTree)}.`,
+        );
+    }
     process.stdout.write(`[differential] ${test.name}: PASS\n`);
   }
   return { pristine };
