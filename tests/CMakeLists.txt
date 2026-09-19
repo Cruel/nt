@@ -311,6 +311,7 @@ catch_discover_tests(noveltea_host_tests)
 
 if(TARGET noveltea_tooling_native)
     add_executable(noveltea_tooling_tests
+        tooling/daemon_broker_tests.cpp
         tooling/native_shader_compile_tests.cpp
         tooling/playback_expectation_tests.cpp
         tooling/runtime_cache_probe_tests.cpp

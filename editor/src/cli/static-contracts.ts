@@ -3,6 +3,8 @@ import { NOVELTEA_BUILD_IDENTITY, NOVELTEA_VERSION } from '../shared/product-ver
 export const NOVELTEA_CLI_VERSION = NOVELTEA_VERSION;
 export const NOVELTEA_CLI_BUILD_IDENTITY = NOVELTEA_BUILD_IDENTITY;
 export const NOVELTEA_CLI_JSON_PROTOCOL_VERSION = 1 as const;
+/** Private resident-daemon transport identity; independent from the public CLI JSON protocol. */
+export const NOVELTEA_DAEMON_PROTOCOL_VERSION = 1 as const;
 
 export const NOVELTEA_CLI_HELP = `NovelTea headless CLI
 
@@ -34,6 +36,8 @@ Commands:
   shaders compile [--variant <id>]... [--force-rebuild]
   shaderc <bgfx-shaderc-args...>
   texturec <bimg-texturec-args...>
+  daemon status
+  daemon stop
   test run [<test-id>]
   test run-spec
   test run-ui-spec

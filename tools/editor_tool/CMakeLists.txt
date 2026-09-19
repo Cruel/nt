@@ -43,6 +43,8 @@ noveltea_apply_runtime_compiler_policy(noveltea_text_tooling)
 noveltea_apply_policy_warnings(noveltea_text_tooling)
 
 add_library(noveltea_tooling_native STATIC
+    tooling_daemon_broker.cpp
+    tooling_daemon_broker.hpp
     tooling_native.cpp
     tooling_native.hpp
     tooling_native_c.h

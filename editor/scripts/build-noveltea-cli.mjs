@@ -440,8 +440,8 @@ try {
   const stagedProductVersion = path.join(stageRoot, 'product-version.ts');
   const stagedHostSource = (await readFile(hostSource, 'utf8'))
     .replace('../src/cli/static-contracts', './static-contracts')
-    .replace(
-      '      // @ts-expect-error The private island package is materialized only during release staging.',
+    .replaceAll(
+      '// @ts-expect-error The private island package is materialized only during release staging.',
       '',
     );
   const stagedStaticContractsSource = (await readFile(staticContractsSource, 'utf8')).replace(

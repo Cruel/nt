@@ -1,3 +1,4 @@
+#include "tooling_daemon_broker.hpp"
 #include "tooling_native_c.h"
 
 #include <cstddef>
@@ -52,6 +53,8 @@ NativeOperation operation_for(std::string_view operation)
         return &noveltea_tooling_probe_runtime_cache_json;
     if (operation == "create-archive")
         return &noveltea_tooling_create_archive_json;
+    if (operation == "daemon")
+        return &noveltea_tooling_daemon_json;
     return nullptr;
 }
 
@@ -97,6 +100,24 @@ extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* oper
     const auto native_operation = operation_for(operation);
     if (native_operation == nullptr) {
         write_text(response_path, R"({"ok":false,"error":"unknown native operation"})");
+        return;
+    }
+
+    if (operation == "daemon") {
+        std::vector<std::uint8_t> response(noveltea::tooling::daemon::max_frame_bytes);
+        const auto written =
+            native_operation(request_bytes, static_cast<std::uint64_t>(request_size),
+                             response.data(), response.size());
+        if (written > response.size()) {
+            write_text(response_path, R"({"ok":false,"error":"native response overflow"})");
+            return;
+        }
+        if (written == 0) {
+            write_text(response_path, {});
+            return;
+        }
+        write_text(response_path, std::string_view(reinterpret_cast<const char*>(response.data()),
+                                                   static_cast<std::size_t>(written)));
         return;
     }
 
