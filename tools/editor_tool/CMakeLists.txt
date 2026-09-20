@@ -85,6 +85,9 @@ target_link_libraries(noveltea_tooling_native PUBLIC
     noveltea_text_tooling
     PRIVATE noveltea_bimg_texturec_embedded nlohmann_json::nlohmann_json miniz::miniz)
 target_compile_definitions(noveltea_tooling_native PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+if(WIN32)
+    target_link_libraries(noveltea_tooling_native PRIVATE advapi32)
+endif()
 target_include_directories(noveltea_tooling_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" PRIVATE
     "${NOVELTEA_EMBEDDED_SHADERC_INCLUDE_DIR}"
     "${CMAKE_SOURCE_DIR}/engine/src")

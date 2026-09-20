@@ -11,10 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
-import {
-  runNovelTeaCli,
-  type AuthoringValidationInstrumentation,
-} from '../../cli/application';
+import { runNovelTeaCli, type AuthoringValidationInstrumentation } from '../../cli/application';
 import type { NovelTeaCliNativeToolService } from '../../cli/native-tool-service';
 import { readReusableAuthoringContributions } from '../../shared/authoring-cache';
 import { sha256PrefixedUtf8 } from '../../shared/web-crypto';

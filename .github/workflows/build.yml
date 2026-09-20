@@ -24,6 +24,7 @@ env:
   ANDROID_CMAKE_VERSION: "3.31.6"
   ANDROID_NDK_VERSION: "28.2.13676358"
   NOVELTEA_SHADERC_TOOLCHAIN_TAG: r6
+  NOVELTEA_BUILD_IDENTITY: git:${{ github.sha }}
 
 permissions:
   contents: read
