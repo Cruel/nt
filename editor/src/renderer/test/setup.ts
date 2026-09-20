@@ -82,6 +82,7 @@ Object.defineProperty(window, 'noveltea', {
     }),
     getDefaultProjectDirectory: vi.fn().mockResolvedValue('/home/test/Documents/NovelTea'),
     selectDirectory: vi.fn().mockResolvedValue('/home/test/Documents/NovelTea/custom-project'),
+    validateDirectory: vi.fn().mockResolvedValue(true),
     selectProjectDirectory: vi.fn().mockResolvedValue('/mock/project'),
     selectPackageOutputPath: vi.fn().mockResolvedValue('/mock/project/export.ntpkg'),
     selectTemplateArchivePath: vi.fn().mockResolvedValue('/mock/template.tar.gz'),

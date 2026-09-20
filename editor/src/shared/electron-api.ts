@@ -19,6 +19,7 @@ interface NovelTeaElectronApiContract {
     title?: string;
     defaultPath?: string | null;
   }): Promise<string | null>;
+  validateDirectory(path: string): Promise<boolean>;
   selectProjectDirectory(): Promise<string | null>;
   selectPackageOutputPath(defaultPath?: string | null): Promise<string | null>;
   selectTemplateArchivePath(): Promise<string | null>;

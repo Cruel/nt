@@ -1201,6 +1201,16 @@ export function WorkspacePage() {
     }),
   );
 
+  function toggleTerminalPanel() {
+    const bottomPanel = useBottomPanelStore.getState();
+    if (bottomPanel.visible && bottomPanel.activePanelId === 'terminal') {
+      setBottomPanelVisible(false);
+      return;
+    }
+    bottomPanel.setActivePanelId('terminal');
+    setBottomPanelVisible(true);
+  }
+
   useEffect(() =>
     window.noveltea.onEditorShortcut((command) => {
       switch (command) {
@@ -1219,6 +1229,9 @@ export function WorkspacePage() {
         case 'command-palette':
         case 'toggle-bottom-panel':
           dispatchWorkspaceToolbarCommand(command);
+          break;
+        case 'toggle-terminal':
+          toggleTerminalPanel();
           break;
         case 'toggle-sidebar':
           break;
@@ -1480,7 +1493,21 @@ export function WorkspacePage() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey)) return;
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (event.key === '`') {
+        event.preventDefault();
+        toggleTerminalPanel();
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      const insideTerminal = !!target?.closest('[data-terminal-panel]');
+      if (insideTerminal) {
+        if (event.key.toLowerCase() === 'j') {
+          event.preventDefault();
+          setBottomPanelVisible(!useBottomPanelStore.getState().visible);
+        }
+        return;
+      }
       if (event.key.toLowerCase() === 'n') {
         event.preventDefault();
         if (authoringProjectForEditor(useProjectStore.getState().document)) {
@@ -1512,7 +1539,6 @@ export function WorkspacePage() {
         event.preventDefault();
         setCommandPaletteOpen(true);
       }
-      const target = event.target as HTMLElement | null;
       const isTextInput =
         !!target &&
         (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);

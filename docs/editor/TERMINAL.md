@@ -34,6 +34,26 @@ user's existing `SHELL` when it resolves to an executable path, then zsh/bash/sh
 main prefers `pwsh.exe` from `PATH`, then Windows PowerShell. The shell inherits the ordinary editor
 process environment; NovelTea does not inject tool-specific PATH entries.
 
+## Settings and keyboard behavior
+
+Terminal settings are editor-wide resettable user preferences, not Project state. The current surface
+stores a free-form CSS font stack (default `JetBrains Mono, monospace`), bounded 8–32 px font size,
+nullable fallback cwd, bounded 100–100,000 line scrollback (default 10,000), and a desktop-notification
+toggle that defaults enabled. Font family, font size, and scrollback changes update mounted xterm views
+live and refit/resize the PTY; they never restart or retarget a running shell. Typed fallback cwd values
+are admitted only after guarded main-process validation confirms an existing directory. Spaces are
+allowed. Browse uses the native directory picker, and Reset restores automatic cwd resolution. The
+fallback affects only terminals created with no open Project.
+
+Ctrl/Cmd+` is the dedicated Terminal shortcut. It shows Terminal and selects it when another bottom
+panel is active or the panel is hidden; invoking it again while Terminal is active hides the bottom
+panel. The existing Ctrl/Cmd+J bottom-panel toggle is unchanged. While focus is inside xterm, ordinary
+editor shortcuts such as Ctrl/Cmd+P are not claimed by the workspace so shell/TUI bindings reach the
+PTY. Explicit application-level Terminal/bottom-panel shortcuts remain global. xterm selection copy is
+handled without stealing Ctrl+C interrupt: Windows/Linux Ctrl+C copies only when a selection exists and
+otherwise reaches the PTY; on macOS Cmd+C/Cmd+V retain clipboard semantics while Ctrl+C remains the
+terminal interrupt.
+
 ## IPC and lifecycle
 
 The preload exposes narrow guarded operations to ensure the host, create/select/close/relaunch a

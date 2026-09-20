@@ -6,6 +6,7 @@ import { Terminal } from '@xterm/xterm';
 import { Plus, X } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import { Button } from '@/components/ui/button';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import type { TerminalHostSnapshot, TerminalSessionSnapshot } from '../../shared/terminal';
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -18,6 +19,8 @@ export function TerminalPanel() {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const macOSRef = useRef(/^Mac/u.test(navigator.platform));
+  const terminalPreferences = usePreferencesStore((state) => state.terminal);
   const [terminalState, setTerminalState] = useState<TerminalHostSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [requestError, setRequestError] = useState<string | null>(null);
@@ -33,11 +36,12 @@ export function TerminalPanel() {
     const host = hostRef.current;
     if (!host) return;
 
+    const preferences = usePreferencesStore.getState().terminal;
     const terminal = new Terminal({
       cursorBlink: true,
-      fontFamily: 'JetBrains Mono, monospace',
-      fontSize: 13,
-      scrollback: 10_000,
+      fontFamily: preferences.fontFamily,
+      fontSize: preferences.fontSize,
+      scrollback: preferences.scrollback,
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -50,6 +54,29 @@ export function TerminalPanel() {
     terminal.open(host);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown') return true;
+      const key = event.key.toLowerCase();
+      if (macOSRef.current && event.metaKey && key === 'c') {
+        event.preventDefault();
+        if (terminal.hasSelection()) void navigator.clipboard.writeText(terminal.getSelection());
+        return false;
+      }
+      if (macOSRef.current && event.metaKey && key === 'v') {
+        event.preventDefault();
+        void navigator.clipboard.readText().then((text) => terminal.paste(text));
+        return false;
+      }
+      if (!macOSRef.current && event.ctrlKey && key === 'c' && terminal.hasSelection()) {
+        event.preventDefault();
+        void navigator.clipboard.writeText(terminal.getSelection());
+        return false;
+      }
+      return true;
+    });
+    void window.noveltea.getAppInfo().then((info) => {
+      macOSRef.current = info.platform === 'darwin';
+    });
 
     let disposed = false;
     let lastColumns = 0;
@@ -123,6 +150,27 @@ export function TerminalPanel() {
       sessionIdRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    const sessionId = sessionIdRef.current;
+    if (!terminal || !sessionId) return;
+    terminal.options.fontFamily = terminalPreferences.fontFamily;
+    terminal.options.fontSize = terminalPreferences.fontSize;
+    terminal.options.scrollback = terminalPreferences.scrollback;
+    requestAnimationFrame(() => {
+      fitAddonRef.current?.fit();
+      void window.noveltea.resizeTerminal({
+        sessionId,
+        columns: terminal.cols,
+        rows: terminal.rows,
+      });
+    });
+  }, [
+    terminalPreferences.fontFamily,
+    terminalPreferences.fontSize,
+    terminalPreferences.scrollback,
+  ]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
