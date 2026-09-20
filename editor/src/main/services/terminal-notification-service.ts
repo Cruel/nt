@@ -49,6 +49,10 @@ export class TerminalNotificationService {
       notification.onClose(release);
       this.activeNotifications.add(notification);
       try {
+        if (this.options.isWindowFocused()) {
+          release();
+          return false;
+        }
         notification.show();
         return true;
       } catch {

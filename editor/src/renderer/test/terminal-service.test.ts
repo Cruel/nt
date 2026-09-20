@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { prepareTerminalShell } from '../../main/services/terminal-shell-integration';
@@ -433,9 +434,13 @@ describe('terminal shell integration', () => {
     try {
       expect(prepared.args).toEqual(['-il']);
       expect(generatedZdotdir).not.toBe('/home/test/custom-zdotdir');
-      for (const filename of ['.zshenv', '.zprofile', '.zshrc', '.zlogin']) {
+      expect(fs.readFileSync(path.join(generatedZdotdir, '.zshenv'), 'utf8')).toContain(
+        '/home/test/custom-zdotdir/.zshenv',
+      );
+      for (const filename of ['.zprofile', '.zshrc', '.zlogin']) {
         const contents = fs.readFileSync(path.join(generatedZdotdir, filename), 'utf8');
-        expect(contents).toContain(`/home/test/custom-zdotdir/${filename}`);
+        expect(contents).toContain(`$ZDOTDIR/${filename}`);
+        expect(contents).toContain('__NOVELTEA_USER_ZDOTDIR');
       }
       expect(fs.readFileSync(path.join(generatedZdotdir, '.zshrc'), 'utf8')).toContain(
         '__noveltea_preexec',
@@ -444,6 +449,45 @@ describe('terminal shell integration', () => {
       prepared.dispose();
     }
     expect(fs.existsSync(generatedZdotdir)).toBe(false);
+  });
+
+  it('follows ZDOTDIR changes made by .zshenv when sourcing later startup files', () => {
+    if (!fs.existsSync('/bin/zsh')) return;
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-zsh-zdotdir-'));
+    const home = path.join(root, 'home');
+    const relocated = path.join(root, 'relocated');
+    fs.mkdirSync(home);
+    fs.mkdirSync(relocated);
+    fs.writeFileSync(
+      path.join(home, '.zshenv'),
+      `typeset -gx ZDOTDIR=${JSON.stringify(relocated)}\ntypeset -gx NOVELTEA_ENV_SEEN=env\n`,
+    );
+    fs.writeFileSync(
+      path.join(relocated, '.zprofile'),
+      'typeset -gx NOVELTEA_PROFILE_SEEN=profile\n',
+    );
+    fs.writeFileSync(
+      path.join(relocated, '.zshrc'),
+      'typeset -gx NOVELTEA_RC_SEEN=rc\ntypeset -gx PATH="/relocated/bin:$PATH"\n',
+    );
+    fs.writeFileSync(path.join(relocated, '.zlogin'), 'typeset -gx NOVELTEA_LOGIN_SEEN=login\n');
+    const prepared = prepareTerminalShell('/bin/zsh', { HOME: home, PATH: '/usr/bin:/bin' });
+    try {
+      const probe = spawnSync(
+        '/bin/zsh',
+        [
+          ...prepared.args,
+          '-c',
+          'print -r -- "$NOVELTEA_ENV_SEEN|$NOVELTEA_PROFILE_SEEN|$NOVELTEA_RC_SEEN|$NOVELTEA_LOGIN_SEEN|$PATH"',
+        ],
+        { env: prepared.env, encoding: 'utf8' },
+      );
+      expect(probe.status).toBe(0);
+      expect(probe.stdout).toContain('env|profile|rc|login|/relocated/bin:');
+    } finally {
+      prepared.dispose();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('uses PowerShell 5.1-compatible character escapes for lifecycle markers', () => {
