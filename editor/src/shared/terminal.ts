@@ -7,6 +7,19 @@ export const TERMINAL_LIMITS = {
 
 export type TerminalSessionStatus = 'running' | 'exited' | 'error';
 export type TerminalCommandState = 'idle' | 'running' | 'unknown';
+export type TerminalAttentionKind = 'command-completed' | 'bell';
+
+export interface TerminalCommandMetadata {
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  exitCode: number | null;
+}
+
+export interface TerminalAttentionEvent {
+  kind: TerminalAttentionKind;
+  occurredAt: string;
+}
 
 export interface TerminalProjectOrigin {
   id: string;
@@ -19,6 +32,9 @@ export interface TerminalSessionSnapshot {
   sequence: number;
   status: TerminalSessionStatus;
   commandState: TerminalCommandState;
+  currentCommandStartedAt: string | null;
+  latestCommand: TerminalCommandMetadata | null;
+  latestAttention: TerminalAttentionEvent | null;
   initialCwd: string;
   lastKnownCwd: string | null;
   createdAt: string;
@@ -55,6 +71,15 @@ export function terminalSessionRequiresCloseConfirmation(
 
 export type TerminalEvent =
   | { kind: 'output'; sessionId: string; data: string }
+  | {
+      kind: 'metadata';
+      sessionId: string;
+      commandState: TerminalCommandState;
+      currentCommandStartedAt: string | null;
+      latestCommand: TerminalCommandMetadata | null;
+      lastKnownCwd: string | null;
+    }
+  | { kind: 'attention'; sessionId: string; attention: TerminalAttentionEvent }
   | { kind: 'exit'; sessionId: string; exitCode: number | null }
   | { kind: 'error'; sessionId: string; message: string };
 

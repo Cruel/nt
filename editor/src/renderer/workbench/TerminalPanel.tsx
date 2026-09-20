@@ -8,6 +8,7 @@ import '@xterm/xterm/css/xterm.css';
 import { Button } from '@/components/ui/button';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import type { TerminalHostSnapshot, TerminalSessionSnapshot } from '../../shared/terminal';
+import { useTerminalAttentionStore } from './terminal-attention-store';
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -24,6 +25,7 @@ export function TerminalPanel() {
   const [terminalState, setTerminalState] = useState<TerminalHostSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const attentionBySession = useTerminalAttentionStore((state) => state.attentionBySession);
 
   const selectedSession = useMemo(
     () =>
@@ -31,6 +33,13 @@ export function TerminalPanel() {
       null,
     [terminalState],
   );
+
+  useEffect(() => {
+    if (!terminalState) return;
+    const attentionStore = useTerminalAttentionStore.getState();
+    attentionStore.setSelectedSessionId(terminalState.selectedSessionId);
+    attentionStore.removeSessions(terminalState.sessions.map((session) => session.id));
+  }, [terminalState]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -111,15 +120,34 @@ export function TerminalPanel() {
           ...current,
           sessions: current.sessions.map((session) => {
             if (session.id !== event.sessionId) return session;
+            if (event.kind === 'attention') {
+              return { ...session, latestAttention: event.attention };
+            }
+            if (event.kind === 'metadata') {
+              return {
+                ...session,
+                commandState: event.commandState,
+                currentCommandStartedAt: event.currentCommandStartedAt,
+                latestCommand: event.latestCommand,
+                lastKnownCwd: event.lastKnownCwd,
+              };
+            }
             if (event.kind === 'exit') {
               return {
                 ...session,
                 status: 'exited',
                 commandState: 'idle',
+                currentCommandStartedAt: null,
                 exitCode: event.exitCode,
               };
             }
-            return { ...session, status: 'error', commandState: 'idle', error: event.message };
+            return {
+              ...session,
+              status: 'error',
+              commandState: 'idle',
+              currentCommandStartedAt: null,
+              error: event.message,
+            };
           }),
         };
       });
@@ -191,9 +219,11 @@ export function TerminalPanel() {
 
   async function selectSession(sessionId: string) {
     if (sessionId === terminalState?.selectedSessionId) {
+      useTerminalAttentionStore.getState().acknowledgeSelectionChange(sessionId);
       terminalRef.current?.focus();
       return;
     }
+    useTerminalAttentionStore.getState().acknowledgeSelectionChange(sessionId);
     setRequestError(null);
     try {
       setTerminalState(await window.noveltea.selectTerminalSession(sessionId));
@@ -205,7 +235,9 @@ export function TerminalPanel() {
   async function createSession() {
     setRequestError(null);
     try {
-      setTerminalState(await window.noveltea.createTerminalSession());
+      const nextState = await window.noveltea.createTerminalSession();
+      useTerminalAttentionStore.getState().acknowledgeSelectionChange(nextState.selectedSessionId);
+      setTerminalState(nextState);
     } catch (error) {
       setRequestError(errorMessage(error, t('terminal.failed')));
     }
@@ -273,6 +305,7 @@ export function TerminalPanel() {
         <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           {terminalState?.sessions.map((session) => {
             const selected = session.id === terminalState.selectedSessionId;
+            const attention = attentionBySession[session.id];
             return (
               <div
                 key={session.id}
@@ -291,7 +324,20 @@ export function TerminalPanel() {
                   className="h-full px-2 text-xs"
                   onClick={() => void selectSession(session.id)}
                 >
-                  {session.label}
+                  <span>{session.label}</span>
+                  {attention ? (
+                    <span
+                      className={`ml-1 inline-block size-1.5 rounded-full bg-current transition-opacity duration-300 ${attention.state === 'fading' ? 'opacity-0' : 'opacity-100'}`}
+                      aria-label={t('terminal.tabNeedsAttention', { label: session.label })}
+                      data-terminal-unread-state={attention.state}
+                    />
+                  ) : session.commandState === 'running' ? (
+                    <span
+                      className="ml-1 inline-block size-1.5 rounded-full border border-current"
+                      aria-label={t('terminal.tabRunning', { label: session.label })}
+                      data-terminal-running
+                    />
+                  ) : null}
                 </button>
                 <Button
                   type="button"

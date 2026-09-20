@@ -64,10 +64,27 @@ an actionable terminal tab with Retry rather than removing the session.
 
 A shell exit retains its tab, buffered scrollback, exit status, and immutable identity. Relaunch keeps
 the same session identity and uses its last known cwd when available, otherwise the immutable initial
-cwd. Shell integration is implemented by the later lifecycle slice; until semantic command state is
-available, a live shell is conservatively `unknown`, so closing it requires confirmation. Exited/error
-sessions close immediately. The close IPC is two-phase: an unforced close reports whether confirmation
-is required, and only an explicitly forced follow-up terminates a risky PTY.
+cwd. Main adds non-destructive shell integration for bash, zsh, and PowerShell without modifying user
+startup/profile files. The integration reports semantic command start/completion, optional command exit
+status, and live cwd through private terminal control sequences that are removed from visible output.
+Preparation is fail-open: unsupported shells or unavailable integration continue as ordinary PTYs with
+command state conservatively `unknown`, while BEL handling remains available. Runtime-only metadata
+keeps the current command start, latest command timing/status, live cwd, and latest attention event; it
+is never persisted as shell history. Exited/error sessions close immediately. The close IPC is
+two-phase: an unforced close reports whether confirmation is required, and only an explicitly forced
+follow-up terminates a risky PTY.
+
+Terminal attention is renderer-window state rather than Project state. A semantic command completion
+that occurs while its terminal is unseen becomes unread only when the command ran for at least three
+seconds; BEL marks an unseen terminal unread independently of command lifecycle. Events on the exact
+selected, visible terminal do not create unread state. Terminal tabs show running activity separately
+from unread attention, with unread taking precedence, and the outer Terminal bottom-panel entry shows
+one aggregate unread dot while any session remains unread. Reopening Terminal onto an already-selected
+unread session waits about three seconds before beginning its fade; hiding Terminal before that delay
+cancels passive acknowledgment. Directly selecting an unread terminal, or switching away from an unread
+selected terminal, begins its fade immediately. Repeated events update the latest attention metadata
+without multiplying unread state. Native desktop notification projection is owned by the subsequent
+notification slice and is not part of this attention-state layer.
 
 Application/window close uses the existing renderer close handshake. Main reports one aggregate count
 of running/unknown terminal sessions; the renderer asks for one confirmation before metadata cleanup

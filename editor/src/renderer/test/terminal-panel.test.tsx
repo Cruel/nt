@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { useTerminalAttentionStore } from '@/workbench/terminal-attention-store';
 import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -83,6 +84,9 @@ function session(
     sequence,
     status: 'running',
     commandState: 'unknown',
+    currentCommandStartedAt: null,
+    latestCommand: null,
+    latestAttention: null,
     initialCwd: '/mock/project',
     lastKnownCwd: '/mock/project',
     createdAt: `2026-09-19T12:00:0${sequence}.000Z`,
@@ -101,6 +105,7 @@ const initialState: TerminalHostSnapshot = {
 };
 
 beforeEach(() => {
+  vi.useRealTimers();
   vi.clearAllMocks();
   terminalMock.onData = null;
   terminalMock.keyHandler = null;
@@ -113,6 +118,7 @@ beforeEach(() => {
   terminalMock.fitCount = 0;
   useProjectStore.getState().clearProject();
   usePreferencesStore.getState().resetToDefaults();
+  useTerminalAttentionStore.getState().reset();
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
     value: {
@@ -146,11 +152,195 @@ describe('Terminal bottom panel', () => {
     expect(screen.getByText('Terminal 1')).toBeInTheDocument();
   });
 
-  it('routes selected xterm input/output and fitted dimensions through terminal IPC', async () => {
-    let terminalEvent: ((event: TerminalEvent) => void) | null = null;
+  it('marks hidden terminal attention unread while ignoring attention on the visible selected terminal', async () => {
+    const listeners = new Set<(event: TerminalEvent) => void>();
     vi.mocked(window.noveltea.onTerminalEvent).mockImplementation((callback) => {
-      terminalEvent = callback;
-      return () => {};
+      listeners.add(callback);
+      return () => listeners.delete(callback);
+    });
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 1');
+
+    act(() => {
+      for (const listener of listeners) {
+        listener({
+          kind: 'attention',
+          sessionId: terminal1.id,
+          attention: { kind: 'bell', occurredAt: '2026-09-19T12:00:10.000Z' },
+        });
+      }
+    });
+    expect(screen.queryByLabelText('Terminal needs attention')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+    expect(listeners.size).toBeGreaterThan(0);
+    act(() => {
+      for (const listener of listeners) {
+        listener({
+          kind: 'attention',
+          sessionId: terminal1.id,
+          attention: { kind: 'command-completed', occurredAt: '2026-09-19T12:00:20.000Z' },
+        });
+      }
+    });
+    expect(screen.getByLabelText('Terminal needs attention')).toBeInTheDocument();
+  });
+
+  it('shows running activity separately and gives unread attention visual precedence', async () => {
+    const terminal2 = session(2, { commandState: 'idle' });
+    const twoSessions = { sessions: [terminal1, terminal2], selectedSessionId: terminal1.id };
+    const listeners = new Set<(event: TerminalEvent) => void>();
+    vi.mocked(window.noveltea.ensureTerminalState).mockResolvedValue(twoSessions);
+    vi.mocked(window.noveltea.onTerminalEvent).mockImplementation((callback) => {
+      listeners.add(callback);
+      return () => listeners.delete(callback);
+    });
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 2');
+
+    act(() => {
+      for (const listener of listeners) {
+        listener({
+          kind: 'metadata',
+          sessionId: terminal2.id,
+          commandState: 'running',
+          currentCommandStartedAt: '2026-09-19T12:00:10.000Z',
+          latestCommand: null,
+          lastKnownCwd: '/mock/project',
+        });
+      }
+    });
+    expect(screen.getByLabelText('Terminal 2 command running')).toBeInTheDocument();
+
+    act(() => {
+      for (const listener of listeners) {
+        listener({
+          kind: 'attention',
+          sessionId: terminal2.id,
+          attention: { kind: 'bell', occurredAt: '2026-09-19T12:00:11.000Z' },
+        });
+      }
+    });
+    expect(screen.getByLabelText('Terminal 2 needs attention')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Terminal 2 command running')).not.toBeInTheDocument();
+  });
+
+  it('delays passive acknowledgment, cancels it when hidden, then fades after sustained viewing', async () => {
+    const listeners = new Set<(event: TerminalEvent) => void>();
+    vi.mocked(window.noveltea.onTerminalEvent).mockImplementation((callback) => {
+      listeners.add(callback);
+      return () => listeners.delete(callback);
+    });
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 1');
+    fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+    act(() => {
+      for (const listener of listeners) {
+        listener({
+          kind: 'attention',
+          sessionId: terminal1.id,
+          attention: { kind: 'bell', occurredAt: '2026-09-19T12:00:10.000Z' },
+        });
+      }
+    });
+    expect(screen.getByLabelText('Terminal needs attention')).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByText('Terminal'));
+    await act(async () => Promise.resolve());
+    expect(screen.getByLabelText('Terminal 1 needs attention')).toHaveAttribute(
+      'data-terminal-unread-state',
+      'unread',
+    );
+    act(() => {
+      vi.advanceTimersByTime(2_999);
+    });
+    expect(screen.getByLabelText('Terminal 1 needs attention')).toHaveAttribute(
+      'data-terminal-unread-state',
+      'unread',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(screen.getByLabelText('Terminal needs attention')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Terminal'));
+    await act(async () => Promise.resolve());
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(screen.getByLabelText('Terminal 1 needs attention')).toHaveAttribute(
+      'data-terminal-unread-state',
+      'fading',
+    );
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(screen.queryByLabelText('Terminal 1 needs attention')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Terminal needs attention')).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('immediately fades unread attention for both the terminal being left and one selected directly', async () => {
+    const terminal2 = session(2);
+    const twoSessions = { sessions: [terminal1, terminal2], selectedSessionId: terminal1.id };
+    const listeners = new Set<(event: TerminalEvent) => void>();
+    vi.mocked(window.noveltea.ensureTerminalState).mockResolvedValue(twoSessions);
+    vi.mocked(window.noveltea.selectTerminalSession).mockResolvedValue({
+      sessions: [terminal1, terminal2],
+      selectedSessionId: terminal2.id,
+    });
+    vi.mocked(window.noveltea.onTerminalEvent).mockImplementation((callback) => {
+      listeners.add(callback);
+      return () => listeners.delete(callback);
+    });
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 2');
+    fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+    act(() => {
+      for (const sessionId of [terminal1.id, terminal2.id]) {
+        for (const listener of listeners) {
+          listener({
+            kind: 'attention',
+            sessionId,
+            attention: { kind: 'bell', occurredAt: '2026-09-19T12:00:10.000Z' },
+          });
+        }
+      }
+    });
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByText('Terminal'));
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByText('Terminal 2'));
+    await act(async () => Promise.resolve());
+    expect(screen.getByLabelText('Terminal 1 needs attention')).toHaveAttribute(
+      'data-terminal-unread-state',
+      'fading',
+    );
+    expect(screen.getByLabelText('Terminal 2 needs attention')).toHaveAttribute(
+      'data-terminal-unread-state',
+      'fading',
+    );
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(screen.queryByLabelText('Terminal 1 needs attention')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Terminal 2 needs attention')).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('routes selected xterm input/output and fitted dimensions through terminal IPC', async () => {
+    const listeners = new Set<(event: TerminalEvent) => void>();
+    vi.mocked(window.noveltea.onTerminalEvent).mockImplementation((callback) => {
+      listeners.add(callback);
+      return () => listeners.delete(callback);
     });
     useBottomPanelStore.getState().setActivePanelId('terminal');
     render(<BottomPanel />);
@@ -164,7 +354,11 @@ describe('Terminal bottom panel', () => {
 
     act(() => terminalMock.onData?.('echo hello\r'));
     expect(window.noveltea.writeTerminal).toHaveBeenCalledWith(terminal1.id, 'echo hello\r');
-    act(() => terminalEvent?.({ kind: 'output', sessionId: terminal1.id, data: 'hello\r\n' }));
+    act(() => {
+      for (const listener of listeners) {
+        listener({ kind: 'output', sessionId: terminal1.id, data: 'hello\r\n' });
+      }
+    });
     expect(terminalMock.writes).toContain('hello\r\n');
   });
 

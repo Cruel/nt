@@ -88,13 +88,15 @@ describe('TerminalService', () => {
         },
       ],
     });
-    expect(spawn).toHaveBeenCalledWith({
-      shell: '/bin/bash',
-      cwd: '/project/root',
-      env: { PATH: '/usr/bin', HOME: '/home/test' },
-      columns: 80,
-      rows: 24,
-    });
+    expect(spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shell: '/bin/bash',
+        cwd: '/project/root',
+        env: expect.objectContaining({ PATH: '/usr/bin', HOME: '/home/test' }),
+        columns: 80,
+        rows: 24,
+      }),
+    );
 
     service.write('terminal-1', 'echo hello\r');
     service.resize('terminal-1', 120, 40);
@@ -104,6 +106,102 @@ describe('TerminalService', () => {
     pty.emitData('hello\r\n');
     expect(events).toContainEqual({ kind: 'output', sessionId: 'terminal-1', data: 'hello\r\n' });
     expect((await service.ensureState()).sessions[0]?.output).toBe('hello\r\n');
+  });
+
+  it('tracks integrated command lifecycle, cwd, exit status, long-command attention, and BEL', async () => {
+    const pty = fakeProcess();
+    const events: unknown[] = [];
+    let now = new Date('2026-09-19T12:00:00.000Z');
+    const service = new TerminalService({
+      ...serviceOptions(() => pty.process),
+      resolveShell: () => '/bin/bash',
+      emit: (event) => events.push(event),
+      sessionId: () => 'terminal-1',
+      now: () => now,
+    });
+
+    expect((await service.ensureState()).sessions[0]).toMatchObject({
+      commandState: 'unknown',
+      lastKnownCwd: '/documents/NovelTea',
+    });
+
+    pty.emitData('\u001b]633;A\u0007');
+    expect((await service.ensureState()).sessions[0]).toMatchObject({ commandState: 'idle' });
+
+    pty.emitData('\u001b]7;file://localhost/work/story%20project\u0007');
+    expect((await service.ensureState()).sessions[0]).toMatchObject({
+      lastKnownCwd: '/work/story project',
+    });
+
+    now = new Date('2026-09-19T12:00:01.000Z');
+    pty.emitData('\u001b]633;C\u0007');
+    expect((await service.ensureState()).sessions[0]).toMatchObject({
+      commandState: 'running',
+      currentCommandStartedAt: '2026-09-19T12:00:01.000Z',
+    });
+
+    now = new Date('2026-09-19T12:00:04.500Z');
+    pty.emitData('\u001b]633;D;7\u0007');
+    expect((await service.ensureState()).sessions[0]).toMatchObject({
+      commandState: 'idle',
+      currentCommandStartedAt: null,
+      latestCommand: {
+        startedAt: '2026-09-19T12:00:01.000Z',
+        completedAt: '2026-09-19T12:00:04.500Z',
+        durationMs: 3500,
+        exitCode: 7,
+      },
+      latestAttention: {
+        kind: 'command-completed',
+        occurredAt: '2026-09-19T12:00:04.500Z',
+      },
+    });
+    expect(events).toContainEqual({
+      kind: 'attention',
+      sessionId: 'terminal-1',
+      attention: {
+        kind: 'command-completed',
+        occurredAt: '2026-09-19T12:00:04.500Z',
+      },
+    });
+
+    now = new Date('2026-09-19T12:00:05.000Z');
+    pty.emitData('\u0007');
+    expect(events).toContainEqual({
+      kind: 'attention',
+      sessionId: 'terminal-1',
+      attention: { kind: 'bell', occurredAt: '2026-09-19T12:00:05.000Z' },
+    });
+    expect((await service.ensureState()).sessions[0]).toMatchObject({
+      latestAttention: { kind: 'bell', occurredAt: '2026-09-19T12:00:05.000Z' },
+    });
+  });
+
+  it('keeps command state unknown when shell integration is unavailable while still surfacing BEL', async () => {
+    const pty = fakeProcess();
+    const events: unknown[] = [];
+    const service = new TerminalService({
+      ...serviceOptions(() => pty.process),
+      resolveShell: () => '/usr/bin/fish',
+      emit: (event) => events.push(event),
+      sessionId: () => 'terminal-1',
+    });
+
+    await service.ensureState();
+    pty.emitData('\u001b]633;C\u0007\u001b]7;file:///tmp/other\u0007\u001b]633;D;0\u0007');
+    expect((await service.ensureState()).sessions[0]).toMatchObject({
+      commandState: 'unknown',
+      lastKnownCwd: '/documents/NovelTea',
+    });
+
+    pty.emitData('\u0007');
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'attention',
+        sessionId: 'terminal-1',
+        attention: expect.objectContaining({ kind: 'bell' }),
+      }),
+    );
   });
 
   it('coalesces concurrent first use into one PTY', async () => {

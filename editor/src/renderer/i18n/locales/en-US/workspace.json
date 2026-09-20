@@ -93,6 +93,9 @@
     "exited": "Terminal exited",
     "exitedWithCode": "Terminal exited ({{code}})",
     "relaunch": "Relaunch",
+    "needsAttention": "Terminal needs attention",
+    "tabNeedsAttention": "{{label}} needs attention",
+    "tabRunning": "{{label}} command running",
     "shutdownRisk_one": "{{count}} terminal may have a running command. Exit NovelTea and terminate it?",
     "shutdownRisk_other": "{{count}} terminals may have running commands. Exit NovelTea and terminate them?"
   },
