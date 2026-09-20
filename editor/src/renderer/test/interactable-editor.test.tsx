@@ -2,8 +2,16 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { InteractableEditor } from '@/editors/interactables/InteractableEditor';
+import {
+  MaterialPreviewGroupProvider,
+  MaterialPreviewProjectProvider,
+} from '@/material-preview/material-preview-provider';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractableData,
+  parseInteractableData,
+} from '../../shared/project-schema/authoring-interactables';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
@@ -16,6 +24,8 @@ import {
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { invokeWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 
+const noWebGlBackend = () => null;
+
 const tab: WorkbenchTab = {
   id: 'tab:interactable-detail:interactables:door',
   title: 'Door',
@@ -27,6 +37,16 @@ const tab: WorkbenchTab = {
     entityId: 'door',
   },
 };
+
+function renderEditor() {
+  return render(
+    <MaterialPreviewProjectProvider>
+      <MaterialPreviewGroupProvider backendFactory={noWebGlBackend}>
+        <InteractableEditor tab={tab} />
+      </MaterialPreviewGroupProvider>
+    </MaterialPreviewProjectProvider>,
+  );
+}
 
 beforeEach(() => {
   useProjectStore.getState().clearProject();
@@ -79,7 +99,7 @@ describe('InteractableEditor', () => {
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
 
-    const view = render(<InteractableEditor tab={tab} />);
+    const view = renderEditor();
 
     await waitFor(() =>
       expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledWith(
@@ -123,7 +143,7 @@ describe('InteractableEditor', () => {
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
 
-    const view = render(<InteractableEditor tab={tab} />);
+    const view = renderEditor();
     await Promise.resolve();
 
     expect(window.noveltea.resolveProjectOriginalAssetUrl).not.toHaveBeenCalled();
@@ -139,7 +159,7 @@ describe('InteractableEditor', () => {
       data: defaultInteractableData('Door'),
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
-    render(<InteractableEditor tab={tab} />);
+    renderEditor();
     captureWorkbenchTabState(tab.id);
     expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
       schema: 'noveltea.editor.tab-state.interactable',
@@ -165,7 +185,7 @@ describe('InteractableEditor', () => {
       data: defaultInteractableData('Door'),
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
-    const view = render(<InteractableEditor tab={tab} />);
+    const view = renderEditor();
     const scrollContainer = view.container.querySelector<HTMLElement>(
       '[data-interactable-editor-scroll]',
     )!;
@@ -221,12 +241,70 @@ describe('InteractableEditor', () => {
       data: defaultInteractableData('Door'),
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
-    render(<InteractableEditor tab={tab} />);
+    renderEditor();
 
     await user.click(screen.getByRole('button', { name: /choose sprite/i }));
     expect(await screen.findByText('Choose Interactable sprite')).toBeInTheDocument();
     expect(screen.getByText('Door Sprite')).toBeInTheDocument();
     expect(screen.queryByText('Door Sound')).not.toBeInTheDocument();
+  });
+
+  it('uses the shared visual Material selector and commits one undoable compatible assignment', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    project.materials.alternate = {
+      id: 'alternate',
+      label: 'Alternate',
+      data: defaultMaterialData('Alternate', 'engine-2d'),
+    };
+    project.materials.post = {
+      id: 'post',
+      label: 'Post FX',
+      data: defaultMaterialData('Post FX', 'postprocess-tint'),
+    };
+    const data = defaultInteractableData('Door');
+    data.presentation.material = { $ref: { collection: 'materials', id: 'panel' } };
+    project.interactables.door = {
+      id: 'door',
+      label: 'Door',
+      traits: [],
+      data,
+    };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const view = renderEditor();
+    expect(
+      view.container.querySelector(
+        '[data-workbench-anchor="interactable.material"] [data-material-preview="panel"]',
+      ),
+    ).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Choose Interactable material' }));
+    expect(screen.getByRole('button', { name: /Select Alternate/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Select Post FX/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Select Alternate/ }));
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<
+        typeof createAuthoringProject
+      >;
+      expect(
+        parseInteractableData(current.interactables.door?.data)?.presentation.material?.$ref.id,
+      ).toBe('alternate');
+    });
+
+    expect(useCommandStore.getState().undo().ok).toBe(true);
+    const restored = useProjectStore.getState().document as ReturnType<
+      typeof createAuthoringProject
+    >;
+    expect(
+      parseInteractableData(restored.interactables.door?.data)?.presentation.material?.$ref.id,
+    ).toBe('panel');
   });
 
   it('selects an exact hotspot when workbench diagnostic navigation targets it', () => {
@@ -253,7 +331,7 @@ describe('InteractableEditor', () => {
       data,
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
-    render(<InteractableEditor tab={tab} />);
+    renderEditor();
 
     act(() => {
       invokeWorkbenchTargetHandler(tab.id, {

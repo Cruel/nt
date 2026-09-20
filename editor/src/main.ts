@@ -118,6 +118,12 @@ import {
   normalizeDesktopProjectImportArgument,
   type DesktopProjectImportRequest,
 } from './shared/project-import-handoff';
+import type {
+  ListProjectSourceFilesRequest,
+  ProjectSourceStructuralRequest,
+  ProjectSourceUsageRequest,
+  ProjectSourceWriteRequest,
+} from './shared/project-source-files';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 import { normalizeTerminalPreferences } from './shared/terminal-preferences';
@@ -171,6 +177,10 @@ import {
   installPlayerTemplateArgumentsSchema,
   listPlaybackTestsArgumentsSchema,
   listPlayerTemplatesArgumentsSchema,
+  listProjectSourceFilesArgumentsSchema,
+  mutateProjectSourcesArgumentsSchema,
+  projectSourceUsagesArgumentsSchema,
+  writeProjectSourceArgumentsSchema,
   installEditorNavigationPolicy,
   noArgumentsSchema,
   openExternalArgumentsSchema,
@@ -1684,6 +1694,32 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.CLEAR_EDITOR_CACHE,
     (arguments_) => noArgumentsSchema.parse(arguments_),
     () => imageThumbnailService.clearEditorCache(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.LIST_PROJECT_SOURCE_FILES,
+    (arguments_) => listProjectSourceFilesArgumentsSchema.parse(arguments_),
+    (request: ListProjectSourceFilesRequest) =>
+      activeProjectSessions.listProjectSourceFiles(request),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.PROJECT_SOURCE_USAGES,
+    (arguments_) => projectSourceUsagesArgumentsSchema.parse(arguments_),
+    (request: ProjectSourceUsageRequest) => activeProjectSessions.projectSourceUsages(request),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.MUTATE_PROJECT_SOURCES,
+    (arguments_) => mutateProjectSourcesArgumentsSchema.parse(arguments_),
+    (request: ProjectSourceStructuralRequest) =>
+      activeProjectSessions.mutateProjectSources(request),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.WRITE_PROJECT_SOURCE,
+    (arguments_) => writeProjectSourceArgumentsSchema.parse(arguments_),
+    (request: ProjectSourceWriteRequest) => activeProjectSessions.writeProjectSource(request),
   );
 
   guardedIpc.handle(

@@ -18,6 +18,8 @@ import { useWorkbenchTabStateStore } from './workbench-tab-state';
 import { useWorkbenchStore } from './workbench-store';
 import type { WorkbenchGroup, WorkbenchSplitDirection, WorkbenchTab } from './workbench-types';
 
+let nextSourceDuplicateId = 1;
+
 interface WorkbenchTabContextMenuProps {
   group: WorkbenchGroup;
   tab: WorkbenchTab;
@@ -32,6 +34,7 @@ export function WorkbenchTabContextMenu({ group, tab }: WorkbenchTabContextMenuP
     (store) => store.requestCloseAllTabsInGroup,
   );
   const splitGroup = useWorkbenchStore((store) => store.splitGroup);
+  const openTab = useWorkbenchStore((store) => store.openTab);
   const tabState = useWorkbenchTabStateStore((store) => store.tabStatesById[tab.id]);
   const tabIndex = group.tabIds.indexOf(tab.id);
   if (tabIndex < 0) return null;
@@ -71,6 +74,21 @@ export function WorkbenchTabContextMenu({ group, tab }: WorkbenchTabContextMenuP
         Close All
       </ContextMenuItem>
       <ContextMenuSeparator />
+      {tab.resource?.kind === 'source' ? (
+        <>
+          <ContextMenuItem
+            onClick={() =>
+              openTab(
+                { ...tab, id: `${tab.id}:duplicate:${nextSourceDuplicateId++}` },
+                { groupId: group.id, duplicate: true },
+              )
+            }
+          >
+            Open in New Tab
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
+      ) : null}
       {tabSupportsPreviewVisibility(tab) ? (
         <>
           <ContextMenuCheckboxItem

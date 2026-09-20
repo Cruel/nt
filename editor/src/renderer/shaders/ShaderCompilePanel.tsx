@@ -1,22 +1,58 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useCommandStore } from '@/commands/command-store';
-import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
-import { useProjectStore } from '@/project/project-store';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { useShaderCompileStore } from './shader-compile-store';
+import { useProjectStore } from '@/project/project-store';
+import {
+  isAuthoringProject,
+  type AuthoringProject,
+} from '../../shared/project-schema/authoring-project';
+import { resolveMaterialData } from '../../shared/project-schema/authoring-materials';
+import { buildDefaultRecordTab } from '@/workbench/editor-registry';
+import type { ShaderCompileDiagnostic } from '../../shared/editor-tooling';
+import type { WorkbenchNavigationRequest } from '@/workbench/workbench-navigation';
+
+function shaderDiagnosticTarget(
+  project: AuthoringProject,
+  diagnostic: ShaderCompileDiagnostic,
+): WorkbenchNavigationRequest | null {
+  const materialPath = diagnostic.path?.match(/^\/materials\/([^/]+)/u)?.[1];
+  const normalizedSource = diagnostic.sourcePath?.replaceAll('\\', '/');
+  const materialId =
+    materialPath ??
+    Object.keys(project.materials).find((id) => {
+      if (!normalizedSource) return false;
+      const resolved = resolveMaterialData(project, id).data;
+      if (!resolved) return false;
+      return [resolved.vertexSource, resolved.fragmentSource, resolved.varyingDefinition].some(
+        (identity) => {
+          if (!identity.startsWith('project:/')) return false;
+          const relative = identity.slice('project:/'.length);
+          return normalizedSource === relative || normalizedSource.endsWith(`/${relative}`);
+        },
+      );
+    });
+  if (!materialId) return null;
+  const record = project.materials[materialId];
+  const tab = buildDefaultRecordTab({
+    id: `materials:${materialId}`,
+    label: record?.label ?? materialId,
+    type: 'material',
+    collection: 'materials',
+    entityId: materialId,
+  });
+  return tab ? { tab, target: { id: 'material.shader', flash: true } } : null;
+}
 
 export function ShaderCompilePanel() {
+  const { t } = useTranslation('workspace');
   const compiling = useShaderCompileStore((state) => state.compiling);
   const diagnostics = useShaderCompileStore((state) => state.diagnostics);
   const outputs = useShaderCompileStore((state) => state.outputs);
-  const authoringOutputs = useShaderCompileStore((state) => state.authoringOutputs);
   const error = useShaderCompileStore((state) => state.error);
   const clear = useShaderCompileStore((state) => state.clear);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
   const projectDocument = useProjectStore((state) => state.document);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const diagnosticItems = useMemo(
@@ -25,28 +61,17 @@ export function ShaderCompilePanel() {
         severity: diagnostic.severity,
         message: diagnostic.message,
         path:
-          [diagnostic.shader, diagnostic.stage, diagnostic.variant].filter(Boolean).join(' / ') ||
-          undefined,
+          [diagnostic.stage, diagnostic.variant, diagnostic.sourcePath]
+            .filter(Boolean)
+            .join(' / ') || undefined,
         category: diagnostic.code,
-        target:
-          project && diagnostic.shader
-            ? resolveProjectDiagnosticTarget(project, `/shaders/${diagnostic.shader}/data`)
-            : null,
+        target: project ? shaderDiagnosticTarget(project, diagnostic) : null,
       })),
     [diagnostics, project],
   );
 
-  function applyOutputs() {
-    executeCommand({
-      type: 'shader.applyCompiledOutputs',
-      label: 'Apply shader compile outputs',
-      payload: { outputs: authoringOutputs },
-      ...MUTATION_SURFACE_ATTRIBUTIONS.shaderCompiledOutputs,
-    });
-  }
-
   if (!compiling && diagnostics.length === 0 && outputs.length === 0 && !error) {
-    return <p className="p-3 text-xs text-muted-foreground">No shader compile result yet.</p>;
+    return <p className="p-3 text-xs text-muted-foreground">{t('shaderCompilePanel.empty')}</p>;
   }
 
   return (
@@ -59,40 +84,43 @@ export function ShaderCompilePanel() {
               : 'secondary'
           }
         >
-          {compiling ? 'compiling' : error ? 'error' : 'ready'}
+          {compiling
+            ? t('shaderCompilePanel.status.compiling')
+            : error
+              ? t('shaderCompilePanel.status.error')
+              : t('shaderCompilePanel.status.ready')}
         </Badge>
         <span className="text-muted-foreground">
-          {outputs.length} output{outputs.length === 1 ? '' : 's'}, {diagnostics.length} diagnostic
-          {diagnostics.length === 1 ? '' : 's'}
+          {t('shaderCompilePanel.summary', {
+            outputCount: outputs.length,
+            diagnosticCount: diagnostics.length,
+          })}
         </span>
         <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={clear}>
-          Clear
+          {t('shaderCompilePanel.clear')}
         </Button>
-        {authoringOutputs.length > 0 ? (
-          <Button size="sm" className="h-7" onClick={applyOutputs}>
-            Apply Outputs
-          </Button>
-        ) : null}
       </div>
       {diagnostics.length > 0 ? (
         <section className="space-y-2">
-          <div className="font-medium">Diagnostics</div>
+          <div className="font-medium">{t('shaderCompilePanel.diagnostics')}</div>
           <DiagnosticList items={diagnosticItems} />
         </section>
       ) : null}
       {outputs.length > 0 ? (
         <section className="space-y-2">
-          <div className="font-medium">Outputs</div>
+          <div className="font-medium">{t('shaderCompilePanel.outputs')}</div>
           {outputs.map((output, index) => (
             <div
-              key={`${output.shader}-${output.stage}-${output.variant}-${index}`}
+              key={`${output.program}-${output.stage}-${output.variant}-${index}`}
               className="rounded border p-2"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={output.cacheHit ? 'outline' : 'secondary'}>
-                  {output.cacheHit ? 'cache hit' : 'compiled'}
+                  {output.cacheHit
+                    ? t('shaderCompilePanel.outputStatus.cacheHit')
+                    : t('shaderCompilePanel.outputStatus.compiled')}
                 </Badge>
-                <span className="font-mono">{output.shader}</span>
+                <span className="font-mono">{output.program}</span>
                 <span className="font-mono text-muted-foreground">{output.stage}</span>
                 <span className="font-mono text-muted-foreground">{output.variant}</span>
               </div>

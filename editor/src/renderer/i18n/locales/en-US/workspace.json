@@ -942,6 +942,115 @@
     "createDedicated": "Create dedicated placement",
     "moveToPlacement": "Move to placement"
   },
+  "shaderCompilePanel": {
+    "empty": "No shader compile result yet.",
+    "status": {
+      "compiling": "compiling",
+      "error": "error",
+      "ready": "ready"
+    },
+    "summary": "{{outputCount}} derived output(s), {{diagnosticCount}} diagnostic(s)",
+    "clear": "Clear",
+    "diagnostics": "Diagnostics",
+    "outputs": "Derived outputs",
+    "outputStatus": {
+      "cacheHit": "cache hit",
+      "compiled": "compiled"
+    }
+  },
+  "materialsLibrary": {
+    "noProject": "Open a project to browse Materials.",
+    "searchLabel": "Search Materials",
+    "searchPlaceholder": "Search Materials by name, ID, or tag…",
+    "livePreviews": "Live previews",
+    "newMaterial": "New Material",
+    "noMatches": "No Materials match this search.",
+    "empty": "No Materials yet. Create one to get started.",
+    "previewDisabled": "Live preview disabled"
+  },
+  "materialSelector": {
+    "choose": "Choose Material",
+    "unassigned": "Choose material",
+    "search": "Search Materials…",
+    "showIncompatible": "Show incompatible",
+    "previewOccurrenceOverrides": "Preview occurrence overrides",
+    "select": "Select",
+    "partialOverrides": "{{applied}} of {{total}} overrides apply",
+    "invalidMaterial": "Material is invalid.",
+    "roleMismatch": "Requires {{expected}}; this Material uses {{actual}}.",
+    "interactableChoose": "Choose Interactable material",
+    "noMatches": "No Materials match this selector."
+  },
+  "materialEditor": {
+    "missing": "Material record not found.",
+    "preview": {
+      "label": "Material preview",
+      "webgl2Unavailable": "Material preview requires WebGL2.",
+      "contextLost": "Material preview is temporarily unavailable.",
+      "renderFailed": "Material preview rendering failed.",
+      "stale": "Stale preview"
+    },
+    "summary": "Material Preset/inheritance contract with sparse parameter, texture, and shader-source overrides.",
+    "invalidData": "Material data is invalid; canonical defaults are shown until you apply a change.",
+    "base": "Base",
+    "presetSuffix": "Preset",
+    "effectiveContract": "Effective contract",
+    "invalidContract": "Invalid",
+    "shaderSources": "Shader Sources",
+    "shaderSourcesHelp": "Empty overrides use the inherited preset/base source. Project source paths must remain under shaders/.",
+    "builtInReadOnly": "Built-in · read only",
+    "builtInSourceUnavailable": "Built-in shader source is unavailable.",
+    "customizeShader": "Customize Shader",
+    "customizeFailed": "Shader customization failed.",
+    "openSource": "Open source",
+    "sourceUsage": "{{count}} Material(s)",
+    "makeMaterialSpecific": "Make Material-specific copy",
+    "rebind": "Rebind…",
+    "provenance": {
+      "unknown": "Unknown source",
+      "preset": "Preset: {{label}}",
+      "base": "Base: {{label}}",
+      "current": "This Material"
+    },
+    "reset": "Reset",
+    "parameters": "Parameters",
+    "textures": "Textures",
+    "runtimeSupplied": "Runtime supplied",
+    "override": "override",
+    "inherited": "inherited",
+    "orphanedParameter": "Orphaned parameter: {{name}}",
+    "orphanedTexture": "Orphaned texture: {{name}}",
+    "remove": "Remove",
+    "noTexture": "No texture",
+    "commands": {
+      "update": "Update material",
+      "setPreset": "Set Material Preset",
+      "setBase": "Set base Material",
+      "setShaderSource": "Set material shader source",
+      "resetShaderSource": "Reset material shader source",
+      "setParameter": "Set material parameter",
+      "resetParameter": "Reset material parameter",
+      "rebindParameter": "Rebind material parameter",
+      "setTexture": "Set material texture",
+      "resetTexture": "Reset material texture",
+      "rebindTexture": "Rebind material texture"
+    }
+  },
+  "shaderSourcePreview": {
+    "title": "Material previews",
+    "addPreview": "Add Preview",
+    "affectedUsage": "{{count}} affected",
+    "affectedMaterials": "Affected Materials",
+    "noAffectedMaterials": "No affected Materials",
+    "direct": "Direct",
+    "included": "Included",
+    "directConsumers": "Direct consumers",
+    "transitiveConsumers": "Affected through includes",
+    "noPreviewsToAdd": "No additional affected Materials",
+    "empty": "Add an affected Material to preview this shader source in context.",
+    "remove": "Remove",
+    "resize": "Resize shader source preview"
+  },
   "hotspots": {
     "subtitle": "Hotspots define pointer geometry and select a semantic target; behavior belongs to the selected subject.",
     "invalidImage": "Select a valid image asset with dimensions before authoring hotspots.",

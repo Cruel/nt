@@ -21,11 +21,39 @@ nlohmann::json load_minimal_compiled_project()
     return nlohmann::json::parse(stream);
 }
 
+class ProjectRootFixture final {
+public:
+    ProjectRootFixture()
+        : m_root(std::filesystem::temp_directory_path() /
+                 ("noveltea-playback-project-" +
+                  std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
+    {
+        std::filesystem::create_directories(m_root / "scripts");
+        std::ofstream script(m_root / "scripts" / "bootstrap.lua", std::ios::binary);
+        REQUIRE(script.good());
+        script << "return {}\n";
+        REQUIRE(script.good());
+    }
+
+    ~ProjectRootFixture()
+    {
+        std::error_code error;
+        std::filesystem::remove_all(m_root, error);
+    }
+
+    [[nodiscard]] const std::filesystem::path& root() const noexcept { return m_root; }
+
+private:
+    std::filesystem::path m_root;
+};
+
 nlohmann::json run_playback(nlohmann::json step_expectations,
                             nlohmann::json final_expectations = nlohmann::json::array())
 {
+    ProjectRootFixture project_root;
     const nlohmann::json request = {
         {"project", load_minimal_compiled_project()},
+        {"projectRoot", project_root.root().string()},
         {"spec",
          {{"schema", "noveltea.editor.playback"},
           {"version", 1},
@@ -96,8 +124,10 @@ TEST_CASE(
                                                                 {"type", "current-room"},
                                                                 {"operator", "eq"},
                                                                 {"roomId", "elsewhere"}}});
+    ProjectRootFixture project_root;
     const nlohmann::json request = {
         {"project", load_minimal_compiled_project()},
+        {"projectRoot", project_root.root().string()},
         {"catalog",
          {{"schema", "noveltea.runtime-test-catalog"},
           {"entries", nlohmann::json::array(
@@ -144,6 +174,7 @@ TEST_CASE(
 
 TEST_CASE("native test suite treats blocked-only and empty catalogs as successful")
 {
+    ProjectRootFixture project_root;
     for (const auto& entries : std::vector<nlohmann::json>{
              nlohmann::json::array(),
              nlohmann::json::array(
@@ -154,6 +185,7 @@ TEST_CASE("native test suite treats blocked-only and empty catalogs as successfu
                                                            {"message", "Not ready."}}})}}})}) {
         const nlohmann::json request = {
             {"project", load_minimal_compiled_project()},
+            {"projectRoot", project_root.root().string()},
             {"catalog", {{"schema", "noveltea.runtime-test-catalog"}, {"entries", entries}}}};
         const auto result = noveltea::tooling::run_test_suite(request.dump());
         REQUIRE(result.exit_code == 0);
@@ -176,6 +208,99 @@ TEST_CASE("native test suite reports invalid compiled project as a suite-level f
     const auto response = nlohmann::json::parse(result.response_json);
     CHECK(response["ok"] == false);
     CHECK_FALSE(response.contains("report"));
+}
+
+TEST_CASE("native package export admits semantic shaders sharing compiled binaries")
+{
+    ProjectRootFixture project_root;
+    const auto shader_root = project_root.root() / ".noveltea" / "build";
+    const auto vertex_path = shader_root / "shaders" / "derived" / "glsl-330" / "shared.vs.bin";
+    const auto fragment_path = shader_root / "shaders" / "derived" / "glsl-330" / "shared.fs.bin";
+    std::filesystem::create_directories(vertex_path.parent_path());
+    for (const auto& path : {vertex_path, fragment_path}) {
+        std::ofstream output(path, std::ios::binary | std::ios::trunc);
+        REQUIRE(output.good());
+        output << 'x';
+        REQUIRE(output.good());
+    }
+
+    const auto shader = [](std::string_view label) {
+        return nlohmann::json{
+            {"display_name", label},
+            {"roles", nlohmann::json::array({"engine-2d"})},
+            {"role_bindings", nlohmann::json::object()},
+            {"stages",
+             {{"vertex",
+               {{"compiled",
+                 {{"glsl-330",
+                   {{"runtimePath", "project:/shaders/derived/glsl-330/shared.vs.bin"},
+                    {"byteHash",
+                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+                    {"byteSize", 1U}}}}}}},
+              {"fragment",
+               {{"compiled",
+                 {{"glsl-330",
+                   {{"runtimePath", "project:/shaders/derived/glsl-330/shared.fs.bin"},
+                    {"byteHash",
+                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+                    {"byteSize", 1U}}}}}}}}},
+            {"uniforms", nlohmann::json::object()},
+            {"samplers", nlohmann::json::object()},
+        };
+    };
+    const nlohmann::json shader_materials = {
+        {"schema", "noveltea.shader-materials"},
+        {"shaders", {{"material-a", shader("A")}, {"material-b", shader("B")}}},
+        {"materials",
+         {{"a",
+           {{"display_name", "A"},
+            {"role", "engine-2d"},
+            {"shader", "material-a"},
+            {"uniforms", nlohmann::json::object()},
+            {"textures", nlohmann::json::object()},
+            {"blend", "premultiplied-alpha"}}},
+          {"b",
+           {{"display_name", "B"},
+            {"role", "engine-2d"},
+            {"shader", "material-b"},
+            {"uniforms", nlohmann::json::object()},
+            {"textures", nlohmann::json::object()},
+            {"blend", "premultiplied-alpha"}}}}},
+    };
+    const nlohmann::json options = {
+        {"projectName", "Shared Shader Export"},
+        {"projectVersion", "1.0"},
+        {"display",
+         {{"reference_resolution", {{"width", 1920}, {"height", 1080}}},
+          {"world_raster_policy", "capped"},
+          {"bar_color", "#000000"}}},
+        {"accessibility",
+         {{"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
+          {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}}},
+        {"shaderAssetRoot", shader_root.string()},
+        {"shaderVariants", nlohmann::json::array({"glsl-330"})},
+        {"shaderMaterialMetadata", shader_materials},
+        {"requiredShaderBinaryPaths",
+         nlohmann::json::array({"shaders/derived/glsl-330/shared.vs.bin",
+                                "shaders/derived/glsl-330/shared.fs.bin"})},
+        {"fileEntries",
+         nlohmann::json::array({{{"source", (project_root.root() / "scripts/bootstrap.lua").string()},
+                                 {"packagePath", "scripts/bootstrap.lua"},
+                                 {"storage", "auto"}}})},
+    };
+    const nlohmann::json request = {
+        {"project", load_minimal_compiled_project()},
+        {"outputPath", (project_root.root() / "shared-shaders.ntpkg").string()},
+        {"options", options},
+    };
+
+    const auto result = noveltea::tooling::export_package(request.dump());
+    INFO(result.response_json);
+    REQUIRE(result.exit_code == 0);
+    const auto response = nlohmann::json::parse(result.response_json, nullptr, false);
+    REQUIRE_FALSE(response.is_discarded());
+    CHECK(response.value("ok", false));
+    CHECK(response.value("success", false));
 }
 
 TEST_CASE("native UI playback marks compiled-project admission failures for cache recovery")
@@ -241,7 +366,7 @@ TEST_CASE(
                                    "engine/assets/system/fonts/LiberationSans.ttf",
                                project_root / "assets/fonts/main.ttf",
                                std::filesystem::copy_options::overwrite_existing);
-    write_source("assets/scripts/layout.lua", R"LUA(
+    constexpr std::string_view layout_lua = R"LUA(
 layout_test = layout_test or {}
 function layout_test.confirm(event, element, document)
   local context = Game.mount_context()
@@ -250,7 +375,8 @@ function layout_test.confirm(event, element, document)
   assert(ok, err)
 end
 return {}
-)LUA");
+)LUA";
+    write_source("scripts/layout.lua", layout_lua);
 
     auto& layouts = project["resources"]["layouts"];
     auto layout = std::find_if(layouts.begin(), layouts.end(), [](const auto& candidate) {
@@ -259,19 +385,19 @@ return {}
     REQUIRE(layout != layouts.end());
     (*layout)["rml"] = {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "text-rml"}}}};
     (*layout)["rcss"] = {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "text-rcss"}}}};
-    (*layout)["lua"] = {{"kind", "asset"}, {"asset", {{"kind", "asset"}, {"id", "script-layout"}}}};
+    (*layout)["lua"] = {{"kind", "inline"}, {"text", layout_lua}};
     (*layout)["script"] = {{"enabled", true}, {"namespace", "layout_test"}};
     (*layout)["dependencies"] = {
         {"fonts", nlohmann::json::array()},
         {"images", nlohmann::json::array()},
         {"materials", nlohmann::json::array()},
-        {"scripts", nlohmann::json::array({{{"kind", "asset"}, {"id", "script-layout"}}})},
+        {"scripts", nlohmann::json::array({"project:/scripts/layout.lua"})},
         {"stylesheets", nlohmann::json::array({{{"kind", "asset"}, {"id", "text-rcss"}}})},
         {"data", nlohmann::json::array()},
     };
 
     // Keep the fixture's unrelated title Layout inert so this test isolates the file-backed
-    // gameplay Layout while still leaving the asset-backed Script Module available for runtime
+    // gameplay Layout while leaving the project-file Script Module available for runtime
     // certification through the same project-root mount.
     for (auto& candidate : layouts) {
         if (candidate.value("id", std::string{}) != "hud-assets")

@@ -106,6 +106,12 @@ constexpr std::uint64_t fnv_prime = 1099511628211ull;
     return out.str();
 }
 
+[[nodiscard]] std::string content_hash(std::string_view value)
+{
+    return "sha256:" +
+           core::sha256_hex(std::as_bytes(std::span(value.data(), value.size())));
+}
+
 [[nodiscard]] std::optional<std::string> read_text_file(const std::filesystem::path& path)
 {
     std::ifstream file(path, std::ios::binary);
@@ -197,6 +203,38 @@ public:
                                          embedded_bgfx::compute_sha256.data(),
                                          embedded_bgfx::compute_sha256.size())));
     return core::sha256_hex(std::as_bytes(std::span(value.data(), value.size())));
+}
+
+[[nodiscard]] std::string embedded_engine_shader_hash()
+{
+    std::string identity;
+    for (const auto& resource : embedded_bgfx::engine_shader_resources) {
+        identity += resource.name;
+        identity.push_back('=');
+        identity += resource.sha256;
+        identity.push_back('\n');
+    }
+    return core::sha256_hex(std::as_bytes(std::span(identity.data(), identity.size())));
+}
+
+[[nodiscard]] std::optional<std::filesystem::path>
+materialize_embedded_engine_shader_resources(const std::filesystem::path& cache_root)
+{
+    const auto root = cache_root / "toolchain" / "noveltea-shaders" / embedded_engine_shader_hash();
+    for (const auto& resource : embedded_bgfx::engine_shader_resources) {
+        const auto text = std::string_view(reinterpret_cast<const char*>(resource.bytes.data()),
+                                           resource.bytes.size());
+        const auto path = root / resource.name;
+        if (!write_text_file_if_changed(path, text))
+            return std::nullopt;
+        const auto check = read_text_file(path);
+        if (!check)
+            return std::nullopt;
+        const auto hash = core::sha256_hex(std::as_bytes(std::span(check->data(), check->size())));
+        if (hash != resource.sha256)
+            return std::nullopt;
+    }
+    return root;
 }
 
 [[nodiscard]] std::optional<std::filesystem::path>
@@ -300,14 +338,11 @@ narrow_shaderc_stage_path(const std::filesystem::path& native_path)
 }
 #endif
 
-[[nodiscard]] ProcessResult run_embedded_shaderc(const std::vector<std::string>& args,
-                                                 ShaderStage stage,
-                                                 const ShaderCompileVariant& variant,
-                                                 const std::filesystem::path& source_path,
-                                                 const std::filesystem::path& output_path,
-                                                 const std::filesystem::path& varying_path,
-                                                 const std::filesystem::path& project_root,
-                                                 const std::filesystem::path& include_root)
+[[nodiscard]] ProcessResult run_embedded_shaderc(
+    const std::vector<std::string>& args, ShaderStage stage, const ShaderCompileVariant& variant,
+    const std::filesystem::path& source_path, const std::filesystem::path& output_path,
+    const std::filesystem::path& varying_path,
+    const std::vector<std::filesystem::path>& include_roots)
 {
     const auto source = read_text_file(source_path);
     const auto varying = read_text_file(varying_path);
@@ -345,12 +380,15 @@ narrow_shaderc_stage_path(const std::filesystem::path& native_path)
         return {.exit_code = -1, .output = "failed to create narrow shaderc staging directory"};
 
     const auto staged_source_root = stage_root / "source";
-    const auto staged_project_root = stage_root / "project";
-    const auto staged_include_root = stage_root / "include";
-    if (!copy_shader_include_tree(source_path.parent_path(), staged_source_root) ||
-        !copy_shader_include_tree(project_root, staged_project_root) ||
-        !copy_shader_include_tree(include_root, staged_include_root)) {
+    if (!copy_shader_include_tree(source_path.parent_path(), staged_source_root))
         return {.exit_code = -1, .output = "failed to stage shader include inputs"};
+    std::vector<std::filesystem::path> staged_include_roots;
+    staged_include_roots.reserve(include_roots.size());
+    for (std::size_t index = 0; index < include_roots.size(); ++index) {
+        const auto staged_root = stage_root / ("include-" + std::to_string(index));
+        if (!copy_shader_include_tree(include_roots[index], staged_root))
+            return {.exit_code = -1, .output = "failed to stage shader include inputs"};
+        staged_include_roots.push_back(staged_root);
     }
     const auto staged_input = staged_source_root / "input.sc";
     if (!write_text_file_if_changed(staged_input, normalized_source))
@@ -362,14 +400,15 @@ narrow_shaderc_stage_path(const std::filesystem::path& native_path)
                 .output = "Windows temporary path cannot be represented safely for embedded shaderc"};
     native_options.inputFilePath = path_utf8(*narrow_root / "source" / "input.sc");
     native_options.outputFilePath = path_utf8(*narrow_root / "output.bin");
-    native_options.includeDirs = {path_utf8(*narrow_root / "source"),
-                                  path_utf8(*narrow_root / "project"),
-                                  path_utf8(*narrow_root / "include")};
+    native_options.includeDirs = {path_utf8(*narrow_root / "source")};
+    for (const auto& root : staged_include_roots)
+        native_options.includeDirs.push_back(path_utf8(*narrow_root / root.lexically_relative(stage_root)));
 #else
     native_options.inputFilePath = path_utf8(source_path);
     native_options.outputFilePath = path_utf8(output_path);
-    native_options.includeDirs = {path_utf8(source_path.parent_path()), path_utf8(project_root),
-                                  path_utf8(include_root)};
+    native_options.includeDirs = {path_utf8(source_path.parent_path())};
+    for (const auto& root : include_roots)
+        native_options.includeDirs.push_back(path_utf8(root));
 #endif
 
     std::string comment = "// shaderc command line:\n//";
@@ -474,6 +513,323 @@ void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
     out << "source_path=" << stage.source.path << '\n';
     out << "source_text=" << source_text << '\n';
     return hash_hex(out.str());
+}
+
+struct ResolvedSourceFile {
+    std::filesystem::path path;
+    std::string identity;
+};
+
+[[nodiscard]] bool path_within_root(const std::filesystem::path& path,
+                                    const std::filesystem::path& root)
+{
+    std::error_code root_error;
+    std::error_code path_error;
+    const auto canonical_root = std::filesystem::weakly_canonical(root, root_error);
+    const auto canonical_path = std::filesystem::weakly_canonical(path, path_error);
+    if (root_error || path_error)
+        return false;
+    auto root_it = canonical_root.begin();
+    auto path_it = canonical_path.begin();
+    for (; root_it != canonical_root.end(); ++root_it, ++path_it) {
+        if (path_it == canonical_path.end() || *path_it != *root_it)
+            return false;
+    }
+    return true;
+}
+
+[[nodiscard]] std::optional<ResolvedSourceFile>
+resolve_source_identity(std::string_view identity, const ShaderCompileOptions& options,
+                        ShaderStage stage, std::vector<ShaderCompileDiagnostic>& diagnostics)
+{
+    std::filesystem::path root;
+    std::string_view relative;
+    if (starts_with(identity, "project:/")) {
+        if (!starts_with(identity, "project:/shaders/")) {
+            add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                           ShaderCompileDiagnosticCode::InvalidSourcePath, ShaderId{}, stage, {}, {},
+                           {}, {}, 0, "Project shader sources must live below project:/shaders/.");
+            return std::nullopt;
+        }
+        root = options.project_root / "shaders";
+        relative = identity.substr(std::string_view("project:/shaders/").size());
+    } else if (starts_with(identity, "engine:/")) {
+        root = options.engine_shader_root;
+        relative = identity.substr(std::string_view("engine:/").size());
+        if (root.empty()) {
+            add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                           ShaderCompileDiagnosticCode::InvalidSourcePath, ShaderId{}, stage, {}, {},
+                           {}, {}, 0, "Engine shader source root is not configured.");
+            return std::nullopt;
+        }
+    } else {
+        add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                       ShaderCompileDiagnosticCode::InvalidSourcePath, ShaderId{}, stage, {}, {}, {},
+                       {}, 0, "Shader source identity must use project:/shaders/ or engine:/.");
+        return std::nullopt;
+    }
+
+    const auto candidate = root / path_from_utf8(relative);
+    if (!path_within_root(candidate, root)) {
+        add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                       ShaderCompileDiagnosticCode::InvalidSourcePath, ShaderId{}, stage, {},
+                       candidate, {}, {}, 0, "Shader source path escapes its declared source root.");
+        return std::nullopt;
+    }
+    std::error_code exists_error;
+    if (!std::filesystem::is_regular_file(candidate, exists_error) || exists_error) {
+        add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                       ShaderCompileDiagnosticCode::MissingSource, ShaderId{}, stage, {}, candidate,
+                       {}, {}, 0, "Shader source file does not exist: '" + path_utf8(candidate) + "'.");
+        return std::nullopt;
+    }
+    return ResolvedSourceFile{.path = candidate, .identity = std::string(identity)};
+}
+
+[[nodiscard]] std::optional<std::string> include_target(std::string_view line)
+{
+    const auto first = line.find_first_not_of(" \t");
+    if (first == std::string_view::npos)
+        return std::nullopt;
+    line.remove_prefix(first);
+    if (line.empty() || line.front() != '#')
+        return std::nullopt;
+    line.remove_prefix(1);
+    const auto directive_start = line.find_first_not_of(" \t");
+    if (directive_start == std::string_view::npos)
+        return std::nullopt;
+    line.remove_prefix(directive_start);
+    constexpr std::string_view include_directive = "include";
+    if (!starts_with(line, include_directive))
+        return std::nullopt;
+    auto rest = line.substr(include_directive.size());
+    if (!rest.empty() && rest.front() != ' ' && rest.front() != '\t' && rest.front() != '"' &&
+        rest.front() != '<') {
+        return std::nullopt;
+    }
+    const auto begin = rest.find_first_of("\"<");
+    if (begin == std::string_view::npos)
+        return std::nullopt;
+    const char close = rest[begin] == '"' ? '"' : '>';
+    const auto end = rest.find(close, begin + 1);
+    if (end == std::string_view::npos)
+        return std::nullopt;
+    return std::string(rest.substr(begin + 1, end - begin - 1));
+}
+
+[[nodiscard]] std::string source_identity_for_path(const std::filesystem::path& path,
+                                                   const ShaderCompileOptions& options)
+{
+    const auto project_root = options.project_root / "shaders";
+    if (path_within_root(path, project_root)) {
+        std::error_code error;
+        const auto relative = std::filesystem::relative(path, project_root, error);
+        if (!error)
+            return "project:/shaders/" + path_utf8(relative);
+    }
+    if (!options.engine_shader_root.empty() && path_within_root(path, options.engine_shader_root)) {
+        std::error_code error;
+        const auto relative = std::filesystem::relative(path, options.engine_shader_root, error);
+        if (!error)
+            return "engine:/" + path_utf8(relative);
+    }
+    return {};
+}
+
+[[nodiscard]] bool collect_source_dependencies(
+    const ResolvedSourceFile& source, const ShaderCompileOptions& options,
+    std::vector<std::pair<std::string, std::string>>& dependencies,
+    std::vector<ShaderCompileDiagnostic>& diagnostics, ShaderStage stage)
+{
+    if (std::any_of(dependencies.begin(), dependencies.end(), [&](const auto& dependency) {
+            return dependency.first == source.identity;
+        })) {
+        return true;
+    }
+    const auto text = read_text_file(source.path);
+    if (!text) {
+        add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                       ShaderCompileDiagnosticCode::SourceReadFailed, ShaderId{}, stage, {},
+                       source.path, {}, {}, 0, "Failed to read shader source dependency.");
+        return false;
+    }
+    dependencies.emplace_back(source.identity, *text);
+
+    std::istringstream lines(*text);
+    std::string line;
+    while (std::getline(lines, line)) {
+        const auto target = include_target(line);
+        if (!target || *target == "bgfx_shader.sh" || *target == "bgfx_compute.sh")
+            continue;
+        const auto include_path = path_from_utf8(*target);
+        if (include_path.is_absolute()) {
+            add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                           ShaderCompileDiagnosticCode::UnsafeIncludePath, ShaderId{}, stage, {},
+                           source.path, {}, {}, 0, "Absolute shader include paths are not allowed.");
+            return false;
+        }
+
+        std::vector<std::filesystem::path> candidates = {source.path.parent_path() / include_path,
+                                                         options.project_root / "shaders" / include_path};
+        if (!options.engine_shader_root.empty())
+            candidates.push_back(options.engine_shader_root / include_path);
+
+        std::optional<std::filesystem::path> resolved;
+        for (const auto& candidate : candidates) {
+            const bool allowed = path_within_root(candidate, options.project_root / "shaders") ||
+                                 (!options.engine_shader_root.empty() &&
+                                  path_within_root(candidate, options.engine_shader_root));
+            if (!allowed)
+                continue;
+            std::error_code error;
+            if (std::filesystem::is_regular_file(candidate, error) && !error) {
+                resolved = candidate;
+                break;
+            }
+        }
+        if (!resolved) {
+            const auto lexical_candidate = source.path.parent_path() / include_path;
+            if (!path_within_root(lexical_candidate, options.project_root / "shaders") &&
+                (options.engine_shader_root.empty() ||
+                 !path_within_root(lexical_candidate, options.engine_shader_root))) {
+                add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                               ShaderCompileDiagnosticCode::UnsafeIncludePath, ShaderId{}, stage, {},
+                               source.path, {}, {}, 0,
+                               "Shader include escapes the project and engine shader roots: '" +
+                                   *target + "'.");
+            } else {
+                add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                               ShaderCompileDiagnosticCode::MissingSource, ShaderId{}, stage, {},
+                               source.path, {}, {}, 0,
+                               "Shader include could not be resolved: '" + *target + "'.");
+            }
+            return false;
+        }
+        const auto identity = source_identity_for_path(*resolved, options);
+        if (identity.empty()) {
+            add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                           ShaderCompileDiagnosticCode::UnsafeIncludePath, ShaderId{}, stage, {},
+                           *resolved, {}, {}, 0, "Resolved shader include is outside allowed roots.");
+            return false;
+        }
+        const ResolvedSourceFile dependency{.path = *resolved, .identity = identity};
+        if (!collect_source_dependencies(dependency, options, dependencies, diagnostics, stage))
+            return false;
+    }
+    return true;
+}
+
+[[nodiscard]] std::string source_dependency_fingerprint(
+    const std::vector<std::pair<std::string, std::string>>& dependencies)
+{
+    std::ostringstream out;
+    for (const auto& [identity, text] : dependencies)
+        out << identity << '\n' << text << "\n--dependency--\n";
+    return out.str();
+}
+
+struct ReflectedShaderBinary {
+    std::vector<ShaderReflectedInput> inputs;
+    std::optional<std::string> source_payload;
+};
+
+[[nodiscard]] std::optional<ReflectedShaderBinary>
+reflect_shader_binary(const std::filesystem::path& path)
+{
+    const auto bytes = read_text_file(path);
+    if (!bytes || bytes->size() < 18)
+        return std::nullopt;
+    const auto* data = reinterpret_cast<const unsigned char*>(bytes->data());
+    // bgfx shader binaries begin with magic + input/output hashes, followed by
+    // RawBindings (srv/uav) before the reflected uniform table.
+    std::size_t offset = 20;
+    const auto read_u8 = [&]() -> std::optional<std::uint8_t> {
+        if (offset + 1 > bytes->size())
+            return std::nullopt;
+        return data[offset++];
+    };
+    const auto read_u16 = [&]() -> std::optional<std::uint16_t> {
+        if (offset + 2 > bytes->size())
+            return std::nullopt;
+        const auto value = static_cast<std::uint16_t>(data[offset]) |
+                           (static_cast<std::uint16_t>(data[offset + 1]) << 8);
+        offset += 2;
+        return value;
+    };
+    const auto read_u32 = [&]() -> std::optional<std::uint32_t> {
+        if (offset + 4 > bytes->size())
+            return std::nullopt;
+        const auto value = static_cast<std::uint32_t>(data[offset]) |
+                           (static_cast<std::uint32_t>(data[offset + 1]) << 8) |
+                           (static_cast<std::uint32_t>(data[offset + 2]) << 16) |
+                           (static_cast<std::uint32_t>(data[offset + 3]) << 24);
+        offset += 4;
+        return value;
+    };
+
+    const auto uniform_count = read_u16();
+    if (!uniform_count)
+        return std::nullopt;
+    ReflectedShaderBinary reflected;
+    for (std::uint16_t index = 0; index < *uniform_count; ++index) {
+        const auto name_size = read_u8();
+        if (!name_size || offset + *name_size > bytes->size())
+            return std::nullopt;
+        std::string name(bytes->data() + offset, *name_size);
+        offset += *name_size;
+        const auto type = read_u8();
+        const auto array_size = read_u8();
+        const auto register_index = read_u16();
+        const auto register_count = read_u16();
+        const auto texture_component = read_u8();
+        const auto texture_dimension = read_u8();
+        const auto texture_format = read_u16();
+        (void)register_index;
+        (void)register_count;
+        (void)texture_component;
+        (void)texture_dimension;
+        (void)texture_format;
+        if (!type || !array_size)
+            return std::nullopt;
+        constexpr std::uint8_t uniform_flag_mask = 0xf0u;
+        constexpr std::uint8_t sampler_bit = 0x20u;
+        const auto base_type = static_cast<std::uint8_t>(*type & ~uniform_flag_mask);
+        const bool sampler = ((*type) & sampler_bit) != 0u || base_type == 0u;
+        std::string type_name;
+        switch (base_type) {
+        case 0:
+            type_name = "sampler";
+            break;
+        case 2:
+            type_name = "vec4";
+            break;
+        case 3:
+            type_name = "mat3";
+            break;
+        case 4:
+            type_name = "mat4";
+            break;
+        default:
+            type_name = "unknown";
+            break;
+        }
+        reflected.inputs.push_back(ShaderReflectedInput{
+            .name = std::move(name),
+            .kind = sampler ? ShaderReflectedInputKind::SampledImage
+                            : ShaderReflectedInputKind::Uniform,
+            .type = std::move(type_name),
+            .array_size = *array_size,
+        });
+    }
+    const auto payload_size = read_u32();
+    if (!payload_size || offset + *payload_size > bytes->size())
+        return std::nullopt;
+    reflected.source_payload = std::string(bytes->data() + offset, *payload_size);
+    while (reflected.source_payload && !reflected.source_payload->empty() &&
+           reflected.source_payload->back() == '\0') {
+        reflected.source_payload->pop_back();
+    }
+    return reflected;
 }
 
 struct CompiledBinaryMetadata {
@@ -644,6 +1000,13 @@ bool ShaderCompileResult::has_errors() const noexcept
     });
 }
 
+bool ShaderSourceProgramCompileResult::has_errors() const noexcept
+{
+    return std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+        return diagnostic.severity == ShaderCompileSeverity::Error;
+    });
+}
+
 std::optional<ShaderCompileVariant> shader_compile_variant_from_name(std::string_view name)
 {
     if (name == "glsl-330")
@@ -671,6 +1034,234 @@ shader_compile_variants_from_names(const std::vector<std::string>& names,
         }
     }
     return variants;
+}
+
+ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
+    const ShaderSourceProgramRequest& request, const ShaderCompileOptions& options) const
+{
+    ShaderSourceProgramCompileResult result;
+    if (!validate_tools(options, result.diagnostics))
+        return result;
+
+    ShaderCompileOptions effective_options = options;
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+    const auto embedded_include_root = materialize_embedded_bgfx_resources(options.cache_root);
+    if (!embedded_include_root)
+        return result;
+    if (effective_options.engine_shader_root.empty()) {
+        const auto embedded_engine_root =
+            materialize_embedded_engine_shader_resources(options.cache_root);
+        if (!embedded_engine_root) {
+            add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                           ShaderCompileDiagnosticCode::SourceWriteFailed, ShaderId{},
+                           ShaderStage::Fragment, {}, {}, {}, {}, 0,
+                           "Failed to materialize embedded NovelTea engine shader sources.");
+            return result;
+        }
+        effective_options.engine_shader_root = *embedded_engine_root;
+    }
+#else
+    const std::filesystem::path embedded_include_root;
+#endif
+
+    if (request.vertex_source.empty() && request.fragment_source.empty()) {
+        add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                       ShaderCompileDiagnosticCode::MissingSource, ShaderId{}, ShaderStage::Fragment,
+                       {}, {}, {}, {}, 0, "Source program requires at least one shader stage.");
+        return result;
+    }
+    if (request.varying_definition.empty()) {
+        add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                       ShaderCompileDiagnosticCode::MissingVaryingDefinition, ShaderId{},
+                       ShaderStage::Fragment, {}, {}, {}, {}, 0,
+                       "Source program requires an explicit varying/interface definition.");
+        return result;
+    }
+
+    auto varying = resolve_source_identity(request.varying_definition, effective_options,
+                                           ShaderStage::Fragment, result.diagnostics);
+    if (!varying)
+        return result;
+    const auto varying_text = read_text_file(varying->path);
+    if (!varying_text) {
+        add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                       ShaderCompileDiagnosticCode::SourceReadFailed, ShaderId{},
+                       ShaderStage::Fragment, {}, varying->path, {}, {}, 0,
+                       "Failed to read explicit varying/interface definition.");
+        return result;
+    }
+
+    struct StageWork {
+        ShaderStage stage = ShaderStage::Fragment;
+        ResolvedSourceFile source;
+        std::vector<std::pair<std::string, std::string>> dependencies;
+    };
+    std::vector<StageWork> stages;
+    const auto prepare_stage = [&](ShaderStage stage, const std::string& identity) {
+        if (identity.empty())
+            return true;
+        auto source = resolve_source_identity(identity, effective_options, stage, result.diagnostics);
+        if (!source)
+            return false;
+        StageWork work{.stage = stage, .source = std::move(*source)};
+        if (!collect_source_dependencies(work.source, effective_options, work.dependencies,
+                                         result.diagnostics, stage)) {
+            return false;
+        }
+        stages.push_back(std::move(work));
+        return true;
+    };
+    if (!prepare_stage(ShaderStage::Vertex, request.vertex_source) ||
+        !prepare_stage(ShaderStage::Fragment, request.fragment_source)) {
+        return result;
+    }
+
+    std::ostringstream identity_input;
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+    identity_input << "shaderc=embedded-bgfx-" NOVELTEA_BGFX_VERSION_STRING "\n";
+    identity_input << "bgfx_resources=" << embedded_toolchain_hash() << '\n';
+#else
+    identity_input << "shaderc=unavailable\n";
+#endif
+    identity_input << "interface=" << request.interface_contract << '\n';
+    identity_input << "varying=" << varying->identity << '\n' << *varying_text << '\n';
+    for (const auto& stage : stages) {
+        identity_input << "stage=" << to_string(stage.stage) << '\n';
+        identity_input << source_dependency_fingerprint(stage.dependencies);
+    }
+    result.program_identity = hash_hex(identity_input.str());
+
+    const auto manifest_path = effective_options.cache_root / "shader-cache" / "manifest.json";
+    auto cache_manifest = read_cache_manifest(manifest_path, result.diagnostics);
+    for (const auto& stage : stages) {
+        for (const auto& variant : effective_options.variants) {
+            std::ostringstream key_input;
+            key_input << result.program_identity << '\n' << variant.name << ':' << variant.platform
+                      << ':' << variant.profile << '\n' << to_string(stage.stage) << '\n';
+            const auto cache_key = hash_hex(key_input.str());
+            const auto package_path = "shaders/derived/" + variant.name + "/" +
+                                      result.program_identity + "." + stage_suffix(stage.stage) +
+                                      ".bin";
+            const auto runtime_path = "project:/" + package_path;
+            const auto output_path = effective_options.output_root / package_path;
+
+            auto append_output = [&](bool cache_hit) -> bool {
+                const auto metadata = compiled_binary_metadata(output_path);
+                const auto reflected = reflect_shader_binary(output_path);
+                if (!metadata || !reflected) {
+                    if (!cache_hit) {
+                        add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                                       ShaderCompileDiagnosticCode::ReflectionFailed, ShaderId{},
+                                       stage.stage, variant.name, stage.source.path, output_path, {}, 0,
+                                       "Compiled shader output could not be reflected.");
+                    }
+                    return false;
+                }
+                std::vector<std::string> dependencies;
+                std::vector<ShaderSourceDependencyRevision> dependency_revisions;
+                dependencies.reserve(stage.dependencies.size() + 1);
+                dependency_revisions.reserve(stage.dependencies.size() + 1);
+                for (const auto& dependency : stage.dependencies) {
+                    dependencies.push_back(dependency.first);
+                    dependency_revisions.push_back(
+                        {.identity = dependency.first, .content_hash = content_hash(dependency.second)});
+                }
+                dependencies.push_back(varying->identity);
+                dependency_revisions.push_back(
+                    {.identity = varying->identity, .content_hash = content_hash(*varying_text)});
+                result.outputs.push_back(ShaderSourceCompileOutput{
+                    .stage = stage.stage,
+                    .variant = variant.name,
+                    .source_identity = stage.source.identity,
+                    .dependencies = std::move(dependencies),
+                    .dependency_revisions = std::move(dependency_revisions),
+                    .output_path = output_path,
+                    .runtime_path = runtime_path,
+                    .cache_key = cache_key,
+                    .byte_hash = metadata->byte_hash,
+                    .byte_size = metadata->byte_size,
+                    .reflected_inputs = reflected->inputs,
+                    .browser_payload = variant.name == "essl-300" ? reflected->source_payload
+                                                                  : std::nullopt,
+                    .cache_hit = cache_hit,
+                });
+                cache_manifest[package_path] = nlohmann::json::object({
+                    {"cacheKey", cache_key},
+                    {"programIdentity", result.program_identity},
+                    {"stage", to_string(stage.stage)},
+                    {"variant", variant.name},
+                    {"source", stage.source.identity},
+                    {"byteHash", metadata->byte_hash},
+                    {"byteSize", metadata->byte_size},
+                });
+                return true;
+            };
+
+            if (!effective_options.force_rebuild &&
+                cache_entry_matches(cache_manifest, package_path, cache_key, output_path)) {
+                if (append_output(true))
+                    continue;
+                add_diagnostic(result.diagnostics, ShaderCompileSeverity::Warning,
+                               ShaderCompileDiagnosticCode::CacheReadFailed, ShaderId{}, stage.stage,
+                               variant.name, stage.source.path, output_path, {}, 0,
+                               "Cached shader output could not be reflected; recompiling.");
+            }
+
+            std::error_code directory_error;
+            std::filesystem::create_directories(output_path.parent_path(), directory_error);
+            if (directory_error) {
+                add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                               ShaderCompileDiagnosticCode::SourceWriteFailed, ShaderId{},
+                               stage.stage, variant.name, stage.source.path, output_path, {}, 0,
+                               "Failed to create derived shader output directory: " +
+                                   directory_error.message());
+                continue;
+            }
+
+            std::vector<std::string> args = {
+                "shaderc", "-f", path_utf8(stage.source.path), "-o", path_utf8(output_path),
+                "--type", shaderc_stage_type(stage.stage), "--platform", variant.platform,
+                "--profile", variant.profile, "--varyingdef", path_utf8(varying->path),
+                "-i", path_utf8(effective_options.project_root / "shaders"),
+            };
+            if (!effective_options.engine_shader_root.empty()) {
+                args.push_back("-i");
+                args.push_back(path_utf8(effective_options.engine_shader_root));
+            }
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+            args.push_back("-i");
+            args.push_back(path_utf8(*embedded_include_root));
+#endif
+            const auto command_line = command_line_from_args(args);
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+            std::vector<std::filesystem::path> include_roots = {
+                effective_options.project_root / "shaders"};
+            if (!effective_options.engine_shader_root.empty())
+                include_roots.push_back(effective_options.engine_shader_root);
+            include_roots.push_back(*embedded_include_root);
+            const auto process = run_embedded_shaderc(args, stage.stage, variant, stage.source.path,
+                                                      output_path, varying->path, include_roots);
+#else
+            const ProcessResult process{.exit_code = -1, .output = "embedded shaderc is unavailable"};
+#endif
+            std::error_code output_error;
+            if (process.exit_code != 0 || !std::filesystem::is_regular_file(output_path, output_error) ||
+                output_error) {
+                add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                               ShaderCompileDiagnosticCode::CompilerFailed, ShaderId{}, stage.stage,
+                               variant.name, stage.source.path, output_path, command_line,
+                               process.exit_code,
+                               "shaderc failed for source program stage '" +
+                                   std::string(to_string(stage.stage)) + "' variant '" + variant.name +
+                                   "'.\n" + process.output);
+                continue;
+            }
+            append_output(false);
+        }
+    }
+
+    write_cache_manifest(manifest_path, cache_manifest, result.diagnostics);
+    return result;
 }
 
 ShaderCompileResult
@@ -798,10 +1389,9 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                 };
                 const auto command_line = command_line_from_args(args);
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
-                const auto process = run_embedded_shaderc(args, stage.stage, variant, *source_path,
-                                                          output_path, varying_path,
-                                                          options.project_root,
-                                                          *embedded_include_root);
+                const auto process = run_embedded_shaderc(
+                    args, stage.stage, variant, *source_path, output_path, varying_path,
+                    {options.project_root, *embedded_include_root});
 #else
                 const ProcessResult process{.exit_code = -1,
                                             .output = "embedded shaderc is unavailable"};
@@ -878,18 +1468,26 @@ std::string_view to_string(ShaderCompileDiagnosticCode code) noexcept
     switch (code) {
     case ShaderCompileDiagnosticCode::InvalidVariant:
         return "invalid_variant";
+    case ShaderCompileDiagnosticCode::InvalidSourcePath:
+        return "invalid_source_path";
+    case ShaderCompileDiagnosticCode::UnsafeIncludePath:
+        return "unsafe_include_path";
     case ShaderCompileDiagnosticCode::MissingShaderc:
         return "missing_shaderc";
     case ShaderCompileDiagnosticCode::MissingBgfxInclude:
         return "missing_bgfx_include";
     case ShaderCompileDiagnosticCode::MissingSource:
         return "missing_source";
+    case ShaderCompileDiagnosticCode::MissingVaryingDefinition:
+        return "missing_varying_definition";
     case ShaderCompileDiagnosticCode::SourceReadFailed:
         return "source_read_failed";
     case ShaderCompileDiagnosticCode::SourceWriteFailed:
         return "source_write_failed";
     case ShaderCompileDiagnosticCode::CompilerFailed:
         return "compiler_failed";
+    case ShaderCompileDiagnosticCode::ReflectionFailed:
+        return "reflection_failed";
     case ShaderCompileDiagnosticCode::CacheReadFailed:
         return "cache_read_failed";
     case ShaderCompileDiagnosticCode::CacheWriteFailed:

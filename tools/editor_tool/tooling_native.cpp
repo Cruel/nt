@@ -228,6 +228,7 @@ make_headless_running_game_input(nlohmann::json gameplay,
                 std::move(decoded_materials).error());
         }
         std::vector<std::string> variants;
+        std::set<std::string> binary_paths;
         for (const auto& shader : decoded_materials.value_if()->shaders) {
             for (const auto& stage : shader.stages) {
                 for (const auto& binary : stage.compiled) {
@@ -236,8 +237,10 @@ make_headless_running_game_input(nlohmann::json gameplay,
                         variants.push_back(binary.variant);
                     }
                     const auto package_path = runtime_package_entry_path(binary.path);
-                    entries.push_back({{"path", package_path}, {"size", 0}});
-                    files.push_back({package_path, 0, std::nullopt});
+                    if (binary_paths.insert(package_path).second) {
+                        entries.push_back({{"path", package_path}, {"size", 0}});
+                        files.push_back({package_path, 0, std::nullopt});
+                    }
                 }
             }
         }
@@ -270,6 +273,43 @@ make_headless_running_game_input(nlohmann::json gameplay,
                              .runtime_locale = std::move(runtime_locale)});
 }
 
+[[nodiscard]] bool contained_by_root(const std::filesystem::path& root,
+                                     const std::filesystem::path& path)
+{
+    std::error_code error;
+    const auto real_root = std::filesystem::weakly_canonical(root, error);
+    if (error)
+        return false;
+    const auto real_path = std::filesystem::weakly_canonical(path, error);
+    if (error)
+        return false;
+    const auto relative = std::filesystem::relative(real_path, real_root, error);
+    if (error || relative.empty() || relative.is_absolute())
+        return false;
+    return std::none_of(relative.begin(), relative.end(), [](const auto& part) { return part == ".."; });
+}
+
+[[nodiscard]] bool safe_project_relative_path(std::string_view value)
+{
+    if (value.empty() || value.front() == '/' || value.front() == '\\' ||
+        value.find('\\') != std::string_view::npos || value.find(':') != std::string_view::npos ||
+        value.find("//") != std::string_view::npos) {
+        return false;
+    }
+    std::size_t start = 0;
+    while (start <= value.size()) {
+        const auto slash = value.find('/', start);
+        const auto part = value.substr(
+            start, slash == std::string_view::npos ? std::string_view::npos : slash - start);
+        if (part.empty() || part == "." || part == "..")
+            return false;
+        if (slash == std::string_view::npos)
+            break;
+        start = slash + 1;
+    }
+    return true;
+}
+
 class ToolingScriptSource final : public noveltea::runtime::ScriptSourcePort {
 public:
     void add(std::string logical_path, std::string source)
@@ -277,15 +317,37 @@ public:
         m_sources.insert_or_assign(std::move(logical_path), std::move(source));
     }
 
+    [[nodiscard]] bool mount_project_root(const std::filesystem::path& root)
+    {
+        std::error_code error;
+        const auto canonical = std::filesystem::weakly_canonical(root, error);
+        if (error || canonical.empty() || !std::filesystem::is_directory(canonical, error) || error)
+            return false;
+        m_project_root = canonical;
+        return true;
+    }
+
     [[nodiscard]] Result<std::string, noveltea::runtime::ScriptSourceError>
     read_script_source(std::string_view logical_path) const override
     {
         const auto found = m_sources.find(std::string(logical_path));
-        if (found == m_sources.end()) {
-            return Result<std::string, noveltea::runtime::ScriptSourceError>::failure(
-                {"Script source not found: " + std::string(logical_path)});
+        if (found != m_sources.end())
+            return Result<std::string, noveltea::runtime::ScriptSourceError>::success(found->second);
+
+        constexpr std::string_view project_prefix = "project:/";
+        if (m_project_root && logical_path.starts_with(project_prefix)) {
+            const auto relative = logical_path.substr(project_prefix.size());
+            if (safe_project_relative_path(relative)) {
+                const auto candidate = *m_project_root / filesystem_path_from_utf8(relative);
+                if (contained_by_root(*m_project_root, candidate)) {
+                    if (const auto source = read_file(candidate))
+                        return Result<std::string, noveltea::runtime::ScriptSourceError>::success(
+                            *source);
+                }
+            }
         }
-        return Result<std::string, noveltea::runtime::ScriptSourceError>::success(found->second);
+        return Result<std::string, noveltea::runtime::ScriptSourceError>::failure(
+            {"Script source not found: " + std::string(logical_path)});
     }
 
     [[nodiscard]] Result<PersistableValue, std::string>
@@ -299,6 +361,7 @@ public:
 
 private:
     std::unordered_map<std::string, std::string> m_sources;
+    std::optional<std::filesystem::path> m_project_root;
 };
 
 Result<std::unique_ptr<noveltea::runtime::RunningGame>, Diagnostics>
@@ -337,19 +400,6 @@ nlohmann::json export_diagnostics_to_json(const std::vector<PackageExportDiagnos
     return result;
 }
 
-nlohmann::json
-material_diagnostics_to_json(const std::vector<noveltea::MaterialDiagnostic>& diagnostics)
-{
-    auto result = nlohmann::json::array();
-    for (const auto& diagnostic : diagnostics) {
-        result.push_back({{"severity", std::string(noveltea::to_string(diagnostic.severity))},
-                          {"code", std::string(noveltea::to_string(diagnostic.code))},
-                          {"path", diagnostic.path},
-                          {"message", diagnostic.message}});
-    }
-    return result;
-}
-
 nlohmann::json shader_compile_diagnostics_to_json(
     const std::vector<noveltea::ShaderCompileDiagnostic>& diagnostics)
 {
@@ -369,21 +419,52 @@ nlohmann::json shader_compile_diagnostics_to_json(
     return result;
 }
 
-nlohmann::json
-shader_compile_outputs_to_json(const std::vector<noveltea::ShaderCompileOutput>& outputs)
+nlohmann::json reflected_inputs_to_json(
+    const std::vector<noveltea::ShaderReflectedInput>& inputs)
 {
     auto result = nlohmann::json::array();
-    for (const auto& output : outputs) {
-        result.push_back({{"shader", output.shader.string()},
-                          {"stage", std::string(noveltea::to_string(output.stage))},
-                          {"variant", output.variant},
-                          {"sourcePath", filesystem_path_to_utf8(output.source_path)},
-                          {"outputPath", filesystem_path_to_utf8(output.output_path)},
-                          {"runtimePath", output.runtime_path},
-                          {"cacheKey", output.cache_key},
-                          {"byteHash", output.byte_hash},
-                          {"byteSize", output.byte_size},
-                          {"cacheHit", output.cache_hit}});
+    for (const auto& input : inputs) {
+        result.push_back({
+            {"name", input.name},
+            {"kind", input.kind == noveltea::ShaderReflectedInputKind::SampledImage
+                         ? "sampled-image"
+                         : "uniform"},
+            {"type", input.type},
+            {"arraySize", input.array_size},
+        });
+    }
+    return result;
+}
+
+nlohmann::json source_program_outputs_to_json(
+    std::string_view program,
+    const noveltea::ShaderSourceProgramCompileResult& compile_result)
+{
+    auto result = nlohmann::json::array();
+    for (const auto& output : compile_result.outputs) {
+        auto dependency_revisions = nlohmann::json::array();
+        for (const auto& dependency : output.dependency_revisions)
+            dependency_revisions.push_back(nlohmann::json::object(
+                {{"identity", dependency.identity}, {"contentHash", dependency.content_hash}}));
+        nlohmann::json item = {
+            {"program", program},
+            {"programIdentity", compile_result.program_identity},
+            {"stage", std::string(noveltea::to_string(output.stage))},
+            {"variant", output.variant},
+            {"sourceIdentity", output.source_identity},
+            {"dependencies", output.dependencies},
+            {"dependencyRevisions", std::move(dependency_revisions)},
+            {"outputPath", filesystem_path_to_utf8(output.output_path)},
+            {"runtimePath", output.runtime_path},
+            {"cacheKey", output.cache_key},
+            {"byteHash", output.byte_hash},
+            {"byteSize", output.byte_size},
+            {"reflectedInputs", reflected_inputs_to_json(output.reflected_inputs)},
+            {"cacheHit", output.cache_hit},
+        };
+        if (output.browser_payload)
+            item["browserPayload"] = *output.browser_payload;
+        result.push_back(std::move(item));
     }
     return result;
 }
@@ -543,6 +624,15 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         return fail("Request requires a playback spec.");
 
     ToolingScriptSource sources;
+    if (const auto root = request.find("projectRoot"); root != request.end() && !root->is_null()) {
+        if (!root->is_string())
+            return fail("Runtime Test projectRoot must be a string or null.");
+        const auto candidate =
+            filesystem_path_from_utf8(json_access::get_or<std::string>(*root, {}));
+        if (!sources.mount_project_root(candidate))
+            return fail("Runtime Test project root is unavailable.");
+    }
+
     noveltea::script::ScriptRuntime scripts;
     auto initialized = scripts.initialize({&sources});
     if (!initialized)
@@ -689,6 +779,8 @@ shader_compile_options_from_json(const nlohmann::json& json,
         filesystem_path_from_utf8(json_access::value_or(json, "outputRoot", std::string{}));
     options.cache_root =
         filesystem_path_from_utf8(json_access::value_or(json, "cacheRoot", std::string{}));
+    options.engine_shader_root = filesystem_path_from_utf8(
+        json_access::value_or(json, "engineShaderRoot", std::string{}));
     options.force_rebuild = json_access::value_or(json, "forceRebuild", false);
 
     std::vector<std::string> variant_names;
@@ -702,31 +794,6 @@ shader_compile_options_from_json(const nlohmann::json& json,
 
     options.variants = noveltea::shader_compile_variants_from_names(variant_names, &diagnostics);
     return options;
-}
-
-std::optional<noveltea::ShaderMaterialProject>
-shader_project_from_request(const nlohmann::json& request, nlohmann::json& error_response)
-{
-    auto shader_project_json = request.find("shaderProject");
-    if (shader_project_json == request.end()) {
-        error_response = fail("Request requires shaderProject.");
-        return std::nullopt;
-    }
-
-    noveltea::ShaderMaterialProjectParseResult parsed;
-    if (shader_project_json->is_string()) {
-        parsed =
-            noveltea::parse_shader_material_project_json(shader_project_json->get<std::string>());
-    } else {
-        parsed = noveltea::parse_shader_material_project_json_value(*shader_project_json);
-    }
-
-    if (!parsed.project) {
-        error_response =
-            fail("Shader project parse failed.", material_diagnostics_to_json(parsed.diagnostics));
-        return std::nullopt;
-    }
-    return std::move(*parsed.project);
 }
 
 PackageExportOptions export_options_from_json(const nlohmann::json& json)
@@ -1066,7 +1133,7 @@ nlohmann::json run_test_suite(const nlohmann::json& request)
         return json_access::value_or(entry, "status", std::string{}) == "runnable";
     });
     if (has_runnable) {
-        const nlohmann::json preflight_request = {
+        nlohmann::json preflight_request = {
             {"project", *project},
             {"spec",
              {{"schema", "noveltea.editor.playback"},
@@ -1075,6 +1142,11 @@ nlohmann::json run_test_suite(const nlohmann::json& request)
               {"steps", nlohmann::json::array()},
               {"finalExpectations", nlohmann::json::array()}}},
         };
+        if (auto root = request.find("projectRoot"); root != request.end())
+            preflight_request["projectRoot"] = *root;
+        if (auto shader_metadata = request.find("shaderMaterialMetadata");
+            shader_metadata != request.end())
+            preflight_request["shaderMaterialMetadata"] = *shader_metadata;
         const auto preflight = run_compiled_playback(preflight_request);
         if (!json_access::value_or(preflight, "ok", false))
             return preflight;
@@ -1173,22 +1245,50 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
     }
 
     if (command == "compile-shaders") {
-        nlohmann::json error_response;
-        auto shader_project = shader_project_from_request(request, error_response);
-        if (!shader_project)
-            return error_response;
+        const auto shader_project = request.find("shaderProject");
+        if (shader_project == request.end() || !shader_project->is_object())
+            return fail("Request requires shaderProject.");
 
         std::vector<noveltea::ShaderCompileDiagnostic> variant_diagnostics;
         auto options = shader_compile_options_from_json(
             json_access::value_or(request, "options", nlohmann::json::object()),
             variant_diagnostics);
         noveltea::ShaderCompilerService compiler;
-        auto result = compiler.compile_shader_project(*shader_project, options);
-        result.diagnostics.insert(result.diagnostics.end(), variant_diagnostics.begin(),
-                                  variant_diagnostics.end());
-        return ok({{"success", result.success()},
-                   {"outputs", shader_compile_outputs_to_json(result.outputs)},
-                   {"diagnostics", shader_compile_diagnostics_to_json(result.diagnostics)}});
+
+        if (json_access::value_or(*shader_project, "schema", std::string{}) !=
+            "noveltea.shader-source-programs")
+            return fail("Shader compilation requires canonical source-program input.");
+
+        const auto programs_it = shader_project->find("programs");
+        if (programs_it == shader_project->end() || !programs_it->is_object())
+            return fail("Shader source-program request requires programs.");
+
+        auto outputs = nlohmann::json::array();
+        std::vector<noveltea::ShaderCompileDiagnostic> diagnostics =
+            std::move(variant_diagnostics);
+        bool success = diagnostics.empty();
+        for (const auto& [program, value] : programs_it->items()) {
+            if (!value.is_object())
+                return fail("Shader source-program entry must be an object.");
+            noveltea::ShaderSourceProgramRequest source_request{
+                .vertex_source = json_access::value_or(value, "vertexSource", std::string{}),
+                .fragment_source = json_access::value_or(value, "fragmentSource", std::string{}),
+                .varying_definition =
+                    json_access::value_or(value, "varyingDefinition", std::string{}),
+                .interface_contract =
+                    json_access::value_or(value, "interfaceContract", std::string{}),
+            };
+            auto result = compiler.compile_source_program(source_request, options);
+            success = success && result.success();
+            auto serialized = source_program_outputs_to_json(program, result);
+            for (auto& output : serialized)
+                outputs.push_back(std::move(output));
+            diagnostics.insert(diagnostics.end(), result.diagnostics.begin(),
+                               result.diagnostics.end());
+        }
+        return ok({{"success", success},
+                   {"outputs", std::move(outputs)},
+                   {"diagnostics", shader_compile_diagnostics_to_json(diagnostics)}});
     }
 
     if (command == "export-package") {

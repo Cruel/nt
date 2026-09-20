@@ -2200,7 +2200,7 @@ const assetResourceSchema = z.discriminatedUnion('kind', [
   strict({
     aliases: z.array(z.string().min(1)),
     id,
-    kind: z.enum(['font', 'audio', 'video', 'script', 'shader-source', 'text', 'data', 'binary']),
+    kind: z.enum(['font', 'audio', 'video', 'text', 'data', 'binary']),
     path: z.string().min(1),
     localized: z.array(localizedAssetRealizationSchema).optional(),
   }),
@@ -2209,6 +2209,7 @@ const layoutSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),
   strict({ asset: assetReferenceSchema, kind: z.literal('asset') }),
 ]);
+const layoutLuaSourceSchema = strict({ kind: z.literal('inline'), text: z.string() });
 const layoutContractValueTypeSchema = z.enum(['boolean', 'integer', 'number', 'string']);
 const layoutContractValueShapeSchema = strict({
   nullable: z.boolean(),
@@ -2283,13 +2284,17 @@ const layoutResourceSchema = strict({
     fonts: z.array(assetReferenceSchema),
     images: z.array(assetReferenceSchema),
     materials: z.array(materialReferenceSchema),
-    scripts: z.array(assetReferenceSchema),
+    scripts: z.array(
+      z
+        .string()
+        .regex(/^project:\/scripts\/(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*\\)(?!.*\/\/)[^/].*\.lua$/u),
+    ),
     stylesheets: z.array(assetReferenceSchema),
     data: z.array(assetReferenceSchema),
   }),
   id,
   kind: z.enum(['document', 'fragment']),
-  lua: layoutSourceSchema,
+  lua: layoutLuaSourceSchema,
   mount: strict({ defaultParent: z.string().nullable(), scopedStyles: z.boolean() }),
   rcss: layoutSourceSchema,
   rml: layoutSourceSchema,
@@ -2304,11 +2309,14 @@ const layoutResourceSchema = strict({
     'custom-overlay',
   ]),
 });
+const safeProjectLogicalPath = z
+  .string()
+  .regex(/^project:\/(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*\\)(?!.*\/\/)[^/].+$/);
 const scriptResourceSchema = strict({
   id,
   source: z.discriminatedUnion('kind', [
     strict({ kind: z.literal('inline-lua'), source: z.string() }),
-    strict({ asset: assetReferenceSchema, kind: z.literal('asset') }),
+    strict({ kind: z.literal('project-file'), path: safeProjectLogicalPath }),
   ]),
 });
 

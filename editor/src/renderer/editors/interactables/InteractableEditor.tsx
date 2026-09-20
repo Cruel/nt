@@ -7,6 +7,7 @@ import {
   type HotspotEditorViewState,
 } from '@/components/image-stage/hotspot-view-state';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
+import { MaterialSelector } from '@/components/materials/MaterialSelector';
 import {
   InteractableDefinitionPropertiesEditor,
   InteractableInstanceFeatureOverridesEditor,
@@ -122,19 +123,8 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       }),
     [selectorItems],
   );
-  const materialItems = useMemo(
-    () =>
-      filterSelectorItems(selectorItems, {
-        collections: ['materials'],
-        includeActions: false,
-      }),
-    [selectorItems],
-  );
   const selectedSpriteItem = imageAssetItems.find(
     (item) => item.entityId === data.presentation.sprite?.$ref.id,
-  );
-  const selectedMaterialItem = materialItems.find(
-    (item) => item.entityId === data.presentation.material?.$ref.id,
   );
   const declaredInstances = useMemo(
     () =>
@@ -146,7 +136,6 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
     [interactableId, project],
   );
   const [spriteSelectorOpen, setSpriteSelectorOpen] = useState(false);
-  const [materialSelectorOpen, setMaterialSelectorOpen] = useState(false);
   const hotspotIds = useMemo(
     () =>
       data.presentation.hotspots.kind === 'none'
@@ -243,16 +232,6 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
         presentation: { ...data.presentation, sprite: interactableAssetRef(item.entityId) },
       },
       'Update interactable sprite',
-    );
-  };
-  const chooseMaterial = (item: SelectorItem) => {
-    if (!item.entityId) return;
-    commit(
-      {
-        ...data,
-        presentation: { ...data.presentation, material: interactableMaterialRef(item.entityId) },
-      },
-      'Update interactable material',
     );
   };
   return (
@@ -405,27 +384,31 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
         </div>
         <div data-workbench-anchor="interactable.material">
           <Label>Material</Label>
-          <div className="flex overflow-hidden rounded-md border bg-background">
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-auto min-w-0 flex-1 justify-start rounded-none px-3 py-2 text-left"
-              onClick={() => setMaterialSelectorOpen(true)}
-            >
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">
-                  {selectedMaterialItem?.title ?? 'Choose material'}
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {selectedMaterialItem?.entityId ?? `${materialItems.length} materials available`}
-                </span>
-              </span>
-            </Button>
+          <div className="flex items-stretch gap-1">
+            <MaterialSelector
+              project={project}
+              value={data.presentation.material?.$ref.id ?? null}
+              expectedRole="engine-2d"
+              ariaLabel={t('materialSelector.interactableChoose')}
+              className="min-w-0 flex-1"
+              onValueChange={(materialId) =>
+                commit(
+                  {
+                    ...data,
+                    presentation: {
+                      ...data.presentation,
+                      material: interactableMaterialRef(materialId),
+                    },
+                  },
+                  'Update interactable material',
+                )
+              }
+            />
             {data.presentation.material ? (
               <Button
                 type="button"
-                variant="ghost"
-                className="h-auto rounded-none border-l px-3"
+                variant="outline"
+                className="h-auto shrink-0 px-3"
                 onClick={() =>
                   commit(
                     { ...data, presentation: { ...data.presentation, material: null } },
@@ -844,16 +827,6 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
         leadingMediaSize={{ width: 80, height: 48 }}
         onOpenChange={setSpriteSelectorOpen}
         onSelect={chooseSprite}
-      />
-      <SearchSelectorDialog
-        open={materialSelectorOpen}
-        title="Choose Interactable material"
-        placeholder="Search materials..."
-        emptyMessage="No materials match your search."
-        items={materialItems}
-        selectedId={selectedMaterialItem?.id ?? null}
-        onOpenChange={setMaterialSelectorOpen}
-        onSelect={chooseMaterial}
       />
     </div>
   );

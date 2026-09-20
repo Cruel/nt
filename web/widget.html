@@ -833,7 +833,7 @@ thead, tbody, tfoot {
       const resourceIds = new Set();
       const logicalPaths = new Map();
       const fetchPaths = new Map();
-      const assetKinds = new Set(['image', 'audio', 'font', 'video', 'data', 'shader-source', 'rml', 'rcss', 'lua']);
+      const assetKinds = new Set(['image', 'audio', 'font', 'video', 'text', 'data', 'binary']);
       const samplingValues = new Set(['linear', 'nearest']);
       for (const entry of entries) {
         if (!entry || typeof entry !== 'object') throw new Error('Focused preview manifest entry is invalid.');
@@ -868,6 +868,15 @@ thead, tbody, tfoot {
           if (!assetKinds.has(entry.kind)) throw new Error(`Focused preview Asset kind is invalid: '${entry.kind || ''}'.`);
           if (entry.sampling !== undefined && (entry.kind !== 'image' || !samplingValues.has(entry.sampling))) {
             throw new Error(`Focused preview Asset sampling is invalid: '${entry.sampling || ''}'.`);
+          }
+        } else if (entry.sourceKind === 'project-source') {
+          if (
+            entry.kind !== 'lua' ||
+            entry.sampling !== undefined ||
+            entry.resourceId !== `source:${entry.fetchProjectRelativePath}` ||
+            entry.logicalPath !== `project:/${entry.fetchProjectRelativePath}`
+          ) {
+            throw new Error(`Focused preview Project source identity is invalid: '${entry.resourceId}'.`);
           }
         } else if (entry.sourceKind === 'shader-compiled-output') {
           if (
@@ -1071,11 +1080,19 @@ thead, tbody, tfoot {
 
     async function stagePreviewProjectAssets(message, data) {
       const paths = [...collectProjectAssetPaths(data)];
-      if (paths.length === 0) return true;
+      const explicitAssets = Array.isArray(data && data.previewAssets) ? data.previewAssets : [];
+      if (paths.length === 0 && explicitAssets.length === 0) return true;
       const fs = moduleFileSystem();
       if (!fs) {
         failCommand(message, 'Preview widget filesystem is unavailable. Rebuild the editor preview with FS exported.', { category: 'project-asset' });
         return false;
+      }
+      for (const asset of explicitAssets) {
+        if (!asset || !safeProjectAssetPath(asset.sourcePath) || !safeProjectAssetPath(asset.runtimePath)) {
+          failCommand(message, 'Preview asset mapping is invalid.', { category: 'project-asset' });
+          return false;
+        }
+        if (!(await stageProjectAsset(message, fs, asset.sourcePath, asset.runtimePath))) return false;
       }
       for (const projectRelativePath of paths) {
         const ok = await stageProjectAsset(message, fs, projectRelativePath);

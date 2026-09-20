@@ -11,8 +11,11 @@ import type { AuthoringProject } from './project-schema/authoring-project';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import { parseRoomData } from './project-schema/authoring-rooms';
 import { resolveArchetypeConfiguration } from './project-schema/authoring-archetypes';
-import { resolveMaterialData } from './project-schema/authoring-materials';
-import { parseShaderData, type ShaderUniformValue } from './project-schema/authoring-shaders';
+import {
+  resolvedMaterialUsesCustomShader,
+  resolveMaterialData,
+} from './project-schema/authoring-materials';
+import type { ShaderUniformValue } from './project-schema/authoring-shaders';
 import {
   parseSceneData,
   type SceneStepData,
@@ -104,19 +107,35 @@ function common(step: Exclude<SceneStepData, { type: 'comment' }>) {
   };
 }
 
+type CompiledMaterialParameterValue = Extract<
+  SceneProgram['events'][number]['instruction'],
+  { kind: 'material-parameter' }
+>['value'];
+
+function compileUnresolvedMaterialParameterValue(
+  value: ShaderUniformValue,
+): CompiledMaterialParameterValue {
+  if (value === null) throw new Error('Validated Material Parameter cannot lower a null value.');
+  if (typeof value === 'boolean') return { type: 'bool', value };
+  if (typeof value === 'number') return { type: 'float', value };
+  if (Array.isArray(value)) {
+    if (value.length === 2) return { type: 'vec2', value: value as [number, number] };
+    if (value.length === 3) return { type: 'vec3', value: value as [number, number, number] };
+    return { type: 'vec4', value: value as [number, number, number, number] };
+  }
+  return { type: 'color', value };
+}
+
 function compileMaterialParameterValue(
   project: AuthoringProject,
   materialId: string,
   parameter: string,
   value: ShaderUniformValue,
-): Extract<SceneProgram['events'][number]['instruction'], { kind: 'material-parameter' }>['value'] {
+): CompiledMaterialParameterValue {
   const material = resolveMaterialData(project, materialId).data;
-  const shaderId = material?.shader?.$ref.id;
-  const uniform = shaderId
-    ? parseShaderData(project.shaders[shaderId]?.data)?.uniforms.find(
-        (item) => item.name === parameter,
-      )
-    : undefined;
+  if (material && resolvedMaterialUsesCustomShader(material))
+    return compileUnresolvedMaterialParameterValue(value);
+  const uniform = material?.preset.uniforms[parameter];
   if (!uniform || value === null)
     throw new Error(`Validated Material Parameter '${materialId}.${parameter}' cannot be lowered.`);
   switch (uniform.type) {

@@ -144,7 +144,6 @@ describe('ProjectWorkspaceService', () => {
     for (const collection of [
       'assets',
       'variables',
-      'shaders',
       'materials',
       'layouts',
       'characters',
@@ -364,7 +363,7 @@ describe('ProjectWorkspaceService', () => {
     const files = { ...projectWorkspaceFiles(project, project.editor) };
     expect(files['records/rooms/foyer.json']).toContain('"foyer"');
     expect(files['scripts/bootstrap.lua']).toBe('return true\n');
-    expect(files['records/scripts/bootstrap.json']).toContain('"file"');
+    expect(files['records/scripts/bootstrap.json']).toContain('"project-file"');
     const opened = await new ProjectWorkspaceService(
       new InMemoryProjectWorkspaceFileSystem(
         Object.fromEntries(Object.entries(files).map(([file, text]) => [`/project/${file}`, text])),
@@ -374,7 +373,7 @@ describe('ProjectWorkspaceService', () => {
     if (opened.ok)
       expect(opened.snapshot.project.scripts.bootstrap?.data).toEqual({
         kind: 'script-module',
-        source: { kind: 'inline-lua', source: 'return true\n' },
+        source: { kind: 'project-file', path: 'scripts/bootstrap.lua' },
       });
   });
 
@@ -479,19 +478,8 @@ describe('ProjectWorkspaceService', () => {
     );
   });
 
-  it('does not replace asset-backed source identities with workspace companion paths', async () => {
+  it('preserves project-file Script Module identity and asset-backed Layout identity', async () => {
     const project = createAuthoringProject();
-    project.assets.script = {
-      id: 'script',
-      label: 'Script',
-      data: {
-        kind: 'script',
-        source: { type: 'project-file', path: 'assets/lua/shared.lua' },
-        aliases: [],
-        extension: '.lua',
-        imageMetadata: null,
-      },
-    } as never;
     project.assets.rml = {
       id: 'rml',
       label: 'RML',
@@ -508,7 +496,7 @@ describe('ProjectWorkspaceService', () => {
       label: 'Bootstrap',
       data: {
         kind: 'script-module',
-        source: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'script' } } },
+        source: { kind: 'project-file', path: 'scripts/custom/bootstrap.lua' },
       },
     } as never;
     const layout = defaultLayoutData('HUD');
@@ -525,8 +513,8 @@ describe('ProjectWorkspaceService', () => {
     expect(snapshot.externalSourceDescriptors).toContainEqual(
       expect.objectContaining({
         semanticOwner: { kind: 'record', collection: 'scripts', id: 'bootstrap' },
-        sourceAssetId: 'script',
-        sourceUrl: 'project:/assets/lua/shared.lua',
+        sourcePath: '/scripts/bootstrap/data/source/path',
+        sourceUrl: 'project:/scripts/custom/bootstrap.lua',
       }),
     );
     expect(snapshot.externalSourceDescriptors).toContainEqual(

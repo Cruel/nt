@@ -104,6 +104,7 @@ function sharedPreferencesSnapshot(state: ResettableEditorPreferences): NovelTea
     previewDisplay: state.previewDisplay,
     editorPreviewLayout: state.editorPreviewLayout,
     showCategorizedEditorHeaders: state.showCategorizedEditorHeaders,
+    materialLibraryLivePreviews: state.materialLibraryLivePreviews,
     terminal: state.terminal,
     exportPreferences: state.exportPreferences,
   };
@@ -159,6 +160,9 @@ function sharedPreferencesState(
     ...(typeof candidate.showCategorizedEditorHeaders === 'boolean'
       ? { showCategorizedEditorHeaders: candidate.showCategorizedEditorHeaders }
       : {}),
+    ...(typeof candidate.materialLibraryLivePreviews === 'boolean'
+      ? { materialLibraryLivePreviews: candidate.materialLibraryLivePreviews }
+      : {}),
     terminal: normalizeTerminalPreferences(candidate.terminal ?? current.terminal),
     exportPreferences: normalizeExportPreferences(
       candidate.exportPreferences ?? current.exportPreferences,
@@ -180,6 +184,7 @@ export interface ResettableEditorPreferences {
   previewDisplay: PreviewDisplayPreference;
   editorPreviewLayout: EditorPreviewLayoutPreference;
   showCategorizedEditorHeaders: boolean;
+  materialLibraryLivePreviews: boolean;
   editorPreviewSplitSizes: EditorPreviewSplitSizes;
   terminal: TerminalPreferences;
   exportPreferences: ExportPreferences;
@@ -203,6 +208,7 @@ interface PreferencesState extends ResettableEditorPreferences {
   setPreviewDisplay: (preference: PreviewDisplayPreference) => void;
   setEditorPreviewLayout: (preference: EditorPreviewLayoutPreference) => void;
   setShowCategorizedEditorHeaders: (show: boolean) => void;
+  setMaterialLibraryLivePreviews: (enabled: boolean) => void;
   setEditorPreviewSplitSize: (
     orientation: keyof EditorPreviewSplitSizes,
     previewSize: number,
@@ -227,6 +233,7 @@ export function createDefaultEditorPreferences(): ResettableEditorPreferences {
     previewDisplay: { ...DEFAULT_PREVIEW_DISPLAY_PREFERENCE },
     editorPreviewLayout: 'automatic',
     showCategorizedEditorHeaders: true,
+    materialLibraryLivePreviews: true,
     editorPreviewSplitSizes: { ...DEFAULT_EDITOR_PREVIEW_SPLIT_SIZES },
     terminal: { ...DEFAULT_TERMINAL_PREFERENCES },
     exportPreferences: normalizeExportPreferences(DEFAULT_EXPORT_PREFERENCES),
@@ -247,6 +254,7 @@ export function selectEditorPreferencesAreDefaults(state: ResettableEditorPrefer
     state.defaultProjectDirectory === defaults.defaultProjectDirectory &&
     state.editorPreviewLayout === defaults.editorPreviewLayout &&
     state.showCategorizedEditorHeaders === defaults.showCategorizedEditorHeaders &&
+    state.materialLibraryLivePreviews === defaults.materialLibraryLivePreviews &&
     JSON.stringify(state.comfyUiConfig) === JSON.stringify(defaults.comfyUiConfig) &&
     JSON.stringify(state.previewDisplay) === JSON.stringify(defaults.previewDisplay) &&
     JSON.stringify(state.editorPreviewSplitSizes) ===
@@ -289,6 +297,8 @@ export const usePreferencesStore = create<PreferencesState>()(
         set({ editorPreviewLayout: normalizeEditorPreviewLayoutPreference(editorPreviewLayout) }),
       setShowCategorizedEditorHeaders: (showCategorizedEditorHeaders) =>
         set({ showCategorizedEditorHeaders }),
+      setMaterialLibraryLivePreviews: (materialLibraryLivePreviews) =>
+        set({ materialLibraryLivePreviews }),
       setEditorPreviewSplitSize: (orientation, previewSize) =>
         set((state) => ({
           editorPreviewSplitSizes: normalizeEditorPreviewSplitSizes({

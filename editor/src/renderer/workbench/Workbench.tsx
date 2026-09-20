@@ -1,6 +1,10 @@
 import { useMemo, useRef, type ReactNode } from 'react';
 import { Group, Panel } from 'react-resizable-panels';
 import { PanelResizeSeparator } from '@/components/resize-separator';
+import {
+  MaterialPreviewGroupProvider,
+  MaterialPreviewProjectProvider,
+} from '@/material-preview/material-preview-provider';
 import { PreviewHostManagerProvider } from '@/preview/preview-host-pool';
 import { DirtyCloseDialog } from './DirtyCloseDialog';
 import { defaultEditorRegistry } from './default-editors';
@@ -82,7 +86,11 @@ function WorkbenchLayoutRenderer({
     const tabs = group.tabIds
       .map((tabId) => tabsById[tabId])
       .filter((tab): tab is NonNullable<typeof tab> => Boolean(tab));
-    return <WorkbenchGroup group={group} tabs={tabs} />;
+    return (
+      <MaterialPreviewGroupProvider>
+        <WorkbenchGroup group={group} tabs={tabs} />
+      </MaterialPreviewGroupProvider>
+    );
   }
 
   const children = node.children.flatMap((child, index) => {
@@ -146,16 +154,18 @@ export function Workbench() {
       className="relative h-full min-h-0 overflow-hidden bg-background"
       data-workbench-root
     >
-      <WorkbenchGroupServicesProvider>
-        <PersistentEditorHostProvider rootRef={rootRef}>
-          <WorkbenchPreviewHostManager>
-            <WorkbenchTabDndContext>
-              <WorkbenchLayoutRenderer node={layout} />
-            </WorkbenchTabDndContext>
-            <PersistentEditorHostLayer />
-          </WorkbenchPreviewHostManager>
-        </PersistentEditorHostProvider>
-      </WorkbenchGroupServicesProvider>
+      <MaterialPreviewProjectProvider>
+        <WorkbenchGroupServicesProvider>
+          <PersistentEditorHostProvider rootRef={rootRef}>
+            <WorkbenchPreviewHostManager>
+              <WorkbenchTabDndContext>
+                <WorkbenchLayoutRenderer node={layout} />
+              </WorkbenchTabDndContext>
+              <PersistentEditorHostLayer />
+            </WorkbenchPreviewHostManager>
+          </PersistentEditorHostProvider>
+        </WorkbenchGroupServicesProvider>
+      </MaterialPreviewProjectProvider>
       <DirtyCloseDialog />
     </div>
   );

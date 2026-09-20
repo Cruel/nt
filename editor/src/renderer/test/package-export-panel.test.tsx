@@ -50,15 +50,21 @@ describe('PackageExportPanel', () => {
       shaderDiagnostics: [],
       shaderOutputs: [
         {
-          shader: 'noise',
+          program: 'noise-program',
+          programIdentity: 'program-identity',
           stage: 'fragment',
           variant: 'glsl-330',
-          sourcePath: '/project/noise.fs.sc',
-          outputPath: '/project/.noveltea/build/shaders/bgfx/glsl-330/noise.fs.bin',
-          runtimePath: 'project:/shaders/bgfx/glsl-330/noise.fs.bin',
+          sourceIdentity: 'project:/shaders/noise.fs.sc',
+          dependencies: ['project:/shaders/noise.fs.sc'],
+          dependencyRevisions: [
+            { identity: 'project:/shaders/noise.fs.sc', contentHash: `sha256:${'d'.repeat(64)}` },
+          ],
+          outputPath: '/project/.noveltea/build/shaders/derived/glsl-330/program-identity.fs.bin',
+          runtimePath: 'project:/shaders/derived/glsl-330/program-identity.fs.bin',
           cacheKey: 'key',
           byteHash: `sha256:${'a'.repeat(64)}`,
           byteSize: 4,
+          reflectedInputs: [],
           cacheHit: false,
         },
       ],
@@ -121,7 +127,9 @@ describe('PackageExportPanel', () => {
     expect(screen.getAllByText('textures/logo.png').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('game')).toBeInTheDocument();
     expect(screen.getByText('10 bytes')).toBeInTheDocument();
-    expect(screen.getByText('project:/shaders/bgfx/glsl-330/noise.fs.bin')).toBeInTheDocument();
+    expect(
+      screen.getByText('project:/shaders/derived/glsl-330/program-identity.fs.bin'),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Preview Package'));
     await waitFor(() =>

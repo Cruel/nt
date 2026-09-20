@@ -10,6 +10,8 @@ import type {
   ShaderCompileResponse,
 } from './editor-tooling';
 import { parseAssetData } from './project-schema/authoring-assets';
+import { parseLayoutData } from './project-schema/authoring-layouts';
+import { parseScriptModuleData } from './project-schema/authoring-script-modules';
 import { serializeCompiledProjectWire } from './project-schema/compiled-project';
 import type { ExportProfileData, ExportShaderVariant } from './project-schema/authoring-export';
 import type { AuthoringProject } from './project-schema/authoring-project';
@@ -32,14 +34,10 @@ import {
   canonicalProjectContentJson,
   emptyEditorProjectState,
 } from './project-schema/editor-project-state';
-import { buildShaderMaterialProject } from './project-schema/shader-material-project';
 import {
-  canonicalRuntimeShaderOutputPath,
-  captureShaderCompileInputFingerprints,
-  parseShaderData,
-  shaderCompileInputFingerprint,
-  type VerifiedShaderCompiledOutput,
-} from './project-schema/authoring-shaders';
+  buildShaderMaterialProject,
+  rewriteActiveTextSourcePrograms,
+} from './project-schema/shader-material-project';
 import {
   PREPARED_RUNTIME_ARTIFACT_SCHEMA,
   preparedRuntimeArtifactSchema,
@@ -61,7 +59,7 @@ interface RuntimeArtifactAssemblyOptions {
   projectRoot?: string | null;
   profile: ExportProfileData;
   recoveryFingerprint?: unknown;
-  shaderAuthoringOutputs?: readonly VerifiedShaderCompiledOutput[];
+  shaderOutputs?: readonly ShaderCompileOutput[];
   paths: RuntimeArtifactPathAdapter;
 }
 
@@ -105,7 +103,7 @@ export interface RuntimeArtifactPathAdapter {
     entries: readonly {
       assetId: string;
       projectRelativePath: string;
-      expectedContentHash: Sha256Digest;
+      expectedContentHash: Sha256Digest | null;
     }[],
   ): Promise<
     readonly (
@@ -297,65 +295,6 @@ function compilerDiagnosticsFor(
   );
 }
 
-function shaderMaterialMetadataWithOutputs(
-  metadata: Awaited<ReturnType<typeof buildShaderMaterialProject>>['project'],
-  outputs: readonly VerifiedShaderCompiledOutput[],
-): {
-  metadata: Awaited<ReturnType<typeof buildShaderMaterialProject>>['project'];
-  diagnostics: ProjectValidationDiagnostic[];
-} {
-  if (outputs.length === 0) return { metadata, diagnostics: [] };
-  const next = structuredClone(metadata);
-  const diagnostics: ProjectValidationDiagnostic[] = [];
-  for (const output of outputs) {
-    const shader = next.shaders[output.shader];
-    const shaderRecord =
-      shader && typeof shader === 'object' && !Array.isArray(shader)
-        ? (shader as Record<string, unknown>)
-        : null;
-    const stages =
-      shaderRecord?.stages &&
-      typeof shaderRecord.stages === 'object' &&
-      !Array.isArray(shaderRecord.stages)
-        ? (shaderRecord.stages as Record<string, unknown>)
-        : null;
-    const stage = stages?.[output.stage];
-    const stageRecord =
-      stage && typeof stage === 'object' && !Array.isArray(stage)
-        ? (stage as Record<string, unknown>)
-        : null;
-    if (!stageRecord) {
-      diagnostics.push(
-        createProjectValidationDiagnostic({
-          code: 'runtime-export.shader-output.target-missing',
-          severity: 'error',
-          path: `/shaders/${output.shader}/data/stages`,
-          message: `Compiled output targets missing shader stage '${output.shader}:${output.stage}'.`,
-          category: 'Shader publication',
-          boundaries: ['runtime-package'],
-          ownerPaths: [`/shaders/${output.shader}`],
-        }),
-      );
-      continue;
-    }
-    const compiled =
-      stageRecord.compiled &&
-      typeof stageRecord.compiled === 'object' &&
-      !Array.isArray(stageRecord.compiled)
-        ? (stageRecord.compiled as Record<string, unknown>)
-        : {};
-    stageRecord.compiled = {
-      ...compiled,
-      [output.variant]: {
-        runtimePath: output.metadata.path,
-        byteHash: output.metadata.byteHash,
-        byteSize: output.metadata.byteSize,
-      },
-    };
-  }
-  return { metadata: next, diagnostics };
-}
-
 function requiredShaderBinaryPaths(metadata: unknown, variants: readonly ExportShaderVariant[]) {
   const required = new Set<string>();
   const shaders =
@@ -390,7 +329,7 @@ function requiredShaderBinaryPaths(metadata: unknown, variants: readonly ExportS
 }
 
 export function hasAuthoringShadersOrMaterials(project: AuthoringProject) {
-  return Object.keys(project.shaders).length > 0 || Object.keys(project.materials).length > 0;
+  return Object.keys(project.materials).length > 0;
 }
 
 function localizationOwnsAssetReference(sourcePath: string): boolean {
@@ -411,27 +350,42 @@ async function runtimeSourceGraphAssessment(
   paths: RuntimeArtifactPathAdapter,
 ): Promise<RuntimeSourceGraphAssessment | null> {
   const requiredSourceAssetIds = collectAuthoringSourceRequirements(project);
-  const readEntries = requiredSourceAssetIds.flatMap((assetId) => {
+  const assetReadEntries = requiredSourceAssetIds.flatMap((assetId) => {
     const data = parseAssetData(project.assets[assetId]?.data);
     const hash = data?.contentHash;
     return data && hash && isSha256Digest(hash)
       ? [{ assetId, projectRelativePath: data.source.path, expectedContentHash: hash }]
       : [];
   });
+  if (assetReadEntries.length !== requiredSourceAssetIds.length) return null;
 
-  if (readEntries.length !== requiredSourceAssetIds.length) return null;
+  const projectFilePaths = new Set<string>();
+  for (const record of Object.values(project.scripts)) {
+    const source = parseScriptModuleData(record.data)?.source;
+    if (source?.kind === 'project-file') projectFilePaths.add(source.path);
+  }
+  for (const record of Object.values(project.layouts)) {
+    const layout = parseLayoutData(record.data);
+    for (const scriptPath of layout?.dependencies.scripts ?? []) projectFilePaths.add(scriptPath);
+  }
+  const projectFileReadEntries = [...projectFilePaths].sort().map((projectRelativePath, index) => ({
+    assetId: `project-file:${index}`,
+    projectRelativePath,
+    expectedContentHash: null,
+  }));
+  const readEntries = [...assetReadEntries, ...projectFileReadEntries];
   if (readEntries.length > 0 && !paths.readProjectTextSources) return null;
 
   const readResults = paths.readProjectTextSources
     ? await paths.readProjectTextSources(projectRoot, readEntries)
     : [];
-  const byAssetId = new Map(readResults.map((entry) => [entry.assetId, entry]));
-  if (readEntries.some(({ assetId }) => byAssetId.get(assetId)?.status !== 'ready')) return null;
+  const byReadKey = new Map(readResults.map((entry) => [entry.assetId, entry]));
+  if (readEntries.some(({ assetId }) => byReadKey.get(assetId)?.status !== 'ready')) return null;
 
   const sources: LuaSourceSnapshot = {
     entriesByAssetId: new Map(
-      readEntries.map(({ assetId, expectedContentHash, projectRelativePath }) => {
-        const entry = byAssetId.get(assetId)!;
+      assetReadEntries.map(({ assetId, expectedContentHash, projectRelativePath }) => {
+        const entry = byReadKey.get(assetId)!;
         if (entry.status !== 'ready')
           throw new Error('Source-read completeness changed unexpectedly.');
         return [
@@ -441,6 +395,23 @@ async function runtimeSourceGraphAssessment(
             assetId,
             projectRelativePath,
             contentHash: entry.contentHash ?? expectedContentHash,
+            text: entry.text,
+            hadUtf8Bom: false,
+          },
+        ];
+      }),
+    ),
+    entriesByProjectPath: new Map(
+      projectFileReadEntries.map(({ assetId, projectRelativePath }) => {
+        const entry = byReadKey.get(assetId)!;
+        if (entry.status !== 'ready')
+          throw new Error('Source-read completeness changed unexpectedly.');
+        return [
+          projectRelativePath,
+          {
+            status: 'ready' as const,
+            projectRelativePath,
+            contentHash: entry.contentHash,
             text: entry.text,
             hadUtf8Bom: false,
           },
@@ -475,6 +446,180 @@ async function referencedRuntimeAssetIds(
   return (
     (await runtimeSourceGraphAssessment(project, projectRoot, paths))?.referencedAssetIds ?? null
   );
+}
+
+type CompiledMaterialInterface =
+  PreparedRuntimeArtifact['compiledProject']['resources']['materialInterfaces'][number];
+type CompiledMaterialParameterType = CompiledMaterialInterface['parameters'][number]['type'];
+
+function materialParameterValueMatches(
+  type: CompiledMaterialParameterType,
+  value: unknown,
+): boolean {
+  switch (type) {
+    case 'float':
+      return typeof value === 'number' && Number.isFinite(value);
+    case 'int':
+      return typeof value === 'number' && Number.isInteger(value);
+    case 'bool':
+      return typeof value === 'boolean';
+    case 'vec2':
+      return Array.isArray(value) && value.length === 2 && value.every(Number.isFinite);
+    case 'vec3':
+      return Array.isArray(value) && value.length === 3 && value.every(Number.isFinite);
+    case 'vec4':
+      return Array.isArray(value) && value.length === 4 && value.every(Number.isFinite);
+    case 'color':
+      return (
+        value !== null &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        ['r', 'g', 'b', 'a'].every(
+          (key) =>
+            typeof (value as Record<string, unknown>)[key] === 'number' &&
+            Number.isFinite((value as Record<string, number>)[key]),
+        )
+      );
+  }
+}
+
+function reconcileCompiledMaterialParameters<T>(
+  value: T,
+  interfaces: readonly CompiledMaterialInterface[],
+): { value: T; diagnostics: ProjectValidationDiagnostic[] } {
+  const byMaterial = new Map(interfaces.map((item) => [item.id, item]));
+  const diagnostics: ProjectValidationDiagnostic[] = [];
+  const reconcileValue = (
+    materialId: string,
+    parameterName: string,
+    compiledValue: unknown,
+    path: string,
+    transition?: unknown,
+  ): unknown => {
+    const material = byMaterial.get(materialId);
+    const parameter = material?.parameters.find((item) => item.name === parameterName);
+    if (!parameter) {
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.material-parameter.unknown',
+          severity: 'error',
+          path: `${path}/parameter`,
+          message: `Material '${materialId}' reflected interface does not declare parameter '${parameterName}'.`,
+          category: 'Materials',
+          boundaries: ['runtime-package'],
+          ownerPaths: [`/materials/${materialId}`],
+        }),
+      );
+      return compiledValue;
+    }
+    if (parameter.rendererBinding !== null) {
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.material-parameter.renderer-bound',
+          severity: 'error',
+          path: `${path}/parameter`,
+          message: `Material parameter '${materialId}.${parameterName}' is runtime-owned and cannot be occurrence-controlled.`,
+          category: 'Materials',
+          boundaries: ['runtime-package'],
+          ownerPaths: [`/materials/${materialId}`],
+        }),
+      );
+      return compiledValue;
+    }
+    const raw =
+      compiledValue && typeof compiledValue === 'object' && 'value' in compiledValue
+        ? (compiledValue as { value: unknown }).value
+        : undefined;
+    if (!materialParameterValueMatches(parameter.type, raw)) {
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.material-parameter.type',
+          severity: 'error',
+          path: `${path}/value`,
+          message: `Material parameter '${materialId}.${parameterName}' value does not match reflected type '${parameter.type}'.`,
+          category: 'Materials',
+          boundaries: ['runtime-package'],
+          ownerPaths: [`/materials/${materialId}`],
+        }),
+      );
+      return compiledValue;
+    }
+    if (transition === 'tween' && (parameter.type === 'bool' || parameter.type === 'int'))
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.material-parameter.transition',
+          severity: 'error',
+          path: `${path}/transition`,
+          message: `Material parameter '${materialId}.${parameterName}' cannot use finite interpolation for reflected type '${parameter.type}'.`,
+          category: 'Materials',
+          boundaries: ['runtime-package'],
+          ownerPaths: [`/materials/${materialId}`],
+        }),
+      );
+    return { type: parameter.type, value: raw };
+  };
+
+  const visit = (current: unknown, path: string): unknown => {
+    if (Array.isArray(current))
+      return current.map((item, index) => visit(item, `${path}/${index}`));
+    if (!current || typeof current !== 'object') return current;
+    const record = current as Record<string, unknown>;
+    const next = Object.fromEntries(
+      Object.entries(record).map(([key, item]) => [key, visit(item, `${path}/${key}`)]),
+    );
+    if (
+      record.kind === 'material-parameter' &&
+      record.material &&
+      typeof record.material === 'object' &&
+      typeof (record.material as Record<string, unknown>).id === 'string' &&
+      typeof record.parameter === 'string'
+    )
+      next.value = reconcileValue(
+        (record.material as Record<string, string>).id,
+        record.parameter,
+        record.value,
+        path,
+        record.transition,
+      );
+    if (
+      record.kind === 'postprocess-effect' &&
+      record.material &&
+      typeof record.material === 'object' &&
+      typeof (record.material as Record<string, unknown>).id === 'string' &&
+      Array.isArray(record.parameters)
+    ) {
+      const materialId = (record.material as Record<string, string>).id;
+      next.parameters = record.parameters.map((parameter, index) => {
+        if (!parameter || typeof parameter !== 'object') return parameter;
+        const item = parameter as Record<string, unknown>;
+        if (typeof item.name !== 'string') return parameter;
+        return {
+          ...item,
+          value: reconcileValue(materialId, item.name, item.value, `${path}/parameters/${index}`),
+        };
+      });
+    }
+    return next;
+  };
+
+  return { value: visit(value, '') as T, diagnostics };
+}
+
+function rewriteCompiledActiveTextSourcePrograms<T>(
+  value: T,
+  programs: ReadonlyMap<string, string>,
+): T {
+  if (typeof value === 'string') return rewriteActiveTextSourcePrograms(value, programs) as T;
+  if (Array.isArray(value))
+    return value.map((item) => rewriteCompiledActiveTextSourcePrograms(item, programs)) as T;
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        rewriteCompiledActiveTextSourcePrograms(item, programs),
+      ]),
+    ) as T;
+  return value;
 }
 
 async function assembleRuntimeArtifact(
@@ -550,7 +695,6 @@ async function assembleRuntimeArtifact(
       !localizationClosure?.requiredLocalizationAssetIds.has(asset.id)
     )
       return false;
-    if (asset.kind === 'shader-source' && !options.profile.includeShaderSources) return false;
     return true;
   });
   const unpartitionedCompiledProject = localizedCompiledProject
@@ -562,9 +706,9 @@ async function assembleRuntimeArtifact(
   const partitioned = unpartitionedCompiledProject
     ? partitionRuntimeLocalizationCatalogs(unpartitionedCompiledProject)
     : null;
-  const compiledProject = partitioned?.project;
+  let compiledProject = partitioned?.project;
   const localizationTextEntries = partitioned?.textEntries ?? [];
-  const gameplayJson = compiledProject ? serializeCompiledProjectWire(compiledProject) : undefined;
+  let gameplayJson = compiledProject ? serializeCompiledProjectWire(compiledProject) : undefined;
   const fileEntries = includedCompiledAssets.flatMap((asset): ExportFileEntry[] => {
     if (localizationClosure && !localizationClosure.payloadAssetIds.has(asset.id)) return [];
     const authored = parseAssetData(project.assets[asset.id]?.data);
@@ -582,13 +726,95 @@ async function assembleRuntimeArtifact(
       },
     ];
   });
+  const packagedSourcePaths = new Set<string>();
+  for (const [scriptId, record] of Object.entries(project.scripts)) {
+    const source = parseScriptModuleData(record.data)?.source;
+    if (source?.kind !== 'project-file') continue;
+    packagedSourcePaths.add(source.path);
+    fileEntries.push({
+      source: options.paths.resolveProjectSource(options.projectRoot ?? null, source.path),
+      packagePath: source.path,
+      storage: 'auto',
+      assetId: scriptId,
+      kind: 'script-source',
+    });
+  }
+  for (const record of Object.values(project.layouts)) {
+    const layout = parseLayoutData(record.data);
+    for (const scriptPath of layout?.dependencies.scripts ?? []) {
+      if (packagedSourcePaths.has(scriptPath)) continue;
+      packagedSourcePaths.add(scriptPath);
+      fileEntries.push({
+        source: options.paths.resolveProjectSource(options.projectRoot ?? null, scriptPath),
+        packagePath: scriptPath,
+        storage: 'auto',
+        assetId: `source:${scriptPath}`,
+        kind: 'script-source',
+      });
+    }
+  }
 
-  const shaderBuild = await buildShaderMaterialProject(project);
-  const shaderAuthoringOutputs = options.shaderAuthoringOutputs ?? [];
-  const preparedShaderMetadata = shaderMaterialMetadataWithOutputs(
-    shaderBuild.project,
-    shaderAuthoringOutputs,
-  );
+  const shaderBuild = await buildShaderMaterialProject(project, options.shaderOutputs ?? []);
+  if (compiledProject && shaderBuild.activeTextSourcePrograms.size > 0)
+    compiledProject = rewriteCompiledActiveTextSourcePrograms(
+      compiledProject,
+      shaderBuild.activeTextSourcePrograms,
+    );
+  if (!options.profile.stripShaderSources) {
+    const shaderSourcePaths = new Set<string>();
+    const addShaderIdentity = (identity: string) => {
+      if (!identity.startsWith('project:/shaders/')) return;
+      shaderSourcePaths.add(identity.slice('project:/'.length));
+    };
+    for (const request of Object.values(shaderBuild.compilation.programs)) {
+      addShaderIdentity(request.vertexSource);
+      addShaderIdentity(request.fragmentSource);
+      addShaderIdentity(request.varyingDefinition);
+    }
+    for (const output of options.shaderOutputs ?? [])
+      for (const dependency of output.dependencies) addShaderIdentity(dependency);
+    for (const sourcePath of [...shaderSourcePaths].sort()) {
+      if (packagedSourcePaths.has(sourcePath)) continue;
+      packagedSourcePaths.add(sourcePath);
+      fileEntries.push({
+        source: options.paths.resolveProjectSource(options.projectRoot ?? null, sourcePath),
+        packagePath: sourcePath,
+        storage: 'auto',
+        assetId: `source:${sourcePath}`,
+        kind: 'shader-source',
+      });
+    }
+  }
+  let materialParameterDiagnostics: ProjectValidationDiagnostic[] = [];
+  if (compiledProject) {
+    const materialInterfaces = Object.entries(shaderBuild.project.materials)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, material]) => {
+        const shader = shaderBuild.project.shaders[material.shader];
+        return {
+          id,
+          role: material.role,
+          postprocessScope: material.postprocess_scope ?? 'world',
+          parameters: Object.entries(shader?.uniforms ?? {})
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([name, uniform]) => ({
+              name,
+              type: uniform.type,
+              rendererBinding: uniform.binding ?? null,
+            })),
+        };
+      });
+    compiledProject = {
+      ...compiledProject,
+      resources: { ...compiledProject.resources, materialInterfaces },
+    };
+    if (options.shaderOutputs !== undefined) {
+      const reconciled = reconcileCompiledMaterialParameters(compiledProject, materialInterfaces);
+      compiledProject = reconciled.value;
+      materialParameterDiagnostics = reconciled.diagnostics;
+    }
+    gameplayJson = serializeCompiledProjectWire(compiledProject);
+  }
   const shaderDiagnostics = classifyProjectValidationDiagnostics(
     shaderBuild.diagnostics.map((item) => ({
       ...item,
@@ -614,7 +840,7 @@ async function assembleRuntimeArtifact(
     sourceGraph?.diagnostics ?? [],
     compilerDiagnostics,
     shaderDiagnostics,
-    preparedShaderMetadata.diagnostics,
+    materialParameterDiagnostics,
     localizationClosure?.diagnostics ?? [],
     entrypointDiagnostics,
   );
@@ -625,9 +851,9 @@ async function assembleRuntimeArtifact(
     projectValidationBlocksBoundary(item, 'runtime-package'),
   );
   const hasMetadata =
-    Object.keys(preparedShaderMetadata.metadata.shaders).length > 0 ||
-    Object.keys(preparedShaderMetadata.metadata.materials).length > 0;
-  const shaderMaterialMetadata = hasMetadata ? preparedShaderMetadata.metadata : undefined;
+    Object.keys(shaderBuild.project.shaders).length > 0 ||
+    Object.keys(shaderBuild.project.materials).length > 0;
+  const shaderMaterialMetadata = hasMetadata ? shaderBuild.project : undefined;
   const shaderVariants = shaderMaterialMetadata ? options.profile.shaderVariants : [];
   const required = shaderMaterialMetadata
     ? requiredShaderBinaryPaths(shaderMaterialMetadata, shaderVariants)
@@ -728,112 +954,148 @@ function shaderExecutionDiagnostics(
 }
 
 async function validateShaderOutputs(
-  project: AuthoringProject,
+  programs: Readonly<Record<string, { vertexSource: string; fragmentSource: string }>>,
+  variants: readonly string[],
   outputs: readonly ShaderCompileOutput[],
-  capturedFingerprints: Readonly<Record<string, `sha256:${string}`>>,
-): Promise<{
-  outputs: ShaderCompileOutput[];
-  authoringOutputs: VerifiedShaderCompiledOutput[];
-  diagnostics: ProjectValidationDiagnostic[];
-}> {
+  projectRoot: string | null,
+  paths: RuntimeArtifactPathAdapter,
+): Promise<{ outputs: ShaderCompileOutput[]; diagnostics: ProjectValidationDiagnostic[] }> {
   const accepted: ShaderCompileOutput[] = [];
-  const authoringOutputs: VerifiedShaderCompiledOutput[] = [];
   const diagnostics: ProjectValidationDiagnostic[] = [];
-  const seenKeys = new Set<string>();
-  const acceptedKeys = new Set<string>();
+  const seen = new Set<string>();
+  const identityByProgram = new Map<string, string>();
   for (const output of outputs) {
-    const key = `${output.shader}:${output.stage}:${output.variant}`;
-    if (seenKeys.has(key)) {
-      const duplicateShader = parseShaderData(project.shaders[output.shader]?.data);
-      const duplicateStageIndex =
-        duplicateShader?.stages.findIndex((stage) => stage.stage === output.stage) ?? -1;
+    const key = `${output.program}:${output.stage}:${output.variant}`;
+    const request = programs[output.program];
+    const expectedSource =
+      output.stage === 'vertex' ? request?.vertexSource : request?.fragmentSource;
+    const valid =
+      request !== undefined &&
+      variants.includes(output.variant) &&
+      output.sourceIdentity === expectedSource &&
+      output.dependencyRevisions.length === output.dependencies.length &&
+      output.dependencyRevisions.every(
+        (revision, index) => revision.identity === output.dependencies[index],
+      ) &&
+      output.runtimePath.startsWith(`project:/shaders/derived/${output.variant}/`) &&
+      /^sha256:[0-9a-f]{64}$/.test(output.byteHash) &&
+      Number.isSafeInteger(output.byteSize) &&
+      output.byteSize >= 0 &&
+      output.programIdentity.length > 0;
+    if (!valid || seen.has(key)) {
       diagnostics.push(
         createProjectValidationDiagnostic({
-          code: 'runtime-artifact.shader-output-duplicate',
+          code: seen.has(key)
+            ? 'runtime-artifact.shader-output-duplicate'
+            : 'runtime-artifact.shader-output-invalid',
           severity: 'error',
-          path:
-            duplicateStageIndex >= 0
-              ? `/shaders/${output.shader}/data/stages/${duplicateStageIndex}/compiled/${
-                  output.variant
-                }`
-              : `/shaders/${output.shader}`,
-          message: `Shader compiler returned duplicate output '${key}'.`,
+          path: '/materials',
+          message: `Shader compiler returned invalid output '${key}'.`,
           category: 'shader',
           boundaries: ['runtime-package'],
-          ownerPaths: [`/shaders/${output.shader}`],
+          ownerPaths: ['/materials'],
         }),
       );
       continue;
     }
-    seenKeys.add(key);
-    const captured = capturedFingerprints[key];
-    const shader = parseShaderData(project.shaders[output.shader]?.data);
-    const stageIndex = shader?.stages.findIndex((stage) => stage.stage === output.stage) ?? -1;
-    const current =
-      stageIndex >= 0
-        ? await shaderCompileInputFingerprint(project, output.shader, stageIndex, output.variant)
-        : null;
-    const runtimePath = canonicalRuntimeShaderOutputPath(output.runtimePath);
-    if (
-      !captured ||
-      current !== captured ||
-      !runtimePath ||
-      !/^sha256:[0-9a-f]{64}$/.test(output.byteHash) ||
-      !Number.isSafeInteger(output.byteSize) ||
-      output.byteSize < 0
-    ) {
+    const identity = identityByProgram.get(output.program);
+    if (identity && identity !== output.programIdentity) {
       diagnostics.push(
         createProjectValidationDiagnostic({
-          code: captured
-            ? 'runtime-artifact.shader-output-stale-or-invalid'
-            : 'runtime-artifact.shader-request-fingerprint-missing',
+          code: 'runtime-artifact.shader-program-identity-inconsistent',
           severity: 'error',
-          path: `/shaders/${output.shader}`,
-          message: `Compiled shader output '${key}' is stale or has invalid integrity metadata.`,
+          path: '/materials',
+          message: `Shader compiler returned inconsistent program identity for '${output.program}'.`,
           category: 'shader',
           boundaries: ['runtime-package'],
-          ownerPaths: [`/shaders/${output.shader}`],
+          ownerPaths: ['/materials'],
         }),
       );
       continue;
     }
+    identityByProgram.set(output.program, output.programIdentity);
+    seen.add(key);
     accepted.push(output);
-    acceptedKeys.add(key);
-    authoringOutputs.push({
-      shader: output.shader,
-      stage: output.stage,
-      variant: output.variant,
-      metadata: {
-        path: runtimePath,
-        byteHash: output.byteHash,
-        byteSize: output.byteSize,
-        compileInputFingerprint: captured,
-      },
-    });
   }
-  for (const key of Object.keys(capturedFingerprints).sort()) {
-    if (acceptedKeys.has(key)) continue;
-    const [shader = '', stage = '', variant = ''] = key.split(':');
-    const shaderData = parseShaderData(project.shaders[shader]?.data);
-    const stageIndex = shaderData?.stages.findIndex((item) => item.stage === stage) ?? -1;
-    diagnostics.push(
-      createProjectValidationDiagnostic({
-        code: 'runtime-artifact.shader-output-missing',
-        severity: 'error',
-        path:
-          shader && stageIndex >= 0
-            ? `/shaders/${shader}/data/stages/${stageIndex}/compiled/${variant}`
-            : shader
-              ? `/shaders/${shader}`
-              : '/shaders',
-        message: `Shader compiler did not return required output '${key}'.`,
-        category: 'shader',
-        boundaries: ['runtime-package'],
-        ownerPaths: [shader ? `/shaders/${shader}` : '/shaders'],
-      }),
-    );
+  const projectDependencies = new Map<string, Sha256Digest>();
+  for (const output of accepted)
+    for (const dependency of output.dependencyRevisions) {
+      if (!dependency.identity.startsWith('project:/')) continue;
+      const relativePath = dependency.identity.slice('project:/'.length);
+      const current = projectDependencies.get(relativePath);
+      if (current && current !== dependency.contentHash) {
+        diagnostics.push(
+          createProjectValidationDiagnostic({
+            code: 'runtime-artifact.shader-source-revision-inconsistent',
+            severity: 'error',
+            path: '/materials',
+            message: `Shader compiler returned inconsistent source revisions for '${relativePath}'.`,
+            category: 'shader',
+            boundaries: ['runtime-package'],
+            ownerPaths: ['/materials'],
+          }),
+        );
+      } else projectDependencies.set(relativePath, dependency.contentHash);
+    }
+  if (projectDependencies.size > 0) {
+    if (!paths.readProjectTextSources) {
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.shader-source-revision-unverifiable',
+          severity: 'error',
+          path: '/materials',
+          message: 'Shader source revisions cannot be verified in this host.',
+          category: 'shader',
+          boundaries: ['runtime-package'],
+          ownerPaths: ['/materials'],
+        }),
+      );
+    } else {
+      const entries = [...projectDependencies.entries()].map(
+        ([projectRelativePath, contentHash], index) => ({
+          assetId: `shader-source:${index}`,
+          projectRelativePath,
+          expectedContentHash: contentHash,
+        }),
+      );
+      const observed = await paths.readProjectTextSources(projectRoot, entries);
+      const byId = new Map(observed.map((entry) => [entry.assetId, entry]));
+      for (const entry of entries) {
+        const result = byId.get(entry.assetId);
+        if (result?.status === 'ready' && result.contentHash === entry.expectedContentHash)
+          continue;
+        diagnostics.push(
+          createProjectValidationDiagnostic({
+            code: 'runtime-artifact.shader-source-revision-stale',
+            severity: 'error',
+            path: `/materials`,
+            message: `Shader source '${entry.projectRelativePath}' changed while compilation was in progress.`,
+            category: 'shader',
+            boundaries: ['runtime-package'],
+            ownerPaths: ['/materials'],
+          }),
+        );
+      }
+    }
   }
-  return { outputs: accepted, authoringOutputs, diagnostics };
+  for (const program of Object.keys(programs).sort())
+    for (const stage of ['vertex', 'fragment'] as const)
+      for (const variant of variants) {
+        const key = `${program}:${stage}:${variant}`;
+        if (seen.has(key)) continue;
+        diagnostics.push(
+          createProjectValidationDiagnostic({
+            code: 'runtime-artifact.shader-output-missing',
+            severity: 'error',
+            path: `/materials/${program}/${stage}/${variant}`,
+            message: `Shader compiler did not return required output '${key}'.`,
+            category: 'shader',
+            boundaries: ['runtime-package'],
+            ownerPaths: ['/materials'],
+          }),
+        );
+      }
+  return { outputs: accepted, diagnostics };
 }
 
 function effectsAllowed(intent: RuntimeArtifactPreparationIntent) {
@@ -876,11 +1138,7 @@ export async function prepareRuntimeArtifact(
       if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
       options.onStage?.('compiling-shaders');
       const shaderProject = await buildShaderMaterialProject(options.project);
-      const captured = await captureShaderCompileInputFingerprints(
-        options.project,
-        options.profile.shaderVariants,
-      );
-      const response = await options.shaderCompiler.compile(shaderProject.project, {
+      const response = await options.shaderCompiler.compile(shaderProject.compilation, {
         projectRoot: options.projectRoot ?? '',
         outputRoot: options.projectRoot ? `${options.projectRoot}/.noveltea/build` : '',
         cacheRoot: options.projectRoot ? `${options.projectRoot}/.noveltea/cache` : '',
@@ -888,9 +1146,11 @@ export async function prepareRuntimeArtifact(
       });
       if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
       const verified = await validateShaderOutputs(
-        options.project,
+        shaderProject.compilation.programs,
+        options.profile.shaderVariants,
         response.outputs ?? [],
-        captured,
+        options.projectRoot,
+        options.paths,
       );
       shaderOutputs = verified.outputs;
       shaderDiagnostics = collectProjectValidationDiagnostics(
@@ -916,7 +1176,7 @@ export async function prepareRuntimeArtifact(
           projectRoot: options.projectRoot,
           profile: options.profile,
           recoveryFingerprint: options.recoveryFingerprint,
-          shaderAuthoringOutputs: verified.authoringOutputs,
+          shaderOutputs: verified.outputs,
           paths: options.paths,
         });
       }
@@ -1011,7 +1271,6 @@ async function expectedFileEntriesForVerification(
       !requiredLocalizationAssetIds?.has(asset.id)
     )
       return false;
-    if (asset.kind === 'shader-source' && !options.profile.includeShaderSources) return false;
     return true;
   });
   const packagePaths = new Set<string>();
@@ -1034,7 +1293,6 @@ async function expectedFileEntriesForVerification(
       !requiredLocalizationAssetIds?.has(asset.id)
     )
       continue;
-    if (authored.kind === 'shader-source' && !options.profile.includeShaderSources) continue;
     if (packagePaths.has(asset.path))
       return {
         message: `Prepared package inventory contains duplicate package path '${asset.path}'.`,
@@ -1048,6 +1306,43 @@ async function expectedFileEntriesForVerification(
       assetId: asset.id,
       kind: authored.kind,
     });
+  }
+  const addProjectSource = (
+    packagePath: string,
+    assetId: string,
+    kind: 'script-source' | 'shader-source',
+  ) => {
+    if (packagePaths.has(packagePath)) return;
+    packagePaths.add(packagePath);
+    entries.push({
+      source: options.paths.resolveProjectSource(options.projectRoot, packagePath),
+      packagePath,
+      storage: 'auto',
+      assetId,
+      kind,
+    });
+  };
+  for (const [scriptId, record] of Object.entries(options.project.scripts)) {
+    const source = parseScriptModuleData(record.data)?.source;
+    if (source?.kind === 'project-file') addProjectSource(source.path, scriptId, 'script-source');
+  }
+  for (const record of Object.values(options.project.layouts)) {
+    const layout = parseLayoutData(record.data);
+    for (const scriptPath of layout?.dependencies.scripts ?? [])
+      addProjectSource(scriptPath, `source:${scriptPath}`, 'script-source');
+  }
+  if (!options.profile.stripShaderSources) {
+    const shaderBuild = await buildShaderMaterialProject(options.project);
+    const addShaderIdentity = (identity: string) => {
+      if (!identity.startsWith('project:/shaders/')) return;
+      const path = identity.slice('project:/'.length);
+      addProjectSource(path, `source:${path}`, 'shader-source');
+    };
+    for (const request of Object.values(shaderBuild.compilation.programs)) {
+      addShaderIdentity(request.vertexSource);
+      addShaderIdentity(request.fragmentSource);
+      addShaderIdentity(request.varyingDefinition);
+    }
   }
   return { entries, compiledAssets: expectedCompiledAssets };
 }
@@ -1093,10 +1388,24 @@ function shaderMetadataWithoutCompiledOutputs(
   metadata: NonNullable<PreparedRuntimeArtifact['shaderMaterialMetadata']>,
 ) {
   const next = structuredClone(metadata);
-  for (const shader of Object.values(next.shaders)) {
+  const sourceBackedShaders = new Set<string>();
+  for (const [shaderId, shader] of Object.entries(next.shaders)) {
+    let sourceBacked = false;
     for (const stage of Object.values(shader.stages)) {
-      if (stage) delete stage.compiled;
+      if (!stage) continue;
+      if (stage.source !== undefined) sourceBacked = true;
+      delete stage.compiled;
     }
+    if (sourceBacked) {
+      sourceBackedShaders.add(shaderId);
+      shader.uniforms = {};
+      shader.samplers = {};
+    }
+  }
+  for (const material of Object.values(next.materials)) {
+    if (!sourceBackedShaders.has(material.shader)) continue;
+    material.uniforms = {};
+    material.textures = {};
   }
   return next;
 }
@@ -1231,14 +1540,42 @@ export async function verifyPreparedRuntimeArtifact(
       'Prepared Compiled Project asset resources do not match freshly derived pruning evidence.',
       '/artifact/compiledProject/resources/assets',
     );
-  if (
-    stableStringify(normalizedExportFileEntries(artifact.fileEntries)) !==
-    stableStringify(normalizedExportFileEntries(expectedInventory.entries))
-  )
+  const actualFileEntries = normalizedExportFileEntries(artifact.fileEntries);
+  const expectedFileEntries = normalizedExportFileEntries(expectedInventory.entries);
+  const actualFileEntriesByPath = new Map(
+    actualFileEntries.map((entry) => [entry.packagePath, entry]),
+  );
+  if (actualFileEntriesByPath.size !== actualFileEntries.length)
     return rejectedEvidence(
-      'Prepared asset inventory does not match the current Project and Compiled Project.',
+      'Prepared file inventory contains duplicate package paths.',
       '/artifact/fileEntries',
     );
+  for (const expectedEntry of expectedFileEntries) {
+    const actualEntry = actualFileEntriesByPath.get(expectedEntry.packagePath);
+    if (!actualEntry || stableStringify(actualEntry) !== stableStringify(expectedEntry))
+      return rejectedEvidence(
+        'Prepared file inventory does not match the current Project and Compiled Project.',
+        '/artifact/fileEntries',
+      );
+  }
+  for (const actualEntry of actualFileEntries) {
+    if (expectedFileEntries.some((entry) => entry.packagePath === actualEntry.packagePath))
+      continue;
+    if (
+      options.profile.stripShaderSources ||
+      actualEntry.kind !== 'shader-source' ||
+      !actualEntry.packagePath.startsWith('shaders/') ||
+      actualEntry.assetId !== `source:${actualEntry.packagePath}` ||
+      actualEntry.source !==
+        normalizedFilesystemPath(
+          options.paths.resolveProjectSource(options.projectRoot, actualEntry.packagePath),
+        )
+    )
+      return rejectedEvidence(
+        'Prepared file inventory contains an unexpected Project source.',
+        '/artifact/fileEntries',
+      );
+  }
 
   const currentShaderMetadata = (await buildShaderMaterialProject(options.project)).project;
   const currentHasShaderMetadata = hasShaderMaterialMetadata(currentShaderMetadata);
@@ -1294,10 +1631,10 @@ export async function verifyPreparedRuntimeArtifact(
       'Prepared Compiled Project contains invalid runtime display metadata.',
       '/artifact/compiledProject/settings/display',
     );
-  const expectedPackageFileEntries = expectedInventory.entries.map(
+  const expectedPackageFileEntries = artifact.fileEntries.map(
     ({ source, packagePath, storage }) => ({ source, packagePath, storage }),
   );
-  const expectedSeekablePaths = expectedInventory.entries
+  const expectedSeekablePaths = artifact.fileEntries
     .filter((entry) => entry.kind === 'audio')
     .map((entry) => entry.packagePath);
   const expectedShaderAssetRoot = expectedShaderVariants.length
@@ -1343,11 +1680,11 @@ export async function verifyPreparedRuntimeArtifact(
     projectVersion: runtimeProjectVersion(options.project.project.version),
     entryCount:
       1 +
-      expectedInventory.entries.length +
+      artifact.fileEntries.length +
       expectedPartitioned.textEntries.length +
       expectedRequiredShaderBinaryPaths.length +
       (artifact.shaderMaterialMetadata ? 1 : 0),
-    assetCount: expectedInventory.entries.length,
+    assetCount: artifact.fileEntries.length,
     shaderVariants: expectedShaderVariants,
     requiredShaderBinaryPaths: expectedRequiredShaderBinaryPaths,
     display: presentation.display,

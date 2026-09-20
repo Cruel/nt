@@ -8,7 +8,7 @@ NovelTea uses RmlUi's Lua binding inside the same NovelTea Lua runtime. Do not t
 
 A Layout can execute Lua from three distinct places:
 
-1. **Dedicated Layout Lua**: the Layout's `layout.lua` source (or Lua Asset source).
+1. **Dedicated Layout Lua**: the Layout's `layout.lua` source.
 2. **RML scripts**: inline `<script>...</script>` and declared external `<script src="..."></script>` content in the RML/template closure.
 3. **RML event code**: static `on*` event attributes such as `onclick`, plus code installed from Lua with `Element:AddEventListener(...)` or `Context:AddEventListener(...)`.
 
@@ -63,10 +63,10 @@ Typical use is to define namespaced helpers that event handlers call later:
 External scripts use normal RmlUi resource loading:
 
 ```xml
-<script src="project|/ui/inventory.lua"></script>
+<script src="project|/scripts/ui/inventory.lua"></script>
 ```
 
-For NovelTea authoring, the referenced script Asset must also be present in the Layout's declared script dependencies. A source URL in RML does not by itself add the resource to the validated/package dependency graph. Relative script URLs resolve relative to the containing RML/template resource; mounted `project|/` URLs use the same resource spelling as other authored RML resources.
+For NovelTea authoring, an external project script must also be listed by its `scripts/*.lua` path in the Layout's declared script dependencies. A source URL in RML does not by itself add the file to the validated/package dependency graph. Relative script URLs resolve relative to the containing RML/template resource; mounted `project|/` URLs use the same resource spelling as other authored RML resources.
 
 The dedicated `layout.lua` source is different from an authored `<script src>` dependency: it is a dedicated Layout source channel selected by the Layout record and gated by `script.enabled`.
 

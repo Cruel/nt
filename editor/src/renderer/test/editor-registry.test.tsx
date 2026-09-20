@@ -4,6 +4,7 @@ import {
   buildComfyUiWorkflowsTab,
   buildDefaultRecordTab,
   buildFullGamePreviewTab,
+  buildMaterialsEditorTab,
   buildPlatformExportTab,
   buildTestsEditorTab,
   buildVariablesEditorTab,
@@ -56,10 +57,18 @@ describe('editor registry', () => {
     });
   });
 
-  it('marks derived embedded preview editors as dedicated while keeping editors active-only', () => {
+  it('keeps lightweight Material previews out of the engine host pool', () => {
+    const registration = defaultEditorRegistry.resolve('material-detail');
+    expect(registration).not.toBeNull();
+    expect(resolveEditorPolicies(registration!)).toEqual({
+      mountPolicy: 'active-only',
+      previewHostPolicy: 'none',
+      previewPersistence: undefined,
+    });
+  });
+
+  it('marks derived embedded engine preview editors as dedicated while keeping editors active-only', () => {
     const pooledDerivedEditorTypes = [
-      'shader-detail',
-      'material-detail',
       'layout-detail',
       'character-detail',
       'room-detail',
@@ -114,6 +123,19 @@ describe('editor registry', () => {
       editorType: 'asset-library',
       resource: { kind: 'project', stableId: 'assets', entityId: 'logo' },
     });
+    expect(buildMaterialsEditorTab()).toMatchObject({
+      editorType: 'material-library',
+      resource: { kind: 'project', stableId: 'materials', collection: 'materials' },
+    });
+    expect(
+      buildDefaultRecordTab({
+        id: 'materials',
+        label: 'Materials',
+        type: 'folder',
+        collection: 'materials',
+      } as AssetNode),
+    ).toMatchObject({ editorType: 'material-library' });
+
     expect(buildTestsEditorTab()).toMatchObject({
       editorType: 'test-suite',
       resource: { kind: 'project', stableId: 'tests' },

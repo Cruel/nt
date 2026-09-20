@@ -29,10 +29,13 @@ import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
 import { LocalizationEditor } from '@/editors/localization/LocalizationEditor';
 import { MaterialEditor } from '@/editors/materials/MaterialEditor';
+import { MaterialsLibraryEditor } from '@/editors/materials/MaterialsLibraryEditor';
 import { PlaceholderEntityEditor } from '@/editors/placeholder/PlaceholderEntityEditor';
 import { InteractionEditor } from '@/editors/interactions/InteractionEditor';
 import { MapEditor } from '@/editors/maps/MapEditor';
 import { ScriptModuleEditor } from '@/editors/scripts/ScriptModuleEditor';
+import { SourceFileEditor } from '@/editors/source/SourceFileEditor';
+import { EngineShaderSourceEditor } from '@/editors/source/EngineShaderSourceEditor';
 import { VerbEditor } from '@/editors/verbs/VerbEditor';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import { SceneEditor } from '@/editors/scenes/SceneEditor';
@@ -45,7 +48,6 @@ import { ChaptersEditor } from '@/editors/project/ChaptersEditor';
 import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
 import { PlatformExportEditor } from '@/editors/project/PlatformExportEditor';
 import { TagsEditor } from '@/editors/project/TagsEditor';
-import { ShaderEditor } from '@/editors/shaders/ShaderEditor';
 import { ComponentsTabEditor } from '@/editors/utility/ComponentsTabEditor';
 import { SettingsTabEditor } from '@/editors/utility/SettingsTabEditor';
 import { VariablesEditor } from '@/editors/variables/VariablesEditor';
@@ -92,20 +94,16 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     component: ComfyUiWorkflowsEditor,
   },
   {
-    type: 'shader-detail',
-    label: 'Shader Detail',
-    icon: FileCode,
-    component: ShaderEditor,
-    previewHostPolicy: 'dedicated-while-open',
-    previewPersistence: 'derived',
+    type: 'material-library',
+    label: 'Materials',
+    icon: Palette,
+    component: MaterialsLibraryEditor,
   },
   {
     type: 'material-detail',
     label: 'Material Detail',
     icon: Palette,
     component: MaterialEditor,
-    previewHostPolicy: 'dedicated-while-open',
-    previewPersistence: 'derived',
   },
   {
     type: 'layout-detail',
@@ -194,6 +192,19 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Map Detail',
     icon: Puzzle,
     component: MapEditor,
+  },
+  {
+    type: 'source-file',
+    label: 'Source File',
+    icon: FileCode,
+    component: SourceFileEditor,
+    mountPolicy: 'keep-mounted-while-open',
+  },
+  {
+    type: 'engine-shader-source',
+    label: 'Built-in Shader Source',
+    icon: FileCode,
+    component: EngineShaderSourceEditor,
   },
   {
     type: 'script-module-detail',

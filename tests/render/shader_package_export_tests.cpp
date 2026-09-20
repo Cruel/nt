@@ -204,6 +204,64 @@ TEST_CASE("ProjectPackageWriter exports runtime shader material metadata and req
     std::filesystem::remove_all(temp);
 }
 
+TEST_CASE("ProjectPackageWriter exports required derived source-program shader binaries")
+{
+    nlohmann::json metadata = make_material_metadata();
+    auto& shader = metadata["shaders"]["ui/noise_panel"];
+    shader["stages"]["vertex"]["compiled"] = nlohmann::json::object({
+        {"glsl-330",
+         nlohmann::json::object({
+             {"runtimePath", "project:/shaders/derived/glsl-330/program-abc.vs.bin"},
+             {"byteHash", "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+             {"byteSize", std::uint64_t{1}},
+         })},
+    });
+    shader["stages"]["fragment"]["compiled"] = nlohmann::json::object({
+        {"glsl-330",
+         nlohmann::json::object({
+             {"runtimePath", "project:/shaders/derived/glsl-330/program-abc.fs.bin"},
+             {"byteHash", "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+             {"byteSize", std::uint64_t{1}},
+         })},
+    });
+    const auto parsed = parse_shader_material_project_json_value(metadata);
+    for (const auto& diagnostic : parsed.diagnostics)
+        UNSCOPED_INFO(diagnostic.path << ": " << diagnostic.message);
+    REQUIRE(parsed.project.has_value());
+    REQUIRE_FALSE(parsed.has_errors());
+
+    const auto temp = unique_temp_dir("derived-material-package-export");
+    const auto required = required_paths_for(*parsed.project, {"glsl-330"});
+    write_required_shader_bins(temp / "shaders", required);
+
+    PackageExportOptions options;
+    options.project_name = "Derived Material Package";
+    options.project_version = "1.0";
+    options.created_by = "test";
+    options.display = nlohmann::json{{"reference_resolution", {{"width", 1920}, {"height", 1080}}},
+                                     {"world_raster_policy", "capped"},
+                                     {"bar_color", "#000000"}};
+    options.accessibility =
+        nlohmann::json{{"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
+                       {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}};
+    options.shader_asset_root = temp / "shaders";
+    options.shader_variants = {"glsl-330"};
+    options.shader_material_metadata = metadata;
+    options.required_shader_binary_paths = required;
+
+    std::vector<std::byte> bytes;
+    const auto exported = ProjectPackageWriter::write_to_memory(make_project(), options, bytes);
+    REQUIRE(exported.success);
+    CHECK(exported.diagnostics.empty());
+
+    const auto entries = read_package_entries(bytes);
+    CHECK(entries.contains("shaders/derived/glsl-330/program-abc.vs.bin"));
+    CHECK(entries.contains("shaders/derived/glsl-330/program-abc.fs.bin"));
+    CHECK_FALSE(entries.contains("shaders/bgfx/glsl-330/program-abc.vs.bin"));
+
+    std::filesystem::remove_all(temp);
+}
+
 TEST_CASE("ProjectPackageWriter fails when required material shader binaries are missing")
 {
     const nlohmann::json metadata = make_material_metadata();

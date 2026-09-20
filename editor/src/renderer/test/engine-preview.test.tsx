@@ -299,27 +299,7 @@ describe('EnginePreview', () => {
       </div>,
     );
     const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          source: iframe.contentWindow,
-          origin: 'http://127.0.0.1:5000',
-          data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
-        }),
-      );
-    });
-    const previewPort = ports.at(-1);
-    await act(async () => {
-      previewPort?.postMessage({
-        version: 1,
-        type: 'ready',
-        capabilities: [],
-        hostGeneration: 1,
-        transportGeneration: 1,
-        activeShaderVariant: 'glsl-330',
-      });
-    });
-    await waitFor(() => expect(screen.queryByText('loading')).not.toBeInTheDocument());
+    const { previewPort } = await connectRenderedPreview(iframe);
     await act(async () => {
       previewPort?.postMessage({
         version: 1,

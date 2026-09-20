@@ -15,15 +15,13 @@ export function nodeForUsage(collection: string, entityId: string): AssetNode {
         ? 'variable'
         : collection === 'assets'
           ? 'asset'
-          : collection === 'shaders'
-            ? 'shader'
-            : collection === 'materials'
-              ? 'material'
-              : collection === 'layouts'
-                ? 'layout'
-                : collection === 'characters'
-                  ? 'character'
-                  : 'folder',
+          : collection === 'materials'
+            ? 'material'
+            : collection === 'layouts'
+              ? 'layout'
+              : collection === 'characters'
+                ? 'character'
+                : 'folder',
     collection,
     entityId,
   };

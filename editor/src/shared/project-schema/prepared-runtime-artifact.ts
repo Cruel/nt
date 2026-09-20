@@ -13,7 +13,7 @@ export interface ExportFileEntry {
   packagePath: string;
   storage: 'auto' | 'stored' | 'compressed';
   assetId: string;
-  kind: AssetKind;
+  kind: AssetKind | 'script-source' | 'shader-source';
 }
 
 export type PackageFileEntry = ExportFileEntry;
@@ -110,7 +110,11 @@ const fileEntrySchema = z
     packagePath: z.string(),
     storage: z.enum(['auto', 'stored', 'compressed']),
     assetId: z.string(),
-    kind: z.enum(assetKindValues),
+    kind: z.union([
+      z.enum(assetKindValues),
+      z.literal('script-source'),
+      z.literal('shader-source'),
+    ]),
   })
   .strict();
 

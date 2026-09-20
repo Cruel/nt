@@ -47,17 +47,12 @@ export const AUTHORING_DEPENDENCY_ROLES = [
   'localization-text',
   'layout-rml-source',
   'layout-rcss-source',
-  'layout-lua-source',
   'layout-image',
   'layout-font',
   'layout-stylesheet',
-  'layout-script',
   'layout-template',
   'layout-material',
-  'shader-source',
-  'script-source',
   'material-base',
-  'material-shader',
   'material-texture',
   'character-pose-sprite',
   'character-pose-material',
@@ -150,6 +145,7 @@ export type AuthoringDependencyContributionKey = string;
 export type AuthoringDependencyDerivationKey = string;
 export type AuthoringDependencyDerivationDependency =
   | { kind: 'source-asset'; assetId: string }
+  | { kind: 'source-project-file'; path: string }
   | { kind: 'source-resolution-asset'; assetId: string }
   | { kind: 'project-field'; path: JsonPointer }
   | { kind: 'localization-lookup'; key: string }

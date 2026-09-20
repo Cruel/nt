@@ -306,9 +306,7 @@ export async function validateCliProject(
       );
     }
   }
-  const hasShaders =
-    Object.keys(snapshot.project.shaders).length > 0 ||
-    Object.keys(snapshot.project.materials).length > 0;
+  const hasShaders = Object.keys(snapshot.project.materials).length > 0;
   if (hasShaders && !diagnostics.some((item) => item.severity === 'error')) {
     const shaderProject = await buildShaderMaterialProject(snapshot.project);
     diagnostics.push(
@@ -318,7 +316,7 @@ export async function validateCliProject(
     );
     if (!diagnostics.some((item) => item.severity === 'error')) {
       try {
-        const response = await nativeTools.compileShaders(shaderProject.project, {
+        const response = await nativeTools.compileShaders(shaderProject.compilation, {
           projectRoot: snapshot.projectRoot,
           outputRoot: path.join(snapshot.projectRoot, '.noveltea', 'build'),
           cacheRoot: path.join(snapshot.projectRoot, '.noveltea', 'cache'),
@@ -328,7 +326,7 @@ export async function validateCliProject(
           ...(response.diagnostics ?? []).map((item) =>
             cliDiagnostic(
               `native.shader.${item.code ?? 'compile'}`,
-              item.path ?? item.sourcePath ?? item.outputPath ?? '/shaders',
+              item.path ?? item.sourcePath ?? item.outputPath ?? '/materials',
               item.message,
               item.severity,
             ),

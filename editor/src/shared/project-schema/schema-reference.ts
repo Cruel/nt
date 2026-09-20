@@ -3,7 +3,6 @@ import { authoringProjectSchema } from './authoring-project';
 import { authoringLocalizationSchema } from './authoring-localization';
 import { authoringRecordSchemas } from './authoring-records';
 import { layoutAssetRefSchema } from './authoring-layouts';
-import { assetRefSchema } from './authoring-flow';
 import {
   editorChaptersStateSchema,
   editorRecordMetadataStateSchema,
@@ -38,26 +37,18 @@ const persistedLayoutSourceSchema = z.discriminatedUnion('sourceMode', [
   z.object({ sourceMode: z.literal('asset'), sourceAsset: layoutAssetRefSchema }).strict(),
   z.object({ sourceMode: z.literal('none') }).strict(),
 ]);
+const persistedLayoutLuaSourceSchema = z.discriminatedUnion('sourceMode', [
+  z.object({ sourceMode: z.literal('file') }).strict(),
+  z.object({ sourceMode: z.literal('none') }).strict(),
+]);
 const persistedLayoutRecordSchema = authoringRecordSchemas.layouts.extend({
   data: authoringRecordSchemas.layouts.shape.data.extend({
     rml: persistedLayoutSourceSchema,
     rcss: persistedLayoutSourceSchema,
-    lua: persistedLayoutSourceSchema,
+    lua: persistedLayoutLuaSourceSchema,
   }),
 });
-const persistedScriptRecordSchema = authoringRecordSchemas.scripts.extend({
-  data: authoringRecordSchemas.scripts.shape.data.extend({
-    source: z.discriminatedUnion('kind', [
-      z
-        .object({
-          kind: z.literal('file'),
-          path: z.string().regex(/^scripts\/(?:[^/]+\/)*[^/]+\.lua$/),
-        })
-        .strict(),
-      z.object({ kind: z.literal('asset'), asset: assetRefSchema }).strict(),
-    ]),
-  }),
-});
+const persistedScriptRecordSchema = authoringRecordSchemas.scripts;
 
 export const schemaSources = {
   'project.schema.json': workspaceManifestSchema,
@@ -66,7 +57,6 @@ export const schemaSources = {
   'editor.schema.json': trackedEditorSchema,
   'records/assets.schema.json': authoringRecordSchemas.assets,
   'records/variables.schema.json': authoringRecordSchemas.variables,
-  'records/shaders.schema.json': authoringRecordSchemas.shaders,
   'records/materials.schema.json': authoringRecordSchemas.materials,
   'records/layouts.schema.json': persistedLayoutRecordSchema,
   'records/archetypes.schema.json': authoringRecordSchemas.archetypes,

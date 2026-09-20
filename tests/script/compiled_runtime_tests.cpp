@@ -171,8 +171,11 @@ struct RuntimeFixture {
 
     RuntimeFixture()
     {
+        const std::string bootstrap_script = "return {}\n";
+        source->add("project:/scripts/bootstrap.lua",
+                    assets::AssetBytes(bootstrap_script.begin(), bootstrap_script.end()));
         const std::string layout_script = "return { layout = true }";
-        source->add("project:/assets/scripts/layout.lua",
+        source->add("project:/scripts/layout.lua",
                     assets::AssetBytes(layout_script.begin(), layout_script.end()));
         assets.mount("project", source);
         REQUIRE(scripts.initialize({&assets}));
@@ -799,7 +802,8 @@ TEST_CASE("running-game creation failure leaves presentation integration untouch
 {
     RuntimeFixture runtime;
     auto invalid = fixture("minimal");
-    invalid["resources"]["scripts"][0]["source"]["source"] = "local =";
+    invalid["resources"]["scripts"][0]["source"] =
+        {{"kind", "inline-lua"}, {"source", "local ="}};
 
     auto rejected = runtime::load_running_game(load_input(std::move(invalid)), runtime.scripts,
                                                runtime.presentation, runtime.saves);
@@ -820,26 +824,28 @@ TEST_CASE("compiled runtime certifies unused modules before executing Bootstrap"
     auto invalid = fixture("minimal");
     auto unused = invalid["resources"]["scripts"][0];
     unused["id"] = "unused-module";
-    unused["source"]["source"] = "local =";
+    unused["source"] = {{"kind", "inline-lua"}, {"source", "local ="}};
     invalid["resources"]["scripts"].push_back(std::move(unused));
-    invalid["resources"]["scripts"][0]["source"]["source"] =
-        "error('Bootstrap must not run before certification')\nreturn {}";
+    invalid["resources"]["scripts"][0]["source"] =
+        {{"kind", "inline-lua"},
+         {"source", "error('Bootstrap must not run before certification')\nreturn {}"}};
     auto rejected = runtime::load_running_game(load_input(std::move(invalid)), runtime.scripts,
                                                runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected.has_value());
     CHECK(has_code(rejected.error(), "runtime.lua_certification_failed"));
 
     auto failed = fixture("minimal");
-    failed["resources"]["scripts"][0]["source"]["source"] =
-        "error('bootstrap executed')\nreturn {}";
+    failed["resources"]["scripts"][0]["source"] =
+        {{"kind", "inline-lua"}, {"source", "error('bootstrap executed')\nreturn {}"}};
     auto execution_rejected = runtime::load_running_game(
         load_input(std::move(failed)), runtime.scripts, runtime.presentation, runtime.saves);
     REQUIRE_FALSE(execution_rejected.has_value());
     CHECK(has_code(execution_rejected.error(), "runtime.project_bootstrap_failed"));
 
     auto valid = fixture("minimal");
-    valid["resources"]["scripts"][0]["source"]["source"] =
-        "local certification_only = true\nreturn { ready = certification_only }";
+    valid["resources"]["scripts"][0]["source"] =
+        {{"kind", "inline-lua"},
+         {"source", "local certification_only = true\nreturn { ready = certification_only }"}};
     auto loaded = runtime::load_running_game(load_input(std::move(valid)), runtime.scripts,
                                              runtime.presentation, runtime.saves);
     REQUIRE(loaded.has_value());
@@ -848,11 +854,11 @@ TEST_CASE("compiled runtime certifies unused modules before executing Bootstrap"
     CHECK(value.value());
 }
 
-TEST_CASE("compiled runtime certifies asset-backed layout Lua")
+TEST_CASE("compiled runtime certifies project-file Layout Lua")
 {
     RuntimeFixture runtime;
     const std::string invalid = "local =";
-    runtime.source->add("project:/assets/scripts/layout.lua",
+    runtime.source->add("project:/scripts/layout.lua",
                         assets::AssetBytes(invalid.begin(), invalid.end()));
 
     auto rejected = runtime::load_running_game(

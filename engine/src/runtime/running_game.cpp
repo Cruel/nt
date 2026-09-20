@@ -189,12 +189,10 @@ core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& proj
                 std::get_if<core::compiled::InlineLuaSource>(&script.source))
             certify_chunk(diagnostics, scripts, inline_source->source,
                           "/resources/scripts/" + std::to_string(index) + "/source/inline");
-        else if (const auto* asset_source =
-                     std::get_if<core::compiled::AssetScriptSource>(&script.source)) {
-            const auto* asset = project.find_asset(asset_source->asset);
-            if (asset)
-                certify_asset(diagnostics, scripts, asset->path,
-                              "/resources/scripts/" + std::to_string(index) + "/source/asset");
+        else if (const auto* file_source =
+                     std::get_if<core::compiled::ProjectFileScriptSource>(&script.source)) {
+            certify_asset(diagnostics, scripts, file_source->path,
+                          "/resources/scripts/" + std::to_string(index) + "/source/path");
         }
     }
 

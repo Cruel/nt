@@ -193,6 +193,7 @@ export interface AuthoringSourceAnalysisArtifact<TDiagnostic = unknown> {
   sourceContentFingerprints: readonly `sha256:${string}`[];
   ownerProjectionFingerprint: `sha256:${string}`;
   sourceAssetIds: readonly string[];
+  projectSourcePaths: readonly string[];
   regions: readonly EmbeddedLuaSourceRegion[];
   literalOccurrences: readonly AuthoringLiteralOccurrence[];
   cursorNameOccurrences: readonly AuthoringCursorNameOccurrence[];
@@ -203,7 +204,7 @@ export interface AuthoringSourceAnalysisArtifact<TDiagnostic = unknown> {
 export type LuaSourceSnapshotEntry<TDiagnostic = unknown> =
   | {
       status: 'ready';
-      assetId: string;
+      assetId?: string;
       projectRelativePath: string;
       contentHash: `sha256:${string}`;
       text: string;
@@ -211,12 +212,14 @@ export type LuaSourceSnapshotEntry<TDiagnostic = unknown> =
     }
   | {
       status: 'unavailable';
-      assetId: string;
+      assetId?: string;
+      projectRelativePath?: string;
       expectedContentHash: string | null;
       diagnostic: TDiagnostic;
     };
 export interface LuaSourceSnapshot<TDiagnostic = unknown> {
   entriesByAssetId: ReadonlyMap<string, LuaSourceSnapshotEntry<TDiagnostic>>;
+  entriesByProjectPath?: ReadonlyMap<string, LuaSourceSnapshotEntry<TDiagnostic>>;
 }
 export type LuaAnalysisInput<TDiagnostic = unknown> =
   | { mode: 'disabled' }

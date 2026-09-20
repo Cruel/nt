@@ -38,7 +38,10 @@ import {
   templateCompatibilityRequirementsSchema,
   templateDownloadRequestSchema,
 } from '../shared/project-schema/platform-export-contracts';
-import { shaderMaterialProjectWireSchema } from '../shared/project-schema/shader-material-project';
+import {
+  shaderMaterialProjectWireSchema,
+  shaderSourceProgramsSchema,
+} from '../shared/project-schema/shader-material-project';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
 import { userExportConfigSchema } from '../shared/project-schema/platform-export-contracts';
 import { novelTeaUserPreferencesSchema } from '../shared/user-config';
@@ -282,6 +285,68 @@ export const createProjectArgumentsSchema = z.tuple([
     .strict(),
 ]);
 
+export const listProjectSourceFilesArgumentsSchema = z.tuple([
+  z
+    .object({
+      projectSessionId: z.string().min(1).max(MAX_PROJECT_SESSION_ID_LENGTH),
+    })
+    .strict(),
+]);
+
+const sourcePathSchema = z.string().min(1).max(MAX_PROJECT_PATH_LENGTH);
+const sourceRevisionSchema = z.union([sha256DigestSchema, z.literal('absent')]);
+
+export const projectSourceUsagesArgumentsSchema = z.tuple([
+  z
+    .object({
+      projectSessionId: z.string().min(1).max(MAX_PROJECT_SESSION_ID_LENGTH),
+      path: sourcePathSchema,
+    })
+    .strict(),
+]);
+
+export const mutateProjectSourcesArgumentsSchema = z.tuple([
+  z
+    .object({
+      projectSessionId: z.string().min(1).max(MAX_PROJECT_SESSION_ID_LENGTH),
+      operation: z.discriminatedUnion('kind', [
+        z
+          .object({
+            kind: z.literal('create-file'),
+            path: sourcePathSchema,
+            fileKind: z.enum(['lua', 'shader']),
+          })
+          .strict(),
+        z.object({ kind: z.literal('create-folder'), path: sourcePathSchema }).strict(),
+        z
+          .object({
+            kind: z.literal('material-shader-copy'),
+            materialId: z.string().min(1).max(256),
+            stage: z.enum(['vertex', 'fragment', 'varying']),
+            sourceIdentity: sourcePathSchema,
+          })
+          .strict(),
+        z
+          .object({ kind: z.literal('move'), fromPath: sourcePathSchema, toPath: sourcePathSchema })
+          .strict(),
+        z.object({ kind: z.literal('delete'), path: sourcePathSchema }).strict(),
+      ]),
+      expectedRevisions: z.record(sourcePathSchema, sourceRevisionSchema).optional(),
+    })
+    .strict(),
+]);
+
+export const writeProjectSourceArgumentsSchema = z.tuple([
+  z
+    .object({
+      projectSessionId: z.string().min(1).max(MAX_PROJECT_SESSION_ID_LENGTH),
+      sourceId: sourcePathSchema,
+      expectedRevision: sourceRevisionSchema,
+      text: z.string().max(PROJECT_TEXT_SOURCE_LIMITS.maxSourceBytes),
+    })
+    .strict(),
+]);
+
 export const readProjectTextSourcesArgumentsSchema = z.tuple([
   z
     .object({
@@ -292,7 +357,7 @@ export const readProjectTextSourcesArgumentsSchema = z.tuple([
             .object({
               readKey: z.string().min(1).max(MAX_TEXT_SOURCE_READ_KEY_LENGTH),
               projectRelativePath: z.string().min(1).max(MAX_PROJECT_PATH_LENGTH),
-              expectedContentHash: sha256DigestSchema,
+              expectedContentHash: sha256DigestSchema.nullable(),
             })
             .strict(),
         )
@@ -573,9 +638,21 @@ export const previewExportedPackageArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.string().min(1).max(MAX_PROJECT_PATH_LENGTH),
 ]);
+const shaderSourceOverlayPathSchema = projectRelativePathSchema.refine((value) =>
+  value.startsWith('shaders/'),
+);
+const shaderSourceOverlaysSchema = z
+  .record(shaderSourceOverlayPathSchema, z.string().max(PROJECT_TEXT_SOURCE_LIMITS.maxSourceBytes))
+  .refine((value) => Object.keys(value).length <= PROJECT_TEXT_SOURCE_LIMITS.maxEntries)
+  .refine(
+    (value) =>
+      Object.values(value).reduce((bytes, text) => bytes + Buffer.byteLength(text, 'utf8'), 0) <=
+      PROJECT_TEXT_SOURCE_LIMITS.maxAggregateBytes,
+  );
+
 export const compileShadersArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  shaderMaterialProjectWireSchema,
+  shaderSourceProgramsSchema,
   z
     .object({
       forceRebuild: z.boolean().optional(),
@@ -583,6 +660,7 @@ export const compileShadersArgumentsSchema = z.tuple([
         .array(z.string().min(1).max(MAX_SHADER_VARIANT_LENGTH))
         .max(MAX_SHADER_VARIANTS)
         .optional(),
+      sourceOverlays: shaderSourceOverlaysSchema.optional(),
     })
     .strict(),
 ]);

@@ -449,11 +449,12 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
       entry.spec === undefined
     )
       return null;
-    const request: any = { project: compiledProject, spec: entry.spec };
-    if (entry.runner === 'runtime-ui') {
-      request.projectRoot = root;
-      request.shaderMaterialMetadata = shaderMaterialMetadata;
-    }
+    const request: any = {
+      project: compiledProject,
+      spec: entry.spec,
+      projectRoot: root,
+      shaderMaterialMetadata,
+    };
     nativeResponse = parseNativeResponse(
       entry.runner === 'runtime-ui' ? 'run-ui-test' : 'run-test',
       request,
@@ -477,11 +478,12 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
     } catch {
       return null;
     }
-    const request: any = { project: compiledProject, spec };
-    if (stdinUi) {
-      request.projectRoot = root;
-      request.shaderMaterialMetadata = shaderMaterialMetadata;
-    }
+    const request: any = {
+      project: compiledProject,
+      spec,
+      projectRoot: root,
+      shaderMaterialMetadata,
+    };
     nativeResponse = parseNativeResponse(stdinUi ? 'run-ui-test' : 'run-test', request);
     successMessage = `NovelTea test ${stdinUi ? 'run-ui-spec' : 'run-spec'} succeeded.`;
   }

@@ -7,6 +7,7 @@ import {
   buildComfyUiWorkflowsTab,
   buildDefaultRecordTab,
   buildProjectSettingsTab,
+  buildProjectSourceTab,
   buildSettingsTab,
   buildTestsEditorTab,
   buildTraitsEditorTab,
@@ -19,6 +20,7 @@ import {
 } from '@/workbench/preview-visibility-command';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
+import { useProjectSourceStore } from '@/project/project-source-store';
 import { enqueueWorkbenchRevealTarget } from '@/workbench/workbench-navigation';
 import {
   selectEditorPreferencesAreDefaults,
@@ -41,21 +43,20 @@ function nodeForRecord(item: CommandPaletteItem): AssetNode | null {
         ? 'variable'
         : item.collection === 'assets'
           ? 'asset'
-          : item.collection === 'shaders'
-            ? 'shader'
-            : item.collection === 'materials'
-              ? 'material'
-              : item.collection === 'layouts'
-                ? 'layout'
-                : item.collection === 'characters'
-                  ? 'character'
-                  : 'folder',
+          : item.collection === 'materials'
+            ? 'material'
+            : item.collection === 'layouts'
+              ? 'layout'
+              : item.collection === 'characters'
+                ? 'character'
+                : 'folder',
     collection: item.collection,
     entityId: item.entityId,
   };
 }
 
 function tabForItem(item: CommandPaletteItem): WorkbenchTab | null {
+  if (item.kind === 'source' && item.source) return buildProjectSourceTab(item.source);
   if (item.kind === 'record') {
     const node = nodeForRecord(item);
     return node ? buildDefaultRecordTab(node) : null;
@@ -85,20 +86,21 @@ export function CommandPaletteDialog({
   const { t } = useTranslation('workspace');
   const activeGroupId = useWorkbenchStore((state) => state.activeGroupId);
   const preferencesAtDefaults = usePreferencesStore(selectEditorPreferencesAreDefaults);
+  const sources = useProjectSourceStore((state) => state.files);
   const [nativeFrameAtDefault, setNativeFrameAtDefault] = useState<boolean | null>(null);
   const activeGroup = useWorkbenchStore((state) => state.groupsById[activeGroupId]);
   const activeTab = useWorkbenchStore((state) =>
     activeGroup?.activeTabId ? state.tabsById[activeGroup.activeTabId] : undefined,
   );
   const items = useMemo(() => {
-    const next = buildCommandPaletteItems(project, t);
+    const next = buildCommandPaletteItems(project, t, sources);
     const resetSettings = next.find((item) => item.action === 'reset-settings');
     if (resetSettings) {
       resetSettings.disabled = preferencesAtDefaults && nativeFrameAtDefault === true;
     }
     if (tabSupportsPreviewVisibility(activeTab)) next.push(buildTogglePreviewCommandItem(t));
     return next;
-  }, [activeTab, nativeFrameAtDefault, preferencesAtDefaults, project, t]);
+  }, [activeTab, nativeFrameAtDefault, preferencesAtDefaults, project, sources, t]);
 
   useEffect(() => {
     if (!open) return;

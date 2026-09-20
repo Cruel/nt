@@ -18,6 +18,7 @@ executable structural classification and safety policies.
 | Explorer structural operation | `structure:<collection>` | Canonical command-derived paths for create, rename, duplicate, or delete | `auto-commit` attribution only |
 | Project Settings | `project:settings` | `/project`, `/settings`, `/bootstrapModule`, `/entrypoint`, `/export/assetMemoryPolicies` | `manual-save` |
 | Project-scoped editor/tool | Named `project:*` unit | The exact paths listed below | Listed per surface |
+| Source file | `source-file:<project-relative-path>` | The main-owned physical source file; no JSON pointer ownership | `manual-save` |
 | Workflow/panel mutation | Named `workflow:*` unit | Canonical command-derived paths listed below | Listed per surface |
 | Read-only/non-content tool | `tool:<editorType>` | None | No content mutation |
 
@@ -37,8 +38,10 @@ field-level pending input in recovery metadata.
 
 ## File menu and close contract
 
-- Save and `Ctrl+S` commit only the active tab's logical save unit.
-- Save All attempts every dirty unit, writes the maximal independently valid set once, and leaves
+- Save and `Ctrl+S` commit only the active tab's logical save unit. Source-file tabs participate in
+  this same coordinator through `source-file:<path>` units rather than a toolbar-only save path.
+- Save All attempts every dirty unit, including dirty source-file buffers, writes the maximal
+  independently valid set, and leaves
   blocked units dirty with their recovery overlays intact. It intentionally has no shortcut that
   conflicts with Save As.
 - Scoped commits send selected save-unit IDs plus the exact logical baseline/local values for the
@@ -64,6 +67,11 @@ field-level pending input in recovery metadata.
   rejects pre-existing NovelTea canonical source/state namespaces and exact Asset-path collisions so
   the copy cannot silently merge stale records, Layout/Script sources, recovery state, or unrelated
   destination bytes into the copied workspace.
+- Dirty source buffers are serialized into editor recovery metadata with their submitted disk
+  baseline revision. Reopening restores the local buffer when the baseline still matches, or surfaces
+  an external conflict when disk changed or the file disappeared. A successful source save advances
+  the buffer baseline while newer typing remains dirty, and a subsequent metadata flush removes stale
+  source recovery.
 - Closing the project, switching projects, and normal editor exit flush ignored local editor metadata
   and recovery only. They never pass the complete working document to a content-save API. Metadata-
   only writes never advance `savedDocument` or adopt newer tracked-file revisions. A scheduled recovery
@@ -96,7 +104,8 @@ Every editor registered in `default-editors.tsx` has one explicit registry outco
 | `asset-detail` | Savable record | `record:assets:<entityId>` | `/assets/<entityId>` plus matching record metadata |
 | `image-generation` | Non-content | `tool:image-generation` | Generated-asset insertion uses a workflow unit below |
 | `comfyui-workflows` | Non-content | `tool:comfyui-workflows` | Workflow-library changes are external editor tooling, not project content |
-| `shader-detail` | Savable record | `record:shaders:<entityId>` | `/shaders/<entityId>` plus matching record metadata |
+| `source-file` | Savable source | `source-file:<project-relative-path>` | Physical source buffer owned by the main Project source authority; dirty text is included in editor recovery metadata |
+| `engine-shader-source` | Non-content | `tool:engine-shader-source` | Read-only engine-owned source inspection |
 | `material-detail` | Savable record | `record:materials:<entityId>` | `/materials/<entityId>` plus matching record metadata |
 | `layout-detail` | Savable record | `record:layouts:<entityId>` | `/layouts/<entityId>` plus matching record metadata; system-role changes are attributed to Project Settings |
 | `character-detail` | Savable record | `record:characters:<entityId>` | `/characters/<entityId>` plus matching record metadata |

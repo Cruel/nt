@@ -4,7 +4,8 @@ import type { ShaderCompileResponse } from '../../shared/editor-tooling';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { useProjectStore } from '../project/project-store';
 import {
   prepareRuntimeArtifact,
@@ -21,25 +22,44 @@ function shaderProject() {
   room.description.source = { kind: 'inline', text: 'Ready.' };
   project.rooms.room = { id: 'room', label: 'Room', data: room };
   project.entrypoint = { kind: 'room', id: 'room' };
-  project.shaders.basic = { id: 'basic', label: 'Basic', data: defaultShaderData('Basic') };
+  project.materials.basic = {
+    id: 'basic',
+    label: 'Basic',
+    data: {
+      ...defaultMaterialData('Basic', 'engine-2d'),
+      shader: {
+        vertex: { kind: 'project', path: 'shaders/basic.vs.sc' },
+        fragment: { kind: 'project', path: 'shaders/basic.fs.sc' },
+      },
+    },
+  };
   return project;
 }
 
-function successfulResponse(): ShaderCompileResponse {
+async function successfulResponse(
+  project: ReturnType<typeof shaderProject>,
+): Promise<ShaderCompileResponse> {
+  const build = await buildShaderMaterialProject(project);
+  const program = Object.keys(build.compilation.programs)[0]!;
+  const request = build.compilation.programs[program]!;
   return {
     ok: true,
     success: true,
     diagnostics: [],
     outputs: (['vertex', 'fragment'] as const).map((stage) => ({
-      shader: 'basic',
+      program,
+      programIdentity: 'program-identity',
       stage,
       variant: 'glsl-330',
-      sourcePath: `/project/basic.${stage}.sc`,
-      outputPath: `/project/basic.${stage}.bin`,
-      runtimePath: `project:/shaders/bgfx/glsl-330/basic.${stage}.bin`,
+      sourceIdentity: stage === 'vertex' ? request.vertexSource : request.fragmentSource,
+      dependencies: [],
+      dependencyRevisions: [],
+      outputPath: `/project/.noveltea/build/shaders/derived/glsl-330/program-identity.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
+      runtimePath: `project:/shaders/derived/glsl-330/program-identity.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
       cacheKey: `${stage}-cache`,
-      byteHash: `sha256:${stage === 'vertex' ? 'a'.repeat(64) : 'b'.repeat(64)}`,
+      byteHash: `sha256:${(stage === 'vertex' ? 'a' : 'b').repeat(64)}` as `sha256:${string}`,
       byteSize: 4,
+      reflectedInputs: [],
       cacheHit: false,
     })),
   };
@@ -86,7 +106,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
       projectRoot: '/project',
       profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
-      shaderCompiler: adapterFactory(successfulResponse()),
+      shaderCompiler: adapterFactory(await successfulResponse(project)),
       paths: rendererRuntimeArtifactPaths,
     });
     expect(result.status).toBe('prepared');
@@ -94,7 +114,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
 
   it('accepts main-process classified diagnostic metadata', async () => {
     const project = shaderProject();
-    const response = successfulResponse();
+    const response = await successfulResponse(project);
     const result = await prepareRuntimeArtifact({
       project,
       projectRoot: '/project',
@@ -164,7 +184,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
 
   it('rejects malformed output evidence at the adapter boundary', async () => {
     const project = shaderProject();
-    const response = successfulResponse();
+    const response = await successfulResponse(project);
     response.outputs[0]!.byteHash = 'sha256:bad';
     const result = await prepareRuntimeArtifact({
       project,
@@ -222,7 +242,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
 
   it('rejects successful compiler responses with only part of the required output set', async () => {
     const project = shaderProject();
-    const response = successfulResponse();
+    const response = await successfulResponse(project);
     response.outputs = response.outputs.slice(0, 1);
     const result = await prepareRuntimeArtifact({
       project,
@@ -241,7 +261,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
 
   it('rejects successful compiler responses with duplicate output keys', async () => {
     const project = shaderProject();
-    const response = successfulResponse();
+    const response = await successfulResponse(project);
     response.outputs.push({ ...response.outputs[0]! });
     const result = await prepareRuntimeArtifact({
       project,
@@ -266,7 +286,7 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
       projectRoot: '/project',
       profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
       intent: 'runtime-package-export',
-      shaderCompiler: adapterFactory(successfulResponse(), () => {
+      shaderCompiler: adapterFactory(await successfulResponse(project), () => {
         cancelled = true;
       }),
       paths: rendererRuntimeArtifactPaths,

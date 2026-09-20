@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 namespace noveltea::embedded_bgfx {
@@ -10,5 +11,16 @@ inline constexpr std::string_view compute_sha256 = "@NOVELTEA_BGFX_COMPUTE_RESOU
 
 inline constexpr std::uint8_t shader_bytes[] = {@NOVELTEA_BGFX_SHADER_RESOURCE_BYTES@};
 inline constexpr std::uint8_t compute_bytes[] = {@NOVELTEA_BGFX_COMPUTE_RESOURCE_BYTES@};
+
+struct EngineShaderResource {
+    std::string_view name;
+    std::string_view sha256;
+    std::span<const std::uint8_t> bytes;
+};
+
+@NOVELTEA_ENGINE_SHADER_RESOURCE_DECLARATIONS@
+
+inline constexpr EngineShaderResource engine_shader_resources[] = {
+@NOVELTEA_ENGINE_SHADER_RESOURCE_ENTRIES@};
 
 } // namespace noveltea::embedded_bgfx

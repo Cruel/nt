@@ -106,7 +106,7 @@ export const shadersCompileCommand: CliCommandDefinition = {
         );
         if (schemaDiagnostics.some((item) => item.severity === 'error'))
           return { ok: false, diagnostics: schemaDiagnostics };
-        const response = await context.nativeTools.compileShaders(shaderProject.project, {
+        const response = await context.nativeTools.compileShaders(shaderProject.compilation, {
           projectRoot: context.snapshot.projectRoot,
           outputRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'build'),
           cacheRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'cache'),
@@ -402,13 +402,14 @@ export const testRunCommand: CliCommandDefinition = {
           if (!runtime.ok) return { ok: false };
           const runtimeEntry = findRuntimeTestCatalogEntry(runtime.testCatalog, testId);
           if (!runtimeEntry || runtimeEntry.status !== 'runnable') return { ok: false };
-          const request = { project: runtime.artifact.compiledProject, spec: runtimeEntry.spec };
+          const request = {
+            project: runtime.artifact.compiledProject,
+            spec: runtimeEntry.spec,
+            projectRoot: context.snapshot.projectRoot,
+            shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
+          };
           return runtimeEntry.runner === 'runtime-ui'
-            ? context.nativeTools.runUiTest({
-                ...request,
-                projectRoot: context.snapshot.projectRoot,
-                shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
-              })
+            ? context.nativeTools.runUiTest(request)
             : context.nativeTools.runHeadlessTest(request);
         };
         const response = await executeCachedRuntimeArtifactWithRecovery({
@@ -468,6 +469,8 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
               : context.nativeTools.runHeadlessTest({
                   project: runtime.artifact.compiledProject,
                   spec,
+                  projectRoot: context.snapshot.projectRoot,
+                  shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
                 });
           const response = await executeCachedRuntimeArtifactWithRecovery({
             cached: prepared.cacheHit,

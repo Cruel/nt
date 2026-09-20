@@ -35,12 +35,8 @@ import { interactionSubjectSchema } from './authoring-features';
 import { interactableLocationSchema } from './authoring-interactables';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
-import { resolveMaterialData } from './authoring-materials';
-import {
-  isUniformValueCompatible,
-  parseShaderData,
-  shaderUniformValueSchema,
-} from './authoring-shaders';
+import { resolvedMaterialUsesCustomShader, resolveMaterialData } from './authoring-materials';
+import { isUniformValueCompatible, shaderUniformValueSchema } from './authoring-shaders';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -1058,12 +1054,14 @@ export function validateSceneData(
           `Material role '${resolved.data.role}' is not valid for this presentation occurrence.`,
         ),
       );
-    const shaderId = resolved.data.shader?.$ref.id;
-    const shader = shaderId ? parseShaderData(project.shaders[shaderId]?.data) : null;
-    const uniform = shader?.uniforms.find((candidate) => candidate.name === parameter);
+    if (resolvedMaterialUsesCustomShader(resolved.data)) return;
+    const uniform = resolved.data.preset.uniforms[parameter];
     if (!uniform) {
       diagnostics.push(
-        diagnostic(`${path}/parameter`, `Shader does not declare uniform '${parameter}'.`),
+        diagnostic(
+          `${path}/parameter`,
+          `Material contract does not declare parameter '${parameter}'.`,
+        ),
       );
       return;
     }
@@ -1588,12 +1586,10 @@ export function validateSceneData(
           );
         if (typeof step.value === 'boolean' || Number.isInteger(step.value)) {
           const resolved = resolveMaterialData(project, step.material.$ref.id);
-          const shaderId = resolved.data?.shader?.$ref.id;
-          const uniform = shaderId
-            ? parseShaderData(project.shaders[shaderId]?.data)?.uniforms.find(
-                (candidate) => candidate.name === step.parameter,
-              )
-            : undefined;
+          const uniform =
+            resolved.data && !resolvedMaterialUsesCustomShader(resolved.data)
+              ? resolved.data.preset.uniforms[step.parameter]
+              : undefined;
           if (uniform?.type === 'bool' || uniform?.type === 'int')
             diagnostics.push(
               diagnostic(

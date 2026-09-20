@@ -1,4 +1,5 @@
 import { synchronizeLocalizationMessageTracking } from './authoring-localization-sync';
+import type { AuthoringLuaSourceDescriptor } from './authoring-source-analysis';
 import { collectManagedLuaLocalizationSources } from './authoring-lua-localization-lowering';
 import { collectRmlLocalizationSources } from './authoring-rml-localization-lowering';
 import {
@@ -92,9 +93,12 @@ export type LocalizationReconciliationApplyResult =
       garbageCollectedMessageIds: readonly string[];
     }>;
 
-function currentSources(project: AuthoringProject): readonly LocalizationSourceCandidate[] {
+function currentSources(
+  project: AuthoringProject,
+  sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
+): readonly LocalizationSourceCandidate[] {
   return Object.freeze([
-    ...collectManagedLuaLocalizationSources(project).map((item) => item.source),
+    ...collectManagedLuaLocalizationSources(project, sourceDescriptors).map((item) => item.source),
     ...collectRmlLocalizationSources(project).map((item) => item.source),
   ]);
 }
@@ -103,8 +107,11 @@ function currentId(sourceKey: string, ordinal: number): string {
   return `${sourceKey}#${ordinal}`;
 }
 
-function flattenCurrent(project: AuthoringProject): readonly CurrentOccurrence[] {
-  return currentSources(project).flatMap((source) => {
+function flattenCurrent(
+  project: AuthoringProject,
+  sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
+): readonly CurrentOccurrence[] {
+  return currentSources(project, sourceDescriptors).flatMap((source) => {
     const sourceKey = localizationSourceKey(source.family, source.ownerKey, source.sourcePath);
     return source.occurrences.map((occurrence) => ({
       id: currentId(sourceKey, occurrence.ordinal),
@@ -322,22 +329,23 @@ function buildGroups(
 export function planLocalizationReconciliation(
   project: AuthoringProject,
   expectedWorkspaceRevision = '',
+  sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
 ): LocalizationReconciliationPlan {
-  const originalCurrents = flattenCurrent(project);
+  const originalCurrents = flattenCurrent(project, sourceDescriptors);
   const orphanCandidates = flattenPrevious(project).filter((item) => item.origin === 'orphan');
   const orphanRelatedCurrentIds = new Set(
     originalCurrents
       .filter((current) => orphanCandidates.some((prior) => weaklyRelated(current, prior)))
       .map((current) => current.id),
   );
-  const synced = synchronizeLocalizationMessageTracking(project);
-  const currents = flattenCurrent(synced.project).filter(
+  const synced = synchronizeLocalizationMessageTracking(project, sourceDescriptors);
+  const currents = flattenCurrent(synced.project, sourceDescriptors).filter(
     (current) =>
       orphanRelatedCurrentIds.has(current.id) ||
       !occurrenceIsFreshlyTracked(synced.project, current),
   );
   const freshMessageIds = new Set(
-    flattenCurrent(synced.project)
+    flattenCurrent(synced.project, sourceDescriptors)
       .filter((current) => occurrenceIsFreshlyTracked(synced.project, current))
       .flatMap((current) => {
         const entry = synced.project.localization.sourceMessageTracking[current.sourceKey];
@@ -438,8 +446,13 @@ export function applyLocalizationReconciliation(
   project: AuthoringProject,
   plan: LocalizationReconciliationPlan,
   decisions: LocalizationReconciliationDecisions,
+  sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
 ): LocalizationReconciliationApplyResult {
-  const currentPlan = planLocalizationReconciliation(project, plan.expectedWorkspaceRevision);
+  const currentPlan = planLocalizationReconciliation(
+    project,
+    plan.expectedWorkspaceRevision,
+    sourceDescriptors,
+  );
   if (currentPlan.expectedFingerprint !== plan.expectedFingerprint)
     return { status: 'stale', plan: currentPlan };
 
@@ -457,9 +470,9 @@ export function applyLocalizationReconciliation(
       occurrenceIds: Object.freeze(missingDecisions.sort()),
     };
 
-  const synced = synchronizeLocalizationMessageTracking(project);
+  const synced = synchronizeLocalizationMessageTracking(project, sourceDescriptors);
   const next = structuredClone(synced.project);
-  const currents = new Map(flattenCurrent(next).map((item) => [item.id, item]));
+  const currents = new Map(flattenCurrent(next, sourceDescriptors).map((item) => [item.id, item]));
   const previous = new Map(flattenPrevious(next).map((item) => [item.occurrence.messageId, item]));
   const usedPrevious = new Set<string>();
   const relinked = new Set<string>();

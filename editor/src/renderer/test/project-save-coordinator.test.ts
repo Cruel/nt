@@ -7,6 +7,7 @@ import {
   saveProjectAsCopy,
 } from '@/project/project-save-coordinator';
 import { useProjectStore } from '@/project/project-store';
+import { useProjectSourceStore } from '@/project/project-source-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useCommandStore } from '@/commands/command-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
@@ -24,9 +25,23 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import { toJsonValue } from '@/project/json-value';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
-import { buildPlatformExportTab, buildProjectSettingsTab } from '@/workbench/editor-registry';
+import {
+  buildPlatformExportTab,
+  buildProjectSettingsTab,
+  buildProjectSourceTab,
+} from '@/workbench/editor-registry';
+import type { ProjectSourceFile } from '../../shared/project-source-files';
 
 const roomFileRevision = `sha256:${'b'.repeat(64)}` as const;
+const sourceRevision = `sha256:${'a'.repeat(64)}` as const;
+const helperSource: ProjectSourceFile = {
+  id: 'scripts/helpers.lua',
+  displayPath: 'scripts/helpers.lua',
+  projectRelativePath: 'scripts/helpers.lua',
+  kind: 'lua',
+  text: true,
+  contentHash: sourceRevision,
+};
 
 function roomTab(roomId: string): WorkbenchTab {
   return {
@@ -87,6 +102,7 @@ function loadProject(
 beforeEach(() => {
   vi.clearAllMocks();
   useProjectStore.getState().clearProject();
+  useProjectSourceStore.getState().clear();
   useWorkbenchStore.getState().resetWorkbench();
   useCommandStore.getState().resetCommandHistory();
   useDraftDirtyStore.getState().resetDraftDirty();
@@ -94,6 +110,120 @@ beforeEach(() => {
 });
 
 describe('project save coordinator', () => {
+  it('routes active source-file Save through the shared save coordinator', async () => {
+    const project = projectWithRooms();
+    loadProject(project, structuredClone(project), emptyEditorProjectState());
+    useProjectSourceStore.setState({
+      projectSessionId: 'test-project-session',
+      files: [helperSource],
+      textById: { [helperSource.id]: 'return dirty' },
+      buffersById: {
+        [helperSource.id]: {
+          text: 'return dirty',
+          baseText: 'return clean',
+          baseContentHash: sourceRevision,
+          dirty: true,
+          conflict: null,
+        },
+      },
+    });
+    useWorkbenchStore.getState().openTab(buildProjectSourceTab(helperSource));
+    vi.mocked(window.noveltea.writeProjectSource).mockResolvedValueOnce({
+      ok: true,
+      success: true,
+      sourceId: helperSource.id,
+      contentHash: `sha256:${'c'.repeat(64)}`,
+    });
+
+    const result = await saveActiveSaveUnit();
+
+    expect(result).toMatchObject({
+      success: true,
+      status: 'saved',
+      savedSaveUnitIds: ['source-file:scripts/helpers.lua'],
+      remainingDirtySaveUnitIds: [],
+    });
+    expect(window.noveltea.writeProjectSource).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceId: helperSource.id, text: 'return dirty' }),
+    );
+    expect(useProjectSourceStore.getState().buffersById[helperSource.id]?.dirty).toBe(false);
+  });
+
+  it('includes dirty source-file units in Save All even when Project JSON has no dirty units', async () => {
+    const project = projectWithRooms();
+    loadProject(project, structuredClone(project), emptyEditorProjectState());
+    useProjectSourceStore.setState({
+      projectSessionId: 'test-project-session',
+      files: [helperSource],
+      textById: { [helperSource.id]: 'return dirty' },
+      buffersById: {
+        [helperSource.id]: {
+          text: 'return dirty',
+          baseText: 'return clean',
+          baseContentHash: sourceRevision,
+          dirty: true,
+          conflict: null,
+        },
+      },
+    });
+    vi.mocked(window.noveltea.writeProjectSource).mockResolvedValueOnce({
+      ok: true,
+      success: true,
+      sourceId: helperSource.id,
+      contentHash: `sha256:${'d'.repeat(64)}`,
+    });
+
+    const result = await saveAllSaveUnits();
+
+    expect(result).toMatchObject({
+      success: true,
+      status: 'saved',
+      savedSaveUnitIds: ['source-file:scripts/helpers.lua'],
+      remainingDirtySaveUnitIds: [],
+    });
+  });
+
+  it('surfaces source-save diagnostics when Save All cannot commit a dirty source', async () => {
+    const project = projectWithRooms();
+    loadProject(project, structuredClone(project), emptyEditorProjectState());
+    useProjectSourceStore.setState({
+      projectSessionId: 'test-project-session',
+      files: [helperSource],
+      textById: { [helperSource.id]: 'return dirty' },
+      buffersById: {
+        [helperSource.id]: {
+          text: 'return dirty',
+          baseText: 'return clean',
+          baseContentHash: sourceRevision,
+          dirty: true,
+          conflict: null,
+        },
+      },
+    });
+    vi.mocked(window.noveltea.writeProjectSource).mockResolvedValueOnce({
+      ok: false,
+      success: false,
+      sourceId: helperSource.id,
+      error: 'source revision conflict',
+    });
+
+    const result = await saveAllSaveUnits();
+
+    expect(result).toMatchObject({
+      success: false,
+      status: 'failed',
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: ['source-file:scripts/helpers.lua'],
+      diagnostics: [
+        expect.objectContaining({
+          code: 'editor.source-save.failed',
+          path: helperSource.id,
+          message: 'source revision conflict',
+        }),
+      ],
+    });
+  });
+
   it('saves platform export profile edits from the Export tab', async () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();

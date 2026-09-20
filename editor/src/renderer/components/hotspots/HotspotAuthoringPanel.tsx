@@ -21,7 +21,7 @@ import type {
 } from '../../../shared/project-schema/authoring-features';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import { parseMaterialData } from '../../../shared/project-schema/authoring-materials';
+import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import type { Condition } from '../../../shared/project-schema/authoring-flow';
@@ -113,7 +113,7 @@ export function HotspotAuthoringPanel(props: Props) {
     props.hotspots.find((item) => item.id === props.selectedView.selectedHotspotId) ?? null;
   const selectedCondition = selected?.condition ?? null;
   const materials = Object.entries(props.project.materials).filter(
-    ([, record]) => parseMaterialData(record.data)?.role === 'hotspot-overlay',
+    ([id]) => resolveMaterialData(props.project, id).data?.role === 'hotspot-overlay',
   );
   const selectorItems = useMemo(
     () => buildCommandPaletteItems(props.project, t),

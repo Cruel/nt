@@ -8,9 +8,9 @@ admitted `os` operations are the wall-clock/calendar subset below.
 
 Lua source remains opaque to the TypeScript authoring compiler after structural validation except
 for the managed localization syntax described below. Native Lua certification runs for
-preview/export readiness and again during compiled package load. Invalid inline or asset-backed Lua
-prevents publication/session construction and reports structured diagnostics without executing the
-script.
+preview/export readiness and again during compiled package load. Invalid inline Lua or Project-backed
+Lua source prevents publication/session construction and reports structured diagnostics without
+executing the script.
 
 ### Managed localization calls
 
@@ -254,8 +254,8 @@ The focused query provider exposes only the candidate-wide union of lexically di
 fallback reads. Definition, Variable, property, and Interactable-location queries outside that
 admission fail deterministically. Room composition receives a narrower draft-mutation subset for
 Character and Interactable IDs while sharing the candidate read environment with conditions, text,
-and mounted Layout Lua. Inline and Asset-backed composition, dedicated Layout Lua, event attributes,
-inline/external scripts, templates, direct-string `AddEventListener`, and direct-string `load` use
+and mounted Layout Lua. Inline and Project-file-backed gameplay composition, dedicated Layout Lua,
+event attributes, inline/external scripts, templates, direct-string `AddEventListener`, and direct-string `load` use
 this contract. Computed dynamic code and generated RML remain explicit unsupported-analysis cases.
 
 ## Audio

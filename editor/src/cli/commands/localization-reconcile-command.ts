@@ -67,6 +67,7 @@ export const localizationReconcileCommand: CliCommandDefinition = {
         const currentPlan = planLocalizationReconciliation(
           context.snapshot.project,
           context.snapshot.workspaceRevision,
+          context.snapshot.externalSourceDescriptors,
         );
         if (!apply)
           return {
@@ -112,6 +113,7 @@ export const localizationReconcileCommand: CliCommandDefinition = {
           context.snapshot.project,
           suppliedPlan(input, currentPlan),
           input.resolutions,
+          context.snapshot.externalSourceDescriptors,
         );
         if (result.status === 'stale')
           return {

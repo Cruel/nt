@@ -299,7 +299,12 @@ std::string minimal_compiled_project_fixture()
                              "minimal.json";
     std::ifstream file(path, std::ios::binary);
     REQUIRE(file.good());
-    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    const std::string text{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    auto project = nlohmann::json::parse(text, nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
+    project["resources"]["scripts"][0]["source"] =
+        {{"kind", "inline-lua"}, {"source", "return {}\n"}};
+    return project.dump();
 }
 
 std::string localized_dialogue_cue_compiled_project_fixture()
@@ -472,12 +477,8 @@ std::string asset_bootstrap_compiled_project_fixture()
 {
     auto project = nlohmann::json::parse(minimal_compiled_project_fixture(), nullptr, false);
     REQUIRE_FALSE(project.is_discarded());
-    project["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
-                                              {"id", "bootstrap-script"},
-                                              {"kind", "script"},
-                                              {"path", "assets/scripts/bootstrap.lua"}});
-    project["resources"]["scripts"][0]["source"] = {
-        {"asset", {{"id", "bootstrap-script"}, {"kind", "asset"}}}, {"kind", "asset"}};
+    project["resources"]["scripts"][0]["source"] = {{"kind", "project-file"},
+                                                    {"path", "project:/scripts/bootstrap.lua"}};
     return project.dump();
 }
 
@@ -1859,15 +1860,10 @@ TEST_CASE("Rejected runtime package validation does not advance the live asset g
 
     auto candidate_project = nlohmann::json::parse(fixture, nullptr, false);
     REQUIRE_FALSE(candidate_project.is_discarded());
-    candidate_project["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
-                                                        {"id", "candidate-compose-source"},
-                                                        {"kind", "script"},
-                                                        {"path", "scripts/candidate-compose.lua"}});
     candidate_project["resources"]["scripts"].push_back(
         {{"id", "candidate-compose"},
          {"source",
-          {{"kind", "asset"},
-           {"asset", {{"id", "candidate-compose-source"}, {"kind", "asset"}}}}}});
+          {{"kind", "project-file"}, {"path", "project:/scripts/candidate-compose.lua"}}}});
     candidate_project["definitions"]["rooms"][0]["scriptHooks"].push_back(
         {{"hook", "compose"},
          {"handler",
@@ -2099,7 +2095,7 @@ TEST_CASE("GameHost failed reset and load candidates preserve the live session a
     project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
                         "game-host-candidate-failure-test");
     const std::string valid_bootstrap = "return {}\n";
-    project_assets->add("assets/scripts/bootstrap.lua",
+    project_assets->add("scripts/bootstrap.lua",
                         assets::AssetBytes(valid_bootstrap.begin(), valid_bootstrap.end()),
                         "game-host-candidate-failure-test");
     assets.mount("project", project_assets);
@@ -2147,7 +2143,7 @@ TEST_CASE("GameHost failed reset and load candidates preserve the live session a
     const auto live_revision = host.runtime_publication()->revision;
 
     const std::string invalid_bootstrap = "local =";
-    project_assets->add("assets/scripts/bootstrap.lua",
+    project_assets->add("scripts/bootstrap.lua",
                         assets::AssetBytes(invalid_bootstrap.begin(), invalid_bootstrap.end()),
                         "game-host-candidate-failure-test");
     auto failed_reset =
@@ -2163,7 +2159,7 @@ TEST_CASE("GameHost failed reset and load candidates preserve the live session a
     REQUIRE(reset_sentinel);
     CHECK(*reset_sentinel.value_if());
 
-    project_assets->add("assets/scripts/bootstrap.lua",
+    project_assets->add("scripts/bootstrap.lua",
                         assets::AssetBytes(valid_bootstrap.begin(), valid_bootstrap.end()),
                         "game-host-candidate-failure-test");
     auto reset = host.submit_runtime_input(core::RuntimeInputMessage{core::ResetRuntimeInput{}});

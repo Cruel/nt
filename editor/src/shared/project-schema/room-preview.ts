@@ -358,6 +358,10 @@ export const focusedLayoutSourceComponentSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),
   strict({ kind: z.literal('asset'), logicalPath: safeProjectLogicalPath }),
 ]);
+export const focusedLayoutLuaSourceComponentSchema = strict({
+  kind: z.literal('inline'),
+  text: z.string(),
+});
 
 const focusedLayoutContractValueTypeSchema = z.enum(['boolean', 'integer', 'number', 'string']);
 const focusedLayoutPersistableValueSchema: z.ZodType<unknown> = z.lazy(() =>
@@ -450,7 +454,7 @@ export const focusedRoomLayoutDefinitionSchema = strict({
       scriptNamespace: z.string().nullable(),
       rml: focusedLayoutSourceComponentSchema,
       rcss: focusedLayoutSourceComponentSchema,
-      lua: focusedLayoutSourceComponentSchema,
+      lua: focusedLayoutLuaSourceComponentSchema,
     }),
   ]),
   scriptEnabled: z.boolean(),
@@ -483,10 +487,15 @@ export const focusedRoomUiDefinitionSchema = strict({
   ),
 });
 
+const focusedScriptSourceComponentSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('inline'), text: z.string() }),
+  strict({ kind: z.literal('project-file'), logicalPath: safeProjectLogicalPath }),
+]);
+
 export const focusedRoomCompositionDefinitionSchema = strict({
   moduleId: z.string().min(1),
   exportName: z.string().min(1),
-  source: focusedLayoutSourceComponentSchema,
+  source: focusedScriptSourceComponentSchema,
 });
 
 export const focusedShaderMaterialProjectSchema = shaderMaterialProjectWireSchema;
@@ -772,7 +781,6 @@ export const roomPreviewDocumentSchema = strict({
         );
     }
     const expectedDedicated =
-      layout.source.lua.kind === 'asset' ||
       new TextEncoder().encode(layout.source.lua.text.replace(/^\uFEFF/, '')).byteLength > 0;
     if (layout.containsDedicatedLuaSource !== expectedDedicated)
       issue(

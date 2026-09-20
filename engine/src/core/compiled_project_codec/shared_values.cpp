@@ -1707,15 +1707,13 @@ std::optional<ScriptSource> decode_script_source(Decoder& decoder, const nlohman
         return source ? std::optional<ScriptSource>(InlineLuaSource{std::move(*source)})
                       : std::nullopt;
     }
-    if (*kind == "asset") {
-        decoder.object(value, pointer, {"asset", "kind"});
-        const auto* asset_value = decoder.member(value, "asset", pointer);
-        auto asset = asset_value
-                         ? decode_reference<AssetId>(decoder, *asset_value,
-                                                     pointer_child(pointer, "asset"), "asset")
-                         : std::nullopt;
-        return asset ? std::optional<ScriptSource>(AssetScriptSource{std::move(*asset)})
-                     : std::nullopt;
+    if (*kind == "project-file") {
+        decoder.object(value, pointer, {"kind", "path"});
+        const auto* path_value = decoder.member(value, "path", pointer);
+        auto path =
+            path_value ? decoder.string(*path_value, pointer_child(pointer, "path")) : std::nullopt;
+        return path ? std::optional<ScriptSource>(ProjectFileScriptSource{std::move(*path)})
+                    : std::nullopt;
     }
     decoder.object(value, pointer, {"kind"});
     decoder.error(k_code_variant, "Unknown script source variant '" + *kind + "'.",

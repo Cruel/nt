@@ -50,33 +50,23 @@ import type {
 import { parseInteractableData } from '../../shared/project-schema/authoring-interactables';
 import {
   parseLayoutData,
+  type LayoutLuaSourceData,
   type LayoutSourceData,
 } from '../../shared/project-schema/authoring-layouts';
 import { authoredLayoutSourceUrl } from '../../shared/project-schema/layout-source-url';
 import type { AuthoringSourceAnalysisArtifact } from '../../shared/project-schema/authoring-lua-analysis';
-import {
-  parseMaterialData,
-  resolveMaterialData,
-} from '../../shared/project-schema/authoring-materials';
+import { resolveMaterialData } from '../../shared/project-schema/authoring-materials';
 import { parseRoomData, type RoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   roomPreviewDocumentSchema,
   type RoomPreviewDocument,
 } from '../../shared/project-schema/room-preview';
 import { parseScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
-import {
-  canonicalRuntimeShaderOutputPath,
-  compiledShaderFetchProjectRelativePath,
-  hasCompleteShaderCompiledOutputMetadata,
-  parseShaderData,
-  shaderCompiledOutputIsFresh,
-} from '../../shared/project-schema/authoring-shaders';
-import {
-  buildMaterialDefinition,
-  buildShaderDefinition,
-} from '../../shared/project-schema/shader-material-project';
+import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { parseVariableData } from '../../shared/project-schema/authoring-variables';
 import type { ShaderVariant } from '../../shared/shader-variants';
+import type { ShaderCompileOutput } from '../../shared/editor-tooling';
+import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
 import { projectOriginalAssetUrl } from '../../shared/project-original-asset';
 
 type Diagnostic = AuthoringDependencyGraphDiagnostic;
@@ -398,6 +388,10 @@ function sourceComponent(
   };
 }
 
+function luaSourceComponent(value: LayoutLuaSourceData) {
+  return { kind: 'inline' as const, text: value.sourceText };
+}
+
 function layoutHasExecutableRmlLua(
   analyses: readonly AuthoringSourceAnalysisArtifact<Diagnostic>[],
   layoutId: string,
@@ -448,7 +442,7 @@ function buildLayouts(
       diagnostics.push(diagnostic(`/layouts/${layoutId}`, `Layout '${layoutId}' is invalid.`));
       return;
     }
-    const lua = sourceComponent(project, data.lua);
+    const lua = luaSourceComponent(data.lua);
     const rml = sourceComponent(project, data.rml, {
       pseudoLocalizeMessages: effectivePreviewLocale(project) === PSEUDO_PREVIEW_LOCALE,
     });
@@ -470,9 +464,7 @@ function buildLayouts(
       },
       scriptEnabled: data.script.enabled,
       containsDedicatedLuaSource:
-        lua.kind === 'inline'
-          ? new TextEncoder().encode(lua.text.replace(/^\uFEFF/, '')).byteLength > 0
-          : true,
+        new TextEncoder().encode(lua.text.replace(/^\uFEFF/, '')).byteLength > 0,
       containsExecutableRmlLua: layoutHasExecutableRmlLua(analyses, layoutId),
       contract: lowerLayoutContractForWire(data.contract),
       scalePolicy: data.scalePolicy ?? { ui: 'inherit', text: 'inherit' },
@@ -789,41 +781,27 @@ function collectVisualIds(data: RoomPreviewDocument) {
 }
 
 function completeMaterialClosure(project: AuthoringProject, materialIds: Set<string>) {
-  const shaderIds = new Set<string>();
   const assetIds = new Set<string>();
-  const queue = [...materialIds];
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    const raw = parseMaterialData(project.materials[id]?.data);
-    if (raw?.baseMaterialId && !materialIds.has(raw.baseMaterialId)) {
-      materialIds.add(raw.baseMaterialId);
-      queue.push(raw.baseMaterialId);
-    }
-    const resolved = resolveMaterialData(project, id).data ?? raw;
+  for (const id of materialIds) {
+    const resolved = resolveMaterialData(project, id).data;
     if (!resolved) continue;
-    if (resolved.shader) shaderIds.add(resolved.shader.$ref.id);
-    for (const texture of resolved.textures)
-      if ('$ref' in texture.source) assetIds.add(texture.source.$ref.id);
+    for (const texture of Object.values(resolved.textures))
+      if (texture.source && '$ref' in texture.source) assetIds.add(texture.source.$ref.id);
   }
-  return { shaderIds, assetIds };
+  return { assetIds };
 }
 
 function layoutResourceIds(project: AuthoringProject, layouts: RoomPreviewDocument['layouts']) {
   const assets = new Set<string>();
   const materials = new Set<string>();
+  const scripts = new Set<string>();
   for (const layout of layouts) {
     if (!layout.layoutId) continue;
     const data = parseLayoutData(project.layouts[layout.layoutId]?.data);
     if (!data) continue;
-    for (const family of [
-      'images',
-      'fonts',
-      'stylesheets',
-      'scripts',
-      'templates',
-      'data',
-    ] as const)
+    for (const family of ['images', 'fonts', 'stylesheets', 'templates', 'data'] as const)
       for (const ref of data.dependencies[family] ?? []) assets.add(ref.$ref.id);
+    for (const path of data.dependencies.scripts) scripts.add(path);
     for (const ref of data.dependencies.materials) materials.add(ref.$ref.id);
     for (const source of [data.rml, data.rcss, data.lua])
       if (source.sourceMode === 'asset' && source.sourceAsset)
@@ -831,7 +809,7 @@ function layoutResourceIds(project: AuthoringProject, layouts: RoomPreviewDocume
   }
   const defaultFont = project.settings.text.defaultFont?.$ref.id;
   if (defaultFont) assets.add(defaultFont);
-  return { assets, materials };
+  return { assets, materials, scripts };
 }
 
 async function resourceManifest(
@@ -839,8 +817,8 @@ async function resourceManifest(
   projectSessionId: string,
   assetIds: Set<string>,
   alphaCoverageAssetIds: Set<string>,
-  shaderIds: Set<string>,
-  variant: ShaderVariant,
+  projectSourcePaths: Set<string>,
+  _variant: ShaderVariant,
   diagnostics: Diagnostic[],
 ): Promise<PreviewResourceManifestEntry[]> {
   const resources: PreviewResourceManifestEntry[] = [];
@@ -873,54 +851,37 @@ async function resourceManifest(
         : { ...base, kind: data.kind },
     );
   }
-  for (const shaderId of [...shaderIds].sort()) {
-    const shader = parseShaderData(project.shaders[shaderId]?.data);
-    if (!shader) continue;
-    for (const [stageIndex, stage] of shader.stages.entries()) {
-      const output = stage.compiled[variant];
-      if (!output || !hasCompleteShaderCompiledOutputMetadata(output)) {
+  if (projectSourcePaths.size > 0) {
+    const paths = [...projectSourcePaths].sort();
+    const response = await window.noveltea.readProjectTextSources({
+      projectSessionId,
+      entries: paths.map((projectRelativePath, index) => ({
+        readKey: `room-preview-source:${index}`,
+        projectRelativePath,
+        expectedContentHash: null,
+      })),
+    });
+    const byKey = new Map(response.entries.map((entry) => [entry.readKey, entry]));
+    const encoder = new TextEncoder();
+    paths.forEach((projectRelativePath, index) => {
+      const entry = byKey.get(`room-preview-source:${index}`);
+      if (!entry || entry.status !== 'ready') {
         diagnostics.push(
-          diagnostic(
-            `/shaders/${shaderId}/data/stages`,
-            `Shader '${shaderId}' has no complete '${variant}' ${stage.stage} output.`,
-          ),
+          diagnostic(`/layouts`, `Focused project source '${projectRelativePath}' is unavailable.`),
         );
-        continue;
-      }
-      if (!(await shaderCompiledOutputIsFresh(project, shaderId, stageIndex, variant, output))) {
-        diagnostics.push(
-          diagnostic(
-            `/shaders/${shaderId}/data/stages/${stageIndex}/compiled/${variant}`,
-            `Shader '${shaderId}' ${stage.stage} output for '${variant}' is stale.`,
-          ),
-        );
-        continue;
-      }
-      const logicalPath = canonicalRuntimeShaderOutputPath(output.path);
-      const fetchProjectRelativePath = compiledShaderFetchProjectRelativePath(output.path);
-      if (!logicalPath || !fetchProjectRelativePath) {
-        diagnostics.push(
-          diagnostic(
-            `/shaders/${shaderId}/data/stages`,
-            `Shader '${shaderId}' has a non-canonical '${variant}' ${stage.stage} output path.`,
-          ),
-        );
-        continue;
+        return;
       }
       resources.push({
-        resourceId: `shader:${shaderId}:${stage.stage}:${variant}`,
-        sourceKind: 'shader-compiled-output',
-        shaderId,
-        shaderStage: stage.stage,
-        shaderVariant: variant,
+        resourceId: `source:${projectRelativePath}`,
+        sourceKind: 'project-source',
         usageRoles: ['room-preview'],
-        fetchProjectRelativePath,
-        logicalPath,
-        contentHash: output.byteHash as `sha256:${string}`,
-        byteSize: output.byteSize,
-        kind: 'shader-binary',
+        fetchProjectRelativePath: projectRelativePath,
+        logicalPath: `project:/${projectRelativePath}`,
+        contentHash: entry.contentHash,
+        byteSize: encoder.encode(entry.text).byteLength + (entry.hadUtf8Bom ? 3 : 0),
+        kind: 'lua',
       });
-    }
+    });
   }
   return resources.sort((a, b) => a.resourceId.localeCompare(b.resourceId));
 }
@@ -1319,17 +1280,10 @@ export async function buildFocusedRoomPreview(
               exportName: compositionHook.exportName,
               source: { kind: 'inline' as const, text: source.source },
             };
-          const assetId = source.asset.$ref.id;
-          const asset = parseAssetData(project.assets[assetId]?.data);
           return {
             moduleId,
             exportName: compositionHook.exportName,
-            source: {
-              kind: 'asset' as const,
-              logicalPath: asset
-                ? `project:/${asset.source.path}`
-                : `project:/__missing/${assetId}`,
-            },
+            source: { kind: 'project-file' as const, logicalPath: `project:/${source.path}` },
           };
         })()
       : null,
@@ -1341,37 +1295,31 @@ export async function buildFocusedRoomPreview(
   const layoutIds = layoutResourceIds(project, layouts);
   for (const id of layoutIds.assets) visual.assets.add(id);
   for (const id of layoutIds.materials) visual.materials.add(id);
-  if (data.composition?.source.kind === 'asset') {
-    const script = parseScriptModuleData(project.scripts[data.composition.moduleId]?.data);
-    if (script?.source.kind === 'asset') visual.assets.add(script.source.asset.$ref.id);
-  }
   const materialClosure = completeMaterialClosure(project, visual.materials);
   for (const id of materialClosure.assetIds) visual.assets.add(id);
   for (const cursor of project.settings.cursors.named) visual.assets.add(cursor.image.$ref.id);
-  for (const materialId of [...visual.materials].sort()) {
-    const built = buildMaterialDefinition(project, materialId);
-    diagnostics.push(
-      ...built.diagnostics.map((item) => ({
-        severity: item.severity === 'info' ? ('warning' as const) : item.severity,
-        path: item.path,
-        message: item.message,
-        code: 'focused-room.material',
-      })),
+  const materialSourceProject = await buildShaderMaterialProject(project);
+  let materialCompileOutputs: ShaderCompileOutput[] = [];
+  if (Object.keys(materialSourceProject.compilation.programs).length > 0) {
+    const response = parseShaderCompileResponse(
+      await window.noveltea.compileShaders(projectSessionId, materialSourceProject.compilation, {
+        shaderVariants: [activeShaderVariant],
+      }),
     );
-    if (built.value) data.shaderMaterials.materials[materialId] = built.value;
+    if (!response.success)
+      throw new Error(response.error ?? 'Focused Room Material shader compilation failed.');
+    materialCompileOutputs = response.outputs;
   }
-  for (const shaderId of [...materialClosure.shaderIds].sort()) {
-    const built = await buildShaderDefinition(project, shaderId);
-    diagnostics.push(
-      ...built.diagnostics.map((item) => ({
-        severity: item.severity === 'info' ? ('warning' as const) : item.severity,
-        path: item.path,
-        message: item.message,
-        code: 'focused-room.shader',
-      })),
-    );
-    if (built.value) data.shaderMaterials.shaders[shaderId] = built.value;
-  }
+  const materialProject = await buildShaderMaterialProject(project, materialCompileOutputs);
+  diagnostics.push(
+    ...materialProject.diagnostics.map((item) => ({
+      severity: item.severity === 'info' ? ('warning' as const) : item.severity,
+      path: item.path,
+      message: item.message,
+      code: 'focused-room.material',
+    })),
+  );
+  data.shaderMaterials = materialProject.project;
   const resources = await resourceManifest(
     project,
     projectSessionId,
@@ -1389,9 +1337,27 @@ export async function buildFocusedRoomPreview(
           : [];
       }),
     ),
-    materialClosure.shaderIds,
+    layoutIds.scripts,
     activeShaderVariant,
     diagnostics,
   );
+  resources.push(
+    ...materialCompileOutputs
+      .filter((output) => output.variant === activeShaderVariant)
+      .map((output) => ({
+        usageRoles: ['material-shader'],
+        fetchProjectRelativePath: `.noveltea/build/${output.runtimePath.replace(/^project:\//, '')}`,
+        logicalPath: output.runtimePath,
+        contentHash: output.byteHash,
+        byteSize: output.byteSize,
+        resourceId: `shader:${output.program}:${output.stage}:${output.variant}`,
+        sourceKind: 'shader-compiled-output' as const,
+        shaderId: output.program,
+        shaderStage: output.stage,
+        shaderVariant: output.variant as ShaderVariant,
+        kind: 'shader-binary' as const,
+      })),
+  );
+  resources.sort((left, right) => left.resourceId.localeCompare(right.resourceId));
   return { data: roomPreviewDocumentSchema.parse(data), resources, diagnostics };
 }

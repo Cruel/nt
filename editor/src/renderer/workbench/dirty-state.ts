@@ -127,7 +127,7 @@ export function getTabDirtyState(
   const recoveryDirty = Boolean(
     resource.saveUnitId && recoveryDirtySaveUnitIds.has(resource.saveUnitId),
   );
-  const persistentDirty = resource.dirty || recoveryDirty;
+  const persistentDirty = resource.dirty || recoveryDirty || Boolean(tab.dirty);
   const pendingInputDirty = Boolean(
     resource.saveUnitId && pendingSaveUnitIds.has(resource.saveUnitId),
   );

@@ -20,6 +20,8 @@ export interface ProjectWorkspaceWatchEvent {
   readonly changedPaths: readonly string[];
   readonly authoringChangedPaths: readonly string[];
   readonly assetChangedPaths: readonly string[];
+  readonly sourceChangedPaths?: readonly string[];
+  readonly sourceDiagnostics?: readonly ProjectValidationDiagnostic[];
   readonly assetFileRevisions?: Readonly<Record<string, `sha256:${string}` | 'absent'>>;
   readonly assetDiagnostics?: readonly ProjectValidationDiagnostic[];
   readonly authoring?: ProjectWorkspaceAuthoringWatchResult;

@@ -263,13 +263,13 @@
       {
         "id": "bootstrap",
         "source": {
-          "kind": "inline-lua",
-          "source": "return {}\n"
+          "kind": "project-file",
+          "path": "project:/scripts/bootstrap.lua"
         }
       }
     ]
   },
-  "saveContract": "sc1:85d26aa23bbb156c901b58d2c48b19f8",
+  "saveContract": "sc1:3e2bc723ef4551d5aa259413e78cae29",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

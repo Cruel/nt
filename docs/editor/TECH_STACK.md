@@ -286,7 +286,7 @@ Good candidates for TanStack Form:
 
 - Project settings.
 - Asset import options.
-- Material/shader records.
+- Material records and source-backed shader authoring.
 - Character pose/expression records.
 - Export/package profiles.
 - Complex action/interaction editors.

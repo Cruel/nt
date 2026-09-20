@@ -2,7 +2,9 @@
 
 Date: 2026-06-23
 
-This plan defines how NovelTea supports user-authored shaders and materials while continuing to use bgfx as the renderer abstraction. It also defines how RmlUi's generic `shader(<string>)` decorator maps into NovelTea materials.
+> Historical plan: the authored Shader-record and shader-Asset model described below was superseded by the canonical Material Preset + source-file design in #292/#294. Current authoring has Materials as semantic records, shader source as files under `shaders/`, and no top-level Shader collection or `shader-source` Asset kind. See `docs/engine/SHADER.md` for the current contract.
+
+This plan records the earlier design for NovelTea shaders/materials while continuing to use bgfx as the renderer abstraction. It remains useful as rendering-history context, but its authoring-schema sections are not current implementation guidance.
 
 ## Current Direction
 
@@ -548,6 +550,24 @@ Acceptance:
 - Project-schema shader stages can compile for the canonical `glsl-330`, `essl-300`, and `metal` variants; Web and Android share `essl-300`.
 - Failed shader compilation produces readable diagnostics.
 - Re-running without source changes hits the cache.
+
+#### Source-program prefactor for the #292 authoring redesign
+
+The compiler also exposes a source-program seam that does not require authored `ShaderDefinition`
+identity. It accepts project shader paths below `project:/shaders/` and engine-owned `engine:/`
+stages, requires an explicit varying/interface definition, and never synthesizes an authored varying
+file. Project and engine includes are resolved only through contained shader roots; transitive source
+contents, the explicit interface contract, varying contents, embedded compiler identity, and target
+variant participate in derived compile/cache identity.
+
+Successful source-program outputs expose reflected uniforms and sampled images from the compiled bgfx
+binary. The `essl-300` output additionally exposes the compiled ESSL source payload for the future
+lightweight Material preview renderer. Derived binaries use a deterministic program identity rather
+than authored Shader ids, and runtime program resolution has a matching source-program key path that
+can represent ActiveText direct vertex/fragment programs without Shader records.
+
+`compile_shader_project()` and the current Shader-record schema remain supported during this prefactor;
+the canonical authoring cutover is intentionally deferred to later #292 tickets.
 
 ### Phase 4: Engine 2D Material Binding `[implemented]`
 

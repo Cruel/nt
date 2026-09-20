@@ -11,6 +11,7 @@ import {
   assetSourcePaths,
   compareProjectWorkspaceUnicodeCodePoints,
 } from '../../shared/project-workspace/project-workspace-service';
+import { parseMaterialData } from '../../shared/project-schema/authoring-materials';
 import { sha256PrefixedBytes } from '../../shared/web-crypto';
 import { createPlatformArchive } from './platform-host-service';
 
@@ -175,18 +176,32 @@ async function portableProjectOwnedPaths(
   snapshot: LoadedProjectWorkspaceSnapshot,
 ): Promise<string[]> {
   const paths = new Set<string>(snapshot.canonicalSourceFiles);
-  for (const sourcePath of assetSourcePaths(snapshot.project)) {
+  const addOwnedSourcePath = (sourcePath: string, label: string): void => {
     if (sourcePath === PORTABLE_PROJECT_BUNDLE_MANIFEST)
       throw new PortableProjectBundleError(
         'invalid-project',
-        `Asset source path '${sourcePath}' collides with the reserved portable Project bundle manifest path.`,
+        `${label} source path '${sourcePath}' collides with the reserved portable Project bundle manifest path.`,
       );
     if (isExcludedPortableProjectPath(sourcePath))
       throw new PortableProjectBundleError(
         'invalid-project',
-        `Asset source path '${sourcePath}' belongs to local, generated, or VCS state excluded from portable Project bundles.`,
+        `${label} source path '${sourcePath}' belongs to local, generated, or VCS state excluded from portable Project bundles.`,
       );
     paths.add(sourcePath);
+  };
+  for (const sourcePath of assetSourcePaths(snapshot.project))
+    addOwnedSourcePath(sourcePath, 'Asset');
+  for (const record of Object.values(snapshot.project.materials)) {
+    const material = parseMaterialData(record.data);
+    if (!material)
+      throw new PortableProjectBundleError(
+        'invalid-project',
+        `Material '${record.id}' is invalid and cannot be exported.`,
+      );
+    for (const stage of ['vertex', 'fragment', 'varying'] as const) {
+      const source = material.shader?.[stage];
+      if (source?.kind === 'project') addOwnedSourcePath(source.path, 'Shader');
+    }
   }
   for (const workflowPath of await collectWorkflowFiles(fileSystem, snapshot.projectRoot))
     paths.add(workflowPath);

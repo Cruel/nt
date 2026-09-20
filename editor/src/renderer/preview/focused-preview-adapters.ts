@@ -8,7 +8,6 @@ import {
   layoutPreviewInputsSchema,
   projectNativeManifest,
   roomPreviewInputsSchema,
-  shaderPreviewInputsSchema,
   type FocusedPreviewDocumentKind,
   type FocusedPreviewHostCapabilities,
   type FocusedRecordPreviewDocument,
@@ -20,6 +19,7 @@ import { effectivePreviewDisplay } from '../../shared/preview-display';
 import { effectivePreviewLocale } from '../../shared/preview-locale';
 import { PSEUDO_PREVIEW_LOCALE, pseudoLocalizeRmlMessages } from '../../shared/pseudo-localization';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import type { ShaderCompileOutput } from '../../shared/editor-tooling';
 import { projectOriginalAssetUrl } from '../../shared/project-original-asset';
 import type { AuthoringSourceAnalysisArtifact } from '../../shared/project-schema/authoring-lua-analysis';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
@@ -28,25 +28,14 @@ import {
   resolveLayoutScalePolicy,
 } from '../../shared/project-schema/authoring-layouts';
 import { authoredLayoutSourceUrl } from '../../shared/project-schema/layout-source-url';
-import {
-  parseMaterialData,
-  resolveMaterialData,
-} from '../../shared/project-schema/authoring-materials';
+import { resolveMaterialData } from '../../shared/project-schema/authoring-materials';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import {
-  canonicalRuntimeShaderOutputPath,
-  compiledShaderFetchProjectRelativePath,
-  hasCompleteShaderCompiledOutputMetadata,
-  parseShaderData,
-  shaderCompiledOutputIsFresh,
-  type ShaderStage,
-} from '../../shared/project-schema/authoring-shaders';
-import {
-  buildMaterialDefinition,
-  buildShaderDefinition,
+  buildShaderMaterialProject,
   SHADER_MATERIAL_SCHEMA,
 } from '../../shared/project-schema/shader-material-project';
 import type { ShaderVariant } from '../../shared/shader-variants';
+import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
 import { sha256PrefixedUtf8 } from '../../shared/web-crypto';
 import { buildFocusedRoomPreview } from './room-focused-preview-builder';
 
@@ -113,53 +102,38 @@ function assetManifestEntry(
     : { ...base, kind: parsed.kind };
 }
 
-function runtimeShaderPath(path: string): string {
-  const normalized = canonicalRuntimeShaderOutputPath(path);
-  if (!normalized)
-    throw new Error(
-      `Compiled Shader output path '${path}' is not a canonical runtime Shader path.`,
-    );
-  return normalized;
-}
-
-async function shaderManifestEntries(
-  project: AuthoringProject,
-  shaderId: string,
-  variant: ShaderVariant,
+async function projectSourceManifestEntries(
+  projectSessionId: string,
+  projectRelativePaths: readonly string[],
   usageRole: string,
 ): Promise<PreviewResourceManifestEntry[]> {
-  const shader = parseShaderData(project.shaders[shaderId]?.data);
-  if (!shader) throw new Error(`Focused preview Shader '${shaderId}' is missing or invalid.`);
-  const entries: PreviewResourceManifestEntry[] = [];
-  for (const [stageIndex, stage] of shader.stages.entries()) {
-    const output = stage.compiled[variant];
-    if (!output || !hasCompleteShaderCompiledOutputMetadata(output))
-      throw new Error(
-        `Shader '${shaderId}' ${stage.stage} output for '${variant}' is missing complete compile metadata. Recompile the Shader.`,
-      );
-    if (!(await shaderCompiledOutputIsFresh(project, shaderId, stageIndex, variant, output)))
-      throw new Error(
-        `Shader '${shaderId}' ${stage.stage} output for '${variant}' is stale. Recompile the Shader.`,
-      );
-    const logicalPath = runtimeShaderPath(output.path);
-    const fetchProjectRelativePath = compiledShaderFetchProjectRelativePath(logicalPath);
-    if (!fetchProjectRelativePath)
-      throw new Error(`Compiled Shader output path '${output.path}' cannot be staged.`);
-    entries.push({
-      resourceId: `shader:${shaderId}:${stage.stage}:${variant}`,
-      sourceKind: 'shader-compiled-output',
-      shaderId,
-      shaderStage: stage.stage as ShaderStage,
-      shaderVariant: variant,
+  const paths = [...new Set(projectRelativePaths)].sort();
+  if (paths.length === 0) return [];
+  const response = await window.noveltea.readProjectTextSources({
+    projectSessionId,
+    entries: paths.map((projectRelativePath, index) => ({
+      readKey: `preview-source:${index}`,
+      projectRelativePath,
+      expectedContentHash: null,
+    })),
+  });
+  const byKey = new Map(response.entries.map((entry) => [entry.readKey, entry]));
+  const encoder = new TextEncoder();
+  return paths.map((projectRelativePath, index) => {
+    const entry = byKey.get(`preview-source:${index}`);
+    if (!entry || entry.status !== 'ready')
+      throw new Error(`Focused preview source '${projectRelativePath}' is unavailable.`);
+    return {
+      resourceId: `source:${projectRelativePath}`,
+      sourceKind: 'project-source' as const,
       usageRoles: [usageRole],
-      fetchProjectRelativePath,
-      logicalPath,
-      contentHash: output.byteHash as `sha256:${string}`,
-      byteSize: output.byteSize,
-      kind: 'shader-binary',
-    });
-  }
-  return entries.sort((left, right) => left.resourceId.localeCompare(right.resourceId));
+      fetchProjectRelativePath: projectRelativePath,
+      logicalPath: `project:/${projectRelativePath}`,
+      contentHash: entry.contentHash,
+      byteSize: encoder.encode(entry.text).byteLength + (entry.hadUtf8Bom ? 3 : 0),
+      kind: 'lua' as const,
+    };
+  });
 }
 
 function canonicalManifest(
@@ -197,54 +171,54 @@ async function materialProjection(
   };
   resources: PreviewResourceManifestEntry[];
 }> {
-  const materialIds = new Set<string>();
-  const pending = [...initialMaterialIds];
-  while (pending.length > 0) {
-    const materialId = pending.pop()!;
-    if (materialIds.has(materialId)) continue;
-    const material = parseMaterialData(project.materials[materialId]?.data);
-    if (!material)
-      throw new Error(`Focused preview Material '${materialId}' is missing or invalid.`);
-    materialIds.add(materialId);
-    if (material.baseMaterialId) pending.push(material.baseMaterialId);
+  const sourceProject = await buildShaderMaterialProject(project);
+  let compileOutputs: ShaderCompileOutput[] = [];
+  if (Object.keys(sourceProject.compilation.programs).length > 0) {
+    const response = parseShaderCompileResponse(
+      await window.noveltea.compileShaders(projectSessionId, sourceProject.compilation, {
+        shaderVariants: [variant],
+      }),
+    );
+    if (!response.success)
+      throw new Error(response.error ?? 'Focused Material shader compilation failed.');
+    compileOutputs = response.outputs;
   }
-
-  const shaderIds = new Set<string>();
-  const resources: PreviewResourceManifestEntry[] = [];
-  const materials: Record<string, unknown> = {};
-  for (const materialId of [...materialIds].sort()) {
-    const definition = buildMaterialDefinition(project, materialId);
-    if (!definition.value || definition.diagnostics.some((item) => item.severity === 'error'))
-      throw new Error(`Focused preview Material '${materialId}' could not be built.`);
-    materials[materialId] = definition.value;
+  const built = await buildShaderMaterialProject(project, compileOutputs);
+  if (built.diagnostics.some((item) => item.severity === 'error'))
+    throw new Error('Focused preview Material metadata could not be built.');
+  const resources: PreviewResourceManifestEntry[] = compileOutputs
+    .filter((output) => output.variant === variant)
+    .map((output) => ({
+      usageRoles: ['material-shader'],
+      fetchProjectRelativePath: `.noveltea/build/${output.runtimePath.replace(/^project:\//, '')}`,
+      logicalPath: output.runtimePath,
+      contentHash: output.byteHash,
+      byteSize: output.byteSize,
+      resourceId: `shader:${output.program}:${output.stage}:${output.variant}`,
+      sourceKind: 'shader-compiled-output' as const,
+      shaderId: output.program,
+      shaderStage: output.stage,
+      shaderVariant: output.variant as ShaderVariant,
+      kind: 'shader-binary' as const,
+    }));
+  for (const materialId of initialMaterialIds) {
     const resolved = resolveMaterialData(project, materialId);
     if (!resolved.data || resolved.diagnostics.some((item) => item.severity === 'error'))
       throw new Error(`Focused preview Material '${materialId}' could not be resolved.`);
-    if (resolved.data.shader) shaderIds.add(resolved.data.shader.$ref.id);
-    for (const texture of resolved.data.textures)
-      if ('$ref' in texture.source)
+    for (const texture of Object.values(resolved.data.textures))
+      if (texture.source && '$ref' in texture.source)
         resources.push(
           assetManifestEntry(project, projectSessionId, texture.source.$ref.id, 'material-texture'),
         );
   }
-
-  const shaders: Record<string, unknown> = {};
-  for (const shaderId of [...shaderIds].sort()) {
-    const definition = await buildShaderDefinition(project, shaderId);
-    if (!definition.value || definition.diagnostics.some((item) => item.severity === 'error'))
-      throw new Error(`Focused preview Shader '${shaderId}' could not be built.`);
-    shaders[shaderId] = definition.value;
-    resources.push(...(await shaderManifestEntries(project, shaderId, variant, 'material-shader')));
-  }
-  return {
-    shaderMaterials: { schema: SHADER_MATERIAL_SCHEMA, shaders, materials },
-    resources,
-  };
+  return { shaderMaterials: built.project, resources };
 }
 
 function layoutSourceComponent(
   project: AuthoringProject,
-  source: NonNullable<ReturnType<typeof parseLayoutData>>['rml'],
+  source:
+    | NonNullable<ReturnType<typeof parseLayoutData>>['rml']
+    | NonNullable<ReturnType<typeof parseLayoutData>>['lua'],
   options: Readonly<{ pseudoLocalizeMessages?: boolean }> = {},
 ) {
   if (source.sourceMode === 'inline')
@@ -315,7 +289,6 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
           ),
         );
     for (const [name, refs] of [
-      ['layout-script', layout.dependencies.scripts],
       ['layout-data', layout.dependencies.data],
       ['layout-template', layout.dependencies.templates],
       ['layout-stylesheet', layout.dependencies.stylesheets],
@@ -326,6 +299,13 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
         resources.push(
           assetManifestEntry(context.project, context.projectSessionId, ref.$ref.id, name),
         );
+    resources.push(
+      ...(await projectSourceManifestEntries(
+        context.projectSessionId,
+        layout.dependencies.scripts,
+        'layout-script',
+      )),
+    );
     for (const cursor of settings.cursors.named)
       resources.push(
         assetManifestEntry(
@@ -430,45 +410,6 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
   },
 };
 
-const shaderAdapter: FocusedPreviewAdapter<z.infer<typeof shaderPreviewInputsSchema>> = {
-  kind: 'shader-preview',
-  inputSchema: shaderPreviewInputsSchema,
-  topologyDependent: false,
-  owningPath: (root) => `/shaders/${root.recordId}`,
-  build: async (context) => {
-    const definition = await buildShaderDefinition(context.project, context.root.recordId);
-    if (!definition.value || definition.diagnostics.some((item) => item.severity === 'error'))
-      throw new Error(`Focused preview Shader '${context.root.recordId}' could not be built.`);
-    const resources = await shaderManifestEntries(
-      context.project,
-      context.root.recordId,
-      context.hostCapabilities.activeShaderVariant,
-      'shader-preview',
-    );
-    return finishDocument({
-      kind: 'shader-preview',
-      recordId: context.root.recordId,
-      projectInstanceId: context.projectInstanceId,
-      projectRevision: context.projectRevision,
-      inputRevision: context.inputRevision,
-      resources,
-      data: {
-        schema: 'noveltea.shader-preview',
-        contentMode: 'shader',
-        shaderId: context.root.recordId,
-        previewMaterialId: `editor/preview/shader/${context.root.recordId}`,
-        templateId: 'shader-square-v1',
-        activeShaderVariant: context.hostCapabilities.activeShaderVariant,
-        shaderMaterials: {
-          schema: SHADER_MATERIAL_SCHEMA,
-          shaders: { [context.root.recordId]: definition.value },
-          materials: {},
-        },
-      },
-    });
-  },
-};
-
 const roomAdapter: FocusedPreviewAdapter<z.infer<typeof roomPreviewInputsSchema>> = {
   kind: 'room-preview',
   inputSchema: roomPreviewInputsSchema,
@@ -504,7 +445,6 @@ const roomAdapter: FocusedPreviewAdapter<z.infer<typeof roomPreviewInputsSchema>
 
 const adapters = new Map<FocusedPreviewDocumentKind, FocusedPreviewAdapter>([
   [layoutAdapter.kind, layoutAdapter],
-  [shaderAdapter.kind, shaderAdapter],
   [roomAdapter.kind, roomAdapter],
 ]);
 

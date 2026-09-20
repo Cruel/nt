@@ -5,6 +5,7 @@ import type {
 } from './project-schema/authoring-localization';
 import { structuredMessages } from './authoring-structured-messages';
 import { collectManagedLuaLocalizationSources } from './authoring-lua-localization-lowering';
+import type { AuthoringLuaSourceDescriptor } from './authoring-source-analysis';
 import { collectRmlLocalizationSources } from './authoring-rml-localization-lowering';
 import {
   localizationSourceKey,
@@ -39,15 +40,21 @@ export interface LocalizationSyncResult {
   readonly structuredMessageCount: number;
 }
 
-function currentSources(project: AuthoringProject): readonly LocalizationSourceCandidate[] {
+function currentSources(
+  project: AuthoringProject,
+  sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
+): readonly LocalizationSourceCandidate[] {
   return Object.freeze([
-    ...collectManagedLuaLocalizationSources(project).map((item) => item.source),
+    ...collectManagedLuaLocalizationSources(project, sourceDescriptors).map((item) => item.source),
     ...collectRmlLocalizationSources(project).map((item) => item.source),
   ]);
 }
 
-function flattenCurrent(project: AuthoringProject): readonly CurrentOccurrence[] {
-  return currentSources(project).flatMap((source) => {
+function flattenCurrent(
+  project: AuthoringProject,
+  sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
+): readonly CurrentOccurrence[] {
+  return currentSources(project, sourceDescriptors).flatMap((source) => {
     const sourceKey = localizationSourceKey(source.family, source.ownerKey, source.sourcePath);
     return source.occurrences.map((occurrence) => ({ sourceKey, source, occurrence }));
   });
@@ -144,9 +151,10 @@ function sortOccurrences(
  */
 export function synchronizeLocalizationMessageTracking(
   project: AuthoringProject,
+  sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
 ): LocalizationSyncResult {
   const next = structuredClone(project);
-  const currents = flattenCurrent(project);
+  const currents = flattenCurrent(project, sourceDescriptors);
   const previous = flattenPrevious(project);
   const currentMatched = new Set<string>();
   const previousMatched = new Set<string>();

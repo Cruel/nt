@@ -59,7 +59,6 @@ import { validateAuthoringInventories } from './authoring-inventory-validation';
 import { validateTypedProjectSettings } from './authoring-project-settings';
 import { parseSceneData, validateSceneData } from './authoring-scenes';
 import { validateScriptModuleData } from './authoring-script-modules';
-import { validateShaderData } from './authoring-shaders';
 import { validateTestData } from './authoring-tests';
 import { validateVariableData } from './authoring-variables';
 import {
@@ -1882,7 +1881,6 @@ export function validateAdmittedAuthoringProject(
   for (const [collection, validate] of [
     ['layouts', validateLayoutData],
     ['variables', validateVariableData],
-    ['shaders', validateShaderData],
     ['materials', validateMaterialData],
     ['characters', validateCharacterData],
     ['rooms', validateRoomData],

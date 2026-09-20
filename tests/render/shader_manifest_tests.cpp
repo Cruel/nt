@@ -53,6 +53,15 @@ noveltea::ShaderMaterialProject make_project()
           "uniforms":{"u_time":{"type":"float","binding":"engine.time"}},
           "roles":["active-text"],
           "role_bindings":{}
+        },
+        "active-text-program-abc":{
+          "stages":{
+            "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/derived/glsl-330/program-abc.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
+            "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/derived/glsl-330/program-abc.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
+          },
+          "uniforms":{"u_time":{"type":"float","binding":"engine.time"}},
+          "roles":["active-text"],
+          "role_bindings":{}
         }
       },
       "materials":{
@@ -162,6 +171,40 @@ TEST_CASE("direct ActiveText shader pairs resolve without material records")
     REQUIRE(find_uniform(*result.program, "u_time") != nullptr);
 }
 
+TEST_CASE("derived ActiveText source programs resolve from runtime metadata")
+{
+    const auto project = make_project();
+    const auto result = noveltea::resolve_source_shader_program(
+        project, "active-text-program-abc", noveltea::ShaderRole::ActiveText, "glsl-330");
+
+    REQUIRE(result.ok());
+    REQUIRE(result.program);
+    CHECK(result.program->key.kind == noveltea::ShaderProgramRequestKind::SourceProgram);
+    CHECK(result.program->key.program_identity == "active-text-program-abc");
+    CHECK(result.program->vertex.path == "project:/shaders/derived/glsl-330/program-abc.vs.bin");
+    CHECK(result.program->fragment.path == "project:/shaders/derived/glsl-330/program-abc.fs.bin");
+    REQUIRE(find_uniform(*result.program, "u_time") != nullptr);
+}
+
+TEST_CASE("source-backed ActiveText programs resolve without authored Shader ids")
+{
+    const auto program = noveltea::resolve_source_shader_pair_program(
+        "program-abc", noveltea::ShaderRole::ActiveText, "glsl-330",
+        "project:/shaders/derived/glsl-330/program-abc.vs.bin",
+        "project:/shaders/derived/glsl-330/program-abc.fs.bin");
+
+    CHECK(program.key.kind == noveltea::ShaderProgramRequestKind::SourceProgram);
+    CHECK(program.key.program_identity == "program-abc");
+    CHECK(program.key.role == noveltea::ShaderRole::ActiveText);
+    CHECK(program.key.vertex_shader.string().empty());
+    CHECK(program.key.fragment_shader.string().empty());
+    CHECK(program.vertex.path == "project:/shaders/derived/glsl-330/program-abc.vs.bin");
+    CHECK(program.fragment.path == "project:/shaders/derived/glsl-330/program-abc.fs.bin");
+
+    const auto cache_key = noveltea::shader_program_cache_key(program.key);
+    CHECK(cache_key.find("source_program|program-abc|active-text|") != std::string::npos);
+}
+
 TEST_CASE("missing material variants report material context and expected binary paths")
 {
     const auto project = make_project();
@@ -231,4 +274,12 @@ TEST_CASE("program cache keys distinguish material programs from direct shader p
     CHECK(material_key != direct_key);
     CHECK(material_key.find("material|world/water") != std::string::npos);
     CHECK(direct_key.find("direct_shader_pair|") != std::string::npos);
+
+    auto same_binaries = *material.program;
+    same_binaries.key.material_id = "world/ice";
+    same_binaries.key.material_shader = noveltea::ShaderId("material_specific_metadata");
+    CHECK(noveltea::shader_program_cache_key(material.program->key) !=
+          noveltea::shader_program_cache_key(same_binaries.key));
+    CHECK(noveltea::shader_program_binary_cache_key(*material.program) ==
+          noveltea::shader_program_binary_cache_key(same_binaries));
 }

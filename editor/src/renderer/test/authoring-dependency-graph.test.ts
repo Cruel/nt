@@ -46,7 +46,6 @@ import {
 } from '../../shared/project-schema/authoring-interactables';
 import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { defaultVariableData, variableRef } from '../../shared/project-schema/authoring-variables';
 import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
@@ -545,7 +544,12 @@ describe('authoring structural dependency graph and queries', () => {
     project.materials.derived = {
       id: 'derived',
       label: 'Derived',
-      data: { ...defaultMaterialData(), baseMaterialId: 'base' },
+      data: {
+        kind: 'material',
+        base: { kind: 'material', material: { $ref: { collection: 'materials', id: 'base' } } },
+        parameters: {},
+        textures: {},
+      },
     };
     project.characters.alice = {
       id: 'alice',
@@ -555,13 +559,6 @@ describe('authoring structural dependency graph and queries', () => {
     const interactable = defaultInteractableData('Door');
     interactable.presentation.sprite = { $ref: { collection: 'assets', id: 'background' } };
     project.interactables.door = { id: 'door', label: 'Door', data: interactable };
-    const shader = defaultShaderData('Room shader');
-    shader.stages[0] = {
-      ...shader.stages[0]!,
-      sourceMode: 'asset',
-      sourceAsset: { $ref: { collection: 'assets', id: 'background' } },
-    };
-    project.shaders.room = { id: 'room', label: 'Room shader', data: shader };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData() };
     project.rooms.foyer.data.placements.push({
       id: 'door',
@@ -619,14 +616,7 @@ describe('authoring structural dependency graph and queries', () => {
       findAuthoringDependencyUsages(graph, recordNodeKey('assets', 'background')).map(
         (usage) => usage.role,
       ),
-    ).toEqual(
-      expect.arrayContaining([
-        'default-font',
-        'interactable-sprite',
-        'room-background',
-        'shader-source',
-      ]),
-    );
+    ).toEqual(expect.arrayContaining(['default-font', 'interactable-sprite', 'room-background']));
     expect(
       findAuthoringDependencyUsages(graph, recordNodeKey('materials', 'base')).map(
         (usage) => usage.role,

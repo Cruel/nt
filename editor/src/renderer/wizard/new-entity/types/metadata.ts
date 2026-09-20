@@ -61,7 +61,8 @@ export const metadataWizardDefinitions: NewEntityWizardTypeDefinition[] = [
     category: 'logic',
     supportLevel: 'typed',
     summary: 'Explicit Lua script modules.',
-    currentScope: 'Creates a typed inline Lua module; source can be switched to a script asset.',
+    currentScope:
+      'Creates a typed Lua module; workspace persistence owns its source under scripts/.',
     ...visual('scripts'),
     buildPayload: () => ({ data: defaultScriptModuleData() }),
   },
