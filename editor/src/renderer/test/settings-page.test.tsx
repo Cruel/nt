@@ -196,6 +196,33 @@ describe('SettingsPage code editor theme selector', () => {
     expect(usePreferencesStore.getState().terminal.desktopNotifications).toBe(false);
   });
 
+  it('does not let stale fallback cwd validation undo Reset', async () => {
+    let resolveValidation!: (valid: boolean) => void;
+    vi.mocked(window.noveltea.validateDirectory).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveValidation = resolve;
+      }),
+    );
+    await renderSettingsPage();
+    selectSettingsCategory('Terminal');
+
+    const fallback = screen.getByRole('textbox', { name: 'Fallback working directory' });
+    fireEvent.change(fallback, { target: { value: '/tmp/pending' } });
+    fireEvent.blur(fallback);
+    await waitFor(() =>
+      expect(window.noveltea.validateDirectory).toHaveBeenCalledWith('/tmp/pending'),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Terminal fallback directory' }));
+    expect(fallback).toHaveValue('');
+    expect(usePreferencesStore.getState().terminal.fallbackCwd).toBeNull();
+
+    resolveValidation(true);
+    await act(async () => Promise.resolve());
+    expect(usePreferencesStore.getState().terminal.fallbackCwd).toBeNull();
+    expect(fallback).toHaveValue('');
+  });
+
   it('restores the selected category after the settings tab remounts', async () => {
     const firstRender = render(<SettingsTabEditor tab={settingsTab} />);
     selectSettingsCategory('Preview');

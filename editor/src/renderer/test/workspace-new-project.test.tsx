@@ -225,6 +225,7 @@ describe('WorkspacePage new project modal', () => {
     expect(screen.queryByRole('dialog', { name: /command/i })).not.toBeInTheDocument();
 
     useBottomPanelStore.getState().setVisible(true);
+    textarea.addEventListener('keydown', (event) => event.stopPropagation());
     fireEvent.keyDown(textarea, { key: 'j', ctrlKey: true });
     expect(useBottomPanelStore.getState().visible).toBe(false);
     terminal.remove();

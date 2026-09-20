@@ -1501,13 +1501,7 @@ export function WorkspacePage() {
       }
       const target = event.target as HTMLElement | null;
       const insideTerminal = !!target?.closest('[data-terminal-panel]');
-      if (insideTerminal) {
-        if (event.key.toLowerCase() === 'j') {
-          event.preventDefault();
-          setBottomPanelVisible(!useBottomPanelStore.getState().visible);
-        }
-        return;
-      }
+      if (insideTerminal) return;
       if (event.key.toLowerCase() === 'n') {
         event.preventDefault();
         if (authoringProjectForEditor(useProjectStore.getState().document)) {
@@ -1543,10 +1537,7 @@ export function WorkspacePage() {
         !!target &&
         (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       if (isTextInput) return;
-      if (event.key.toLowerCase() === 'j') {
-        event.preventDefault();
-        setBottomPanelVisible(!useBottomPanelStore.getState().visible);
-      } else if (event.key.toLowerCase() === 'z') {
+      if (event.key.toLowerCase() === 'z') {
         event.preventDefault();
         if (event.shiftKey) redoProjectCommand();
         else undoProjectCommand();
@@ -1555,8 +1546,19 @@ export function WorkspacePage() {
         redoProjectCommand();
       }
     }
+    function onBottomPanelShortcutCapture(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'j')
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      setBottomPanelVisible(!useBottomPanelStore.getState().visible);
+    }
+    window.addEventListener('keydown', onBottomPanelShortcutCapture, true);
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onBottomPanelShortcutCapture, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
   });
 
   useEffect(() => {
