@@ -12,6 +12,8 @@ import type {
   TerminalSessionSnapshot,
 } from '../../shared/terminal';
 
+const clipboardWriteText = vi.fn().mockResolvedValue(undefined);
+
 const terminalMock = vi.hoisted(() => ({
   onData: null as ((data: string) => void) | null,
   keyHandler: null as ((event: KeyboardEvent) => boolean) | null,
@@ -122,7 +124,7 @@ beforeEach(() => {
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
     value: {
-      writeText: vi.fn().mockResolvedValue(undefined),
+      writeText: clipboardWriteText,
       readText: vi.fn().mockResolvedValue('pasted'),
     },
   });
@@ -581,7 +583,7 @@ describe('Terminal bottom panel', () => {
     expect(
       terminalMock.keyHandler?.(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true })),
     ).toBe(false);
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('selected output');
+    expect(clipboardWriteText).toHaveBeenCalledWith('selected output');
   });
 
   it('keeps macOS Command copy/paste separate from Ctrl+C interrupt', async () => {
