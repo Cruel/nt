@@ -27,6 +27,11 @@ export function finalWorkspaceV1SourceTreeFixture(): Readonly<Record<string, str
   for (const record of Object.values(project.assets)) {
     files[record.data.source.path] ??= `fixture bytes for ${record.id}\n`;
   }
+  for (const record of Object.values(project.scripts)) {
+    const source = record.data.source;
+    if (source.kind === 'project-file')
+      files[source.path] ??= `return { fixture = ${JSON.stringify(record.id)} }\n`;
+  }
 
   return Object.fromEntries(
     Object.entries(files).map(([relativePath, content]) => [

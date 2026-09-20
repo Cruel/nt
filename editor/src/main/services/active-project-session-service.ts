@@ -19,9 +19,26 @@ import {
   type ReadProjectTextSourcesRequest,
   type ReadProjectTextSourcesResponse,
 } from '../../shared/project-text-sources';
+import type {
+  ListProjectSourceFilesRequest,
+  ListProjectSourceFilesResponse,
+  ProjectSourceFile,
+  ProjectSourceStructuralRequest,
+  ProjectSourceStructuralResponse,
+  ProjectSourceUsageRequest,
+  ProjectSourceUsageResponse,
+  ProjectSourceWriteRequest,
+  ProjectSourceWriteResponse,
+} from '../../shared/project-source-files';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import type { LoadedProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
 import { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
+import {
+  mutateProjectSources,
+  projectSourceUsages,
+  recreatableProjectSourcePhysicalPath,
+  writeProjectSourceText,
+} from './project-source-file-service';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const readOnlyNoFollowFlags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
@@ -271,6 +288,161 @@ export class ActiveProjectSessionService {
     }
   }
 
+  async listProjectSourceFiles(
+    request: ListProjectSourceFilesRequest,
+  ): Promise<ListProjectSourceFilesResponse> {
+    const active = this.active;
+    if (!active || request.projectSessionId !== active.id) {
+      throw new Error('Project session is stale or unknown.');
+    }
+
+    const files = new Map<string, ProjectSourceFile>();
+    const folders = new Set<string>();
+    const addTree = async (rootName: 'scripts' | 'shaders' | 'assets') => {
+      const root = path.join(active.root, rootName);
+      const visit = async (directory: string): Promise<void> => {
+        let entries: import('node:fs').Dirent[];
+        try {
+          entries = await fs.readdir(directory, { withFileTypes: true });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+          throw error;
+        }
+        for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+          const candidate = path.join(directory, entry.name);
+          const real = await fs.realpath(candidate);
+          const relativeReal = path.relative(active.root, real);
+          if (relativeReal.startsWith('..') || path.isAbsolute(relativeReal)) continue;
+          const stat = await fs.stat(real);
+          if (stat.isDirectory()) {
+            if (rootName !== 'assets')
+              folders.add(path.relative(active.root, candidate).split(path.sep).join('/'));
+            await visit(candidate);
+            continue;
+          }
+          if (!stat.isFile()) continue;
+          const projectRelativePath = path
+            .relative(active.root, candidate)
+            .split(path.sep)
+            .join('/');
+          if (rootName === 'scripts' && !projectRelativePath.endsWith('.lua')) continue;
+          const kind = rootName === 'scripts' ? 'lua' : rootName === 'shaders' ? 'shader' : 'asset';
+          files.set(projectRelativePath, {
+            id: projectRelativePath,
+            displayPath: projectRelativePath,
+            projectRelativePath,
+            kind,
+            text: kind !== 'asset',
+            ...(kind !== 'asset'
+              ? {
+                  contentHash: `sha256:${createHash('sha256')
+                    .update(await fs.readFile(real))
+                    .digest('hex')}` as const,
+                }
+              : {}),
+          });
+        }
+      };
+      await visit(root);
+    };
+
+    await Promise.all([addTree('scripts'), addTree('shaders'), addTree('assets')]);
+    if (this.active !== active) throw new Error('Project session is stale or unknown.');
+
+    for (const [assetId, asset] of active.assets) {
+      const current = files.get(asset.sourcePath);
+      if (!current) continue;
+      files.set(asset.sourcePath, {
+        ...current,
+        assetIds: Object.freeze([...(current.assetIds ?? []), assetId].sort()),
+      });
+    }
+
+    const snapshot = active.workspace?.snapshot();
+    if (snapshot) {
+      const canonical = new Set(snapshot.canonicalSourceFiles);
+      for (const [layoutId] of Object.entries(snapshot.project.layouts)) {
+        for (const channel of ['rml', 'rcss', 'lua'] as const) {
+          const physicalPath = `records/layouts/${layoutId}/layout.${channel}`;
+          if (!canonical.has(physicalPath)) continue;
+          const displayPath = `layouts/${layoutId}/layout.${channel}`;
+          files.set(displayPath, {
+            id: displayPath,
+            displayPath,
+            projectRelativePath: physicalPath,
+            kind: `layout-${channel}`,
+            text: true,
+            contentHash: snapshot.fileRevisions[physicalPath]?.contentHash,
+            layout: { id: layoutId, channel },
+          });
+        }
+      }
+    }
+
+    return {
+      files: Object.freeze(
+        [...files.values()].sort((left, right) =>
+          left.displayPath.localeCompare(right.displayPath),
+        ),
+      ),
+      folders: Object.freeze([...folders].sort()),
+    };
+  }
+
+  async projectSourceUsages(
+    request: ProjectSourceUsageRequest,
+  ): Promise<ProjectSourceUsageResponse> {
+    const active = this.active;
+    if (!active || request.projectSessionId !== active.id || !active.workspace)
+      throw new Error('Project session is stale or unknown.');
+    return {
+      usages: await projectSourceUsages(active.root, active.workspace.snapshot(), request.path),
+    };
+  }
+
+  async mutateProjectSources(
+    request: ProjectSourceStructuralRequest,
+  ): Promise<ProjectSourceStructuralResponse> {
+    const workspace = this.requireActiveWorkspace(request.projectSessionId);
+    const result = await mutateProjectSources(
+      workspace,
+      request.operation,
+      request.expectedRevisions,
+    );
+    if (result.success) this.refreshActiveWorkspaceAssets(request.projectSessionId);
+    return result;
+  }
+
+  async writeProjectSource(
+    request: ProjectSourceWriteRequest,
+  ): Promise<ProjectSourceWriteResponse> {
+    const workspace = this.requireActiveWorkspace(request.projectSessionId);
+    const listed = await this.listProjectSourceFiles({
+      projectSessionId: request.projectSessionId,
+    });
+    const source = listed.files.find((candidate) => candidate.id === request.sourceId);
+    const physicalPath =
+      source?.text === true
+        ? source.projectRelativePath
+        : request.expectedRevision === 'absent'
+          ? recreatableProjectSourcePhysicalPath(workspace.project(), request.sourceId)
+          : null;
+    if (!physicalPath)
+      return {
+        ok: false,
+        success: false,
+        sourceId: request.sourceId,
+        error: 'Source file is unavailable.',
+      };
+    return writeProjectSourceText(
+      workspace,
+      request.sourceId,
+      physicalPath,
+      request.expectedRevision,
+      request.text,
+    );
+  }
+
   async read(request: ReadProjectTextSourcesRequest): Promise<ReadProjectTextSourcesResponse> {
     const entries = [...request.entries];
     const active = this.active;
@@ -289,7 +461,10 @@ export class ActiveProjectSessionService {
     const results: ProjectTextSourceReadEntry[] = [];
     for (const entry of entries) {
       if (this.active !== active) return staleSessionResponse(entries);
-      if (!entry.readKey || !isSha256Digest(entry.expectedContentHash)) {
+      if (
+        !entry.readKey ||
+        (entry.expectedContentHash !== null && !isSha256Digest(entry.expectedContentHash))
+      ) {
         results.push(unavailable(entry, 'invalid-request', 'Text source request is malformed.'));
         continue;
       }
@@ -368,7 +543,7 @@ export class ActiveProjectSessionService {
         }
         aggregateBytes += bytes.byteLength;
         const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const;
-        if (digest !== entry.expectedContentHash) {
+        if (entry.expectedContentHash !== null && digest !== entry.expectedContentHash) {
           results.push(
             unavailable(
               entry,

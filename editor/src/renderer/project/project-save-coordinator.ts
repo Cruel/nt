@@ -1,9 +1,14 @@
 import { applyJsonPatch, type JsonPatchOperation } from './json-patch';
 import type { JsonPointer } from './json-pointer';
 import { cloneJsonValue, jsonValuesEqual, type JsonValue } from './json-value';
-import { resolveSaveUnitForTab } from './save-unit-registry';
+import {
+  resolveSaveUnitForTab,
+  sourceIdFromSaveUnitId,
+  sourceSaveUnitId,
+} from './save-unit-registry';
 import type { SaveUnitId } from './save-unit-types';
 import { useProjectStore } from './project-store';
+import { useProjectSourceStore } from './project-source-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useCommandStore } from '@/commands/command-store';
@@ -426,7 +431,7 @@ async function commitSelectedSaveUnits(
 
 export async function saveActiveSaveUnit(
   explicitSaveUnitId?: SaveUnitId,
-  options: { allowExternalConflict?: boolean } = {},
+  options: { allowExternalConflict?: boolean; acceptExternalSourceBase?: boolean } = {},
 ): Promise<ProjectSaveCoordinatorResult> {
   const projectState = useProjectStore.getState();
   const tab = activeTab();
@@ -437,6 +442,48 @@ export async function saveActiveSaveUnit(
       : undefined;
   const saveUnitId =
     explicitSaveUnitId ?? (resolution?.status === 'savable' ? resolution.descriptor.id : null);
+  const sourceId = saveUnitId ? sourceIdFromSaveUnitId(saveUnitId) : null;
+  if (sourceId) {
+    const sourceStore = useProjectSourceStore.getState();
+    const buffer = sourceStore.buffersById[sourceId];
+    if (!buffer?.dirty) {
+      return {
+        success: true,
+        status: 'nothing-to-save',
+        diagnostics: [],
+        savedSaveUnitIds: [],
+        remainingDirtySaveUnitIds: Object.entries(sourceStore.buffersById)
+          .filter(([, candidate]) => candidate.dirty)
+          .map(([candidateId]) => sourceSaveUnitId(candidateId))
+          .sort(),
+      };
+    }
+    const saved = await sourceStore.save(sourceId, options.acceptExternalSourceBase ?? false);
+    const remainingDirtySaveUnitIds = Object.entries(useProjectSourceStore.getState().buffersById)
+      .filter(([, candidate]) => candidate.dirty)
+      .map(([candidateId]) => sourceSaveUnitId(candidateId))
+      .sort();
+    const remainsDirty = remainingDirtySaveUnitIds.includes(sourceSaveUnitId(sourceId));
+    return {
+      success: saved,
+      status: saved ? (remainsDirty ? 'partially-saved' : 'saved') : 'failed',
+      diagnostics: saved
+        ? []
+        : [
+            {
+              code: 'editor.source-save.failed',
+              severity: 'error',
+              path: sourceId,
+              category: 'Project save',
+              message:
+                useProjectSourceStore.getState().error ??
+                `Source '${sourceId}' could not be saved.`,
+            },
+          ],
+      savedSaveUnitIds: saved ? [sourceSaveUnitId(sourceId)] : [],
+      remainingDirtySaveUnitIds,
+    };
+  }
   if (!saveUnitId || resolution?.status === 'non-content') {
     return {
       success: true,
@@ -654,6 +701,68 @@ function connectSaveComponents(
     .sort((left, right) => left.ids[0]!.localeCompare(right.ids[0]!));
 }
 
+function sourceSaveDiagnostic(sourceId: string): ToolDiagnostic {
+  return {
+    code: 'editor.source-save.failed',
+    severity: 'error',
+    path: sourceId,
+    category: 'Project save',
+    message: useProjectSourceStore.getState().error ?? `Source '${sourceId}' could not be saved.`,
+  };
+}
+
+async function saveAllDirtySourceUnits(): Promise<{
+  saved: SaveUnitId[];
+  remaining: SaveUnitId[];
+  diagnostics: ToolDiagnostic[];
+}> {
+  const sourceStore = useProjectSourceStore.getState();
+  const dirtySourceIds = Object.entries(sourceStore.buffersById)
+    .filter(([, buffer]) => buffer.dirty)
+    .map(([sourceId]) => sourceId)
+    .sort();
+  const saved: SaveUnitId[] = [];
+  const diagnostics: ToolDiagnostic[] = [];
+  for (const sourceId of dirtySourceIds) {
+    if (await useProjectSourceStore.getState().save(sourceId))
+      saved.push(sourceSaveUnitId(sourceId));
+    else diagnostics.push(sourceSaveDiagnostic(sourceId));
+  }
+  const remaining = Object.entries(useProjectSourceStore.getState().buffersById)
+    .filter(([, buffer]) => buffer.dirty)
+    .map(([sourceId]) => sourceSaveUnitId(sourceId))
+    .sort();
+  return { saved, remaining, diagnostics };
+}
+
+function mergeSourceSaveResult(
+  result: ProjectSaveCoordinatorResult,
+  sourceResult: Awaited<ReturnType<typeof saveAllDirtySourceUnits>>,
+): ProjectSaveCoordinatorResult {
+  const savedSaveUnitIds = uniqueSorted([...sourceResult.saved, ...result.savedSaveUnitIds]);
+  const remainingDirtySaveUnitIds = uniqueSorted([
+    ...sourceResult.remaining,
+    ...result.remainingDirtySaveUnitIds,
+  ]);
+  let status = result.status;
+  const sourceFailed = sourceResult.diagnostics.length > 0;
+  let success = result.success && !sourceFailed;
+  if (sourceResult.saved.length > 0 && result.status === 'nothing-to-save') status = 'saved';
+  if (savedSaveUnitIds.length > 0 && remainingDirtySaveUnitIds.length > 0)
+    status = 'partially-saved';
+  if (sourceFailed && savedSaveUnitIds.length === 0 && result.status === 'nothing-to-save')
+    status = 'failed';
+  if (status === 'partially-saved') success = true;
+  return {
+    ...result,
+    success,
+    status,
+    diagnostics: [...result.diagnostics, ...sourceResult.diagnostics],
+    savedSaveUnitIds,
+    remainingDirtySaveUnitIds,
+  };
+}
+
 export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> {
   const projectState = useProjectStore.getState();
   if (!projectState.document || !projectState.savedDocument || !projectState.projectFilePath) {
@@ -665,16 +774,20 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
       remainingDirtySaveUnitIds: [],
     };
   }
+  const sourceResult = await saveAllDirtySourceUnits();
   const snapshot = buildEditorProjectStateSnapshot();
   let components = atomicComponents(snapshot.recovery);
   if (components.length === 0) {
-    return {
-      success: true,
-      status: 'nothing-to-save',
-      diagnostics: [],
-      savedSaveUnitIds: [],
-      remainingDirtySaveUnitIds: [],
-    };
+    return mergeSourceSaveResult(
+      {
+        success: true,
+        status: 'nothing-to-save',
+        diagnostics: [],
+        savedSaveUnitIds: [],
+        remainingDirtySaveUnitIds: [],
+      },
+      sourceResult,
+    );
   }
 
   const blockedDiagnostics: ProjectValidationDiagnostic[] = [];
@@ -822,13 +935,16 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
           boundaries: ['authoring'],
           ownerPaths: diagnostic.ownerPaths,
         });
-        return {
-          success: false,
-          status: 'failed',
-          diagnostics: [implementationDiagnostic, diagnostic],
-          savedSaveUnitIds: [],
-          remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
-        };
+        return mergeSourceSaveResult(
+          {
+            success: false,
+            status: 'failed',
+            diagnostics: [implementationDiagnostic, diagnostic],
+            savedSaveUnitIds: [],
+            remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
+          },
+          sourceResult,
+        );
       }
       owners.forEach((component) => implicated.add(component));
       blockedDiagnostics.push(diagnostic);
@@ -838,23 +954,29 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
   }
 
   if (selected.length === 0 || !candidateContent) {
-    return {
-      success: false,
-      status: 'blocked',
-      diagnostics: collectProjectValidationDiagnostics(blockedDiagnostics),
-      savedSaveUnitIds: [],
-      remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
-    };
+    return mergeSourceSaveResult(
+      {
+        success: false,
+        status: 'blocked',
+        diagnostics: collectProjectValidationDiagnostics(blockedDiagnostics),
+        savedSaveUnitIds: [],
+        remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
+      },
+      sourceResult,
+    );
   }
   const selectedIds = new Set(selected.flatMap((component) => component.ids));
   const result = await commitSelectedSaveUnits(selectedIds, snapshot, candidateContent);
-  return {
-    ...result,
-    diagnostics: collectProjectValidationDiagnostics([
-      ...(result.diagnostics as ProjectValidationDiagnostic[]),
-      ...blockedDiagnostics,
-    ]),
-  };
+  return mergeSourceSaveResult(
+    {
+      ...result,
+      diagnostics: collectProjectValidationDiagnostics([
+        ...(result.diagnostics as ProjectValidationDiagnostic[]),
+        ...blockedDiagnostics,
+      ]),
+    },
+    sourceResult,
+  );
 }
 
 export async function saveConflictingSaveUnitKeepMine(

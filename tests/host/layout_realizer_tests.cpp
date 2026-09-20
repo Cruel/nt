@@ -404,7 +404,7 @@ TEST_CASE("LayoutRealizer validates package layouts against isolated candidate a
     assets::AssetManager candidate_assets;
     auto candidate_project = std::make_shared<assets::MemoryAssetSource>();
     for (const std::string_view path :
-         {"assets/fonts/main.ttf", "assets/images/main.png", "assets/scripts/layout.lua",
+         {"assets/fonts/main.ttf", "assets/images/main.png", "scripts/layout.lua",
           "assets/ui/layout.rcss", "assets/ui/layout.rml"}) {
         candidate_project->add(path, assets::AssetBytes{1}, "candidate-package");
     }

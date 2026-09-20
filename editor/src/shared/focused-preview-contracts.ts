@@ -133,6 +133,28 @@ const authoringManifestEntrySchema = z
       });
   });
 
+const projectSourceManifestEntrySchema = strict({
+  ...manifestBase,
+  fetchProjectRelativePath: safeProjectRelativePathSchema,
+  logicalPath: projectLogicalPathSchema,
+  resourceId: z.string().startsWith('source:'),
+  sourceKind: z.literal('project-source'),
+  kind: z.literal('lua'),
+}).superRefine((entry, context) => {
+  if (entry.resourceId !== `source:${entry.fetchProjectRelativePath}`)
+    context.addIssue({
+      code: 'custom',
+      path: ['resourceId'],
+      message: 'Project source resourceId must equal source:<project-relative-path>.',
+    });
+  if (entry.logicalPath !== `project:/${entry.fetchProjectRelativePath}`)
+    context.addIssue({
+      code: 'custom',
+      path: ['logicalPath'],
+      message: 'Project source logicalPath must match fetchProjectRelativePath.',
+    });
+});
+
 const shaderResourceIdPattern = /^shader:.+:(vertex|fragment):(glsl-330|essl-300|metal)$/;
 
 const shaderManifestEntrySchema = strict({
@@ -156,6 +178,7 @@ const shaderManifestEntrySchema = strict({
 
 export const previewResourceManifestEntrySchema = z.union([
   authoringManifestEntrySchema,
+  projectSourceManifestEntrySchema,
   shaderManifestEntrySchema,
 ]);
 export type PreviewResourceManifestEntry = z.infer<typeof previewResourceManifestEntrySchema>;
@@ -195,6 +218,12 @@ export const nativePreviewResourceManifestEntrySchema = z.union([
     }),
   strict({
     ...nativeBase,
+    resourceId: z.string().startsWith('source:'),
+    sourceKind: z.literal('project-source'),
+    kind: z.literal('lua'),
+  }),
+  strict({
+    ...nativeBase,
     resourceId: z.string().regex(shaderResourceIdPattern),
     sourceKind: z.literal('shader-compiled-output'),
     shaderId: z.string().min(1),
@@ -216,9 +245,9 @@ export type NativePreviewResourceManifestEntry = z.infer<
 export const projectNativeManifest = (
   entries: readonly PreviewResourceManifestEntry[],
 ): NativePreviewResourceManifestEntry[] =>
-  entries.map((entry) =>
-    entry.sourceKind === 'authoring-asset'
-      ? entry.kind === 'image'
+  entries.map((entry) => {
+    if (entry.sourceKind === 'authoring-asset')
+      return entry.kind === 'image'
         ? {
             resourceId: entry.resourceId,
             sourceKind: entry.sourceKind,
@@ -237,19 +266,28 @@ export const projectNativeManifest = (
             contentHash: entry.contentHash,
             byteSize: entry.byteSize,
             kind: entry.kind,
-          }
-      : {
-          resourceId: entry.resourceId,
-          sourceKind: entry.sourceKind,
-          shaderId: entry.shaderId,
-          shaderStage: entry.shaderStage,
-          shaderVariant: entry.shaderVariant,
-          logicalPath: entry.logicalPath,
-          contentHash: entry.contentHash,
-          byteSize: entry.byteSize,
-          kind: entry.kind,
-        },
-  );
+          };
+    if (entry.sourceKind === 'project-source')
+      return {
+        resourceId: entry.resourceId,
+        sourceKind: entry.sourceKind,
+        logicalPath: entry.logicalPath,
+        contentHash: entry.contentHash,
+        byteSize: entry.byteSize,
+        kind: entry.kind,
+      };
+    return {
+      resourceId: entry.resourceId,
+      sourceKind: entry.sourceKind,
+      shaderId: entry.shaderId,
+      shaderStage: entry.shaderStage,
+      shaderVariant: entry.shaderVariant,
+      logicalPath: entry.logicalPath,
+      contentHash: entry.contentHash,
+      byteSize: entry.byteSize,
+      kind: entry.kind,
+    };
+  });
 
 export const focusedRecordPreviewDocumentSchema = strict({
   kind: focusedPreviewDocumentKindSchema,

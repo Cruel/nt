@@ -60,33 +60,30 @@ describe('authoring script modules', () => {
     );
   });
 
-  it('requires asset-backed modules to reference script assets', () => {
+  it('accepts contained project-file modules and rejects obsolete asset-backed shapes', () => {
     const project = createAuthoringProject();
-    project.assets.image = {
-      id: 'image',
-      label: 'Image',
-      data: {
-        kind: 'image',
-        source: { type: 'project-file', path: 'assets/image.png' },
-        aliases: [],
-        imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
-      },
+    const projectFile = {
+      kind: 'script-module' as const,
+      source: { kind: 'project-file' as const, path: 'scripts/boot.lua' },
     };
-    const script = defaultScriptModuleData();
-    script.source = { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'image' } } };
-
     expect(
       validateScriptModuleData(project, 'boot', {
         id: 'boot',
         label: 'Boot',
-        data: script,
+        data: projectFile,
       }),
-    ).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          message: 'Script Module asset source must reference a script asset.',
-        }),
-      ]),
-    );
+    ).toEqual([]);
+
+    const obsolete = {
+      kind: 'script-module',
+      source: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'legacy' } } },
+    };
+    expect(
+      validateScriptModuleData(project, 'boot', {
+        id: 'boot',
+        label: 'Boot',
+        data: obsolete,
+      }),
+    ).not.toEqual([]);
   });
 });

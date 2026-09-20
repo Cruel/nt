@@ -155,7 +155,7 @@ interface NovelTeaElectronApiContract {
   compileShaders(
     projectSessionId: string,
     shaderProject: unknown,
-    options?: Pick<ShaderCompileOptions, 'forceRebuild' | 'shaderVariants'>,
+    options?: Pick<ShaderCompileOptions, 'forceRebuild' | 'shaderVariants' | 'sourceOverlays'>,
   ): Promise<ShaderCompileResponse>;
   saveProjectContent(
     projectSessionId: string,
@@ -224,6 +224,18 @@ interface NovelTeaElectronApiContract {
   onEditorCacheEpoch(
     callback: (event: import('./image-thumbnails').EditorCacheEpochEvent) => void,
   ): () => void;
+  listProjectSourceFiles(
+    request: import('./project-source-files').ListProjectSourceFilesRequest,
+  ): Promise<import('./project-source-files').ListProjectSourceFilesResponse>;
+  projectSourceUsages(
+    request: import('./project-source-files').ProjectSourceUsageRequest,
+  ): Promise<import('./project-source-files').ProjectSourceUsageResponse>;
+  mutateProjectSources(
+    request: import('./project-source-files').ProjectSourceStructuralRequest,
+  ): Promise<import('./project-source-files').ProjectSourceStructuralResponse>;
+  writeProjectSource(
+    request: import('./project-source-files').ProjectSourceWriteRequest,
+  ): Promise<import('./project-source-files').ProjectSourceWriteResponse>;
   readProjectTextSources(
     request: import('./project-text-sources').ReadProjectTextSourcesRequest,
   ): Promise<import('./project-text-sources').ReadProjectTextSourcesResponse>;

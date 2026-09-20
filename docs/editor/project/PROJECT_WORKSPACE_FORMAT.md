@@ -88,10 +88,38 @@ ID. Unknown `records/` collection directories and noncanonical record paths are 
 Missing known collection directories mean empty collections.
 
 File-backed Layout channels are `layout.rml`, `layout.rcss`, and `layout.lua` beside `layout.json`.
-The JSON selectors use `file`, `asset`, or (only for Lua) `none`; source text is not duplicated in
-the Layout record. Script Module file sources use `{ "kind": "file", "path": "scripts/...lua" }`.
-Their paths are safe project-relative `scripts/` paths. Assembly presents both as the existing
-internal inline Lua/Layout model, so file presence never grants autorun behavior. `bootstrapModule` names the one Script Module imported synchronously in each fresh Project VM.
+The persisted Layout JSON selectors use `sourceMode: "file"`, `sourceMode: "asset"` for RML/RCSS only,
+or `sourceMode: "none"` for Lua; source text is not duplicated in `layout.json`. Layout Lua Asset
+sources are obsolete. Workspace assembly reads a `file` Layout companion into the semantic inline
+Layout source used by compiler/editor consumers while retaining the companion file as the authoritative
+physical source.
+
+Author-managed Lua and shader source use real Project source roots: Lua lives beneath `scripts/` and
+shader stages/includes/interface files live beneath `shaders/`. These freeform source trees are not
+record collections and files may exist without a semantic record owner. Their normalized Project-relative
+paths are their source identity; the editor Files view and quick-open/search surfaces use those paths
+without introducing hidden authored file IDs.
+
+Script Module file sources use `{ "kind": "project-file", "path": "scripts/...lua" }`. Their paths
+are safe project-relative `scripts/` paths and remain `project-file` sources after workspace assembly;
+the file bytes are read through the Project source authority when analysis, compilation, preview, or
+localization requires them. Persisted `inline-lua` Script Module JSON is rejected. File presence never
+grants autorun behavior. `bootstrapModule` names the one Script Module imported synchronously in each
+fresh Project VM.
+
+Editor source-file mutation is path-identity based and main-process owned. `scripts/` and `shaders/`
+support source creation and freeform folders. Source writes use the exact persisted content hash as a
+compare-and-swap boundary. Rename/move commits physical source writes/deletes together with any
+NovelTea-owned semantic path repairs and recognized project-local shader-include rewrites through the
+workspace transaction journal. Folder moves apply one batched descendant path rewrite. Referenced
+delete refuses the operation and reports usages rather than deliberately committing broken semantic
+references. Generic Files operations do not move structurally owned Layout companion source.
+
+External source changes retain path identity: deletion plus creation at another path is not inferred to
+be a rename. Clean editor buffers adopt changed bytes; dirty buffers retain local bytes and record the
+external revision for explicit conflict resolution. Missing externally deleted typed shader/source
+usages are diagnosed. Source additions/removals/content changes also invalidate the author-facing Files
+and search snapshot without making freeform helper/include files semantic records.
 
 Assets remain complete Asset records in `records/assets/`; their project source bytes remain at the
 explicit Asset source path, normally under `assets/`. Project-local `workflows/` is owned by the
@@ -148,7 +176,9 @@ rewrite tracked `editor.json` nor adopt tracked-file revisions that the active w
 not reconciled. Tracked organization and ignored local/session state are persisted independently, and
 ignored local/session changes do not change in-memory or on-disk workspace identity.
 
-New projects create `records/`, `scripts/`, and `assets/` but do not add placeholder files. Editor and
+New projects create `records/`, `scripts/`, and `assets/` but do not add placeholder files. The
+`shaders/` root is author-managed source as well and may remain absent until custom shader source is
+created. Editor and
 CLI creation use one transactional service: it stages and validates the complete workspace before
 activating a new destination path that does not exist. Every existing file, directory, or symlink is
 rejected, and paths containing spaces are supported. The editor's Browse action selects a parent

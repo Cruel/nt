@@ -20,6 +20,7 @@ describe('preferences-store', () => {
     expect(state.showPreviewFpsCounter).toBe(false);
     expect(state.previewFpsCap).toBe(0);
     expect(state.previewRmlUiRasterSnap).toBe('all');
+    expect(state.materialLibraryLivePreviews).toBe(true);
     expect(state.lastProjectPath).toBe(null);
     expect(state.defaultProjectDirectory).toBe(null);
     expect(state.terminal).toEqual({
@@ -70,6 +71,12 @@ describe('preferences-store', () => {
   it('toggles the preview FPS counter', () => {
     usePreferencesStore.getState().setShowPreviewFpsCounter(true);
     expect(usePreferencesStore.getState().showPreviewFpsCounter).toBe(true);
+  });
+
+  it('stores the editor-wide Material library live-preview preference', () => {
+    usePreferencesStore.getState().setMaterialLibraryLivePreviews(false);
+    expect(usePreferencesStore.getState().materialLibraryLivePreviews).toBe(false);
+    expect(selectEditorPreferencesAreDefaults(usePreferencesStore.getState())).toBe(false);
   });
 
   it('stores and normalizes the editor-wide preview FPS cap', () => {

@@ -23,15 +23,36 @@ const shaderCompileDiagnosticSchema = z
 
 const shaderCompileOutputSchema = z
   .object({
-    shader: z.string().min(1),
+    program: z.string().min(1),
+    programIdentity: z.string().min(1),
     stage: z.enum(['vertex', 'fragment']),
     variant: z.enum(shaderVariantValues),
-    sourcePath: z.string().min(1),
+    sourceIdentity: z.string().min(1),
+    dependencies: z.array(z.string().min(1)),
+    dependencyRevisions: z.array(
+      z
+        .object({
+          identity: z.string().min(1),
+          contentHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+        })
+        .strict(),
+    ),
     outputPath: z.string().min(1),
     runtimePath: z.string().min(1),
     cacheKey: z.string().min(1),
     byteHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
     byteSize: z.number().int().nonnegative().refine(Number.isSafeInteger),
+    reflectedInputs: z.array(
+      z
+        .object({
+          name: z.string().min(1),
+          kind: z.enum(['uniform', 'sampled-image']),
+          type: z.string().min(1),
+          arraySize: z.number().int().positive(),
+        })
+        .strict(),
+    ),
+    browserPayload: z.string().optional(),
     cacheHit: z.boolean(),
   })
   .strict();

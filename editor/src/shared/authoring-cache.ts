@@ -848,6 +848,10 @@ function semanticSourceRevisions(
       if (!addMostSpecificOwner(dependency.path)) return null;
       continue;
     }
+    if (dependency.kind === 'source-project-file') {
+      if (!addRevisionPath(dependency.path)) return null;
+      continue;
+    }
     if (dependency.kind === 'source-asset' || dependency.kind === 'source-resolution-asset') {
       if (!addMostSpecificOwner(`/assets/${escapeJsonPointerSegment(dependency.assetId)}`))
         return null;

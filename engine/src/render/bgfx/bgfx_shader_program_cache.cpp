@@ -22,6 +22,11 @@ void add_program_diagnostic(std::vector<ShaderProgramDiagnostic>* diagnostics,
                std::string(to_string(resolution.key.role)) + "' variant '" +
                resolution.key.variant + "'";
     }
+    if (resolution.key.kind == ShaderProgramRequestKind::SourceProgram) {
+        return "source program '" + resolution.key.program_identity + "' role '" +
+               std::string(to_string(resolution.key.role)) + "' variant '" +
+               resolution.key.variant + "'";
+    }
     return "direct shader pair vertex '" + resolution.key.vertex_shader.string() + "' fragment '" +
            resolution.key.fragment_shader.string() + "' variant '" + resolution.key.variant + "'";
 }
@@ -39,7 +44,7 @@ bgfx::ProgramHandle
 BgfxShaderProgramCache::load_program(const ShaderProgramResolution& resolution,
                                      std::vector<ShaderProgramDiagnostic>* diagnostics)
 {
-    const std::string key = shader_program_cache_key(resolution.key);
+    const std::string key = shader_program_binary_cache_key(resolution);
     if (const auto found = m_programs.find(key); found != m_programs.end())
         return found->second;
 

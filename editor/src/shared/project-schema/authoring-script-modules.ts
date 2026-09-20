@@ -1,13 +1,15 @@
 import { z } from 'zod';
-import { assetRefSchema } from './authoring-flow';
-import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
+const scriptProjectPathSchema = z
+  .string()
+  .regex(/^scripts\/(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*\\)(?!.*\/\/)[^/].*\.lua$/);
+
 export const scriptModuleSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline-lua'), source: z.string() }),
-  strict({ kind: z.literal('asset'), asset: assetRefSchema }),
+  strict({ kind: z.literal('project-file'), path: scriptProjectPathSchema }),
 ]);
 export const scriptModuleDataSchema = strict({
   kind: z.literal('script-module'),
@@ -101,20 +103,5 @@ export function validateScriptModuleData(
       );
     return diagnostics;
   }
-  const asset = project.assets[parsed.data.source.asset.$ref.id];
-  if (!asset)
-    return [
-      diagnostic(
-        `${base}/source/asset/$ref`,
-        `Missing asset '${parsed.data.source.asset.$ref.id}'.`,
-      ),
-    ];
-  if (parseAssetData(asset.data)?.kind !== 'script')
-    return [
-      diagnostic(
-        `${base}/source/asset/$ref`,
-        'Script Module asset source must reference a script asset.',
-      ),
-    ];
   return [];
 }

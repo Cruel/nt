@@ -134,8 +134,11 @@ export interface ShaderCompileOptions {
   projectRoot?: string;
   outputRoot?: string;
   cacheRoot?: string;
+  engineShaderRoot?: string;
   forceRebuild?: boolean;
   shaderVariants?: string[];
+  /** Editor-only dirty shader buffers staged ahead of persisted Project source. */
+  sourceOverlays?: Record<string, string>;
 }
 
 export interface ShaderCompileDiagnostic {
@@ -152,16 +155,28 @@ export interface ShaderCompileDiagnostic {
   path?: string;
 }
 
+export interface ShaderReflectedInput {
+  name: string;
+  kind: 'uniform' | 'sampled-image';
+  type: string;
+  arraySize: number;
+}
+
 export interface ShaderCompileOutput {
-  shader: string;
+  program: string;
+  programIdentity: string;
   stage: 'vertex' | 'fragment';
   variant: string;
-  sourcePath: string;
+  sourceIdentity: string;
+  dependencies: string[];
+  dependencyRevisions: Array<{ identity: string; contentHash: `sha256:${string}` }>;
   outputPath: string;
   runtimePath: string;
   cacheKey: string;
   byteHash: `sha256:${string}`;
   byteSize: number;
+  reflectedInputs: ShaderReflectedInput[];
+  browserPayload?: string;
   cacheHit: boolean;
 }
 

@@ -6,7 +6,6 @@ import {
   Clapperboard,
   DoorOpen,
   EyeOff,
-  FileCode,
   FlaskConical,
   Folder,
   Image,
@@ -39,7 +38,6 @@ export const collectionVisuals: Record<AuthoringCollectionKey, VisualIdentity> =
   rooms: { icon: DoorOpen, colorClassName: 'text-amber-700 dark:text-amber-300' },
   scenes: { icon: Clapperboard, colorClassName: 'text-fuchsia-700 dark:text-fuchsia-300' },
   scripts: { icon: ScrollText, colorClassName: 'text-slate-700 dark:text-slate-300' },
-  shaders: { icon: FileCode, colorClassName: 'text-cyan-700 dark:text-cyan-300' },
   tests: { icon: FlaskConical, colorClassName: 'text-rose-700 dark:text-rose-300' },
   variables: { icon: SlidersHorizontal, colorClassName: 'text-teal-700 dark:text-teal-300' },
   verbs: { icon: Route, colorClassName: 'text-green-700 dark:text-green-300' },
@@ -75,7 +73,6 @@ export function visualForEditorType(
     return collectionVisuals.assets;
   if (editorType === 'variables') return collectionVisuals.variables;
   if (editorType === 'test-detail' || editorType === 'test-suite') return collectionVisuals.tests;
-  if (editorType === 'shader-detail') return collectionVisuals.shaders;
   if (editorType === 'material-detail') return collectionVisuals.materials;
   if (editorType === 'layout-detail') return collectionVisuals.layouts;
   if (editorType === 'archetype-detail') return collectionVisuals.archetypes;

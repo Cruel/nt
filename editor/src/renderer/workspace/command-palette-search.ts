@@ -1,4 +1,4 @@
-import { Settings } from 'lucide-react';
+import { FileCode, Settings } from 'lucide-react';
 import type { ComponentType } from 'react';
 import type { TFunction } from 'i18next';
 import { editorI18n } from '@/i18n';
@@ -13,10 +13,11 @@ import type {
   ProjectSearchMatch,
 } from '../../shared/project-search/project-search-types';
 import { recordEditorMetadata } from '../../shared/project-schema/authoring-tags';
+import type { ProjectSourceFile } from '../../shared/project-source-files';
 import { visualForCollection } from './collection-visuals';
 
-export type CommandPaletteItemKind = 'action' | 'record';
-export type CommandPaletteFieldKind = 'title' | 'id' | 'tag' | 'collection' | 'action';
+export type CommandPaletteItemKind = 'action' | 'record' | 'source';
+export type CommandPaletteFieldKind = 'title' | 'id' | 'path' | 'tag' | 'collection' | 'action';
 export type SelectorItemKind = CommandPaletteItemKind;
 export type SelectorFieldKind = CommandPaletteFieldKind;
 
@@ -42,6 +43,7 @@ export interface SelectorItem {
   collection?: AuthoringCollectionKey;
   entityId?: string;
   assetKind?: AssetData['kind'];
+  source?: ProjectSourceFile;
   preview?: SelectorPreview;
   action?:
     | 'settings'
@@ -181,6 +183,7 @@ export function buildTogglePreviewCommandItem(
 export function buildCommandPaletteItems(
   project: AuthoringProject | null,
   t: TFunction = editorI18n.t.bind(editorI18n),
+  sources: readonly ProjectSourceFile[] = [],
 ): SelectorItem[] {
   const items = [...baseActions(t)];
   if (!project) return items;
@@ -239,6 +242,21 @@ export function buildCommandPaletteItems(
       });
     }
   }
+  for (const source of sources) {
+    const title = source.displayPath.split('/').at(-1) ?? source.displayPath;
+    items.push({
+      id: `source:${source.id}`,
+      kind: 'source',
+      title,
+      subtitle: source.displayPath,
+      source,
+      tags: [],
+      collectionTerms: [],
+      actionTerms: [],
+      icon: FileCode,
+      iconClassName: 'text-muted-foreground',
+    });
+  }
   return items;
 }
 
@@ -251,6 +269,7 @@ export function filterSelectorItems(
   const includeActions = filter.includeActions ?? true;
   return items.filter((item) => {
     if (item.kind === 'action') return includeActions && !collections && !assetKinds;
+    if (item.kind === 'source') return !collections && !assetKinds;
     if (collections && (!item.collection || !collections.has(item.collection))) return false;
     if (assetKinds && item.assetKind && !assetKinds.has(item.assetKind)) return false;
     if (assetKinds && !item.assetKind) return false;
@@ -268,6 +287,18 @@ function itemToSearchDocument(item: SelectorItem): ProjectSearchDocument {
       weight: 4,
       defaultSearchable: true,
     },
+    ...(item.source
+      ? [
+          {
+            kind: 'content' as const,
+            label: 'Path',
+            value: item.source.displayPath,
+            path: `/${item.id}/path`,
+            weight: 3.5,
+            defaultSearchable: true,
+          },
+        ]
+      : []),
     ...(item.entityId
       ? [
           {
@@ -329,6 +360,7 @@ function commandFieldKind(fieldKind: ProjectSearchFieldKind): CommandPaletteFiel
   )
     return fieldKind;
   if (fieldKind === 'label') return 'title';
+  if (fieldKind === 'content') return 'path';
   return null;
 }
 
@@ -346,6 +378,7 @@ function matchForProjectSearchMatch(match: ProjectSearchMatch): SelectorMatch | 
 function matchPriority(match: SelectorMatch): number {
   if (match.fieldKind === 'title') return 5;
   if (match.fieldKind === 'id') return 4;
+  if (match.fieldKind === 'path') return 3.5;
   if (match.fieldKind === 'tag') return 3;
   if (match.fieldKind === 'action') return 2;
   return 1;

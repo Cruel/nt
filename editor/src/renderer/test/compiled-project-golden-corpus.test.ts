@@ -381,7 +381,7 @@ describe('compiled project cross-language golden corpus', () => {
           ),
         ),
       ),
-    ).toEqual(['actor', 'background', 'layout', 'postprocess']);
+    ).toEqual(['actor', 'background', 'postprocess']);
     expect(
       sorted(
         new Set(
@@ -559,8 +559,6 @@ describe('compiled project cross-language golden corpus', () => {
       'data',
       'font',
       'image',
-      'script',
-      'shader-source',
       'text',
     ]);
     expect(
@@ -576,7 +574,7 @@ describe('compiled project cross-language golden corpus', () => {
     ).toEqual(['asset', 'inline']);
     expect(
       sorted(new Set(resources.resources.scripts.map((script) => script.source.kind))),
-    ).toEqual(['asset', 'inline-lua']);
+    ).toEqual(['inline-lua', 'project-file']);
     const globalProperties = comprehensive.properties.filter(
       (property) => property.scope === 'global',
     );

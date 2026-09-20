@@ -1,6 +1,7 @@
 import {
   analyzeManagedLuaLocalization,
   collectAuthoringLuaSources,
+  type AuthoringLuaSourceDescriptor,
 } from './authoring-source-analysis';
 import { packageMessageIds } from './authoring-message-lowering';
 import { resolveMessage } from './message-resolution';
@@ -64,10 +65,11 @@ function normalizeLuaTrackingText(value: string): string {
 
 export function collectManagedLuaLocalizationSources(
   project: AuthoringProject,
+  sourceDescriptors: readonly AuthoringLuaSourceDescriptor[] = collectAuthoringLuaSources(project),
 ): readonly ManagedLuaLocalizationSource[] {
   const result: ManagedLuaLocalizationSource[] = [];
   const seenPaths = new Set<string>();
-  for (const descriptor of collectAuthoringLuaSources(project)) {
+  for (const descriptor of sourceDescriptors) {
     if (descriptor.sourceKind !== 'lua' || descriptor.inlineText === undefined) continue;
     if (seenPaths.has(descriptor.sourcePath)) continue;
     seenPaths.add(descriptor.sourcePath);

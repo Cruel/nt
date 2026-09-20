@@ -207,6 +207,20 @@ export class AuthoringDependencyGraphService {
     return Object.freeze(values);
   }
 
+  refreshProjectSources(
+    publication: Publication,
+  ): Promise<AuthoringDependencyGraphSnapshot | null> {
+    return this.publish({
+      previousProject: publication.project,
+      project: publication.project,
+      changeSet: {
+        ...publication.changeSet,
+        kind: 'replace',
+        affectedPaths: ['/'],
+      },
+    });
+  }
+
   publish(publication: Publication): Promise<AuthoringDependencyGraphSnapshot | null> {
     const instance = publication.changeSet.projectInstanceId;
     if (
@@ -492,6 +506,24 @@ export class AuthoringDependencyGraphService {
       this.options.getScriptSourcePaths?.() ?? {},
     );
     const sourceOwners = new Set(impact.sourceAnalysisOwnerKeys);
+    if (sourceOwners.size > 0) {
+      const descriptors = collectProjectWorkspaceLuaSources(workspace);
+      const affectedProjectSources = new Set(
+        descriptors
+          .filter(
+            (descriptor) =>
+              sourceOwners.has(descriptor.contributionKey) &&
+              descriptor.inlineText === undefined &&
+              !descriptor.sourceAssetId &&
+              descriptor.sourceUrl.startsWith('project:/'),
+          )
+          .map((descriptor) => descriptor.sourceUrl),
+      );
+      if (affectedProjectSources.size > 0)
+        for (const descriptor of descriptors)
+          if (affectedProjectSources.has(descriptor.sourceUrl))
+            sourceOwners.add(descriptor.contributionKey);
+    }
     let sourceSnapshot: LuaSourceSnapshot<AuthoringDependencyGraphDiagnostic> | null = null;
     if (sourceOwners.size > 0) {
       sourceSnapshot = await this.resolveSources(token, project, instance, revision, sourceOwners);
@@ -559,18 +591,34 @@ export class AuthoringDependencyGraphService {
       ...(this.stateValue as Extract<AuthoringDependencyGraphServiceState, { kind: 'updating' }>),
       phase: 'resolving-sources',
     };
+    const descriptors = collectProjectWorkspaceLuaSources(workspace, owners);
     const requiredIds = new Set<string>();
     for (const owner of owners)
       for (const id of collectAuthoringSourceRequirements(project, owner)) requiredIds.add(id);
+    const directProjectSources = new Map<string, string>();
+    for (const descriptor of descriptors)
+      if (
+        descriptor.inlineText === undefined &&
+        !descriptor.sourceAssetId &&
+        descriptor.sourceUrl.startsWith('project:/')
+      )
+        directProjectSources.set(
+          descriptor.sourceUrl.slice('project:/'.length),
+          descriptor.sourcePath,
+        );
     const groups = new Map<
       string,
       { path: string; hash: `sha256:${string}`; assetIds: string[] }
     >();
     const entries = new Map<string, LuaSourceSnapshotEntry<AuthoringDependencyGraphDiagnostic>>();
+    const projectPathEntries = new Map<
+      string,
+      LuaSourceSnapshotEntry<AuthoringDependencyGraphDiagnostic>
+    >();
     let admittedBytes = 0;
     let admittedOccurrences = 0;
     const admittedPhysical = new Set<string>();
-    for (const descriptor of collectProjectWorkspaceLuaSources(workspace, owners)) {
+    for (const descriptor of descriptors) {
       let text = descriptor.inlineText;
       let contentHash = text === undefined ? undefined : await sha256PrefixedUtf8(text);
       let physicalKey =
@@ -712,7 +760,61 @@ export class AuthoringDependencyGraphService {
         });
       }
     }
-    return Object.freeze({ entriesByAssetId: new Map(entries) });
+    if (directProjectSources.size > 0) {
+      const sessionId = this.options.getProjectSessionId();
+      if (!sessionId) {
+        for (const [projectRelativePath, sourcePath] of directProjectSources)
+          projectPathEntries.set(
+            projectRelativePath,
+            unavailableProjectSource(
+              projectRelativePath,
+              sourcePath,
+              'authoring_source.no_session',
+              'No active project text-read session is available.',
+            ),
+          );
+      } else {
+        const sorted = [...directProjectSources.entries()].sort(([left], [right]) =>
+          left.localeCompare(right),
+        );
+        const request: ReadProjectTextSourcesRequest = {
+          projectSessionId: sessionId,
+          entries: sorted.map(([projectRelativePath], index) => ({
+            readKey: `p${index}:${projectRelativePath.length}`,
+            projectRelativePath,
+            expectedContentHash: null,
+          })),
+        };
+        this.metrics.sourceReadBatches += 1;
+        this.metrics.sourceReadEntries += request.entries.length;
+        const response = await this.options.readProjectTextSources(request);
+        if (!this.isCurrent(token, instance, revision)) return null;
+        const byReadKey = new Map(response.entries.map((entry) => [entry.readKey, entry]));
+        request.entries.forEach((requested, index) => {
+          const [projectRelativePath, sourcePath] = sorted[index]!;
+          const result = byReadKey.get(requested.readKey);
+          const value =
+            result?.status === 'ready'
+              ? ({ ...result } as LuaSourceSnapshotEntry<AuthoringDependencyGraphDiagnostic>)
+              : unavailableProjectSource(
+                  projectRelativePath,
+                  sourcePath,
+                  `authoring_source.${result?.code ?? 'missing_response'}`,
+                  result?.message ?? 'Project text source read returned no result.',
+                );
+          projectPathEntries.set(projectRelativePath, value);
+          if (value.status === 'ready')
+            this.sourceBytes.set(
+              `${instance}\u0000${projectRelativePath}\u0000${value.contentHash}`,
+              value,
+            );
+        });
+      }
+    }
+    return Object.freeze({
+      entriesByAssetId: new Map(entries),
+      entriesByProjectPath: new Map(projectPathEntries),
+    });
   }
 
   private publishBuilt(
@@ -823,5 +925,19 @@ function unavailableAsset(
     assetId,
     expectedContentHash,
     diagnostic: { severity: 'warning', code, path: `/assets/${assetId}` as JsonPointer, message },
+  };
+}
+
+function unavailableProjectSource(
+  projectRelativePath: string,
+  sourcePath: string,
+  code: string,
+  message: string,
+): LuaSourceSnapshotEntry<AuthoringDependencyGraphDiagnostic> {
+  return {
+    status: 'unavailable',
+    projectRelativePath,
+    expectedContentHash: null,
+    diagnostic: { severity: 'warning', code, path: sourcePath as JsonPointer, message },
   };
 }

@@ -21,6 +21,7 @@ export const PROJECT_SETTINGS_OWNED_PATHS: JsonPointer[] = [
 
 export const SAVE_UNIT_IDS = {
   assetCollection: 'collection:assets',
+  materialCollection: 'collection:materials',
   testCollection: 'collection:tests',
   variableCollection: 'collection:variables',
   traitCollection: 'collection:traits',
@@ -86,7 +87,6 @@ export const MUTATION_SURFACE_ATTRIBUTIONS = {
 
 const RECORD_EDITOR_COLLECTIONS = {
   'asset-detail': 'assets',
-  'shader-detail': 'shaders',
   'material-detail': 'materials',
   'layout-detail': 'layouts',
   'archetype-detail': 'archetypes',
@@ -110,6 +110,7 @@ const NON_CONTENT_EDITOR_TYPES = new Set([
   'comfyui-workflows',
   'components',
   'settings',
+  'engine-shader-source',
 ]);
 
 function canonicalPaths(paths: JsonPointer[]): JsonPointer[] {
@@ -165,6 +166,14 @@ export function collectionSaveUnitId(collection: string): SaveUnitId {
 
 export function structuralSaveUnitId(collection: string): SaveUnitId {
   return `structure:${collection}`;
+}
+
+export function sourceSaveUnitId(sourceId: string): SaveUnitId {
+  return `source-file:${sourceId}`;
+}
+
+export function sourceIdFromSaveUnitId(saveUnitId: SaveUnitId): string | null {
+  return saveUnitId.startsWith('source-file:') ? saveUnitId.slice('source-file:'.length) : null;
 }
 
 export function manualSaveAttribution(originSaveUnitId: SaveUnitId): SaveUnitCommandAttribution {
@@ -225,16 +234,34 @@ export function resolveSaveUnitForResource(
     };
   }
 
+  if (editorType === 'source-file') {
+    if (!resource?.sourceId) {
+      return unsupported(resource, editorType, 'Source editor is missing its source-file ID.');
+    }
+    return {
+      status: 'savable',
+      descriptor: descriptor({
+        id: sourceSaveUnitId(resource.sourceId),
+        kind: 'source-file',
+        resource,
+        editorType,
+        tabId,
+      }),
+    };
+  }
+
   const collectionEditor =
     editorType === 'asset-library'
       ? { id: SAVE_UNIT_IDS.assetCollection, path: '/assets', collection: 'assets' }
-      : editorType === 'test-suite'
-        ? { id: SAVE_UNIT_IDS.testCollection, path: '/tests', collection: 'tests' }
-        : editorType === 'variables'
-          ? { id: SAVE_UNIT_IDS.variableCollection, path: '/variables', collection: 'variables' }
-          : editorType === 'traits'
-            ? { id: SAVE_UNIT_IDS.traitCollection, path: '/traits', collection: 'traits' }
-            : null;
+      : editorType === 'material-library'
+        ? { id: SAVE_UNIT_IDS.materialCollection, path: '/materials', collection: 'materials' }
+        : editorType === 'test-suite'
+          ? { id: SAVE_UNIT_IDS.testCollection, path: '/tests', collection: 'tests' }
+          : editorType === 'variables'
+            ? { id: SAVE_UNIT_IDS.variableCollection, path: '/variables', collection: 'variables' }
+            : editorType === 'traits'
+              ? { id: SAVE_UNIT_IDS.traitCollection, path: '/traits', collection: 'traits' }
+              : null;
   if (collectionEditor) {
     return {
       status: 'savable',

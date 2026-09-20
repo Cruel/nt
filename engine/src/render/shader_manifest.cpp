@@ -273,6 +273,80 @@ ShaderProgramResolutionResult resolve_direct_shader_pair_program(
     return result;
 }
 
+ShaderProgramResolution resolve_source_shader_pair_program(
+    std::string program_identity, ShaderRole role, std::string_view active_variant,
+    std::string vertex_runtime_path, std::string fragment_runtime_path,
+    std::vector<ShaderUniformDeclaration> uniforms, std::vector<ShaderSamplerDeclaration> samplers)
+{
+    ShaderProgramKey key;
+    key.kind = ShaderProgramRequestKind::SourceProgram;
+    key.program_identity = std::move(program_identity);
+    key.role = role;
+    key.variant = std::string(active_variant);
+    key.vertex_path = vertex_runtime_path;
+    key.fragment_path = fragment_runtime_path;
+
+    return ShaderProgramResolution{
+        .key = std::move(key),
+        .vertex = ShaderStageBinaryRef{.shader = ShaderId{},
+                                       .stage = ShaderStage::Vertex,
+                                       .variant = std::string(active_variant),
+                                       .path = std::move(vertex_runtime_path)},
+        .fragment = ShaderStageBinaryRef{.shader = ShaderId{},
+                                         .stage = ShaderStage::Fragment,
+                                         .variant = std::string(active_variant),
+                                         .path = std::move(fragment_runtime_path)},
+        .uniforms = std::move(uniforms),
+        .samplers = std::move(samplers),
+    };
+}
+
+ShaderProgramResolutionResult resolve_source_shader_program(const ShaderMaterialProject& project,
+                                                            std::string_view program_identity,
+                                                            ShaderRole role,
+                                                            std::string_view active_variant)
+{
+    ShaderProgramResolutionResult result;
+    const ShaderId internal_id{std::string(program_identity)};
+    const auto* shader = find_shader(project, internal_id);
+    if (shader == nullptr) {
+        add_diagnostic(result.diagnostics, ShaderProgramDiagnosticCode::UnknownShader,
+                       "source program '" + std::string(program_identity) + "'",
+                       "unknown derived source program");
+        return result;
+    }
+    if (!has_role(*shader, role)) {
+        add_diagnostic(result.diagnostics, ShaderProgramDiagnosticCode::IncompatibleShaderRole,
+                       "source program '" + std::string(program_identity) + "'",
+                       "derived source program does not support the requested role");
+        return result;
+    }
+    const auto find_path = [&](ShaderStage stage) -> std::optional<std::string> {
+        for (const auto& definition : shader->stages) {
+            if (definition.stage != stage)
+                continue;
+            for (const auto& compiled : definition.compiled)
+                if (compiled.variant == active_variant)
+                    return compiled.path;
+            return std::nullopt;
+        }
+        return std::nullopt;
+    };
+    const auto vertex = find_path(ShaderStage::Vertex);
+    const auto fragment = find_path(ShaderStage::Fragment);
+    if (!vertex || !fragment) {
+        add_diagnostic(result.diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
+                       "source program '" + std::string(program_identity) + "' variant '" +
+                           std::string(active_variant) + "'",
+                       "derived source program is missing a compiled vertex or fragment stage");
+        return result;
+    }
+    result.program =
+        resolve_source_shader_pair_program(std::string(program_identity), role, active_variant,
+                                           *vertex, *fragment, shader->uniforms, shader->samplers);
+    return result;
+}
+
 std::string shader_program_cache_key(const ShaderProgramKey& key)
 {
     std::ostringstream out;
@@ -280,8 +354,17 @@ std::string shader_program_cache_key(const ShaderProgramKey& key)
     if (key.kind == ShaderProgramRequestKind::Material)
         out << key.material_id << '|' << to_string(key.role) << '|' << key.material_shader.string()
             << '|';
+    else if (key.kind == ShaderProgramRequestKind::SourceProgram)
+        out << key.program_identity << '|' << to_string(key.role) << '|';
     out << key.vertex_shader.string() << '|' << key.fragment_shader.string() << '|' << key.variant
         << '|' << key.vertex_path << '|' << key.fragment_path;
+    return out.str();
+}
+
+std::string shader_program_binary_cache_key(const ShaderProgramResolution& resolution)
+{
+    std::ostringstream out;
+    out << resolution.key.variant << '|' << resolution.vertex.path << '|' << resolution.fragment.path;
     return out.str();
 }
 
@@ -300,6 +383,8 @@ std::string_view to_string(ShaderProgramRequestKind kind) noexcept
         return "material";
     case ShaderProgramRequestKind::DirectShaderPair:
         return "direct_shader_pair";
+    case ShaderProgramRequestKind::SourceProgram:
+        return "source_program";
     }
     return "unknown";
 }

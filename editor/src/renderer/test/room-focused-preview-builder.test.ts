@@ -14,10 +14,6 @@ import {
 } from '../../shared/project-schema/authoring-interactables';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
-import {
-  defaultShaderData,
-  shaderCompileInputFingerprint,
-} from '../../shared/project-schema/authoring-shaders';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { buildFocusedRoomPreview } from '../preview/room-focused-preview-builder';
@@ -92,27 +88,12 @@ async function build(project = fixture()) {
   });
 }
 
-async function fixtureWithRoomMaterial() {
+function fixtureWithRoomMaterial() {
   const project = fixture();
-  const shader = defaultShaderData('Room Shader');
-  project.shaders.room = { id: 'room', label: 'Room Shader', data: shader };
-  for (const [stageIndex, stage] of shader.stages.entries()) {
-    stage.compiled['glsl-330'] = {
-      path: `project:/shaders/bgfx/glsl-330/room.${stage.stage}.bin`,
-      byteHash: `sha256:${String(stageIndex + 1).repeat(64)}` as `sha256:${string}`,
-      byteSize: 16 + stageIndex,
-      compileInputFingerprint: (await shaderCompileInputFingerprint(
-        project,
-        'room',
-        stageIndex,
-        'glsl-330',
-      ))!,
-    };
-  }
   project.materials.room = {
     id: 'room',
     label: 'Room Material',
-    data: defaultMaterialData('Room Material', 'room'),
+    data: defaultMaterialData('Room Material', 'engine-2d'),
   };
   project.rooms.bedroom!.data.background.material = {
     $ref: { collection: 'materials', id: 'room' },
@@ -603,34 +584,26 @@ describe('graph-driven Room builder', () => {
     ).rejects.toThrow(/absent from the current dependency graph snapshot/);
   });
 
-  it('uses canonical shader fetch paths and rejects stale compiled outputs', async () => {
-    const project = await fixtureWithRoomMaterial();
-    const fresh = await build(project);
+  it('projects preset-backed Materials without project Shader-record resources', async () => {
+    const project = fixtureWithRoomMaterial();
+    const preview = await build(project);
     expect(
-      fresh.resources
-        .filter((resource) => resource.sourceKind === 'shader-compiled-output')
-        .map((resource) => ({
-          fetchProjectRelativePath: resource.fetchProjectRelativePath,
-          logicalPath: resource.logicalPath,
-        })),
-    ).toEqual([
-      {
-        fetchProjectRelativePath: '.noveltea/build/shaders/bgfx/glsl-330/room.fragment.bin',
-        logicalPath: 'project:/shaders/bgfx/glsl-330/room.fragment.bin',
+      preview.resources.filter((resource) => resource.sourceKind === 'shader-compiled-output'),
+    ).toEqual([]);
+    expect(preview.data.shaderMaterials.materials.room).toMatchObject({
+      role: 'engine-2d',
+      shader: 'preset-engine-2d',
+    });
+    expect(preview.data.shaderMaterials.shaders['preset-engine-2d']).toMatchObject({
+      roles: ['engine-2d'],
+      stages: {
+        vertex: {
+          compiled: { 'glsl-330': { runtimePath: 'system:/shaders/bgfx/glsl-330/quad.vs.bin' } },
+        },
+        fragment: {
+          compiled: { 'glsl-330': { runtimePath: 'system:/shaders/bgfx/glsl-330/quad.fs.bin' } },
+        },
       },
-      {
-        fetchProjectRelativePath: '.noveltea/build/shaders/bgfx/glsl-330/room.vertex.bin',
-        logicalPath: 'project:/shaders/bgfx/glsl-330/room.vertex.bin',
-      },
-    ]);
-
-    project.shaders.room!.data.stages[1]!.sourceText = 'changed after compilation';
-    const stale = await build(project);
-    expect(stale.diagnostics).toContainEqual(
-      expect.objectContaining({
-        severity: 'error',
-        message: expect.stringContaining("fragment output for 'glsl-330' is stale"),
-      }),
-    );
+    });
   });
 });

@@ -67,7 +67,7 @@ export type AuthoringLuaSourceDescriptor = {
   explicitDependenciesPath?: string;
   explicitDependencies?: readonly unknown[];
   layoutId?: string;
-  dependencyScriptIds?: readonly string[];
+  dependencyScriptPaths?: readonly string[];
   dependencyTemplateIds?: readonly string[];
 };
 
@@ -112,8 +112,6 @@ function sourceDescriptorFromScript(
 ): AuthoringLuaSourceDescriptor | null {
   const parsed = parseScriptModuleData(project.scripts[scriptId]?.data);
   if (!parsed) return null;
-  const sourceAssetId = parsed.source.kind === 'asset' ? parsed.source.asset.$ref.id : undefined;
-  const assetSourcePath = sourceAssetId ? assetPath(project, sourceAssetId) : null;
   return {
     executionSurface: registered.surface,
     contributionKey,
@@ -123,11 +121,8 @@ function sourceDescriptorFromScript(
     sourceUrl:
       parsed.source.kind === 'inline-lua'
         ? 'authoring:inline-lua'
-        : assetSourcePath
-          ? `project:/${assetSourcePath}`
-          : 'project:/__missing_source.lua',
+        : `project:/${parsed.source.path}`,
     inlineText: parsed.source.kind === 'inline-lua' ? parsed.source.source : undefined,
-    sourceAssetId,
     focusedAdmission: registered.focusedAdmission,
     focusedFacet: registered.focusedFacet,
     supportsExplicitFallback: registered.supportsExplicitFallback,
@@ -153,22 +148,17 @@ export function collectAuthoringLuaSources(
     const parsed = parseScriptModuleData(record.data);
     if (!parsed) continue;
     const base = `/scripts/${escapeJsonPointerSegment(id)}/data/source`;
-    const sourceAssetId = parsed.source.kind === 'asset' ? parsed.source.asset.$ref.id : undefined;
-    const sourceAssetPath = sourceAssetId ? assetPath(project, sourceAssetId) : null;
     output.push({
       executionSurface: 'script-record',
       contributionKey,
       semanticOwner: recordKey('scripts', id),
-      sourcePath: parsed.source.kind === 'inline-lua' ? `${base}/source` : `${base}/asset/$ref`,
+      sourcePath: parsed.source.kind === 'inline-lua' ? `${base}/source` : `${base}/path`,
       sourceKind: 'lua',
       sourceUrl:
         parsed.source.kind === 'inline-lua'
           ? 'authoring:inline-lua'
-          : sourceAssetPath
-            ? `project:/${sourceAssetPath}`
-            : 'project:/__missing_source.lua',
+          : `project:/${parsed.source.path}`,
       inlineText: parsed.source.kind === 'inline-lua' ? parsed.source.source : undefined,
-      sourceAssetId,
       focusedAdmission: false,
       supportsExplicitFallback: false,
     });
@@ -224,7 +214,7 @@ export function collectAuthoringLuaSources(
         explicitDependencies:
           name === 'rml' ? parsed.script.additionalDependencies?.targets : undefined,
         layoutId: id,
-        dependencyScriptIds: parsed.dependencies.scripts.map((ref) => ref.$ref.id),
+        dependencyScriptPaths: parsed.dependencies.scripts,
         dependencyTemplateIds: (parsed.dependencies.templates ?? []).map((ref) => ref.$ref.id),
       });
     }
@@ -1543,11 +1533,16 @@ export async function bindAuthoringSourceOwner(
         descriptor.executionSurface,
         descriptor.contributionKey,
         descriptor.sourcePath,
+        descriptor.sourceUrl,
         descriptor.sourceAssetId ?? null,
         artifacts.map((artifact) => artifact.sourceContentFingerprint),
       ]),
     ),
     sourceAssetIds: descriptor.sourceAssetId ? [descriptor.sourceAssetId] : [],
+    projectSourcePaths:
+      !descriptor.sourceAssetId && descriptor.sourceUrl.startsWith('project:/')
+        ? [descriptor.sourceUrl.slice('project:/'.length)]
+        : [],
     regions: Object.freeze(regions),
     literalOccurrences: Object.freeze(literals),
     cursorNameOccurrences: Object.freeze(cursorNameOccurrences),
@@ -1573,8 +1568,7 @@ export function collectAuthoringSourceRequirements(
       continue;
     const layout = parseLayoutData(record.data);
     if (!layout) continue;
-    for (const ref of [...layout.dependencies.scripts, ...(layout.dependencies.templates ?? [])])
-      ids.add(ref.$ref.id);
+    for (const ref of layout.dependencies.templates ?? []) ids.add(ref.$ref.id);
   }
   return Object.freeze([...ids].sort());
 }
@@ -1759,9 +1753,7 @@ export async function analyzeAuthoringSources(
     if (descriptor.sourceAssetId) {
       const entry = snapshot.entriesByAssetId.get(descriptor.sourceAssetId);
       if (!entry)
-        throw new Error(
-          `Missing Lua source snapshot entry for Asset '${descriptor.sourceAssetId}'.`,
-        );
+        throw new Error(`Missing source snapshot entry for Asset '${descriptor.sourceAssetId}'.`);
       if (entry.status === 'ready') {
         text = entry.text;
         hash = entry.contentHash;
@@ -1773,6 +1765,21 @@ export async function analyzeAuthoringSources(
           supplied.code ?? 'authoring.lua.source_unavailable',
           supplied.message ??
             `Source Asset '${descriptor.sourceAssetId}' is unavailable in the complete source snapshot.`,
+        );
+      }
+    } else if (text === undefined && descriptor.sourceUrl.startsWith('project:/')) {
+      const projectRelativePath = descriptor.sourceUrl.slice('project:/'.length);
+      const entry = snapshot.entriesByProjectPath?.get(projectRelativePath);
+      if (entry?.status === 'ready') {
+        text = entry.text;
+        hash = entry.contentHash;
+        physicalKey = `project-file:${entry.projectRelativePath}:${entry.contentHash}`;
+      } else if (entry?.status === 'unavailable') {
+        const supplied = entry.diagnostic as Partial<AuthoringDependencyGraphDiagnostic>;
+        await appendDiagnostic(
+          descriptor,
+          supplied.code ?? 'authoring.lua.source_unavailable',
+          supplied.message ?? `Project source '${projectRelativePath}' is unavailable.`,
         );
       }
     }
@@ -1811,84 +1818,30 @@ export async function analyzeAuthoringSources(
           continue;
         }
         const resolved = resolveLayoutProjectUri(reference.value, containingPath);
-        const dependencyIds =
-          reference.kind === 'script'
-            ? (descriptor.dependencyScriptIds ?? [])
-            : (descriptor.dependencyTemplateIds ?? []);
-        const assetId = resolved
-          ? declaredLayoutDependencyByResolvedPath(
-              project,
-              dependencyIds,
-              reference.kind === 'script' ? 'script' : 'template',
-              resolved,
-            )
-          : null;
-        const entry = assetId ? snapshot.entriesByAssetId.get(assetId) : undefined;
-        if (!resolved || !assetId || entry?.status !== 'ready') {
-          await appendDiagnostic(
-            descriptor,
-            'authoring.lua.external_source_unresolved',
-            `RML ${reference.kind} '${reference.value}' does not resolve to exactly one declared dependency.`,
-            container.sourceUrl,
-          );
-          continue;
-        }
-        const resolvedPhysicalKey = `asset:${entry.projectRelativePath}:${entry.contentHash}`;
-        if (reference.kind === 'template-link') {
-          if (visitedTemplates.has(resolvedPhysicalKey)) continue;
-          if (
-            container.depth >= limits.maxTemplateDepth ||
-            templateCount >= limits.maxTemplatesPerLayout
-          ) {
+        if (reference.kind === 'script') {
+          const dependencyPaths = descriptor.dependencyScriptPaths ?? [];
+          const matchingPath =
+            resolved && dependencyPaths.filter((path) => path === resolved).length === 1
+              ? resolved
+              : null;
+          const entry = matchingPath ? snapshot.entriesByProjectPath?.get(matchingPath) : undefined;
+          if (!matchingPath || entry?.status !== 'ready') {
             await appendDiagnostic(
               descriptor,
-              'authoring.lua.template_limit',
-              'RML template traversal reached a fixed depth/count limit.',
-              `project:/${entry.projectRelativePath}`,
+              'authoring.lua.external_source_unresolved',
+              `RML script '${reference.value}' does not resolve to exactly one declared dependency.`,
+              container.sourceUrl,
             );
             continue;
           }
-          visitedTemplates.add(resolvedPhysicalKey);
-          templateCount += 1;
-          for (const name of extractTemplateNames(entry.text)) {
-            if (templateNames.has(name)) {
-              await appendDiagnostic(
-                descriptor,
-                'authoring.lua.template_name_duplicate',
-                `Duplicate RML template name '${name}'.`,
-                `project:/${entry.projectRelativePath}`,
-              );
-            } else templateNames.set(name, assetId);
-          }
-          const childDescriptor: AuthoringLuaSourceDescriptor = {
-            ...descriptor,
-            sourcePath: `/layouts/${escapeJsonPointerSegment(descriptor.layoutId)}/data/dependencies/templates/${dependencyIds.indexOf(assetId)}`,
-            sourceUrl: `project:/${entry.projectRelativePath}`,
-            sourceAssetId: assetId,
-          };
-          if (!(await countSourceBytes(childDescriptor, entry.text, resolvedPhysicalKey))) break;
-          const childArtifact = await artifactFor(
-            childDescriptor.sourceUrl,
-            entry.text,
-            'rml',
-            entry.contentHash,
-          );
-          if (!(await addBound(childDescriptor, childArtifact))) break;
-          queue.push({
-            text: entry.text,
-            assetId,
-            sourcePath: childDescriptor.sourcePath,
-            sourceUrl: childDescriptor.sourceUrl,
-            depth: container.depth + 1,
-          });
-        } else {
+          const resolvedPhysicalKey = `project-file:${entry.projectRelativePath}:${entry.contentHash}`;
           if (visitedScripts.has(resolvedPhysicalKey)) continue;
           visitedScripts.add(resolvedPhysicalKey);
           const childDescriptor: AuthoringLuaSourceDescriptor = {
             ...descriptor,
-            sourcePath: `/layouts/${escapeJsonPointerSegment(descriptor.layoutId)}/data/dependencies/scripts/${dependencyIds.indexOf(assetId)}`,
+            sourcePath: `/layouts/${escapeJsonPointerSegment(descriptor.layoutId)}/data/dependencies/scripts/${dependencyPaths.indexOf(matchingPath)}`,
             sourceUrl: `project:/${entry.projectRelativePath}`,
-            sourceAssetId: assetId,
+            sourceAssetId: undefined,
             sourceKind: 'lua',
           };
           if (!(await countSourceBytes(childDescriptor, entry.text, resolvedPhysicalKey))) break;
@@ -1921,7 +1874,70 @@ export async function analyzeAuthoringSources(
             }))
           )
             break;
+          continue;
         }
+
+        const dependencyIds = descriptor.dependencyTemplateIds ?? [];
+        const assetId = resolved
+          ? declaredLayoutDependencyByResolvedPath(project, dependencyIds, 'template', resolved)
+          : null;
+        const entry = assetId ? snapshot.entriesByAssetId.get(assetId) : undefined;
+        if (!resolved || !assetId || entry?.status !== 'ready') {
+          await appendDiagnostic(
+            descriptor,
+            'authoring.lua.external_source_unresolved',
+            `RML template-link '${reference.value}' does not resolve to exactly one declared dependency.`,
+            container.sourceUrl,
+          );
+          continue;
+        }
+        const resolvedPhysicalKey = `asset:${entry.projectRelativePath}:${entry.contentHash}`;
+        if (visitedTemplates.has(resolvedPhysicalKey)) continue;
+        if (
+          container.depth >= limits.maxTemplateDepth ||
+          templateCount >= limits.maxTemplatesPerLayout
+        ) {
+          await appendDiagnostic(
+            descriptor,
+            'authoring.lua.template_limit',
+            'RML template traversal reached a fixed depth/count limit.',
+            `project:/${entry.projectRelativePath}`,
+          );
+          continue;
+        }
+        visitedTemplates.add(resolvedPhysicalKey);
+        templateCount += 1;
+        for (const name of extractTemplateNames(entry.text)) {
+          if (templateNames.has(name)) {
+            await appendDiagnostic(
+              descriptor,
+              'authoring.lua.template_name_duplicate',
+              `Duplicate RML template name '${name}'.`,
+              `project:/${entry.projectRelativePath}`,
+            );
+          } else templateNames.set(name, assetId);
+        }
+        const childDescriptor: AuthoringLuaSourceDescriptor = {
+          ...descriptor,
+          sourcePath: `/layouts/${escapeJsonPointerSegment(descriptor.layoutId)}/data/dependencies/templates/${dependencyIds.indexOf(assetId)}`,
+          sourceUrl: `project:/${entry.projectRelativePath}`,
+          sourceAssetId: assetId,
+        };
+        if (!(await countSourceBytes(childDescriptor, entry.text, resolvedPhysicalKey))) break;
+        const childArtifact = await artifactFor(
+          childDescriptor.sourceUrl,
+          entry.text,
+          'rml',
+          entry.contentHash,
+        );
+        if (!(await addBound(childDescriptor, childArtifact))) break;
+        queue.push({
+          text: entry.text,
+          assetId,
+          sourcePath: childDescriptor.sourcePath,
+          sourceUrl: childDescriptor.sourceUrl,
+          depth: container.depth + 1,
+        });
       }
       if (blockedOwners.has(descriptor.contributionKey)) break;
     }

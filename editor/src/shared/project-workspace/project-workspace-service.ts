@@ -87,7 +87,7 @@ import type {
   LuaSourceSnapshot,
   LuaSourceSnapshotEntry,
 } from '../project-schema/authoring-lua-analysis';
-import { escapeJsonPointerSegment } from '../json-pointer';
+import { escapeJsonPointerSegment, type JsonPointer } from '../json-pointer';
 import { sha256PrefixedBytes, sha256PrefixedUtf8 } from '../web-crypto';
 import {
   EDITOR_LOCAL_STATE_SCHEMA,
@@ -774,6 +774,10 @@ async function buildWorkspaceSourceAnalysisSnapshot(
   externalSourceRevisions: ReadonlyMap<string, ProjectWorkspaceFileRevision>;
 }> {
   const entries = new Map<string, LuaSourceSnapshotEntry<AuthoringDependencyGraphDiagnostic>>();
+  const projectPathEntries = new Map<
+    string,
+    LuaSourceSnapshotEntry<AuthoringDependencyGraphDiagnostic>
+  >();
   const externalSourceRevisions = new Map<string, ProjectWorkspaceFileRevision>();
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const requiredAssetIds = contributionKeys
@@ -838,8 +842,79 @@ async function buildWorkspaceSourceAnalysisSnapshot(
       unavailable(`Source Asset '${assetId}' could not be read as UTF-8 project text.`);
     }
   }
+  const directProjectSources = new Map<string, string>();
+  for (const descriptor of snapshot.externalSourceDescriptors) {
+    if (
+      descriptor.inlineText === undefined &&
+      !descriptor.sourceAssetId &&
+      descriptor.sourceUrl.startsWith('project:/')
+    )
+      directProjectSources.set(
+        descriptor.sourceUrl.slice('project:/'.length),
+        descriptor.sourcePath,
+      );
+    for (const [index, projectRelativePath] of (descriptor.dependencyScriptPaths ?? []).entries())
+      directProjectSources.set(
+        projectRelativePath,
+        `/layouts/${escapeJsonPointerSegment(descriptor.layoutId ?? '')}/data/dependencies/scripts/${index}`,
+      );
+  }
+  for (const [projectRelativePath, sourcePath] of directProjectSources) {
+    const unavailable = (message: string) => {
+      projectPathEntries.set(projectRelativePath, {
+        status: 'unavailable',
+        projectRelativePath,
+        expectedContentHash: null,
+        diagnostic: {
+          severity: 'warning',
+          code: 'authoring.lua.source_unavailable',
+          path: sourcePath as JsonPointer,
+          message,
+        },
+      });
+    };
+    if (!isSafeRelativePath(projectRelativePath)) {
+      unavailable(
+        `Project source '${String(projectRelativePath)}' is not a safe project-relative path.`,
+      );
+      continue;
+    }
+    if (!snapshot.projectRoot) {
+      unavailable(
+        `Project source '${String(projectRelativePath)}' requires a disk-backed Project.`,
+      );
+      continue;
+    }
+    try {
+      const absolute = fileSystem.joinPath(snapshot.projectRoot, projectRelativePath);
+      await assertProjectWorkspacePathContained(fileSystem, snapshot.projectRoot, absolute);
+      const bytes = await fileSystem.readBytes(absolute);
+      const contentHash = await sha256PrefixedBytes(bytes);
+      const hadUtf8Bom =
+        bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+      const text = decoder.decode(hadUtf8Bom ? bytes.subarray(3) : bytes);
+      projectPathEntries.set(projectRelativePath, {
+        status: 'ready',
+        projectRelativePath,
+        contentHash,
+        text,
+        hadUtf8Bom,
+      });
+      externalSourceRevisions.set(projectRelativePath, {
+        contentHash,
+        byteSize: bytes.byteLength,
+      });
+    } catch {
+      unavailable(
+        `Project source '${String(projectRelativePath)}' could not be read as UTF-8 project text.`,
+      );
+    }
+  }
   return {
-    sources: { entriesByAssetId: entries },
+    sources: {
+      entriesByAssetId: entries,
+      entriesByProjectPath: projectPathEntries,
+    },
     externalSourceRevisions,
   };
 }
@@ -904,7 +979,11 @@ function ownershipFor(
         if (data.lua.sourceMode === 'inline') files.push(layoutFile(id, 'lua'));
       } else if (collection === 'scripts') {
         const source = project.scripts[id]!.data.source;
-        if (source.kind === 'inline-lua') files.push(scriptSourcePaths[id] ?? `scripts/${id}.lua`);
+        files.push(
+          source.kind === 'inline-lua'
+            ? (scriptSourcePaths[id] ?? `scripts/${id}.lua`)
+            : source.path,
+        );
       }
       files.push('editor.json');
       result[`record:${collection}:${id}`] = {
@@ -921,7 +1000,6 @@ function ownershipFor(
     };
   }
   result['workflow:play-recorder'] = result['collection:tests']!;
-  result['workflow:shader-compiled-output'] = result['collection:shaders']!;
   return Object.freeze(sortKeys(result));
 }
 
@@ -935,20 +1013,29 @@ export function projectWorkspaceSaveUnitFileOwnership(
 function externalDescriptors(
   project: AuthoringProject,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
+  sourceTexts?: ReadonlyMap<string, string>,
 ): readonly AuthoringLuaSourceDescriptor[] {
   return collectAuthoringLuaSources(project).map((descriptor) => {
     const match = descriptor.sourcePath.match(/^\/(scripts|layouts)\/([^/]+)/);
-    if (!match || descriptor.sourceAssetId || descriptor.inlineText === undefined)
-      return descriptor;
+    if (!match || descriptor.sourceAssetId) return descriptor;
     const [, collection, id] = match;
-    if (collection === 'scripts')
+    if (collection === 'scripts') {
+      const projectRelativePath =
+        scriptSourcePaths[id] ??
+        (descriptor.sourceUrl.startsWith('project:/')
+          ? descriptor.sourceUrl.slice('project:/'.length)
+          : `scripts/${id}.lua`);
       return {
         ...descriptor,
-        sourceUrl: `project:/${scriptSourcePaths[id] ?? `scripts/${id}.lua`}`,
+        sourceUrl: `project:/${projectRelativePath}`,
         inlineText:
-          project.scripts[id]?.data &&
-          (project.scripts[id].data as { source?: { source?: string } }).source?.source,
+          descriptor.inlineText ??
+          sourceTexts?.get(projectRelativePath) ??
+          (project.scripts[id]?.data &&
+            (project.scripts[id].data as { source?: { source?: string } }).source?.source),
       };
+    }
+    if (descriptor.inlineText === undefined) return descriptor;
     const channel = descriptor.sourcePath.includes('/rml/')
       ? 'rml'
       : descriptor.sourcePath.includes('/rcss/')
@@ -1184,7 +1271,7 @@ export function projectWorkspaceFiles(
         if (data.source.kind === 'inline-lua') {
           const file = scriptSourcePaths[id] ?? `scripts/${id}.lua`;
           files[file] = data.source.source ?? '';
-          data.source = { kind: 'file', path: file };
+          data.source = { kind: 'project-file', path: file };
         }
       }
       files[recordFile(collection, id)] = canonicalJson(record, authoringRecordSchemas[collection]);
@@ -2147,7 +2234,7 @@ export class ProjectWorkspaceService {
                         `records/layouts/${entry}/layout.${channel}`,
                       );
                       source.sourceMode = 'inline';
-                      source.sourceAsset = null;
+                      if (channel !== 'lua') source.sourceAsset = null;
                     } catch {
                       return fail(
                         `Missing Layout ${channel.toUpperCase()} companion source.`,
@@ -2155,6 +2242,11 @@ export class ProjectWorkspaceService {
                       );
                     }
                   } else if (source.sourceMode === 'asset') {
+                    if (channel === 'lua')
+                      return fail(
+                        'Layout Lua Asset sources are obsolete; use the Layout companion project file.',
+                        `/layouts/${entry}/data/${channel}`,
+                      );
                     if (!hasExactKeys(source, ['sourceMode', 'sourceAsset']))
                       return fail(
                         'Layout asset selector has an unsupported shape.',
@@ -2180,7 +2272,6 @@ export class ProjectWorkspaceService {
                       );
                     source.sourceMode = 'inline';
                     source.sourceText = '';
-                    source.sourceAsset = null;
                   } else
                     return fail(
                       'Layout source selector is unsupported.',
@@ -2228,7 +2319,7 @@ export class ProjectWorkspaceService {
               const relativeRecordPath = `records/${collection}/${entry}`;
               if (collection === 'scripts') {
                 const source = (raw.data as { source?: { kind?: string; path?: unknown } }).source;
-                if (source?.kind === 'file') {
+                if (source?.kind === 'project-file') {
                   if (
                     !isSafeRelativePath(source.path) ||
                     !source.path.startsWith('scripts/') ||
@@ -2250,7 +2341,6 @@ export class ProjectWorkspaceService {
                     );
                   scriptSourceOwners.add(source.path);
                   scriptSourcePaths[id] = source.path;
-                  let text: string;
                   try {
                     const absolute = this.fileSystem.joinPath(discovered.projectRoot, source.path);
                     await this.assertContained(discovered.projectRoot, absolute);
@@ -2270,17 +2360,16 @@ export class ProjectWorkspaceService {
                         `/scripts/${id}/data/source/path`,
                       );
                     scriptRealSourceOwners.add(real);
-                    text = await readTextSource(source.path);
+                    await readTextSource(source.path);
                   } catch {
                     return fail(
                       'Script Module source file is missing.',
                       `/scripts/${id}/data/source/path`,
                     );
                   }
-                  (raw.data as { source: unknown }).source = { kind: 'inline-lua', source: text };
                 } else if (source?.kind === 'inline-lua')
                   return fail(
-                    'Script Module inline Lua must be persisted as a file source.',
+                    'Script Module inline Lua must be persisted as a project-file source.',
                     `/scripts/${id}/data/source`,
                   );
               }
@@ -2486,7 +2575,11 @@ export class ProjectWorkspaceService {
             // in that order, so preserve it without a redundant reconstruction.
             fileRevisions: Object.freeze(fileRevisions),
             saveUnitFileOwnership,
-            externalSourceDescriptors: externalDescriptors(decodedProject, scriptSourcePaths),
+            externalSourceDescriptors: externalDescriptors(
+              decodedProject,
+              scriptSourcePaths,
+              textSourceValues,
+            ),
             scriptSourcePaths: Object.freeze(sortKeys(scriptSourcePaths)),
           });
           // Workspace admission has already run the authoritative semantic validation over this
@@ -2585,9 +2678,9 @@ export class ProjectWorkspaceService {
       });
     }
     if (options.refreshAfterCommit === false) {
-      const canonicalSourceFiles = Object.keys(projected).sort(
-        compareProjectWorkspaceUnicodeCodePoints,
-      );
+      const canonicalSourceFiles = [
+        ...new Set([...Object.keys(projected), ...Object.values(projectedSourcePaths)]),
+      ].sort(compareProjectWorkspaceUnicodeCodePoints);
       const canonicalSourceFileSet = new Set(canonicalSourceFiles);
       const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {
         ...openedSnapshot.fileRevisions,

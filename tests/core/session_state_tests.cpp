@@ -1148,12 +1148,13 @@ TEST_CASE("occurrence Material Parameters enforce binding authority and bounded 
 
     const MaterialOccurrence background = BackgroundMaterialOccurrence{};
     REQUIRE(state.upsert_material_parameter(
-        compiled_project, DesiredMaterialParameter{owner, background, sprite_material, "u_tint",
-                                                   compiled::MaterialColorValue{0.1, 0.2, 0.3, 1.0},
-                                                   std::nullopt, MaterialClockPolicy::Gameplay}));
-    REQUIRE(state.material_parameter(background, owner, sprite_material, "u_tint") != nullptr);
+        compiled_project,
+        DesiredMaterialParameter{owner, background, sprite_material, "u_useTexture", 0.5,
+                                 std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.material_parameter(background, owner, sprite_material, "u_useTexture") !=
+            nullptr);
 
-    REQUIRE(state.remove_material_parameter(background, owner, sprite_material, "u_tint"));
+    REQUIRE(state.remove_material_parameter(background, owner, sprite_material, "u_useTexture"));
 
     for (std::size_t index = 0; index < max_postprocess_effects_per_scope; ++index) {
         const auto instance = id<PostprocessEffectInstanceId>("fx-" + std::to_string(index));
@@ -1166,17 +1167,17 @@ TEST_CASE("occurrence Material Parameters enforce binding authority and bounded 
     }
     const auto bound_instance = id<PostprocessEffectInstanceId>("fx-0");
     const MaterialOccurrence postprocess = PostprocessMaterialOccurrence{bound_instance};
-    REQUIRE(state.upsert_material_parameter(
+    CHECK_FALSE(state.upsert_material_parameter(
         compiled_project, DesiredMaterialParameter{
-                              owner, postprocess, postprocess_material, "u_strength", std::nullopt,
+                              owner, postprocess, postprocess_material, "u_tint", std::nullopt,
                               MaterialStandardFacetBinding{MaterialStandardFacet::OccurrenceTime},
                               MaterialClockPolicy::UnscaledPresentation}));
-    CHECK_FALSE(state.upsert_material_parameter(
+    REQUIRE(state.upsert_material_parameter(
         compiled_project,
-        DesiredMaterialParameter{owner, postprocess, postprocess_material, "u_strength", 0.75,
-                                 std::nullopt, MaterialClockPolicy::Gameplay}));
-    REQUIRE(
-        state.remove_material_parameter(postprocess, owner, postprocess_material, "u_strength"));
+        DesiredMaterialParameter{owner, postprocess, postprocess_material, "u_tint",
+                                 compiled::MaterialColorValue{0.75, 0.75, 0.75, 1.0}, std::nullopt,
+                                 MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.remove_material_parameter(postprocess, owner, postprocess_material, "u_tint"));
     CHECK(state.postprocess_effects().size() == max_postprocess_effects_per_scope);
     CHECK(std::is_sorted(state.postprocess_effects().begin(), state.postprocess_effects().end(),
                          [](const auto& left, const auto& right) {

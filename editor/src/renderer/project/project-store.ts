@@ -47,6 +47,12 @@ interface ProjectStoreState {
   refreshWorkspaceSources: (payload: {
     scriptSourcePaths: Readonly<Record<string, string>>;
   }) => void;
+  applyCommittedSourcePathRemap: (pathRemap: Readonly<Record<string, string>>) => boolean;
+  applyCommittedMaterialShaderCopy: (
+    materialId: string,
+    stage: 'vertex' | 'fragment' | 'varying',
+    path: string,
+  ) => boolean;
   setHistoryCursor: (historyCursor: number) => void;
   markSaved: (metadata?: ProjectSaveMetadata) => void;
   markEditorMetadataPersisted: (editorState: EditorProjectState) => void;
@@ -56,6 +62,121 @@ interface ProjectStoreState {
 
 function normalizeDocument(document: unknown): JsonValue | null {
   return document === null || document === undefined ? null : toJsonValue(document);
+}
+
+function normalizedLayoutScriptReference(value: string): string | null {
+  const normalized = value.startsWith('project:/') ? value.slice('project:/'.length) : value;
+  return normalized.startsWith('scripts/') ? normalized : null;
+}
+
+function remapLayoutRmlScriptReferences(
+  text: string,
+  pathRemap: Readonly<Record<string, string>>,
+): string {
+  return text.replace(
+    /(<script\b[^>]*\bsrc\s*=\s*)(["'])([^"']+)\2/giu,
+    (whole, prefix, quote, sourceValue) => {
+      const normalized = normalizedLayoutScriptReference(String(sourceValue));
+      if (!normalized) return whole;
+      const mapped = pathRemap[normalized];
+      if (!mapped) return whole;
+      const rewritten = String(sourceValue).startsWith('project:/') ? `project:/${mapped}` : mapped;
+      return `${prefix}${quote}${rewritten}${quote}`;
+    },
+  );
+}
+
+function applyMaterialShaderCopy(
+  document: JsonValue | null,
+  materialId: string,
+  stage: 'vertex' | 'fragment' | 'varying',
+  path: string,
+): JsonValue | null {
+  if (!document || typeof document !== 'object' || Array.isArray(document)) return document;
+  const next = cloneJsonValue(document) as Record<string, JsonValue>;
+  const materials = next.materials;
+  if (!materials || typeof materials !== 'object' || Array.isArray(materials)) return document;
+  const record = (materials as Record<string, JsonValue>)[materialId];
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return document;
+  const recordValue = record as Record<string, JsonValue>;
+  const data = recordValue.data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return document;
+  const dataValue = data as Record<string, JsonValue>;
+  const shader =
+    dataValue.shader && typeof dataValue.shader === 'object' && !Array.isArray(dataValue.shader)
+      ? ({ ...(dataValue.shader as Record<string, JsonValue>) } as Record<string, JsonValue>)
+      : {};
+  shader[stage] = { kind: 'project', path };
+  dataValue.shader = shader;
+  return next as JsonValue;
+}
+
+function remapProjectSourcePaths(
+  document: JsonValue | null,
+  pathRemap: Readonly<Record<string, string>>,
+): JsonValue | null {
+  if (!document || typeof document !== 'object' || Array.isArray(document)) return document;
+  const next = cloneJsonValue(document) as Record<string, JsonValue>;
+  const materials = next.materials;
+  if (materials && typeof materials === 'object' && !Array.isArray(materials)) {
+    for (const record of Object.values(materials)) {
+      if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+      const data = (record as Record<string, JsonValue>).data;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+      const shader = (data as Record<string, JsonValue>).shader;
+      if (!shader || typeof shader !== 'object' || Array.isArray(shader)) continue;
+      for (const source of Object.values(shader)) {
+        if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+        const sourceRecord = source as Record<string, JsonValue>;
+        if (sourceRecord.kind !== 'project' || typeof sourceRecord.path !== 'string') continue;
+        const mapped = pathRemap[sourceRecord.path];
+        if (mapped) sourceRecord.path = mapped;
+      }
+    }
+  }
+  const scripts = next.scripts;
+  if (scripts && typeof scripts === 'object' && !Array.isArray(scripts)) {
+    for (const record of Object.values(scripts)) {
+      if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+      const data = (record as Record<string, JsonValue>).data;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+      const source = (data as Record<string, JsonValue>).source;
+      if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+      const sourceRecord = source as Record<string, JsonValue>;
+      if (sourceRecord.kind !== 'project-file' || typeof sourceRecord.path !== 'string') continue;
+      const mapped = pathRemap[sourceRecord.path];
+      if (mapped) sourceRecord.path = mapped;
+    }
+  }
+  const layouts = next.layouts;
+  if (layouts && typeof layouts === 'object' && !Array.isArray(layouts)) {
+    for (const record of Object.values(layouts)) {
+      if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+      const data = (record as Record<string, JsonValue>).data;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+      const dataRecord = data as Record<string, JsonValue>;
+      const dependencies = dataRecord.dependencies;
+      if (dependencies && typeof dependencies === 'object' && !Array.isArray(dependencies)) {
+        const dependencyRecord = dependencies as Record<string, JsonValue>;
+        if (Array.isArray(dependencyRecord.scripts)) {
+          const remapped = dependencyRecord.scripts.map((sourcePath) =>
+            typeof sourcePath === 'string' ? (pathRemap[sourcePath] ?? sourcePath) : sourcePath,
+          );
+          dependencyRecord.scripts = remapped.filter(
+            (value, index, values) =>
+              values.findIndex((candidate) => candidate === value) === index,
+          );
+        }
+      }
+      const rml = dataRecord.rml;
+      if (rml && typeof rml === 'object' && !Array.isArray(rml)) {
+        const rmlRecord = rml as Record<string, JsonValue>;
+        if (rmlRecord.sourceMode === 'inline' && typeof rmlRecord.sourceText === 'string')
+          rmlRecord.sourceText = remapLayoutRmlScriptReferences(rmlRecord.sourceText, pathRemap);
+      }
+    }
+  }
+  return next as JsonValue;
 }
 
 export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
@@ -208,6 +329,73 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
     return true;
   },
   refreshWorkspaceSources: ({ scriptSourcePaths }) => set({ scriptSourcePaths }),
+  applyCommittedSourcePathRemap: (pathRemap) => {
+    const state = get();
+    if (!state.document || !state.projectInstanceId || !state.admittedProject) return false;
+    const working = remapProjectSourcePaths(state.document, pathRemap);
+    const saved = remapProjectSourcePaths(state.savedDocument, pathRemap);
+    const admittedWorking = admitProjectCandidate(working);
+    const admittedSaved = saved ? admitProjectCandidate(saved) : null;
+    if (!admittedWorking || (saved && !admittedSaved)) return false;
+    const changed = !jsonValuesEqual(state.document, admittedWorking.document);
+    const projectRevision = changed ? state.projectRevision + 1 : state.projectRevision;
+    const scriptSourcePaths = Object.fromEntries(
+      Object.entries(state.scriptSourcePaths).map(([scriptId, sourcePath]) => [
+        scriptId,
+        pathRemap[sourcePath] ?? sourcePath,
+      ]),
+    );
+    set({
+      document: admittedWorking.document,
+      admittedProject: admittedWorking.project,
+      savedDocument: admittedSaved?.document ?? saved,
+      scriptSourcePaths,
+      projectRevision,
+      ...(changed
+        ? {
+            lastMutationPublication: createMutationPublication({
+              previousProject: state.admittedProject,
+              project: admittedWorking.project,
+              projectInstanceId: state.projectInstanceId,
+              projectRevision,
+              kind: 'external',
+              affectedPaths: ['/materials', '/scripts', '/layouts'],
+            }),
+          }
+        : {}),
+    });
+    return true;
+  },
+  applyCommittedMaterialShaderCopy: (materialId, stage, path) => {
+    const state = get();
+    if (!state.document || !state.projectInstanceId || !state.admittedProject) return false;
+    const working = applyMaterialShaderCopy(state.document, materialId, stage, path);
+    const saved = applyMaterialShaderCopy(state.savedDocument, materialId, stage, path);
+    const admittedWorking = admitProjectCandidate(working);
+    const admittedSaved = saved ? admitProjectCandidate(saved) : null;
+    if (!admittedWorking || (saved && !admittedSaved)) return false;
+    const changed = !jsonValuesEqual(state.document, admittedWorking.document);
+    const projectRevision = changed ? state.projectRevision + 1 : state.projectRevision;
+    set({
+      document: admittedWorking.document,
+      admittedProject: admittedWorking.project,
+      savedDocument: admittedSaved?.document ?? saved,
+      projectRevision,
+      ...(changed
+        ? {
+            lastMutationPublication: createMutationPublication({
+              previousProject: state.admittedProject,
+              project: admittedWorking.project,
+              projectInstanceId: state.projectInstanceId,
+              projectRevision,
+              kind: 'external',
+              affectedPaths: [`/materials/${materialId}/data/shader/${stage}`],
+            }),
+          }
+        : {}),
+    });
+    return true;
+  },
   setHistoryCursor: (historyCursor) => set({ historyCursor }),
   markSaved: (metadata) => {
     const state = get();

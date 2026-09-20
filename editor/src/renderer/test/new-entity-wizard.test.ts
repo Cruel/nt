@@ -76,22 +76,22 @@ describe('new entity wizard registry', () => {
     });
   });
 
-  it('builds material data with an optional shader reference', () => {
+  it('builds preset-backed Material data without project shader records', () => {
     const project = createAuthoringProject();
-    project.shaders.sprite = { id: 'sprite', label: 'Sprite', data: {} as never };
     const payload = newEntityWizardDefinition('materials').buildPayload({
       project,
       draft: draft('materials', {
-        shaderId: 'sprite',
+        preset: 'hotspot-overlay-alpha',
         previewGeometry: 'sprite',
         previewBackground: 'dark',
       }),
     });
     expect(payload.data).toMatchObject({
       kind: 'material',
-      shader: { $ref: { collection: 'shaders', id: 'sprite' } },
+      base: { kind: 'preset', preset: 'hotspot-overlay-alpha' },
       preview: { geometry: 'sprite', background: 'dark' },
     });
+    expect(payload.data).not.toHaveProperty('shader.$ref');
   });
 
   it('builds room data with visual defaults', () => {

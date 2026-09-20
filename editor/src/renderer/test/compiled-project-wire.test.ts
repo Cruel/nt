@@ -588,6 +588,25 @@ describe('compiled project wire', () => {
     ).toBe(false);
   });
 
+  it('rejects obsolete Asset-backed Layout Lua in compiled data', () => {
+    const fixture = representativeWireFixture();
+    const layout = fixture.resources.layouts[0]!;
+    const obsolete = {
+      ...fixture,
+      resources: {
+        ...fixture.resources,
+        layouts: [
+          {
+            ...layout,
+            lua: { kind: 'asset', asset: { kind: 'asset', id: 'foyer-image' } },
+          },
+        ],
+      },
+    };
+
+    expect(compiledProjectWireSchema.safeParse(obsolete).success).toBe(false);
+  });
+
   it('requires sampling on images and forbids it on non-image resources', () => {
     const fixture = representativeWireFixture();
     const image = fixture.resources.assets[0]!;

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import { useProjectSourceStore } from '@/project/project-source-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCloseGuardStore } from './close-guard-store';
 import {
@@ -125,6 +126,14 @@ export function DirtyCloseDialog() {
           addTimelineEntry({ source: 'command', message, detail: result });
           return;
         }
+        if (result.remainingDirtySaveUnitIds.includes(saveUnitId)) {
+          const message =
+            'This item changed again while it was being saved. Save the newer edits before closing.';
+          setProjectSaveError(message);
+          setStatusMessage(message);
+          addTimelineEntry({ source: 'command', message, detail: result });
+          return;
+        }
       }
       const message = saveUnitIds.length > 1 ? 'Saved modified items' : 'Saved modified item';
       setStatusMessage(message);
@@ -137,6 +146,7 @@ export function DirtyCloseDialog() {
       addTimelineEntry({ source: 'command', message, detail: error });
     } finally {
       setSaving(false);
+      setProjectSaving(false);
     }
   };
 
@@ -155,6 +165,10 @@ export function DirtyCloseDialog() {
         if (!ok) clearDraftDirtyForTab(dirtyTab.id);
       });
       clearDraftDirtyForTab(dirtyTab.id);
+    }
+    for (const { tab: dirtyTab } of dirtyTabStates) {
+      if (dirtyTab.resource?.kind === 'source' && dirtyTab.resource.sourceId)
+        useProjectSourceStore.getState().discard(dirtyTab.resource.sourceId);
     }
     const restoredSaveUnitIds = new Set<string>();
     const patches = dirtyTabStates.flatMap(({ tab: dirtyTab, dirty }) => {

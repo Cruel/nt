@@ -7,7 +7,7 @@ import {
   validateQualifiedExamplesCatalog,
 } from "../../scripts/qualify-examples.mjs";
 
-const revision = "7d1637412db5a49a62f6e183756937e0f177f9e4";
+const revision = "e5a8bc3ee7fc70473a8e52807e541f0da1e608eb";
 const ntRevision = "4".repeat(40);
 const digest = (character) => character.repeat(64);
 

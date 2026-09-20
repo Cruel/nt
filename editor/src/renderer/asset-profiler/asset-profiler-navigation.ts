@@ -40,21 +40,6 @@ function fontRecordId(project: AuthoringProject, displayIdentity: string) {
   return record && parseAssetData(record.data)?.kind === 'font' ? alias : null;
 }
 
-function shaderRecordId(project: AuthoringProject, displayIdentity: string) {
-  const parts = displayIdentity.split('|');
-  const candidates =
-    parts[0] === 'material'
-      ? [parts[3], parts[4], parts[5]]
-      : parts[0] === 'direct_shader_pair'
-        ? [parts[1], parts[2]]
-        : [];
-  return unique(
-    candidates.filter(
-      (candidate): candidate is string => !!candidate && project.shaders[candidate] !== undefined,
-    ),
-  );
-}
-
 export function resolveAssetProfilerIdentityTarget(
   project: AuthoringProject,
   assetType: AssetProfilerAssetType | null,
@@ -62,7 +47,7 @@ export function resolveAssetProfilerIdentityTarget(
 ): WorkbenchNavigationRequest | null {
   if (!assetType || !displayIdentity) return null;
 
-  let collection: 'assets' | 'materials' | 'shaders';
+  let collection: 'assets' | 'materials';
   let id: string | null;
   switch (assetType) {
     case 'image':
@@ -79,9 +64,7 @@ export function resolveAssetProfilerIdentityTarget(
       id = project.materials[displayIdentity] ? displayIdentity : null;
       break;
     case 'shader':
-      collection = 'shaders';
-      id = shaderRecordId(project, displayIdentity);
-      break;
+      return null;
   }
   return id
     ? resolveProjectDiagnosticTarget(project, `/${collection}/${pointerSegment(id)}`)

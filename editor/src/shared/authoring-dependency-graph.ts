@@ -318,6 +318,8 @@ export function serializeAuthoringDependencyDerivationDependency(
   switch (dependency.kind) {
     case 'source-asset':
       return JSON.stringify(['source-asset', dependency.assetId]);
+    case 'source-project-file':
+      return JSON.stringify(['source-project-file', dependency.path]);
     case 'source-resolution-asset':
       return JSON.stringify(['source-resolution-asset', dependency.assetId]);
     case 'project-field':
@@ -788,24 +790,9 @@ function semanticEdgeOptions(
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
     [
-      /\/data\/shader\/\$ref$/,
-      'material-shader',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
       /\/data\/textures\/[^/]+\/source\/\$ref$/,
       'material-texture',
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/stages\/[^/]+\/sourceAsset\/\$ref$/,
-      'shader-source',
-      ['reference-integrity', 'tooling-reference', 'resource'],
-    ],
-    [
-      /\/scripts\/[^/]+\/data\/source\/asset\/\$ref$/,
-      'script-source',
-      ['reference-integrity', 'tooling-reference', 'resource', 'runtime-only'],
     ],
     [
       /\/layouts\/[^/]+\/data\/rml\/sourceAsset\/\$ref$/,
@@ -815,11 +802,6 @@ function semanticEdgeOptions(
     [
       /\/layouts\/[^/]+\/data\/rcss\/sourceAsset\/\$ref$/,
       'layout-rcss-source',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /\/layouts\/[^/]+\/data\/lua\/sourceAsset\/\$ref$/,
-      'layout-lua-source',
       ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
     ],
     [
@@ -835,11 +817,6 @@ function semanticEdgeOptions(
     [
       /\/layouts\/[^/]+\/data\/dependencies\/stylesheets\/\d+\/\$ref$/,
       'layout-stylesheet',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /\/layouts\/[^/]+\/data\/dependencies\/scripts\/\d+\/\$ref$/,
-      'layout-script',
       ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
     ],
     [
@@ -906,15 +883,11 @@ function semanticEdgeOptions(
       'character-expression-sprite',
       'interactable-sprite',
       'material-texture',
-      'shader-source',
-      'script-source',
       'layout-rml-source',
       'layout-rcss-source',
-      'layout-lua-source',
       'layout-image',
       'layout-font',
       'layout-stylesheet',
-      'layout-script',
       'layout-template',
       'default-font',
       'font-stack',
@@ -940,8 +913,6 @@ function semanticEdgeOptions(
       'material-base',
     ].includes(role)
   ) {
-    targetImpactPaths = recordImpactPaths(target, ['/data']);
-  } else if (role === 'material-shader') {
     targetImpactPaths = recordImpactPaths(target, ['/data']);
   } else if (
     role === 'room-overlay-layout' ||
@@ -1881,30 +1852,27 @@ function recordContribution(
       ),
     );
   }
-  if (
-    collection === 'materials' &&
-    isRecord(record.data) &&
-    typeof record.data.baseMaterialId === 'string'
-  ) {
-    edges.push(
-      structuralEdge(
-        source,
-        recordNodeKey('materials', record.data.baseMaterialId),
-        `${owningPath}/data/baseMaterialId`,
-        `/materials/${escapeJsonPointerSegment(record.data.baseMaterialId)}`,
-        {
+  scanStructuralReferences(record.data, `${owningPath}/data`, source, edges, project);
+  if (collection === 'materials') {
+    for (let index = edges.length - 1; index >= 0; index -= 1) {
+      const edge = edges[index]!;
+      if (
+        edge.sourcePath === `${owningPath}/data/base/material/$ref` &&
+        edge.target.kind === 'record' &&
+        edge.target.collection === 'materials'
+      ) {
+        edges[index] = structuralEdge(edge.source, edge.target, edge.sourcePath, edge.targetPath, {
           role: 'material-base',
           facets: ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-          targetImpactPaths: recordImpactPaths(
-            recordNodeKey('materials', record.data.baseMaterialId),
-            ['/data'],
-          ),
-          repair: { kind: 'set-null', path: `${owningPath}/data/baseMaterialId` },
-        },
-      ),
-    );
+          targetImpactPaths: recordImpactPaths(edge.target, ['/data']),
+          repair: {
+            kind: 'blocked',
+            reason: 'Material inheritance requires an explicit replacement base.',
+          },
+        });
+      }
+    }
   }
-  scanStructuralReferences(record.data, `${owningPath}/data`, source, edges, project);
   if (collection === 'layouts')
     addInlineRcssCursorReferenceEdges(project, id, record, source, edges);
   if (collection === 'archetypes') {
@@ -2514,6 +2482,11 @@ function addLuaEvidenceToContribution(
           kind: 'source-resolution-asset',
           assetId: descriptor.sourceAssetId,
         });
+    } else if (descriptor.sourceUrl.startsWith('project:/')) {
+      derivationDependencies.push({
+        kind: 'source-project-file',
+        path: descriptor.sourceUrl.slice('project:/'.length),
+      });
     }
     const explicitDependencies = (descriptor.explicitDependencies ??
       []) as LuaExplicitDependencyTarget[];
@@ -2622,6 +2595,8 @@ function addLuaEvidenceToContribution(
     for (const analysis of analyses) {
       for (const sourceAssetId of analysis.sourceAssetIds)
         derivationDependencies.push({ kind: 'source-asset', assetId: sourceAssetId });
+      for (const path of analysis.projectSourcePaths)
+        derivationDependencies.push({ kind: 'source-project-file', path });
       diagnostics.push(...analysis.diagnostics);
       literals.push(...analysis.literalOccurrences);
       for (const occurrence of analysis.cursorNameOccurrences) {

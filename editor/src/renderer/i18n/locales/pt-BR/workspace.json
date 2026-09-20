@@ -982,6 +982,115 @@
     "createDedicated": "Criar posicionamento dedicado",
     "moveToPlacement": "Mover para posicionamento"
   },
+  "shaderCompilePanel": {
+    "empty": "Ainda não há resultado de compilação de shader.",
+    "status": {
+      "compiling": "compilando",
+      "error": "erro",
+      "ready": "pronto"
+    },
+    "summary": "{{outputCount}} saída(s) derivada(s), {{diagnosticCount}} diagnóstico(s)",
+    "clear": "Limpar",
+    "diagnostics": "Diagnósticos",
+    "outputs": "Saídas derivadas",
+    "outputStatus": {
+      "cacheHit": "cache reutilizado",
+      "compiled": "compilado"
+    }
+  },
+  "materialsLibrary": {
+    "noProject": "Abra um projeto para navegar pelos Materiais.",
+    "searchLabel": "Pesquisar Materiais",
+    "searchPlaceholder": "Pesquise Materiais por nome, ID ou tag…",
+    "livePreviews": "Pré-visualizações ao vivo",
+    "newMaterial": "Novo Material",
+    "noMatches": "Nenhum Material corresponde a esta pesquisa.",
+    "empty": "Ainda não há Materiais. Crie um para começar.",
+    "previewDisabled": "Pré-visualização ao vivo desativada"
+  },
+  "materialSelector": {
+    "choose": "Escolher Material",
+    "unassigned": "Escolher material",
+    "search": "Pesquisar Materiais…",
+    "showIncompatible": "Mostrar incompatíveis",
+    "previewOccurrenceOverrides": "Pré-visualizar substituições da ocorrência",
+    "select": "Selecionar",
+    "partialOverrides": "{{applied}} de {{total}} substituições se aplicam",
+    "invalidMaterial": "O Material é inválido.",
+    "roleMismatch": "Requer {{expected}}; este Material usa {{actual}}.",
+    "interactableChoose": "Escolher material do Interactable",
+    "noMatches": "Nenhum Material corresponde a este seletor."
+  },
+  "materialEditor": {
+    "missing": "Registro de Material não encontrado.",
+    "preview": {
+      "label": "Prévia do Material",
+      "webgl2Unavailable": "A prévia do Material requer WebGL2.",
+      "contextLost": "A prévia do Material está temporariamente indisponível.",
+      "renderFailed": "Falha ao renderizar a prévia do Material.",
+      "stale": "Prévia desatualizada"
+    },
+    "summary": "Contrato de Preset/herança de Material com substituições esparsas de parâmetros, texturas e fontes de shader.",
+    "invalidData": "Os dados do Material são inválidos; os padrões canônicos são exibidos até você aplicar uma alteração.",
+    "base": "Base",
+    "presetSuffix": "Preset",
+    "effectiveContract": "Contrato efetivo",
+    "invalidContract": "Inválido",
+    "shaderSources": "Fontes de Shader",
+    "shaderSourcesHelp": "Substituições vazias usam a fonte herdada do preset/base. Caminhos de fonte do projeto devem permanecer em shaders/.",
+    "builtInReadOnly": "Integrado · somente leitura",
+    "builtInSourceUnavailable": "A fonte de shader integrada não está disponível.",
+    "customizeShader": "Personalizar Shader",
+    "customizeFailed": "A personalização do shader falhou.",
+    "openSource": "Abrir fonte",
+    "sourceUsage": "{{count}} Material(is)",
+    "makeMaterialSpecific": "Criar cópia específica do Material",
+    "rebind": "Reassociar…",
+    "provenance": {
+      "unknown": "Origem desconhecida",
+      "preset": "Preset: {{label}}",
+      "base": "Base: {{label}}",
+      "current": "Este Material"
+    },
+    "reset": "Redefinir",
+    "parameters": "Parâmetros",
+    "textures": "Texturas",
+    "runtimeSupplied": "Fornecido pelo runtime",
+    "override": "substituição",
+    "inherited": "herdado",
+    "orphanedParameter": "Parâmetro órfão: {{name}}",
+    "orphanedTexture": "Textura órfã: {{name}}",
+    "remove": "Remover",
+    "noTexture": "Sem textura",
+    "commands": {
+      "update": "Atualizar Material",
+      "setPreset": "Definir Preset de Material",
+      "setBase": "Definir Material base",
+      "setShaderSource": "Definir fonte de shader do Material",
+      "resetShaderSource": "Redefinir fonte de shader do Material",
+      "setParameter": "Definir parâmetro do Material",
+      "resetParameter": "Redefinir parâmetro do Material",
+      "rebindParameter": "Reassociar parâmetro do Material",
+      "setTexture": "Definir textura do Material",
+      "resetTexture": "Redefinir textura do Material",
+      "rebindTexture": "Reassociar textura do Material"
+    }
+  },
+  "shaderSourcePreview": {
+    "title": "Pré-visualizações de Materiais",
+    "addPreview": "Adicionar pré-visualização",
+    "affectedUsage": "{{count}} afetado(s)",
+    "affectedMaterials": "Materiais afetados",
+    "noAffectedMaterials": "Nenhum Material afetado",
+    "direct": "Direto",
+    "included": "Incluído",
+    "directConsumers": "Consumidores diretos",
+    "transitiveConsumers": "Afetados por includes",
+    "noPreviewsToAdd": "Nenhum Material afetado adicional",
+    "empty": "Adicione um Material afetado para pré-visualizar este shader no contexto.",
+    "remove": "Remover",
+    "resize": "Redimensionar pré-visualização do código do shader"
+  },
   "hotspots": {
     "subtitle": "Hotspots definem a geometria do ponteiro e selecionam um alvo semântico; o comportamento pertence ao sujeito selecionado.",
     "invalidImage": "Selecione um recurso de imagem válido com dimensões antes de editar hotspots.",

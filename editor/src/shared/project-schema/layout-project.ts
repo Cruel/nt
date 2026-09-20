@@ -6,10 +6,11 @@ import {
   resolveLayoutScalePolicy,
   validateLayoutData,
   type LayoutAssetRef,
+  type LayoutLuaSourceData,
   type LayoutMaterialRef,
   type LayoutSourceData,
 } from './authoring-layouts';
-import { parseMaterialData } from './authoring-materials';
+import { resolveMaterialData } from './authoring-materials';
 
 export const LAYOUT_PREVIEW_SCHEMA = 'noveltea.layout-preview' as const;
 
@@ -48,18 +49,25 @@ function materialMetadata(
 ): Record<string, unknown> {
   const id = ref.$ref.id;
   const record = project.materials[id];
-  const data = parseMaterialData(record?.data);
+  const data = resolveMaterialData(project, id).data;
   return {
     id,
     label: record?.label ?? id,
     role: data?.role ?? null,
-    shader: data?.shader?.$ref.id ?? null,
+    preset: data?.preset.id ?? null,
+    shader: data
+      ? {
+          vertex: data.vertexSource,
+          fragment: data.fragmentSource,
+          varying: data.varyingDefinition,
+        }
+      : null,
   };
 }
 
 function sourcePayload(
   project: AuthoringProject,
-  source: LayoutSourceData,
+  source: LayoutSourceData | LayoutLuaSourceData,
 ): Record<string, unknown> {
   if (source.sourceMode === 'asset' && source.sourceAsset) {
     return {
@@ -82,11 +90,9 @@ export function layoutPreviewRevision(project: AuthoringProject, layoutId: strin
   const assetDeps = [
     data.rml.sourceAsset,
     data.rcss.sourceAsset,
-    data.lua.sourceAsset,
     ...data.dependencies.images,
     ...data.dependencies.fonts,
     ...data.dependencies.stylesheets,
-    ...data.dependencies.scripts,
     ...(data.dependencies.data ?? []),
   ]
     .filter(Boolean)
@@ -109,6 +115,7 @@ export function layoutPreviewRevision(project: AuthoringProject, layoutId: strin
     label: record.label,
     data: revisionData,
     assetDeps,
+    scriptDeps: data.dependencies.scripts,
     materialDeps,
   });
 }
@@ -145,7 +152,10 @@ export function buildLayoutPreviewDocumentData(
       images: data.dependencies.images.map((ref) => assetMetadata(project, ref)),
       fonts: data.dependencies.fonts.map((ref) => assetMetadata(project, ref)),
       stylesheets: data.dependencies.stylesheets.map((ref) => assetMetadata(project, ref)),
-      scripts: data.dependencies.scripts.map((ref) => assetMetadata(project, ref)),
+      scripts: data.dependencies.scripts.map((path) => ({
+        path,
+        logicalPath: `project:/${path}`,
+      })),
       data: (data.dependencies.data ?? []).map((ref) => assetMetadata(project, ref)),
       materials: data.dependencies.materials.map((ref) => materialMetadata(project, ref)),
     },

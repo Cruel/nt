@@ -339,48 +339,54 @@ void collect_shaders(const PackageExportOptions& options, std::vector<PendingEnt
         return;
     }
 
+    constexpr std::array shader_namespaces = {std::string_view{"shaders/bgfx/"},
+                                              std::string_view{"shaders/derived/"}};
     for (const auto& variant : options.shader_variants) {
-        const auto variant_path = "shaders/bgfx/" + variant;
-        const auto source_dir = options.shader_asset_root / variant_path;
-        std::error_code error;
-        const bool exists = std::filesystem::exists(source_dir, error);
-        const bool directory = !error && std::filesystem::is_directory(source_dir, error);
-        if (error || !exists || !directory) {
-            add_diagnostic(result, PackageExportSeverity::Error, "shader", variant_path,
-                           "Missing compiled shader variant directory '" + source_dir.string() +
-                               "'.");
-            continue;
-        }
-
-        std::vector<std::filesystem::path> files;
-        std::filesystem::recursive_directory_iterator iterator(source_dir, error);
-        const std::filesystem::recursive_directory_iterator end;
-        for (; !error && iterator != end; iterator.increment(error)) {
-            std::error_code entry_error;
-            if (iterator->is_regular_file(entry_error) && !entry_error &&
-                iterator->path().extension() == ".bin") {
-                files.push_back(iterator->path());
-            }
-        }
-        if (error) {
-            add_diagnostic(result, PackageExportSeverity::Error, "shader", variant_path,
-                           "Failed while enumerating shader variant: " + error.message());
-            continue;
-        }
-        std::sort(files.begin(), files.end());
-        if (files.empty()) {
-            add_diagnostic(result, PackageExportSeverity::Error, "shader", variant_path,
-                           "Compiled shader variant contains no .bin files.");
-            continue;
-        }
-        for (const auto& file : files) {
-            auto package_path = relative_package_path(options.shader_asset_root, file, "", result);
-            if (!package_path)
+        for (const auto shader_namespace : shader_namespaces) {
+            const auto variant_path = std::string(shader_namespace) + variant;
+            const auto source_dir = options.shader_asset_root / variant_path;
+            std::error_code error;
+            const bool exists = std::filesystem::exists(source_dir, error);
+            if (error) {
+                add_diagnostic(result, PackageExportSeverity::Error, "shader", variant_path,
+                               "Failed to inspect compiled shader variant directory: " +
+                                   error.message());
                 continue;
-            auto bytes = read_file_bytes(file, result, *package_path);
-            if (bytes) {
-                add_entry(entries, result, std::move(*package_path), std::move(*bytes),
-                          options.include_checksums);
+            }
+            if (!exists)
+                continue;
+            const bool directory = std::filesystem::is_directory(source_dir, error);
+            if (error || !directory) {
+                add_diagnostic(result, PackageExportSeverity::Error, "shader", variant_path,
+                               "Compiled shader variant path is not a directory.");
+                continue;
+            }
+
+            std::vector<std::filesystem::path> files;
+            std::filesystem::recursive_directory_iterator iterator(source_dir, error);
+            const std::filesystem::recursive_directory_iterator end;
+            for (; !error && iterator != end; iterator.increment(error)) {
+                std::error_code entry_error;
+                if (iterator->is_regular_file(entry_error) && !entry_error &&
+                    iterator->path().extension() == ".bin") {
+                    files.push_back(iterator->path());
+                }
+            }
+            if (error) {
+                add_diagnostic(result, PackageExportSeverity::Error, "shader", variant_path,
+                               "Failed while enumerating shader variant: " + error.message());
+                continue;
+            }
+            std::sort(files.begin(), files.end());
+            for (const auto& file : files) {
+                auto package_path = relative_package_path(options.shader_asset_root, file, "", result);
+                if (!package_path)
+                    continue;
+                auto bytes = read_file_bytes(file, result, *package_path);
+                if (bytes) {
+                    add_entry(entries, result, std::move(*package_path), std::move(*bytes),
+                              options.include_checksums);
+                }
             }
         }
     }
@@ -422,7 +428,8 @@ void verify_required_shader_binaries(const PackageExportOptions& options,
     }
     for (const auto& required : options.required_shader_binary_paths) {
         if (!ProjectPackageWriter::is_safe_package_path(required) ||
-            !starts_with(required, "shaders/bgfx/")) {
+            (!starts_with(required, "shaders/bgfx/") &&
+             !starts_with(required, "shaders/derived/"))) {
             add_diagnostic(result, PackageExportSeverity::Error, "shader", required,
                            "Required shader package path is not safe.");
             continue;

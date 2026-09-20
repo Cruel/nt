@@ -18,7 +18,7 @@ import { createDefaultAuthoringRecord } from '../project/entity-operations';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import {
   NodeProjectWorkspaceFileSystem,
   projectWorkspaceFiles,
@@ -45,7 +45,11 @@ async function createProjectWorkspace(
     data: defaultTestData('Secondary'),
   };
   if (options.withShader)
-    project.shaders.basic = { id: 'basic', label: 'Basic', data: defaultShaderData('Basic') };
+    project.materials.basic = {
+      id: 'basic',
+      label: 'Basic',
+      data: defaultMaterialData('Basic', 'engine-2d'),
+    };
   if (options.assetPath)
     project.assets.unused = {
       id: 'unused',
@@ -225,7 +229,7 @@ describe('persistent runtime build cache', () => {
     for (const request of requests)
       expect(request.shaderMaterialMetadata).toMatchObject({
         schema: 'noveltea.shader-materials',
-        shaders: { basic: expect.any(Object) },
+        shaders: { 'preset-engine-2d': expect.any(Object) },
       });
   });
 
