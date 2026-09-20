@@ -33,8 +33,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <sddl.h>
 #include <windows.h>
+#include <sddl.h>
 #else
 #include <cerrno>
 #include <csignal>
@@ -324,7 +324,7 @@ Endpoint make_endpoint(const BrokerContext& context)
 
 #if defined(_WIN32)
 using ConnectionHandle = HANDLE;
-constexpr ConnectionHandle invalid_connection = INVALID_HANDLE_VALUE;
+const ConnectionHandle invalid_connection = INVALID_HANDLE_VALUE;
 #else
 using ConnectionHandle = int;
 constexpr ConnectionHandle invalid_connection = -1;

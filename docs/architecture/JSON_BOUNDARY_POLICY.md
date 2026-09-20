@@ -22,11 +22,12 @@ serialization macro. `JsonValue`, `JsonObject`, `SerializedPayload`, `JsonPayloa
 are prohibited wrapper names in shipped headers.
 
 The policy checker also maintains the exact shipped `.cpp` paths that are allowed to mention
-nlohmann. Host-only protocol tools such as `tools/editor_tool/font_coverage_tool.cpp` are admitted as
-explicit editor-tool protocol adapters: JSON terminates at that process boundary and the text engine
-receives only typed locale/font/text inputs. A new implementation file cannot begin using the library
-merely because its containing module already links it; the new codec/adapter seam must be admitted
-explicitly (or represented by a fully documented temporary allowlist entry).
+nlohmann. Host-only protocol tools such as `tools/editor_tool/font_coverage_tool.cpp`,
+`tools/editor_tool/tooling_native_scriptc.cpp`, and `tools/editor_tool/tooling_daemon_broker.cpp` are
+admitted as explicit editor-tool protocol adapters: JSON terminates at the process/FFI/IPC boundary
+and typed engine/runtime interfaces do not retain a JSON DOM. A new implementation file cannot begin
+using the library merely because its containing module already links it; the new codec/adapter seam
+must be admitted explicitly (or represented by a fully documented temporary allowlist entry).
 
 JSON decoding mechanics are concentrated in the content-owned `engine/src/core/json_decoder.hpp`.
 That module owns checked member lookup, scalar conversion, object/array validation, JSON-pointer

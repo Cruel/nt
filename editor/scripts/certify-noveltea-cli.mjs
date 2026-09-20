@@ -1074,7 +1074,13 @@ async function runDifferential(tempRoot) {
     const args = test.args(caseRoot);
     const cwd = test.cwd?.(caseRoot) ?? (test.project === false ? repositoryRoot : caseRoot);
     const nodeResult = runNode(args, { cwd, stdin: test.stdin });
-    const nodeTree = test.project === false ? '' : await treeSnapshot(caseRoot, test.normalizeTree);
+    const nodeTree =
+      test.project === false
+        ? ''
+        : await treeSnapshot(
+            caseRoot,
+            test.normalizeTree ? (...input) => test.normalizeTree(...input) : null,
+          );
 
     await resetCase(pristine, caseRoot);
     await test.prepare?.(caseRoot);
@@ -1083,7 +1089,12 @@ async function runDifferential(tempRoot) {
       stdin: test.stdin,
     });
     const scriptcTree =
-      test.project === false ? '' : await treeSnapshot(caseRoot, test.normalizeTree);
+      test.project === false
+        ? ''
+        : await treeSnapshot(
+            caseRoot,
+            test.normalizeTree ? (...input) => test.normalizeTree(...input) : null,
+          );
 
     const canonicalStdout = test.canonicalStdout ?? ((value) => value);
     if (
@@ -1118,7 +1129,12 @@ async function runDifferential(tempRoot) {
       stdin: test.stdin,
     });
     const noDaemonTree =
-      test.project === false ? '' : await treeSnapshot(caseRoot, test.normalizeTree);
+      test.project === false
+        ? ''
+        : await treeSnapshot(
+            caseRoot,
+            test.normalizeTree ? (...input) => test.normalizeTree(...input) : null,
+          );
     if (
       noDaemonResult.status !== nodeResult.status ||
       canonicalStdout(noDaemonResult.stdout) !== canonicalStdout(nodeResult.stdout) ||
@@ -1690,12 +1706,12 @@ async function certifyResidentDaemon(tempRoot, pristine) {
   const coldStartupMs = Date.now() - coldStartupStartedAt;
   requireSuccess('daemon concurrent cold asset audit', firstResult);
   requireSuccess('daemon concurrent cold platform profiles', secondResult);
-  for (const [label, result] of [
-    ['asset audit', firstResult],
-    ['platform profiles', secondResult],
+  for (const entry of [
+    { label: 'asset audit', result: firstResult },
+    { label: 'platform profiles', result: secondResult },
   ]) {
-    if (!result.stderr.includes('[scriptc-host] daemon invocation forwarding'))
-      fail(`Concurrent cold ${label} did not route through the daemon.`);
+    if (!entry.result.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+      fail(`Concurrent cold ${entry.label} did not route through the daemon.`);
   }
 
   const ready = requireSuccess(
@@ -3147,10 +3163,11 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
       const node = await runOne(runNode, 'node');
       const native = await runOne(runNative, 'native');
       const local = await runOne(runNativeNoDaemon, 'no-daemon');
-      for (const [label, candidate] of [
-        ['resident', native],
-        ['no-daemon', local],
+      for (const entry of [
+        { label: 'resident', candidate: native },
+        { label: 'no-daemon', candidate: local },
       ]) {
+        const { label, candidate } = entry;
         if (
           node.result.status !== candidate.result.status ||
           node.result.stderr !== candidate.result.stderr

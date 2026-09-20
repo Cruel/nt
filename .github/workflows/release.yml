@@ -23,6 +23,7 @@ env:
   ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
   ANDROID_CMAKE_VERSION: "3.31.6"
   ANDROID_NDK_VERSION: "28.2.13676358"
+  NOVELTEA_BUILD_IDENTITY: git:${{ github.sha }}
 
 jobs:
   release-metadata:

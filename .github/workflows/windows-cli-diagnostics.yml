@@ -43,6 +43,7 @@ env:
   NT_DIAGNOSTIC_ITERATIONS: ${{ inputs.iterations }}
   NT_DIAGNOSTIC_PAGE_HEAP: ${{ inputs.page_heap }}
   NOVELTEA_CLI_PATH: ${{ github.workspace }}/build/cli/windows/noveltea.exe
+  NOVELTEA_BUILD_IDENTITY: git:${{ github.sha }}
 
 jobs:
   diagnose:

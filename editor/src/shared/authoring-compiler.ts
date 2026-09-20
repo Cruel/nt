@@ -662,7 +662,13 @@ export function preflightAdmittedAuthoringProject(
         'A Room, Scene, or Dialogue entrypoint is required for compiled gameplay.',
       ),
     );
-  addSkippedStages(context, ['lower', 'collect-resources', 'assemble', 'validate-wire', 'serialize']);
+  addSkippedStages(context, [
+    'lower',
+    'collect-resources',
+    'assemble',
+    'validate-wire',
+    'serialize',
+  ]);
   return {
     diagnostics: sortAndDedupeDiagnostics(context.diagnostics),
     stages: context.stages,

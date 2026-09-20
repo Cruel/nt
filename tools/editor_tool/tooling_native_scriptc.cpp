@@ -31,7 +31,7 @@ constexpr std::size_t native_response_headroom = 64 * 1024;
 std::size_t response_capacity(std::uint64_t required)
 {
     const auto size = static_cast<std::size_t>(required);
-    if (size > std::numeric_limits<std::size_t>::max() - native_response_headroom)
+    if (size > (std::numeric_limits<std::size_t>::max)() - native_response_headroom)
         return size;
     return size + native_response_headroom;
 }
