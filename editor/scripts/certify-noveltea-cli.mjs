@@ -1679,7 +1679,7 @@ async function certifyResidentDaemon(tempRoot, pristine) {
     NOVELTEA_CLI_CERTIFICATION: '1',
     NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${process.pid}-${Date.now()}`,
     NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
-    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '2000',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
     NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '250',
   };
   const traceEnvironment = { ...daemonEnvironment, NOVELTEA_CLI_TRACE: '1' };
@@ -1798,10 +1798,30 @@ async function certifyResidentDaemon(tempRoot, pristine) {
     fail('Daemon crash recovery reused the terminated process id unexpectedly.');
   const rssAfterRestart = await daemonRssBytes(restartedPayload.pid);
 
+  requireSuccess(
+    'daemon stop before idle-shutdown certification',
+    runNative(['--json', 'daemon', 'stop'], { env: daemonEnvironment }),
+  );
+  const idleDaemonEnvironment = {
+    ...daemonEnvironment,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${daemonEnvironment.NOVELTEA_CLI_CERTIFICATION_DAEMON_ID}-idle`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '2000',
+  };
+  const idleTraceEnvironment = { ...idleDaemonEnvironment, NOVELTEA_CLI_TRACE: '1' };
+  const idleAdmission = requireSuccess(
+    'daemon idle-shutdown admission',
+    runNative(['--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: idleTraceEnvironment,
+    }),
+  );
+  if (!idleAdmission.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Idle-shutdown certification did not route through the resident daemon.');
+
   await new Promise((resolve) => setTimeout(resolve, 2300));
   const idleStatus = requireSuccess(
     'daemon idle shutdown status',
-    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+    runNative(['--json', 'daemon', 'status'], { env: idleDaemonEnvironment }),
   );
   const idlePayload = JSON.parse(idleStatus.stdout).daemon;
   if (idlePayload.running !== false || idlePayload.state !== 'stopped')
@@ -1811,7 +1831,7 @@ async function certifyResidentDaemon(tempRoot, pristine) {
     'daemon restart after idle shutdown',
     runNative(['--project', root, '--json', 'asset', 'audit'], {
       cwd: root,
-      env: traceEnvironment,
+      env: idleTraceEnvironment,
     }),
   );
   if (!restartedAfterIdle.stderr.includes('[scriptc-host] daemon invocation forwarding'))
@@ -1838,7 +1858,7 @@ async function certifyResidentDaemon(tempRoot, pristine) {
 
   const stoppedAgain = requireSuccess(
     'daemon graceful stop',
-    runNative(['--json', 'daemon', 'stop'], { env: daemonEnvironment }),
+    runNative(['--json', 'daemon', 'stop'], { env: idleDaemonEnvironment }),
   );
   const stopPayload = JSON.parse(stoppedAgain.stdout).daemon;
   if (stopPayload.running !== false || stopPayload.state !== 'stopped')

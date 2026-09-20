@@ -302,8 +302,8 @@ Endpoint make_endpoint(const BrokerContext& context)
     endpoint.identity = endpoint_identity(context.build, context.protocol);
 #if defined(_WIN32)
     const auto sid = current_user_sid_text();
-    const std::string sid_ascii(sid.begin(), sid.end());
-    const auto user_identity = sha256_text(sid_ascii).substr(0, 16);
+    const auto sid_utf8 = wide_to_utf8(sid);
+    const auto user_identity = sha256_text(sid_utf8).substr(0, 16);
     const auto suffix = utf8_to_wide(endpoint.identity + "-" + user_identity);
     endpoint.pipe_name = L"\\\\.\\pipe\\NovelTea-" + suffix;
     endpoint.startup_mutex_name = L"Local\\NovelTea-Daemon-Start-" + suffix;
