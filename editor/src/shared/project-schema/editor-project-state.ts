@@ -163,6 +163,7 @@ export const editorBottomPanelStateSchema = z
         'package-export',
         'asset-performance',
         'command-history',
+        'terminal',
       ])
       .default('problems'),
   })

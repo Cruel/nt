@@ -53,6 +53,7 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
+  node-pty: true
   scriptc: true
   sharp: true
   workerd: true

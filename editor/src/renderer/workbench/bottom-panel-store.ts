@@ -10,25 +10,77 @@ export type BottomPanelId =
   | 'shader-compile'
   | 'package-export'
   | 'asset-performance'
-  | 'command-history';
+  | 'command-history'
+  | 'terminal';
+
+export interface BottomPanelWorkbenchContext {
+  hasProject: boolean;
+}
 
 export interface BottomPanelDefinition {
   id: BottomPanelId;
   labelKey: string;
+  isAvailable: (context: BottomPanelWorkbenchContext) => boolean;
 }
 
+const globallyAvailable = () => true;
+const projectAvailable = (context: BottomPanelWorkbenchContext) => context.hasProject;
+
 export const bottomPanelDefinitions: BottomPanelDefinition[] = [
-  { id: 'problems', labelKey: 'bottomPanel.labels.problems' },
-  { id: 'output', labelKey: 'bottomPanel.labels.output' },
-  { id: 'preview-events', labelKey: 'bottomPanel.labels.previewEvents' },
-  { id: 'preview-diagnostics', labelKey: 'bottomPanel.labels.previewDiagnostics' },
-  { id: 'test-playback', labelKey: 'bottomPanel.labels.testPlayback' },
-  { id: 'references', labelKey: 'bottomPanel.labels.references' },
-  { id: 'shader-compile', labelKey: 'bottomPanel.labels.shaderCompile' },
-  { id: 'package-export', labelKey: 'bottomPanel.labels.packageExport' },
-  { id: 'asset-performance', labelKey: 'bottomPanel.labels.assetPerformance' },
-  { id: 'command-history', labelKey: 'bottomPanel.labels.commandHistory' },
+  { id: 'problems', labelKey: 'bottomPanel.labels.problems', isAvailable: projectAvailable },
+  { id: 'output', labelKey: 'bottomPanel.labels.output', isAvailable: globallyAvailable },
+  { id: 'terminal', labelKey: 'bottomPanel.labels.terminal', isAvailable: globallyAvailable },
+  {
+    id: 'preview-events',
+    labelKey: 'bottomPanel.labels.previewEvents',
+    isAvailable: projectAvailable,
+  },
+  {
+    id: 'preview-diagnostics',
+    labelKey: 'bottomPanel.labels.previewDiagnostics',
+    isAvailable: projectAvailable,
+  },
+  {
+    id: 'test-playback',
+    labelKey: 'bottomPanel.labels.testPlayback',
+    isAvailable: projectAvailable,
+  },
+  { id: 'references', labelKey: 'bottomPanel.labels.references', isAvailable: projectAvailable },
+  {
+    id: 'shader-compile',
+    labelKey: 'bottomPanel.labels.shaderCompile',
+    isAvailable: projectAvailable,
+  },
+  {
+    id: 'package-export',
+    labelKey: 'bottomPanel.labels.packageExport',
+    isAvailable: projectAvailable,
+  },
+  {
+    id: 'asset-performance',
+    labelKey: 'bottomPanel.labels.assetPerformance',
+    isAvailable: projectAvailable,
+  },
+  {
+    id: 'command-history',
+    labelKey: 'bottomPanel.labels.commandHistory',
+    isAvailable: projectAvailable,
+  },
 ];
+
+export function availableBottomPanelDefinitions(context: BottomPanelWorkbenchContext) {
+  return bottomPanelDefinitions.filter((definition) => definition.isAvailable(context));
+}
+
+export function resolveAvailableBottomPanelId(
+  activePanelId: BottomPanelId,
+  context: BottomPanelWorkbenchContext,
+): BottomPanelId | null {
+  const available = availableBottomPanelDefinitions(context);
+  return available.some((definition) => definition.id === activePanelId)
+    ? activePanelId
+    : (available[0]?.id ?? null);
+}
 
 interface BottomPanelStore {
   visible: boolean;

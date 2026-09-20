@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,8 +11,9 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
-  bottomPanelDefinitions,
+  availableBottomPanelDefinitions,
   type BottomPanelId,
+  resolveAvailableBottomPanelId,
   useBottomPanelStore,
 } from './bottom-panel-store';
 import { ReferencesPanel } from './ReferencesPanel';
@@ -20,7 +21,10 @@ import { PreviewDiagnosticsPanel } from './PreviewDiagnosticsPanel';
 import { ShaderCompilePanel } from '@/shaders/ShaderCompilePanel';
 import { PackageExportPanel } from '@/export/PackageExportPanel';
 import { TestPlaybackPanel } from './TestPlaybackPanel';
+import { TerminalPanel } from './TerminalPanel';
 import { AssetPerformancePanel } from '@/asset-profiler/AssetPerformancePanel';
+import { terminalHasUnreadAttention, useTerminalAttentionStore } from './terminal-attention-store';
+import { selectWindowTerminalSession } from './terminal-window-host';
 
 function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
   if (value === null || value === undefined) {
@@ -154,6 +158,8 @@ function PanelContent({ panelId }: { panelId: BottomPanelId }) {
       return <AssetPerformancePanel />;
     case 'command-history':
       return <CommandHistoryPanel />;
+    case 'terminal':
+      return <TerminalPanel />;
   }
 }
 
@@ -165,9 +171,49 @@ export function BottomPanel() {
   const setVisible = useBottomPanelStore((state) => state.setVisible);
   const toggleVisible = useBottomPanelStore((state) => state.toggleVisible);
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
+  const hasProject = useProjectStore((state) => state.document !== null);
+  const availabilityContext = { hasProject };
+  const availablePanels = availableBottomPanelDefinitions(availabilityContext);
+  const resolvedActivePanelId = resolveAvailableBottomPanelId(activePanelId, availabilityContext);
+  const terminalAttention = useTerminalAttentionStore((state) => state.attentionBySession);
+  const terminalHasUnread = terminalHasUnreadAttention(terminalAttention);
+  const terminalVisible = visible && resolvedActivePanelId === 'terminal';
+
+  useEffect(() => {
+    useTerminalAttentionStore.getState().setPanelVisible(terminalVisible);
+  }, [terminalVisible]);
+
+  useEffect(
+    () =>
+      window.noveltea.onTerminalEvent((event) => {
+        if (event.kind !== 'attention') return;
+        const newlyUnread = useTerminalAttentionStore
+          .getState()
+          .receiveAttention(event.sessionId, event.attention);
+        if (newlyUnread && usePreferencesStore.getState().terminal.desktopNotifications) {
+          void window.noveltea.showTerminalNotification({
+            sessionId: event.sessionId,
+            kind: event.attention.kind,
+          });
+        }
+      }),
+    [],
+  );
+
+  useEffect(
+    () =>
+      window.noveltea.onTerminalNotificationClick(({ sessionId }) => {
+        const attentionStore = useTerminalAttentionStore.getState();
+        attentionStore.acknowledgeSelectionChange(sessionId);
+        attentionStore.setSelectedSessionId(sessionId);
+        setActivePanelId('terminal');
+        void selectWindowTerminalSession(sessionId);
+      }),
+    [setActivePanelId],
+  );
 
   function selectPanel(panelId: BottomPanelId) {
-    if (visible && activePanelId === panelId) {
+    if (visible && resolvedActivePanelId === panelId) {
       setVisible(false);
       return;
     }
@@ -177,13 +223,13 @@ export function BottomPanel() {
   return (
     <div className="@container flex h-full min-h-0 flex-col border-t bg-background">
       <div className="flex h-9 shrink-0 items-center gap-1 border-b px-2">
-        {bottomPanelDefinitions.map((panel) => (
+        {availablePanels.map((panel) => (
           <button
             key={panel.id}
             type="button"
             onClick={() => selectPanel(panel.id)}
             className={`rounded px-2 py-1 text-xs transition-colors hover:bg-accent ${
-              activePanelId === panel.id
+              resolvedActivePanelId === panel.id
                 ? 'bg-accent text-accent-foreground'
                 : 'text-muted-foreground'
             }`}
@@ -193,6 +239,13 @@ export function BottomPanel() {
               <span className="ml-1 rounded bg-muted px-1 font-mono text-[10px]">
                 {diagnostics.length}
               </span>
+            ) : null}
+            {panel.id === 'terminal' && terminalHasUnread ? (
+              <span
+                className="ml-1 inline-block size-1.5 rounded-full bg-current align-middle"
+                aria-label={t('terminal.needsAttention')}
+                data-terminal-aggregate-unread
+              />
             ) : null}
           </button>
         ))}
@@ -206,9 +259,9 @@ export function BottomPanel() {
           {visible ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
         </Button>
       </div>
-      {visible ? (
+      {visible && resolvedActivePanelId ? (
         <div className="min-h-0 flex-1 overflow-auto">
-          <PanelContent panelId={activePanelId} />
+          <PanelContent panelId={resolvedActivePanelId} />
         </div>
       ) : null}
     </div>

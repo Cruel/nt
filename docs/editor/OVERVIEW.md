@@ -33,6 +33,8 @@ their visible category and message must use plain, localizable product language 
   host/native boundary, release pin, compatibility limits, and certification gate.
 - `docs/editor/IMAGE_THUMBNAIL_CACHE.md` — permanent direct-image thumbnail cache contract,
   request/lifecycle behavior, clearing, fallbacks, and retained original-image consumers.
+- `docs/editor/TERMINAL.md` — embedded local Terminal ownership, trusted PTY creation, IPC lifecycle,
+  remount behavior, and native distribution boundary.
 - `docs/editor/IPC_TRUST_BOUNDARY.md` — main-process sender authorization, strict guarded invoke
   registration, approved editor origins/documents, and navigation denial.
 - `docs/editor/LOCALIZATION.md` — current locale status, namespace coverage, and translation conventions.

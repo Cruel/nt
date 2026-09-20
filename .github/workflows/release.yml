@@ -444,6 +444,18 @@ jobs:
       - name: Install root workspace dependencies for desktop export smoke
         run: pnpm install --frozen-lockfile
 
+      - name: Build NovelTea macOS host CLI
+        if: matrix.platform == 'macos'
+        run: pnpm -C editor run noveltea:build
+
+      - name: Upload NovelTea macOS host CLI
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-release-host-cli-macos-arm64
+          path: build/cli/macos
+          if-no-files-found: error
+
       - name: Install appimagetool for Linux export smoke
         if: matrix.platform == 'linux'
         run: |
@@ -1118,6 +1130,12 @@ jobs:
             cli_artifact: noveltea-release-host-cli-windows-x64
             cli_path: build/cli/windows
             cli_executable: build/cli/windows/noveltea.exe
+          - platform: macos
+            arch: arm64
+            runner: macos-15
+            cli_artifact: noveltea-release-host-cli-macos-arm64
+            cli_path: build/cli/macos
+            cli_executable: build/cli/macos/noveltea
 
     steps:
       - name: Checkout
@@ -1173,8 +1191,8 @@ jobs:
           path: ${{ matrix.cli_path }}
 
       - name: Make NovelTea host tools executable
-        if: runner.os == 'Linux'
-        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
+        if: runner.os != 'Windows'
+        run: chmod +x "${{ matrix.cli_path }}/noveltea" "${{ matrix.cli_path }}/noveltea-ui-test-runner"
 
       - name: Build and verify native editor artifacts
         shell: pwsh
