@@ -77,10 +77,29 @@
       "problems": "⟦Problems⟧",
       "references": "⟦References⟧",
       "shaderCompile": "⟦Shader Compile⟧",
-      "testPlayback": "⟦Test Playback⟧"
+      "testPlayback": "⟦Test Playback⟧",
+      "terminal": "⟦Terminal⟧"
     },
     "lastCommandDiagnostics": "⟦Last command diagnostics⟧",
     "toggle": "⟦Toggle Bottom Panel⟧"
+  },
+  "terminal": {
+    "new": "⟦New Terminal⟧",
+    "close": "⟦Close {{label}}⟧",
+    "closeRisk": "⟦{{label}} may have a running command. Close it and terminate the process?⟧",
+    "starting": "⟦Starting terminal…⟧",
+    "failed": "⟦Terminal failed to start⟧",
+    "retry": "⟦Retry⟧",
+    "exited": "⟦Terminal exited⟧",
+    "exitedWithCode": "⟦Terminal exited ({{code}})⟧",
+    "relaunch": "⟦Relaunch⟧",
+    "needsAttention": "⟦Terminal needs attention⟧",
+    "tabNeedsAttention": "⟦{{label}} needs attention⟧",
+    "tabRunning": "⟦{{label}} command running⟧",
+    "notificationCommandCompleted": "⟦{{label}} completed a command.⟧",
+    "notificationNeedsAttention": "⟦{{label}} needs attention.⟧",
+    "shutdownRisk_one": "⟦{{count}} terminal may have a running command. Exit NovelTea and terminate it?⟧",
+    "shutdownRisk_other": "⟦{{count}} terminals may have running commands. Exit NovelTea and terminate them?⟧"
   },
   "externalConflict": {
     "title": "⟦External changes conflict with unsaved edits⟧",

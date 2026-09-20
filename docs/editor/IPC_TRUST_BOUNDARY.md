@@ -36,9 +36,12 @@ Parsing failure rejects with the stable `invalid-request` boundary code before i
 Strict objects reject unknown keys, tuples reject missing or additional positional arguments, and
 scalar fields must carry explicit bounds appropriate to the capability.
 
-Application, window, dialog, and shell capabilities now use the guarded registrar. App information,
-the default Project directory, zoom/window lifecycle state, and the Project/template selection dialogs
-use exact no-argument tuples. Directory selection keeps its strict bounded options object; package
+Application, window, dialog, shell, and Terminal capabilities use the guarded registrar. App information,
+the default Project directory, zoom/window lifecycle state, Terminal creation/retry, and the
+Project/template selection dialogs use exact no-argument tuples. Terminal write/resize requests admit
+only a bounded opaque session identity plus terminal bytes or dimensions; the renderer cannot provide
+a shell executable or cwd for Terminal creation. Directory selection keeps its strict bounded options
+object; package
 output selection accepts exactly one bounded path-or-null value; item reveal accepts exactly one
 bounded path; native-frame changes accept exactly one boolean. External opening accepts exactly one
 bounded absolute HTTP(S) URL and rejects malformed values and other schemes before `shell.openExternal`
@@ -52,7 +55,8 @@ a path. Project open and saved-Project creation likewise use strict bounded path
 a successful result may establish Project authority.
 
 Every channel invoked by `editor/src/preload.ts` now has exactly one registration through this guarded
-registrar and an explicit runtime argument parser. This includes Project content persistence,
+registrar and an explicit runtime argument parser. This includes Terminal lifecycle operations,
+Project content persistence,
 editor-metadata persistence, Save As, workspace watcher start/stop, thumbnail/cache operations,
 preview/playback/shader operations, export/template operations, Asset operations, and ComfyUI. Direct
 channel-specific `ipcMain.handle(IPC_CHANNELS.*)` registrations are prohibited; there is no alternate

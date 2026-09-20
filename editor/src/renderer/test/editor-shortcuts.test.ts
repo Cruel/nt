@@ -28,6 +28,7 @@ describe('editor shortcuts', () => {
     ['p', false, 'command-palette'],
     ['p', true, 'command-palette'],
     ['j', false, 'toggle-bottom-panel'],
+    ['`', false, 'toggle-terminal'],
     ['b', false, 'toggle-sidebar'],
   ] as const)('maps Ctrl+%s (shift=%s) to %s', (key, shift, command) => {
     expect(resolveEditorShortcutCommand(input({ key, shift }))).toBe(command);

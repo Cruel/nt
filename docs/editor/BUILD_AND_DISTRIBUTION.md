@@ -126,16 +126,21 @@ verification rejects a missing or unsupported identity/version instead of treati
 current.
 
 The application closure comes from the root lockfile through
-`pnpm -C editor --prod deploy`. The only top-level production dependency is the exact
-`sharp` version; its platform-specific `@img` packages and libvips closure are transitive. The
-deployed metadata contains no workspace/catalog protocols, scripts, development dependencies, or
-source paths.
+`pnpm -C editor --prod deploy`. The admitted top-level production dependencies are the exact `sharp`
+and `node-pty` versions. Sharp's platform-specific `@img` packages/libvips closure and node-pty's
+native support packages are transitive. The deployed metadata contains no workspace/catalog
+protocols, scripts, development dependencies, or source paths.
 
 The stage manifest records application identity, release tag/version, source revision, target
 platform/architecture, Electron and embedded Node versions, installed production packages, every
 staged file hash/mode/size, aggregate resource hashes, and relocation validation. Stage verification
-also executes a real `sharp` encode/decode operation and rejects undeclared files, source trees,
-tests, caches, type-only packages, private keys, and checkout-path leaks.
+also executes a real `sharp` encode/decode operation, loads the staged `node-pty` native module, and
+rejects undeclared files, source trees, tests, caches, type-only packages, private keys, and
+checkout-path leaks. node-pty staging prunes prebuild directories for other platform/architecture
+tuples before the manifest is created, and both stage and packaged verification require the exact
+current node-pty version plus the target-appropriate native binding rather than accepting an arbitrary
+`.node` file from another desktop target. macOS staging also preserves the required executable
+`spawn-helper`, and verification rejects a missing or non-executable helper.
 
 The standalone `noveltea` CLI must be built for the release-admitted host or supplied by
 `NOVELTEA_CLI_PATH`. Normal staging refreshes the repository CLI automatically and copies it to
@@ -202,10 +207,11 @@ are normalized through the same desktop Project-import handoff queue. The custom
 remain separate release inputs and are not required for this registration to be present in unsigned
 local/CI packages.
 
-The application is ASAR-only. The complete `node_modules/sharp` and `node_modules/@img` trees are
-explicitly unpacked. Engine preview, editor assets, and native tools are outside ASAR under
-`process.resourcesPath`. Package verification inspects ASAR contents, native binding/libvips
-closure, metadata, resources, executable identity, and Electron fuses.
+The application is ASAR-only. The complete `node_modules/sharp`, `node_modules/@img`, and
+`node_modules/node-pty` trees are explicitly unpacked. Engine preview, editor assets, and native tools
+are outside ASAR under `process.resourcesPath`. Package verification inspects ASAR contents, the
+Sharp binding/libvips closure, the node-pty native binding, metadata, resources, executable identity,
+and Electron fuses.
 
 Required fuse values are:
 
@@ -224,7 +230,12 @@ WasmTrapHandlers=true
 `pnpm -C editor run package:smoke` launches the latest unpacked application under a temporary profile. On
 Linux it uses Xvfb. The smoke verifies main startup, renderer load, preload API, packaged custom
 protocol and traversal rejection, isolation headers, engine-preview serving, editor assets, native
-tool presence, a real packaged `sharp` operation, and clean exit.
+tool presence, a real packaged `sharp` operation, and a real packaged node-pty lifecycle: spawn the
+supported local shell, exchange input/output, resize columns/rows, observe a known shell exit status,
+and explicitly terminate a second PTY cleanly. Release CI runs the same artifact/package-smoke path on
+Linux x64, Windows x64, and macOS arm64; the macOS host CLI is built on the already-qualified Apple
+Silicon desktop-host runner and then consumed by the editor packaging job. Package smoke never resolves
+node-pty or the CLI from a developer checkout or global installation.
 
 ## Native Artifacts and Release Collection
 

@@ -73,7 +73,7 @@ function packageNameForSpecifier(specifier) {
 function assertRuntimeImports(label, text, allowedPackages, format) {
   const patterns =
     format === 'cjs'
-      ? [/\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g]
+      ? [/\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g, /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g]
       : [
           /^\s*import(?:\s+[^'"\n]+?\s+from)?\s*['"]([^'"]+)['"];?\s*$/gm,
           /^\s*export\s+[^'"\n]+?\s+from\s*['"]([^'"]+)['"];?\s*$/gm,
@@ -111,6 +111,9 @@ if (!/require\(["']electron["']\)/.test(mainText)) {
 if (!/require\(["']sharp["']\)/.test(mainText)) {
   fail('main output does not preserve sharp as an external runtime package');
 }
+if (!/(?:require|import)\(["']node-pty["']\)/.test(mainText)) {
+  fail('main output does not preserve node-pty as an external runtime package');
+}
 if (
   /(?:node_modules[\\/]sharp|sharp[\\/](?:dist|lib)[\\/]|@img[\\/]sharp|sharp\.node|libvips)/i.test(
     mainText,
@@ -125,7 +128,7 @@ if (!/require\(["']electron["']\)/.test(preloadText)) {
   fail('preload output does not preserve Electron as an external runtime module');
 }
 
-assertRuntimeImports('main', mainText, new Set(['electron', 'sharp']), 'cjs');
+assertRuntimeImports('main', mainText, new Set(['electron', 'node-pty', 'sharp']), 'cjs');
 assertRuntimeImports('preload', preloadText, new Set(['electron']), 'cjs');
 
 await assertOnlyDeclaredFiles(path.join(outputRoot, 'main'), new Set(['main.cjs', 'main.cjs.map']));

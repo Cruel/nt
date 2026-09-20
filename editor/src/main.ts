@@ -8,6 +8,8 @@ import {
   screen,
   protocol,
   session,
+  powerMonitor,
+  Notification,
 } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -61,6 +63,7 @@ import {
   resolveProjectOriginalAssetUrl,
 } from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
+import { TerminalNotificationService } from './main/services/terminal-notification-service';
 import { EditorAuthoringValidationService } from './main/services/editor-authoring-validation-service';
 import { EditorRuntimeCacheService } from './main/services/editor-runtime-cache-service';
 import { importDesktopProject } from './main/services/desktop-project-import-service';
@@ -105,6 +108,11 @@ import {
   loadNovelTeaUserPreferences,
   saveNovelTeaUserPreferences,
 } from './main/services/user-config-service';
+import {
+  createNodePtyAdapter,
+  resolveDefaultTerminalShell,
+  TerminalService,
+} from './main/services/terminal-service';
 import type { CreateProjectRequest } from './shared/editor-tooling';
 import {
   normalizeDesktopProjectImportArgument,
@@ -112,6 +120,14 @@ import {
 } from './shared/project-import-handoff';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
+import { normalizeTerminalPreferences } from './shared/terminal-preferences';
+import {
+  DEFAULT_EDITOR_LANGUAGE,
+  isSupportedEditorLanguage,
+  resolveEditorLanguage,
+  type EditorLanguage,
+} from './renderer/i18n/language-types';
+import { editorI18nResources } from './renderer/i18n/resources';
 import {
   createImageThumbnailProtocolHandler,
   IMAGE_THUMBNAIL_SCHEME,
@@ -180,10 +196,16 @@ import {
   saveUserExportConfigArgumentsSchema,
   saveUserPreferencesArgumentsSchema,
   selectDirectoryArgumentsSchema,
+  validateDirectoryArgumentsSchema,
   stagePlatformExportArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
+  terminalCloseArgumentsSchema,
+  terminalNotificationArgumentsSchema,
+  terminalResizeArgumentsSchema,
+  terminalSessionArgumentsSchema,
+  terminalWriteArgumentsSchema,
   validateProjectArgumentsSchema,
 } from './main/editor-ipc-trust-boundary';
 
@@ -290,6 +312,43 @@ const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
   : undefined;
 const activeProjectSessions = new ActiveProjectSessionService();
+const terminalService = new TerminalService({
+  pty: createNodePtyAdapter(),
+  resolveProjectRoot: () => activeProjectSessions.currentProjectRoot(),
+  resolveProjectOrigin: () => activeProjectSessions.currentProjectIdentity(),
+  resolveFallbackCwd: resolveConfiguredTerminalFallbackCwd,
+  resolveDefaultProjectDirectory: resolveEffectiveDefaultProjectDirectory,
+  resolveShell: resolveDefaultTerminalShell,
+  emit: (event) => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_EVENT, event);
+    }
+  },
+});
+const terminalNotificationService = new TerminalNotificationService({
+  isSupported: () => Notification.isSupported(),
+  isWindowFocused: () => mainWindow?.isFocused() ?? true,
+  resolveSessionLabel: (sessionId) => terminalService.sessionLabel(sessionId),
+  resolveContent: resolveTerminalNotificationContent,
+  createNotification: (options) => {
+    const notification = new Notification(options);
+    return {
+      show: () => notification.show(),
+      onClick: (callback) => notification.on('click', callback),
+      onClose: (callback) => notification.on('close', callback),
+    };
+  },
+  restoreWindow: () => {
+    if (mainWindow?.isMinimized()) mainWindow.restore();
+  },
+  showWindow: () => mainWindow?.show(),
+  focusWindow: () => mainWindow?.focus(),
+  emitClick: (event) => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_NOTIFICATION_CLICK, event);
+    }
+  },
+});
 const editorAuthoringValidationService = new EditorAuthoringValidationService();
 const editorRuntimeCache = new EditorRuntimeCacheService();
 const assetMetadataInspectionService = new AssetMetadataInspectionService(activeProjectSessions);
@@ -331,6 +390,7 @@ const MAX_ZOOM_FACTOR = 2;
 let currentNativeWindowFrame = process.platform === 'linux';
 let currentFramelessWindow = !currentNativeWindowFrame;
 let appWindowExitConfirmed = false;
+let operatingSystemShutdown = false;
 
 const EDITOR_MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -511,6 +571,56 @@ function getDefaultProjectDirectory() {
   return path.join(app.getPath('documents'), 'NovelTea');
 }
 
+async function resolveEffectiveDefaultProjectDirectory(): Promise<string> {
+  try {
+    const preferences = await loadNovelTeaUserPreferences();
+    const configured = preferences.defaultProjectDirectory;
+    if (typeof configured === 'string' && configured.trim() !== '') return path.resolve(configured);
+  } catch {
+    // Invalid/unavailable user configuration falls back to the built-in Documents/NovelTea default.
+  }
+  return getDefaultProjectDirectory();
+}
+
+async function resolveTerminalNotificationContent(
+  label: string,
+  kind: 'command-completed' | 'bell',
+): Promise<{ title: string; body: string }> {
+  let preference: EditorLanguage = 'system';
+  try {
+    const configured = (await loadNovelTeaUserPreferences()).language;
+    if (
+      configured === 'system' ||
+      (typeof configured === 'string' && isSupportedEditorLanguage(configured))
+    ) {
+      preference = configured;
+    }
+  } catch {
+    preference = 'system';
+  }
+  const language = resolveEditorLanguage(preference, app.getPreferredSystemLanguages());
+  const terminalMessages =
+    editorI18nResources[language]?.workspace.terminal ??
+    editorI18nResources[DEFAULT_EDITOR_LANGUAGE].workspace.terminal;
+  const template =
+    kind === 'command-completed'
+      ? terminalMessages.notificationCommandCompleted
+      : terminalMessages.notificationNeedsAttention;
+  return { title: 'NovelTea', body: template.replace('{{label}}', label) };
+}
+
+async function resolveConfiguredTerminalFallbackCwd(): Promise<string | null> {
+  try {
+    const preferences = await loadNovelTeaUserPreferences();
+    const candidate = normalizeTerminalPreferences(preferences.terminal).fallbackCwd;
+    if (!candidate || candidate.trim() === '') return null;
+    const real = await fs.promises.realpath(path.resolve(candidate));
+    return (await fs.promises.stat(real)).isDirectory() ? real : null;
+  } catch {
+    return null;
+  }
+}
+
 function clampZoomFactor(value: number) {
   return Math.min(MAX_ZOOM_FACTOR, Math.max(MIN_ZOOM_FACTOR, value));
 }
@@ -582,6 +692,8 @@ function installApplicationMenu() {
 }
 
 function createWindow(): BrowserWindow {
+  appWindowExitConfirmed = false;
+  operatingSystemShutdown = false;
   const windowSettings = readEditorWindowSettings();
   const savedBounds = validSavedBounds(windowSettings.bounds);
   currentNativeWindowFrame = readNativeWindowFrameSetting();
@@ -627,6 +739,7 @@ function createWindow(): BrowserWindow {
   });
   const sessionOwner = mainWindow;
   mainWindow.on('closed', () => {
+    terminalService.dispose();
     activeProjectSessions.dispose();
     if (mainWindow === sessionOwner) mainWindow = null;
   });
@@ -646,16 +759,29 @@ function createWindow(): BrowserWindow {
     },
     editorDocumentPolicy,
   );
+  mainWindow.on('query-session-end', () => {
+    operatingSystemShutdown = true;
+    terminalService.dispose();
+  });
   mainWindow.on('close', (event) => {
-    if (appWindowExitConfirmed || mainWindow?.webContents.isDestroyed()) return;
+    if (
+      operatingSystemShutdown ||
+      appWindowExitConfirmed ||
+      mainWindow?.webContents.isDestroyed()
+    ) {
+      return;
+    }
+    const terminalRiskCount = terminalService.shutdownRiskCount();
     event.preventDefault();
-    mainWindow?.webContents.send(IPC_CHANNELS.APP_WINDOW_BEFORE_CLOSE);
-    setTimeout(() => {
-      if (!appWindowExitConfirmed && mainWindow && !mainWindow.isDestroyed()) {
-        appWindowExitConfirmed = true;
-        mainWindow.close();
-      }
-    }, 5000);
+    mainWindow?.webContents.send(IPC_CHANNELS.APP_WINDOW_BEFORE_CLOSE, { terminalRiskCount });
+    if (terminalRiskCount === 0) {
+      setTimeout(() => {
+        if (!appWindowExitConfirmed && mainWindow && !mainWindow.isDestroyed()) {
+          appWindowExitConfirmed = true;
+          mainWindow.close();
+        }
+      }, 5000);
+    }
   });
   installWindowShortcuts(mainWindow);
 
@@ -669,6 +795,12 @@ function createWindow(): BrowserWindow {
 }
 
 void app.whenReady().then(async () => {
+  if (process.platform !== 'win32') {
+    powerMonitor.on('shutdown', () => {
+      operatingSystemShutdown = true;
+      terminalService.dispose();
+    });
+  }
   await imageThumbnailService.removeObsoleteCacheVersions();
   protocol.handle(
     IMAGE_THUMBNAIL_SCHEME,
@@ -743,6 +875,18 @@ void app.whenReady().then(async () => {
         properties: ['openDirectory', 'createDirectory'],
       });
       return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.VALIDATE_DIRECTORY,
+    (arguments_) => validateDirectoryArgumentsSchema.parse(arguments_),
+    async (candidate) => {
+      try {
+        return (await fs.promises.stat(path.resolve(candidate))).isDirectory();
+      } catch {
+        return false;
+      }
     },
   );
 
@@ -883,6 +1027,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.COMPLETE_APP_WINDOW_EXIT,
     (arguments_) => noArgumentsSchema.parse(arguments_),
     () => {
+      terminalService.dispose();
       appWindowExitConfirmed = true;
       mainWindow?.close();
     },
@@ -903,6 +1048,54 @@ void app.whenReady().then(async () => {
       currentFramelessWindow = !nativeFrame;
       return getAppInfoPayload();
     },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_ENSURE_STATE,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => terminalService.ensureState(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_CREATE_SESSION,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => terminalService.createSession(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_SELECT_SESSION,
+    (arguments_) => terminalSessionArgumentsSchema.parse(arguments_),
+    (sessionId) => terminalService.selectSession(sessionId),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_CLOSE_SESSION,
+    (arguments_) => terminalCloseArgumentsSchema.parse(arguments_),
+    (request) => terminalService.closeSession(request.sessionId, request.force),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_RELAUNCH_SESSION,
+    (arguments_) => terminalSessionArgumentsSchema.parse(arguments_),
+    (sessionId) => terminalService.relaunchSession(sessionId),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_WRITE,
+    (arguments_) => terminalWriteArgumentsSchema.parse(arguments_),
+    (sessionId, data) => terminalService.write(sessionId, data),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_RESIZE,
+    (arguments_) => terminalResizeArgumentsSchema.parse(arguments_),
+    (request) => terminalService.resize(request.sessionId, request.columns, request.rows),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_SHOW_NOTIFICATION,
+    (arguments_) => terminalNotificationArgumentsSchema.parse(arguments_),
+    (request) => terminalNotificationService.show(request),
   );
 
   guardedIpc.handle(

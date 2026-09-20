@@ -7,6 +7,7 @@ export type EditorShortcutCommand =
   | 'reopen-closed-tab'
   | 'command-palette'
   | 'toggle-bottom-panel'
+  | 'toggle-terminal'
   | 'toggle-sidebar';
 
 export interface EditorShortcutInput {
@@ -46,6 +47,8 @@ export function resolveEditorShortcutCommand(
       return 'command-palette';
     case 'j':
       return 'toggle-bottom-panel';
+    case '`':
+      return 'toggle-terminal';
     case 'b':
       return 'toggle-sidebar';
     default:

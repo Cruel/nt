@@ -179,6 +179,58 @@ beforeEach(() => {
 });
 
 describe('WorkspacePage new project modal', () => {
+  it('keeps the bottom-panel host available and toggleable without a Project', () => {
+    useBottomPanelStore.getState().setVisible(false);
+
+    render(<WorkspacePage />);
+
+    expect(screen.getByTestId('bottom-panel')).toBeInTheDocument();
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'toggle-bottom-panel' }),
+      );
+    });
+    expect(useBottomPanelStore.getState().visible).toBe(true);
+  });
+
+  it('shows/focuses Terminal with its dedicated shortcut and hides it when already active', () => {
+    let shortcut:
+      | ((command: import('../../shared/editor-shortcuts').EditorShortcutCommand) => void)
+      | null = null;
+    vi.mocked(window.noveltea.onEditorShortcut).mockImplementation((callback) => {
+      shortcut = callback;
+      return () => undefined;
+    });
+    useBottomPanelStore.getState().setVisible(false);
+    render(<WorkspacePage />);
+
+    act(() => shortcut?.('toggle-terminal'));
+    expect(useBottomPanelStore.getState()).toMatchObject({
+      visible: true,
+      activePanelId: 'terminal',
+    });
+    act(() => shortcut?.('toggle-terminal'));
+    expect(useBottomPanelStore.getState().visible).toBe(false);
+  });
+
+  it('does not intercept ordinary editor shortcuts while focus is inside Terminal', () => {
+    render(<WorkspacePage />);
+    const terminal = document.createElement('div');
+    terminal.dataset.terminalPanel = '';
+    const textarea = document.createElement('textarea');
+    terminal.appendChild(textarea);
+    document.body.appendChild(terminal);
+
+    fireEvent.keyDown(textarea, { key: 'p', ctrlKey: true });
+    expect(screen.queryByRole('dialog', { name: /command/i })).not.toBeInTheDocument();
+
+    useBottomPanelStore.getState().setVisible(true);
+    textarea.addEventListener('keydown', (event) => event.stopPropagation());
+    fireEvent.keyDown(textarea, { key: 'j', ctrlKey: true });
+    expect(useBottomPanelStore.getState().visible).toBe(false);
+    terminal.remove();
+  });
+
   it('requires confirmation for a startup Project handoff and opens the imported Project after confirmation', async () => {
     vi.mocked(window.noveltea.takePendingProjectImport)
       .mockResolvedValueOnce({
@@ -1035,7 +1087,7 @@ describe('WorkspacePage new project modal', () => {
       projectFilePath: '/mock/project/project.json',
       project,
     });
-    let beforeClose: (() => void) | null = null;
+    let beforeClose: ((request: { terminalRiskCount: number }) => void) | null = null;
     vi.mocked(window.noveltea.onAppWindowBeforeClose).mockImplementation((callback) => {
       beforeClose = callback;
       return () => undefined;
@@ -1048,11 +1100,36 @@ describe('WorkspacePage new project modal', () => {
     });
 
     render(<WorkspacePage />);
-    act(() => beforeClose?.());
+    act(() => beforeClose?.({ terminalRiskCount: 0 }));
 
     await waitFor(() => expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalled());
     expect(window.noveltea.completeAppWindowExit).not.toHaveBeenCalled();
     expect(useProjectStore.getState().document).not.toBeNull();
+  });
+
+  it('uses one aggregated confirmation before completing exit with risky terminal sessions', async () => {
+    let beforeClose: ((request: { terminalRiskCount: number }) => void) | null = null;
+    vi.mocked(window.noveltea.onAppWindowBeforeClose).mockImplementation((callback) => {
+      beforeClose = callback;
+      return () => undefined;
+    });
+    const confirm = vi
+      .spyOn(window, 'confirm')
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+
+    render(<WorkspacePage />);
+    act(() => beforeClose?.({ terminalRiskCount: 2 }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(window.noveltea.completeAppWindowExit).not.toHaveBeenCalled();
+
+    act(() => beforeClose?.({ terminalRiskCount: 2 }));
+    await waitFor(() => expect(window.noveltea.completeAppWindowExit).toHaveBeenCalledOnce());
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(confirm).toHaveBeenLastCalledWith(
+      '2 terminals may have running commands. Exit NovelTea and terminate them?',
+    );
+    confirm.mockRestore();
   });
 
   it('debounces automatic recovery metadata writes after content becomes dirty', async () => {

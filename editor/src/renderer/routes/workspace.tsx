@@ -743,7 +743,6 @@ export function WorkspacePage() {
     setPlaybackTests([]);
     setLastPlaybackReport(null);
     setLastExportResult(null);
-    setBottomPanelVisible(false);
     ignoredUntrackedAssetPaths.current = new Set();
     setUntrackedAssetFiles([]);
     setUntrackedAssetDialogOpen(false);
@@ -1182,8 +1181,14 @@ export function WorkspacePage() {
   ]);
 
   useEffect(() =>
-    window.noveltea.onAppWindowBeforeClose(() => {
+    window.noveltea.onAppWindowBeforeClose((request) => {
       if (completingWindowClose.current) return;
+      if (
+        request.terminalRiskCount > 0 &&
+        !window.confirm(t('terminal.shutdownRisk', { count: request.terminalRiskCount }))
+      ) {
+        return;
+      }
       completingWindowClose.current = true;
       void (async () => {
         if (!(await flushProjectEditorMetadata('window-close'))) {
@@ -1195,6 +1200,16 @@ export function WorkspacePage() {
       })();
     }),
   );
+
+  function toggleTerminalPanel() {
+    const bottomPanel = useBottomPanelStore.getState();
+    if (bottomPanel.visible && bottomPanel.activePanelId === 'terminal') {
+      setBottomPanelVisible(false);
+      return;
+    }
+    bottomPanel.setActivePanelId('terminal');
+    setBottomPanelVisible(true);
+  }
 
   useEffect(() =>
     window.noveltea.onEditorShortcut((command) => {
@@ -1214,6 +1229,9 @@ export function WorkspacePage() {
         case 'command-palette':
         case 'toggle-bottom-panel':
           dispatchWorkspaceToolbarCommand(command);
+          break;
+        case 'toggle-terminal':
+          toggleTerminalPanel();
           break;
         case 'toggle-sidebar':
           break;
@@ -1475,7 +1493,15 @@ export function WorkspacePage() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey)) return;
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (event.key === '`') {
+        event.preventDefault();
+        toggleTerminalPanel();
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      const insideTerminal = !!target?.closest('[data-terminal-panel]');
+      if (insideTerminal) return;
       if (event.key.toLowerCase() === 'n') {
         event.preventDefault();
         if (authoringProjectForEditor(useProjectStore.getState().document)) {
@@ -1507,15 +1533,11 @@ export function WorkspacePage() {
         event.preventDefault();
         setCommandPaletteOpen(true);
       }
-      const target = event.target as HTMLElement | null;
       const isTextInput =
         !!target &&
         (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       if (isTextInput) return;
-      if (event.key.toLowerCase() === 'j') {
-        event.preventDefault();
-        setBottomPanelVisible(!useBottomPanelStore.getState().visible);
-      } else if (event.key.toLowerCase() === 'z') {
+      if (event.key.toLowerCase() === 'z') {
         event.preventDefault();
         if (event.shiftKey) redoProjectCommand();
         else undoProjectCommand();
@@ -1524,8 +1546,19 @@ export function WorkspacePage() {
         redoProjectCommand();
       }
     }
+    function onBottomPanelShortcutCapture(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'j')
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      setBottomPanelVisible(!useBottomPanelStore.getState().visible);
+    }
+    window.addEventListener('keydown', onBottomPanelShortcutCapture, true);
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onBottomPanelShortcutCapture, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
   });
 
   useEffect(() => {
@@ -1857,7 +1890,7 @@ export function WorkspacePage() {
           useWorkbenchStore.getState().reopenLastClosedTab();
           break;
         case 'toggle-bottom-panel':
-          if (project) setBottomPanelVisible(!bottomPanelVisible);
+          setBottomPanelVisible(!bottomPanelVisible);
           break;
         case 'command-palette':
           setCommandPaletteOpen(true);
@@ -1892,16 +1925,16 @@ export function WorkspacePage() {
     : null;
   const canCompleteProjectImport =
     !projectImportNameIssue && !projectImportDirectoryIssue && !projectImportBusy;
-  const showBottomPanel = project !== null && bottomPanelVisible;
+  const showBottomPanel = bottomPanelVisible;
 
   useLayoutEffect(() => {
-    if (!project || !bottomPanelRef.current) return;
+    if (!bottomPanelRef.current) return;
     if (bottomPanelVisible) {
       bottomPanelRef.current.resize(`${bottomPanelSizePercent}%`);
     } else {
       bottomPanelRef.current.collapse();
     }
-  }, [bottomPanelRef, bottomPanelSizePercent, bottomPanelVisible, project]);
+  }, [bottomPanelRef, bottomPanelSizePercent, bottomPanelVisible]);
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -1923,29 +1956,23 @@ export function WorkspacePage() {
             >
               <Workbench />
             </Panel>
-            {project ? (
-              <>
-                <PanelResizeSeparator
-                  id="bottom-panel-resize"
-                  orientation="vertical"
-                  disabled={!bottomPanelVisible}
-                  className={
-                    bottomPanelVisible ? undefined : 'h-0 pointer-events-none bg-transparent'
-                  }
-                />
-                <Panel
-                  id="workspace-bottom-panel"
-                  panelRef={bottomPanelRef}
-                  defaultSize={bottomPanelVisible ? `${bottomPanelSizePercent}%` : '36px'}
-                  minSize="180px"
-                  maxSize="70%"
-                  collapsedSize="36px"
-                  collapsible
-                >
-                  <BottomPanel />
-                </Panel>
-              </>
-            ) : null}
+            <PanelResizeSeparator
+              id="bottom-panel-resize"
+              orientation="vertical"
+              disabled={!bottomPanelVisible}
+              className={bottomPanelVisible ? undefined : 'h-0 pointer-events-none bg-transparent'}
+            />
+            <Panel
+              id="workspace-bottom-panel"
+              panelRef={bottomPanelRef}
+              defaultSize={bottomPanelVisible ? `${bottomPanelSizePercent}%` : '36px'}
+              minSize="180px"
+              maxSize="70%"
+              collapsedSize="36px"
+              collapsible
+            >
+              <BottomPanel />
+            </Panel>
           </Group>
         </div>
       </div>

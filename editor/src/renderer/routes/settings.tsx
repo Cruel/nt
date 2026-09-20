@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -69,6 +69,7 @@ import {
   Boxes,
   Play,
   RotateCcw,
+  SquareTerminal,
   Sun,
   WandSparkles,
 } from 'lucide-react';
@@ -103,6 +104,7 @@ export type EditorSettingsCategory =
   | 'appearance'
   | 'window'
   | 'workspace'
+  | 'terminal'
   | 'preview'
   | 'export'
   | 'templates'
@@ -117,6 +119,7 @@ function editorSettingsCategoryForTarget(targetId: string): EditorSettingsCatego
     return 'appearance';
   if (targetId.startsWith('settings.window')) return 'window';
   if (targetId.startsWith('settings.workspace')) return 'workspace';
+  if (targetId.startsWith('settings.terminal')) return 'terminal';
   if (targetId.startsWith('settings.preview')) return 'preview';
   if (targetId.startsWith('settings.export')) return 'export';
   if (targetId.startsWith('settings.templates')) return 'templates';
@@ -401,6 +404,7 @@ export function SettingsPage({
   const editorPreviewLayout = usePreferencesStore((s) => s.editorPreviewLayout);
   const defaultProjectDirectory = usePreferencesStore((s) => s.defaultProjectDirectory);
   const comfyUiConfig = usePreferencesStore((s) => s.comfyUiConfig);
+  const terminalPreferences = usePreferencesStore((s) => s.terminal);
   const exportPreferences = usePreferencesStore((s) => s.exportPreferences);
   const preferencesAtDefaults = usePreferencesStore(selectEditorPreferencesAreDefaults);
   const setTheme = usePreferencesStore((s) => s.setTheme);
@@ -418,6 +422,7 @@ export function SettingsPage({
   const setEditorPreviewLayout = usePreferencesStore((s) => s.setEditorPreviewLayout);
   const setDefaultProjectDirectory = usePreferencesStore((s) => s.setDefaultProjectDirectory);
   const setComfyUiConfig = usePreferencesStore((s) => s.setComfyUiConfig);
+  const setTerminalPreferences = usePreferencesStore((s) => s.setTerminalPreferences);
   const setExportPreferences = usePreferencesStore((s) => s.setExportPreferences);
   const resetPreferencesToDefaults = usePreferencesStore((s) => s.resetToDefaults);
   const comfyUiStatus = useComfyUiStore((s) => s.status);
@@ -430,6 +435,11 @@ export function SettingsPage({
   const [defaultProjectDirectoryError, setDefaultProjectDirectoryError] = useState<string | null>(
     null,
   );
+  const [terminalFallbackCwdDraft, setTerminalFallbackCwdDraft] = useState(
+    terminalPreferences.fallbackCwd ?? '',
+  );
+  const terminalFallbackCwdValidationGeneration = useRef(0);
+  const [terminalFallbackCwdError, setTerminalFallbackCwdError] = useState<string | null>(null);
   const [preferredSystemLanguages, setPreferredSystemLanguages] = useState<string[]>([]);
   const [comfyUiWorkflows, setComfyUiWorkflows] = useState<ComfyUiWorkflowActiveEntry[]>([]);
   const [userExportConfig, setUserExportConfig] = useState<UserExportConfig | null>(null);
@@ -501,6 +511,12 @@ export function SettingsPage({
       label: t('settings:categories.workspace'),
       description: t('settings:workspace.description'),
       icon: FolderKanban,
+    },
+    {
+      id: 'terminal',
+      label: t('settings:categories.terminal'),
+      description: t('settings:terminal.description'),
+      icon: SquareTerminal,
     },
     {
       id: 'preview',
@@ -853,6 +869,43 @@ export function SettingsPage({
     setDefaultProjectDirectory(directory);
   }
 
+  async function applyTerminalFallbackCwd() {
+    const candidate = terminalFallbackCwdDraft.trim();
+    const generation = ++terminalFallbackCwdValidationGeneration.current;
+    if (!candidate) {
+      setTerminalFallbackCwdError(null);
+      setTerminalPreferences({ fallbackCwd: null });
+      return;
+    }
+    const valid = await window.noveltea.validateDirectory(candidate);
+    if (generation !== terminalFallbackCwdValidationGeneration.current) return;
+    if (!valid) {
+      setTerminalFallbackCwdError(t('settings:terminal.fallbackCwdInvalid'));
+      return;
+    }
+    setTerminalFallbackCwdError(null);
+    setTerminalPreferences({ fallbackCwd: candidate });
+  }
+
+  async function chooseTerminalFallbackCwd() {
+    const directory = await window.noveltea.selectDirectory({
+      title: t('settings:terminal.fallbackCwdBrowseTitle'),
+      defaultPath: terminalPreferences.fallbackCwd,
+    });
+    if (!directory) return;
+    terminalFallbackCwdValidationGeneration.current += 1;
+    setTerminalFallbackCwdDraft(directory);
+    setTerminalFallbackCwdError(null);
+    setTerminalPreferences({ fallbackCwd: directory });
+  }
+
+  function resetTerminalFallbackCwd() {
+    terminalFallbackCwdValidationGeneration.current += 1;
+    setTerminalFallbackCwdDraft('');
+    setTerminalFallbackCwdError(null);
+    setTerminalPreferences({ fallbackCwd: null });
+  }
+
   async function resetAllSettings() {
     if (!userExportConfigLoaded) return;
     const defaultExportConfig = defaultUserExportConfig();
@@ -860,6 +913,9 @@ export function SettingsPage({
     await window.noveltea.saveComfyUiUserConfig(defaultComfyUiSharedUserConfig());
     resetPreferencesToDefaults();
     setDefaultProjectDirectoryError(null);
+    terminalFallbackCwdValidationGeneration.current += 1;
+    setTerminalFallbackCwdDraft('');
+    setTerminalFallbackCwdError(null);
     useComfyUiStore.getState().hydrateFromPreferences();
     updateNativeFrame(nativeFrameDefault);
     setResetDialogOpen(false);
@@ -1240,6 +1296,133 @@ export function SettingsPage({
                   </p>
                 ) : null}
               </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {activeCategory === 'terminal' ? (
+        <Card size="sm" data-workbench-anchor="settings.terminal">
+          <CardHeader className="gap-0">
+            <CardTitle>{t('settings:terminal.title')}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label htmlFor="terminal-font-family">{t('settings:terminal.fontFamily')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:terminal.fontFamilyDescription')}
+                </p>
+              </div>
+              <Input
+                id="terminal-font-family"
+                className="w-72"
+                value={terminalPreferences.fontFamily}
+                onChange={(event) =>
+                  setTerminalPreferences({ fontFamily: event.currentTarget.value })
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label htmlFor="terminal-font-size">{t('settings:terminal.fontSize')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:terminal.fontSizeDescription')}
+                </p>
+              </div>
+              <Input
+                id="terminal-font-size"
+                className="w-24"
+                type="number"
+                min="8"
+                max="32"
+                step="1"
+                value={terminalPreferences.fontSize}
+                onChange={(event) =>
+                  setTerminalPreferences({ fontSize: Number(event.currentTarget.value) })
+                }
+              />
+            </div>
+            <div className="grid gap-2">
+              <div>
+                <Label htmlFor="terminal-fallback-cwd">{t('settings:terminal.fallbackCwd')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:terminal.fallbackCwdDescription')}
+                </p>
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                <Input
+                  id="terminal-fallback-cwd"
+                  className="font-mono text-[11px]"
+                  placeholder={t('settings:terminal.fallbackCwdAutomatic')}
+                  value={terminalFallbackCwdDraft}
+                  onChange={(event) => {
+                    terminalFallbackCwdValidationGeneration.current += 1;
+                    setTerminalFallbackCwdDraft(event.currentTarget.value);
+                  }}
+                  onBlur={() => void applyTerminalFallbackCwd()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void applyTerminalFallbackCwd();
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void chooseTerminalFallbackCwd()}
+                >
+                  <FolderOpen />
+                  {t('settings:terminal.browse')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={resetTerminalFallbackCwd}
+                  aria-label={t('settings:terminal.resetFallbackCwd')}
+                >
+                  <RotateCcw />
+                </Button>
+              </div>
+              {terminalFallbackCwdError ? (
+                <p className="text-[11px] text-destructive">{terminalFallbackCwdError}</p>
+              ) : null}
+            </div>
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label htmlFor="terminal-scrollback">{t('settings:terminal.scrollback')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:terminal.scrollbackDescription')}
+                </p>
+              </div>
+              <Input
+                id="terminal-scrollback"
+                className="w-28"
+                type="number"
+                min="100"
+                max="100000"
+                step="100"
+                value={terminalPreferences.scrollback}
+                onChange={(event) =>
+                  setTerminalPreferences({ scrollback: Number(event.currentTarget.value) })
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label htmlFor="terminal-desktop-notifications">
+                  {t('settings:terminal.desktopNotifications')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:terminal.desktopNotificationsDescription')}
+                </p>
+              </div>
+              <Switch
+                id="terminal-desktop-notifications"
+                checked={terminalPreferences.desktopNotifications}
+                onCheckedChange={(desktopNotifications) =>
+                  setTerminalPreferences({ desktopNotifications })
+                }
+              />
             </div>
           </CardContent>
         </Card>

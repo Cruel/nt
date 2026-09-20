@@ -46,6 +46,7 @@ interface ActiveProjectAssetAuthorization {
 interface ActiveProjectSession {
   id: string;
   root: string;
+  projectIdentity: { id: string; name: string } | null;
   assets: ReadonlyMap<string, ActiveProjectAssetAuthorization>;
   workspace?: ActiveProjectWorkspaceSession;
 }
@@ -87,19 +88,51 @@ export class ActiveProjectSessionService {
     if (!projectFileStat.isFile()) throw new Error('Project manifest is not a regular file.');
     this.assertProjectActivationCurrent(expectedActivationGeneration);
     const canonicalRoot = path.dirname(canonicalProjectFile);
-    const assets = contentProject === undefined ? new Map() : admittedAssets(contentProject);
+    const parsedProject =
+      contentProject === undefined ? null : parseAuthoringProject(contentProject);
+    const assets = parsedProject === null ? new Map() : admittedAssets(parsedProject);
+    const workspaceProject = workspace?.project().project;
+    const identityProject = parsedProject?.project ?? workspaceProject;
+    const projectIdentity = identityProject
+      ? { id: identityProject.id, name: identityProject.name }
+      : null;
     const current = this.active;
     if (current?.root === canonicalRoot) {
-      this.active = { ...current, assets, workspace: workspace ?? current.workspace };
+      this.active = {
+        ...current,
+        projectIdentity: projectIdentity ?? current.projectIdentity,
+        assets,
+        workspace: workspace ?? current.workspace,
+      };
       return current.id;
     }
     const id = randomUUID();
-    this.active = { id, root: canonicalRoot, assets, ...(workspace ? { workspace } : {}) };
+    this.active = {
+      id,
+      root: canonicalRoot,
+      projectIdentity,
+      assets,
+      ...(workspace ? { workspace } : {}),
+    };
     return id;
   }
 
   currentSessionId(): string | null {
     return this.active?.id ?? null;
+  }
+
+  currentProjectRoot(): string | null {
+    return this.active?.root ?? null;
+  }
+
+  currentProjectIdentity(): { id: string; name: string } | null {
+    const active = this.active;
+    if (!active) return null;
+    const workspaceProject = active.workspace?.project().project;
+    const identity =
+      active.projectIdentity ??
+      (workspaceProject ? { id: workspaceProject.id, name: workspaceProject.name } : null);
+    return identity ? { ...identity } : null;
   }
 
   requireActiveProjectRoot(projectSessionId: string): string {
@@ -159,9 +192,17 @@ export class ActiveProjectSessionService {
     if (canonicalRoot !== active.root) {
       throw new Error('Project result does not belong to the active Project session.');
     }
-    const assets = contentProject === undefined ? active.assets : admittedAssets(contentProject);
+    const parsedProject =
+      contentProject === undefined ? null : parseAuthoringProject(contentProject);
+    const assets = parsedProject === null ? active.assets : admittedAssets(parsedProject);
     if (this.active !== active) throw new Error('Project session is stale or unknown.');
-    if (contentProject !== undefined) this.active = { ...active, assets };
+    if (parsedProject !== null) {
+      this.active = {
+        ...active,
+        assets,
+        projectIdentity: { id: parsedProject.project.id, name: parsedProject.project.name },
+      };
+    }
     return active.id;
   }
 
