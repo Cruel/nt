@@ -8,12 +8,14 @@ Unmounting the Terminal view, collapsing the bottom panel, switching bottom-pane
 switching/closing a Project does not terminate or retarget the PTY.
 
 The first PTY is created lazily when the Terminal surface first mounts. Main owns a window-lifetime
-multi-session host with a selected session identity, stable monotonic `Terminal N` labels, and bounded
-per-session output buffers. Reopening/remounting the view asks main for the current host snapshot and
-reconstructs the selected xterm view from that buffer. Terminal host state is not serialized into
-Project editor metadata; a Project may still persist `terminal` as its active bottom-panel identity.
-Once Terminal has been used, closing the final session immediately creates a fresh replacement using
-the current new-terminal creation rules so the host never becomes empty during that window lifetime.
+multi-session PTY host with a selected session identity and stable monotonic `Terminal N` labels. The
+renderer separately owns one window-lifetime xterm emulator per live session. Those emulator instances
+continue receiving output while the Terminal panel is hidden or unmounted and their DOM/buffer state is
+reattached on remount rather than reconstructed from a truncated text replay. Terminal host/emulator
+state is not serialized into Project editor metadata; a Project may still persist `terminal` as its
+active bottom-panel identity. Once Terminal has been used, closing the final session immediately creates
+a fresh replacement using the current new-terminal creation rules so the host never becomes empty during
+that window lifetime.
 
 ## Creation authority
 
@@ -32,7 +34,10 @@ metadata. New sessions after a Project switch use the new current Project contex
 sessions are never implicitly moved, restarted, renamed, or terminated. On POSIX, main prefers the
 user's existing `SHELL` when it resolves to an executable path, then zsh/bash/sh fallbacks. On Windows,
 main prefers `pwsh.exe` from `PATH`, then Windows PowerShell. The shell inherits the ordinary editor
-process environment; NovelTea does not inject tool-specific PATH entries.
+process environment; NovelTea does not inject tool-specific PATH entries. zsh integration preserves the
+normal login/interactive startup chain (`.zshenv`, `.zprofile`, `.zshrc`, and `.zlogin`) through temporary
+wrapper files, and PowerShell lifecycle escapes use syntax compatible with both Windows PowerShell 5.1
+and modern PowerShell.
 
 ## Settings and keyboard behavior
 
@@ -62,9 +67,9 @@ cwd. Session IDs are opaque UUIDs and lifecycle/write/dimension requests are str
 emits typed output/exit/error events to the renderer. Spawn/native/cwd failures remain represented as
 an actionable terminal tab with Retry rather than removing the session.
 
-A shell exit retains its tab, buffered scrollback, exit status, and immutable identity. Relaunch keeps
-the same session identity and uses its last known cwd when available, otherwise the immutable initial
-cwd. Main adds non-destructive shell integration for bash, zsh, and PowerShell without modifying user
+A shell exit retains its tab, xterm-owned scrollback/emulator state, exit status, and immutable identity.
+Relaunch keeps the same session identity and uses its last known cwd when available, otherwise the
+immutable initial cwd. Main adds non-destructive shell integration for bash, zsh, and PowerShell without modifying user
 startup/profile files. The integration reports semantic command start/completion, optional command exit
 status, and live cwd through private terminal control sequences that are removed from visible output.
 Preparation is fail-open: unsupported shells or unavailable integration continue as ordinary PTYs with
@@ -91,7 +96,8 @@ preference is enabled. The guarded request carries only the opaque terminal sess
 attention kind; renderer-provided titles, bodies, commands, cwd values, prompts, or output are never
 accepted. Electron main independently suppresses requests while NovelTea is focused or when native
 notifications are unsupported, resolves the stable `Terminal N` label from its own terminal host, and
-generates generic notification text. Notification construction/show failures are fail-silent and never
+generates generic notification text from the editor localization resources for the effective editor
+language. Notification construction/show failures are fail-silent and never
 affect PTY behavior. Clicking a notification restores/shows/focuses NovelTea, sends a typed session-id
 click event to the renderer, opens Terminal, selects the originating session, and immediately begins its
 unread acknowledgment fade. macOS signing/notification availability therefore cannot gate terminal
@@ -99,8 +105,8 @@ functionality.
 
 Application/window close uses the existing renderer close handshake. Main reports one aggregate count
 of running/unknown terminal sessions; the renderer asks for one confirmation before metadata cleanup
-and confirmed shutdown. Completing the handshake disposes every window-owned PTY/process tree
-best-effort before closing. Windows shutdown/logoff (`query-session-end`) and macOS/Linux system
+and confirmed shutdown. Completing the handshake explicitly terminates known descendants/process groups
+best-effort before closing each window-owned PTY, rather than relying on the PTY shell PID alone. Windows shutdown/logoff (`query-session-end`) and macOS/Linux system
 shutdown (`powerMonitor`'s `shutdown` event) bypass the interactive terminal confirmation, do not call
 `preventDefault()`, and perform immediate best-effort PTY cleanup rather than blocking the operating
 system.

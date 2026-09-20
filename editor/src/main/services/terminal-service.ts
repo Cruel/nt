@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,9 +15,8 @@ import {
 } from '../../shared/terminal';
 import { prepareTerminalShell, type PreparedTerminalShell } from './terminal-shell-integration';
 
-const MAX_BUFFER_CHARS = 1_000_000;
-
 export interface TerminalPtyProcess {
+  readonly pid: number;
   write(data: string): void;
   resize(columns: number, rows: number): void;
   kill(): void;
@@ -43,7 +43,6 @@ interface TerminalSession {
   lastKnownCwd: string | null;
   createdAt: string;
   originProject: TerminalProjectOrigin | null;
-  output: string;
   status: 'running' | 'exited' | 'error';
   commandState: TerminalCommandState;
   currentCommandStartedAt: string | null;
@@ -62,10 +61,11 @@ export interface TerminalServiceOptions {
   resolveProjectRoot(): string | null;
   resolveProjectOrigin(): TerminalProjectOrigin | null;
   resolveFallbackCwd(): Promise<string | null>;
-  resolveDefaultProjectDirectory(): string;
+  resolveDefaultProjectDirectory(): string | Promise<string>;
   resolveShell(): string;
   env?: NodeJS.ProcessEnv;
   emit(event: TerminalEvent): void;
+  terminateProcessTree?: (pid: number) => void;
   sessionId?: () => string;
   now?: () => Date;
 }
@@ -198,7 +198,6 @@ export class TerminalService {
       lastKnownCwd: creationContext.cwd,
       createdAt: (this.options.now?.() ?? new Date()).toISOString(),
       originProject: creationContext.originProject,
-      output: '',
       status: 'running',
       commandState: 'unknown',
       currentCommandStartedAt: null,
@@ -233,7 +232,7 @@ export class TerminalService {
     }
     const fallback = await this.options.resolveFallbackCwd();
     return {
-      cwd: fallback ?? this.options.resolveDefaultProjectDirectory(),
+      cwd: fallback ?? (await this.options.resolveDefaultProjectDirectory()),
       originProject: null,
     };
   }
@@ -272,7 +271,6 @@ export class TerminalService {
         process.onData((data) => {
           const visibleData = session.parser?.push(data) ?? data;
           if (!visibleData) return;
-          session.output = appendBuffer(session.output, visibleData);
           this.options.emit({ kind: 'output', sessionId: session.id, data: visibleData });
         }),
         process.onExit(({ exitCode }) => {
@@ -384,10 +382,18 @@ export class TerminalService {
 
   private disposeProcess(session: TerminalSession): void {
     for (const disposable of session.disposables.splice(0)) disposable.dispose();
-    try {
-      session.process?.kill();
-    } catch {
-      // PTY/process-tree cleanup is best-effort during close and application teardown.
+    const terminalProcess = session.process;
+    if (terminalProcess) {
+      try {
+        (this.options.terminateProcessTree ?? terminateTerminalProcessTree)(terminalProcess.pid);
+      } catch {
+        // Explicit descendant cleanup is best-effort before node-pty closes the PTY itself.
+      }
+      try {
+        terminalProcess.kill();
+      } catch {
+        // PTY cleanup is best-effort during close and application teardown.
+      }
     }
     session.process = null;
     session.parser = null;
@@ -431,7 +437,13 @@ class TerminalOutputParser {
         continue;
       }
       if (oscStart === -1) {
-        output += input.slice(index);
+        const remainder = input.slice(index);
+        if (this.integrationExpected && remainder.endsWith('\u001b')) {
+          output += remainder.slice(0, -1);
+          this.pending = '\u001b';
+        } else {
+          output += remainder;
+        }
         break;
       }
       output += input.slice(index, oscStart);
@@ -564,7 +576,6 @@ function snapshot(session: TerminalSession): TerminalSessionSnapshot {
     lastKnownCwd: session.lastKnownCwd,
     createdAt: session.createdAt,
     originProject: cloneOrigin(session.originProject),
-    output: session.output,
     error: session.error,
     exitCode: session.exitCode,
   };
@@ -580,9 +591,50 @@ function normalizedEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
   );
 }
 
-function appendBuffer(existing: string, data: string): string {
-  const combined = existing + data;
-  return combined.length > MAX_BUFFER_CHARS ? combined.slice(-MAX_BUFFER_CHARS) : combined;
+export function terminateTerminalProcessTree(pid: number, platform = process.platform): void {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  if (platform === 'win32') {
+    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    return;
+  }
+
+  const listing = spawnSync('ps', ['-Ao', 'pid=,ppid='], { encoding: 'utf8' });
+  if (listing.status === 0 && typeof listing.stdout === 'string') {
+    const childrenByParent = new Map<number, number[]>();
+    for (const line of listing.stdout.split('\n')) {
+      const match = /^\s*(\d+)\s+(\d+)\s*$/u.exec(line);
+      if (!match) continue;
+      const childPid = Number(match[1]);
+      const parentPid = Number(match[2]);
+      const children = childrenByParent.get(parentPid) ?? [];
+      children.push(childPid);
+      childrenByParent.set(parentPid, children);
+    }
+    const descendants: number[] = [];
+    const visit = (parentPid: number) => {
+      for (const childPid of childrenByParent.get(parentPid) ?? []) {
+        visit(childPid);
+        descendants.push(childPid);
+      }
+    };
+    visit(pid);
+    for (const descendantPid of descendants) {
+      try {
+        process.kill(descendantPid, 'SIGTERM');
+      } catch {
+        // Descendants may exit concurrently while the tree is being traversed.
+      }
+    }
+  }
+
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {
+    // forkpty normally creates a process group, but explicit descendants above are the fallback.
+  }
 }
 
 function randomSessionId(factory?: () => string): string {

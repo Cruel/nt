@@ -96,6 +96,8 @@
     "needsAttention": "O Terminal precisa de atenção",
     "tabNeedsAttention": "{{label}} precisa de atenção",
     "tabRunning": "{{label}} com comando em execução",
+    "notificationCommandCompleted": "{{label}} concluiu um comando.",
+    "notificationNeedsAttention": "{{label}} precisa de atenção.",
     "shutdownRisk_one": "{{count}} terminal pode ter um comando em execução. Sair do NovelTea e encerrá-lo?",
     "shutdownRisk_other": "{{count}} terminais podem ter comandos em execução. Sair do NovelTea e encerrá-los?"
   },

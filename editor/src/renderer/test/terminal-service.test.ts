@@ -1,6 +1,12 @@
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { prepareTerminalShell } from '../../main/services/terminal-shell-integration';
 import {
   resolveDefaultTerminalShell,
+  terminateTerminalProcessTree,
   TerminalService,
   type TerminalPtyAdapter,
   type TerminalPtyProcess,
@@ -14,6 +20,7 @@ function fakeProcess() {
   const resize = vi.fn<(columns: number, rows: number) => void>();
   const kill = vi.fn<() => void>();
   const process: TerminalPtyProcess = {
+    pid: 4242,
     write,
     resize,
     kill,
@@ -105,7 +112,6 @@ describe('TerminalService', () => {
 
     pty.emitData('hello\r\n');
     expect(events).toContainEqual({ kind: 'output', sessionId: 'terminal-1', data: 'hello\r\n' });
-    expect((await service.ensureState()).sessions[0]?.output).toBe('hello\r\n');
   });
 
   it('tracks integrated command lifecycle, cwd, exit status, long-command attention, and BEL', async () => {
@@ -175,6 +181,29 @@ describe('TerminalService', () => {
     expect((await service.ensureState()).sessions[0]).toMatchObject({
       latestAttention: { kind: 'bell', occurredAt: '2026-09-19T12:00:05.000Z' },
     });
+  });
+
+  it('preserves a split OSC prefix instead of emitting a false BEL or losing command state', async () => {
+    const pty = fakeProcess();
+    const events: unknown[] = [];
+    const service = new TerminalService({
+      ...serviceOptions(() => pty.process),
+      resolveShell: () => '/bin/bash',
+      emit: (event) => events.push(event),
+      sessionId: () => 'terminal-1',
+    });
+
+    await service.ensureState();
+    pty.emitData('\u001b');
+    expect(events).not.toContainEqual({ kind: 'output', sessionId: 'terminal-1', data: '\u001b' });
+    pty.emitData(']633;C\u0007');
+    expect((await service.ensureState()).sessions[0]).toMatchObject({ commandState: 'running' });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        kind: 'attention',
+        attention: expect.objectContaining({ kind: 'bell' }),
+      }),
+    );
   });
 
   it('keeps command state unknown when shell integration is unavailable while still surfacing BEL', async () => {
@@ -267,7 +296,7 @@ describe('TerminalService', () => {
     expect(spawn).toHaveBeenCalledTimes(2);
   });
 
-  it('retains exited scrollback, relaunches in place, and replaces the final closed session', async () => {
+  it('retains exited session identity, relaunches in place, and replaces the final closed session', async () => {
     const first = fakeProcess();
     const relaunched = fakeProcess();
     const replacement = fakeProcess();
@@ -288,7 +317,6 @@ describe('TerminalService', () => {
       status: 'exited',
       commandState: 'idle',
       exitCode: 7,
-      output: 'done\r\n',
     });
 
     const relaunchedState = await service.relaunchSession('terminal-1');
@@ -296,7 +324,6 @@ describe('TerminalService', () => {
       id: 'terminal-1',
       label: 'Terminal 1',
       status: 'running',
-      output: 'done\r\n',
     });
 
     relaunched.emitExit(0);
@@ -315,9 +342,11 @@ describe('TerminalService', () => {
     const processes = [first, second, nextWindow];
     let spawnIndex = 0;
     let nextId = 0;
+    const terminateProcessTree = vi.fn();
     const service = new TerminalService({
       ...serviceOptions(() => processes[spawnIndex++]!.process),
       sessionId: () => `terminal-${++nextId}`,
+      terminateProcessTree,
     });
 
     await service.ensureState();
@@ -331,10 +360,12 @@ describe('TerminalService', () => {
 
     const forced = await service.closeSession('terminal-1', true);
     expect(forced.requiresConfirmation).toBe(false);
+    expect(terminateProcessTree).toHaveBeenCalledWith(first.process.pid);
     expect(first.kill).toHaveBeenCalledOnce();
     expect(forced.state.sessions).toHaveLength(1);
 
     service.dispose();
+    expect(terminateProcessTree).toHaveBeenCalledWith(second.process.pid);
     expect(second.kill).toHaveBeenCalledOnce();
 
     const nextWindowState = await service.ensureState();
@@ -384,10 +415,79 @@ describe('TerminalService', () => {
     const secondSpawn = vi.fn((_options: SpawnOptions) => second.process);
     const defaultService = new TerminalService({
       ...serviceOptions(secondSpawn),
+      resolveDefaultProjectDirectory: async () => '/configured/projects',
       sessionId: () => 'default',
     });
     await defaultService.ensureState();
-    expect(secondSpawn.mock.calls[0]?.[0].cwd).toBe('/documents/NovelTea');
+    expect(secondSpawn.mock.calls[0]?.[0].cwd).toBe('/configured/projects');
+  });
+});
+
+describe('terminal shell integration', () => {
+  it('preserves normal zsh login and interactive startup files while injecting hooks', () => {
+    const prepared = prepareTerminalShell('/bin/zsh', {
+      HOME: '/home/test',
+      ZDOTDIR: '/home/test/custom-zdotdir',
+    });
+    const generatedZdotdir = prepared.env.ZDOTDIR!;
+    try {
+      expect(prepared.args).toEqual(['-il']);
+      expect(generatedZdotdir).not.toBe('/home/test/custom-zdotdir');
+      for (const filename of ['.zshenv', '.zprofile', '.zshrc', '.zlogin']) {
+        const contents = fs.readFileSync(path.join(generatedZdotdir, filename), 'utf8');
+        expect(contents).toContain(`/home/test/custom-zdotdir/${filename}`);
+      }
+      expect(fs.readFileSync(path.join(generatedZdotdir, '.zshrc'), 'utf8')).toContain(
+        '__noveltea_preexec',
+      );
+    } finally {
+      prepared.dispose();
+    }
+    expect(fs.existsSync(generatedZdotdir)).toBe(false);
+  });
+
+  it('uses PowerShell 5.1-compatible character escapes for lifecycle markers', () => {
+    const prepared = prepareTerminalShell('powershell.exe', {});
+    const command = prepared.args.join(' ');
+    expect(command).toContain('[char]27');
+    expect(command).toContain('[char]7');
+    expect(command).not.toContain('`e');
+  });
+});
+
+describe('terminal process-tree cleanup', () => {
+  it('terminates a detached Linux shell and its nohup descendant', async () => {
+    if (process.platform !== 'linux') return;
+    const shell = spawn('/bin/bash', ['-c', 'nohup sleep 30 >/dev/null 2>&1 & echo $!; wait'], {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const [chunk] = await once(shell.stdout, 'data');
+    const childPid = Number(String(chunk).trim());
+    expect(Number.isInteger(childPid)).toBe(true);
+    try {
+      terminateTerminalProcessTree(shell.pid!, 'linux');
+      await vi.waitFor(
+        () => {
+          const childState = spawnSync('ps', ['-o', 'stat=', '-p', String(childPid)], {
+            encoding: 'utf8',
+          }).stdout.trim();
+          const shellState = spawnSync('ps', ['-o', 'stat=', '-p', String(shell.pid)], {
+            encoding: 'utf8',
+          }).stdout.trim();
+          expect(shellState === '' || shellState.startsWith('Z')).toBe(true);
+          expect(childState === '' || childState.startsWith('Z')).toBe(true);
+        },
+        { timeout: 2_000, interval: 50 },
+      );
+    } finally {
+      try {
+        process.kill(childPid, 'SIGKILL');
+      } catch {}
+      try {
+        process.kill(-shell.pid!, 'SIGKILL');
+      } catch {}
+    }
   });
 });
 

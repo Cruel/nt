@@ -13,6 +13,10 @@ export interface TerminalNotificationServiceOptions {
   isSupported(): boolean;
   isWindowFocused(): boolean;
   resolveSessionLabel(sessionId: string): string | null;
+  resolveContent(
+    label: string,
+    kind: TerminalNotificationRequest['kind'],
+  ): { title: string; body: string } | Promise<{ title: string; body: string }>;
   createNotification(options: { title: string; body: string }): TerminalNativeNotification;
   restoreWindow(): void;
   showWindow(): void;
@@ -25,19 +29,15 @@ export class TerminalNotificationService {
 
   constructor(private readonly options: TerminalNotificationServiceOptions) {}
 
-  show(request: TerminalNotificationRequest): boolean {
+  async show(request: TerminalNotificationRequest): Promise<boolean> {
     if (!this.options.isSupported() || this.options.isWindowFocused()) return false;
     const label = this.options.resolveSessionLabel(request.sessionId);
     if (!label) return false;
 
     try {
-      const notification = this.options.createNotification({
-        title: 'NovelTea',
-        body:
-          request.kind === 'command-completed'
-            ? `${label} completed a command.`
-            : `${label} needs attention.`,
-      });
+      const notification = this.options.createNotification(
+        await this.options.resolveContent(label, request.kind),
+      );
       const release = () => this.activeNotifications.delete(notification);
       notification.onClick(() => {
         release();
