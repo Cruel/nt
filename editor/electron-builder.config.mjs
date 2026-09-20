@@ -21,6 +21,7 @@ const applicationMetadata = JSON.parse(
 );
 const linuxMaintainerScriptsRoot = path.join(buildResourcesRoot, 'linux');
 const windowsInstallerInclude = path.join(buildResourcesRoot, 'windows', 'installer.nsh');
+const nodePtyPrebuildTuple = `${process.platform}-${process.arch}`;
 
 if (
   applicationMetadata.productName !== 'NovelTea Editor' ||
@@ -115,6 +116,8 @@ export default {
     'node_modules/**/*',
     '!node_modules/.cache{,/**/*}',
     '!node_modules/**/{test,tests,__tests__,coverage,fixtures}/**/*',
+    '!node_modules/node-pty/prebuilds/**/*',
+    `node_modules/node-pty/prebuilds/${nodePtyPrebuildTuple}/**/*`,
   ],
   extraResources: [
     {

@@ -111,7 +111,8 @@ system.
 package closure includes `node-addon-api` 7.1.1 and platform-native node-pty objects; Vite preserves
 `node-pty` as an external runtime package, pnpm's native-build allowlist admits its install step,
 production staging verifies the exact dependency and loads its native module, and electron-builder
-unpacks the `node-pty` tree from ASAR. This Electron-main native module stays outside NovelTea's
-engine/player C++ target graph; the boundary is documented in
-`docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md`. Cross-platform PTY package smoke is qualified
-separately from this initial slice.
+unpacks the `node-pty` tree from ASAR. Foreign platform/architecture prebuild tuples are pruned before
+staging and rejected by stage/package verification; the permanent packaged-app smoke exercises PTY
+spawn, I/O, resize, normal exit, and explicit termination on Linux x64, Windows x64, and macOS arm64
+release runners. This Electron-main native module stays outside NovelTea's engine/player C++ target
+graph; the boundary is documented in `docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md`.

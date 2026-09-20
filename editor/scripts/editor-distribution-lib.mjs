@@ -27,6 +27,10 @@ import {
   readNovelTeaVersion,
 } from '../../scripts/noveltea-version.mjs';
 import { resolvePnpmInvocation } from './pnpm-invocation.mjs';
+import {
+  inspectNodePtyNativeClosure,
+  pruneForeignNodePtyPrebuilds,
+} from './node-pty-distribution.mjs';
 
 export const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const repositoryRoot = path.resolve(editorRoot, '..');
@@ -778,6 +782,12 @@ export async function verifyStage(stageRoot, options = {}) {
       `The staged production closure does not contain node-pty ${EXPECTED_NODE_PTY_VERSION}.`,
     );
   }
+  await inspectNodePtyNativeClosure(
+    path.join(appRoot, 'node_modules', 'node-pty'),
+    process.platform,
+    process.arch,
+    EXPECTED_NODE_PTY_VERSION,
+  );
   for (const entry of installedPackages) {
     if (forbiddenProductionPackages.has(entry.name) || entry.name.startsWith('@types/')) {
       throw new Error(`Development-only package entered the production closure: ${entry.name}`);
@@ -913,6 +923,11 @@ export async function createStage(options = {}) {
         .map((entry) => rm(path.join(appRoot, entry), { recursive: true, force: true })),
     );
     await pruneTypeOnlyOptionalPeerClosure(appRoot);
+    await pruneForeignNodePtyPrebuilds(
+      path.join(appRoot, 'node_modules', 'node-pty'),
+      process.platform,
+      process.arch,
+    );
     await pruneProductionSourceMaps(appRoot);
     const editorPackage = await readJson(path.join(editorRoot, 'package.json'));
     const deployedMetadata = {

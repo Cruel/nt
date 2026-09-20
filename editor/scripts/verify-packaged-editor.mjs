@@ -5,12 +5,15 @@ import path from 'node:path';
 import process from 'node:process';
 
 import {
+  EXPECTED_NODE_PTY_VERSION,
+  EXPECTED_SHARP_VERSION,
   findPackagedApplication,
   packageLayout,
   pathExists,
   requiredPreviewFiles,
   verifyStandaloneNovelTeaCli,
 } from './editor-distribution-lib.mjs';
+import { inspectNodePtyNativeClosure } from './node-pty-distribution.mjs';
 
 const expectedFuses = new Map([
   [FuseV1Options.RunAsNode, FuseState.DISABLE],
@@ -81,26 +84,17 @@ export async function findSharpNativeClosure(unpackedRoot, platform = process.pl
   return { sharpPackages, libvipsPackages };
 }
 
-export async function findNodePtyNativeClosure(unpackedRoot) {
-  const nodePtyRoot = path.join(unpackedRoot, 'node_modules', 'node-pty');
-  if (!(await pathExists(path.join(nodePtyRoot, 'package.json')))) {
-    throw new Error('Unpacked node-pty package metadata is missing.');
-  }
-  const visit = async (directory) => {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const target = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (await visit(target)) return true;
-      } else if (entry.isFile() && /\.node$/i.test(entry.name)) {
-        return true;
-      }
-    }
-    return false;
-  };
-  if (!(await visit(nodePtyRoot))) {
-    throw new Error('No unpacked node-pty native binding was found.');
-  }
-  return { root: nodePtyRoot };
+export async function findNodePtyNativeClosure(
+  unpackedRoot,
+  platform = process.platform,
+  arch = process.arch,
+) {
+  return inspectNodePtyNativeClosure(
+    path.join(unpackedRoot, 'node_modules', 'node-pty'),
+    platform,
+    arch,
+    EXPECTED_NODE_PTY_VERSION,
+  );
 }
 
 export async function verifyPackagedEditor(outputOrApplication) {
@@ -149,6 +143,16 @@ export async function verifyPackagedEditor(outputOrApplication) {
     packageMetadata.main !== 'dist-electron/main/main.cjs'
   ) {
     throw new Error(`Unexpected packaged application metadata: ${JSON.stringify(packageMetadata)}`);
+  }
+  const dependencies = packageMetadata.dependencies ?? {};
+  if (
+    Object.keys(dependencies).length !== 2 ||
+    dependencies.sharp !== EXPECTED_SHARP_VERSION ||
+    dependencies['node-pty'] !== EXPECTED_NODE_PTY_VERSION
+  ) {
+    throw new Error(
+      `Unexpected packaged production dependencies: ${JSON.stringify(dependencies)}.`,
+    );
   }
   if (JSON.stringify(packageMetadata).match(/\b(?:workspace|catalog):/i)) {
     throw new Error('Packaged metadata contains a workspace or catalog protocol.');
