@@ -83,8 +83,19 @@ one aggregate unread dot while any session remains unread. Reopening Terminal on
 unread session waits about three seconds before beginning its fade; hiding Terminal before that delay
 cancels passive acknowledgment. Directly selecting an unread terminal, or switching away from an unread
 selected terminal, begins its fade immediately. Repeated events update the latest attention metadata
-without multiplying unread state. Native desktop notification projection is owned by the subsequent
-notification slice and is not part of this attention-state layer.
+without multiplying unread state.
+
+Native desktop notification projection is optional and privacy-safe. Renderer attention state requests
+at most one notification for each unread period and only while the Terminal desktop-notification
+preference is enabled. The guarded request carries only the opaque terminal session id plus the semantic
+attention kind; renderer-provided titles, bodies, commands, cwd values, prompts, or output are never
+accepted. Electron main independently suppresses requests while NovelTea is focused or when native
+notifications are unsupported, resolves the stable `Terminal N` label from its own terminal host, and
+generates generic notification text. Notification construction/show failures are fail-silent and never
+affect PTY behavior. Clicking a notification restores/shows/focuses NovelTea, sends a typed session-id
+click event to the renderer, opens Terminal, selects the originating session, and immediately begins its
+unread acknowledgment fade. macOS signing/notification availability therefore cannot gate terminal
+functionality.
 
 Application/window close uses the existing renderer close handshake. Main reports one aggregate count
 of running/unknown terminal sessions; the renderer asks for one confirmation before metadata cleanup

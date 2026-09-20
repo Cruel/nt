@@ -186,9 +186,29 @@ export function BottomPanel() {
     () =>
       window.noveltea.onTerminalEvent((event) => {
         if (event.kind !== 'attention') return;
-        useTerminalAttentionStore.getState().receiveAttention(event.sessionId, event.attention);
+        const newlyUnread = useTerminalAttentionStore
+          .getState()
+          .receiveAttention(event.sessionId, event.attention);
+        if (newlyUnread && usePreferencesStore.getState().terminal.desktopNotifications) {
+          void window.noveltea.showTerminalNotification({
+            sessionId: event.sessionId,
+            kind: event.attention.kind,
+          });
+        }
       }),
     [],
+  );
+
+  useEffect(
+    () =>
+      window.noveltea.onTerminalNotificationClick(({ sessionId }) => {
+        const attentionStore = useTerminalAttentionStore.getState();
+        attentionStore.acknowledgeSelectionChange(sessionId);
+        attentionStore.setSelectedSessionId(sessionId);
+        setActivePanelId('terminal');
+        void window.noveltea.selectTerminalSession(sessionId);
+      }),
+    [setActivePanelId],
   );
 
   function selectPanel(panelId: BottomPanelId) {
