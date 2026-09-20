@@ -30,8 +30,12 @@ metadata persistence re-check that authority at the write boundary so a Project 
 wins while validation or reconciliation is in flight cannot redirect or complete the old write.
 
 A successful cold Project open seeds a main-owned live `ActiveProjectWorkspaceSession` for that canonical
-root. Active content saves do not reopen the Project: they apply the selected logical mutation to the
-session's coherent cached authoring state, exact-CAS check only transaction targets, commit, and
+root. This editor adapter hosts the shared `ResidentProjectWorkspaceSession` core under
+`editor/src/shared/project-workspace/`; the shared core owns the coherent cached Project snapshot,
+targeted source/revision invalidation and reassembly, transaction recovery, per-session serialization,
+and invalid-source dependency safety without depending on Electron session tokens or renderer
+lifecycle. Active content saves do not reopen the Project: they apply the selected logical mutation to
+the session's coherent cached authoring state, exact-CAS check only transaction targets, commit, and
 synchronously adopt the resulting snapshot/revisions before returning a targeted acknowledgement.
 Metadata-only persistence writes ignored editor/recovery state through the same session authority but
 does not reassemble tracked source. Any operation that discovers stale session authority, a missing or

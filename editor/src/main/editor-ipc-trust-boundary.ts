@@ -46,6 +46,7 @@ import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
 import { userExportConfigSchema } from '../shared/project-schema/platform-export-contracts';
 import { novelTeaUserPreferencesSchema } from '../shared/user-config';
 import { completeDesktopProjectImportRequestSchema } from '../shared/project-import-handoff';
+import { TERMINAL_LIMITS } from '../shared/terminal';
 
 const PACKAGED_EDITOR_DOCUMENT = 'noveltea-editor://app/index.html';
 const MAX_DIALOG_TITLE_LENGTH = 512;
@@ -238,6 +239,9 @@ export const selectDirectoryArgumentsSchema = z.tuple([
       defaultPath: z.string().min(1).max(MAX_DIALOG_PATH_LENGTH).nullable().optional(),
     })
     .strict(),
+]);
+export const validateDirectoryArgumentsSchema = z.tuple([
+  z.string().min(1).max(MAX_DIALOG_PATH_LENGTH),
 ]);
 
 export const noArgumentsSchema = z.tuple([]);
@@ -485,6 +489,33 @@ export const cancelImageThumbnailPrewarmArgumentsSchema = z.tuple([
   cancelImageThumbnailPrewarmRequestSchema,
 ]);
 
+const terminalSessionIdSchema = z.string().uuid().max(TERMINAL_LIMITS.sessionIdLength);
+export const terminalSessionArgumentsSchema = z.tuple([terminalSessionIdSchema]);
+export const terminalCloseArgumentsSchema = z.tuple([
+  z.object({ sessionId: terminalSessionIdSchema, force: z.boolean() }).strict(),
+]);
+export const terminalWriteArgumentsSchema = z.tuple([
+  terminalSessionIdSchema,
+  z.string().refine((value) => utf8ByteLength(value) <= TERMINAL_LIMITS.writeBytes),
+]);
+export const terminalResizeArgumentsSchema = z.tuple([
+  z
+    .object({
+      sessionId: terminalSessionIdSchema,
+      columns: z.number().int().min(1).max(TERMINAL_LIMITS.columns),
+      rows: z.number().int().min(1).max(TERMINAL_LIMITS.rows),
+    })
+    .strict(),
+]);
+export const terminalNotificationArgumentsSchema = z.tuple([
+  z
+    .object({
+      sessionId: terminalSessionIdSchema,
+      kind: z.enum(['command-completed', 'bell']),
+    })
+    .strict(),
+]);
+
 const playbackSubjectSchema = z.discriminatedUnion('kind', [
   z
     .object({
@@ -569,6 +600,7 @@ const playbackSpecSchema = z
 export const validateProjectArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   authoringProjectSchema,
+  z.enum(['disk-authoritative', 'session-local']),
 ]);
 export const listPlaybackTestsArgumentsSchema = z.tuple([authoringProjectSchema]);
 const runtimeRecoveryFingerprintSchema = z.record(

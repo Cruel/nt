@@ -7,6 +7,18 @@ import type {
 import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
 import type { ScriptcHostInvoke } from './noveltea-scriptc-path-metadata';
 
+let residentInvokeHost: ScriptcHostInvoke | null = null;
+let residentFileSystem:
+  | import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem
+  | undefined;
+let residentWorkspace:
+  | import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectWorkspaceService
+  | undefined;
+const invokeResidentHost: ScriptcHostInvoke = (operation, request) => {
+  if (!residentInvokeHost) throw new Error('Resident ScriptC host is unavailable.');
+  return residentInvokeHost(operation, request);
+};
+
 function trace(message: string): void {
   if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-island] ${message}\n`);
 }
@@ -157,20 +169,75 @@ async function runInternalCommand(
   return result(record.ok === true ? 0 : 1, `${JSON.stringify(response)}\n`);
 }
 
+export interface ScriptcInvocationContext {
+  readonly cwd?: string;
+  readonly environment?: Readonly<Record<string, string>>;
+  readonly cancellationProbe?: () => boolean;
+  readonly residentProjectSessions?: boolean;
+  readonly projectSessionIdleMs?: number;
+}
+
 export async function runNovelTeaScriptcIsland(
   argvText: string,
   invokeHost: ScriptcHostInvoke,
   forceRuntimeCacheRebuild = false,
+  authoringCacheInventoryText = '',
+  invocationContext: ScriptcInvocationContext = {},
+): Promise<string> {
+  const previousEnvironment = invocationContext.environment ? { ...process.env } : null;
+  if (invocationContext.environment) {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    for (const [key, value] of Object.entries(invocationContext.environment))
+      process.env[key] = value;
+  }
+  try {
+    return await runNovelTeaScriptcIslandScoped(
+      argvText,
+      invokeHost,
+      forceRuntimeCacheRebuild,
+      authoringCacheInventoryText,
+      invocationContext,
+    );
+  } finally {
+    if (previousEnvironment) {
+      for (const key of Object.keys(process.env)) delete process.env[key];
+      for (const [key, value] of Object.entries(previousEnvironment))
+        if (value !== undefined) process.env[key] = value;
+    }
+  }
+}
+
+async function runNovelTeaScriptcIslandScoped(
+  argvText: string,
+  invokeHost: ScriptcHostInvoke,
+  forceRuntimeCacheRebuild: boolean,
+  authoringCacheInventoryText: string,
+  invocationContext: ScriptcInvocationContext,
 ): Promise<string> {
   const argv = JSON.parse(argvText) as string[];
+  const precomputedAuthoringCacheInventory = authoringCacheInventoryText
+    ? ({
+        entries: JSON.parse(authoringCacheInventoryText),
+      } as import('../src/shared/project-source-inventory').ProjectSourceInventory)
+    : undefined;
+  const environment = invocationContext.environment ?? process.env;
+  if (invocationContext.residentProjectSessions) {
+    residentInvokeHost = invokeHost;
+    if (residentWorkspace && invocationContext.projectSessionIdleMs) {
+      const evicted = residentWorkspace.evictIdleSessions(invocationContext.projectSessionIdleMs);
+      if (evicted > 0) trace(`resident Project idle eviction: ${String(evicted)}`);
+    }
+  }
   const cancellationCertification =
-    process.env.NOVELTEA_CLI_CERTIFICATION === '1' && argv[0] === '__comfyui-cancel-certification';
+    environment.NOVELTEA_CLI_CERTIFICATION === '1' && argv[0] === '__comfyui-cancel-certification';
   const effectiveArgv = cancellationCertification ? argv.slice(1) : argv;
   const nativeTools = createNativeTools(invokeHost);
   const internal = await runInternalCommand(effectiveArgv, nativeTools, invokeHost);
   if (internal !== null) return internal;
 
+  trace('bootstrap import starting');
   const { bootstrapNovelTeaCli } = await import('../src/cli/bootstrap');
+  trace('bootstrap import completed');
   const bootstrap = bootstrapNovelTeaCli(effectiveArgv);
   if (bootstrap.complete)
     return result(bootstrap.result.exitCode, bootstrap.result.stdout, bootstrap.result.stderr);
@@ -180,8 +247,10 @@ export async function runNovelTeaScriptcIsland(
 
   let platformTools: NovelTeaCliPlatformToolService | undefined;
   if (family === 'platform') {
+    trace('platform tools import starting');
     const { createNovelTeaCliPlatformToolService } =
       await import('../src/cli/platform-tool-service-node');
+    trace('platform tools import completed');
     platformTools = createNovelTeaCliPlatformToolService(nativeTools);
   }
 
@@ -201,6 +270,9 @@ export async function runNovelTeaScriptcIsland(
 
   const projectIndependentPlatform =
     family === 'platform' && (operation === 'template' || operation === 'config');
+  const scopedProjectPreparation =
+    (family === 'asset' && operation === 'audit') ||
+    (family === 'platform' && operation === 'profiles');
   let fileSystem:
     | import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem
     | undefined;
@@ -208,35 +280,58 @@ export async function runNovelTeaScriptcIsland(
     | import('../src/shared/project-workspace/project-workspace-service').ProjectWorkspaceService
     | undefined;
   if (!projectIndependentPlatform) {
-    trace('workspace services import starting');
-    const [fileSystemModule, serviceModule, transactionModule, metadataModule, cryptoModule] =
-      await Promise.all([
-        import('../src/shared/project-workspace/node-project-workspace-file-system'),
+    trace('scoped filesystem import starting');
+    const [fileSystemModule, metadataModule] = await Promise.all([
+      import('../src/shared/project-workspace/node-project-workspace-file-system'),
+      import('./noveltea-scriptc-path-metadata'),
+    ]);
+    trace('scoped filesystem import completed');
+    if (invocationContext.residentProjectSessions && residentFileSystem)
+      fileSystem = residentFileSystem;
+    else {
+      fileSystem = fileSystemModule.createNodeProjectWorkspaceFileSystem(
+        metadataModule.createScriptcPathMetadataReader(
+          invocationContext.residentProjectSessions ? invokeResidentHost : invokeHost,
+        ),
+      );
+      if (invocationContext.residentProjectSessions) residentFileSystem = fileSystem;
+    }
+    if (!scopedProjectPreparation) {
+      trace('workspace services import starting');
+      const [serviceModule, transactionModule, cryptoModule] = await Promise.all([
         import('../src/shared/project-workspace/project-workspace-service'),
         import('../src/shared/project-workspace/project-workspace-transaction'),
-        import('./noveltea-scriptc-path-metadata'),
         import('../src/shared/web-crypto'),
       ]);
-    cryptoModule.configureSha256BytesImplementation(async (bytes) =>
-      createHash('sha256').update(bytes).digest('hex'),
-    );
-    fileSystem = fileSystemModule.createNodeProjectWorkspaceFileSystem(
-      metadataModule.createScriptcPathMetadataReader(invokeHost),
-    );
-    workspace = new serviceModule.ProjectWorkspaceService(
-      fileSystem,
-      new transactionModule.ProjectWorkspaceTransactionService(
-        fileSystem,
-        {
-          async isProcessAlive(pid) {
-            const value = invokeHost('process-alive', String(pid));
-            return value === 'true' ? true : value === 'false' ? false : null;
-          },
-        },
-        process.pid,
-        randomUUID,
-      ),
-    );
+      cryptoModule.configureSha256BytesImplementation(async (bytes) =>
+        createHash('sha256').update(bytes).digest('hex'),
+      );
+      const createWorkspace = (
+        workspaceFileSystem: import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem,
+      ) =>
+        new serviceModule.ProjectWorkspaceService(
+          workspaceFileSystem,
+          new transactionModule.ProjectWorkspaceTransactionService(
+            workspaceFileSystem,
+            {
+              async isProcessAlive(pid) {
+                const value = (
+                  invocationContext.residentProjectSessions ? invokeResidentHost : invokeHost
+                )('process-alive', String(pid));
+                return value === 'true' ? true : value === 'false' ? false : null;
+              },
+            },
+            process.pid,
+            randomUUID,
+          ),
+        );
+      workspace = createWorkspace(fileSystem);
+      if (invocationContext.residentProjectSessions && !residentWorkspace) {
+        const { ResidentProjectWorkspaceService } =
+          await import('../src/shared/project-workspace/resident-project-workspace-service');
+        residentWorkspace = new ResidentProjectWorkspaceService(fileSystem, createWorkspace);
+      }
+    }
   }
 
   let agentKitPayload: import('../src/cli/agent-kit').NovelTeaAgentKitPayload | undefined;
@@ -258,15 +353,29 @@ export async function runNovelTeaScriptcIsland(
     embeddedBuiltInFiles = comfyUi.scriptcComfyUiWorkflowFiles;
   }
 
-  const cancellationController = cancellationCertification ? new AbortController() : null;
-  const cancellationTimer = cancellationController
-    ? setTimeout(() => cancellationController.abort(), 500)
+  const cancellationController =
+    cancellationCertification || invocationContext.cancellationProbe ? new AbortController() : null;
+  const cancellationTimer = cancellationCertification
+    ? setTimeout(() => cancellationController?.abort(), 500)
+    : null;
+  const cancellationPoll = invocationContext.cancellationProbe
+    ? setInterval(() => {
+        if (invocationContext.cancellationProbe?.()) cancellationController?.abort();
+      }, 25)
     : null;
   try {
+    let validationProfileText = '';
+    trace('application import starting');
     const { runNovelTeaCli } = await import('../src/cli/application');
+    trace('application import completed');
+    trace('application invocation starting');
     const commandResult = await runNovelTeaCli(effectiveArgv, {
+      ...(invocationContext.cwd ? { cwd: invocationContext.cwd } : {}),
       ...(fileSystem ? { fileSystem } : {}),
       ...(workspace ? { workspace } : {}),
+      ...(invocationContext.residentProjectSessions && residentWorkspace
+        ? { residentWorkspace }
+        : {}),
       nativeTools,
       ...(platformTools ? { platformTools } : {}),
       ...(embeddedBuiltInFiles ? { comfyUiWorkflowLibraryOptions: { embeddedBuiltInFiles } } : {}),
@@ -274,11 +383,25 @@ export async function runNovelTeaScriptcIsland(
       ...(agentKitPayload ? { agentKitPayload } : {}),
       readStdinText: () => invokeHost('read-stdin', ''),
       forceRuntimeCacheRebuild,
-      // An island validate is the canonical fallback, not a second chance to trust a rejected cache.
-      forceAuthoringCacheRebuild: true,
+      // A native whole-result miss must not become a second whole-result hit inside the island,
+      // but stale generations can still contribute individually proven source/validation work.
+      skipAuthoringWholeResultCache: true,
+      ...(precomputedAuthoringCacheInventory ? { precomputedAuthoringCacheInventory } : {}),
+      onAuthoringValidationInstrumentation:
+        environment.NOVELTEA_CLI_VALIDATION_PROFILE === '1'
+          ? (instrumentation) => {
+              validationProfileText = `[validation-profile] ${JSON.stringify(instrumentation)}\n`;
+            }
+          : undefined,
     });
-    return result(commandResult.exitCode, commandResult.stdout, commandResult.stderr);
+    trace('application invocation completed');
+    return result(
+      commandResult.exitCode,
+      commandResult.stdout,
+      `${validationProfileText}${commandResult.stderr}`,
+    );
   } finally {
     if (cancellationTimer) clearTimeout(cancellationTimer);
+    if (cancellationPoll) clearInterval(cancellationPoll);
   }
 }

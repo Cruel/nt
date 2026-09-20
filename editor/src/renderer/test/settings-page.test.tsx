@@ -112,6 +112,7 @@ describe('SettingsPage code editor theme selector', () => {
       '/home/test/Documents/NovelTea',
     );
     vi.spyOn(window.noveltea, 'selectDirectory').mockResolvedValue('/tmp/NovelTea');
+    vi.spyOn(window.noveltea, 'validateDirectory').mockResolvedValue(true);
   });
 
   it('opens a preview dialog and applies the cycled theme', async () => {
@@ -165,6 +166,63 @@ describe('SettingsPage code editor theme selector', () => {
     expect(screen.getByRole('switch', { name: 'Enable ComfyUI integration' })).toBeInTheDocument();
   });
 
+  it('edits bounded Terminal preferences and validates typed fallback directories', async () => {
+    await renderSettingsPage();
+    selectSettingsCategory('Terminal');
+
+    const fontSize = screen.getByRole('spinbutton', { name: 'Font size' });
+    fireEvent.change(fontSize, { target: { value: '99' } });
+    expect(usePreferencesStore.getState().terminal.fontSize).toBe(32);
+
+    const scrollback = screen.getByRole('spinbutton', { name: 'Scrollback lines' });
+    fireEvent.change(scrollback, { target: { value: '1' } });
+    expect(usePreferencesStore.getState().terminal.scrollback).toBe(100);
+
+    const fallback = screen.getByRole('textbox', { name: 'Fallback working directory' });
+    fireEvent.change(fallback, { target: { value: '/tmp/Terminal Work' } });
+    fireEvent.blur(fallback);
+    await waitFor(() =>
+      expect(window.noveltea.validateDirectory).toHaveBeenCalledWith('/tmp/Terminal Work'),
+    );
+    expect(usePreferencesStore.getState().terminal.fallbackCwd).toBe('/tmp/Terminal Work');
+
+    vi.mocked(window.noveltea.validateDirectory).mockResolvedValueOnce(false);
+    fireEvent.change(fallback, { target: { value: '/missing directory' } });
+    fireEvent.blur(fallback);
+    expect(await screen.findByText('Choose an existing directory.')).toBeInTheDocument();
+    expect(usePreferencesStore.getState().terminal.fallbackCwd).toBe('/tmp/Terminal Work');
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Desktop notifications' }));
+    expect(usePreferencesStore.getState().terminal.desktopNotifications).toBe(false);
+  });
+
+  it('does not let stale fallback cwd validation undo Reset', async () => {
+    let resolveValidation!: (valid: boolean) => void;
+    vi.mocked(window.noveltea.validateDirectory).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveValidation = resolve;
+      }),
+    );
+    await renderSettingsPage();
+    selectSettingsCategory('Terminal');
+
+    const fallback = screen.getByRole('textbox', { name: 'Fallback working directory' });
+    fireEvent.change(fallback, { target: { value: '/tmp/pending' } });
+    fireEvent.blur(fallback);
+    await waitFor(() =>
+      expect(window.noveltea.validateDirectory).toHaveBeenCalledWith('/tmp/pending'),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Terminal fallback directory' }));
+    expect(fallback).toHaveValue('');
+    expect(usePreferencesStore.getState().terminal.fallbackCwd).toBeNull();
+
+    resolveValidation(true);
+    await act(async () => Promise.resolve());
+    expect(usePreferencesStore.getState().terminal.fallbackCwd).toBeNull();
+    expect(fallback).toHaveValue('');
+  });
+
   it('restores the selected category after the settings tab remounts', async () => {
     const firstRender = render(<SettingsTabEditor tab={settingsTab} />);
     selectSettingsCategory('Preview');
@@ -196,6 +254,13 @@ describe('SettingsPage code editor theme selector', () => {
       developerMode: true,
       previewFpsCap: 30,
       editorPreviewLayout: 'horizontal',
+      terminal: {
+        fontFamily: 'Fira Code',
+        fontSize: 18,
+        fallbackCwd: '/tmp/Terminal Work',
+        scrollback: 20000,
+        desktopNotifications: false,
+      },
     });
     await renderSettingsPage();
 
@@ -222,6 +287,13 @@ describe('SettingsPage code editor theme selector', () => {
         previewFpsCap: 0,
         previewDisplay: { mode: 'project' },
         editorPreviewLayout: 'automatic',
+        terminal: {
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 13,
+          fallbackCwd: null,
+          scrollback: 10000,
+          desktopNotifications: true,
+        },
       }),
     );
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

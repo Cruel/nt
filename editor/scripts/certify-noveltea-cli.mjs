@@ -132,7 +132,7 @@ async function writeJson(filePath, value) {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-async function treeSnapshot(root) {
+async function treeSnapshot(root, normalizeFile = null) {
   const records = [];
   async function visit(relative = '') {
     const entries = await readdir(path.join(root, relative), { withFileTypes: true });
@@ -145,11 +145,25 @@ async function treeSnapshot(root) {
       const info = await lstat(absolute);
       if (info.isDirectory()) await visit(child);
       else if (info.isSymbolicLink()) records.push(['link', child, await readlink(absolute)]);
-      else if (info.isFile()) records.push(['file', child, sha256(await readFile(absolute))]);
+      else if (info.isFile()) {
+        const bytes = await readFile(absolute);
+        records.push(['file', child, sha256(normalizeFile?.(child, bytes) ?? bytes)]);
+      }
     }
   }
   await visit();
   return JSON.stringify(records);
+}
+
+function describeTreeDifference(expectedJson, actualJson) {
+  const expected = JSON.parse(expectedJson);
+  const actual = JSON.parse(actualJson);
+  const count = Math.max(expected.length, actual.length);
+  for (let index = 0; index < count; index += 1) {
+    if (JSON.stringify(expected[index]) !== JSON.stringify(actual[index]))
+      return `first difference at ${index}: expected=${JSON.stringify(expected[index])} actual=${JSON.stringify(actual[index])}`;
+  }
+  return 'tree snapshots differ';
 }
 
 async function materializeFixture(root) {
@@ -185,6 +199,13 @@ function runNode(args, options = {}) {
 
 function runNative(args, options = {}) {
   return run(nativeCli, args, options);
+}
+
+function runNativeNoDaemon(args, options = {}) {
+  return runNative(args, {
+    ...options,
+    env: { ...process.env, ...options.env, NOVELTEA_NO_DAEMON: '1' },
+  });
 }
 
 async function startComfyUiCertificationServer(tempRoot, mode = 'success') {
@@ -521,7 +542,7 @@ function assertIslandBoundaryTrace(label, result, marker, expected) {
 }
 
 function certifyBootstrapOnlyIslandFailures() {
-  const env = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  const env = { ...process.env, NOVELTEA_CLI_TRACE: '1', NOVELTEA_NO_DAEMON: '1' };
   for (const test of [
     { label: 'repeated global help', args: ['--help', '--help'], expectedStatus: 0 },
     { label: 'unknown global option', args: ['--not-a-global-option'], expectedStatus: 2 },
@@ -571,6 +592,13 @@ async function prepareWritingRecovery(root) {
     ],
     completedTargets: [target],
   });
+}
+
+function canonicalOperationJson(stdout) {
+  if (!stdout) return stdout;
+  const value = JSON.parse(stdout);
+  if (value && typeof value === 'object' && !Array.isArray(value)) delete value.operationId;
+  return `${JSON.stringify(value)}\n`;
 }
 
 const differentialCases = [
@@ -659,6 +687,232 @@ const differentialCases = [
   },
   { name: 'usages', args: (root) => ['--project', root, '--json', 'usages', 'rooms', 'gallery'] },
   {
+    name: 'asset-audit',
+    args: (root) => ['--project', root, '--json', 'asset', 'audit'],
+  },
+  {
+    name: 'asset-audit-unrelated-malformed',
+    args: (root) => ['--project', root, '--json', 'asset', 'audit'],
+    prepare: async (root) => {
+      const manifestPath = path.join(root, 'project.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      manifest.settings = null;
+      await writeJson(manifestPath, manifest);
+      const dialoguesRoot = path.join(root, 'records', 'dialogues');
+      await mkdir(dialoguesRoot, { recursive: true });
+      await writeFile(path.join(dialoguesRoot, 'broken.json'), '{"id":');
+    },
+  },
+  {
+    name: 'asset-audit-malformed-asset',
+    args: (root) => ['--project', root, '--json', 'asset', 'audit'],
+    prepare: async (root) => {
+      const assetsRoot = path.join(root, 'records', 'assets');
+      await mkdir(assetsRoot, { recursive: true });
+      await writeJson(path.join(assetsRoot, 'broken.json'), {
+        id: 'broken',
+        label: 'Broken',
+        data: {
+          kind: 'not-an-asset-kind',
+          source: { type: 'project-file', path: 'assets/text/broken.txt' },
+          aliases: [],
+          imageMetadata: null,
+        },
+      });
+    },
+  },
+  {
+    name: 'asset-import-execute',
+    mutation: true,
+    normalizeTree(relativePath, bytes) {
+      if (relativePath !== 'records/assets/daemon-parity.json') return bytes;
+      const record = JSON.parse(bytes.toString('utf8'));
+      delete record.data.importedAt;
+      return Buffer.from(JSON.stringify(record));
+    },
+    prepare: async (root) => {
+      const source = path.join(root, 'assets', 'text', 'daemon-parity.txt');
+      await mkdir(path.dirname(source), { recursive: true });
+      await writeFile(source, 'daemon parity asset\n');
+    },
+    args: (root) => [
+      '--project',
+      root,
+      '--json',
+      'asset',
+      'import',
+      path.join(root, 'assets', 'text', 'daemon-parity.txt'),
+    ],
+  },
+  {
+    name: 'localization-sync-dry-run',
+    args: (root) => ['--project', root, '--json', 'localization', 'sync', '--dry-run'],
+  },
+  {
+    name: 'localization-reconcile',
+    args: (root) => ['--project', root, '--json', 'localization', 'reconcile'],
+  },
+  {
+    name: 'localization-reconcile-apply-stale',
+    args: (root) => ['--project', root, '--json', 'localization', 'reconcile', '--apply'],
+    stdin: `${JSON.stringify({
+      expectedWorkspaceRevision: 'sha256:stale',
+      expectedFingerprint: 'sha256:stale',
+      resolutions: {},
+    })}\n`,
+  },
+  {
+    name: 'localization-view',
+    args: (root) => ['--project', root, '--json', 'localization', 'view', 'fr'],
+  },
+  {
+    name: 'localization-accept-dry-run',
+    args: (root) => [
+      '--project',
+      root,
+      '--json',
+      'localization',
+      'accept',
+      'fr',
+      '11111111-1111-4111-8111-111111111111',
+      '--dry-run',
+    ],
+  },
+  {
+    name: 'localization-review-dry-run',
+    args: (root) => [
+      '--project',
+      root,
+      '--json',
+      'localization',
+      'review',
+      'fr',
+      '11111111-1111-4111-8111-111111111111',
+      '--dry-run',
+    ],
+  },
+  {
+    name: 'shaders-compile',
+    args: (root) => ['--project', root, '--json', 'shaders', 'compile', '--force-rebuild'],
+  },
+  {
+    name: 'package-export',
+    args: (root) => [
+      '--project',
+      root,
+      '--json',
+      'package',
+      'export',
+      '--output',
+      path.join(root, 'daemon-parity.ntpkg'),
+    ],
+  },
+  {
+    name: 'platform-template-list',
+    args: () => ['--json', 'platform', 'template', 'list'],
+    project: false,
+  },
+  {
+    name: 'platform-template-inspect-missing',
+    args: () => ['--json', 'platform', 'template', 'inspect', 'missing@missing'],
+    project: false,
+  },
+  {
+    name: 'platform-template-install-missing',
+    args: (root) => [
+      '--json',
+      'platform',
+      'template',
+      'install',
+      path.join(root, 'missing-template.tar.gz'),
+    ],
+    project: false,
+  },
+  {
+    name: 'platform-template-remove-missing',
+    args: () => ['--json', 'platform', 'template', 'remove', 'missing@missing', '--force'],
+    project: false,
+  },
+  {
+    name: 'platform-config-init',
+    args: (root) => ['--json', 'platform', 'config', 'init', path.join(root, 'daemon-parity.json')],
+  },
+  {
+    name: 'platform-export-check',
+    canonicalStdout: canonicalOperationJson,
+    args: (root) => [
+      '--project',
+      root,
+      '--json',
+      'platform',
+      'export',
+      '--output',
+      path.join(root, 'daemon-platform-parity'),
+      '--check',
+    ],
+  },
+  {
+    name: 'platform-profiles',
+    args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
+  },
+  {
+    name: 'platform-profiles-unrelated-malformed',
+    args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
+    prepare: async (root) => {
+      const manifestPath = path.join(root, 'project.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      manifest.settings = null;
+      await writeJson(manifestPath, manifest);
+      const dialoguesRoot = path.join(root, 'records', 'dialogues');
+      await mkdir(dialoguesRoot, { recursive: true });
+      await writeFile(path.join(dialoguesRoot, 'broken.json'), '{"id":');
+    },
+  },
+  {
+    name: 'platform-profiles-malformed-profile',
+    args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
+    prepare: async (root) => {
+      const manifestPath = path.join(root, 'project.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      manifest.export.profiles[0].target = 'not-a-platform';
+      await writeJson(manifestPath, manifest);
+    },
+  },
+  {
+    name: 'platform-profiles-missing-memory-policy',
+    args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
+    prepare: async (root) => {
+      const manifestPath = path.join(root, 'project.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      manifest.export.profiles[0].assetMemory = {
+        kind: 'policy',
+        policyId: 'missing-policy',
+      };
+      await writeJson(manifestPath, manifest);
+    },
+  },
+  {
+    name: 'platform-profiles-multiple-export-diagnostics',
+    args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
+    prepare: async (root) => {
+      const manifestPath = path.join(root, 'project.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      manifest.export.assetMemoryPolicies = [
+        {
+          id: 'too-warm',
+          label: 'Too warm',
+          basePreset: 'low',
+          overrides: { warmPreparedCpuBytes: 40 * 1024 * 1024 },
+        },
+      ];
+      manifest.export.profiles[0].assetMemory = {
+        kind: 'policy',
+        policyId: 'missing-policy',
+      };
+      await writeJson(manifestPath, manifest);
+    },
+  },
+  {
     name: 'create-dry-run',
     args: (root) => [
       '--project',
@@ -673,6 +927,7 @@ const differentialCases = [
   },
   {
     name: 'create-execute',
+    mutation: true,
     args: (root) => ['--project', root, '--json', 'entity', 'create', 'rooms', 'hallway'],
   },
   {
@@ -706,6 +961,7 @@ const differentialCases = [
   },
   {
     name: 'rename-allowed-execute',
+    mutation: true,
     args: (root) => [
       '--project',
       root,
@@ -739,6 +995,7 @@ const differentialCases = [
   },
   {
     name: 'delete-force-execute',
+    mutation: true,
     args: (root) => [
       '--project',
       root,
@@ -816,17 +1073,33 @@ async function runDifferential(tempRoot) {
     await test.prepare?.(caseRoot);
     const args = test.args(caseRoot);
     const cwd = test.cwd?.(caseRoot) ?? (test.project === false ? repositoryRoot : caseRoot);
-    const nodeResult = runNode(args, { cwd });
-    const nodeTree = test.project === false ? '' : await treeSnapshot(caseRoot);
+    const nodeResult = runNode(args, { cwd, stdin: test.stdin });
+    const nodeTree =
+      test.project === false
+        ? ''
+        : await treeSnapshot(
+            caseRoot,
+            test.normalizeTree ? (...input) => test.normalizeTree(...input) : null,
+          );
 
     await resetCase(pristine, caseRoot);
     await test.prepare?.(caseRoot);
-    const scriptcResult = runNative(args, { cwd: test.cwd?.(caseRoot) ?? cwd });
-    const scriptcTree = test.project === false ? '' : await treeSnapshot(caseRoot);
+    const scriptcResult = runNative(args, {
+      cwd: test.cwd?.(caseRoot) ?? cwd,
+      stdin: test.stdin,
+    });
+    const scriptcTree =
+      test.project === false
+        ? ''
+        : await treeSnapshot(
+            caseRoot,
+            test.normalizeTree ? (...input) => test.normalizeTree(...input) : null,
+          );
 
+    const canonicalStdout = test.canonicalStdout ?? ((value) => value);
     if (
       scriptcResult.status !== nodeResult.status ||
-      scriptcResult.stdout !== nodeResult.stdout ||
+      canonicalStdout(scriptcResult.stdout) !== canonicalStdout(nodeResult.stdout) ||
       scriptcResult.stderr !== nodeResult.stderr
     ) {
       await resetCase(pristine, caseRoot);
@@ -834,6 +1107,7 @@ async function runDifferential(tempRoot) {
       const traced = runNative(args, {
         cwd: test.cwd?.(caseRoot) ?? cwd,
         env: { ...process.env, NOVELTEA_CLI_TRACE: '1' },
+        stdin: test.stdin,
       });
       fail(
         `Node/scriptc differential '${test.name}' differs.\n` +
@@ -843,7 +1117,34 @@ async function runDifferential(tempRoot) {
       );
     }
     if (scriptcTree !== nodeTree)
-      fail(`Node/scriptc differential '${test.name}' produced different filesystem state.`);
+      fail(
+        `Node/scriptc differential '${test.name}' produced different filesystem state: ${describeTreeDifference(nodeTree, scriptcTree)}.`,
+      );
+
+    await resetCase(pristine, caseRoot);
+    await test.prepare?.(caseRoot);
+    const noDaemonResult = runNative(args, {
+      cwd: test.cwd?.(caseRoot) ?? cwd,
+      env: { ...process.env, NOVELTEA_NO_DAEMON: '1' },
+      stdin: test.stdin,
+    });
+    const noDaemonTree =
+      test.project === false
+        ? ''
+        : await treeSnapshot(
+            caseRoot,
+            test.normalizeTree ? (...input) => test.normalizeTree(...input) : null,
+          );
+    if (
+      noDaemonResult.status !== nodeResult.status ||
+      canonicalStdout(noDaemonResult.stdout) !== canonicalStdout(nodeResult.stdout) ||
+      noDaemonResult.stderr !== nodeResult.stderr
+    )
+      fail(`Node/no-daemon differential '${test.name}' differs.`);
+    if (noDaemonTree !== nodeTree)
+      fail(
+        `Node/no-daemon differential '${test.name}' produced different filesystem state: ${describeTreeDifference(nodeTree, noDaemonTree)}.`,
+      );
     process.stdout.write(`[differential] ${test.name}: PASS\n`);
   }
   return { pristine };
@@ -968,16 +1269,19 @@ async function certifyTestCommandParity(tempRoot, pristine) {
       test.stdinPath
         ? runNodeWithStdinFile(args, test.stdinPath, { cwd: root })
         : runNode(args, { cwd: root });
-    const invokeNative = () =>
+    const invokeNative = (environment = process.env) =>
       test.stdinPath
-        ? runNativeWithStdinFile(args, test.stdinPath, { cwd: root })
-        : runNative(args, { cwd: root });
+        ? runNativeWithStdinFile(args, test.stdinPath, { cwd: root, env: environment })
+        : runNative(args, { cwd: root, env: environment });
 
     await resetCase(baseline, root);
     const nodeFallback = invokeNode();
     await resetCase(baseline, root);
     const scriptcFallback = invokeNative();
     assertPublicCommandParity(`${test.name} fallback`, nodeFallback, scriptcFallback);
+    await resetCase(baseline, root);
+    const localFallback = invokeNative({ ...process.env, NOVELTEA_NO_DAEMON: '1' });
+    assertPublicCommandParity(`${test.name} no-daemon fallback`, nodeFallback, localFallback);
 
     const nodeHit = invokeNode();
     const scriptcHit = invokeNative();
@@ -1012,7 +1316,10 @@ async function certifyAuthoringCache(tempRoot, pristine) {
   );
   const args = ['--project', root, '--json', 'validate'];
   const invoke = (label, island) => {
-    const result = runNative(args, { cwd: root, env: { ...process.env, NOVELTEA_CLI_TRACE: '1' } });
+    const result = runNative(args, {
+      cwd: root,
+      env: { ...process.env, NOVELTEA_CLI_TRACE: '1', NOVELTEA_NO_DAEMON: '1' },
+    });
     assertIslandTrace(label, result, island);
     const reference = runNode(args, { cwd: root });
     assertPublicCommandParity(label, reference, {
@@ -1123,6 +1430,698 @@ async function certifyAuthoringCache(tempRoot, pristine) {
   process.stdout.write('[authoring-cache] cold/warm, parity, invalidation, recovery: PASS\n');
 }
 
+async function certifyDaemonAuthoringCacheResidency(tempRoot, pristine) {
+  const hydratedRoot = path.join(tempRoot, 'daemon-authoring-cache-hydration');
+  await resetCase(pristine, hydratedRoot);
+  const args = ['--project', hydratedRoot, '--json', 'validate'];
+  requireSuccess(
+    'daemon authoring cache seed',
+    runNative(args, {
+      cwd: hydratedRoot,
+      env: { ...process.env, NOVELTEA_NO_DAEMON: '1' },
+    }),
+  );
+
+  const roomPath = path.join(hydratedRoot, 'records/rooms/gallery.json');
+  const room = JSON.parse(await readFile(roomPath, 'utf8'));
+  room.label = `${room.label} hydrated`;
+  await writeJson(roomPath, room);
+  const hydrated = requireSuccess(
+    'daemon authoring cache hydration',
+    runNative(args, {
+      cwd: hydratedRoot,
+      env: {
+        ...process.env,
+        NOVELTEA_CLI_TRACE: '1',
+        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+      },
+    }),
+  );
+  if (!hydrated.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Stale authoring-cache validation did not route through the resident daemon.');
+  const hydratedProfile = validationProfile(hydrated);
+  if (
+    !hydratedProfile ||
+    hydratedProfile.sourceWork.reusedJsonSources <= 0 ||
+    hydratedProfile.sourceWork.wholeProjectSchemaParses !== 0
+  )
+    fail(
+      `Cold resident Project did not hydrate persistent authoring contributions: ${hydrated.stderr}`,
+    );
+
+  const exact = requireSuccess(
+    'daemon authoring static exact hit',
+    runNative(args, {
+      cwd: hydratedRoot,
+      env: {
+        ...process.env,
+        NOVELTEA_CLI_TRACE: '1',
+        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+      },
+    }),
+  );
+  if (!exact.stderr.includes('authoring cache hit: static/native validate path admitted'))
+    fail(`Exact authoring-cache validation did not stay static/native: ${exact.stderr}`);
+  if (
+    exact.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
+    validationProfile(exact)
+  )
+    fail('Exact authoring-cache validation contacted the daemon instead of returning statically.');
+
+  room.label = `${room.label} resident`;
+  await writeJson(roomPath, room);
+  const resident = requireSuccess(
+    'daemon authoring resident validation',
+    runNative(args, {
+      cwd: hydratedRoot,
+      env: {
+        ...process.env,
+        NOVELTEA_CLI_TRACE: '1',
+        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+      },
+    }),
+  );
+  const residentProfile = validationProfile(resident);
+  if (
+    !residentProfile ||
+    residentProfile.sourceWork.parsedJsonSources !== 1 ||
+    residentProfile.sourceWork.wholeProjectSchemaParses !== 0
+  )
+    fail(`Warm resident validation did not stay change-scoped: ${resident.stderr}`);
+
+  const projectPath = path.join(hydratedRoot, 'project.json');
+  const project = JSON.parse(await readFile(projectPath, 'utf8'));
+  project.entrypoint = { kind: 'room', id: 'missing-daemon-cache-room' };
+  await writeJson(projectPath, project);
+  const invalid = runNative(args, {
+    cwd: hydratedRoot,
+    env: {
+      ...process.env,
+      NOVELTEA_CLI_TRACE: '1',
+      NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+    },
+  });
+  if (invalid.status !== 4 || !validationProfile(invalid))
+    fail(
+      `Resident deterministic validation failure was not computed canonically: ${invalid.stderr}`,
+    );
+  const cachedInvalid = runNative(args, {
+    cwd: hydratedRoot,
+    env: { ...process.env, NOVELTEA_CLI_TRACE: '1' },
+  });
+  if (
+    cachedInvalid.status !== 4 ||
+    !cachedInvalid.stderr.includes('authoring cache hit: static/native validate path admitted') ||
+    cachedInvalid.stderr.includes('[scriptc-host] daemon invocation forwarding')
+  )
+    fail(
+      `Resident deterministic validation failure did not become a static cache hit: ${cachedInvalid.stderr}`,
+    );
+
+  const fallbackRoot = path.join(tempRoot, 'daemon-authoring-cache-fallback');
+  await resetCase(pristine, fallbackRoot);
+  const fallbackCacheRoot = path.join(fallbackRoot, '.noveltea/cache/authoring');
+  await mkdir(fallbackCacheRoot, { recursive: true });
+  await writeFile(path.join(fallbackCacheRoot, 'current'), '{broken');
+  const fallback = requireSuccess(
+    'daemon authoring canonical cold fallback',
+    runNative(['--project', fallbackRoot, '--json', 'validate'], {
+      cwd: fallbackRoot,
+      env: {
+        ...process.env,
+        NOVELTEA_CLI_TRACE: '1',
+        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+      },
+    }),
+  );
+  const fallbackProfile = validationProfile(fallback);
+  if (
+    !fallbackProfile ||
+    fallbackProfile.sourceWork.parsedJsonSources <= 0 ||
+    fallbackProfile.sourceWork.wholeProjectSchemaParses !== 1
+  )
+    fail(
+      `Unusable persistent state did not fall back to canonical cold admission: ${fallback.stderr}`,
+    );
+
+  process.stdout.write(
+    '[daemon-authoring-cache] static > resident > cold fallback ordering: PASS\n',
+  );
+}
+
+function certifyEditorAuthoringCacheSharing() {
+  requireSuccess(
+    'editor authoring-cache sharing integration',
+    runPnpm(
+      [
+        'exec',
+        'vp',
+        'test',
+        'run',
+        'src/renderer/test/editor-authoring-validation-service.test.ts',
+      ],
+      { cwd: editorRoot },
+    ),
+  );
+  process.stdout.write('[editor-authoring-cache] clean sharing and dirty isolation: PASS\n');
+}
+
+function elapsedMilliseconds(operation) {
+  const started = process.hrtime.bigint();
+  const result = operation();
+  const elapsed = Number(process.hrtime.bigint() - started) / 1_000_000;
+  return { result, elapsed };
+}
+
+function median(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+}
+
+function percentile(values, percentileValue) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil((percentileValue / 100) * sorted.length) - 1),
+  );
+  return sorted[index];
+}
+
+function summarizeBenchmark(values) {
+  return {
+    medianMs: Math.round(median(values) * 10) / 10,
+    p95Ms: Math.round(percentile(values, 95) * 10) / 10,
+    minimumMs: Math.round(Math.min(...values) * 10) / 10,
+    maximumMs: Math.round(Math.max(...values) * 10) / 10,
+  };
+}
+
+function validationProfile(result) {
+  const line = result.stderr
+    .split(/\r?\n/u)
+    .find((entry) => entry.startsWith('[validation-profile] '));
+  if (!line) return null;
+  return JSON.parse(line.slice('[validation-profile] '.length));
+}
+
+async function inflateValidationBenchmark(root, count = 120) {
+  const source = JSON.parse(
+    await readFile(path.join(root, 'records', 'rooms', 'foyer.json'), 'utf8'),
+  );
+  for (let index = 0; index < count; index += 1) {
+    const id = `validation-benchmark-${String(index).padStart(3, '0')}`;
+    await writeJson(path.join(root, 'records', 'rooms', `${id}.json`), {
+      ...source,
+      id,
+      label: `Validation benchmark ${index}`,
+    });
+  }
+}
+
+async function editValidationBenchmarkRecord(root, label) {
+  const file = path.join(root, 'records', 'rooms', 'validation-benchmark-000.json');
+  const record = JSON.parse(await readFile(file, 'utf8'));
+  record.label = label;
+  await writeJson(file, record);
+}
+
+async function daemonRssBytes(pid) {
+  try {
+    if (isWindows) {
+      const result = run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(Get-Process -Id ${pid}).WorkingSet64`,
+      ]);
+      if (result.status !== 0) return null;
+      const value = Number(result.stdout.trim());
+      return Number.isSafeInteger(value) && value > 0 ? value : null;
+    }
+    const status = await readFile(`/proc/${pid}/status`, 'utf8');
+    const match = /^VmRSS:\s+(\d+)\s+kB$/mu.exec(status);
+    return match ? Number(match[1]) * 1024 : null;
+  } catch {
+    return null;
+  }
+}
+
+async function certifyResidentDaemon(tempRoot, pristine) {
+  const root = path.join(tempRoot, 'resident-daemon');
+  const runtimeRoot = path.join(tempRoot, 'resident-daemon-runtime');
+  await resetCase(pristine, root);
+  const daemonEnvironment = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '250',
+  };
+  const traceEnvironment = { ...daemonEnvironment, NOVELTEA_CLI_TRACE: '1' };
+  runNative(['daemon', 'stop'], { env: daemonEnvironment });
+
+  const stopped = requireSuccess(
+    'daemon initial status',
+    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+  );
+  const stoppedPayload = JSON.parse(stopped.stdout).daemon;
+  if (stoppedPayload.running !== false || stoppedPayload.state !== 'stopped')
+    fail(`Daemon did not begin certification stopped: ${stopped.stdout}`);
+
+  const coldStartupStartedAt = Date.now();
+  const first = await runAsync(nativeCli, ['--project', root, '--json', 'asset', 'audit'], {
+    cwd: root,
+    env: traceEnvironment,
+  });
+  const second = await runAsync(nativeCli, ['--project', root, '--json', 'platform', 'profiles'], {
+    cwd: root,
+    env: traceEnvironment,
+  });
+  const [firstResult, secondResult] = await Promise.all([first.result(), second.result()]);
+  const coldStartupMs = Date.now() - coldStartupStartedAt;
+  requireSuccess('daemon concurrent cold asset audit', firstResult);
+  requireSuccess('daemon concurrent cold platform profiles', secondResult);
+  for (const entry of [
+    { label: 'asset audit', result: firstResult },
+    { label: 'platform profiles', result: secondResult },
+  ]) {
+    if (!entry.result.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+      fail(`Concurrent cold ${entry.label} did not route through the daemon.`);
+  }
+
+  const ready = requireSuccess(
+    'daemon ready status',
+    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+  );
+  const readyPayload = JSON.parse(ready.stdout).daemon;
+  if (readyPayload.running !== true || readyPayload.state !== 'ready')
+    fail(`Daemon did not reach ready state: ${ready.stdout}`);
+  if (!Number.isSafeInteger(readyPayload.pid) || readyPayload.pid <= 0)
+    fail(`Daemon status did not expose a valid pid: ${ready.stdout}`);
+  if (!readyPayload.build.includes(':cert:'))
+    fail(`Daemon certification did not use an isolated build identity: ${ready.stdout}`);
+  if (!isWindows) {
+    const identity = createHash('sha256')
+      .update(`${readyPayload.build}\n${readyPayload.protocol}`)
+      .digest('hex')
+      .slice(0, 32);
+    const runtimeInfo = await lstat(runtimeRoot);
+    const socketInfo = await lstat(path.join(runtimeRoot, `daemon-${identity}.sock`));
+    if ((runtimeInfo.mode & 0o077) !== 0 || (socketInfo.mode & 0o077) !== 0)
+      fail('Daemon certification endpoint is not private to the current user.');
+  }
+  const rssWithProject = await daemonRssBytes(readyPayload.pid);
+  const residentRead = elapsedMilliseconds(() =>
+    runNative(['--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: traceEnvironment,
+    }),
+  );
+  requireSuccess('daemon resident unchanged read benchmark', residentRead.result);
+
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const sessionEvictionTrigger = requireSuccess(
+    'daemon Project session idle eviction trigger',
+    runNative(['--json', 'comfyui', 'workflows'], { env: traceEnvironment }),
+  );
+  if (!sessionEvictionTrigger.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Project-independent idle-eviction trigger did not route through the resident daemon.');
+  const rssAfterSessionEviction = await daemonRssBytes(readyPayload.pid);
+
+  const staticExact = requireSuccess(
+    'daemon static exact validation precedence',
+    runNative(['--project', root, '--json', 'validate'], { cwd: root, env: traceEnvironment }),
+  );
+  const staticExactSecond = requireSuccess(
+    'daemon static exact validation precedence repeat',
+    runNative(['--project', root, '--json', 'validate'], { cwd: root, env: traceEnvironment }),
+  );
+  if (staticExactSecond.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Exact static validation contacted the daemon.');
+  if (!staticExact.stderr.includes('[scriptc-host] daemon invocation forwarding')) {
+    // A prior differential may already have populated an exact generation; either ordering is valid here.
+    if (!staticExact.stderr.includes('[scriptc-host] static validation completed'))
+      fail('Validation completed through neither the daemon nor the static exact path.');
+  }
+
+  process.kill(readyPayload.pid);
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(readyPayload.pid, 0);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } catch {
+      break;
+    }
+  }
+  const restartedRead = requireSuccess(
+    'daemon crash read-only restart',
+    runNative(['--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: traceEnvironment,
+    }),
+  );
+  if (!restartedRead.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Read-only request after daemon death did not re-enter daemon routing.');
+  const restarted = requireSuccess(
+    'daemon restarted status',
+    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+  );
+  const restartedPayload = JSON.parse(restarted.stdout).daemon;
+  if (restartedPayload.running !== true || restartedPayload.state !== 'ready')
+    fail(`Daemon did not recover after process death: ${restarted.stdout}`);
+  if (restartedPayload.pid === readyPayload.pid)
+    fail('Daemon crash recovery reused the terminated process id unexpectedly.');
+  const rssAfterRestart = await daemonRssBytes(restartedPayload.pid);
+
+  requireSuccess(
+    'daemon stop before idle-shutdown certification',
+    runNative(['--json', 'daemon', 'stop'], { env: daemonEnvironment }),
+  );
+  const idleDaemonEnvironment = {
+    ...daemonEnvironment,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${daemonEnvironment.NOVELTEA_CLI_CERTIFICATION_DAEMON_ID}-idle`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '2000',
+  };
+  const idleTraceEnvironment = { ...idleDaemonEnvironment, NOVELTEA_CLI_TRACE: '1' };
+  const idleAdmission = requireSuccess(
+    'daemon idle-shutdown admission',
+    runNative(['--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: idleTraceEnvironment,
+    }),
+  );
+  if (!idleAdmission.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Idle-shutdown certification did not route through the resident daemon.');
+
+  await new Promise((resolve) => setTimeout(resolve, 2300));
+  const idleStatus = requireSuccess(
+    'daemon idle shutdown status',
+    runNative(['--json', 'daemon', 'status'], { env: idleDaemonEnvironment }),
+  );
+  const idlePayload = JSON.parse(idleStatus.stdout).daemon;
+  if (idlePayload.running !== false || idlePayload.state !== 'stopped')
+    fail(`Daemon did not shut down after its idle cutoff: ${idleStatus.stdout}`);
+
+  const restartedAfterIdle = requireSuccess(
+    'daemon restart after idle shutdown',
+    runNative(['--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: idleTraceEnvironment,
+    }),
+  );
+  if (!restartedAfterIdle.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Daemon did not restart after idle shutdown.');
+
+  const noDaemon = requireSuccess(
+    'explicit no-daemon escape hatch',
+    runNative(['--no-daemon', '--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: traceEnvironment,
+    }),
+  );
+  if (!noDaemon.stderr.includes('[scriptc-host] daemon routing bypassed'))
+    fail('--no-daemon did not select the canonical local QuickJS path.');
+  const envNoDaemon = requireSuccess(
+    'environment no-daemon escape hatch',
+    runNative(['--project', root, '--json', 'asset', 'audit'], {
+      cwd: root,
+      env: { ...traceEnvironment, NOVELTEA_NO_DAEMON: '1' },
+    }),
+  );
+  if (!envNoDaemon.stderr.includes('[scriptc-host] daemon routing bypassed'))
+    fail('NOVELTEA_NO_DAEMON=1 did not select the canonical local QuickJS path.');
+
+  const stoppedAgain = requireSuccess(
+    'daemon graceful stop',
+    runNative(['--json', 'daemon', 'stop'], { env: idleDaemonEnvironment }),
+  );
+  const stopPayload = JSON.parse(stoppedAgain.stdout).daemon;
+  if (stopPayload.running !== false || stopPayload.state !== 'stopped')
+    fail(`Daemon stop did not report stopped state: ${stoppedAgain.stdout}`);
+
+  const report = {
+    platform: `${process.platform}/${process.arch}`,
+    startupElection: true,
+    secureEndpoint: true,
+    buildProtocolIsolation: true,
+    crashRestart: true,
+    idleShutdown: true,
+    projectSessionIdleEviction: true,
+    staticPrecedence: true,
+    explicitBypass: true,
+    performanceMs: {
+      coldStartupAndConcurrentReads: coldStartupMs,
+      residentUnchangedRead: Math.round(residentRead.elapsed * 10) / 10,
+    },
+    rssBytes: {
+      withProjectSession: rssWithProject,
+      afterProjectSessionEviction: rssAfterSessionEviction,
+      afterRestart: rssAfterRestart,
+    },
+  };
+  process.stdout.write(`[resident-daemon] ${JSON.stringify(report)}\n`);
+  return report;
+}
+
+async function certifyPerformanceEnvelope(tempRoot, pristine) {
+  const runs = 5;
+  const measureRepeated = (label, invoke) => {
+    const samples = [];
+    for (let index = 0; index < runs; index += 1) {
+      const { result, elapsed } = elapsedMilliseconds(invoke);
+      requireSuccess(`${label} benchmark ${index + 1}`, result);
+      samples.push(elapsed);
+    }
+    return summarizeBenchmark(samples);
+  };
+
+  const nodeRoot = path.join(tempRoot, 'performance-node');
+  const nativeRoot = path.join(tempRoot, 'performance-native');
+  const templateRegistryRoot = path.join(tempRoot, 'performance-templates');
+  await resetCase(pristine, nodeRoot);
+  await resetCase(pristine, nativeRoot);
+  await mkdir(templateRegistryRoot, { recursive: true });
+  const benchmarkEnvironment = {
+    ...process.env,
+    NOVELTEA_TEMPLATE_REGISTRY_ROOT: templateRegistryRoot,
+  };
+
+  const report = {
+    targetsMs: { trivial: 300, lightweightProject: 500 },
+    targetsRatio: { oneSourceValidationSpeedup: 2 },
+    note: 'Engineering observations only; certification does not fail on wall-clock thresholds or speedup targets.',
+    cases: {
+      nodeVersion: measureRepeated('Node version', () => runNode(['--json', '--version'])),
+      scriptcVersion: measureRepeated('ScriptC version', () => runNative(['--json', '--version'])),
+      nodeTemplateList: measureRepeated('Node platform template list', () =>
+        runNode(['--json', 'platform', 'template', 'list'], { env: benchmarkEnvironment }),
+      ),
+      scriptcTemplateList: measureRepeated('ScriptC platform template list', () =>
+        runNative(['--json', 'platform', 'template', 'list'], { env: benchmarkEnvironment }),
+      ),
+      nodeAssetAudit: measureRepeated('Node asset audit', () =>
+        runNode(['--project', nodeRoot, '--json', 'asset', 'audit'], {
+          cwd: nodeRoot,
+          env: benchmarkEnvironment,
+        }),
+      ),
+      scriptcAssetAudit: measureRepeated('ScriptC asset audit', () =>
+        runNative(['--project', nativeRoot, '--json', 'asset', 'audit'], {
+          cwd: nativeRoot,
+          env: benchmarkEnvironment,
+        }),
+      ),
+      nodePlatformProfiles: measureRepeated('Node platform profiles', () =>
+        runNode(['--project', nodeRoot, '--json', 'platform', 'profiles'], {
+          cwd: nodeRoot,
+          env: benchmarkEnvironment,
+        }),
+      ),
+      scriptcPlatformProfiles: measureRepeated('ScriptC platform profiles', () =>
+        runNative(['--project', nativeRoot, '--json', 'platform', 'profiles'], {
+          cwd: nativeRoot,
+          env: benchmarkEnvironment,
+        }),
+      ),
+    },
+  };
+
+  const nodeValidateRoot = path.join(tempRoot, 'performance-node-validate');
+  const scriptcValidateRoot = path.join(tempRoot, 'performance-scriptc-validate');
+  await resetCase(pristine, nodeValidateRoot);
+  await resetCase(pristine, scriptcValidateRoot);
+  await inflateValidationBenchmark(nodeValidateRoot);
+  await inflateValidationBenchmark(scriptcValidateRoot);
+  const profileEnvironment = { ...process.env, NOVELTEA_CLI_VALIDATION_PROFILE: '1' };
+  const nodeCold = elapsedMilliseconds(() =>
+    runNode(['--project', nodeValidateRoot, '--json', 'validate'], { cwd: nodeValidateRoot }),
+  );
+  requireSuccess('Node cold validate benchmark', nodeCold.result);
+  const nodeWarm = elapsedMilliseconds(() =>
+    runNode(['--project', nodeValidateRoot, '--json', 'validate'], { cwd: nodeValidateRoot }),
+  );
+  requireSuccess('Node warm validate benchmark', nodeWarm.result);
+  await editValidationBenchmarkRecord(nodeValidateRoot, 'Node incremental change');
+  const nodeChanged = elapsedMilliseconds(() =>
+    runNode(['--project', nodeValidateRoot, '--json', 'validate'], {
+      cwd: nodeValidateRoot,
+      env: profileEnvironment,
+    }),
+  );
+  requireSuccess('Node one-source changed validate benchmark', nodeChanged.result);
+  await rm(path.join(nodeValidateRoot, '.noveltea', 'cache', 'authoring', 'current'), {
+    force: true,
+  });
+  const nodeForcedFull = elapsedMilliseconds(() =>
+    runNode(['--project', nodeValidateRoot, '--json', 'validate'], {
+      cwd: nodeValidateRoot,
+      env: profileEnvironment,
+    }),
+  );
+  requireSuccess('Node forced full validate benchmark', nodeForcedFull.result);
+  const scriptcCold = elapsedMilliseconds(() =>
+    runNative(['--project', scriptcValidateRoot, '--json', 'validate'], {
+      cwd: scriptcValidateRoot,
+    }),
+  );
+  requireSuccess('ScriptC cold validate benchmark', scriptcCold.result);
+  const scriptcWarm = elapsedMilliseconds(() =>
+    runNative(['--project', scriptcValidateRoot, '--json', 'validate'], {
+      cwd: scriptcValidateRoot,
+    }),
+  );
+  requireSuccess('ScriptC warm validate benchmark', scriptcWarm.result);
+  await editValidationBenchmarkRecord(scriptcValidateRoot, 'ScriptC incremental change');
+  const scriptcChanged = elapsedMilliseconds(() =>
+    runNative(['--project', scriptcValidateRoot, '--json', 'validate'], {
+      cwd: scriptcValidateRoot,
+      env: profileEnvironment,
+    }),
+  );
+  requireSuccess('ScriptC one-source changed validate benchmark', scriptcChanged.result);
+  await rm(path.join(scriptcValidateRoot, '.noveltea', 'cache', 'authoring', 'current'), {
+    force: true,
+  });
+  const scriptcForcedFull = elapsedMilliseconds(() =>
+    runNative(['--no-daemon', '--project', scriptcValidateRoot, '--json', 'validate'], {
+      cwd: scriptcValidateRoot,
+      env: profileEnvironment,
+    }),
+  );
+  requireSuccess('ScriptC forced full validate benchmark', scriptcForcedFull.result);
+  report.cases.nodeValidate = {
+    coldMs: Math.round(nodeCold.elapsed * 10) / 10,
+    warmMs: Math.round(nodeWarm.elapsed * 10) / 10,
+    oneSourceChangedMs: Math.round(nodeChanged.elapsed * 10) / 10,
+    forcedFullMs: Math.round(nodeForcedFull.elapsed * 10) / 10,
+    oneSourceSpeedup: Math.round((nodeForcedFull.elapsed / nodeChanged.elapsed) * 100) / 100,
+    oneSourceWork: validationProfile(nodeChanged.result),
+    forcedFullWork: validationProfile(nodeForcedFull.result),
+  };
+  report.cases.scriptcValidate = {
+    coldMs: Math.round(scriptcCold.elapsed * 10) / 10,
+    warmMs: Math.round(scriptcWarm.elapsed * 10) / 10,
+    oneSourceChangedMs: Math.round(scriptcChanged.elapsed * 10) / 10,
+    forcedFullMs: Math.round(scriptcForcedFull.elapsed * 10) / 10,
+    oneSourceSpeedup: Math.round((scriptcForcedFull.elapsed / scriptcChanged.elapsed) * 100) / 100,
+    oneSourceWork: validationProfile(scriptcChanged.result),
+    forcedFullWork: validationProfile(scriptcForcedFull.result),
+  };
+
+  const featureLabRoot = path.join(tempRoot, 'performance-feature-lab');
+  await rm(featureLabRoot, { recursive: true, force: true });
+  await cp(path.join(repositoryRoot, 'tests', 'projects', 'feature-lab'), featureLabRoot, {
+    recursive: true,
+  });
+  await rm(path.join(featureLabRoot, '.noveltea', 'cache', 'authoring'), {
+    recursive: true,
+    force: true,
+  });
+  requireSuccess(
+    'Feature Lab resident benchmark admission',
+    runNative(['--project', featureLabRoot, '--json', 'validate'], {
+      cwd: featureLabRoot,
+      env: profileEnvironment,
+    }),
+  );
+  const featureLabRecord = path.join(featureLabRoot, 'records', 'rooms', 'feature-lab-home.json');
+  const featureLabSamples = [];
+  const featureLabWork = [];
+  for (let index = 0; index < 7; index += 1) {
+    const room = JSON.parse(await readFile(featureLabRecord, 'utf8'));
+    room.label = `Feature Lab Home benchmark ${index}`;
+    await writeJson(featureLabRecord, room);
+    const measured = elapsedMilliseconds(() =>
+      runNative(['--project', featureLabRoot, '--json', 'validate'], {
+        cwd: featureLabRoot,
+        env: profileEnvironment,
+      }),
+    );
+    requireSuccess(`Feature Lab one-record benchmark ${index + 1}`, measured.result);
+    featureLabSamples.push(measured.elapsed);
+    featureLabWork.push(validationProfile(measured.result));
+  }
+  report.targetsMs.featureLabOneRecordMedian = 75;
+  report.targetsMs.featureLabOneRecordP95 = 100;
+  report.cases.featureLabResidentOneRecord = {
+    ...summarizeBenchmark(featureLabSamples),
+    samples: featureLabSamples.map((value) => Math.round(value * 10) / 10),
+    work: featureLabWork,
+  };
+
+  const largeRoot = path.join(tempRoot, 'performance-large-validate');
+  await resetCase(pristine, largeRoot);
+  await inflateValidationBenchmark(largeRoot, 600);
+  requireSuccess(
+    'large synthetic resident benchmark admission',
+    runNative(['--project', largeRoot, '--json', 'validate'], {
+      cwd: largeRoot,
+      env: profileEnvironment,
+    }),
+  );
+  await editValidationBenchmarkRecord(largeRoot, 'Large synthetic incremental change');
+  const largeChanged = elapsedMilliseconds(() =>
+    runNative(['--project', largeRoot, '--json', 'validate'], {
+      cwd: largeRoot,
+      env: profileEnvironment,
+    }),
+  );
+  requireSuccess('large synthetic one-source changed validate benchmark', largeChanged.result);
+  report.cases.dependencyClosureScaling = {
+    smallUnrelatedRecords: 120,
+    smallChangedMs: report.cases.scriptcValidate.oneSourceChangedMs,
+    smallWork: report.cases.scriptcValidate.oneSourceWork,
+    largeUnrelatedRecords: 600,
+    largeChangedMs: Math.round(largeChanged.elapsed * 10) / 10,
+    largeWork: validationProfile(largeChanged.result),
+    note: 'Disk-authority source inventory remains O(Project source count); semantic parse/validation work should remain scoped to the affected dependency closure.',
+  };
+
+  process.stdout.write(`[performance] ${JSON.stringify(report)}\n`);
+  return report;
+}
+
+function certifyScopedPreparationLazyBoundaries(projectRoot) {
+  const env = { ...process.env, NOVELTEA_CLI_TRACE: '1', NOVELTEA_NO_DAEMON: '1' };
+  for (const test of [
+    {
+      label: 'standalone scoped asset audit',
+      args: ['--project', projectRoot, '--json', 'asset', 'audit'],
+    },
+    {
+      label: 'standalone scoped platform profiles',
+      args: ['--project', projectRoot, '--json', 'platform', 'profiles'],
+    },
+  ]) {
+    const result = requireSuccess(test.label, runNative(test.args, { cwd: projectRoot, env }));
+    assertIslandTrace(test.label, result, true);
+    assertIslandBoundaryTrace(test.label, result, 'workspace services import starting', false);
+  }
+  process.stdout.write('[scoped-lazy-boundaries] asset audit and platform profiles: PASS\n');
+}
+
 async function certifyRuntimeCacheInvalidation(tempRoot, pristine) {
   const root = path.join(tempRoot, 'runtime-cache-invalidation');
   await resetCase(pristine, root);
@@ -1132,7 +2131,11 @@ async function certifyRuntimeCacheInvalidation(tempRoot, pristine) {
       cwd: root,
     }),
   );
-  const tracedEnvironment = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  const tracedEnvironment = {
+    ...process.env,
+    NOVELTEA_CLI_TRACE: '1',
+    NOVELTEA_NO_DAEMON: '1',
+  };
   const cacheRoot = path.join(root, '.noveltea', 'cache', 'runtime');
   const runCached = (label, expectedIsland, expectedStatus) => {
     const result = requireSuccess(
@@ -1272,7 +2275,11 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
   await rm(root, { recursive: true, force: true });
   await cp(source, root, { recursive: true });
   await rm(path.join(root, '.noveltea', 'cache', 'runtime'), { recursive: true, force: true });
-  const tracedEnvironment = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  const tracedEnvironment = {
+    ...process.env,
+    NOVELTEA_CLI_TRACE: '1',
+    NOVELTEA_NO_DAEMON: '1',
+  };
 
   const suite = requireSuccess(
     'Feature Lab authored suite',
@@ -1326,7 +2333,11 @@ async function certifyNativeOperations(tempRoot, pristine) {
       cwd: root,
     }),
   );
-  const tracedEnvironment = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
+  const tracedEnvironment = {
+    ...process.env,
+    NOVELTEA_CLI_TRACE: '1',
+    NOVELTEA_NO_DAEMON: '1',
+  };
   const firstCachedTest = requireSuccess(
     'runtime-cache first authored test',
     runNative(['--project', root, '--json', 'test', 'run', 'cache-certification'], {
@@ -1722,6 +2733,7 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
     ...process.env,
     NOVELTEA_TEMPLATE_REGISTRY_ROOT: registry,
     NOVELTEA_CLI_TRACE: '1',
+    NOVELTEA_NO_DAEMON: '1',
   };
   const installed = requireSuccess(
     'standalone template install',
@@ -1763,6 +2775,49 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
   const templates = JSON.parse(listed.stdout).templates;
   if (!Array.isArray(templates) || templates[0]?.id !== 'certification-web-template@build-1')
     fail('Standalone template registry did not return the installed template identity.');
+
+  const daemonEnvironment = {
+    ...process.env,
+    NOVELTEA_TEMPLATE_REGISTRY_ROOT: registry,
+  };
+  const daemonListed = requireSuccess(
+    'daemon template registry environment',
+    runNative(['--json', 'platform', 'template', 'list'], {
+      cwd: tempRoot,
+      env: daemonEnvironment,
+    }),
+  );
+  const daemonTemplates = JSON.parse(daemonListed.stdout).templates;
+  if (
+    !Array.isArray(daemonTemplates) ||
+    daemonTemplates[0]?.id !== 'certification-web-template@build-1'
+  )
+    fail('Daemon-routed template registry did not observe the caller environment.');
+  const emptyRegistry = path.join(tempRoot, 'empty-template-registry');
+  await mkdir(emptyRegistry, { recursive: true });
+  const isolatedEnvironment = {
+    ...process.env,
+    NOVELTEA_TEMPLATE_REGISTRY_ROOT: emptyRegistry,
+  };
+  const isolatedList = requireSuccess(
+    'daemon template registry environment isolation',
+    runNative(['--json', 'platform', 'template', 'list'], {
+      cwd: tempRoot,
+      env: isolatedEnvironment,
+    }),
+  );
+  if (JSON.parse(isolatedList.stdout).templates?.length !== 0)
+    fail('Daemon template registry environment leaked across requests.');
+  const restoredList = requireSuccess(
+    'daemon template registry environment restore',
+    runNative(['--json', 'platform', 'template', 'list'], {
+      cwd: tempRoot,
+      env: daemonEnvironment,
+    }),
+  );
+  if (JSON.parse(restoredList.stdout).templates?.[0]?.id !== 'certification-web-template@build-1')
+    fail('Daemon template registry environment was not restored for the next request.');
+
   const config = path.join(tempRoot, 'platform-export-config.json');
   const configured = requireSuccess(
     'standalone platform config',
@@ -2124,21 +3179,30 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
       };
       const node = await runOne(runNode, 'node');
       const native = await runOne(runNative, 'native');
-      if (
-        node.result.status !== native.result.status ||
-        node.result.stderr !== native.result.stderr
-      )
-        fail(`ComfyUI differential '${test.name}' exit/stderr differs.`);
-      if (canonicalComfyUiResult(node.result) !== canonicalComfyUiResult(native.result))
-        fail(
-          `ComfyUI differential '${test.name}' stdout differs.\nNode: ${node.result.stdout}\nScriptC: ${native.result.stdout}`,
-        );
-      if (node.state !== native.state)
-        fail(`ComfyUI differential '${test.name}' filesystem/Project state differs.`);
-      if (canonicalComfyUiRequests(node.requests) !== canonicalComfyUiRequests(native.requests))
-        fail(
-          `ComfyUI differential '${test.name}' fake-server request trace differs.\nNode: ${JSON.stringify(node.requests)}\nScriptC: ${JSON.stringify(native.requests)}`,
-        );
+      const local = await runOne(runNativeNoDaemon, 'no-daemon');
+      for (const entry of [
+        { label: 'resident', candidate: native },
+        { label: 'no-daemon', candidate: local },
+      ]) {
+        const { label, candidate } = entry;
+        if (
+          node.result.status !== candidate.result.status ||
+          node.result.stderr !== candidate.result.stderr
+        )
+          fail(`ComfyUI differential '${test.name}' ${label} exit/stderr differs.`);
+        if (canonicalComfyUiResult(node.result) !== canonicalComfyUiResult(candidate.result))
+          fail(
+            `ComfyUI differential '${test.name}' ${label} stdout differs.\nNode: ${node.result.stdout}\nCandidate: ${candidate.result.stdout}`,
+          );
+        if (node.state !== candidate.state)
+          fail(`ComfyUI differential '${test.name}' ${label} filesystem/Project state differs.`);
+        if (
+          canonicalComfyUiRequests(node.requests) !== canonicalComfyUiRequests(candidate.requests)
+        )
+          fail(
+            `ComfyUI differential '${test.name}' ${label} fake-server request trace differs.\nNode: ${JSON.stringify(node.requests)}\nCandidate: ${JSON.stringify(candidate.requests)}`,
+          );
+      }
       if (node.result.stdout && !node.result.stdout.endsWith('\n'))
         fail(`ComfyUI '${test.name}' stdout is not one JSON line.`);
       if (node.result.stderr !== '') fail(`ComfyUI '${test.name}' emitted stderr in --json mode.`);
@@ -2455,6 +3519,15 @@ async function main() {
     await certifyTypedShaders(tempRoot);
     await certifyRawShaderc(tempRoot);
     await certifyAuthoringCache(tempRoot, pristine);
+    await certifyDaemonAuthoringCacheResidency(tempRoot, pristine);
+    const residentDaemon = await certifyResidentDaemon(tempRoot, pristine);
+    certifyEditorAuthoringCacheSharing();
+    const performance = await certifyPerformanceEnvelope(tempRoot, pristine);
+    performance.cases.residentDaemon = {
+      ...residentDaemon.performanceMs,
+      rssBytes: residentDaemon.rssBytes,
+    };
+    certifyScopedPreparationLazyBoundaries(pristine);
     await certifyTestCommandParity(tempRoot, pristine);
     await certifyRuntimeCacheInvalidation(tempRoot, pristine);
     await certifyNativeOperations(tempRoot, pristine);
@@ -2484,6 +3557,10 @@ async function main() {
         testCommandParity: true,
         runtimeCacheCertification: true,
         authoringCacheCertification: true,
+        residentDaemonCertification: residentDaemon,
+        editorAuthoringCacheSharingCertification: true,
+        scopedPreparationCertification: true,
+        performance,
         featureLabSuite: true,
         relocation: true,
         sourceLeakageAudit: true,

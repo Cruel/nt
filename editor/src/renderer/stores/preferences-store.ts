@@ -18,6 +18,11 @@ import {
   type RmlUiRasterSnapMode,
 } from '../../shared/preview-protocol';
 import type { NovelTeaUserPreferences } from '../../shared/user-config';
+import {
+  DEFAULT_TERMINAL_PREFERENCES,
+  normalizeTerminalPreferences,
+  type TerminalPreferences,
+} from '../../shared/terminal-preferences';
 
 export type Theme = 'system' | 'light' | 'dark';
 
@@ -100,6 +105,7 @@ function sharedPreferencesSnapshot(state: ResettableEditorPreferences): NovelTea
     editorPreviewLayout: state.editorPreviewLayout,
     showCategorizedEditorHeaders: state.showCategorizedEditorHeaders,
     materialLibraryLivePreviews: state.materialLibraryLivePreviews,
+    terminal: state.terminal,
     exportPreferences: state.exportPreferences,
   };
 }
@@ -157,6 +163,7 @@ function sharedPreferencesState(
     ...(typeof candidate.materialLibraryLivePreviews === 'boolean'
       ? { materialLibraryLivePreviews: candidate.materialLibraryLivePreviews }
       : {}),
+    terminal: normalizeTerminalPreferences(candidate.terminal ?? current.terminal),
     exportPreferences: normalizeExportPreferences(
       candidate.exportPreferences ?? current.exportPreferences,
     ),
@@ -179,6 +186,7 @@ export interface ResettableEditorPreferences {
   showCategorizedEditorHeaders: boolean;
   materialLibraryLivePreviews: boolean;
   editorPreviewSplitSizes: EditorPreviewSplitSizes;
+  terminal: TerminalPreferences;
   exportPreferences: ExportPreferences;
 }
 
@@ -205,6 +213,7 @@ interface PreferencesState extends ResettableEditorPreferences {
     orientation: keyof EditorPreviewSplitSizes,
     previewSize: number,
   ) => void;
+  setTerminalPreferences: (patch: Partial<TerminalPreferences>) => void;
   setExportPreferences: (patch: Partial<ExportPreferences>) => void;
   resetToDefaults: () => void;
 }
@@ -226,6 +235,7 @@ export function createDefaultEditorPreferences(): ResettableEditorPreferences {
     showCategorizedEditorHeaders: true,
     materialLibraryLivePreviews: true,
     editorPreviewSplitSizes: { ...DEFAULT_EDITOR_PREVIEW_SPLIT_SIZES },
+    terminal: { ...DEFAULT_TERMINAL_PREFERENCES },
     exportPreferences: normalizeExportPreferences(DEFAULT_EXPORT_PREFERENCES),
   };
 }
@@ -249,6 +259,7 @@ export function selectEditorPreferencesAreDefaults(state: ResettableEditorPrefer
     JSON.stringify(state.previewDisplay) === JSON.stringify(defaults.previewDisplay) &&
     JSON.stringify(state.editorPreviewSplitSizes) ===
       JSON.stringify(defaults.editorPreviewSplitSizes) &&
+    JSON.stringify(state.terminal) === JSON.stringify(defaults.terminal) &&
     JSON.stringify(state.exportPreferences) === JSON.stringify(defaults.exportPreferences)
   );
 }
@@ -294,6 +305,10 @@ export const usePreferencesStore = create<PreferencesState>()(
             ...state.editorPreviewSplitSizes,
             [orientation]: previewSize,
           }),
+        })),
+      setTerminalPreferences: (patch) =>
+        set((state) => ({
+          terminal: normalizeTerminalPreferences({ ...state.terminal, ...patch }),
         })),
       setExportPreferences: (patch) =>
         set((state) => ({

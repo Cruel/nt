@@ -7,9 +7,22 @@ injectWorkspacePackages: true
 autoInstallPeers: false
 
 minimumReleaseAgeExclude:
-  - "scriptc@0.1.1"
-  - "@scriptc/compiler@0.1.1"
-  - "@scriptc/runtime@0.1.1"
+  - "scriptc@0.1.3"
+  - "@scriptc/compiler@0.1.3"
+  - "@scriptc/runtime@0.1.3"
+  - '@scriptc/llvm-darwin-arm64@0.1.3'
+  - '@scriptc/llvm-linux-arm64-gnu@0.1.3'
+  - '@scriptc/llvm-linux-arm64-musl@0.1.3'
+  - '@scriptc/llvm-linux-x64-gnu@0.1.3'
+  - '@scriptc/llvm-linux-x64-musl@0.1.3'
+  - '@scriptc/llvm-win32-x64-msvc@0.1.3'
+  - '@scriptc/runtime-darwin-arm64@0.1.3'
+  - '@scriptc/runtime-linux-arm64-gnu@0.1.3'
+  - '@scriptc/runtime-linux-arm64-musl@0.1.3'
+  - '@scriptc/runtime-linux-x64-gnu@0.1.3'
+  - '@scriptc/runtime-linux-x64-musl@0.1.3'
+  - '@scriptc/runtime-wasm32-wasi@0.1.3'
+  - '@scriptc/runtime-win32-x64-msvc@0.1.3'
 
 catalog:
   "@electron/fuses": 2.1.3
@@ -40,6 +53,7 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
+  node-pty: true
   scriptc: true
   sharp: true
   workerd: true

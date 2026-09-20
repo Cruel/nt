@@ -5,12 +5,15 @@ import path from 'node:path';
 import process from 'node:process';
 
 import {
+  EXPECTED_NODE_PTY_VERSION,
+  EXPECTED_SHARP_VERSION,
   findPackagedApplication,
   packageLayout,
   pathExists,
   requiredPreviewFiles,
   verifyStandaloneNovelTeaCli,
 } from './editor-distribution-lib.mjs';
+import { inspectNodePtyNativeClosure } from './node-pty-distribution.mjs';
 
 const expectedFuses = new Map([
   [FuseV1Options.RunAsNode, FuseState.DISABLE],
@@ -81,6 +84,19 @@ export async function findSharpNativeClosure(unpackedRoot, platform = process.pl
   return { sharpPackages, libvipsPackages };
 }
 
+export async function findNodePtyNativeClosure(
+  unpackedRoot,
+  platform = process.platform,
+  arch = process.arch,
+) {
+  return inspectNodePtyNativeClosure(
+    path.join(unpackedRoot, 'node_modules', 'node-pty'),
+    platform,
+    arch,
+    EXPECTED_NODE_PTY_VERSION,
+  );
+}
+
 export async function verifyPackagedEditor(outputOrApplication) {
   let application;
   if (outputOrApplication && typeof outputOrApplication === 'object') {
@@ -109,6 +125,7 @@ export async function verifyPackagedEditor(outputOrApplication) {
     'dist-electron/preload/preload.cjs',
     'dist-electron/renderer/index.html',
     'node_modules/sharp/package.json',
+    'node_modules/node-pty/package.json',
   ]) {
     if (!entries.includes(required)) throw new Error(`Required ASAR entry is missing: ${required}`);
   }
@@ -126,6 +143,16 @@ export async function verifyPackagedEditor(outputOrApplication) {
     packageMetadata.main !== 'dist-electron/main/main.cjs'
   ) {
     throw new Error(`Unexpected packaged application metadata: ${JSON.stringify(packageMetadata)}`);
+  }
+  const dependencies = packageMetadata.dependencies ?? {};
+  if (
+    Object.keys(dependencies).length !== 2 ||
+    dependencies.sharp !== EXPECTED_SHARP_VERSION ||
+    dependencies['node-pty'] !== EXPECTED_NODE_PTY_VERSION
+  ) {
+    throw new Error(
+      `Unexpected packaged production dependencies: ${JSON.stringify(dependencies)}.`,
+    );
   }
   if (JSON.stringify(packageMetadata).match(/\b(?:workspace|catalog):/i)) {
     throw new Error('Packaged metadata contains a workspace or catalog protocol.');
@@ -188,6 +215,7 @@ export async function verifyPackagedEditor(outputOrApplication) {
     }
   }
   const nativeClosure = await findSharpNativeClosure(unpackedRoot);
+  const nodePtyClosure = await findNodePtyNativeClosure(unpackedRoot);
 
   const fuseWire = await getCurrentFuseWire(application.executable);
   for (const [fuse, expected] of expectedFuses) {
@@ -205,6 +233,7 @@ export async function verifyPackagedEditor(outputOrApplication) {
     version: packageMetadata.version,
     asarEntries: entries.length,
     nativeClosure,
+    nodePtyClosure,
     fuses: Object.fromEntries(
       [...expectedFuses].map(([fuse]) => [FuseV1Options[fuse], FuseState[fuseWire[fuse]]]),
     ),

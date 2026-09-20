@@ -8,12 +8,15 @@ import { z } from 'zod';
 import { buildAuthoringDependencyGraph } from '../authoring-dependency-graph';
 import {
   assembleAuthoringDependencyGraph,
+  authoringDependencyReverseImpactClosure,
   createAuthoringDependencyGraphContributionSet,
   deriveAuthoringDependencyContributionFromPrepared,
   enumerateAuthoringDependencyContributionKeys,
+  findAuthoringDependencyOwnersByPath,
 } from '../authoring-dependency-graph';
 import type {
   AuthoringDependencyGraph,
+  AuthoringDependencyGraphContribution,
   AuthoringDependencyGraphContributionSet,
   AuthoringDependencyGraphDiagnostic,
 } from '../authoring-dependency-contracts';
@@ -21,6 +24,10 @@ import {
   publishCompiledArtifact,
   type CompiledArtifactPublicationResult,
 } from '../compiled-artifact-publication';
+import {
+  preflightAdmittedAuthoringProject,
+  type AuthoringPreflightResult,
+} from '../authoring-compiler';
 import {
   buildProjectSearchIndex,
   type ProjectSearchExternalSource,
@@ -209,6 +216,21 @@ export type ProjectWorkspaceSourceContribution =
 export type ProjectWorkspaceSourceContributions = Readonly<
   Record<string, ProjectWorkspaceSourceContribution>
 >;
+export interface ProjectWorkspaceSourceWork {
+  readonly parsedJsonSources: number;
+  readonly reusedJsonSources: number;
+  readonly readTextSources: number;
+  readonly reusedTextSources: number;
+  readonly projectedJsonSources: number;
+  readonly wholeProjectSchemaParses: number;
+}
+
+export interface ProjectWorkspaceDependencyWork {
+  readonly derivedContributions: number;
+  readonly reusedContributions: number;
+  readonly analyzedOwners: number;
+  readonly reusedSourceAnalyses: number;
+}
 export interface ProjectWorkspaceDependencyAnalysis {
   readonly graph: AuthoringDependencyGraph;
   readonly contributions: AuthoringDependencyGraphContributionSet;
@@ -218,6 +240,15 @@ export interface ProjectWorkspaceDependencyAnalysis {
   >;
   readonly sourcePathsByContributionKey: ReadonlyMap<string, readonly string[]>;
   readonly externalSourceRevisions: ReadonlyMap<string, ProjectWorkspaceFileRevision>;
+  readonly work: ProjectWorkspaceDependencyWork;
+}
+export interface ProjectWorkspaceReusableDependencyState {
+  readonly contributions?: readonly AuthoringDependencyGraphContribution[];
+  readonly sourceAnalyses?: ReadonlyMap<
+    string,
+    readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
+  >;
+  readonly externalSourceRevisions?: ReadonlyMap<string, ProjectWorkspaceFileRevision>;
 }
 export interface ProjectWorkspaceSaveUnitFileOwnership {
   readonly files: readonly string[];
@@ -254,6 +285,7 @@ export type ProjectWorkspaceOpenResult =
       readonly sourceContributions: ProjectWorkspaceSourceContributions;
       readonly validationContributions: readonly AuthoringValidationContribution[];
       readonly validationWork: AuthoringValidationWork;
+      readonly sourceWork: ProjectWorkspaceSourceWork;
     }
   | {
       readonly ok: false;
@@ -266,6 +298,7 @@ export interface ProjectWorkspaceOpenOptions {
   readonly recoverTransactions?: boolean;
   readonly reusableSourceContributions?: ProjectWorkspaceSourceContributions;
   readonly reusableValidationContributions?: readonly AuthoringValidationContribution[];
+  readonly reusableDependencyState?: ProjectWorkspaceReusableDependencyState;
 }
 
 export function compareProjectWorkspaceUnicodeCodePoints(left: string, right: string): number {
@@ -597,6 +630,52 @@ function jsonPointersOverlap(left: string, right: string): boolean {
   return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 }
 
+function jsonPointerPrefixes(path: string): string[] {
+  if (path === '/') return ['/'];
+  const segments = path.split('/').slice(1);
+  const prefixes: string[] = [];
+  let current = '';
+  for (const segment of segments) {
+    current += `/${segment}`;
+    prefixes.push(current);
+  }
+  return prefixes;
+}
+
+interface SourceOwnerPathIndex {
+  readonly overlappingFiles: (path: string) => readonly string[];
+  readonly descendantFiles: (path: string) => readonly string[];
+}
+
+function buildSourceOwnerPathIndex(
+  ownerPathsByFile: ReadonlyMap<string, readonly string[]>,
+): SourceOwnerPathIndex {
+  const exactOwners = new Map<string, Set<string>>();
+  const descendants = new Map<string, Set<string>>();
+  const add = (index: Map<string, Set<string>>, path: string, file: string) => {
+    const files = index.get(path) ?? new Set<string>();
+    files.add(file);
+    index.set(path, files);
+  };
+  for (const [file, ownerPaths] of ownerPathsByFile) {
+    for (const ownerPath of ownerPaths) {
+      add(exactOwners, ownerPath, file);
+      for (const prefix of jsonPointerPrefixes(ownerPath)) add(descendants, prefix, file);
+    }
+  }
+  const sorted = (files: ReadonlySet<string> | undefined) =>
+    [...(files ?? [])].sort(compareProjectWorkspaceUnicodeCodePoints);
+  return {
+    overlappingFiles: (path) => {
+      const files = new Set(descendants.get(path) ?? []);
+      for (const prefix of jsonPointerPrefixes(path))
+        for (const file of exactOwners.get(prefix) ?? []) files.add(file);
+      return sorted(files);
+    },
+    descendantFiles: (path) => sorted(descendants.get(path)),
+  };
+}
+
 // Only diagnostics whose validator is provably confined to the owning physical source belong in a
 // per-source contribution. Cross-record/reference diagnostics are retained by whole/dependency-aware
 // validation instead; ownerPaths describe attribution, not the complete dependency set.
@@ -689,6 +768,7 @@ async function readWorkspaceFileRevision(
 async function buildWorkspaceSourceAnalysisSnapshot(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: ProjectWorkspaceSnapshot,
+  contributionKeys?: ReadonlySet<string>,
 ): Promise<{
   sources: LuaSourceSnapshot<AuthoringDependencyGraphDiagnostic>;
   externalSourceRevisions: ReadonlyMap<string, ProjectWorkspaceFileRevision>;
@@ -700,7 +780,14 @@ async function buildWorkspaceSourceAnalysisSnapshot(
   >();
   const externalSourceRevisions = new Map<string, ProjectWorkspaceFileRevision>();
   const decoder = new TextDecoder('utf-8', { fatal: true });
-  for (const assetId of collectAuthoringSourceRequirements(snapshot.project)) {
+  const requiredAssetIds = contributionKeys
+    ? new Set(
+        [...contributionKeys].flatMap((key) =>
+          collectAuthoringSourceRequirements(snapshot.project, key),
+        ),
+      )
+    : new Set(collectAuthoringSourceRequirements(snapshot.project));
+  for (const assetId of [...requiredAssetIds].sort(compareProjectWorkspaceUnicodeCodePoints)) {
     const asset = parseAssetData(snapshot.project.assets[assetId]?.data);
     const unavailable = (message: string) => {
       entries.set(assetId, {
@@ -1009,6 +1096,125 @@ function externalSearchSources(
   );
 }
 
+function projectWorkspaceFile(
+  project: AuthoringProject,
+  editorState: EditorProjectState,
+  scriptSourcePaths: Readonly<Record<string, string>>,
+  file: string,
+): string | undefined {
+  if (file === 'project.json')
+    return canonicalJson(
+      {
+        schema: PROJECT_WORKSPACE_SCHEMA,
+        schemaVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
+        project: project.project,
+        settings: project.settings,
+        export: project.export,
+        bootstrapModule: project.bootstrapModule,
+        entrypoint: project.entrypoint,
+        inventories: project.inventories,
+        interactableInstances: project.interactableInstances,
+      },
+      workspaceManifestSchema,
+    );
+  if (file === 'traits.json') return canonicalJson(project.traits, traitsWorkspaceSchema);
+  if (file === 'editor.json')
+    return canonicalJson(
+      {
+        chapters: editorState.chapters,
+        tags: editorState.tags,
+        recordMetadata: editorState.recordMetadata,
+      },
+      trackedEditorOrganizationSchema,
+    );
+  if (file === LOCALIZATION_POLICY_FILE)
+    return canonicalJson(
+      {
+        sourceLocale: project.localization.sourceLocale,
+        sourceLocaleLock:
+          project.localization.sourceLocaleLock ??
+          (hasSubstantiveLocalizationWork(project.localization)
+            ? project.localization.sourceLocale
+            : null),
+        defaultLocale: project.localization.defaultLocale,
+        locales: project.localization.locales,
+      },
+      localizationPolicyFragmentSchema,
+    );
+  if (file === LOCALIZATION_MESSAGES_FILE)
+    return canonicalJson(
+      {
+        messages: project.localization.messages,
+        structuredMessageIds: project.localization.structuredMessageIds,
+      },
+      localizationMessagesFragmentSchema,
+    );
+  if (file === LOCALIZATION_USAGE_NOTES_FILE)
+    return canonicalJson(project.localization.usageNotes, localizationUsageNotesFragmentSchema);
+  if (file === LOCALIZATION_TRACKING_FILE)
+    return canonicalJson(
+      project.localization.sourceMessageTracking,
+      localizationTrackingFragmentSchema,
+    );
+  if (file === LOCALIZATION_ORPHANS_FILE)
+    return canonicalJson(project.localization.orphanedMessages, localizationOrphansFragmentSchema);
+  const translation = /^i18n\/locales\/([^/]+)\.json$/u.exec(file);
+  if (translation)
+    return canonicalJson(
+      project.localization.translations[translation[1]!] ?? {},
+      localizationTranslationSchema,
+    );
+  const localizedAssets = /^i18n\/assets\/([^/]+)\.json$/u.exec(file);
+  if (localizedAssets)
+    return canonicalJson(
+      project.localization.assets[localizedAssets[1]!] ?? {},
+      localizationAssetsLocaleFragmentSchema,
+    );
+  const layoutMatch = /^records\/layouts\/([^/]+)\/layout\.(json|rml|rcss|lua)$/u.exec(file);
+  if (layoutMatch) {
+    const id = layoutMatch[1]!;
+    const channel = layoutMatch[2]!;
+    const original = project.layouts[id];
+    if (!original) return undefined;
+    if (channel !== 'json') {
+      const source = original.data[channel as 'rml' | 'rcss' | 'lua'];
+      return source.sourceMode === 'inline' ? source.sourceText : undefined;
+    }
+    const record = structuredClone(original) as Record<string, unknown>;
+    const data = record.data as Record<string, Record<string, unknown>>;
+    for (const sourceChannel of ['rml', 'rcss', 'lua'] as const) {
+      const source = data[sourceChannel]!;
+      if (source.sourceMode === 'inline') data[sourceChannel] = { sourceMode: 'file' };
+      else if (source.sourceMode === 'asset')
+        data[sourceChannel] = { sourceMode: 'asset', sourceAsset: source.sourceAsset };
+      else data[sourceChannel] = { sourceMode: 'none' };
+    }
+    return canonicalJson(record, authoringRecordSchemas.layouts);
+  }
+  const recordMatch = /^records\/([^/]+)\/([^/]+)\.json$/u.exec(file);
+  if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!)) {
+    const collection = recordMatch[1] as AuthoringCollectionKey;
+    const id = recordMatch[2]!;
+    const original = project[collection][id];
+    if (!original) return undefined;
+    const record = structuredClone(original) as Record<string, unknown>;
+    if (collection === 'scripts') {
+      const data = record.data as { source: { kind: string; source?: string; path?: string } };
+      if (data.source.kind === 'inline-lua') {
+        const sourcePath = scriptSourcePaths[id] ?? `scripts/${id}.lua`;
+        data.source = { kind: 'file', path: sourcePath };
+      }
+    }
+    return canonicalJson(record, authoringRecordSchemas[collection]);
+  }
+  for (const [id, record] of Object.entries(project.scripts)) {
+    const source = record.data.source;
+    if (source.kind !== 'inline-lua') continue;
+    if ((scriptSourcePaths[id] ?? `scripts/${id}.lua`) === file) return source.source;
+  }
+  return undefined;
+}
+
 /** Projection is the only writer for tracked workspace files. */
 export function projectWorkspaceFiles(
   project: AuthoringProject,
@@ -1114,6 +1320,9 @@ export interface ProjectWorkspaceWriteOptions {
   readonly targetFiles?: readonly string[];
   readonly operationLabel?: string;
   readonly extraTargets?: readonly ProjectWorkspaceTransactionTargetInput[];
+  /** Semantic mutation ownership used by resident-session dependency safety. */
+  readonly saveUnitIds?: readonly string[];
+  readonly affectedPaths?: readonly string[];
   readonly preflightSnapshot?: LoadedProjectWorkspaceSnapshot;
   /** Active editor sessions already own coherent state and can adopt the committed projection. */
   readonly refreshAfterCommit?: boolean;
@@ -1123,6 +1332,18 @@ export class ProjectWorkspaceService {
   private readonly snapshotValidators = new WeakMap<
     ProjectWorkspaceSnapshot,
     (project: AuthoringProject) => readonly ProjectValidationDiagnostic[]
+  >();
+  private readonly snapshotDependencyReuse = new WeakMap<
+    ProjectWorkspaceSnapshot,
+    ProjectWorkspaceReusableDependencyState
+  >();
+  private readonly snapshotDependencyAnalysis = new WeakMap<
+    ProjectWorkspaceSnapshot,
+    ProjectWorkspaceDependencyAnalysis
+  >();
+  private readonly snapshotSourceOwnerIndexes = new WeakMap<
+    ProjectWorkspaceSnapshot,
+    SourceOwnerPathIndex
   >();
   private readonly transactions: ProjectWorkspaceTransactionService;
 
@@ -1141,6 +1362,543 @@ export class ProjectWorkspaceService {
     const root = this.fileSystem.resolvePath(projectRoot);
     return { projectRoot: root, manifestPath: this.fileSystem.joinPath(root, 'project.json') };
   }
+  async reconcileExistingSources(
+    base: Extract<ProjectWorkspaceOpenResult, { ok: true }>,
+    changedPaths: readonly string[],
+  ): Promise<ProjectWorkspaceOpenResult | null> {
+    if (changedPaths.length === 0) return base;
+    let project = base.snapshot.project;
+    const fileRevisions = { ...base.snapshot.fileRevisions };
+    const sourceContributions = { ...base.sourceContributions };
+    const changedOwnerPaths = new Map<string, readonly string[]>();
+    const changedTextSources = new Map<string, string>();
+    let parsedJsonSources = 0;
+    let readTextSources = 0;
+
+    for (const relativePath of [...new Set(changedPaths)].sort(
+      compareProjectWorkspaceUnicodeCodePoints,
+    )) {
+      if (!base.sourceContributions[relativePath]) return null;
+      const absolute = this.fileSystem.joinPath(base.snapshot.projectRoot, relativePath);
+      try {
+        await this.assertContained(base.snapshot.projectRoot, absolute);
+        const bytes = await this.fileSystem.readBytes(absolute);
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        const revision = {
+          contentHash: await sha256PrefixedBytes(bytes),
+          byteSize: bytes.byteLength,
+        };
+        const recordMatch = /^records\/([^/]+)\/([^/]+)\.json$/u.exec(relativePath);
+        const layoutSourceMatch = /^records\/layouts\/([^/]+)\/layout\.(rml|rcss|lua)$/u.exec(
+          relativePath,
+        );
+        const scriptSourceId = Object.entries(base.snapshot.scriptSourcePaths).find(
+          ([, sourcePath]) => sourcePath === relativePath,
+        )?.[0];
+
+        if (relativePath === 'project.json') {
+          const parsed = workspaceManifestSchema.safeParse(JSON.parse(text));
+          if (!parsed.success) return null;
+          project = {
+            ...project,
+            project: parsed.data.project,
+            settings: parsed.data.settings,
+            export: parsed.data.export,
+            bootstrapModule: parsed.data.bootstrapModule,
+            entrypoint: parsed.data.entrypoint,
+            inventories: parsed.data.inventories,
+            interactableInstances: parsed.data.interactableInstances,
+          };
+        } else if (relativePath === 'traits.json') {
+          const parsed = traitsWorkspaceSchema.safeParse(JSON.parse(text));
+          if (!parsed.success) return null;
+          project = { ...project, traits: parsed.data };
+        } else if (relativePath === 'editor.json') {
+          const raw = JSON.parse(text) as Record<string, unknown>;
+          const parsed = parseTrackedEditorOrganization(raw);
+          if (!parsed) return null;
+          project = { ...project, editor: { ...project.editor, ...parsed } };
+        } else if (relativePath === LOCALIZATION_POLICY_FILE) {
+          const parsed = localizationPolicyFragmentSchema.safeParse(JSON.parse(text));
+          if (!parsed.success) return null;
+          project = { ...project, localization: { ...project.localization, ...parsed.data } };
+        } else if (relativePath === LOCALIZATION_MESSAGES_FILE) {
+          const parsed = localizationMessagesFragmentSchema.safeParse(JSON.parse(text));
+          if (!parsed.success) return null;
+          project = { ...project, localization: { ...project.localization, ...parsed.data } };
+        } else if (relativePath === LOCALIZATION_USAGE_NOTES_FILE) {
+          const parsed = localizationUsageNotesFragmentSchema.safeParse(JSON.parse(text));
+          if (!parsed.success) return null;
+          project = {
+            ...project,
+            localization: { ...project.localization, usageNotes: parsed.data },
+          };
+        } else if (relativePath === LOCALIZATION_TRACKING_FILE) {
+          const parsed = localizationTrackingFragmentSchema.safeParse(JSON.parse(text));
+          if (!parsed.success) return null;
+          project = {
+            ...project,
+            localization: { ...project.localization, sourceMessageTracking: parsed.data },
+          };
+        } else if (relativePath === LOCALIZATION_ORPHANS_FILE) {
+          const parsed = localizationOrphansFragmentSchema.safeParse(JSON.parse(text));
+          if (!parsed.success) return null;
+          project = {
+            ...project,
+            localization: { ...project.localization, orphanedMessages: parsed.data },
+          };
+        } else if (/^i18n\/locales\/([^/]+)\.json$/u.test(relativePath)) {
+          const locale = /^i18n\/locales\/([^/]+)\.json$/u.exec(relativePath)![1]!;
+          const parsed = localizationTranslationSchema.safeParse(JSON.parse(text));
+          if (!parsed.success || !project.localization.translations[locale]) return null;
+          project = {
+            ...project,
+            localization: {
+              ...project.localization,
+              translations: { ...project.localization.translations, [locale]: parsed.data },
+            },
+          };
+        } else if (/^i18n\/assets\/([^/]+)\.json$/u.test(relativePath)) {
+          const locale = /^i18n\/assets\/([^/]+)\.json$/u.exec(relativePath)![1]!;
+          const parsed = localizationAssetsLocaleFragmentSchema.safeParse(JSON.parse(text));
+          if (!parsed.success || !project.localization.assets[locale]) return null;
+          project = {
+            ...project,
+            localization: {
+              ...project.localization,
+              assets: { ...project.localization.assets, [locale]: parsed.data },
+            },
+          };
+        } else if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!)) {
+          const collection = recordMatch[1] as AuthoringCollectionKey;
+          const id = recordMatch[2]!;
+          if (!project[collection][id]) return null;
+          const raw = JSON.parse(text) as Record<string, unknown>;
+          if (raw.id !== id) return null;
+          if (collection === 'layouts') {
+            const prior = project.layouts[id];
+            const data = raw.data as Record<string, Record<string, unknown>>;
+            if (!prior || !data) return null;
+            for (const channel of ['rml', 'rcss', 'lua'] as const) {
+              const selector = data[channel];
+              if (!selector) return null;
+              const priorSource = prior.data[channel];
+              if (selector.sourceMode === 'file') {
+                if (priorSource.sourceMode !== 'inline') return null;
+                data[channel] = {
+                  sourceMode: 'inline',
+                  sourceText: priorSource.sourceText,
+                  sourceAsset: null,
+                };
+              } else if (selector.sourceMode === 'asset') {
+                if (priorSource.sourceMode !== 'asset') return null;
+                data[channel] = {
+                  sourceMode: 'asset',
+                  sourceAsset: selector.sourceAsset ?? null,
+                };
+              } else if (channel === 'lua' && selector.sourceMode === 'none') {
+                if (priorSource.sourceMode !== 'inline' || priorSource.sourceText !== '')
+                  return null;
+                data[channel] = { sourceMode: 'inline', sourceText: '', sourceAsset: null };
+              } else return null;
+            }
+          } else if (collection === 'scripts') {
+            const prior = project.scripts[id];
+            const source = (raw.data as { source?: { kind?: string; path?: unknown } })?.source;
+            const priorPath = base.snapshot.scriptSourcePaths[id];
+            if (!prior || source?.kind !== 'file' || source.path !== priorPath) return null;
+            const priorSource = prior.data.source;
+            if (priorSource.kind !== 'inline-lua') return null;
+            (raw.data as { source: unknown }).source = {
+              kind: 'inline-lua',
+              source: priorSource.source,
+            };
+          }
+          const parsed = authoringRecordSchemas[collection].safeParse(raw);
+          if (!parsed.success || parsed.data.id !== id) return null;
+          project = {
+            ...project,
+            [collection]: { ...project[collection], [id]: parsed.data },
+          } as AuthoringProject;
+        } else if (layoutSourceMatch) {
+          const id = layoutSourceMatch[1]!;
+          const channel = layoutSourceMatch[2] as 'rml' | 'rcss' | 'lua';
+          const prior = project.layouts[id];
+          if (!prior || prior.data[channel].sourceMode !== 'inline') return null;
+          project = {
+            ...project,
+            layouts: {
+              ...project.layouts,
+              [id]: {
+                ...prior,
+                data: {
+                  ...prior.data,
+                  [channel]: {
+                    sourceMode: 'inline',
+                    sourceText: text,
+                    sourceAsset: null,
+                  },
+                },
+              },
+            },
+          };
+        } else if (scriptSourceId) {
+          const prior = project.scripts[scriptSourceId];
+          if (!prior || prior.data.source.kind !== 'inline-lua') return null;
+          project = {
+            ...project,
+            scripts: {
+              ...project.scripts,
+              [scriptSourceId]: {
+                ...prior,
+                data: { ...prior.data, source: { kind: 'inline-lua', source: text } },
+              },
+            },
+          };
+        } else return null;
+
+        fileRevisions[relativePath] = revision;
+        const ownerPaths = sourceContributionOwnerPaths(
+          relativePath,
+          base.snapshot.scriptSourcePaths,
+        );
+        changedOwnerPaths.set(relativePath, ownerPaths);
+        if (relativePath.endsWith('.json')) {
+          parsedJsonSources += 1;
+          const normalizedText = projectWorkspaceFile(
+            project,
+            project.editor,
+            base.snapshot.scriptSourcePaths,
+            relativePath,
+          );
+          if (normalizedText === undefined) return null;
+          sourceContributions[relativePath] = Object.freeze({
+            path: relativePath,
+            ...revision,
+            kind: 'json' as const,
+            parsed: JSON.parse(normalizedText) as unknown,
+            schemaValid: true as const,
+            ownerPaths,
+            localDiagnostics: Object.freeze([]),
+          });
+        } else {
+          readTextSources += 1;
+          changedTextSources.set(relativePath, text);
+          sourceContributions[relativePath] = Object.freeze({
+            path: relativePath,
+            ...revision,
+            kind: 'text' as const,
+            text,
+            schemaValid: true as const,
+            ownerPaths,
+            localDiagnostics: Object.freeze([]),
+          });
+        }
+      } catch {
+        return null;
+      }
+    }
+
+    const sourceOwnerPathIndex =
+      this.snapshotSourceOwnerIndexes.get(base.snapshot) ??
+      buildSourceOwnerPathIndex(
+        new Map(
+          Object.entries(sourceContributions).map(([file, contribution]) => [
+            file,
+            contribution.ownerPaths,
+          ]),
+        ),
+      );
+    const validation = validateAdmittedAuthoringProject(project, {
+      contributions: base.validationContributions,
+      changedSourcePaths: new Set(changedPaths),
+      resolveInputs: (paths) => {
+        if (paths.some((path) => path === '/' || path === '/editor' || path.startsWith('/editor/')))
+          return null;
+        const files = new Set<string>();
+        for (const path of paths) {
+          const overlappingFiles = sourceOwnerPathIndex.overlappingFiles(path);
+          for (const file of overlappingFiles) files.add(file);
+          const collection = path.split('/')[1] ?? '';
+          if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
+            for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
+              files.add(file);
+          } else if (overlappingFiles.length === 0) files.add('project.json');
+        }
+        return [...files].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
+          path,
+          contentHash: fileRevisions[path]!.contentHash,
+        }));
+      },
+    });
+    const changedLocalDiagnostics = sourceLocalDiagnostics(
+      validation.diagnostics,
+      changedOwnerPaths,
+    );
+    for (const [relativePath, ownerPaths] of changedOwnerPaths) {
+      const contribution = sourceContributions[relativePath]!;
+      sourceContributions[relativePath] = Object.freeze({
+        ...contribution,
+        ownerPaths,
+        localDiagnostics: Object.freeze([...(changedLocalDiagnostics.get(relativePath) ?? [])]),
+      });
+    }
+
+    const workspaceRevision = await aggregateRevision(fileRevisions);
+    const snapshot: LoadedProjectWorkspaceSnapshot = Object.freeze({
+      snapshotKind: 'loaded',
+      projectRoot: base.snapshot.projectRoot,
+      manifestPath: base.snapshot.manifestPath,
+      project,
+      workspaceRevision,
+      sourceRevision: workspaceRevision,
+      canonicalSourceFiles: base.snapshot.canonicalSourceFiles,
+      fileRevisions: Object.freeze(fileRevisions),
+      saveUnitFileOwnership: base.snapshot.saveUnitFileOwnership,
+      externalSourceDescriptors: Object.freeze(
+        base.snapshot.externalSourceDescriptors.map((descriptor) => {
+          const sourcePath = descriptor.sourceUrl.startsWith('project:/')
+            ? descriptor.sourceUrl.slice('project:/'.length)
+            : null;
+          const text = sourcePath ? changedTextSources.get(sourcePath) : undefined;
+          return text === undefined
+            ? descriptor
+            : Object.freeze({ ...descriptor, inlineText: text });
+        }),
+      ),
+      scriptSourcePaths: base.snapshot.scriptSourcePaths,
+    });
+    this.snapshotValidators.set(snapshot, () => validation.diagnostics);
+    this.snapshotSourceOwnerIndexes.set(snapshot, sourceOwnerPathIndex);
+    const dependencyReuse = this.snapshotDependencyReuse.get(base.snapshot);
+    if (dependencyReuse) {
+      const priorAnalysis = this.snapshotDependencyAnalysis.get(base.snapshot);
+      const impactedOwnerPaths = new Set(changedOwnerPaths.values().flatMap((paths) => [...paths]));
+      if (priorAnalysis) {
+        const roots = [...impactedOwnerPaths].flatMap((path) =>
+          findAuthoringDependencyOwnersByPath(priorAnalysis.graph, path),
+        );
+        for (const node of authoringDependencyReverseImpactClosure(
+          priorAnalysis.graph,
+          roots.map((node) => node.key),
+        ))
+          impactedOwnerPaths.add(node.owningPath);
+      }
+      const invalidContributionKeys = new Set(
+        (dependencyReuse.contributions ?? [])
+          .filter((contribution) =>
+            [...impactedOwnerPaths].some((path) =>
+              jsonPointersOverlap(path, contribution.ownerPath),
+            ),
+          )
+          .map((contribution) => contribution.key),
+      );
+      this.snapshotDependencyReuse.set(snapshot, {
+        contributions: dependencyReuse.contributions?.filter(
+          (contribution) => !invalidContributionKeys.has(contribution.key),
+        ),
+        sourceAnalyses: dependencyReuse.sourceAnalyses
+          ? new Map(
+              [...dependencyReuse.sourceAnalyses].filter(
+                ([key]) => !invalidContributionKeys.has(key),
+              ),
+            )
+          : undefined,
+        externalSourceRevisions: dependencyReuse.externalSourceRevisions,
+      });
+    }
+    const contentProject = stripEditorProjectState(project);
+    return {
+      ok: true,
+      snapshot,
+      diagnostics: validation.diagnostics,
+      editorState: project.editor,
+      repairs: [],
+      contentProject,
+      savedContentProject: contentProject,
+      sourceContributions: Object.freeze(sourceContributions),
+      validationContributions: validation.contributions,
+      validationWork: validation.work,
+      sourceWork: {
+        parsedJsonSources,
+        reusedJsonSources: 0,
+        readTextSources,
+        reusedTextSources: 0,
+        projectedJsonSources: 0,
+        wholeProjectSchemaParses: 0,
+      },
+    };
+  }
+
+  /**
+   * Advance semantic products from a NovelTea-controlled committed snapshot without reopening the
+   * Project. The committed projection is already schema-admitted by the mutation command; this
+   * method rebuilds only source/validation products whose physical ownership changed.
+   */
+  advanceCommittedSnapshot(
+    base: Extract<ProjectWorkspaceOpenResult, { ok: true }>,
+    committedSnapshot: LoadedProjectWorkspaceSnapshot,
+    changedPaths: readonly string[],
+  ): ProjectWorkspaceOpenResult | null {
+    if (base.snapshot.projectRoot !== committedSnapshot.projectRoot) return null;
+    const files = projectWorkspaceFiles(
+      committedSnapshot.project,
+      committedSnapshot.project.editor,
+      committedSnapshot.scriptSourcePaths,
+    );
+    const sourceContributions = { ...base.sourceContributions };
+    const changedOwnerPaths = new Map<string, readonly string[]>();
+    let parsedJsonSources = 0;
+    let readTextSources = 0;
+
+    for (const relativePath of [...new Set(changedPaths)].sort(
+      compareProjectWorkspaceUnicodeCodePoints,
+    )) {
+      const prior = base.sourceContributions[relativePath];
+      const text = files[relativePath];
+      const revision = committedSnapshot.fileRevisions[relativePath];
+      if (text === undefined || !revision) {
+        if (prior) changedOwnerPaths.set(relativePath, prior.ownerPaths);
+        delete sourceContributions[relativePath];
+        continue;
+      }
+      const ownerPaths = sourceContributionOwnerPaths(
+        relativePath,
+        committedSnapshot.scriptSourcePaths,
+      );
+      changedOwnerPaths.set(relativePath, ownerPaths);
+      if (relativePath.endsWith('.json')) {
+        parsedJsonSources += 1;
+        sourceContributions[relativePath] = Object.freeze({
+          path: relativePath,
+          ...revision,
+          kind: 'json' as const,
+          parsed: JSON.parse(text) as unknown,
+          schemaValid: true as const,
+          ownerPaths,
+          localDiagnostics: Object.freeze([]),
+        });
+      } else {
+        readTextSources += 1;
+        sourceContributions[relativePath] = Object.freeze({
+          path: relativePath,
+          ...revision,
+          kind: 'text' as const,
+          text,
+          schemaValid: true as const,
+          ownerPaths,
+          localDiagnostics: Object.freeze([]),
+        });
+      }
+    }
+
+    const sourceOwnerPathIndex = buildSourceOwnerPathIndex(
+      new Map(
+        Object.entries(sourceContributions).map(([file, contribution]) => [
+          file,
+          contribution.ownerPaths,
+        ]),
+      ),
+    );
+    const validation = validateAdmittedAuthoringProject(committedSnapshot.project, {
+      contributions: base.validationContributions,
+      changedSourcePaths: new Set(changedPaths),
+      resolveInputs: (paths) => {
+        if (paths.some((path) => path === '/' || path === '/editor' || path.startsWith('/editor/')))
+          return null;
+        const resolvedFiles = new Set<string>();
+        for (const path of paths) {
+          const overlappingFiles = sourceOwnerPathIndex.overlappingFiles(path);
+          for (const file of overlappingFiles) resolvedFiles.add(file);
+          const collection = path.split('/')[1] ?? '';
+          if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
+            for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
+              resolvedFiles.add(file);
+          } else if (overlappingFiles.length === 0) resolvedFiles.add('project.json');
+        }
+        return [...resolvedFiles].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
+          path,
+          contentHash: committedSnapshot.fileRevisions[path]!.contentHash,
+        }));
+      },
+    });
+    const changedLocalDiagnostics = sourceLocalDiagnostics(
+      validation.diagnostics,
+      changedOwnerPaths,
+    );
+    for (const [relativePath, ownerPaths] of changedOwnerPaths) {
+      const contribution = sourceContributions[relativePath];
+      if (!contribution) continue;
+      sourceContributions[relativePath] = Object.freeze({
+        ...contribution,
+        ownerPaths,
+        localDiagnostics: Object.freeze([...(changedLocalDiagnostics.get(relativePath) ?? [])]),
+      });
+    }
+
+    this.snapshotValidators.set(committedSnapshot, () => validation.diagnostics);
+    this.snapshotSourceOwnerIndexes.set(committedSnapshot, sourceOwnerPathIndex);
+    const dependencyReuse = this.snapshotDependencyReuse.get(base.snapshot);
+    if (dependencyReuse) {
+      const priorAnalysis = this.snapshotDependencyAnalysis.get(base.snapshot);
+      const impactedOwnerPaths = new Set(changedOwnerPaths.values().flatMap((paths) => [...paths]));
+      if (priorAnalysis) {
+        const roots = [...impactedOwnerPaths].flatMap((path) =>
+          findAuthoringDependencyOwnersByPath(priorAnalysis.graph, path),
+        );
+        for (const node of authoringDependencyReverseImpactClosure(
+          priorAnalysis.graph,
+          roots.map((node) => node.key),
+        ))
+          impactedOwnerPaths.add(node.owningPath);
+      }
+      const invalidContributionKeys = new Set(
+        (dependencyReuse.contributions ?? [])
+          .filter((contribution) =>
+            [...impactedOwnerPaths].some((path) =>
+              jsonPointersOverlap(path, contribution.ownerPath),
+            ),
+          )
+          .map((contribution) => contribution.key),
+      );
+      this.snapshotDependencyReuse.set(committedSnapshot, {
+        contributions: dependencyReuse.contributions?.filter(
+          (contribution) => !invalidContributionKeys.has(contribution.key),
+        ),
+        sourceAnalyses: dependencyReuse.sourceAnalyses
+          ? new Map(
+              [...dependencyReuse.sourceAnalyses].filter(
+                ([key]) => !invalidContributionKeys.has(key),
+              ),
+            )
+          : undefined,
+        externalSourceRevisions: dependencyReuse.externalSourceRevisions,
+      });
+    }
+
+    const contentProject = stripEditorProjectState(committedSnapshot.project);
+    return {
+      ok: true,
+      snapshot: committedSnapshot,
+      diagnostics: validation.diagnostics,
+      editorState: committedSnapshot.project.editor,
+      repairs: [],
+      contentProject,
+      savedContentProject: contentProject,
+      sourceContributions: Object.freeze(sourceContributions),
+      validationContributions: validation.contributions,
+      validationWork: validation.work,
+      sourceWork: {
+        parsedJsonSources,
+        reusedJsonSources: 0,
+        readTextSources,
+        reusedTextSources: 0,
+        projectedJsonSources: 0,
+        wholeProjectSchemaParses: 0,
+      },
+    };
+  }
+
   open(
     projectRoot: string,
     options: ProjectWorkspaceOpenOptions = {},
@@ -1159,8 +1917,17 @@ export class ProjectWorkspaceService {
             );
           const reusableSourceContributions = options.reusableSourceContributions ?? {};
           const textSourceValues = new Map<string, string>();
+          const admittedSourcePaths = new Set<string>();
           const reusedJsonSourcePaths = new Set<string>();
           const freshJsonSourcePaths = new Set<string>();
+          const sourceWork = {
+            parsedJsonSources: 0,
+            reusedJsonSources: 0,
+            readTextSources: 0,
+            reusedTextSources: 0,
+            projectedJsonSources: 0,
+            wholeProjectSchemaParses: 0,
+          };
           let requiresFullSchemaParse = false;
           const reusableContribution = (relativePath: string) => {
             const contribution = reusableSourceContributions[relativePath];
@@ -1169,11 +1936,20 @@ export class ProjectWorkspaceService {
               : undefined;
           };
           const readJsonSource = async (relativePath: string): Promise<unknown> => {
+            admittedSourcePaths.add(relativePath);
             const contribution = reusableContribution(relativePath);
             if (contribution?.kind === 'json') {
+              sourceWork.reusedJsonSources++;
               reusedJsonSourcePaths.add(relativePath);
-              return structuredClone(contribution.parsed);
+              const requiresMutableProjection =
+                relativePath === 'project.json' ||
+                /^records\/layouts\/[^/]+\/layout\.json$/u.test(relativePath) ||
+                /^records\/scripts\/[^/]+\.json$/u.test(relativePath);
+              return requiresMutableProjection
+                ? structuredClone(contribution.parsed)
+                : contribution.parsed;
             }
+            sourceWork.parsedJsonSources++;
             freshJsonSourcePaths.add(relativePath);
             const absolute = this.fileSystem.joinPath(discovered.projectRoot, relativePath);
             await this.assertContained(discovered.projectRoot, absolute);
@@ -1189,11 +1965,14 @@ export class ProjectWorkspaceService {
               : schema.parse(value);
           };
           const readTextSource = async (relativePath: string): Promise<string> => {
+            admittedSourcePaths.add(relativePath);
             const contribution = reusableContribution(relativePath);
             if (contribution?.kind === 'text') {
+              sourceWork.reusedTextSources++;
               textSourceValues.set(relativePath, contribution.text);
               return contribution.text;
             }
+            sourceWork.readTextSources++;
             const absolute = this.fileSystem.joinPath(discovered.projectRoot, relativePath);
             await this.assertContained(discovered.projectRoot, absolute);
             const text = await this.fileSystem.readText(absolute);
@@ -1650,6 +2429,7 @@ export class ProjectWorkspaceService {
             // rebuilding from those fragments avoids reparsing unrelated unchanged sources.
             decodedProject = candidate as AuthoringProject;
           } else {
+            sourceWork.wholeProjectSchemaParses++;
             const decoded = authoringProjectSchema.safeParse(candidate);
             if (!decoded.success)
               return complete({
@@ -1665,11 +2445,6 @@ export class ProjectWorkspaceService {
           decodedProject.editor.chapters = trackedEditor.chapters;
           decodedProject.editor.tags = trackedEditor.tags;
           decodedProject.editor.recordMetadata = trackedEditor.recordMetadata;
-          const projected = projectWorkspaceFiles(
-            decodedProject,
-            decodedProject.editor,
-            scriptSourcePaths,
-          );
           try {
             // Validate Asset source paths here, but do not make binary Asset bytes part of the
             // authoring workspace revision inventory. Asset integrity has its own exact-byte
@@ -1678,9 +2453,9 @@ export class ProjectWorkspaceService {
           } catch (error) {
             return fail(error instanceof Error ? error.message : 'Asset source path is invalid.');
           }
-          const canonicalSourceFiles = [
-            ...new Set([...Object.keys(projected), ...Object.values(scriptSourcePaths)]),
-          ].sort(compareProjectWorkspaceUnicodeCodePoints);
+          const canonicalSourceFiles = [...admittedSourcePaths].sort(
+            compareProjectWorkspaceUnicodeCodePoints,
+          );
           const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {};
           for (const file of canonicalSourceFiles) {
             const reused = reusableContribution(file);
@@ -1702,6 +2477,7 @@ export class ProjectWorkspaceService {
                 ),
               ),
             );
+          const sourceOwnerPathIndex = buildSourceOwnerPathIndex(ownerPathsByFile);
           const validationReuse: AuthoringValidationReuse = {
             contributions: options.reusableValidationContributions ?? [],
             resolveInputs: (paths) => {
@@ -1714,26 +2490,13 @@ export class ProjectWorkspaceService {
                 return null;
               const files = new Set<string>();
               for (const path of paths) {
-                let matched = false;
-                for (const [file, owners] of ownerPathsByFile) {
-                  if (owners.some((owner) => jsonPointersOverlap(path, owner))) {
-                    files.add(file);
-                    matched = true;
-                  }
-                }
+                const overlappingFiles = sourceOwnerPathIndex.overlappingFiles(path);
+                for (const file of overlappingFiles) files.add(file);
                 const collection = path.split('/')[1] ?? '';
-                if (!matched && isAuthoringCollectionKey(collection)) {
-                  const collectionRoot = `/${collection}`;
-                  for (const [file, owners] of ownerPathsByFile) {
-                    if (
-                      owners.some(
-                        (owner) =>
-                          owner === collectionRoot || owner.startsWith(`${collectionRoot}/`),
-                      )
-                    )
-                      files.add(file);
-                  }
-                } else if (!matched) {
+                if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
+                  for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
+                    files.add(file);
+                } else if (overlappingFiles.length === 0) {
                   files.add('project.json');
                 }
               }
@@ -1758,11 +2521,20 @@ export class ProjectWorkspaceService {
               ? reused.localDiagnostics
               : Object.freeze([...(localDiagnosticsByFile.get(file) ?? [])]);
             if (file.endsWith('.json')) {
-              const normalizedText = projected[file];
-              if (normalizedText === undefined)
-                return fail(`Authoritative source file '${file}' was not projected.`, `/${file}`);
-              const parsed =
-                reused?.kind === 'json' ? reused.parsed : (JSON.parse(normalizedText) as unknown);
+              let parsed: unknown;
+              if (reused?.kind === 'json') parsed = reused.parsed;
+              else {
+                sourceWork.projectedJsonSources++;
+                const normalizedText = projectWorkspaceFile(
+                  decodedProject,
+                  decodedProject.editor,
+                  scriptSourcePaths,
+                  file,
+                );
+                if (normalizedText === undefined)
+                  return fail(`Authoritative source file '${file}' was not projected.`, `/${file}`);
+                parsed = JSON.parse(normalizedText) as unknown;
+              }
               sourceContributions[file] = Object.freeze({
                 path: file,
                 contentHash: revision.contentHash,
@@ -1810,21 +2582,14 @@ export class ProjectWorkspaceService {
             ),
             scriptSourcePaths: Object.freeze(sortKeys(scriptSourcePaths)),
           });
-          let compilerDiagnostics: readonly ProjectValidationDiagnostic[] | undefined;
-          this.snapshotValidators.set(snapshot, (project) => {
-            if (compilerDiagnostics) return compilerDiagnostics;
-            // Compiler settings normalization has its own check namespace, not workspace findings.
-            const compiledValidation = validateAdmittedAuthoringProject(
-              project,
-              validationReuse,
-              'compiler',
-            );
-            validation.contributions.push(...compiledValidation.contributions);
-            validation.work.executed += compiledValidation.work.executed;
-            validation.work.reused += compiledValidation.work.reused;
-            compilerDiagnostics = compiledValidation.diagnostics;
-            return compilerDiagnostics;
-          });
+          // Workspace admission has already run the authoritative semantic validation over this
+          // exact admitted Project generation. Compiler/preflight callers consume that immutable
+          // diagnostic product instead of rerunning the same Project-wide checks under a second
+          // namespace.
+          this.snapshotValidators.set(snapshot, () => validationDiagnostics);
+          this.snapshotSourceOwnerIndexes.set(snapshot, sourceOwnerPathIndex);
+          if (options.reusableDependencyState)
+            this.snapshotDependencyReuse.set(snapshot, options.reusableDependencyState);
           const result: ProjectWorkspaceOpenResult = {
             ok: true,
             snapshot,
@@ -1836,6 +2601,7 @@ export class ProjectWorkspaceService {
             sourceContributions: Object.freeze(sortKeys(sourceContributions)),
             validationContributions: validation.contributions,
             validationWork: validation.work,
+            sourceWork,
           };
           return complete(result);
         } catch (error) {
@@ -1975,6 +2741,12 @@ export class ProjectWorkspaceService {
     if ((await this.fileSystem.readText(localPath).catch(() => null)) !== localText)
       await this.fileSystem.writeTextAtomic(localPath, localText);
   }
+  preflightCompiledArtifact(snapshot: ProjectWorkspaceSnapshot): AuthoringPreflightResult {
+    return preflightAdmittedAuthoringProject(
+      snapshot.project,
+      this.snapshotValidators.get(snapshot),
+    );
+  }
   publishCompiledArtifact(snapshot: ProjectWorkspaceSnapshot): CompiledArtifactPublicationResult {
     return publishCompiledArtifact(snapshot.project, this.snapshotValidators.get(snapshot));
   }
@@ -1984,8 +2756,33 @@ export class ProjectWorkspaceService {
   async buildDependencyGraphAnalysis(
     snapshot: ProjectWorkspaceSnapshot,
   ): Promise<ProjectWorkspaceDependencyAnalysis> {
-    const sourceSnapshot = await buildWorkspaceSourceAnalysisSnapshot(this.fileSystem, snapshot);
-    const analyses = await this.analyzeSources(snapshot, sourceSnapshot.sources);
+    const reusable = this.snapshotDependencyReuse.get(snapshot);
+    const contributionKeys = enumerateAuthoringDependencyContributionKeys(snapshot.project);
+    const currentKeys = new Set(contributionKeys);
+    const reusableContributions = new Map(
+      (reusable?.contributions ?? [])
+        .filter((contribution) => currentKeys.has(contribution.key))
+        .map((contribution) => [contribution.key, contribution]),
+    );
+    const reusableAnalyses = new Map(
+      [...(reusable?.sourceAnalyses ?? new Map())].filter(([key]) => currentKeys.has(key)),
+    );
+    const missingKeys = new Set(contributionKeys.filter((key) => !reusableContributions.has(key)));
+    const analysesToRun = new Set([...missingKeys].filter((key) => !reusableAnalyses.has(key)));
+    const sourceSnapshot = await buildWorkspaceSourceAnalysisSnapshot(
+      this.fileSystem,
+      snapshot,
+      analysesToRun,
+    );
+    const freshAnalyses =
+      analysesToRun.size > 0
+        ? await this.analyzeSources(snapshot, sourceSnapshot.sources, undefined, analysesToRun)
+        : new Map<
+            string,
+            readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
+          >();
+    const analyses = new Map(reusableAnalyses);
+    for (const [key, value] of freshAnalyses) analyses.set(key, value);
     const descriptorsByKey = new Map<string, AuthoringLuaSourceDescriptor[]>();
     const sourcePathsByContributionKey = new Map<string, Set<string>>();
     for (const descriptor of snapshot.externalSourceDescriptors) {
@@ -1998,21 +2795,32 @@ export class ProjectWorkspaceService {
         sourcePathsByContributionKey.set(descriptor.contributionKey, paths);
       }
     }
-    const contributions = createAuthoringDependencyGraphContributionSet(
-      enumerateAuthoringDependencyContributionKeys(snapshot.project).map((contributionKey) => {
-        const contribution = deriveAuthoringDependencyContributionFromPrepared(
-          snapshot.project,
-          contributionKey,
-          descriptorsByKey.get(contributionKey) ?? [],
-          analyses.get(contributionKey) ?? [],
-          true,
-        );
-        if (!contribution)
-          throw new Error(`Unable to derive graph contribution '${contributionKey}'.`);
-        return contribution;
-      }),
-    );
-    return {
+    const derived: AuthoringDependencyGraphContribution[] = [];
+    const allContributions = contributionKeys.map((contributionKey) => {
+      const reused = reusableContributions.get(contributionKey);
+      if (reused) return reused;
+      const contribution = deriveAuthoringDependencyContributionFromPrepared(
+        snapshot.project,
+        contributionKey,
+        descriptorsByKey.get(contributionKey) ?? [],
+        analyses.get(contributionKey) ?? [],
+        true,
+      );
+      if (!contribution)
+        throw new Error(`Unable to derive graph contribution '${contributionKey}'.`);
+      derived.push(contribution);
+      return contribution;
+    });
+    const contributions = createAuthoringDependencyGraphContributionSet(allContributions);
+    const externalSourceRevisions = new Map(reusable?.externalSourceRevisions ?? []);
+    for (const [path, revision] of sourceSnapshot.externalSourceRevisions)
+      externalSourceRevisions.set(path, revision);
+    this.snapshotDependencyReuse.set(snapshot, {
+      contributions: Object.freeze([...contributions.byKey.values()]),
+      sourceAnalyses: analyses,
+      externalSourceRevisions,
+    });
+    const result: ProjectWorkspaceDependencyAnalysis = {
       graph: assembleAuthoringDependencyGraph(contributions),
       contributions,
       sourceAnalyses: analyses,
@@ -2022,8 +2830,16 @@ export class ProjectWorkspaceService {
           Object.freeze([...paths].sort(compareProjectWorkspaceUnicodeCodePoints)),
         ]),
       ),
-      externalSourceRevisions: sourceSnapshot.externalSourceRevisions,
+      externalSourceRevisions,
+      work: {
+        derivedContributions: derived.length,
+        reusedContributions: reusableContributions.size,
+        analyzedOwners: freshAnalyses.size,
+        reusedSourceAnalyses: reusableAnalyses.size,
+      },
     };
+    this.snapshotDependencyAnalysis.set(snapshot, result);
+    return result;
   }
   async buildDependencyGraphWithSources(
     snapshot: ProjectWorkspaceSnapshot,

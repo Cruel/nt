@@ -3,11 +3,13 @@ import { NOVELTEA_BUILD_IDENTITY, NOVELTEA_VERSION } from '../shared/product-ver
 export const NOVELTEA_CLI_VERSION = NOVELTEA_VERSION;
 export const NOVELTEA_CLI_BUILD_IDENTITY = NOVELTEA_BUILD_IDENTITY;
 export const NOVELTEA_CLI_JSON_PROTOCOL_VERSION = 1 as const;
+/** Private resident-daemon transport identity; independent from the public CLI JSON protocol. */
+export const NOVELTEA_DAEMON_PROTOCOL_VERSION = 1 as const;
 
 export const NOVELTEA_CLI_HELP = `NovelTea headless CLI
 
 Usage:
-  noveltea [--project <project-directory>] [--json] <command> ...
+  noveltea [--project <project-directory>] [--json] [--no-daemon] <command> ...
 
 Commands:
   project create <directory> --name <project-name>
@@ -34,6 +36,8 @@ Commands:
   shaders compile [--variant <id>]... [--force-rebuild]
   shaderc <bgfx-shaderc-args...>
   texturec <bimg-texturec-args...>
+  daemon status
+  daemon stop
   test run [<test-id>]
   test run-spec
   test run-ui-spec
@@ -56,6 +60,7 @@ Commands:
 Global options:
   --project <project-directory>  Use this project root instead of upward project.json discovery.
   --json                         Emit one compact JSON object on stdout; stderr remains empty.
+  --no-daemon                    Bypass resident-daemon acceleration for this invocation.
   --help                         Show this help.
   --version                      Show the CLI version.
 

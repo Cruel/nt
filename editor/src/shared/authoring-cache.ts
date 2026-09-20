@@ -12,6 +12,7 @@ import {
   type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceDependencyAnalysis,
   type ProjectWorkspaceFileSystem,
+  type ProjectWorkspaceReusableDependencyState,
   type ProjectWorkspaceSourceContribution,
   type ProjectWorkspaceSourceContributions,
 } from './project-workspace';
@@ -76,6 +77,7 @@ const resultSchema = z
     success: z.boolean(),
     exitCode: z.union([z.literal(0), z.literal(4), z.literal(6)]),
     diagnostics: z.array(diagnosticSchema),
+    editorDiagnostics: z.array(projectValidationDiagnosticSchema),
   })
   .strict()
   .refine(
@@ -154,6 +156,118 @@ const contributionsSchema = z
     ),
   })
   .strict();
+type ContributionsArtifact = z.infer<typeof contributionsSchema>;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+const isDigest = (value: unknown): value is `sha256:${string}` =>
+  typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value);
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+const isRevision = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.path === 'string' &&
+  value.path.length > 0 &&
+  isDigest(value.contentHash);
+const isProjectDiagnostic = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.code === 'string' &&
+  value.code.length > 0 &&
+  (value.severity === 'error' || value.severity === 'warning' || value.severity === 'info') &&
+  typeof value.path === 'string' &&
+  typeof value.message === 'string' &&
+  Array.isArray(value.boundaries) &&
+  value.boundaries.every(
+    (boundary) =>
+      boundary === 'authoring' || boundary === 'runtime-package' || boundary === 'platform-export',
+  ) &&
+  isStringArray(value.ownerPaths) &&
+  (value.category === undefined || typeof value.category === 'string') &&
+  (value.navigation === undefined ||
+    (isRecord(value.navigation) &&
+      value.navigation.kind === 'interactable-instance-property' &&
+      typeof value.navigation.instanceId === 'string' &&
+      typeof value.navigation.propertyId === 'string'));
+
+function parseContributionsArtifact(value: unknown): ContributionsArtifact | null {
+  if (!isRecord(value)) return null;
+  if (
+    value.schema !== AUTHORING_CONTRIBUTIONS_SCHEMA ||
+    value.buildIdentity !== buildIdentity ||
+    typeof value.projectRoot !== 'string' ||
+    value.projectRoot.length === 0 ||
+    !Array.isArray(value.entries) ||
+    !Array.isArray(value.externalSourceRevisions) ||
+    !Array.isArray(value.dependencyContributions) ||
+    !Array.isArray(value.sourceAnalyses) ||
+    !Array.isArray(value.validationContributions)
+  )
+    return null;
+  for (const entry of value.entries) {
+    if (
+      !isRecord(entry) ||
+      typeof entry.path !== 'string' ||
+      entry.path.length === 0 ||
+      !isDigest(entry.contentHash) ||
+      typeof entry.byteSize !== 'number' ||
+      !Number.isSafeInteger(entry.byteSize) ||
+      entry.byteSize < 0 ||
+      entry.schemaValid !== true ||
+      !isStringArray(entry.ownerPaths) ||
+      !Array.isArray(entry.localDiagnostics) ||
+      !entry.localDiagnostics.every(isProjectDiagnostic) ||
+      (entry.kind !== 'json' && entry.kind !== 'text') ||
+      (entry.kind === 'text' && typeof entry.text !== 'string') ||
+      (entry.kind === 'json' && !Object.hasOwn(entry, 'parsed'))
+    )
+      return null;
+  }
+  for (const entry of value.externalSourceRevisions)
+    if (
+      !isRevision(entry) ||
+      !isRecord(entry) ||
+      typeof entry.byteSize !== 'number' ||
+      !Number.isSafeInteger(entry.byteSize) ||
+      entry.byteSize < 0
+    )
+      return null;
+  for (const entry of value.dependencyContributions)
+    if (
+      !isRecord(entry) ||
+      typeof entry.key !== 'string' ||
+      entry.key.length === 0 ||
+      !Array.isArray(entry.sourceRevisions) ||
+      entry.sourceRevisions.length === 0 ||
+      !entry.sourceRevisions.every(isRevision) ||
+      !Object.hasOwn(entry, 'contribution')
+    )
+      return null;
+  for (const entry of value.sourceAnalyses)
+    if (
+      !isRecord(entry) ||
+      typeof entry.key !== 'string' ||
+      entry.key.length === 0 ||
+      !Array.isArray(entry.sourceRevisions) ||
+      entry.sourceRevisions.length === 0 ||
+      !entry.sourceRevisions.every(isRevision) ||
+      !Array.isArray(entry.analyses)
+    )
+      return null;
+  for (const entry of value.validationContributions)
+    if (
+      !isRecord(entry) ||
+      typeof entry.key !== 'string' ||
+      entry.key.length === 0 ||
+      !isStringArray(entry.inputPaths) ||
+      !Array.isArray(entry.sourceRevisions) ||
+      !entry.sourceRevisions.every(isRevision) ||
+      !Array.isArray(entry.diagnostics) ||
+      !entry.diagnostics.every(isProjectDiagnostic)
+    )
+      return null;
+  return value as ContributionsArtifact;
+}
+
 const manifestSchema = z
   .object({
     schema: z.literal(AUTHORING_CACHE_SCHEMA),
@@ -253,6 +367,7 @@ async function readCurrentGeneration(fileSystem: ProjectWorkspaceFileSystem, roo
 export async function readAuthoringCache(
   fileSystem: ProjectWorkspaceFileSystem,
   root: string,
+  expectedInputs: ProjectSourceInventory | null = null,
 ): Promise<CachedValidationResult | null> {
   if (!fileSystem.readPathMetadata) return null;
   try {
@@ -262,8 +377,10 @@ export async function readAuthoringCache(
       authoritativePaths: generation.manifest.inputs.map((input) => input.path),
       discoveryScopes,
     });
+    const cachedInputs = { entries: generation.manifest.inputs };
     if (
-      !projectSourceInventoriesEqual({ entries: generation.manifest.inputs }, current) ||
+      !projectSourceInventoriesEqual(cachedInputs, current) ||
+      (expectedInputs && !projectSourceInventoriesEqual(cachedInputs, expectedInputs)) ||
       !(await settled(fileSystem, root))
     )
       return null;
@@ -311,8 +428,133 @@ export interface ReusableAuthoringContributions {
   readonly sourceContributions: ProjectWorkspaceSourceContributions;
   readonly dependencyContributions: readonly ReusableAuthoringDependencyContribution[];
   readonly sourceAnalyses: readonly ReusableAuthoringSourceAnalysis[];
+  readonly dependencyState: ProjectWorkspaceReusableDependencyState;
   readonly inventory: ProjectSourceInventory;
   readonly validationContributions: readonly AuthoringValidationContribution[];
+}
+
+async function reusableAuthoringContributionsFromGeneration(
+  fileSystem: ProjectWorkspaceFileSystem,
+  root: string,
+  generation: NonNullable<Awaited<ReturnType<typeof readCurrentGeneration>>>,
+  current: ProjectSourceInventory,
+): Promise<ReusableAuthoringContributions | null> {
+  const contributionText = await readCacheText(
+    fileSystem,
+    root,
+    `generations/${generation.pointer.generation}/contributions.json`,
+  );
+  if ((await sha256PrefixedUtf8(contributionText)) !== generation.manifest.contributions.sha256)
+    return null;
+  const artifact = parseContributionsArtifact(JSON.parse(contributionText));
+  if (!artifact || artifact.projectRoot !== root) return null;
+  const prior = { entries: generation.manifest.inputs };
+  // Inventory shape changes can reclassify source ownership, so reuse fails closed here.
+  if (!inventoryPathsEqual(prior, current)) return null;
+
+  const priorByPath = new Map(prior.entries.map((entry) => [entry.path, entry]));
+  const currentByPath = new Map(current.entries.map((entry) => [entry.path, entry]));
+  const revisionIsReusable = async (
+    path: string,
+    byteSize: number,
+    contentHash: string,
+  ): Promise<boolean> => {
+    const previousInput = priorByPath.get(path);
+    const currentInput = currentByPath.get(path);
+    if (!previousInput || !currentInput || byteSize !== previousInput.byteSize)
+      throw new Error('Cached content revision is not part of the published source inventory.');
+    if (
+      previousInput.byteSize === currentInput.byteSize &&
+      previousInput.mtimeNanoseconds === currentInput.mtimeNanoseconds
+    )
+      return true;
+    const bytes = await fileSystem.readBytes(fileSystem.joinPath(root, path));
+    return (
+      bytes.byteLength === currentInput.byteSize &&
+      bytes.byteLength === byteSize &&
+      (await sha256PrefixedBytes(bytes)) === contentHash
+    );
+  };
+
+  const reusable: z.infer<typeof sourceContributionSchema>[] = [];
+  for (const contribution of artifact.entries)
+    if (
+      await revisionIsReusable(contribution.path, contribution.byteSize, contribution.contentHash)
+    )
+      reusable.push(contribution);
+
+  const reusableExternalSourceRevisions = new Map<string, string>();
+  let previousExternalPath: string | null = null;
+  const contributionPaths = new Set(artifact.entries.map((entry) => entry.path));
+  for (const revision of artifact.externalSourceRevisions) {
+    if (
+      contributionPaths.has(revision.path) ||
+      (previousExternalPath !== null &&
+        compareProjectWorkspaceUnicodeCodePoints(revision.path, previousExternalPath) <= 0)
+    )
+      return null;
+    previousExternalPath = revision.path;
+    if (await revisionIsReusable(revision.path, revision.byteSize, revision.contentHash))
+      reusableExternalSourceRevisions.set(revision.path, revision.contentHash);
+  }
+  if (!(await settled(fileSystem, root))) return null;
+  const sourceContributions = contributionRecord(reusable);
+  if (!sourceContributions) return null;
+  const cachedRevisionPaths = new Set([
+    ...artifact.entries.map((entry) => entry.path),
+    ...artifact.externalSourceRevisions.map((entry) => entry.path),
+  ]);
+  const semanticReuseUncertain = current.entries.some((entry) => {
+    const previous = priorByPath.get(entry.path);
+    return (
+      !cachedRevisionPaths.has(entry.path) &&
+      previous !== undefined &&
+      (previous.byteSize !== entry.byteSize || previous.mtimeNanoseconds !== entry.mtimeNanoseconds)
+    );
+  });
+  const reusableRevision = (revisions: readonly { path: string; contentHash: string }[]) =>
+    revisions.every((revision) => {
+      const admittedHash =
+        sourceContributions[revision.path]?.contentHash ??
+        reusableExternalSourceRevisions.get(revision.path);
+      return admittedHash === revision.contentHash;
+    });
+  const dependencyContributions = semanticReuseUncertain
+    ? []
+    : artifact.dependencyContributions.filter((entry) => reusableRevision(entry.sourceRevisions));
+  const sourceAnalyses = semanticReuseUncertain
+    ? []
+    : artifact.sourceAnalyses.filter((entry) => reusableRevision(entry.sourceRevisions));
+  return {
+    sourceContributions,
+    dependencyContributions,
+    sourceAnalyses,
+    dependencyState: semanticReuseUncertain
+      ? {}
+      : {
+          contributions: dependencyContributions.map(
+            (entry) => entry.contribution,
+          ) as ProjectWorkspaceReusableDependencyState['contributions'],
+          sourceAnalyses: new Map(
+            sourceAnalyses.map((entry) => [entry.key, entry.analyses]),
+          ) as ProjectWorkspaceReusableDependencyState['sourceAnalyses'],
+          externalSourceRevisions: new Map(
+            [...reusableExternalSourceRevisions.entries()].map(([path, contentHash]) => {
+              const revision = artifact.externalSourceRevisions.find(
+                (entry) => entry.path === path,
+              )!;
+              return [
+                path,
+                { contentHash: contentHash as `sha256:${string}`, byteSize: revision.byteSize },
+              ];
+            }),
+          ),
+        },
+    validationContributions: semanticReuseUncertain
+      ? []
+      : artifact.validationContributions.filter((entry) => reusableRevision(entry.sourceRevisions)),
+    inventory: current,
+  };
 }
 
 export async function readReusableAuthoringContributions(
@@ -323,108 +565,110 @@ export async function readReusableAuthoringContributions(
   try {
     const generation = await readCurrentGeneration(fileSystem, root);
     if (!generation) return null;
-    const contributionText = await readCacheText(
-      fileSystem,
-      root,
-      `generations/${generation.pointer.generation}/contributions.json`,
-    );
-    if ((await sha256PrefixedUtf8(contributionText)) !== generation.manifest.contributions.sha256)
-      return null;
-    const artifact = contributionsSchema.parse(JSON.parse(contributionText));
-    if (artifact.projectRoot !== root) return null;
-    const prior = { entries: generation.manifest.inputs };
     const current = await captureProjectSourceInventory(fileSystem, root, {
       authoritativePaths: generation.manifest.inputs.map((input) => input.path),
       discoveryScopes,
     });
-    // Inventory shape changes can reclassify source ownership, so reuse fails closed here.
-    if (!inventoryPathsEqual(prior, current)) return null;
+    return await reusableAuthoringContributionsFromGeneration(
+      fileSystem,
+      root,
+      generation,
+      current,
+    );
+  } catch {
+    return null;
+  }
+}
 
-    const priorByPath = new Map(prior.entries.map((entry) => [entry.path, entry]));
-    const currentByPath = new Map(current.entries.map((entry) => [entry.path, entry]));
-    const revisionIsReusable = async (
-      path: string,
-      byteSize: number,
-      contentHash: string,
-    ): Promise<boolean> => {
-      const previousInput = priorByPath.get(path);
-      const currentInput = currentByPath.get(path);
-      if (!previousInput || !currentInput || byteSize !== previousInput.byteSize)
-        throw new Error('Cached content revision is not part of the published source inventory.');
-      if (
-        previousInput.byteSize === currentInput.byteSize &&
-        previousInput.mtimeNanoseconds === currentInput.mtimeNanoseconds
-      )
-        return true;
-      const bytes = await fileSystem.readBytes(fileSystem.joinPath(root, path));
-      return (
-        bytes.byteLength === currentInput.byteSize &&
-        bytes.byteLength === byteSize &&
-        (await sha256PrefixedBytes(bytes)) === contentHash
-      );
-    };
+export interface AuthoringCacheAdmission {
+  readonly result: CachedValidationResult | null;
+  readonly reusable: ReusableAuthoringContributions | null;
+  readonly timings: Readonly<{
+    generationMs: number;
+    sourceInventoryMs: number;
+    contributionLoadingMs: number;
+  }>;
+}
 
-    const reusable: z.infer<typeof sourceContributionSchema>[] = [];
-    for (const contribution of artifact.entries)
-      if (
-        await revisionIsReusable(contribution.path, contribution.byteSize, contribution.contentHash)
-      )
-        reusable.push(contribution);
-
-    const reusableExternalSourceRevisions = new Map<string, string>();
-    let previousExternalPath: string | null = null;
-    const contributionPaths = new Set(artifact.entries.map((entry) => entry.path));
-    for (const revision of artifact.externalSourceRevisions) {
-      if (
-        contributionPaths.has(revision.path) ||
-        (previousExternalPath !== null &&
-          compareProjectWorkspaceUnicodeCodePoints(revision.path, previousExternalPath) <= 0)
-      )
-        return null;
-      previousExternalPath = revision.path;
-      if (await revisionIsReusable(revision.path, revision.byteSize, revision.contentHash))
-        reusableExternalSourceRevisions.set(revision.path, revision.contentHash);
-    }
-    if (!(await settled(fileSystem, root))) return null;
-    const sourceContributions = contributionRecord(reusable);
-    if (!sourceContributions) return null;
-    const cachedRevisionPaths = new Set([
-      ...artifact.entries.map((entry) => entry.path),
-      ...artifact.externalSourceRevisions.map((entry) => entry.path),
-    ]);
-    const semanticReuseUncertain = current.entries.some((entry) => {
-      const previous = priorByPath.get(entry.path);
-      return (
-        !cachedRevisionPaths.has(entry.path) &&
-        previous !== undefined &&
-        (previous.byteSize !== entry.byteSize ||
-          previous.mtimeNanoseconds !== entry.mtimeNanoseconds)
-      );
-    });
-    const reusableRevision = (revisions: readonly { path: string; contentHash: string }[]) =>
-      revisions.every((revision) => {
-        const admittedHash =
-          sourceContributions[revision.path]?.contentHash ??
-          reusableExternalSourceRevisions.get(revision.path);
-        return admittedHash === revision.contentHash;
-      });
+export async function readAuthoringCacheAdmission(
+  fileSystem: ProjectWorkspaceFileSystem,
+  root: string,
+  expectedInputs: ProjectSourceInventory | null = null,
+  includeReusableOnWholeResultHit = false,
+  precomputedCurrent: ProjectSourceInventory | null = null,
+): Promise<AuthoringCacheAdmission> {
+  const started = Date.now();
+  const emptyTimings = { generationMs: 0, sourceInventoryMs: 0, contributionLoadingMs: 0 };
+  if (!fileSystem.readPathMetadata) return { result: null, reusable: null, timings: emptyTimings };
+  try {
+    const generation = await readCurrentGeneration(fileSystem, root);
+    const generationMs = Date.now() - started;
+    if (!generation)
+      return { result: null, reusable: null, timings: { ...emptyTimings, generationMs } };
+    const inventoryStarted = Date.now();
+    const current =
+      precomputedCurrent ??
+      (await captureProjectSourceInventory(fileSystem, root, {
+        authoritativePaths: generation.manifest.inputs.map((input) => input.path),
+        discoveryScopes,
+      }));
+    const sourceInventoryMs = Date.now() - inventoryStarted;
+    const cachedInputs = { entries: generation.manifest.inputs };
+    const exact =
+      projectSourceInventoriesEqual(cachedInputs, current) &&
+      (!expectedInputs || projectSourceInventoriesEqual(cachedInputs, expectedInputs)) &&
+      (await settled(fileSystem, root));
+    if (exact && !includeReusableOnWholeResultHit)
+      return {
+        result: generation.manifest.result,
+        reusable: null,
+        timings: { generationMs, sourceInventoryMs, contributionLoadingMs: 0 },
+      };
+    const contributionStarted = Date.now();
+    const reusable = await reusableAuthoringContributionsFromGeneration(
+      fileSystem,
+      root,
+      generation,
+      current,
+    );
+    const contributionLoadingMs = Date.now() - contributionStarted;
     return {
-      sourceContributions,
-      dependencyContributions: semanticReuseUncertain
-        ? []
-        : artifact.dependencyContributions.filter((entry) =>
-            reusableRevision(entry.sourceRevisions),
-          ),
-      sourceAnalyses: semanticReuseUncertain
-        ? []
-        : artifact.sourceAnalyses.filter((entry) => reusableRevision(entry.sourceRevisions)),
-      validationContributions: semanticReuseUncertain
-        ? []
-        : artifact.validationContributions.filter((entry) =>
-            reusableRevision(entry.sourceRevisions),
-          ),
-      inventory: current,
+      result: exact ? generation.manifest.result : null,
+      reusable,
+      timings: { generationMs, sourceInventoryMs, contributionLoadingMs },
     };
+  } catch {
+    return { result: null, reusable: null, timings: emptyTimings };
+  }
+}
+
+export async function captureAuthoringValidationAuthorityInputs(
+  fileSystem: ProjectWorkspaceFileSystem,
+  snapshot: LoadedProjectWorkspaceSnapshot,
+): Promise<ProjectSourceInventory | null> {
+  if (!fileSystem.readPathMetadata) return null;
+  try {
+    if (!(await settled(fileSystem, snapshot.projectRoot))) return null;
+    const inputs = await captureProjectSourceInventory(fileSystem, snapshot.projectRoot, {
+      authoritativePaths: [
+        ...snapshot.canonicalSourceFiles,
+        'project.json',
+        'editor.json',
+        ...assetSourcePaths(snapshot.project),
+      ],
+      discoveryScopes,
+    });
+    const inputByPath = new Map(inputs.entries.map((entry) => [entry.path, entry]));
+    for (const relative of snapshot.canonicalSourceFiles) {
+      const captured = snapshot.fileRevisions[relative];
+      const input = inputByPath.get(relative);
+      if (!captured || !input || input.byteSize !== captured.byteSize) return null;
+      const absolute = fileSystem.joinPath(snapshot.projectRoot, relative);
+      const current = await fileSystem.readFileRevision(absolute);
+      if (current.contentHash !== captured.contentHash || current.byteSize !== captured.byteSize)
+        return null;
+    }
+    return (await settled(fileSystem, snapshot.projectRoot)) ? inputs : null;
   } catch {
     return null;
   }
@@ -451,7 +695,7 @@ export async function captureAuthoringValidationInputs(
   sourceContributions: ProjectWorkspaceSourceContributions,
   admittedInventory: ProjectSourceInventory | null = null,
 ): Promise<ProjectSourceInventory | null> {
-  if (!fileSystem.readPathMetadata || !baseline) return null;
+  if (!fileSystem.readPathMetadata || (!baseline && !admittedInventory)) return null;
   try {
     if (!(await settled(fileSystem, snapshot.projectRoot))) return null;
     const inputs = await captureProjectSourceInventory(fileSystem, snapshot.projectRoot, {
@@ -463,9 +707,20 @@ export async function captureAuthoringValidationInputs(
       ],
       discoveryScopes,
     });
-    const currentBaseline = await captureAuthoringSourceBaseline(fileSystem, snapshot.projectRoot);
-    if (!currentBaseline || !projectSourceInventoriesEqual(baseline, currentBaseline)) return null;
-    if (admittedInventory && !projectSourceInventoriesEqual(admittedInventory, inputs)) return null;
+    if (admittedInventory) {
+      if (!projectSourceInventoriesEqual(admittedInventory, inputs)) return null;
+    } else {
+      const currentBaseline = await captureAuthoringSourceBaseline(
+        fileSystem,
+        snapshot.projectRoot,
+      );
+      if (
+        !currentBaseline ||
+        !baseline ||
+        !projectSourceInventoriesEqual(baseline, currentBaseline)
+      )
+        return null;
+    }
     // Each parsed source contribution is tied to the exact revision admitted by workspace assembly.
     for (const relative of snapshot.canonicalSourceFiles) {
       const contribution = sourceContributions[relative];
@@ -485,47 +740,60 @@ export async function captureAuthoringValidationInputs(
   }
 }
 
+interface SemanticSourceRevisionIndex {
+  readonly contributions: readonly ProjectWorkspaceSourceContribution[];
+  readonly byOwnerPath: ReadonlyMap<string, readonly ProjectWorkspaceSourceContribution[]>;
+  readonly familyCache: Map<string, readonly ProjectWorkspaceSourceContribution[]>;
+}
+
+function buildSemanticSourceRevisionIndex(
+  sourceContributions: ProjectWorkspaceSourceContributions,
+): SemanticSourceRevisionIndex {
+  const contributions = Object.values(sourceContributions);
+  const byOwnerPath = new Map<string, ProjectWorkspaceSourceContribution[]>();
+  for (const contribution of contributions)
+    for (const ownerPath of contribution.ownerPaths) {
+      const values = byOwnerPath.get(ownerPath) ?? [];
+      values.push(contribution);
+      byOwnerPath.set(ownerPath, values);
+    }
+  return { contributions, byOwnerPath, familyCache: new Map() };
+}
+
 function semanticSourceRevisions(
   contributionKey: string,
   contribution: AuthoringDependencyGraphContribution,
   sourceContributions: ProjectWorkspaceSourceContributions,
   dependencyAnalysis: ProjectWorkspaceDependencyAnalysis,
   scope: 'dependency' | 'source-analysis',
+  sourceIndex: SemanticSourceRevisionIndex,
 ): readonly { path: string; contentHash: `sha256:${string}` }[] | null {
   const revisions = new Map<string, `sha256:${string}`>();
   const addMostSpecificOwner = (ownerPath: string): boolean => {
-    const candidates: { path: string; contentHash: `sha256:${string}`; score: number }[] = [];
-    for (const sourceContribution of Object.values(sourceContributions)) {
-      const score = Math.max(
-        -1,
-        ...sourceContribution.ownerPaths
-          .filter(
-            (sourceOwner) => ownerPath === sourceOwner || ownerPath.startsWith(`${sourceOwner}/`),
-          )
-          .map((sourceOwner) => sourceOwner.length),
-      );
-      if (score >= 0)
-        candidates.push({
-          path: sourceContribution.path,
-          contentHash: sourceContribution.contentHash,
-          score,
-        });
+    let candidatePath = ownerPath;
+    while (candidatePath) {
+      const candidates = sourceIndex.byOwnerPath.get(candidatePath);
+      if (candidates && candidates.length > 0) {
+        for (const candidate of candidates) revisions.set(candidate.path, candidate.contentHash);
+        return true;
+      }
+      const separator = candidatePath.lastIndexOf('/');
+      if (separator <= 0) break;
+      candidatePath = candidatePath.slice(0, separator);
     }
-    const bestScore = Math.max(-1, ...candidates.map((candidate) => candidate.score));
-    if (bestScore < 0) return false;
-    for (const candidate of candidates)
-      if (candidate.score === bestScore) revisions.set(candidate.path, candidate.contentHash);
-    return true;
+    return false;
   };
   const addOwnerFamily = (prefix: string): boolean => {
-    let found = false;
-    for (const sourceContribution of Object.values(sourceContributions)) {
-      if (!sourceContribution.ownerPaths.some((ownerPath) => ownerPath.startsWith(prefix)))
-        continue;
-      revisions.set(sourceContribution.path, sourceContribution.contentHash);
-      found = true;
+    let family = sourceIndex.familyCache.get(prefix);
+    if (!family) {
+      family = sourceIndex.contributions.filter((sourceContribution) =>
+        sourceContribution.ownerPaths.some((ownerPath) => ownerPath.startsWith(prefix)),
+      );
+      sourceIndex.familyCache.set(prefix, family);
     }
-    return found;
+    for (const sourceContribution of family)
+      revisions.set(sourceContribution.path, sourceContribution.contentHash);
+    return family.length > 0;
   };
   const addRevisionPath = (path: string): boolean => {
     const sourceContribution = sourceContributions[path];
@@ -564,7 +832,7 @@ function semanticSourceRevisions(
 
   if ((dependencyAnalysis.sourceAnalyses.get(contributionKey)?.length ?? 0) > 0) {
     if (!addGlobalSourceAnalysisInputs()) return null;
-    for (const sourceContribution of Object.values(sourceContributions)) {
+    for (const sourceContribution of sourceIndex.contributions) {
       const contributesSymbols =
         sourceContribution.path === 'project.json' ||
         sourceContribution.path === 'traits.json' ||
@@ -619,6 +887,7 @@ export async function publishAuthoringCache(
     success: boolean;
     exitCode: number;
     diagnostics: readonly z.infer<typeof diagnosticSchema>[];
+    editorDiagnostics: readonly z.infer<typeof projectValidationDiagnosticSchema>[];
   }>,
   validationContributions: readonly AuthoringValidationContribution[],
 ): Promise<void> {
@@ -655,6 +924,7 @@ export async function publishAuthoringCache(
       })
     )
       return;
+    const semanticSourceIndex = buildSemanticSourceRevisionIndex(sourceContributions);
     const dependencyContributions = dependencyAnalysis
       ? [...dependencyAnalysis.contributions.byKey.entries()]
           .sort(([left], [right]) => compareProjectWorkspaceUnicodeCodePoints(left, right))
@@ -665,6 +935,7 @@ export async function publishAuthoringCache(
               sourceContributions,
               dependencyAnalysis,
               'dependency',
+              semanticSourceIndex,
             );
             return sourceRevisions && sourceRevisions.length > 0
               ? [{ key, sourceRevisions, contribution }]
@@ -683,13 +954,14 @@ export async function publishAuthoringCache(
               sourceContributions,
               dependencyAnalysis,
               'source-analysis',
+              semanticSourceIndex,
             );
             return sourceRevisions && sourceRevisions.length > 0
               ? [{ key, sourceRevisions, analyses }]
               : [];
           })
       : [];
-    const contributions = contributionsSchema.parse({
+    const contributions = {
       schema: AUTHORING_CONTRIBUTIONS_SCHEMA,
       buildIdentity,
       projectRoot: root,
@@ -698,7 +970,7 @@ export async function publishAuthoringCache(
       dependencyContributions,
       sourceAnalyses,
       validationContributions,
-    });
+    } as unknown as ContributionsArtifact;
     const contributionText = `${JSON.stringify(contributions)}\n`;
     const manifest = manifestSchema.parse({
       schema: AUTHORING_CACHE_SCHEMA,

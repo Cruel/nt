@@ -6,11 +6,13 @@ import {
   NOVELTEA_CLI_VERSION,
   type NovelTeaCliCommandResult,
 } from './contracts';
+import { classifyNovelTeaCliCommand } from './command-routing';
 
 export interface ParsedGlobalArguments {
   readonly json: boolean;
   readonly project?: string;
   readonly command: readonly string[];
+  readonly noDaemon: boolean;
   readonly help: boolean;
   readonly version: boolean;
 }
@@ -29,6 +31,7 @@ export type NovelTeaCliBootstrapResult =
 export function parseNovelTeaCliGlobals(argv: readonly string[]): ParsedGlobalArguments {
   let json = false;
   let project: string | undefined;
+  let noDaemon = false;
   let help = false;
   let version = false;
   let index = 0;
@@ -50,6 +53,13 @@ export function parseNovelTeaCliGlobals(argv: readonly string[]): ParsedGlobalAr
       index += 2;
       continue;
     }
+    if (argument === '--no-daemon') {
+      if (noDaemon)
+        throw new CliUsageError("Global option '--no-daemon' may be supplied only once.");
+      noDaemon = true;
+      index += 1;
+      continue;
+    }
     if (argument === '--help') {
       help = true;
       index += 1;
@@ -66,7 +76,7 @@ export function parseNovelTeaCliGlobals(argv: readonly string[]): ParsedGlobalAr
   if ((help || version) && command.length > 0)
     throw new CliUsageError('--help and --version do not accept a command path.');
   if (help && version) throw new CliUsageError('--help and --version cannot be combined.');
-  return { json, project, command, help, version };
+  return { json, project, command, noDaemon, help, version };
 }
 
 export function novelTeaCliUsageFailure(message: string, json: boolean): NovelTeaCliCommandResult {
@@ -142,69 +152,12 @@ export function bootstrapNovelTeaCli(argv: readonly string[]): NovelTeaCliBootst
     };
 
   const command = globals.command;
-  const knownPath =
-    command[0] === 'shaderc' ||
-    command[0] === 'texturec' ||
-    (command[0] === 'project' &&
-      (command[1] === 'create' || command[1] === 'export' || command[1] === 'import')) ||
-    (command[0] === 'agent' && command[1] === 'sync') ||
-    (command[0] === 'comfyui' &&
-      (command[1] === 'workflows' ||
-        command[1] === 'status' ||
-        command[1] === 'verify' ||
-        command[1] === 'run')) ||
-    command[0] === 'validate' ||
-    (command[0] === 'localization' &&
-      (command[1] === 'sync' ||
-        command[1] === 'reconcile' ||
-        command[1] === 'view' ||
-        command[1] === 'accept' ||
-        command[1] === 'review')) ||
-    command[0] === 'usages' ||
-    (command[0] === 'asset' && (command[1] === 'audit' || command[1] === 'import')) ||
-    (command[0] === 'entity' &&
-      (command[1] === 'create' || command[1] === 'rename' || command[1] === 'delete')) ||
-    (command[0] === 'shaders' && command[1] === 'compile') ||
-    (command[0] === 'test' &&
-      (command[1] === 'run' || command[1] === 'run-spec' || command[1] === 'run-ui-spec')) ||
-    (command[0] === 'package' && command[1] === 'export') ||
-    (command[0] === 'platform' &&
-      (command[1] === 'profiles' ||
-        command[1] === 'export' ||
-        command[1] === 'template' ||
-        command[1] === 'config'));
-  if (!knownPath)
+  const routing = classifyNovelTeaCliCommand(command);
+  if (!routing || command[0] === 'daemon')
     return {
       complete: true,
       result: novelTeaCliUsageFailure(`Unknown command path '${command.join(' ')}'.`, globals.json),
     };
 
   return { complete: false, globals };
-}
-
-export function novelTeaCliCommandNeedsZod(command: readonly string[]): boolean {
-  if (
-    command[0] === 'project' &&
-    (command[1] === 'create' || command[1] === 'export' || command[1] === 'import')
-  )
-    return true;
-  if (command[0] === 'validate' || command[0] === 'usages') return true;
-  if (command[0] === 'localization')
-    return (
-      command[1] === 'sync' ||
-      command[1] === 'reconcile' ||
-      command[1] === 'view' ||
-      command[1] === 'accept' ||
-      command[1] === 'review'
-    );
-  if (command[0] === 'asset') return command[1] === 'audit' || command[1] === 'import';
-  if (command[0] === 'entity')
-    return command[1] === 'create' || command[1] === 'rename' || command[1] === 'delete';
-  if (command[0] === 'shaders') return command[1] === 'compile';
-  if (command[0] === 'test')
-    return command[1] === 'run' || command[1] === 'run-spec' || command[1] === 'run-ui-spec';
-  return (
-    (command[0] === 'package' && command[1] === 'export') ||
-    (command[0] === 'platform' && (command[1] === 'profiles' || command[1] === 'export'))
-  );
 }

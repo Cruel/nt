@@ -21,11 +21,16 @@ const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
-const scriptcVersion = '0.1.1';
+const scriptcVersion = '0.1.3';
 const isWindows = process.platform === 'win32';
-const releasePlatform = isWindows ? 'windows' : 'linux';
-const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-release';
-const releaseTriplet = isWindows ? 'x64-mingw-static-noveltea' : 'x64-linux-noveltea';
+const isMac = process.platform === 'darwin';
+const releasePlatform = isWindows ? 'windows' : isMac ? 'macos' : 'linux';
+const releasePreset = isWindows ? 'windows-cli-gnu' : isMac ? 'macos-release' : 'linux-release';
+const releaseTriplet = isWindows
+  ? 'x64-mingw-static-noveltea'
+  : isMac
+    ? 'arm64-osx-noveltea'
+    : 'x64-linux-noveltea';
 const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
 const uiTestRunnerName = isWindows ? 'noveltea-ui-test-runner.exe' : 'noveltea-ui-test-runner';
 const scriptcEntrypoint = path.join(editorRoot, 'node_modules', 'scriptc', 'dist', 'main.js');
@@ -76,6 +81,7 @@ const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-isl
 const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
 const hostProcessSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-process.ts');
 const staticContractsSource = path.join(editorRoot, 'src', 'cli', 'static-contracts.ts');
+const commandRoutingSource = path.join(editorRoot, 'src', 'cli', 'command-routing.ts');
 const productVersionSource = path.join(editorRoot, 'src', 'shared', 'product-version.ts');
 
 if (process.argv.length > 2)
@@ -100,9 +106,13 @@ if (process.versions.node !== '24.18.0')
   throw new Error(
     `NovelTea CLI release builds require Node 24.18.0; received ${process.versions.node}.`,
   );
-if (!['linux', 'win32'].includes(process.platform) || process.arch !== 'x64')
+const supportedHost =
+  (process.platform === 'linux' && process.arch === 'x64') ||
+  (process.platform === 'win32' && process.arch === 'x64') ||
+  (process.platform === 'darwin' && process.arch === 'arm64');
+if (!supportedHost)
   throw new Error(
-    `NovelTea CLI release builds support Linux and Windows x64 hosts; received ${process.platform}/${process.arch}.`,
+    `NovelTea CLI release builds support Linux x64, Windows x64, and macOS arm64 hosts; received ${process.platform}/${process.arch}.`,
   );
 if (!process.env.VCPKG_ROOT)
   throw new Error('VCPKG_ROOT is required for the native tooling release build.');
@@ -127,7 +137,7 @@ if (isWindows) {
 } else {
   const clangCheck = spawnSync('clang', ['--version'], { encoding: 'utf8' });
   if (clangCheck.error?.code === 'ENOENT' || clangCheck.status !== 0)
-    throw new Error('NovelTea Linux CLI release builds require clang on PATH for ScriptC.');
+    throw new Error('NovelTea POSIX CLI release builds require clang on PATH for ScriptC.');
   if (clangCheck.error) throw clangCheck.error;
 }
 
@@ -136,12 +146,13 @@ async function ensureScriptcNativeHelperExecutable() {
   const scriptcRequire = createRequire(realpathSync(scriptcEntrypoint));
   const compilerEntrypoint = scriptcRequire.resolve('@scriptc/compiler');
   const compilerRequire = createRequire(compilerEntrypoint);
+  const helperPackage = isMac ? '@scriptc/llvm-darwin-arm64' : '@scriptc/llvm-linux-x64-gnu';
   let helperPackageJson;
   try {
-    helperPackageJson = compilerRequire.resolve('@scriptc/llvm-linux-x64-gnu/package.json');
+    helperPackageJson = compilerRequire.resolve(`${helperPackage}/package.json`);
   } catch {
     throw new Error(
-      'Pinned scriptc LLVM helper is not installed. Run pnpm install with optional dependencies enabled.',
+      `Pinned scriptc LLVM helper ${helperPackage} is not installed. Run pnpm install with optional dependencies enabled.`,
     );
   }
   const helperBinary = path.join(path.dirname(helperPackageJson), 'bin', 'scriptc-llvm-codegen');
@@ -184,7 +195,7 @@ const shadercProviderArguments = prebuiltShadercRoot
 
 async function stagePrebuiltShadercLinkClosure() {
   if (!prebuiltShadercRoot) return;
-  if (isWindows)
+  if (process.platform !== 'linux')
     throw new Error('NOVELTEA_PREBUILT_SHADERC_ROOT is currently a Linux-only release input.');
   const archives = [
     'libnoveltea_bgfx_shaderc_embedded.a',
@@ -437,11 +448,13 @@ try {
   const stagedHost = path.join(stageRoot, 'noveltea-scriptc-host.ts');
   const stagedHostProcess = path.join(stageRoot, 'noveltea-scriptc-process.ts');
   const stagedStaticContracts = path.join(stageRoot, 'static-contracts.ts');
+  const stagedCommandRouting = path.join(stageRoot, 'command-routing.ts');
   const stagedProductVersion = path.join(stageRoot, 'product-version.ts');
   const stagedHostSource = (await readFile(hostSource, 'utf8'))
     .replace('../src/cli/static-contracts', './static-contracts')
-    .replace(
-      '      // @ts-expect-error The private island package is materialized only during release staging.',
+    .replace('../src/cli/command-routing', './command-routing')
+    .replaceAll(
+      '// @ts-expect-error The private island package is materialized only during release staging.',
       '',
     );
   const stagedStaticContractsSource = (await readFile(staticContractsSource, 'utf8')).replace(
@@ -452,6 +465,7 @@ try {
     .replace('__NOVELTEA_VERSION__', JSON.stringify(productVersion))
     .replace('__NOVELTEA_BUILD_IDENTITY__', JSON.stringify(buildIdentity));
   await writeFile(stagedStaticContracts, stagedStaticContractsSource);
+  await cp(commandRoutingSource, stagedCommandRouting);
   await writeFile(stagedProductVersion, stagedProductVersionSource);
   await cp(hostProcessSource, stagedHostProcess);
   await writeFile(stagedHost, stagedHostSource);
@@ -472,7 +486,9 @@ try {
         libraries,
         system_libraries: isWindows
           ? ['advapi32', 'bcrypt', 'ole32', 'shell32', 'user32', 'ws2_32']
-          : ['m', 'dl', 'rt', 'stdc++'],
+          : isMac
+            ? ['c++']
+            : ['m', 'dl', 'rt', 'stdc++'],
       },
       null,
       2,
@@ -494,14 +510,18 @@ try {
     ],
     { cwd: stageRoot, env: scriptcBuildEnv },
   );
-  run(isWindows ? 'llvm-strip' : 'strip', ['--strip-all', outputPath], { env: buildEnv });
+  run(isWindows ? 'llvm-strip' : 'strip', [isMac ? '-x' : '--strip-all', outputPath], {
+    env: buildEnv,
+  });
 
   const uiTestRunnerSource = path.join(buildRoot, 'tools', 'editor_tool', uiTestRunnerName);
   if (!existsSync(uiTestRunnerSource))
     throw new Error(`NovelTea UI Test runner is missing: ${uiTestRunnerSource}`);
   const uiTestRunnerOutput = path.join(outputDirectory, uiTestRunnerName);
   await cp(uiTestRunnerSource, uiTestRunnerOutput);
-  run(isWindows ? 'llvm-strip' : 'strip', ['--strip-all', uiTestRunnerOutput], { env: buildEnv });
+  run(isWindows ? 'llvm-strip' : 'strip', [isMac ? '-x' : '--strip-all', uiTestRunnerOutput], {
+    env: buildEnv,
+  });
   if (!isWindows) await chmod(uiTestRunnerOutput, 0o755);
 
   await cp(

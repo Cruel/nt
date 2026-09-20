@@ -23,6 +23,13 @@ describe('preferences-store', () => {
     expect(state.materialLibraryLivePreviews).toBe(true);
     expect(state.lastProjectPath).toBe(null);
     expect(state.defaultProjectDirectory).toBe(null);
+    expect(state.terminal).toEqual({
+      fontFamily: 'JetBrains Mono, monospace',
+      fontSize: 13,
+      fallbackCwd: null,
+      scrollback: 10_000,
+      desktopNotifications: true,
+    });
     expect(state.exportPreferences.defaultOutputDirectory).toBe('');
     expect(state.exportPreferences.selectedProfileIds).toEqual({});
     expect(state.exportPreferences.profileOutputDirectories).toEqual({});
@@ -96,6 +103,27 @@ describe('preferences-store', () => {
     expect(usePreferencesStore.getState().lastProjectPath).toBe('/tmp/project.ntp');
   });
 
+  it('normalizes terminal preferences and resets them with editor settings', () => {
+    usePreferencesStore.getState().setTerminalPreferences({
+      fontFamily: 'Fira Code',
+      fontSize: 99,
+      fallbackCwd: '/tmp/Terminal Work',
+      scrollback: 1,
+      desktopNotifications: false,
+    });
+    expect(usePreferencesStore.getState().terminal).toEqual({
+      fontFamily: 'Fira Code',
+      fontSize: 32,
+      fallbackCwd: '/tmp/Terminal Work',
+      scrollback: 100,
+      desktopNotifications: false,
+    });
+    usePreferencesStore.getState().resetToDefaults();
+    expect(usePreferencesStore.getState().terminal.fontSize).toBe(13);
+    expect(usePreferencesStore.getState().terminal.scrollback).toBe(10_000);
+    expect(usePreferencesStore.getState().terminal.desktopNotifications).toBe(true);
+  });
+
   it('updates the default project directory', () => {
     usePreferencesStore.getState().setDefaultProjectDirectory('/tmp/NovelTea');
     expect(usePreferencesStore.getState().defaultProjectDirectory).toBe('/tmp/NovelTea');
@@ -141,6 +169,33 @@ describe('preferences-store', () => {
     expect(parsed.state.theme).toBeUndefined();
     expect(parsed.state.previewFpsCap).toBeUndefined();
     expect(parsed.state.previewRmlUiRasterSnap).toBeUndefined();
+  });
+
+  it('persists Terminal preferences through the shared user-preference file', async () => {
+    const dispose = await initializeSharedPreferencesPersistence();
+    const save = window.noveltea.saveUserPreferences as ReturnType<typeof vi.fn>;
+    save.mockClear();
+
+    usePreferencesStore.getState().setTerminalPreferences({
+      fontFamily: 'Iosevka, monospace',
+      fontSize: 17,
+      fallbackCwd: '/tmp/Terminal Work',
+      scrollback: 20000,
+      desktopNotifications: false,
+    });
+
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        terminal: {
+          fontFamily: 'Iosevka, monospace',
+          fontSize: 17,
+          fallbackCwd: '/tmp/Terminal Work',
+          scrollback: 20000,
+          desktopNotifications: false,
+        },
+      }),
+    );
+    dispose();
   });
 
   it('keeps file persistence active when initialization is mounted again', async () => {

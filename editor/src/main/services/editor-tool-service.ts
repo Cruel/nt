@@ -16,9 +16,12 @@ import {
   publishProjectWorkspaceSnapshot,
 } from '../../shared/project-workspace/project-workspace-service';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { validateProjectSettingsAuthoringState } from '../../shared/project-schema/authoring-project-settings';
+import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { parseTestData } from '../../shared/project-schema/authoring-tests';
 import {
   classifyProjectValidationDiagnostics,
+  collectProjectValidationDiagnostics,
   projectValidationBoundariesForCompilerDiagnostic,
 } from '../../shared/project-schema/project-validation';
 export {
@@ -75,10 +78,16 @@ export async function openProject(projectPath: string) {
 }
 
 export async function validateProject(project: unknown) {
+  const authoringDiagnostics = isAuthoringProject(project)
+    ? collectProjectValidationDiagnostics(
+        validateAuthoringProject(project),
+        validateProjectSettingsAuthoringState(project),
+      )
+    : [];
   const compiled = isAuthoringProject(project)
     ? publishProjectWorkspaceSnapshot(await createProjectWorkspaceSnapshot(project))
     : publishCompiledArtifact(project);
-  const diagnostics = classifyProjectValidationDiagnostics(
+  const compilerDiagnostics = classifyProjectValidationDiagnostics(
     compiled.diagnostics.map((item) => ({
       code: item.code,
       severity: item.severity,
@@ -89,7 +98,15 @@ export async function validateProject(project: unknown) {
     })),
     { producer: 'compiler' },
   );
-  return Promise.resolve({ ok: true, success: compiled.ok, diagnostics });
+  const diagnostics = collectProjectValidationDiagnostics(
+    authoringDiagnostics,
+    compilerDiagnostics,
+  );
+  return Promise.resolve({
+    ok: true,
+    success: !diagnostics.some((diagnostic) => diagnostic.severity === 'error'),
+    diagnostics,
+  });
 }
 
 export function listPlaybackTests(project: unknown) {

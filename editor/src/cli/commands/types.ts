@@ -1,6 +1,10 @@
 import type { NovelTeaCliNativeToolService } from '../native-tool-service';
 import type { NovelTeaCliPlatformToolService } from '../platform-tool-service';
 import type { CliSemanticResult } from '../semantic-project';
+import type {
+  CliProjectPreparationIntent,
+  CliScopedProjectPreparation,
+} from '../project-preparation';
 import {
   isAuthoringCollectionKey,
   type AuthoringCollectionKey,
@@ -10,35 +14,48 @@ import type {
   ProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
 } from '../../shared/project-workspace';
+import { CliCommandUsageError } from './errors';
 
-export class CliCommandUsageError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CliCommandUsageError';
-  }
-}
+export { CliCommandUsageError } from './errors';
 
-export interface CliCommandContext {
+interface CliCommandContextBase {
   readonly cwd: string;
   readonly stdinJson?: unknown;
   readonly fileSystem: ProjectWorkspaceFileSystem;
-  readonly workspace: ProjectWorkspaceService;
-  readonly snapshot: LoadedProjectWorkspaceSnapshot;
   readonly nativeTools: NovelTeaCliNativeToolService;
   readonly platformTools: NovelTeaCliPlatformToolService;
   readonly onPlatformProgress?: (stage: string, message: string) => void;
   readonly forceRuntimeCacheRebuild: boolean;
 }
 
+export interface CliCommandContext extends CliCommandContextBase {
+  readonly workspace: ProjectWorkspaceService;
+  readonly snapshot: LoadedProjectWorkspaceSnapshot;
+}
+
+export interface CliScopedCommandContext extends CliCommandContextBase {
+  readonly preparation: CliScopedProjectPreparation;
+}
+
 export interface CliCommandInvocation {
   readonly dryRun: boolean;
   readonly mutation: boolean;
+  readonly projectPreparation?: undefined;
   run(context: CliCommandContext): Promise<CliSemanticResult> | CliSemanticResult;
 }
 
+export interface CliScopedCommandInvocation {
+  readonly dryRun: true;
+  readonly mutation: false;
+  readonly projectPreparation: CliProjectPreparationIntent;
+  run(context: CliScopedCommandContext): Promise<CliSemanticResult> | CliSemanticResult;
+}
+
+export type CliParsedCommand = CliCommandInvocation | CliScopedCommandInvocation;
+
 export interface CliCommandDefinition {
   readonly path: readonly string[];
-  parse(arguments_: readonly string[]): CliCommandInvocation;
+  parse(arguments_: readonly string[]): CliParsedCommand;
 }
 
 export function requireAuthoringCollection(value: string): AuthoringCollectionKey {
