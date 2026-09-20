@@ -87,6 +87,17 @@ export async function relaunchWindowTerminalSession(
   ensureRuntime();
   const snapshot = await window.noveltea.relaunchTerminalSession(sessionId);
   applySnapshot(snapshot);
+  const view = views.get(sessionId);
+  if (view) {
+    if (view.container.isConnected) view.fitAddon.fit();
+    view.lastColumns = view.terminal.cols;
+    view.lastRows = view.terminal.rows;
+    await window.noveltea.resizeTerminal({
+      sessionId,
+      columns: view.lastColumns,
+      rows: view.lastRows,
+    });
+  }
   return snapshot;
 }
 

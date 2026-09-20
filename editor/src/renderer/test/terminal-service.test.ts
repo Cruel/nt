@@ -139,6 +139,10 @@ describe('TerminalService', () => {
     expect((await service.ensureState()).sessions[0]).toMatchObject({
       lastKnownCwd: '/work/story project',
     });
+    pty.emitData('\u001b]7;file://localhost/work/project%23draft%2520\u0007');
+    expect((await service.ensureState()).sessions[0]).toMatchObject({
+      lastKnownCwd: '/work/project#draft%20',
+    });
 
     now = new Date('2026-09-19T12:00:01.000Z');
     pty.emitData('\u001b]633;C\u0007');
@@ -451,6 +455,35 @@ describe('terminal shell integration', () => {
     expect(fs.existsSync(generatedZdotdir)).toBe(false);
   });
 
+  it('loads ordinary zsh startup files without recursively sourcing integration wrappers', () => {
+    if (!fs.existsSync('/bin/zsh')) return;
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-zsh-normal-'));
+    const home = path.join(root, 'home');
+    fs.mkdirSync(home);
+    fs.writeFileSync(path.join(home, '.zshenv'), 'typeset -gx NOVELTEA_ENV_SEEN=env\n');
+    fs.writeFileSync(path.join(home, '.zprofile'), 'typeset -gx NOVELTEA_PROFILE_SEEN=profile\n');
+    fs.writeFileSync(path.join(home, '.zshrc'), 'typeset -gx NOVELTEA_RC_SEEN=rc\n');
+    fs.writeFileSync(path.join(home, '.zlogin'), 'typeset -gx NOVELTEA_LOGIN_SEEN=login\n');
+    const prepared = prepareTerminalShell('/bin/zsh', { HOME: home, PATH: '/usr/bin:/bin' });
+    try {
+      const probe = spawnSync(
+        '/bin/zsh',
+        [
+          ...prepared.args,
+          '-c',
+          'print -r -- "$NOVELTEA_ENV_SEEN|$NOVELTEA_PROFILE_SEEN|$NOVELTEA_RC_SEEN|$NOVELTEA_LOGIN_SEEN"',
+        ],
+        { env: prepared.env, encoding: 'utf8' },
+      );
+      expect(probe.status).toBe(0);
+      expect(probe.stdout).toContain('env|profile|rc|login');
+      expect(probe.stderr).not.toMatch(/recursion|maximum nested|too many levels/iu);
+    } finally {
+      prepared.dispose();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('follows ZDOTDIR changes made by .zshenv when sourcing later startup files', () => {
     if (!fs.existsSync('/bin/zsh')) return;
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-zsh-zdotdir-'));
@@ -486,6 +519,37 @@ describe('terminal shell integration', () => {
       expect(probe.stdout).toContain('env|profile|rc|login|/relocated/bin:');
     } finally {
       prepared.dispose();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('percent-encodes cwd URL delimiters in bash and zsh OSC 7 markers', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-terminal-cwd-'));
+    const cwd = path.join(root, 'project#draft%20');
+    fs.mkdirSync(cwd);
+    try {
+      for (const shell of ['/bin/bash', '/bin/zsh']) {
+        if (!fs.existsSync(shell)) continue;
+        const home = path.join(root, path.basename(shell));
+        fs.mkdirSync(home, { recursive: true });
+        const prepared = prepareTerminalShell(shell, { HOME: home, PATH: '/usr/bin:/bin' });
+        try {
+          const hook = shell.endsWith('bash') ? '__noveltea_prompt_command' : '__noveltea_precmd';
+          const probe = spawnSync(
+            shell,
+            [...prepared.args, '-c', `cd ${JSON.stringify(cwd)}; ${hook}`],
+            {
+              env: prepared.env,
+              encoding: 'utf8',
+            },
+          );
+          expect(probe.status).toBe(0);
+          expect(probe.stdout).toContain('project%23draft%2520');
+        } finally {
+          prepared.dispose();
+        }
+      }
+    } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
