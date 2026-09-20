@@ -77,6 +77,7 @@ import {
   stripLocalEditorProjectState,
   type EditorProjectState,
 } from '../project-schema/editor-project-state';
+import { parseJsonPointer } from '../json-pointer';
 import {
   createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
@@ -299,6 +300,41 @@ export interface ProjectWorkspaceOpenOptions {
   readonly reusableSourceContributions?: ProjectWorkspaceSourceContributions;
   readonly reusableValidationContributions?: readonly AuthoringValidationContribution[];
   readonly reusableDependencyState?: ProjectWorkspaceReusableDependencyState;
+}
+
+function lazyDetachedProject(project: AuthoringProject): () => unknown {
+  let resolved = false;
+  let value: unknown;
+  return () => {
+    if (!resolved) {
+      value = stripEditorProjectState(project);
+      resolved = true;
+    }
+    return value;
+  };
+}
+
+function withLazyOpenContent<T extends object>(
+  result: T,
+  project: AuthoringProject,
+): T & Readonly<{ contentProject: unknown; savedContentProject: unknown }> {
+  const content = lazyDetachedProject(project);
+  Object.defineProperties(result, {
+    contentProject: { enumerable: true, get: content },
+    savedContentProject: { enumerable: true, get: content },
+  });
+  return result as T & Readonly<{ contentProject: unknown; savedContentProject: unknown }>;
+}
+
+function withLazyWriteContent<T extends object>(
+  result: T,
+  project: AuthoringProject,
+): T & Readonly<{ contentProject: unknown }> {
+  Object.defineProperty(result, 'contentProject', {
+    enumerable: true,
+    get: lazyDetachedProject(project),
+  });
+  return result as T & Readonly<{ contentProject: unknown }>;
 }
 
 export function compareProjectWorkspaceUnicodeCodePoints(left: string, right: string): number {
@@ -628,6 +664,79 @@ function sourceContributionOwnerPaths(
 
 function jsonPointersOverlap(left: string, right: string): boolean {
   return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
+function candidateWorkspaceFilesForAffectedPath(
+  project: AuthoringProject,
+  scriptSourcePaths: Readonly<Record<string, string>>,
+  affectedPath: string,
+): readonly string[] | null {
+  if (affectedPath === '/') return null;
+  let segments: string[];
+  try {
+    segments = parseJsonPointer(affectedPath);
+  } catch {
+    return null;
+  }
+  const [head, id] = segments;
+  if (!head) return null;
+  if (isAuthoringCollectionKey(head)) {
+    if (!id) return null;
+    const files = new Set<string>([recordFile(head, id)]);
+    if (head === 'layouts') {
+      files.add(layoutFile(id, 'rml'));
+      files.add(layoutFile(id, 'rcss'));
+      files.add(layoutFile(id, 'lua'));
+    } else if (head === 'scripts') {
+      const candidate = project.scripts[id];
+      if (candidate?.data.source.kind === 'inline-lua')
+        files.add(scriptSourcePaths[id] ?? `scripts/${id}.lua`);
+    }
+    return [...files];
+  }
+  if (head === 'editor') return ['editor.json'];
+  if (head === 'localization')
+    return Object.keys(projectWorkspaceLocalizationFiles(project.localization));
+  if (head === 'traits') return ['traits.json'];
+  if (
+    head === 'project' ||
+    head === 'settings' ||
+    head === 'export' ||
+    head === 'bootstrapModule' ||
+    head === 'entrypoint' ||
+    head === 'inventories' ||
+    head === 'interactableInstances'
+  )
+    return ['project.json'];
+  return null;
+}
+
+export function projectWorkspaceAffectedFiles(
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  project: AuthoringProject,
+  scriptSourcePaths: Readonly<Record<string, string>>,
+  affectedPaths: readonly string[],
+): readonly string[] | null {
+  if (affectedPaths.length === 0) return null;
+  const files = new Set<string>();
+  for (const affectedPath of affectedPaths) {
+    for (const file of snapshot.canonicalSourceFiles) {
+      if (
+        sourceContributionOwnerPaths(file, snapshot.scriptSourcePaths).some((ownerPath) =>
+          jsonPointersOverlap(ownerPath, affectedPath),
+        )
+      )
+        files.add(file);
+    }
+    const candidateFiles = candidateWorkspaceFilesForAffectedPath(
+      project,
+      scriptSourcePaths,
+      affectedPath,
+    );
+    if (!candidateFiles) return null;
+    candidateFiles.forEach((file) => files.add(file));
+  }
+  return [...files].sort(compareProjectWorkspaceUnicodeCodePoints);
 }
 
 function jsonPointerPrefixes(path: string): string[] {
@@ -1096,7 +1205,7 @@ function externalSearchSources(
   );
 }
 
-function projectWorkspaceFile(
+export function projectWorkspaceFile(
   project: AuthoringProject,
   editorState: EditorProjectState,
   scriptSourcePaths: Readonly<Record<string, string>>,
@@ -1159,17 +1268,19 @@ function projectWorkspaceFile(
   if (file === LOCALIZATION_ORPHANS_FILE)
     return canonicalJson(project.localization.orphanedMessages, localizationOrphansFragmentSchema);
   const translation = /^i18n\/locales\/([^/]+)\.json$/u.exec(file);
-  if (translation)
-    return canonicalJson(
-      project.localization.translations[translation[1]!] ?? {},
-      localizationTranslationSchema,
-    );
+  if (translation) {
+    const translations = project.localization.translations[translation[1]!] ?? {};
+    return Object.keys(translations).length > 0
+      ? canonicalJson(translations, localizationTranslationSchema)
+      : undefined;
+  }
   const localizedAssets = /^i18n\/assets\/([^/]+)\.json$/u.exec(file);
-  if (localizedAssets)
-    return canonicalJson(
-      project.localization.assets[localizedAssets[1]!] ?? {},
-      localizationAssetsLocaleFragmentSchema,
-    );
+  if (localizedAssets) {
+    const assets = project.localization.assets[localizedAssets[1]!] ?? {};
+    return Object.keys(assets).length > 0
+      ? canonicalJson(assets, localizationAssetsLocaleFragmentSchema)
+      : undefined;
+  }
   const layoutMatch = /^records\/layouts\/([^/]+)\/layout\.(json|rml|rcss|lua)$/u.exec(file);
   if (layoutMatch) {
     const id = layoutMatch[1]!;
@@ -1355,6 +1466,29 @@ export class ProjectWorkspaceService {
       transactions ??
       new ProjectWorkspaceTransactionService(fileSystem, { isProcessAlive: async () => null }, 1);
   }
+
+  private affectedWorkspaceFiles(
+    snapshot: LoadedProjectWorkspaceSnapshot,
+    project: AuthoringProject,
+    scriptSourcePaths: Readonly<Record<string, string>>,
+    affectedPaths: readonly string[],
+  ): readonly string[] | null {
+    const sourceOwnerPathIndex = this.snapshotSourceOwnerIndexes.get(snapshot);
+    if (!sourceOwnerPathIndex || affectedPaths.length === 0) return null;
+    const files = new Set<string>();
+    for (const affectedPath of affectedPaths) {
+      for (const file of sourceOwnerPathIndex.overlappingFiles(affectedPath)) files.add(file);
+      const candidateFiles = candidateWorkspaceFilesForAffectedPath(
+        project,
+        scriptSourcePaths,
+        affectedPath,
+      );
+      if (!candidateFiles) return null;
+      candidateFiles.forEach((file) => files.add(file));
+    }
+    return [...files].sort(compareProjectWorkspaceUnicodeCodePoints);
+  }
+
   private assertContained(root: string, candidate: string): Promise<void> {
     return assertProjectWorkspacePathContained(this.fileSystem, root, candidate);
   }
@@ -1374,6 +1508,7 @@ export class ProjectWorkspaceService {
     const changedTextSources = new Map<string, string>();
     let parsedJsonSources = 0;
     let readTextSources = 0;
+    let projectedJsonSources = 0;
 
     for (const relativePath of [...new Set(changedPaths)].sort(
       compareProjectWorkspaceUnicodeCodePoints,
@@ -1565,6 +1700,7 @@ export class ProjectWorkspaceService {
         changedOwnerPaths.set(relativePath, ownerPaths);
         if (relativePath.endsWith('.json')) {
           parsedJsonSources += 1;
+          projectedJsonSources += 1;
           const normalizedText = projectWorkspaceFile(
             project,
             project.editor,
@@ -1707,27 +1843,27 @@ export class ProjectWorkspaceService {
         externalSourceRevisions: dependencyReuse.externalSourceRevisions,
       });
     }
-    const contentProject = stripEditorProjectState(project);
-    return {
-      ok: true,
-      snapshot,
-      diagnostics: validation.diagnostics,
-      editorState: project.editor,
-      repairs: [],
-      contentProject,
-      savedContentProject: contentProject,
-      sourceContributions: Object.freeze(sourceContributions),
-      validationContributions: validation.contributions,
-      validationWork: validation.work,
-      sourceWork: {
-        parsedJsonSources,
-        reusedJsonSources: 0,
-        readTextSources,
-        reusedTextSources: 0,
-        projectedJsonSources: 0,
-        wholeProjectSchemaParses: 0,
+    return withLazyOpenContent(
+      {
+        ok: true as const,
+        snapshot,
+        diagnostics: validation.diagnostics,
+        editorState: project.editor,
+        repairs: [],
+        sourceContributions: Object.freeze(sourceContributions),
+        validationContributions: validation.contributions,
+        validationWork: validation.work,
+        sourceWork: {
+          parsedJsonSources,
+          reusedJsonSources: 0,
+          readTextSources,
+          reusedTextSources: 0,
+          projectedJsonSources,
+          wholeProjectSchemaParses: 0,
+        },
       },
-    };
+      project,
+    );
   }
 
   /**
@@ -1741,21 +1877,22 @@ export class ProjectWorkspaceService {
     changedPaths: readonly string[],
   ): ProjectWorkspaceOpenResult | null {
     if (base.snapshot.projectRoot !== committedSnapshot.projectRoot) return null;
-    const files = projectWorkspaceFiles(
-      committedSnapshot.project,
-      committedSnapshot.project.editor,
-      committedSnapshot.scriptSourcePaths,
-    );
     const sourceContributions = { ...base.sourceContributions };
     const changedOwnerPaths = new Map<string, readonly string[]>();
     let parsedJsonSources = 0;
     let readTextSources = 0;
+    let projectedJsonSources = 0;
 
     for (const relativePath of [...new Set(changedPaths)].sort(
       compareProjectWorkspaceUnicodeCodePoints,
     )) {
       const prior = base.sourceContributions[relativePath];
-      const text = files[relativePath];
+      const text = projectWorkspaceFile(
+        committedSnapshot.project,
+        committedSnapshot.project.editor,
+        committedSnapshot.scriptSourcePaths,
+        relativePath,
+      );
       const revision = committedSnapshot.fileRevisions[relativePath];
       if (text === undefined || !revision) {
         if (prior) changedOwnerPaths.set(relativePath, prior.ownerPaths);
@@ -1769,6 +1906,7 @@ export class ProjectWorkspaceService {
       changedOwnerPaths.set(relativePath, ownerPaths);
       if (relativePath.endsWith('.json')) {
         parsedJsonSources += 1;
+        projectedJsonSources += 1;
         sourceContributions[relativePath] = Object.freeze({
           path: relativePath,
           ...revision,
@@ -1876,27 +2014,27 @@ export class ProjectWorkspaceService {
       });
     }
 
-    const contentProject = stripEditorProjectState(committedSnapshot.project);
-    return {
-      ok: true,
-      snapshot: committedSnapshot,
-      diagnostics: validation.diagnostics,
-      editorState: committedSnapshot.project.editor,
-      repairs: [],
-      contentProject,
-      savedContentProject: contentProject,
-      sourceContributions: Object.freeze(sourceContributions),
-      validationContributions: validation.contributions,
-      validationWork: validation.work,
-      sourceWork: {
-        parsedJsonSources,
-        reusedJsonSources: 0,
-        readTextSources,
-        reusedTextSources: 0,
-        projectedJsonSources: 0,
-        wholeProjectSchemaParses: 0,
+    return withLazyOpenContent(
+      {
+        ok: true as const,
+        snapshot: committedSnapshot,
+        diagnostics: validation.diagnostics,
+        editorState: committedSnapshot.project.editor,
+        repairs: [],
+        sourceContributions: Object.freeze(sourceContributions),
+        validationContributions: validation.contributions,
+        validationWork: validation.work,
+        sourceWork: {
+          parsedJsonSources,
+          reusedJsonSources: 0,
+          readTextSources,
+          reusedTextSources: 0,
+          projectedJsonSources,
+          wholeProjectSchemaParses: 0,
+        },
       },
-    };
+      committedSnapshot.project,
+    );
   }
 
   open(
@@ -2638,14 +2776,24 @@ export class ProjectWorkspaceService {
       ...openedSnapshot.scriptSourcePaths,
       ...scriptSourcePathOverrides,
     };
-    const projected = projectWorkspaceFiles(project, editorState, projectedSourcePaths);
-    const priorProjected = projectWorkspaceFiles(
-      openedSnapshot.project,
-      openedSnapshot.project.editor,
-      openedSnapshot.scriptSourcePaths,
+    const affectedCandidates = options.affectedPaths
+      ? this.affectedWorkspaceFiles(
+          openedSnapshot,
+          project,
+          projectedSourcePaths,
+          options.affectedPaths,
+        )
+      : null;
+    const explicitCandidates = options.targetFiles ?? affectedCandidates;
+    const fullProjection = explicitCandidates
+      ? null
+      : projectWorkspaceFiles(project, editorState, projectedSourcePaths);
+    const candidates = new Set(
+      explicitCandidates ?? [
+        ...openedSnapshot.canonicalSourceFiles,
+        ...Object.keys(fullProjection!),
+      ],
     );
-    const candidates = new Set([...Object.keys(priorProjected), ...Object.keys(projected)]);
-    const allowed = options.targetFiles ? new Set(options.targetFiles) : candidates;
     const expected =
       options.expectedFileRevisions ??
       Object.fromEntries(
@@ -2656,11 +2804,13 @@ export class ProjectWorkspaceService {
       );
     const targets: ProjectWorkspaceTransactionTargetInput[] = [];
     for (const file of [...candidates].sort(compareProjectWorkspaceUnicodeCodePoints)) {
-      if (!allowed.has(file)) continue;
       const currentText = await this.fileSystem
         .readText(this.fileSystem.joinPath(projectRoot, file))
         .catch(() => null);
-      const nextText = projected[file] ?? null;
+      const nextText =
+        (fullProjection
+          ? fullProjection[file]
+          : projectWorkspaceFile(project, editorState, projectedSourcePaths, file)) ?? null;
       if (currentText === nextText) continue;
       const expectedRevision = expected[file] ?? PROJECT_WORKSPACE_ABSENT_REVISION;
       targets.push(
@@ -2678,10 +2828,18 @@ export class ProjectWorkspaceService {
       });
     }
     if (options.refreshAfterCommit === false) {
-      const canonicalSourceFiles = [
-        ...new Set([...Object.keys(projected), ...Object.values(projectedSourcePaths)]),
-      ].sort(compareProjectWorkspaceUnicodeCodePoints);
-      const canonicalSourceFileSet = new Set(canonicalSourceFiles);
+      const canonicalSourceFileSet = fullProjection
+        ? new Set(Object.keys(fullProjection))
+        : new Set(openedSnapshot.canonicalSourceFiles);
+      if (!fullProjection)
+        for (const file of candidates) {
+          const nextText = projectWorkspaceFile(project, editorState, projectedSourcePaths, file);
+          if (nextText === undefined) canonicalSourceFileSet.delete(file);
+          else canonicalSourceFileSet.add(file);
+        }
+      const canonicalSourceFiles = [...canonicalSourceFileSet].sort(
+        compareProjectWorkspaceUnicodeCodePoints,
+      );
       const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {
         ...openedSnapshot.fileRevisions,
       };
@@ -2719,11 +2877,13 @@ export class ProjectWorkspaceService {
       // The active editor session must advance remaining dirty units' per-file recovery baselines
       // against the committed snapshot before persisting local state, so its caller owns that one
       // final local-state write in this branch.
-      return {
-        workspaceRevision,
-        snapshot,
-        contentProject: stripEditorProjectState(project),
-      };
+      return withLazyWriteContent(
+        {
+          workspaceRevision,
+          snapshot,
+        },
+        project,
+      );
     }
     const refreshed = await this.open(projectRoot);
     if (!refreshed.ok) throw new Error('Saved workspace could not be reopened.');

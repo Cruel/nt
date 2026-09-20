@@ -469,6 +469,16 @@ async function waitForComfyUiRequest(logPath, expectedPath, timeoutMs = 5000) {
   fail(`Timed out waiting for fake ComfyUI request '${expectedPath}'.`);
 }
 
+async function waitForComfyUiRequestPrefix(logPath, expectedPrefix, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const requests = await readComfyUiRequests(logPath);
+    if (requests.some((request) => request.path.startsWith(expectedPrefix))) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  fail(`Timed out waiting for fake ComfyUI request prefix '${expectedPrefix}'.`);
+}
+
 async function readComfyUiRequests(logPath) {
   try {
     return (await readFile(logPath, 'utf8'))
@@ -1732,9 +1742,27 @@ async function certifyResidentDaemon(tempRoot, pristine) {
     if ((runtimeInfo.mode & 0o077) !== 0 || (socketInfo.mode & 0o077) !== 0)
       fail('Daemon certification endpoint is not private to the current user.');
   }
+  const residentAdmission = requireSuccess(
+    'daemon resident Project session admission',
+    runNative(['--project', root, '--json', 'usages', 'rooms', 'gallery'], {
+      cwd: root,
+      env: traceEnvironment,
+    }),
+  );
+  if (!residentAdmission.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Resident Project session admission did not route through the daemon.');
+  const residentStatus = requireSuccess(
+    'daemon resident Project session status',
+    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+  );
+  const residentStatusPayload = JSON.parse(residentStatus.stdout).daemon;
+  if (residentStatusPayload.projectSessions !== 1)
+    fail(
+      `Resident Project session admission was not observed before the RSS measurement: ${residentStatus.stdout}`,
+    );
   const rssWithProject = await daemonRssBytes(readyPayload.pid);
   const residentRead = elapsedMilliseconds(() =>
-    runNative(['--project', root, '--json', 'asset', 'audit'], {
+    runNative(['--project', root, '--json', 'usages', 'rooms', 'gallery'], {
       cwd: root,
       env: traceEnvironment,
     }),
@@ -1748,6 +1776,15 @@ async function certifyResidentDaemon(tempRoot, pristine) {
   );
   if (!sessionEvictionTrigger.stderr.includes('[scriptc-host] daemon invocation forwarding'))
     fail('Project-independent idle-eviction trigger did not route through the resident daemon.');
+  const evictedStatus = requireSuccess(
+    'daemon Project session idle eviction status',
+    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+  );
+  const evictedStatusPayload = JSON.parse(evictedStatus.stdout).daemon;
+  if (evictedStatusPayload.projectSessions !== 0)
+    fail(
+      `Project session eviction was not observed before the post-eviction RSS measurement: ${evictedStatus.stdout}`,
+    );
   const rssAfterSessionEviction = await daemonRssBytes(readyPayload.pid);
 
   const staticExact = requireSuccess(
@@ -3328,6 +3365,7 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
   }
 
   const cancellationServer = await startComfyUiCertificationServer(tempRoot, 'never-complete');
+  let scriptcDaemonRoot = null;
   try {
     const cancelArgs = [
       '--json',
@@ -3360,7 +3398,7 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
           env: nodeEnvironment,
         });
     const nodeResultPromise = nodeInvocation.result();
-    await waitForComfyUiRequest(cancellationServer.logPath, '/prompt');
+    await waitForComfyUiRequestPrefix(cancellationServer.logPath, '/history/');
     if (windowsNode) sendWindowsConsoleCtrlC(windowsNode.pid);
     else nodeInvocation.child.kill('SIGINT');
     const nodeResult = await nodeResultPromise;
@@ -3375,27 +3413,114 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
 
     await writeFile(cancellationServer.logPath, '');
     const scriptcConfigRoot = path.join(tempRoot, 'comfyui-config-cancel-scriptc');
-    const scriptcResult = runNative(['__comfyui-cancel-certification', ...cancelArgs], {
-      cwd: tempRoot,
-      env: {
-        ...process.env,
-        NOVELTEA_USER_CONFIG_ROOT: scriptcConfigRoot,
-        NOVELTEA_CLI_CERTIFICATION: '1',
-      },
-    });
+    // Keep the private Unix runtime root short enough for sockaddr_un.sun_path. The main
+    // certification root is intentionally descriptive and can already consume most of the limit.
+    scriptcDaemonRoot = await mkdtemp(path.join(os.tmpdir(), 'nt-comfy-cancel-'));
+    const scriptcEnvironment = {
+      ...process.env,
+      NOVELTEA_USER_CONFIG_ROOT: scriptcConfigRoot,
+      NOVELTEA_CLI_CERTIFICATION: '1',
+      NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `comfyui-cancel-${process.pid}-${Date.now()}`,
+      NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: scriptcDaemonRoot,
+      NOVELTEA_CLI_TRACE: '1',
+    };
+    runNative(['daemon', 'stop'], { env: scriptcEnvironment });
+    let daemonWarmup = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      daemonWarmup = runNative(['--json', 'comfyui', 'workflows'], {
+        cwd: tempRoot,
+        env: scriptcEnvironment,
+      });
+      if (daemonWarmup.stderr.includes('[scriptc-host] daemon invocation forwarding')) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (!daemonWarmup?.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+      fail(
+        `Could not establish the resident daemon before cancellation certification.\n` +
+          `stdout:\n${daemonWarmup?.stdout ?? ''}\nstderr:\n${daemonWarmup?.stderr ?? ''}`,
+      );
+    const windowsScriptc = isWindows
+      ? await runWindowsConsoleProcess(nativeCli, cancelArgs, {
+          cwd: tempRoot,
+          env: scriptcEnvironment,
+        })
+      : null;
+    const scriptcInvocation = windowsScriptc
+      ? windowsScriptc.invocation
+      : await runAsync(nativeCli, cancelArgs, {
+          cwd: tempRoot,
+          env: scriptcEnvironment,
+        });
+    const scriptcResultPromise = scriptcInvocation.result();
+    await waitForComfyUiRequestPrefix(cancellationServer.logPath, '/history/');
+    if (windowsScriptc) sendWindowsConsoleCtrlC(windowsScriptc.pid);
+    else scriptcInvocation.child.kill('SIGINT');
+    const scriptcResult = await scriptcResultPromise;
     if (scriptcResult.status !== 130)
-      fail(`ScriptC ComfyUI abort seam exited ${scriptcResult.status}, expected 130.`);
+      fail(`ScriptC daemon ComfyUI cancellation exited ${scriptcResult.status}, expected 130.`);
+    // The resident worker performs cancellation cooperatively after the short-lived
+    // client forwards Ctrl+C. Under a loaded certification run, allow cleanup enough
+    // time to cross the daemon boundary and reach ComfyUI before declaring failure.
+    try {
+      await waitForComfyUiRequest(cancellationServer.logPath, '/queue', 15_000);
+    } catch (error) {
+      const cancellationRequests = await readComfyUiRequests(cancellationServer.logPath);
+      fail(
+        `${error instanceof Error ? error.message : String(error)}\n` +
+          `ScriptC result: status=${scriptcResult.status}\nstdout:\n${scriptcResult.stdout}\nstderr:\n${scriptcResult.stderr}\n` +
+          `ComfyUI requests:\n${JSON.stringify(cancellationRequests, null, 2)}`,
+      );
+    }
     requests = await readComfyUiRequests(cancellationServer.logPath);
     if (!requests.some((request) => request.method === 'POST' && request.path === '/queue'))
-      fail('ScriptC ComfyUI abort seam did not issue prompt-specific queue deletion.');
+      fail('ScriptC daemon cancellation did not issue prompt-specific queue deletion.');
     if (requests.some((request) => request.path === '/interrupt'))
-      fail('ScriptC ComfyUI abort seam used the forbidden global /interrupt endpoint.');
-    process.stdout.write('[comfyui cancellation] ScriptC abort seam: PASS\n');
+      fail('ScriptC daemon cancellation used the forbidden global /interrupt endpoint.');
+    if (!scriptcResult.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+      fail('ScriptC cancellation certification did not exercise the production daemon route.');
+    runNative(['daemon', 'stop'], { env: scriptcEnvironment });
+    process.stdout.write('[comfyui cancellation] ScriptC daemon Ctrl+C: PASS\n');
+
+    await writeFile(cancellationServer.logPath, '');
+    const localEnvironment = {
+      ...scriptcEnvironment,
+      NOVELTEA_NO_DAEMON: '1',
+    };
+    const windowsLocal = isWindows
+      ? await runWindowsConsoleProcess(nativeCli, cancelArgs, {
+          cwd: tempRoot,
+          env: localEnvironment,
+        })
+      : null;
+    const localInvocation = windowsLocal
+      ? windowsLocal.invocation
+      : await runAsync(nativeCli, cancelArgs, {
+          cwd: tempRoot,
+          env: localEnvironment,
+        });
+    const localResultPromise = localInvocation.result();
+    await waitForComfyUiRequestPrefix(cancellationServer.logPath, '/history/');
+    if (windowsLocal) sendWindowsConsoleCtrlC(windowsLocal.pid);
+    else localInvocation.child.kill('SIGINT');
+    const localResult = await localResultPromise;
+    if (localResult.status !== 130)
+      fail(`ScriptC local ComfyUI cancellation exited ${localResult.status}, expected 130.`);
+    await waitForComfyUiRequest(cancellationServer.logPath, '/queue', 15_000);
+    requests = await readComfyUiRequests(cancellationServer.logPath);
+    if (!requests.some((request) => request.method === 'POST' && request.path === '/queue'))
+      fail('ScriptC local cancellation did not issue prompt-specific queue deletion.');
+    if (requests.some((request) => request.path === '/interrupt'))
+      fail('ScriptC local cancellation used the forbidden global /interrupt endpoint.');
+    if (!localResult.stderr.includes('[scriptc-host] daemon routing bypassed'))
+      fail('ScriptC local cancellation certification did not exercise --no-daemon fallback.');
+    process.stdout.write('[comfyui cancellation] ScriptC local Ctrl+C: PASS\n');
   } finally {
     await cancellationServer.stop();
+    if (scriptcDaemonRoot)
+      await rm(scriptcDaemonRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 
-  return cases.length + failureCases.length + 2;
+  return cases.length + failureCases.length + 3;
 }
 
 async function certifyRelocation(tempRoot) {

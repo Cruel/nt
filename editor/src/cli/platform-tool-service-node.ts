@@ -44,7 +44,7 @@ export function createNovelTeaCliPlatformToolService(
       const [templateId, buildId] = internalToken(token).split('/');
       return removePlayerTemplate(templateId!, buildId!);
     },
-    async exportProject(request, onProgress) {
+    async exportProject(request, onProgress, abortSignal) {
       const [{ exportProjectToPlatform }, { cancelPlatformExport }] = await Promise.all([
         import('../main/services/platform-export-orchestration-service'),
         import('../main/services/platform-staging-service'),
@@ -53,6 +53,8 @@ export function createNovelTeaCliPlatformToolService(
       const cancel = () => cancelPlatformExport(operationId);
       process.once('SIGINT', cancel);
       process.once('SIGTERM', cancel);
+      abortSignal?.addEventListener('abort', cancel, { once: true });
+      if (abortSignal?.aborted) cancel();
       try {
         return await exportProjectToPlatform(
           { ...request, operationId },
@@ -69,6 +71,7 @@ export function createNovelTeaCliPlatformToolService(
       } finally {
         process.off('SIGINT', cancel);
         process.off('SIGTERM', cancel);
+        abortSignal?.removeEventListener('abort', cancel);
       }
     },
     async loadUserConfig() {

@@ -23,6 +23,11 @@ export interface ProjectWorkspaceTransactionRequest {
   readonly targets: readonly ProjectWorkspaceTransactionTargetInput[];
 }
 
+export interface ProjectWorkspaceTransactionLifecycle {
+  enterCriticalSection(): Promise<void> | void;
+  leaveCriticalSection(): Promise<void> | void;
+}
+
 interface JournalTarget {
   path: string;
   operation: 'write' | 'delete';
@@ -171,6 +176,7 @@ export class ProjectWorkspaceTransactionService {
     private readonly processLiveness: ProjectWorkspaceProcessLiveness,
     private readonly pid: number,
     private readonly createIdOverride?: () => string,
+    private readonly lifecycle?: ProjectWorkspaceTransactionLifecycle,
   ) {}
 
   async recover(projectRoot: string): Promise<void> {
@@ -181,10 +187,17 @@ export class ProjectWorkspaceTransactionService {
     // of unnecessary filesystem mutations across CLI hosts.
     if (entries.length === 0) return;
     const lock = await this.acquireLock(projectRoot, 'workspace recovery', null, false);
+    let critical = false;
     try {
+      await this.lifecycle?.enterCriticalSection();
+      critical = true;
       await this.recoverJournals(projectRoot);
     } finally {
-      await this.releaseLock(projectRoot, lock);
+      try {
+        await this.releaseLock(projectRoot, lock);
+      } finally {
+        if (critical) await this.lifecycle?.leaveCriticalSection();
+      }
     }
   }
 
@@ -208,8 +221,11 @@ export class ProjectWorkspaceTransactionService {
             true,
           );
           let released = false;
+          let critical = false;
           const directory = `${transactionsPath}/${transactionId}`;
           try {
+            await this.lifecycle?.enterCriticalSection();
+            critical = true;
             await this.recoverJournals(projectRoot);
             if (request.targets.length === 0) {
               await this.releaseLock(projectRoot, lock);
@@ -323,7 +339,11 @@ export class ProjectWorkspaceTransactionService {
             released = true;
             resolve({ transactionId });
           } finally {
-            if (!released) await this.releaseLock(projectRoot, lock);
+            try {
+              if (!released) await this.releaseLock(projectRoot, lock);
+            } finally {
+              if (critical) await this.lifecycle?.leaveCriticalSection();
+            }
           }
         } catch (error) {
           reject(error);

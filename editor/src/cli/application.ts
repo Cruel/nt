@@ -100,7 +100,7 @@ export interface RunNovelTeaCliOptions {
   /** Trusted static-host metadata captured by the native authoring-cache probe. */
   readonly precomputedAuthoringCacheInventory?: ProjectSourceInventory;
   readonly comfyUiWorkflowLibraryOptions?: WorkflowLibraryServiceOptions;
-  readonly comfyUiAbortSignal?: AbortSignal;
+  readonly abortSignal?: AbortSignal;
   readonly onComfyUiProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
   /** Internal bounded retry counter for resident read authority races. */
   readonly residentReadAttempt?: number;
@@ -259,7 +259,7 @@ export async function runNovelTeaCli(
             ? options.residentWorkspace
             : services.workspace,
         libraryOptions: options.comfyUiWorkflowLibraryOptions,
-        abortSignal: options.comfyUiAbortSignal,
+        abortSignal: options.abortSignal,
         onRunProgress: options.onComfyUiProgress,
       });
       if (comfyUiCatalog) return comfyUiCatalog;
@@ -458,6 +458,7 @@ export async function runNovelTeaCli(
         nativeTools,
         platformTools,
         onPlatformProgress: options.onPlatformProgress,
+        abortSignal: options.abortSignal,
         forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
       });
       const diagnostics = [...prepared.diagnostics, ...semantic.diagnostics];
@@ -617,6 +618,7 @@ export async function runNovelTeaCli(
         nativeTools,
         platformTools,
         onPlatformProgress: options.onPlatformProgress,
+        abortSignal: options.abortSignal,
         forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
       });
     } finally {

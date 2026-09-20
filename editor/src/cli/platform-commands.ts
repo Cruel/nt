@@ -289,6 +289,7 @@ export const platformExportCommand: CliCommandDefinition = {
             localState,
           },
           (event) => context.onPlatformProgress?.(event.stage, event.message),
+          context.abortSignal,
         );
         const diagnostics = stageDiagnostics(result.diagnostics);
         if (!result.success)

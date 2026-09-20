@@ -90,6 +90,55 @@ function interruptedFiles(
 }
 
 describe('workspace granular persistence and transactions', () => {
+  it('holds the host critical section across a transaction commit', async () => {
+    const files = workspaceFiles();
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files);
+    let criticalDepth = 0;
+    const transitions: string[] = [];
+    const targetPath = `${root}/project.json`;
+    const originalWriteBytesAtomic = fileSystem.writeBytesAtomic.bind(fileSystem);
+    fileSystem.writeBytesAtomic = async (value, bytes) => {
+      if (fileSystem.resolvePath(value) === targetPath) expect(criticalDepth).toBe(1);
+      await originalWriteBytesAtomic(value, bytes);
+    };
+    const transactions = new ProjectWorkspaceTransactionService(
+      fileSystem,
+      { isProcessAlive: async () => false },
+      7,
+      () => 'critical-transaction',
+      {
+        enterCriticalSection() {
+          transitions.push('enter');
+          criticalDepth += 1;
+        },
+        leaveCriticalSection() {
+          transitions.push('leave');
+          criticalDepth -= 1;
+        },
+      },
+    );
+    const before = files[targetPath]!;
+    const parsed = JSON.parse(before) as { project: { name: string } };
+    parsed.project.name = 'After';
+    const after = `${JSON.stringify(parsed, null, 2)}\n`;
+
+    await transactions.commit(root, {
+      operationLabel: 'critical transaction test',
+      targets: [
+        {
+          path: 'project.json',
+          operation: 'write',
+          expectedRevision: sha256PrefixedUtf8(before),
+          bytes: new TextEncoder().encode(after),
+        },
+      ],
+    });
+
+    expect(transitions).toEqual(['enter', 'leave']);
+    expect(criticalDepth).toBe(0);
+    expect(await fileSystem.readText(targetPath)).toBe(after);
+  });
+
   it('does not manufacture a writer lock when a clean workspace has nothing to recover', async () => {
     const fileSystem = new InMemoryProjectWorkspaceFileSystem(workspaceFiles());
     const transactions = new ProjectWorkspaceTransactionService(

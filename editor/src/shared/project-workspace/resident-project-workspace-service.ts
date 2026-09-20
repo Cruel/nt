@@ -4,6 +4,7 @@ import {
   type ProjectSourceDiscoveryScope,
   type ProjectSourceInventory,
 } from '../project-source-inventory';
+import { readReusableAuthoringContributions } from '../authoring-cache';
 import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
 import {
   assetSourcePaths,
@@ -214,8 +215,26 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     options: ProjectWorkspaceOpenOptions,
   ): Promise<ProjectWorkspaceOpenResult> {
     const workspace = this.createSessionWorkspace(this.residentFileSystem);
+    let admissionOptions = options;
+    if (
+      !options.reusableSourceContributions &&
+      !options.reusableValidationContributions &&
+      !options.reusableDependencyState
+    ) {
+      const reusable = await readReusableAuthoringContributions(
+        this.residentFileSystem,
+        canonicalRoot,
+      );
+      if (reusable)
+        admissionOptions = {
+          ...options,
+          reusableSourceContributions: reusable.sourceContributions,
+          reusableValidationContributions: reusable.validationContributions,
+          reusableDependencyState: reusable.dependencyState,
+        };
+    }
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const opened = await workspace.open(canonicalRoot, options);
+      const opened = await workspace.open(canonicalRoot, admissionOptions);
       if (!opened.ok) return opened;
       const authority = await captureResidentAuthority(this.residentFileSystem, opened.snapshot);
       if (!authority) continue;
@@ -309,21 +328,17 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         }
 
         const proof = await this.captureInventory(candidate.snapshot);
-        if (!proof) continue;
-        const observedByPath = inventoryByPath(observed);
-        const proofByPath = inventoryByPath(proof);
-        const raced = changes.paths.some((path) => {
-          const before = observedByPath.get(path);
-          const after = proofByPath.get(path);
-          return (
-            before === undefined ||
-            after === undefined ||
-            before.byteSize !== after.byteSize ||
-            before.mtimeNanoseconds !== after.mtimeNanoseconds
+        if (!proof || !projectSourceInventoriesEqual(observed, proof)) continue;
+        const sameSourceSet =
+          current.snapshot.canonicalSourceFiles.length ===
+            candidate.snapshot.canonicalSourceFiles.length &&
+          current.snapshot.canonicalSourceFiles.every(
+            (path, index) => path === candidate.snapshot.canonicalSourceFiles[index],
           );
-        });
-        if (raced) continue;
-        entry.session.adoptOpened(candidate);
+        entry.session.adoptOpened(
+          candidate,
+          sameSourceSet ? { projectionPaths: changedSources } : {},
+        );
         entry.authority = proof;
         this.bindSnapshot(entry, candidate.snapshot);
         await entry.session.captureAuthoringFileStamps(changes.paths);
@@ -470,8 +485,15 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       this.sessions.delete(entry.canonicalRoot);
       return;
     }
+    const sameSourceSet =
+      before.snapshot.canonicalSourceFiles.length ===
+        candidate.snapshot.canonicalSourceFiles.length &&
+      before.snapshot.canonicalSourceFiles.every(
+        (path, index) => path === candidate.snapshot.canonicalSourceFiles[index],
+      );
     entry.session.adoptOpened(candidate, {
       preserveInvalidOverlay: entry.session.invalidAuthoringSources().length > 0,
+      ...(sameSourceSet ? { projectionPaths: changedCanonicalPaths } : {}),
     });
     entry.authority = mergeInventoryPaths(entry.authority, proof, [
       ...new Set([...changes.paths, ...changedCanonicalPaths]),
@@ -573,6 +595,10 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       this.residentFileSystem.resolvePath(projectRoot),
     );
     return canonicalRoot !== null && this.sessions.has(canonicalRoot);
+  }
+
+  residentSessionCount(): number {
+    return this.sessions.size;
   }
 
   evictIdleSessions(maxIdleMilliseconds: number, nowMilliseconds = Date.now()): number {

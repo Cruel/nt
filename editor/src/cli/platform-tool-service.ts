@@ -16,6 +16,7 @@ export interface NovelTeaCliPlatformToolService {
   exportProject(
     request: ProjectPlatformExportRequest,
     onProgress?: (event: PlatformExportProgressEvent) => void,
+    abortSignal?: AbortSignal,
   ): Promise<PlatformStageResult>;
   initializeConfig(path: string, force: boolean): Promise<EditorExportLocalState>;
   loadUserConfig(): Promise<UserExportConfig>;

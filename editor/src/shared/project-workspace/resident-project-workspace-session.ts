@@ -14,6 +14,7 @@ import type {
 } from './project-workspace-file-system';
 import {
   assetSourcePaths,
+  projectWorkspaceFile,
   projectWorkspaceFiles,
   ProjectWorkspaceService,
   type LoadedProjectWorkspaceSnapshot,
@@ -41,6 +42,11 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
   }
 
   seed(snapshot: LoadedProjectWorkspaceSnapshot): void {
+    this.textByPath.clear();
+    this.revisionByPath.clear();
+    this.inspectByPath.clear();
+    this.directoryEntriesByPath.clear();
+    this.realpathByPath.clear();
     const projected = projectWorkspaceFiles(
       snapshot.project,
       snapshot.project.editor,
@@ -77,6 +83,30 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
       this.directoryEntriesByPath.set(directory, [...children].sort());
     for (const [relative, revision] of Object.entries(snapshot.fileRevisions))
       this.revisionByPath.set(this.key(this.joinPath(root, relative)), revision);
+  }
+
+  adoptProjection(
+    snapshot: LoadedProjectWorkspaceSnapshot,
+    relativePaths: readonly string[],
+  ): void {
+    const root = this.key(snapshot.projectRoot);
+    for (const relativePath of new Set(relativePaths)) {
+      const absolute = this.key(this.joinPath(root, relativePath));
+      const text = projectWorkspaceFile(
+        snapshot.project,
+        snapshot.project.editor,
+        snapshot.scriptSourcePaths,
+        relativePath,
+      );
+      const revision = snapshot.fileRevisions[relativePath];
+      if (text === undefined || !revision) {
+        this.invalidateAbsolute(absolute);
+        continue;
+      }
+      this.textByPath.set(absolute, text);
+      this.revisionByPath.set(absolute, revision);
+      this.inspectByPath.set(absolute, 'file');
+    }
   }
 
   invalidate(projectRoot: string, relativePath: string): void {
@@ -447,23 +477,31 @@ export class ResidentProjectWorkspaceSession {
     this.fileSystem.invalidateInventory();
   }
 
-  adopt(snapshot: LoadedProjectWorkspaceSnapshot, editorState: EditorProjectState): void {
+  adopt(
+    snapshot: LoadedProjectWorkspaceSnapshot,
+    editorState: EditorProjectState,
+    projectionPaths?: readonly string[],
+  ): void {
     if (snapshot.projectRoot !== this.snapshotValue.projectRoot)
       throw new Error('Active workspace snapshot belongs to a different project root.');
     this.snapshotValue = snapshot;
     this.editorStateValue = editorState;
     this.openedValue = null;
-    this.fileSystem.seed(snapshot);
+    if (projectionPaths) this.fileSystem.adoptProjection(snapshot, projectionPaths);
+    else this.fileSystem.seed(snapshot);
   }
 
   adoptOpened(
     opened: Extract<ProjectWorkspaceOpenResult, { ok: true }>,
-    options: Readonly<{ preserveInvalidOverlay?: boolean }> = {},
+    options: Readonly<{
+      preserveInvalidOverlay?: boolean;
+      projectionPaths?: readonly string[];
+    }> = {},
   ): void {
     const invalidAuthoringSourcePaths = options.preserveInvalidOverlay
       ? [...this.invalidAuthoringSourcePaths]
       : [];
-    this.adopt(opened.snapshot, opened.editorState);
+    this.adopt(opened.snapshot, opened.editorState, options.projectionPaths);
     this.openedValue = opened;
     this.invalidAuthoringSourcePaths.clear();
     invalidAuthoringSourcePaths.forEach((relativePath) =>

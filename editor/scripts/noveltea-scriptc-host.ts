@@ -607,6 +607,7 @@ type DaemonRequestContext = Readonly<{
   }>;
   outputMode: 'json' | 'human';
   replaySafe: boolean;
+  streamedEvents: boolean;
   forceRuntimeCacheRebuild: boolean;
   authoringCacheInventoryHint: string;
 }>;
@@ -629,6 +630,7 @@ type DaemonNativeResponse = Readonly<{
   active?: boolean;
   cancelled?: boolean;
   delivered?: boolean;
+  projectSessions?: number;
 }>;
 
 type DaemonStatusCore = Readonly<{
@@ -637,6 +639,7 @@ type DaemonStatusCore = Readonly<{
   build: string;
   protocol: number;
   pid: number | null;
+  projectSessions: number;
 }>;
 
 type DaemonBrokerContext = Readonly<{
@@ -724,6 +727,10 @@ function daemonStatusCore(result: DaemonNativeResponse): DaemonStatusCore {
     protocol:
       typeof result.protocol === 'number' ? result.protocol : NOVELTEA_DAEMON_PROTOCOL_VERSION,
     pid: typeof result.pid === 'number' ? result.pid : null,
+    projectSessions:
+      typeof result.projectSessions === 'number' && Number.isSafeInteger(result.projectSessions)
+        ? result.projectSessions
+        : 0,
   };
 }
 
@@ -864,6 +871,7 @@ function hiddenDaemonNativeRequest(
   requestOk = false,
   result: HostResult | null = null,
   error = '',
+  projectSessions = 0,
 ): DaemonNativeResponse {
   return JSON.parse(
     invokeHost(
@@ -879,6 +887,29 @@ function hiddenDaemonNativeRequest(
         requestOk,
         result,
         error,
+        projectSessions,
+      }),
+    ),
+  ) as DaemonNativeResponse;
+}
+
+function hiddenDaemonEventNativeRequest(
+  invocation: HiddenDaemonBrokerInvocation,
+  token: number,
+  event: Readonly<Record<string, unknown>>,
+): DaemonNativeResponse {
+  return JSON.parse(
+    invokeHost(
+      'daemon',
+      JSON.stringify({
+        action: 'serve-event',
+        build: invocation.build,
+        protocol: invocation.protocol,
+        daemonIdleMs: invocation.daemonIdleMs,
+        projectSessionIdleMs: invocation.projectSessionIdleMs,
+        runtimeRoot: invocation.runtimeRoot,
+        token,
+        event,
       }),
     ),
   ) as DaemonNativeResponse;
@@ -923,6 +954,7 @@ function daemonRequestContext(
     },
     outputMode: argv.includes('--json') ? 'json' : 'human',
     replaySafe: routing?.replaySafe === true,
+    streamedEvents: routing?.streamedEvents === true,
     forceRuntimeCacheRebuild,
     authoringCacheInventoryHint,
   };
@@ -931,17 +963,56 @@ function daemonRequestContext(
 function requestInvokeHost(
   context: DaemonRequestContext,
   output: RequestOutputCapture,
+  invocation: HiddenDaemonBrokerInvocation,
+  token: number,
 ): typeof invokeHost {
+  const emitEvent = (event: Readonly<Record<string, unknown>>) => {
+    const response = hiddenDaemonEventNativeRequest(invocation, token, event);
+    if (response.ok !== true)
+      throw new Error(response.error ?? 'Failed to stream daemon request event.');
+  };
   return (operation, requestText) => {
     if (operation === 'read-stdin') return context.stdinText ?? '';
+    if (operation === 'daemon-enter-critical')
+      return JSON.stringify(daemonNativeRequest('serve-enter-critical'));
+    if (operation === 'daemon-leave-critical')
+      return JSON.stringify(daemonNativeRequest('serve-leave-critical'));
+    if (operation === 'daemon-project-sessions') {
+      const projectSessions = Number(requestText);
+      if (!Number.isSafeInteger(projectSessions) || projectSessions < 0)
+        throw new Error('Daemon Project session count is malformed.');
+      const response = hiddenDaemonNativeRequest(
+        'serve-project-sessions',
+        invocation,
+        0,
+        false,
+        null,
+        '',
+        projectSessions,
+      );
+      if (response.ok !== true)
+        throw new Error(response.error ?? 'Failed to publish daemon Project session count.');
+      return JSON.stringify(response);
+    }
+    if (operation === 'emit-progress') {
+      if (!context.streamedEvents || context.outputMode === 'json') return '';
+      const event = JSON.parse(requestText) as { stage: string; message: string };
+      emitEvent({ type: 'progress', message: `[${event.stage}] ${event.message}` });
+      return '';
+    }
     if (operation === 'process-alive' || operation === 'run-process')
       return invokeHost(operation, requestText);
     const envelope = JSON.parse(
       invokeHost(`capture:${operation}`, requestText),
     ) as CapturedNativeEnvelope;
     if (envelope.captureOk !== true) throw new Error('failed to capture daemon native output');
-    output.stdout += envelope.stdout;
-    output.stderr += envelope.stderr;
+    if (context.streamedEvents && context.outputMode === 'human') {
+      if (envelope.stdout) emitEvent({ type: 'stdout', text: envelope.stdout });
+      if (envelope.stderr) emitEvent({ type: 'stderr', text: envelope.stderr });
+    } else {
+      output.stdout += envelope.stdout;
+      output.stderr += envelope.stderr;
+    }
     return envelope.response;
   };
 }
@@ -976,6 +1047,7 @@ async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): 
       const token = next.token;
       const payload = next.payload as DaemonRequestContext;
       if (
+        typeof token !== 'number' ||
         !Number.isSafeInteger(token) ||
         next.method !== 'invoke' ||
         !payload ||
@@ -995,7 +1067,7 @@ async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): 
         const output: RequestOutputCapture = { stdout: '', stderr: '' };
         const responseText = await runNovelTeaScriptcIsland(
           JSON.stringify(payload.argv),
-          requestInvokeHost(payload, output),
+          requestInvokeHost(payload, output, invocation, token),
           payload.forceRuntimeCacheRebuild,
           payload.authoringCacheInventoryHint,
           {
@@ -1180,11 +1252,7 @@ function daemonDisabled(argv: readonly string[]): boolean {
 }
 
 function privateInternalInvocation(argv: readonly string[]): boolean {
-  return (
-    argv[0] === '__editor-native' ||
-    argv[0] === '__shaderc-batch' ||
-    argv[0] === '__comfyui-cancel-certification'
-  );
+  return argv[0] === '__editor-native' || argv[0] === '__shaderc-batch';
 }
 
 async function runLocalIsland(argv: readonly string[]): Promise<HostResult> {
@@ -1193,14 +1261,24 @@ async function runLocalIsland(argv: readonly string[]): Promise<HostResult> {
   const { runNovelTeaScriptcIsland } = await import('noveltea-scriptc-island');
   trace('dynamic island import completed');
   trace('dynamic island invocation starting');
-  const responseText = await runNovelTeaScriptcIsland(
-    JSON.stringify(argv),
-    invokeHost,
-    forceRuntimeCacheRebuild,
-    authoringCacheInventoryHint,
-  );
-  trace('dynamic island invocation completed');
-  return JSON.parse(responseText) as HostResult;
+  const cancellation = daemonNativeRequest('local-cancel-start');
+  if (cancellation.ok === false)
+    throw new Error(cancellation.error ?? 'failed to initialize local cancellation handling');
+  try {
+    const responseText = await runNovelTeaScriptcIsland(
+      JSON.stringify(argv),
+      invokeHost,
+      forceRuntimeCacheRebuild,
+      authoringCacheInventoryHint,
+      {
+        cancellationProbe: () => daemonNativeRequest('local-cancelled').cancelled === true,
+      },
+    );
+    trace('dynamic island invocation completed');
+    return JSON.parse(responseText) as HostResult;
+  } finally {
+    daemonNativeRequest('local-cancel-stop');
+  }
 }
 
 function daemonFailureResult(json: boolean, message: string): HostResult {
@@ -1276,7 +1354,7 @@ async function main(): Promise<void> {
           if (!request.replaySafe && !safeConnectionFailure)
             response = daemonFailureResult(request.outputMode === 'json', message);
         }
-      }
+      } else trace(`daemon ensure failed: ${ensured.error ?? 'unknown daemon startup failure'}`);
       if (response === null) {
         trace('daemon acceleration unavailable; using local island fallback');
         response = await runLocalIsland(argv);
