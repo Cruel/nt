@@ -39,7 +39,6 @@ export interface TerminalSessionSnapshot {
   lastKnownCwd: string | null;
   createdAt: string;
   originProject: TerminalProjectOrigin | null;
-  output: string;
   error: string | null;
   exitCode: number | null;
 }

@@ -5,6 +5,7 @@ import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useTerminalAttentionStore } from '@/workbench/terminal-attention-store';
 import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { resetTerminalWindowHostForTests } from '@/workbench/terminal-window-host';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type {
   TerminalEvent,
@@ -24,6 +25,8 @@ const terminalMock = vi.hoisted(() => ({
   resetCount: 0,
   focusCount: 0,
   fitCount: 0,
+  constructCount: 0,
+  disposeCount: 0,
 }));
 
 vi.mock('@xterm/xterm', () => ({
@@ -32,6 +35,7 @@ vi.mock('@xterm/xterm', () => ({
     rows = 30;
     options: Record<string, unknown>;
     constructor(options: Record<string, unknown>) {
+      terminalMock.constructCount += 1;
       this.options = { ...options };
       terminalMock.options = this.options;
     }
@@ -46,7 +50,9 @@ vi.mock('@xterm/xterm', () => ({
     reset() {
       terminalMock.resetCount += 1;
     }
-    dispose() {}
+    dispose() {
+      terminalMock.disposeCount += 1;
+    }
     attachCustomKeyEventHandler(callback: (event: KeyboardEvent) => boolean) {
       terminalMock.keyHandler = callback;
     }
@@ -93,7 +99,6 @@ function session(
     lastKnownCwd: '/mock/project',
     createdAt: `2026-09-19T12:00:0${sequence}.000Z`,
     originProject: { id: 'project', name: 'Project' },
-    output: '',
     error: null,
     exitCode: null,
     ...overrides,
@@ -108,6 +113,7 @@ const initialState: TerminalHostSnapshot = {
 
 beforeEach(() => {
   vi.useRealTimers();
+  resetTerminalWindowHostForTests();
   vi.clearAllMocks();
   terminalMock.onData = null;
   terminalMock.keyHandler = null;
@@ -118,6 +124,8 @@ beforeEach(() => {
   terminalMock.resetCount = 0;
   terminalMock.focusCount = 0;
   terminalMock.fitCount = 0;
+  terminalMock.constructCount = 0;
+  terminalMock.disposeCount = 0;
   useProjectStore.getState().clearProject();
   usePreferencesStore.getState().resetToDefaults();
   useTerminalAttentionStore.getState().reset();
@@ -371,38 +379,45 @@ describe('Terminal bottom panel', () => {
     expect(window.noveltea.showTerminalNotification).toHaveBeenCalledOnce();
   });
 
-  it('opens, selects, and acknowledges a terminal when its native notification is clicked', async () => {
+  it('opens, selects, displays, and acknowledges the originating terminal on notification click', async () => {
+    const terminal2 = session(2);
+    const initialTwoSessions = {
+      sessions: [terminal1, terminal2],
+      selectedSessionId: terminal1.id,
+    };
     let clickListener: ((event: { sessionId: string }) => void) | null = null;
+    vi.mocked(window.noveltea.ensureTerminalState).mockResolvedValue(initialTwoSessions);
     vi.mocked(window.noveltea.onTerminalNotificationClick).mockImplementation((callback) => {
       clickListener = callback;
       return () => {};
     });
-    vi.mocked(window.noveltea.selectTerminalSession).mockResolvedValue(initialState);
+    vi.mocked(window.noveltea.selectTerminalSession).mockResolvedValue({
+      sessions: [terminal1, terminal2],
+      selectedSessionId: terminal2.id,
+    });
     render(<BottomPanel />);
     act(() => {
-      useTerminalAttentionStore.getState().receiveAttention(terminal1.id, {
+      useTerminalAttentionStore.getState().receiveAttention(terminal2.id, {
         kind: 'bell',
         occurredAt: '2026-09-19T12:00:10.000Z',
       });
     });
 
-    vi.useFakeTimers();
     act(() => {
-      clickListener?.({ sessionId: terminal1.id });
+      clickListener?.({ sessionId: terminal2.id });
     });
     expect(useBottomPanelStore.getState()).toMatchObject({
       visible: true,
       activePanelId: 'terminal',
     });
-    expect(window.noveltea.selectTerminalSession).toHaveBeenCalledWith(terminal1.id);
-    expect(useTerminalAttentionStore.getState().attentionBySession[terminal1.id]?.state).toBe(
+    await waitFor(() =>
+      expect(window.noveltea.selectTerminalSession).toHaveBeenCalledWith(terminal2.id),
+    );
+    const terminal2Tab = await screen.findByRole('tab', { name: /Terminal 2/u });
+    expect(terminal2Tab).toHaveAttribute('aria-selected', 'true');
+    expect(useTerminalAttentionStore.getState().attentionBySession[terminal2.id]?.state).toBe(
       'fading',
     );
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
-    expect(useTerminalAttentionStore.getState().attentionBySession[terminal1.id]).toBeUndefined();
-    vi.useRealTimers();
   });
 
   it('routes selected xterm input/output and fitted dimensions through terminal IPC', async () => {
@@ -496,27 +511,31 @@ describe('Terminal bottom panel', () => {
     confirm.mockRestore();
   });
 
-  it('retains exited output and offers same-session Relaunch', async () => {
-    const exited = session(1, {
-      status: 'exited',
-      commandState: 'idle',
-      output: 'done\r\n',
-      exitCode: 7,
-    });
-    vi.mocked(window.noveltea.ensureTerminalState).mockResolvedValue({
-      sessions: [exited],
-      selectedSessionId: exited.id,
+  it('retains emulator output when a session exits and offers same-session Relaunch', async () => {
+    const listeners = new Set<(event: TerminalEvent) => void>();
+    vi.mocked(window.noveltea.onTerminalEvent).mockImplementation((callback) => {
+      listeners.add(callback);
+      return () => listeners.delete(callback);
     });
     vi.mocked(window.noveltea.relaunchTerminalSession).mockResolvedValue(initialState);
     useBottomPanelStore.getState().setActivePanelId('terminal');
     render(<BottomPanel />);
+    await screen.findByText('Terminal 1');
 
+    act(() => {
+      for (const listener of listeners) {
+        listener({ kind: 'output', sessionId: terminal1.id, data: 'done\r\n' });
+        listener({ kind: 'exit', sessionId: terminal1.id, exitCode: 7 });
+      }
+    });
     expect(await screen.findByText('Terminal exited (7)')).toBeInTheDocument();
-    await waitFor(() => expect(terminalMock.writes).toContain('done\r\n'));
+    expect(terminalMock.writes).toContain('done\r\n');
+
     fireEvent.click(screen.getByRole('button', { name: 'Relaunch' }));
     await waitFor(() =>
-      expect(window.noveltea.relaunchTerminalSession).toHaveBeenCalledWith(exited.id),
+      expect(window.noveltea.relaunchTerminalSession).toHaveBeenCalledWith(terminal1.id),
     );
+    expect(terminalMock.writes).toContain('done\r\n');
   });
 
   it('retries host creation when failure occurs before any session exists', async () => {
@@ -532,18 +551,38 @@ describe('Terminal bottom panel', () => {
     expect(await screen.findByText('Terminal 1')).toBeInTheDocument();
   });
 
-  it('reconstructs buffered output after panel remount from the window-owned host state', async () => {
-    vi.mocked(window.noveltea.ensureTerminalState).mockResolvedValue({
-      sessions: [session(1, { output: 'background output\r\n' })],
-      selectedSessionId: terminal1.id,
+  it('preserves the same emulator state and receives output while the Terminal view is remounted', async () => {
+    const listeners = new Set<(event: TerminalEvent) => void>();
+    vi.mocked(window.noveltea.onTerminalEvent).mockImplementation((callback) => {
+      listeners.add(callback);
+      return () => listeners.delete(callback);
     });
     useBottomPanelStore.getState().setActivePanelId('terminal');
     render(<BottomPanel />);
-    await waitFor(() => expect(terminalMock.writes).toContain('background output\r\n'));
+    await screen.findByText('Terminal 1');
+    expect(terminalMock.constructCount).toBe(1);
 
-    act(() => useBottomPanelStore.getState().setActivePanelId('output'));
-    act(() => useBottomPanelStore.getState().setActivePanelId('terminal'));
-    await waitFor(() => expect(window.noveltea.ensureTerminalState).toHaveBeenCalledTimes(2));
+    act(() => {
+      for (const listener of listeners) {
+        listener({ kind: 'output', sessionId: terminal1.id, data: 'before hide\r\n' });
+      }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+    act(() => {
+      for (const listener of listeners) {
+        listener({ kind: 'output', sessionId: terminal1.id, data: '\u001b[2Jbackground TUI\r\n' });
+      }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
+    await screen.findByText('Terminal 1');
+
+    expect(window.noveltea.ensureTerminalState).toHaveBeenCalledOnce();
+    expect(terminalMock.constructCount).toBe(1);
+    expect(terminalMock.disposeCount).toBe(0);
+    expect(terminalMock.resetCount).toBe(0);
+    expect(terminalMock.writes).toEqual(
+      expect.arrayContaining(['before hide\r\n', '\u001b[2Jbackground TUI\r\n']),
+    );
   });
 
   it('applies terminal presentation preferences live without restarting the PTY', async () => {

@@ -122,6 +122,13 @@ import type { ReadProjectTextSourcesRequest } from './shared/project-text-source
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 import { normalizeTerminalPreferences } from './shared/terminal-preferences';
 import {
+  DEFAULT_EDITOR_LANGUAGE,
+  isSupportedEditorLanguage,
+  resolveEditorLanguage,
+  type EditorLanguage,
+} from './renderer/i18n/language-types';
+import { editorI18nResources } from './renderer/i18n/resources';
+import {
   createImageThumbnailProtocolHandler,
   IMAGE_THUMBNAIL_SCHEME,
 } from './main/image-thumbnail-protocol';
@@ -310,7 +317,7 @@ const terminalService = new TerminalService({
   resolveProjectRoot: () => activeProjectSessions.currentProjectRoot(),
   resolveProjectOrigin: () => activeProjectSessions.currentProjectIdentity(),
   resolveFallbackCwd: resolveConfiguredTerminalFallbackCwd,
-  resolveDefaultProjectDirectory: getDefaultProjectDirectory,
+  resolveDefaultProjectDirectory: resolveEffectiveDefaultProjectDirectory,
   resolveShell: resolveDefaultTerminalShell,
   emit: (event) => {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
@@ -322,6 +329,7 @@ const terminalNotificationService = new TerminalNotificationService({
   isSupported: () => Notification.isSupported(),
   isWindowFocused: () => mainWindow?.isFocused() ?? true,
   resolveSessionLabel: (sessionId) => terminalService.sessionLabel(sessionId),
+  resolveContent: resolveTerminalNotificationContent,
   createNotification: (options) => {
     const notification = new Notification(options);
     return {
@@ -561,6 +569,44 @@ function getAppInfoPayload() {
 
 function getDefaultProjectDirectory() {
   return path.join(app.getPath('documents'), 'NovelTea');
+}
+
+async function resolveEffectiveDefaultProjectDirectory(): Promise<string> {
+  try {
+    const preferences = await loadNovelTeaUserPreferences();
+    const configured = preferences.defaultProjectDirectory;
+    if (typeof configured === 'string' && configured.trim() !== '') return path.resolve(configured);
+  } catch {
+    // Invalid/unavailable user configuration falls back to the built-in Documents/NovelTea default.
+  }
+  return getDefaultProjectDirectory();
+}
+
+async function resolveTerminalNotificationContent(
+  label: string,
+  kind: 'command-completed' | 'bell',
+): Promise<{ title: string; body: string }> {
+  let preference: EditorLanguage = 'system';
+  try {
+    const configured = (await loadNovelTeaUserPreferences()).language;
+    if (
+      configured === 'system' ||
+      (typeof configured === 'string' && isSupportedEditorLanguage(configured))
+    ) {
+      preference = configured;
+    }
+  } catch {
+    preference = 'system';
+  }
+  const language = resolveEditorLanguage(preference, app.getPreferredSystemLanguages());
+  const terminalMessages =
+    editorI18nResources[language]?.workspace.terminal ??
+    editorI18nResources[DEFAULT_EDITOR_LANGUAGE].workspace.terminal;
+  const template =
+    kind === 'command-completed'
+      ? terminalMessages.notificationCommandCompleted
+      : terminalMessages.notificationNeedsAttention;
+  return { title: 'NovelTea', body: template.replace('{{label}}', label) };
 }
 
 async function resolveConfiguredTerminalFallbackCwd(): Promise<string | null> {

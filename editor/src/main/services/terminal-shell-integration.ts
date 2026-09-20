@@ -54,18 +54,32 @@ function prepareBash(env: Record<string, string>): PreparedTerminalShell {
 function prepareZsh(env: Record<string, string>): PreparedTerminalShell {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-terminal-zsh-'));
   try {
-    const rcFile = path.join(directory, '.zshrc');
     const originalZdotdir = env.ZDOTDIR ?? env.HOME ?? '';
-    const originalRc = originalZdotdir ? path.join(originalZdotdir, '.zshrc') : '';
-    const sourceLine = originalRc
-      ? `if [[ -f ${shellQuote(originalRc)} ]]; then source ${shellQuote(originalRc)}; fi\n`
-      : '';
+    const sourceOriginal = (name: string) => {
+      const original = originalZdotdir ? path.join(originalZdotdir, name) : '';
+      return original
+        ? `if [[ -f ${shellQuote(original)} ]]; then source ${shellQuote(original)}; fi\n`
+        : '';
+    };
     fs.writeFileSync(
-      rcFile,
-      `${sourceLine}autoload -Uz add-zsh-hook\n__noveltea_preexec() { print -n -- $'\\e]633;C\\a' }\n__noveltea_precmd() {\n  local __noveltea_status=$?\n  print -n -- $'\\e]633;D;'"$__noveltea_status"$'\\a'\n  print -n -- $'\\e]7;file://'"\${HOST-}""$PWD"$'\\a'\n  print -n -- $'\\e]633;A\\a'\n}\nadd-zsh-hook preexec __noveltea_preexec\nadd-zsh-hook precmd __noveltea_precmd\n`,
+      path.join(directory, '.zshenv'),
+      `${sourceOriginal('.zshenv')}typeset -gx ZDOTDIR=${shellQuote(directory)}\n`,
       { encoding: 'utf8', mode: 0o600 },
     );
-    return disposablePreparedShell(['-i'], { ...env, ZDOTDIR: directory }, directory);
+    fs.writeFileSync(path.join(directory, '.zprofile'), sourceOriginal('.zprofile'), {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    fs.writeFileSync(
+      path.join(directory, '.zshrc'),
+      `${sourceOriginal('.zshrc')}autoload -Uz add-zsh-hook\n__noveltea_preexec() { print -n -- $'\\e]633;C\\a' }\n__noveltea_precmd() {\n  local __noveltea_status=$?\n  print -n -- $'\\e]633;D;'"$__noveltea_status"$'\\a'\n  print -n -- $'\\e]7;file://'"\${HOST-}""$PWD"$'\\a'\n  print -n -- $'\\e]633;A\\a'\n}\nadd-zsh-hook preexec __noveltea_preexec\nadd-zsh-hook precmd __noveltea_precmd\n`,
+      { encoding: 'utf8', mode: 0o600 },
+    );
+    fs.writeFileSync(path.join(directory, '.zlogin'), sourceOriginal('.zlogin'), {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    return disposablePreparedShell(['-il'], { ...env, ZDOTDIR: directory }, directory);
   } catch (error) {
     fs.rmSync(directory, { recursive: true, force: true });
     throw error;
@@ -76,12 +90,14 @@ function preparePowerShell(env: Record<string, string>): PreparedTerminalShell {
   const script = [
     '$global:__novelteaRunning = $false',
     '$global:__novelteaLifecycleEnabled = $false',
+    '$global:__novelteaEsc = [char]27',
+    '$global:__novelteaBel = [char]7',
     'try {',
     '  Import-Module PSReadLine -ErrorAction Stop',
     '  $global:__novelteaPreviousHistoryHandler = (Get-PSReadLineOption).AddToHistoryHandler',
     '  Set-PSReadLineOption -AddToHistoryHandler {',
     '    param($line)',
-    '    [Console]::Write("`e]633;C`a")',
+    '    [Console]::Write($global:__novelteaEsc + "]633;C" + $global:__novelteaBel)',
     '    $global:__novelteaRunning = $true',
     '    if ($null -ne $global:__novelteaPreviousHistoryHandler) {',
     '      return [bool](& $global:__novelteaPreviousHistoryHandler $line)',
@@ -95,11 +111,11 @@ function preparePowerShell(env: Record<string, string>): PreparedTerminalShell {
     '  $status = $?',
     '  if ($global:__novelteaLifecycleEnabled -and $global:__novelteaRunning) {',
     '    $code = if ($status) { 0 } else { 1 }',
-    '    [Console]::Write("`e]633;D;$code`a")',
+    '    [Console]::Write($global:__novelteaEsc + "]633;D;$code" + $global:__novelteaBel)',
     '    $global:__novelteaRunning = $false',
     '  }',
-    '  try { [Console]::Write("`e]7;" + ([System.Uri]::new($pwd.ProviderPath).AbsoluteUri) + "`a") } catch {}',
-    '  if ($global:__novelteaLifecycleEnabled) { [Console]::Write("`e]633;A`a") }',
+    '  try { [Console]::Write($global:__novelteaEsc + "]7;" + ([System.Uri]::new($pwd.ProviderPath).AbsoluteUri) + $global:__novelteaBel) } catch {}',
+    '  if ($global:__novelteaLifecycleEnabled) { [Console]::Write($global:__novelteaEsc + "]633;A" + $global:__novelteaBel) }',
     '  if ($null -ne $global:__novelteaPreviousPrompt) { return & $global:__novelteaPreviousPrompt }',
     '  return "PS $($executionContext.SessionState.Path.CurrentLocation)> "',
     '}',

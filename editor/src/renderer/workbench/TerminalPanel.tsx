@@ -1,14 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
-import { Terminal } from '@xterm/xterm';
 import { Plus, X } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import { Button } from '@/components/ui/button';
-import { usePreferencesStore } from '@/stores/preferences-store';
-import type { TerminalHostSnapshot, TerminalSessionSnapshot } from '../../shared/terminal';
+import type { TerminalSessionSnapshot } from '../../shared/terminal';
 import { useTerminalAttentionStore } from './terminal-attention-store';
+import {
+  attachTerminalSessionView,
+  closeWindowTerminalSession,
+  createWindowTerminalSession,
+  ensureTerminalWindowState,
+  fitTerminalSessionView,
+  focusTerminalSessionView,
+  getTerminalWindowState,
+  relaunchWindowTerminalSession,
+  selectWindowTerminalSession,
+  subscribeTerminalWindowState,
+} from './terminal-window-host';
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -17,27 +25,18 @@ function errorMessage(error: unknown, fallback: string): string {
 export function TerminalPanel() {
   const { t } = useTranslation('workspace');
   const hostRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
-  const sessionIdRef = useRef<string | null>(null);
-  const selectedSessionRef = useRef<TerminalSessionSnapshot | null>(null);
-  const translationRef = useRef(t);
-  const macOSRef = useRef(navigator.platform.startsWith('Mac'));
-  const terminalPreferences = usePreferencesStore((state) => state.terminal);
-  const [terminalState, setTerminalState] = useState<TerminalHostSnapshot | null>(null);
-  const [loading, setLoading] = useState(true);
+  const terminalState = useSyncExternalStore(
+    subscribeTerminalWindowState,
+    getTerminalWindowState,
+    getTerminalWindowState,
+  );
+  const [loading, setLoading] = useState(terminalState === null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const attentionBySession = useTerminalAttentionStore((state) => state.attentionBySession);
-
-  const selectedSession = useMemo(
-    () =>
-      terminalState?.sessions.find((session) => session.id === terminalState.selectedSessionId) ??
-      null,
-    [terminalState],
-  );
+  const selectedSession =
+    terminalState?.sessions.find((session) => session.id === terminalState.selectedSessionId) ??
+    null;
   const selectedSessionId = selectedSession?.id ?? null;
-  selectedSessionRef.current = selectedSession;
-  translationRef.current = t;
 
   useEffect(() => {
     if (!terminalState) return;
@@ -47,192 +46,45 @@ export function TerminalPanel() {
   }, [terminalState]);
 
   useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-
-    const preferences = usePreferencesStore.getState().terminal;
-    const terminal = new Terminal({
-      cursorBlink: true,
-      fontFamily: preferences.fontFamily,
-      fontSize: preferences.fontSize,
-      scrollback: preferences.scrollback,
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.loadAddon(
-      new WebLinksAddon((event, uri) => {
-        event.preventDefault();
-        void window.noveltea.openExternal(uri);
-      }),
-    );
-    terminal.open(host);
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
-    terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== 'keydown') return true;
-      const key = event.key.toLowerCase();
-      if (macOSRef.current && event.metaKey && key === 'c') {
-        event.preventDefault();
-        if (terminal.hasSelection()) void navigator.clipboard.writeText(terminal.getSelection());
-        return false;
-      }
-      if (macOSRef.current && event.metaKey && key === 'v') {
-        event.preventDefault();
-        void navigator.clipboard.readText().then((text) => terminal.paste(text));
-        return false;
-      }
-      if (!macOSRef.current && event.ctrlKey && key === 'c' && terminal.hasSelection()) {
-        event.preventDefault();
-        void navigator.clipboard.writeText(terminal.getSelection());
-        return false;
-      }
-      return true;
-    });
-    void window.noveltea.getAppInfo().then((info) => {
-      macOSRef.current = info.platform === 'darwin';
-    });
-
     let disposed = false;
-    let lastColumns = 0;
-    let lastRows = 0;
-    const fitAndResize = () => {
-      if (disposed || !sessionIdRef.current) return;
-      fitAddon.fit();
-      if (terminal.cols === lastColumns && terminal.rows === lastRows) return;
-      lastColumns = terminal.cols;
-      lastRows = terminal.rows;
-      void window.noveltea.resizeTerminal({
-        sessionId: sessionIdRef.current,
-        columns: terminal.cols,
-        rows: terminal.rows,
-      });
-    };
-
-    const resizeObserver = new ResizeObserver(fitAndResize);
-    resizeObserver.observe(host);
-    const dataSubscription = terminal.onData((data) => {
-      const sessionId = sessionIdRef.current;
-      if (sessionId) void window.noveltea.writeTerminal(sessionId, data);
-    });
-    const removeTerminalListener = window.noveltea.onTerminalEvent((event) => {
-      if (event.sessionId === sessionIdRef.current && event.kind === 'output') {
-        terminal.write(event.data);
-      }
-      if (event.kind === 'output') return;
-      setTerminalState((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          sessions: current.sessions.map((session) => {
-            if (session.id !== event.sessionId) return session;
-            if (event.kind === 'attention') {
-              return { ...session, latestAttention: event.attention };
-            }
-            if (event.kind === 'metadata') {
-              return {
-                ...session,
-                commandState: event.commandState,
-                currentCommandStartedAt: event.currentCommandStartedAt,
-                latestCommand: event.latestCommand,
-                lastKnownCwd: event.lastKnownCwd,
-              };
-            }
-            if (event.kind === 'exit') {
-              return {
-                ...session,
-                status: 'exited',
-                commandState: 'idle',
-                currentCommandStartedAt: null,
-                exitCode: event.exitCode,
-              };
-            }
-            return {
-              ...session,
-              status: 'error',
-              commandState: 'idle',
-              currentCommandStartedAt: null,
-              error: event.message,
-            };
-          }),
-        };
-      });
-    });
-
-    void window.noveltea
-      .ensureTerminalState()
-      .then((snapshot) => {
+    void ensureTerminalWindowState()
+      .then(() => {
         if (disposed) return;
-        setTerminalState(snapshot);
         setRequestError(null);
         setLoading(false);
       })
       .catch((error: unknown) => {
         if (disposed) return;
-        setRequestError(errorMessage(error, translationRef.current('terminal.failed')));
+        setRequestError(errorMessage(error, t('terminal.failed')));
         setLoading(false);
       });
-
     return () => {
       disposed = true;
-      resizeObserver.disconnect();
-      dataSubscription.dispose();
-      removeTerminalListener();
-      terminal.dispose();
-      terminalRef.current = null;
-      fitAddonRef.current = null;
-      sessionIdRef.current = null;
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
-    const terminal = terminalRef.current;
-    const sessionId = sessionIdRef.current;
-    if (!terminal || !sessionId) return;
-    terminal.options.fontFamily = terminalPreferences.fontFamily;
-    terminal.options.fontSize = terminalPreferences.fontSize;
-    terminal.options.scrollback = terminalPreferences.scrollback;
-    requestAnimationFrame(() => {
-      fitAddonRef.current?.fit();
-      void window.noveltea.resizeTerminal({
-        sessionId,
-        columns: terminal.cols,
-        rows: terminal.rows,
-      });
-    });
-  }, [
-    terminalPreferences.fontFamily,
-    terminalPreferences.fontSize,
-    terminalPreferences.scrollback,
-  ]);
-
-  useEffect(() => {
-    const terminal = terminalRef.current;
-    const session = selectedSessionRef.current;
-    if (!terminal || !session || session.id !== selectedSessionId) return;
-    sessionIdRef.current = session.id;
-    terminal.reset();
-    if (session.output) terminal.write(session.output);
-    requestAnimationFrame(() => {
-      fitAddonRef.current?.fit();
-      void window.noveltea.resizeTerminal({
-        sessionId: session.id,
-        columns: terminal.cols,
-        rows: terminal.rows,
-      });
-      terminal.focus();
-    });
+    const host = hostRef.current;
+    if (!host || !selectedSessionId) return;
+    const detach = attachTerminalSessionView(selectedSessionId, host);
+    const resizeObserver = new ResizeObserver(() => fitTerminalSessionView(selectedSessionId));
+    resizeObserver.observe(host);
+    return () => {
+      resizeObserver.disconnect();
+      detach();
+    };
   }, [selectedSessionId]);
 
   async function selectSession(sessionId: string) {
     if (sessionId === terminalState?.selectedSessionId) {
       useTerminalAttentionStore.getState().acknowledgeSelectionChange(sessionId);
-      terminalRef.current?.focus();
+      focusTerminalSessionView(sessionId);
       return;
     }
     useTerminalAttentionStore.getState().acknowledgeSelectionChange(sessionId);
     setRequestError(null);
     try {
-      setTerminalState(await window.noveltea.selectTerminalSession(sessionId));
+      await selectWindowTerminalSession(sessionId);
     } catch (error) {
       setRequestError(errorMessage(error, t('terminal.failed')));
     }
@@ -241,9 +93,8 @@ export function TerminalPanel() {
   async function createSession() {
     setRequestError(null);
     try {
-      const nextState = await window.noveltea.createTerminalSession();
+      const nextState = await createWindowTerminalSession();
       useTerminalAttentionStore.getState().acknowledgeSelectionChange(nextState.selectedSessionId);
-      setTerminalState(nextState);
     } catch (error) {
       setRequestError(errorMessage(error, t('terminal.failed')));
     }
@@ -252,16 +103,15 @@ export function TerminalPanel() {
   async function closeSession(session: TerminalSessionSnapshot) {
     setRequestError(null);
     try {
-      let result = await window.noveltea.closeTerminalSession({
-        sessionId: session.id,
-        force: false,
-      });
+      let result = await closeWindowTerminalSession(session.id, false);
       if (result.requiresConfirmation) {
         const confirmed = window.confirm(t('terminal.closeRisk', { label: session.label }));
         if (!confirmed) return;
-        result = await window.noveltea.closeTerminalSession({ sessionId: session.id, force: true });
+        result = await closeWindowTerminalSession(session.id, true);
       }
-      setTerminalState(result.state);
+      useTerminalAttentionStore
+        .getState()
+        .removeSessions(result.state.sessions.map((item) => item.id));
     } catch (error) {
       setRequestError(errorMessage(error, t('terminal.failed')));
     }
@@ -272,8 +122,8 @@ export function TerminalPanel() {
     setLoading(true);
     setRequestError(null);
     try {
-      setTerminalState(await window.noveltea.relaunchTerminalSession(selectedSession.id));
-      terminalRef.current?.focus();
+      await relaunchWindowTerminalSession(selectedSession.id);
+      focusTerminalSessionView(selectedSession.id);
     } catch (error) {
       setRequestError(errorMessage(error, t('terminal.failed')));
     } finally {
@@ -285,11 +135,12 @@ export function TerminalPanel() {
     setLoading(true);
     setRequestError(null);
     try {
-      const nextState = selectedSession
-        ? await window.noveltea.relaunchTerminalSession(selectedSession.id)
-        : await window.noveltea.ensureTerminalState();
-      setTerminalState(nextState);
-      terminalRef.current?.focus();
+      if (selectedSession) {
+        await relaunchWindowTerminalSession(selectedSession.id);
+        focusTerminalSessionView(selectedSession.id);
+      } else {
+        await ensureTerminalWindowState();
+      }
     } catch (error) {
       setRequestError(errorMessage(error, t('terminal.failed')));
     } finally {

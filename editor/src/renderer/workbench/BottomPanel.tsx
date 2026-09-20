@@ -24,6 +24,7 @@ import { TestPlaybackPanel } from './TestPlaybackPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { AssetPerformancePanel } from '@/asset-profiler/AssetPerformancePanel';
 import { terminalHasUnreadAttention, useTerminalAttentionStore } from './terminal-attention-store';
+import { selectWindowTerminalSession } from './terminal-window-host';
 
 function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
   if (value === null || value === undefined) {
@@ -206,7 +207,7 @@ export function BottomPanel() {
         attentionStore.acknowledgeSelectionChange(sessionId);
         attentionStore.setSelectedSessionId(sessionId);
         setActivePanelId('terminal');
-        void window.noveltea.selectTerminalSession(sessionId);
+        void selectWindowTerminalSession(sessionId);
       }),
     [setActivePanelId],
   );
