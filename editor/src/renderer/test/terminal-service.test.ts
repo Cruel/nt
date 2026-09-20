@@ -523,9 +523,9 @@ describe('terminal shell integration', () => {
     }
   });
 
-  it('percent-encodes cwd URL delimiters in bash and zsh OSC 7 markers', () => {
+  it('fully URL-encodes cwd paths in bash and zsh OSC 7 markers', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-terminal-cwd-'));
-    const cwd = path.join(root, 'project#draft%20');
+    const cwd = path.join(root, "project #draft%20? ü '[]");
     fs.mkdirSync(cwd);
     try {
       for (const shell of ['/bin/bash', '/bin/zsh']) {
@@ -544,7 +544,15 @@ describe('terminal shell integration', () => {
             },
           );
           expect(probe.status).toBe(0);
-          expect(probe.stdout).toContain('project%23draft%2520');
+          const markerPrefix = '\u001b]7;';
+          const markerStart = probe.stdout.indexOf(markerPrefix);
+          expect(markerStart).toBeGreaterThanOrEqual(0);
+          const markerEnd = probe.stdout.indexOf('\u0007', markerStart + markerPrefix.length);
+          expect(markerEnd).toBeGreaterThan(markerStart);
+          const marker = probe.stdout.slice(markerStart + markerPrefix.length, markerEnd);
+          const encodedPath = new URL(marker).pathname;
+          expect(encodedPath).toContain('%20%23draft%2520%3F%20%C3%BC%20%27%5B%5D');
+          expect(decodeURIComponent(encodedPath)).toBe(cwd);
         } finally {
           prepared.dispose();
         }

@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -438,6 +438,7 @@ export function SettingsPage({
   const [terminalFallbackCwdDraft, setTerminalFallbackCwdDraft] = useState(
     terminalPreferences.fallbackCwd ?? '',
   );
+  const terminalFallbackCwdValidationGeneration = useRef(0);
   const [terminalFallbackCwdError, setTerminalFallbackCwdError] = useState<string | null>(null);
   const [preferredSystemLanguages, setPreferredSystemLanguages] = useState<string[]>([]);
   const [comfyUiWorkflows, setComfyUiWorkflows] = useState<ComfyUiWorkflowActiveEntry[]>([]);
@@ -870,12 +871,15 @@ export function SettingsPage({
 
   async function applyTerminalFallbackCwd() {
     const candidate = terminalFallbackCwdDraft.trim();
+    const generation = ++terminalFallbackCwdValidationGeneration.current;
     if (!candidate) {
       setTerminalFallbackCwdError(null);
       setTerminalPreferences({ fallbackCwd: null });
       return;
     }
-    if (!(await window.noveltea.validateDirectory(candidate))) {
+    const valid = await window.noveltea.validateDirectory(candidate);
+    if (generation !== terminalFallbackCwdValidationGeneration.current) return;
+    if (!valid) {
       setTerminalFallbackCwdError(t('settings:terminal.fallbackCwdInvalid'));
       return;
     }
@@ -889,12 +893,14 @@ export function SettingsPage({
       defaultPath: terminalPreferences.fallbackCwd,
     });
     if (!directory) return;
+    terminalFallbackCwdValidationGeneration.current += 1;
     setTerminalFallbackCwdDraft(directory);
     setTerminalFallbackCwdError(null);
     setTerminalPreferences({ fallbackCwd: directory });
   }
 
   function resetTerminalFallbackCwd() {
+    terminalFallbackCwdValidationGeneration.current += 1;
     setTerminalFallbackCwdDraft('');
     setTerminalFallbackCwdError(null);
     setTerminalPreferences({ fallbackCwd: null });
@@ -907,6 +913,7 @@ export function SettingsPage({
     await window.noveltea.saveComfyUiUserConfig(defaultComfyUiSharedUserConfig());
     resetPreferencesToDefaults();
     setDefaultProjectDirectoryError(null);
+    terminalFallbackCwdValidationGeneration.current += 1;
     setTerminalFallbackCwdDraft('');
     setTerminalFallbackCwdError(null);
     useComfyUiStore.getState().hydrateFromPreferences();
@@ -1349,7 +1356,10 @@ export function SettingsPage({
                   className="font-mono text-[11px]"
                   placeholder={t('settings:terminal.fallbackCwdAutomatic')}
                   value={terminalFallbackCwdDraft}
-                  onChange={(event) => setTerminalFallbackCwdDraft(event.currentTarget.value)}
+                  onChange={(event) => {
+                    terminalFallbackCwdValidationGeneration.current += 1;
+                    setTerminalFallbackCwdDraft(event.currentTarget.value);
+                  }}
                   onBlur={() => void applyTerminalFallbackCwd()}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') void applyTerminalFallbackCwd();

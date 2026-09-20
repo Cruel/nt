@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -72,6 +72,37 @@ describe('packaged node-pty native closure', () => {
     await expect(findNodePtyNativeClosure(root, 'win32', 'x64')).resolves.toMatchObject({
       binding: expect.stringMatching(/prebuilds\/win32-x64\/conpty\.node$/),
     });
+  });
+
+  it('requires the executable macOS spawn-helper alongside the native binding', async () => {
+    const { root, nodePtyRoot } = await createNodePtyRoot();
+    await writeNativeFile(nodePtyRoot, 'prebuilds/darwin-arm64/pty.node');
+
+    await expect(findNodePtyNativeClosure(root, 'darwin', 'arm64')).rejects.toThrow(
+      'required macOS spawn-helper',
+    );
+
+    await writeNativeFile(nodePtyRoot, 'prebuilds/darwin-arm64/spawn-helper');
+    await expect(findNodePtyNativeClosure(root, 'darwin', 'arm64')).rejects.toThrow(
+      'spawn-helper is not executable',
+    );
+
+    await chmod(path.join(nodePtyRoot, 'prebuilds/darwin-arm64/spawn-helper'), 0o755);
+    await expect(findNodePtyNativeClosure(root, 'darwin', 'arm64')).resolves.toMatchObject({
+      binding: expect.stringMatching(/prebuilds\/darwin-arm64\/pty\.node$/),
+      spawnHelper: expect.stringMatching(/prebuilds\/darwin-arm64\/spawn-helper$/),
+    });
+  });
+
+  it('normalizes the retained macOS spawn-helper executable bit during staging', async () => {
+    const { nodePtyRoot } = await createNodePtyRoot();
+    await writeNativeFile(nodePtyRoot, 'prebuilds/darwin-arm64/pty.node');
+    await writeNativeFile(nodePtyRoot, 'prebuilds/darwin-arm64/spawn-helper');
+
+    await pruneForeignNodePtyPrebuilds(nodePtyRoot, 'darwin', 'arm64');
+
+    const helper = await stat(path.join(nodePtyRoot, 'prebuilds/darwin-arm64/spawn-helper'));
+    expect(helper.mode & 0o111).not.toBe(0);
   });
 
   it('prunes every foreign prebuild tuple while retaining the current one', async () => {

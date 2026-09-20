@@ -139,7 +139,8 @@ rejects undeclared files, source trees, tests, caches, type-only packages, priva
 checkout-path leaks. node-pty staging prunes prebuild directories for other platform/architecture
 tuples before the manifest is created, and both stage and packaged verification require the exact
 current node-pty version plus the target-appropriate native binding rather than accepting an arbitrary
-`.node` file from another desktop target.
+`.node` file from another desktop target. macOS staging also preserves the required executable
+`spawn-helper`, and verification rejects a missing or non-executable helper.
 
 The standalone `noveltea` CLI must be built for the release-admitted host or supplied by
 `NOVELTEA_CLI_PATH`. Normal staging refreshes the repository CLI automatically and copies it to

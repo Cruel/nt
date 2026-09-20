@@ -1,4 +1,4 @@
-import { readdir, readFile, rm } from 'node:fs/promises';
+import { chmod, readdir, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 async function pathExists(target) {
@@ -29,6 +29,13 @@ export async function pruneForeignNodePtyPrebuilds(nodePtyRoot, platform, arch) 
       .filter((entry) => entry.isDirectory() && entry.name !== currentTuple)
       .map((entry) => rm(path.join(prebuildsRoot, entry.name), { recursive: true, force: true })),
   );
+  if (platform === 'darwin') {
+    try {
+      await chmod(path.join(prebuildsRoot, currentTuple, 'spawn-helper'), 0o755);
+    } catch (error) {
+      if (!(error && typeof error === 'object' && error.code === 'ENOENT')) throw error;
+    }
+  }
 }
 
 export async function inspectNodePtyNativeClosure(nodePtyRoot, platform, arch, expectedVersion) {
@@ -73,10 +80,29 @@ export async function inspectNodePtyNativeClosure(nodePtyRoot, platform, arch, e
     );
   }
 
+  let spawnHelper = null;
+  if (platform === 'darwin') {
+    spawnHelper = path.join(nodePtyRoot, 'prebuilds', currentTuple, 'spawn-helper');
+    let helperStat;
+    try {
+      helperStat = await stat(spawnHelper);
+    } catch {
+      throw new Error(
+        `Packaged node-pty closure is missing the required macOS spawn-helper for ${currentTuple}.`,
+      );
+    }
+    if (!helperStat.isFile() || (helperStat.mode & 0o111) === 0) {
+      throw new Error(
+        `Packaged node-pty macOS spawn-helper is not executable for ${currentTuple}.`,
+      );
+    }
+  }
+
   return {
     root: nodePtyRoot,
     tuple: currentTuple,
     binding,
+    spawnHelper,
     version: metadata.version,
   };
 }
