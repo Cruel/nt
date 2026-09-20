@@ -531,9 +531,17 @@ describe('Terminal bottom panel', () => {
     expect(await screen.findByText('Terminal exited (7)')).toBeInTheDocument();
     expect(terminalMock.writes).toContain('done\r\n');
 
+    vi.mocked(window.noveltea.resizeTerminal).mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Relaunch' }));
     await waitFor(() =>
       expect(window.noveltea.relaunchTerminalSession).toHaveBeenCalledWith(terminal1.id),
+    );
+    await waitFor(() =>
+      expect(window.noveltea.resizeTerminal).toHaveBeenCalledWith({
+        sessionId: terminal1.id,
+        columns: 100,
+        rows: 30,
+      }),
     );
     expect(terminalMock.writes).toContain('done\r\n');
   });

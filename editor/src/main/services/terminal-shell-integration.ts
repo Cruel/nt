@@ -41,7 +41,7 @@ function prepareBash(env: Record<string, string>): PreparedTerminalShell {
       : '';
     fs.writeFileSync(
       rcFile,
-      `${sourceLine}PS0=$'\\e]633;C\\a'\${PS0-}\n__noveltea_prompt_command() {\n  local __noveltea_status=$?\n  printf '\\033]633;D;%s\\007' "$__noveltea_status"\n  printf '\\033]7;file://%s%s\\007' "\${HOSTNAME-}" "$PWD"\n  printf '\\033]633;A\\007'\n  return "$__noveltea_status"\n}\nif declare -p PROMPT_COMMAND 2>/dev/null | grep -q 'declare -a'; then\n  PROMPT_COMMAND=(__noveltea_prompt_command "\${PROMPT_COMMAND[@]}")\nelse\n  PROMPT_COMMAND="__noveltea_prompt_command\${PROMPT_COMMAND:+;$PROMPT_COMMAND}"\nfi\n`,
+      `${sourceLine}PS0=$'\\e]633;C\\a'\${PS0-}\n__noveltea_prompt_command() {\n  local __noveltea_status=$?\n  local __noveltea_cwd="$PWD"\n  __noveltea_cwd=\${__noveltea_cwd//\\%/%25}\n  __noveltea_cwd=\${__noveltea_cwd//\\#/%23}\n  __noveltea_cwd=\${__noveltea_cwd//\\?/%3F}\n  printf '\\033]633;D;%s\\007' "$__noveltea_status"\n  printf '\\033]7;file://%s%s\\007' "\${HOSTNAME-}" "$__noveltea_cwd"\n  printf '\\033]633;A\\007'\n  return "$__noveltea_status"\n}\nif declare -p PROMPT_COMMAND 2>/dev/null | grep -q 'declare -a'; then\n  PROMPT_COMMAND=(__noveltea_prompt_command "\${PROMPT_COMMAND[@]}")\nelse\n  PROMPT_COMMAND="__noveltea_prompt_command\${PROMPT_COMMAND:+;$PROMPT_COMMAND}"\nfi\n`,
       { encoding: 'utf8', mode: 0o600 },
     );
     return disposablePreparedShell(['--rcfile', rcFile, '-i'], env, directory);
@@ -60,7 +60,7 @@ function prepareZsh(env: Record<string, string>): PreparedTerminalShell {
       `typeset -gx ZDOTDIR="\${__NOVELTEA_USER_ZDOTDIR-}"\nif [[ -n "$ZDOTDIR" && -f "$ZDOTDIR/${name}" ]]; then source "$ZDOTDIR/${name}"; fi\ntypeset -gx __NOVELTEA_USER_ZDOTDIR="\${ZDOTDIR:-\${HOME-}}"\ntypeset -gx ZDOTDIR=${shellQuote(directory)}\n`;
     fs.writeFileSync(
       path.join(directory, '.zshenv'),
-      `${originalZshenv ? `if [[ -f ${shellQuote(originalZshenv)} ]]; then source ${shellQuote(originalZshenv)}; fi\n` : ''}typeset -gx __NOVELTEA_USER_ZDOTDIR="\${ZDOTDIR:-\${HOME-}}"\ntypeset -gx ZDOTDIR=${shellQuote(directory)}\n`,
+      `typeset -gx ZDOTDIR=${shellQuote(originalZdotdir)}\n${originalZshenv ? `if [[ -f ${shellQuote(originalZshenv)} ]]; then source ${shellQuote(originalZshenv)}; fi\n` : ''}typeset -gx __NOVELTEA_USER_ZDOTDIR="\${ZDOTDIR:-\${HOME-}}"\ntypeset -gx ZDOTDIR=${shellQuote(directory)}\n`,
       { encoding: 'utf8', mode: 0o600 },
     );
     fs.writeFileSync(path.join(directory, '.zprofile'), sourceUserStartup('.zprofile'), {
@@ -69,7 +69,7 @@ function prepareZsh(env: Record<string, string>): PreparedTerminalShell {
     });
     fs.writeFileSync(
       path.join(directory, '.zshrc'),
-      `${sourceUserStartup('.zshrc')}autoload -Uz add-zsh-hook\n__noveltea_preexec() { print -n -- $'\\e]633;C\\a' }\n__noveltea_precmd() {\n  local __noveltea_status=$?\n  print -n -- $'\\e]633;D;'"$__noveltea_status"$'\\a'\n  print -n -- $'\\e]7;file://'"\${HOST-}""$PWD"$'\\a'\n  print -n -- $'\\e]633;A\\a'\n}\nadd-zsh-hook preexec __noveltea_preexec\nadd-zsh-hook precmd __noveltea_precmd\n`,
+      `${sourceUserStartup('.zshrc')}autoload -Uz add-zsh-hook\n__noveltea_preexec() { print -n -- $'\\e]633;C\\a' }\n__noveltea_precmd() {\n  local __noveltea_status=$?\n  local __noveltea_cwd="$PWD"\n  __noveltea_cwd=\${__noveltea_cwd//\\%/%25}\n  __noveltea_cwd=\${__noveltea_cwd//\\#/%23}\n  __noveltea_cwd=\${__noveltea_cwd//\\?/%3F}\n  print -n -- $'\\e]633;D;'"$__noveltea_status"$'\\a'\n  print -n -- $'\\e]7;file://'"\${HOST-}""$__noveltea_cwd"$'\\a'\n  print -n -- $'\\e]633;A\\a'\n}\nadd-zsh-hook preexec __noveltea_preexec\nadd-zsh-hook precmd __noveltea_precmd\n`,
       { encoding: 'utf8', mode: 0o600 },
     );
     fs.writeFileSync(path.join(directory, '.zlogin'), sourceUserStartup('.zlogin'), {
