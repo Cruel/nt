@@ -56,11 +56,19 @@ const api: NovelTeaElectronApi = {
     invokeGuarded(IPC_CHANNELS.TERMINAL_RELAUNCH_SESSION, sessionId),
   writeTerminal: (sessionId, data) => invokeGuarded(IPC_CHANNELS.TERMINAL_WRITE, sessionId, data),
   resizeTerminal: (request) => invokeGuarded(IPC_CHANNELS.TERMINAL_RESIZE, request),
+  showTerminalNotification: (request) =>
+    invokeGuarded(IPC_CHANNELS.TERMINAL_SHOW_NOTIFICATION, request),
   onTerminalEvent: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, event: unknown) =>
       callback(event as never);
     ipcRenderer.on(IPC_CHANNELS.TERMINAL_EVENT, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_EVENT, listener);
+  },
+  onTerminalNotificationClick: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: Parameters<typeof callback>[0]) =>
+      callback(event);
+    ipcRenderer.on(IPC_CHANNELS.TERMINAL_NOTIFICATION_CLICK, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_NOTIFICATION_CLICK, listener);
   },
   getEnginePreviewSession: (projectSessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION, projectSessionId),

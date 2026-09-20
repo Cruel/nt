@@ -88,3 +88,12 @@ export interface TerminalResizeRequest {
   columns: number;
   rows: number;
 }
+
+export interface TerminalNotificationRequest {
+  sessionId: string;
+  kind: TerminalAttentionKind;
+}
+
+export interface TerminalNotificationClickEvent {
+  sessionId: string;
+}

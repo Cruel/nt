@@ -138,6 +138,8 @@ beforeEach(() => {
   });
   vi.mocked(window.noveltea.relaunchTerminalSession).mockResolvedValue(initialState);
   vi.mocked(window.noveltea.onTerminalEvent).mockReturnValue(() => {});
+  vi.mocked(window.noveltea.showTerminalNotification).mockResolvedValue(true);
+  vi.mocked(window.noveltea.onTerminalNotificationClick).mockReturnValue(() => {});
 });
 
 describe('Terminal bottom panel', () => {
@@ -333,6 +335,71 @@ describe('Terminal bottom panel', () => {
     });
     expect(screen.queryByLabelText('Terminal 1 needs attention')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Terminal 2 needs attention')).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('requests at most one native notification per unread period and honors the preference', async () => {
+    const listeners = new Set<(event: TerminalEvent) => void>();
+    vi.mocked(window.noveltea.onTerminalEvent).mockImplementation((callback) => {
+      listeners.add(callback);
+      return () => listeners.delete(callback);
+    });
+    render(<BottomPanel />);
+
+    const attention: TerminalEvent = {
+      kind: 'attention',
+      sessionId: terminal1.id,
+      attention: { kind: 'bell', occurredAt: '2026-09-19T12:00:10.000Z' },
+    };
+    act(() => {
+      for (const listener of listeners) listener(attention);
+      for (const listener of listeners) listener(attention);
+    });
+    expect(window.noveltea.showTerminalNotification).toHaveBeenCalledOnce();
+    expect(window.noveltea.showTerminalNotification).toHaveBeenCalledWith({
+      sessionId: terminal1.id,
+      kind: 'bell',
+    });
+
+    useTerminalAttentionStore.getState().reset();
+    act(() => {
+      usePreferencesStore.getState().setTerminalPreferences({ desktopNotifications: false });
+      for (const listener of listeners) listener(attention);
+    });
+    expect(window.noveltea.showTerminalNotification).toHaveBeenCalledOnce();
+  });
+
+  it('opens, selects, and acknowledges a terminal when its native notification is clicked', async () => {
+    let clickListener: ((event: { sessionId: string }) => void) | null = null;
+    vi.mocked(window.noveltea.onTerminalNotificationClick).mockImplementation((callback) => {
+      clickListener = callback;
+      return () => {};
+    });
+    vi.mocked(window.noveltea.selectTerminalSession).mockResolvedValue(initialState);
+    render(<BottomPanel />);
+    act(() => {
+      useTerminalAttentionStore.getState().receiveAttention(terminal1.id, {
+        kind: 'bell',
+        occurredAt: '2026-09-19T12:00:10.000Z',
+      });
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      clickListener?.({ sessionId: terminal1.id });
+    });
+    expect(useBottomPanelStore.getState()).toMatchObject({
+      visible: true,
+      activePanelId: 'terminal',
+    });
+    expect(window.noveltea.selectTerminalSession).toHaveBeenCalledWith(terminal1.id);
+    expect(useTerminalAttentionStore.getState().attentionBySession[terminal1.id]?.state).toBe(
+      'fading',
+    );
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(useTerminalAttentionStore.getState().attentionBySession[terminal1.id]).toBeUndefined();
     vi.useRealTimers();
   });
 

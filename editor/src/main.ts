@@ -9,6 +9,7 @@ import {
   protocol,
   session,
   powerMonitor,
+  Notification,
 } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -62,6 +63,7 @@ import {
   resolveProjectOriginalAssetUrl,
 } from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
+import { TerminalNotificationService } from './main/services/terminal-notification-service';
 import { EditorAuthoringValidationService } from './main/services/editor-authoring-validation-service';
 import { EditorRuntimeCacheService } from './main/services/editor-runtime-cache-service';
 import { importDesktopProject } from './main/services/desktop-project-import-service';
@@ -193,6 +195,7 @@ import {
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
   terminalCloseArgumentsSchema,
+  terminalNotificationArgumentsSchema,
   terminalResizeArgumentsSchema,
   terminalSessionArgumentsSchema,
   terminalWriteArgumentsSchema,
@@ -312,6 +315,29 @@ const terminalService = new TerminalService({
   emit: (event) => {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_EVENT, event);
+    }
+  },
+});
+const terminalNotificationService = new TerminalNotificationService({
+  isSupported: () => Notification.isSupported(),
+  isWindowFocused: () => mainWindow?.isFocused() ?? true,
+  resolveSessionLabel: (sessionId) => terminalService.sessionLabel(sessionId),
+  createNotification: (options) => {
+    const notification = new Notification(options);
+    return {
+      show: () => notification.show(),
+      onClick: (callback) => notification.on('click', callback),
+      onClose: (callback) => notification.on('close', callback),
+    };
+  },
+  restoreWindow: () => {
+    if (mainWindow?.isMinimized()) mainWindow.restore();
+  },
+  showWindow: () => mainWindow?.show(),
+  focusWindow: () => mainWindow?.focus(),
+  emitClick: (event) => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_NOTIFICATION_CLICK, event);
     }
   },
 });
@@ -1018,6 +1044,12 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.TERMINAL_RESIZE,
     (arguments_) => terminalResizeArgumentsSchema.parse(arguments_),
     (request) => terminalService.resize(request.sessionId, request.columns, request.rows),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TERMINAL_SHOW_NOTIFICATION,
+    (arguments_) => terminalNotificationArgumentsSchema.parse(arguments_),
+    (request) => terminalNotificationService.show(request),
   );
 
   guardedIpc.handle(

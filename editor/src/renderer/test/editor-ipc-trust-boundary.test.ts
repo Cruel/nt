@@ -31,6 +31,7 @@ import {
   showItemInFolderArgumentsSchema,
   stagePlatformExportArgumentsSchema,
   terminalCloseArgumentsSchema,
+  terminalNotificationArgumentsSchema,
   terminalResizeArgumentsSchema,
   terminalSessionArgumentsSchema,
   terminalWriteArgumentsSchema,
@@ -704,6 +705,11 @@ describe('guarded editor IPC registrar', () => {
       (arguments_) => terminalResizeArgumentsSchema.parse(arguments_),
       resizeService,
     );
+    registrar.handle(
+      'terminal-show-notification',
+      (arguments_) => terminalNotificationArgumentsSchema.parse(arguments_),
+      resizeService,
+    );
 
     const sessionId = '00000000-0000-4000-8000-000000000001';
     await expect(ipcMain.invoke('terminal-ensure-state', harness.event)).resolves.toBe('ok');
@@ -720,6 +726,12 @@ describe('guarded editor IPC registrar', () => {
     await expect(
       ipcMain.invoke('terminal-resize', harness.event, { sessionId, columns: 120, rows: 40 }),
     ).resolves.toEqual({ sessionId, columns: 120, rows: 40 });
+    await expect(
+      ipcMain.invoke('terminal-show-notification', harness.event, {
+        sessionId,
+        kind: 'command-completed',
+      }),
+    ).resolves.toEqual({ sessionId, kind: 'command-completed' });
 
     for (const [channel, arguments_] of [
       ['terminal-ensure-state', [{ shell: '/bin/bash' }]],
@@ -732,6 +744,8 @@ describe('guarded editor IPC registrar', () => {
       ['terminal-write', ['not-a-session', 'echo']],
       ['terminal-resize', [{ sessionId, columns: 0, rows: 24 }]],
       ['terminal-resize', [{ sessionId, columns: 80, rows: 24, cwd: '/tmp' }]],
+      ['terminal-show-notification', [{ sessionId, kind: 'other' }]],
+      ['terminal-show-notification', [{ sessionId, kind: 'bell', body: 'secret' }]],
     ] as const) {
       await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
         (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,

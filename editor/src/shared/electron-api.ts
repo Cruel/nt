@@ -51,7 +51,13 @@ interface NovelTeaElectronApiContract {
   relaunchTerminalSession(sessionId: string): Promise<import('./terminal').TerminalHostSnapshot>;
   writeTerminal(sessionId: string, data: string): Promise<void>;
   resizeTerminal(request: import('./terminal').TerminalResizeRequest): Promise<void>;
+  showTerminalNotification(
+    request: import('./terminal').TerminalNotificationRequest,
+  ): Promise<boolean>;
   onTerminalEvent(callback: (event: import('./terminal').TerminalEvent) => void): () => void;
+  onTerminalNotificationClick(
+    callback: (event: import('./terminal').TerminalNotificationClickEvent) => void,
+  ): () => void;
   getEnginePreviewSession(projectSessionId: string): Promise<EnginePreviewSession>;
   reloadEnginePreview(projectSessionId: string): Promise<EnginePreviewSession>;
   createProject(request: CreateProjectRequest): Promise<SaveProjectResponse>;

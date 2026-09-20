@@ -442,6 +442,14 @@ export const terminalResizeArgumentsSchema = z.tuple([
     })
     .strict(),
 ]);
+export const terminalNotificationArgumentsSchema = z.tuple([
+  z
+    .object({
+      sessionId: terminalSessionIdSchema,
+      kind: z.enum(['command-completed', 'bell']),
+    })
+    .strict(),
+]);
 
 const playbackSubjectSchema = z.discriminatedUnion('kind', [
   z

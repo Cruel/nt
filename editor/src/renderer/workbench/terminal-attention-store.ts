@@ -17,7 +17,7 @@ interface TerminalAttentionStore {
   attentionBySession: Record<string, TerminalAttentionState>;
   setSelectedSessionId(sessionId: string | null): void;
   setPanelVisible(visible: boolean): void;
-  receiveAttention(sessionId: string, attention: TerminalAttentionEvent): void;
+  receiveAttention(sessionId: string, attention: TerminalAttentionEvent): boolean;
   acknowledgeSelectionChange(nextSessionId: string): void;
   removeSessions(sessionIds: string[]): void;
   reset(): void;
@@ -42,7 +42,7 @@ export const useTerminalAttentionStore = create<TerminalAttentionStore>()((set, 
   },
   receiveAttention: (sessionId, attention) => {
     const state = get();
-    if (state.panelVisible && state.selectedSessionId === sessionId) return;
+    if (state.panelVisible && state.selectedSessionId === sessionId) return false;
     const existing = state.attentionBySession[sessionId];
     if (existing?.state === 'unread') {
       set({
@@ -51,7 +51,7 @@ export const useTerminalAttentionStore = create<TerminalAttentionStore>()((set, 
           [sessionId]: { ...existing, latestEvent: attention },
         },
       });
-      return;
+      return false;
     }
     clearFadeTimer(sessionId);
     set({
@@ -60,6 +60,7 @@ export const useTerminalAttentionStore = create<TerminalAttentionStore>()((set, 
         [sessionId]: { state: 'unread', latestEvent: attention },
       },
     });
+    return true;
   },
   acknowledgeSelectionChange: (nextSessionId) => {
     clearPassiveTimer();

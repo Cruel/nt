@@ -143,6 +143,10 @@ export class TerminalService {
     session.process.resize(columns, rows);
   }
 
+  sessionLabel(sessionId: string): string | null {
+    return this.sessions.get(sessionId)?.label ?? null;
+  }
+
   shutdownRiskCount(): number {
     let count = 0;
     for (const session of this.sessions.values()) {
