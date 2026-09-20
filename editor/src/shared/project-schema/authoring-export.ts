@@ -100,16 +100,18 @@ export function defaultExportProfile(
   });
 }
 
-export function exportSettingsFromProject(project: AuthoringProject) {
+export function exportSettingsFromProject(project: Pick<AuthoringProject, 'export'>) {
   return project.export;
 }
 
-export function selectedExportProfile(project: AuthoringProject): ExportProfileData {
+export function selectedExportProfile(
+  project: Pick<AuthoringProject, 'export'>,
+): ExportProfileData {
   return exportSettingsFromProject(project).runtime;
 }
 
 export function runtimeExportProfileForPlatform(
-  project: AuthoringProject,
+  project: Pick<AuthoringProject, 'export'>,
   target: 'windows' | 'linux' | 'macos' | 'web' | 'android',
   localization: ExportLocalizationPolicy = selectedExportProfile(project).localization,
 ): ExportProfileData {

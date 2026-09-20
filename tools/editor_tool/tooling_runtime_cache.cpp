@@ -206,26 +206,32 @@ Json path_metadata(const std::filesystem::path& path)
                        nullptr, false);
 }
 
-bool metadata_matches(const std::filesystem::path& root, const Json& entry)
+std::optional<Json> current_metadata_entry(const std::filesystem::path& root, const Json& entry)
 {
     if (!entry.is_object() || !entry.contains("path") || !entry["path"].is_string() ||
         !entry.contains("byteSize") || !entry["byteSize"].is_number_unsigned() ||
         !entry.contains("mtimeNanoseconds") || !entry["mtimeNanoseconds"].is_string())
-        return false;
+        return std::nullopt;
     const auto relative = entry["path"].get<std::string>();
     if (!safe_relative(relative))
-        return false;
+        return std::nullopt;
     const auto absolute = root / std::filesystem::path(relative);
     if (!contained_by_root(root, absolute))
-        return false;
+        return std::nullopt;
     const auto metadata = path_metadata(absolute);
     const auto ok = bool_field(metadata, "ok");
     const auto kind = string_field(metadata, "kind");
     const auto byte_size = unsigned_field(metadata, "byteSize");
     const auto mtime = string_field(metadata, "mtimeNanoseconds");
-    return !metadata.is_discarded() && ok && *ok && kind && *kind == "file" && byte_size &&
-           *byte_size == entry["byteSize"].get<std::uint64_t>() && mtime &&
-           *mtime == entry["mtimeNanoseconds"].get<std::string>();
+    if (metadata.is_discarded() || !ok || !*ok || !kind || *kind != "file" || !byte_size || !mtime)
+        return std::nullopt;
+    return Json{{"path", relative}, {"byteSize", *byte_size}, {"mtimeNanoseconds", *mtime}};
+}
+
+bool metadata_matches(const std::filesystem::path& root, const Json& entry)
+{
+    const auto current = current_metadata_entry(root, entry);
+    return current && *current == entry;
 }
 
 bool excluded(std::string_view relative, const Json& prefixes)
@@ -609,11 +615,59 @@ bool authoring_workspace_settled(const std::filesystem::path& root)
     return std::filesystem::is_empty(transactions, error) && !error;
 }
 
+bool editor_validation_diagnostics_shape_valid(const Json& diagnostics)
+{
+    if (!diagnostics.is_array())
+        return false;
+    for (const auto& diagnostic : diagnostics) {
+        if (!diagnostic.is_object() || !diagnostic.contains("code") ||
+            !diagnostic["code"].is_string() || diagnostic["code"].get<std::string>().empty() ||
+            !diagnostic.contains("severity") || !diagnostic["severity"].is_string() ||
+            !diagnostic.contains("path") || !diagnostic["path"].is_string() ||
+            !diagnostic.contains("message") || !diagnostic["message"].is_string() ||
+            !diagnostic.contains("boundaries") || !diagnostic["boundaries"].is_array() ||
+            !diagnostic.contains("ownerPaths") || !diagnostic["ownerPaths"].is_array())
+            return false;
+        const auto severity = diagnostic["severity"].get<std::string>();
+        if (severity != "error" && severity != "warning" && severity != "info")
+            return false;
+        for (const auto& boundary : diagnostic["boundaries"]) {
+            if (!boundary.is_string())
+                return false;
+            const auto value = boundary.get<std::string>();
+            if (value != "authoring" && value != "runtime-package" && value != "platform-export")
+                return false;
+        }
+        for (const auto& owner : diagnostic["ownerPaths"])
+            if (!owner.is_string())
+                return false;
+        if (diagnostic.contains("category") && !diagnostic["category"].is_string())
+            return false;
+        if (diagnostic.contains("navigation")) {
+            const auto& navigation = diagnostic["navigation"];
+            if (!navigation.is_object() || navigation.size() != 3 ||
+                string_field(navigation, "kind") != "interactable-instance-property" ||
+                !string_field(navigation, "instanceId") || !string_field(navigation, "propertyId"))
+                return false;
+        }
+        for (const auto& [key, value] : diagnostic.items()) {
+            (void)value;
+            if (key != "code" && key != "severity" && key != "path" && key != "message" &&
+                key != "category" && key != "boundaries" && key != "ownerPaths" &&
+                key != "navigation")
+                return false;
+        }
+    }
+    return true;
+}
+
 bool validation_result_shape_valid(const Json& result)
 {
-    if (!result.is_object() || result.size() != 3 || !bool_field(result, "success") ||
+    if (!result.is_object() || result.size() != 4 || !bool_field(result, "success") ||
         !integer_field(result, "exitCode") || !result.contains("diagnostics") ||
-        !authoring_diagnostics_shape_valid(result["diagnostics"]))
+        !authoring_diagnostics_shape_valid(result["diagnostics"]) ||
+        !result.contains("editorDiagnostics") ||
+        !editor_validation_diagnostics_shape_valid(result["editorDiagnostics"]))
         return false;
     const auto code = *integer_field(result, "exitCode");
     if ((code != 0 && code != 4 && code != 6) || *bool_field(result, "success") != (code == 0))
@@ -698,23 +752,42 @@ Json probe_authoring(const Json& request)
     if (manifest["discoveryScopes"] != scopes)
         return response("stale", "discovery-contract-changed");
     std::set<std::string> inputs;
+    Json current_inputs = Json::array();
+    bool metadata_changed = false;
     std::string previous;
     for (const auto& input : manifest["inputs"]) {
-        if (!input.is_object() || input.size() != 3 || !metadata_matches(root, input))
-            return response("stale", "input-metadata-changed");
+        if (!input.is_object() || input.size() != 3 || !input.contains("path") ||
+            !input["path"].is_string() || !input.contains("byteSize") ||
+            !input["byteSize"].is_number_unsigned() || !input.contains("mtimeNanoseconds") ||
+            !input["mtimeNanoseconds"].is_string())
+            return response("unusable", "manifest-input-invalid");
         const auto relative = input["path"].get<std::string>();
+        if (!safe_relative(relative))
+            return response("unusable", "manifest-input-invalid");
         if (relative <= previous)
             return response("unusable", "input-order-invalid");
         previous = relative;
         inputs.insert(relative);
+        const auto current = current_metadata_entry(root, input);
+        if (!current)
+            return response("stale", "input-metadata-changed");
+        current_inputs.push_back(*current);
+        metadata_changed = metadata_changed || *current != input;
     }
     if (!inputs.contains("project.json") || !inputs.contains("editor.json") ||
         !inputs.contains("traits.json"))
         return response("unusable", "manifest-inputs-invalid");
     if (!discovery_matches(root, scopes, inputs) || !authoring_workspace_settled(root))
         return response("stale", "discovery-inputs-changed");
+    if (metadata_changed) {
+        auto result = response("stale", "input-metadata-changed");
+        result["currentInputs"] = std::move(current_inputs);
+        return result;
+    }
     auto result = response("hit", "current-authoring-generation-valid");
-    result["result"] = manifest["result"];
+    result["result"] = Json{{"success", manifest["result"]["success"]},
+                            {"exitCode", manifest["result"]["exitCode"]},
+                            {"diagnostics", manifest["result"]["diagnostics"]}};
     return result;
 }
 

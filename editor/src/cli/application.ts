@@ -1,7 +1,14 @@
 import path from 'node:path';
 import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
-import type { ProjectWorkspaceService } from '../shared/project-workspace/project-workspace-service';
+import type { ProjectSourceInventory } from '../shared/project-source-inventory';
+import type {
+  LoadedProjectWorkspaceSnapshot,
+  ProjectWorkspaceOpenOptions,
+  ProjectWorkspaceOpenResult,
+  ProjectWorkspaceService,
+} from '../shared/project-workspace/project-workspace-service';
 import { bootstrapNovelTeaCli, novelTeaCliUsageFailure } from './bootstrap';
+import { classifyNovelTeaCliCommand } from './command-routing';
 import {
   cliDiagnostic,
   formatCliResult,
@@ -19,21 +26,84 @@ import { CliCommandUsageError, parseCliCommand } from './commands';
 import type { NovelTeaAgentKitPayload } from './agent-kit';
 import type { WorkflowLibraryServiceOptions } from '../main/services/comfyui-workflow-library-service';
 
+export class AuthoringValidationAuthorityMismatchError extends Error {
+  constructor() {
+    super('Authoring validation inputs no longer match the editor-authoritative disk generation.');
+  }
+}
+
+function editorDiagnosticProjectionKey(diagnostic: NovelTeaCliDiagnostic): string {
+  return [diagnostic.code, diagnostic.severity, diagnostic.path, diagnostic.message].join('\u0000');
+}
+
+export interface AuthoringValidationInstrumentation {
+  readonly discoveryMs: number;
+  readonly cacheAdmissionMs: number;
+  readonly workspaceAdmissionMs: number;
+  readonly freshnessProofMs: number;
+  readonly diagnosticProjectionMs: number;
+  readonly cachePublicationMs: number;
+  readonly validationWork: Readonly<{ executed: number; reused: number }>;
+  readonly sourceWork: Readonly<{
+    parsedJsonSources: number;
+    reusedJsonSources: number;
+    readTextSources: number;
+    reusedTextSources: number;
+    projectedJsonSources: number;
+    wholeProjectSchemaParses: number;
+  }>;
+  readonly preflightMs: number;
+  readonly dependencyMs: number;
+  readonly nativeMs: number;
+  readonly dependencyWork: Readonly<{
+    derivedContributions: number;
+    reusedContributions: number;
+    analyzedOwners: number;
+    reusedSourceAnalyses: number;
+  }>;
+  readonly compilerWork: Readonly<{
+    wholeProjectNormalizations: number;
+    linkBuilds: number;
+    artifactLowerings: number;
+    serializations: number;
+  }>;
+}
+
+export interface ResidentCliProjectWorkspace extends ProjectWorkspaceService {
+  hasResidentSession(projectRoot: string): Promise<boolean>;
+  openForMutation(
+    projectRoot: string,
+    options?: ProjectWorkspaceOpenOptions,
+  ): Promise<ProjectWorkspaceOpenResult>;
+  verifyReadAuthority(snapshot: LoadedProjectWorkspaceSnapshot): Promise<boolean>;
+  reconcileAfterOpaqueWrite(projectRoot: string): Promise<void>;
+}
+
 export interface RunNovelTeaCliOptions {
   readonly cwd?: string;
   readonly fileSystem?: ProjectWorkspaceFileSystem;
   readonly workspace?: ProjectWorkspaceService;
+  readonly residentWorkspace?: ResidentCliProjectWorkspace;
   readonly nativeTools?: NovelTeaCliNativeToolService;
   readonly platformTools?: NovelTeaCliPlatformToolService;
   readonly onPlatformProgress?: (stage: string, message: string) => void;
+  readonly onAuthoringValidationInstrumentation?: (
+    instrumentation: AuthoringValidationInstrumentation,
+  ) => void;
   readonly agentKitPayload?: NovelTeaAgentKitPayload;
   readonly stdinText?: string;
   readonly readStdinText?: () => string;
   readonly forceRuntimeCacheRebuild?: boolean;
   readonly forceAuthoringCacheRebuild?: boolean;
+  readonly skipAuthoringWholeResultCache?: boolean;
+  readonly expectedAuthoringValidationInputs?: ProjectSourceInventory;
+  /** Trusted static-host metadata captured by the native authoring-cache probe. */
+  readonly precomputedAuthoringCacheInventory?: ProjectSourceInventory;
   readonly comfyUiWorkflowLibraryOptions?: WorkflowLibraryServiceOptions;
   readonly comfyUiAbortSignal?: AbortSignal;
   readonly onComfyUiProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
+  /** Internal bounded retry counter for resident read authority races. */
+  readonly residentReadAttempt?: number;
 }
 
 const unavailableNativeTools: NovelTeaCliNativeToolService = {
@@ -89,6 +159,14 @@ function workspaceOpenExitCode(diagnostics: readonly NovelTeaCliDiagnostic[]): N
     : NOVELTEA_CLI_EXIT_CODES.workspace;
 }
 
+function projectPreparationExitCode(
+  diagnostics: readonly NovelTeaCliDiagnostic[],
+): NovelTeaCliExitCode {
+  return diagnostics.every((item) => item.code.startsWith('WORKSPACE_'))
+    ? workspaceOpenExitCode(diagnostics)
+    : semanticExitCode(diagnostics);
+}
+
 export async function runNovelTeaCli(
   argv: readonly string[],
   options: RunNovelTeaCliOptions = {},
@@ -96,24 +174,34 @@ export async function runNovelTeaCli(
   const bootstrap = bootstrapNovelTeaCli(argv);
   if (bootstrap.complete) return bootstrap.result;
   const globals = bootstrap.globals;
+  const routing = classifyNovelTeaCliCommand(globals.command);
+  if (!routing)
+    return novelTeaCliUsageFailure(
+      `Unknown command path '${globals.command.join(' ')}'.`,
+      globals.json,
+    );
 
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const platformTools = options.platformTools ?? unavailablePlatformTools;
   const nativeTools = options.nativeTools ?? unavailableNativeTools;
   let fileSystem = options.fileSystem;
   let workspace = options.workspace;
-  const workspaceServices = async () => {
+  const projectFileSystem = async () => {
     if (!fileSystem) {
       const { createNodeProjectWorkspaceFileSystem } =
         await import('../shared/project-workspace/node-project-workspace-file-system');
       fileSystem = createNodeProjectWorkspaceFileSystem();
     }
+    return fileSystem;
+  };
+  const workspaceServices = async () => {
+    const resolvedFileSystem = await projectFileSystem();
     if (!workspace) {
       const { createNodeProjectWorkspaceService } =
         await import('../shared/project-workspace/node-project-workspace-service');
       workspace = createNodeProjectWorkspaceService();
     }
-    return { fileSystem, workspace };
+    return { fileSystem: resolvedFileSystem, workspace };
   };
 
   if (globals.command[0] === 'project' && globals.command[1] === 'create') {
@@ -127,10 +215,14 @@ export async function runNovelTeaCli(
   ) {
     const services = await workspaceServices();
     const { runNovelTeaProjectBundleCli } = await import('./project-bundle-cli');
+    const bundleWorkspace =
+      routing.projectAccess === 'read' && options.residentWorkspace
+        ? options.residentWorkspace
+        : services.workspace;
     const projectBundle = await runNovelTeaProjectBundleCli(
       globals,
       services.fileSystem,
-      services.workspace,
+      bundleWorkspace,
       cwd,
     );
     if (projectBundle) return projectBundle;
@@ -143,6 +235,17 @@ export async function runNovelTeaCli(
 
   if (globals.command[0] === 'comfyui') {
     const services = await workspaceServices();
+    const opaqueProjectRoot =
+      routing.projectAccess === 'opaque-write' && options.residentWorkspace
+        ? globals.project
+          ? path.resolve(cwd, globals.project)
+          : await (async () => {
+              const { discoverProjectRoot } =
+                await import('../shared/project-workspace/project-workspace-discovery');
+              const discovered = await discoverProjectRoot(services.fileSystem, cwd);
+              return discovered.ok ? discovered.projectRoot : null;
+            })()
+        : null;
     try {
       const { runComfyUiCatalogCommand } = await import('./comfyui-catalog-commands');
       const comfyUiCatalog = await runComfyUiCatalogCommand({
@@ -151,7 +254,10 @@ export async function runNovelTeaCli(
         json: globals.json,
         cwd,
         fileSystem: services.fileSystem,
-        workspace: services.workspace,
+        workspace:
+          routing.projectAccess === 'opaque-write' && options.residentWorkspace
+            ? options.residentWorkspace
+            : services.workspace,
         libraryOptions: options.comfyUiWorkflowLibraryOptions,
         abortSignal: options.comfyUiAbortSignal,
         onRunProgress: options.onComfyUiProgress,
@@ -171,6 +277,9 @@ export async function runNovelTeaCli(
         ],
         globals.json,
       );
+    } finally {
+      if (opaqueProjectRoot && options.residentWorkspace)
+        await options.residentWorkspace.reconcileAfterOpaqueWrite(opaqueProjectRoot);
     }
   }
 
@@ -179,7 +288,8 @@ export async function runNovelTeaCli(
     (globals.command[1] === 'template' || globals.command[1] === 'config')
   ) {
     try {
-      const { runProjectIndependentPlatformCommand } = await import('./platform-commands');
+      const { runProjectIndependentPlatformCommand } =
+        await import('./platform-independent-commands');
       const independent = await runProjectIndependentPlatformCommand({
         command: globals.command,
         projectOption: globals.project,
@@ -295,14 +405,7 @@ export async function runNovelTeaCli(
   }
 
   let stdinJson: unknown;
-  if (
-    (globals.command.length === 2 &&
-      globals.command[0] === 'test' &&
-      (globals.command[1] === 'run-spec' || globals.command[1] === 'run-ui-spec')) ||
-    (globals.command[0] === 'localization' &&
-      globals.command[1] === 'reconcile' &&
-      globals.command.includes('--apply'))
-  ) {
+  if (routing.stdin === 'json') {
     try {
       const stdinText = options.stdinText ?? options.readStdinText?.();
       if (!stdinText || stdinText.trim() === '')
@@ -316,12 +419,14 @@ export async function runNovelTeaCli(
     }
   }
 
-  const services = await workspaceServices();
+  const fileSystemService = await projectFileSystem();
+  const discoveryStarted = Date.now();
   const { discoverProjectRoot, validateExplicitProjectRoot } =
     await import('../shared/project-workspace/project-workspace-discovery');
   const discovery = globals.project
-    ? await validateExplicitProjectRoot(services.fileSystem, path.resolve(cwd, globals.project))
-    : await discoverProjectRoot(services.fileSystem, cwd);
+    ? await validateExplicitProjectRoot(fileSystemService, path.resolve(cwd, globals.project))
+    : await discoverProjectRoot(fileSystemService, cwd);
+  const discoveryMs = Date.now() - discoveryStarted;
   if (!discovery.ok)
     return failure(
       NOVELTEA_CLI_EXIT_CODES.workspace,
@@ -330,41 +435,134 @@ export async function runNovelTeaCli(
       discovery.projectRoot ? { projectRoot: discovery.projectRoot } : {},
     );
 
+  if (command.projectPreparation) {
+    try {
+      const { prepareCliProject } = await import('./project-preparation');
+      const prepared = await prepareCliProject(
+        fileSystemService,
+        discovery.projectRoot,
+        command.projectPreparation,
+      );
+      if (!prepared.ok)
+        return failure(
+          projectPreparationExitCode(prepared.diagnostics),
+          prepared.diagnostics,
+          globals.json,
+          { projectRoot: discovery.projectRoot },
+        );
+      const semantic = await command.run({
+        cwd,
+        stdinJson,
+        fileSystem: fileSystemService,
+        preparation: prepared.preparation,
+        nativeTools,
+        platformTools,
+        onPlatformProgress: options.onPlatformProgress,
+        forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
+      });
+      const diagnostics = [...prepared.diagnostics, ...semantic.diagnostics];
+      if (!semantic.ok)
+        return failure(
+          semantic.exitCode ?? semanticExitCode(diagnostics),
+          diagnostics,
+          globals.json,
+          {
+            projectRoot: discovery.projectRoot,
+            ...semantic.fields,
+          },
+        );
+      return formatCliResult(
+        {
+          success: true,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+          diagnostics,
+          projectRoot: discovery.projectRoot,
+          ...semantic.fields,
+        },
+        globals.json,
+        { success: semantic.humanSuccess ?? `NovelTea ${globals.command.join(' ')} succeeded.` },
+      );
+    } catch (error) {
+      if (error instanceof CliCommandUsageError)
+        return novelTeaCliUsageFailure(error.message, globals.json);
+      const message = error instanceof Error ? error.message : String(error);
+      return failure(
+        NOVELTEA_CLI_EXIT_CODES.internal,
+        [cliDiagnostic('CLI_INTERNAL', '/', message)],
+        globals.json,
+        { projectRoot: discovery.projectRoot },
+      );
+    }
+  }
+
+  const services = await workspaceServices();
+  const activeWorkspace =
+    routing.projectAccess !== 'none' && options.residentWorkspace
+      ? options.residentWorkspace
+      : services.workspace;
+  const residentProjectSession = activeWorkspace === options.residentWorkspace;
   const validationCache =
     globals.command[0] === 'validate' && nativeTools.validateFontCoverage
       ? await import('../shared/authoring-cache')
       : null;
-  const cachedValidation = options.forceAuthoringCacheRebuild
+  const cacheAdmissionStarted = Date.now();
+  const residentSessionAlreadyLoaded =
+    validationCache && residentProjectSession && options.residentWorkspace
+      ? await options.residentWorkspace.hasResidentSession(discovery.projectRoot)
+      : false;
+  const authoringCacheAdmission =
+    options.forceAuthoringCacheRebuild || residentSessionAlreadyLoaded
+      ? null
+      : await validationCache?.readAuthoringCacheAdmission(
+          services.fileSystem,
+          discovery.projectRoot,
+          options.expectedAuthoringValidationInputs ?? null,
+          options.skipAuthoringWholeResultCache ?? false,
+          options.precomputedAuthoringCacheInventory ?? null,
+        );
+  const cacheAdmissionMs = Date.now() - cacheAdmissionStarted;
+  const cachedValidation = options.skipAuthoringWholeResultCache
     ? null
-    : await validationCache?.readAuthoringCache(services.fileSystem, discovery.projectRoot);
+    : authoringCacheAdmission?.result;
   if (cachedValidation) {
+    const { editorDiagnostics, ...cachedEnvelope } = cachedValidation;
     if (!cachedValidation.success)
-      return failure(cachedValidation.exitCode, cachedValidation.diagnostics, globals.json, {
-        projectRoot: discovery.projectRoot,
-      });
-    return formatCliResult(
-      { ...cachedValidation, projectRoot: discovery.projectRoot },
-      globals.json,
-      { success: 'NovelTea validate succeeded.' },
-    );
+      return {
+        ...failure(cachedValidation.exitCode, cachedValidation.diagnostics, globals.json, {
+          projectRoot: discovery.projectRoot,
+        }),
+        editorDiagnostics,
+      };
+    return {
+      ...formatCliResult({ ...cachedEnvelope, projectRoot: discovery.projectRoot }, globals.json, {
+        success: 'NovelTea validate succeeded.',
+      }),
+      editorDiagnostics,
+    };
   }
 
-  const validationBaseline = await validationCache?.captureAuthoringSourceBaseline(
-    services.fileSystem,
-    discovery.projectRoot,
-  );
-  const reusableAuthoring = options.forceAuthoringCacheRebuild
+  const reusableAuthoring = authoringCacheAdmission?.reusable ?? null;
+  const validationBaseline = reusableAuthoring
     ? null
-    : await validationCache?.readReusableAuthoringContributions(
+    : await validationCache?.captureAuthoringSourceBaseline(
         services.fileSystem,
         discovery.projectRoot,
       );
   const { openCliProject } = await import('./semantic-project');
-  const opened = await openCliProject(services.workspace, discovery.projectRoot, {
+  const workspaceAdmissionStarted = Date.now();
+  const opened = await openCliProject(activeWorkspace, discovery.projectRoot, {
     readOnly: command.dryRun,
     reusableSourceContributions: reusableAuthoring?.sourceContributions,
     reusableValidationContributions: reusableAuthoring?.validationContributions,
+    reusableDependencyState: reusableAuthoring?.dependencyState,
+    ...(routing.projectAccess === 'transactional-write' && options.residentWorkspace
+      ? {
+          openProject: (projectRoot, openOptions) =>
+            options.residentWorkspace!.openForMutation(projectRoot, openOptions),
+        }
+      : {}),
   });
+  const workspaceAdmissionMs = Date.now() - workspaceAdmissionStarted;
   if (!opened.ok)
     return failure(workspaceOpenExitCode(opened.diagnostics), opened.diagnostics, globals.json, {
       projectRoot: discovery.projectRoot,
@@ -372,6 +570,7 @@ export async function runNovelTeaCli(
 
   try {
     let activeOpened = opened;
+    const freshnessProofStarted = Date.now();
     let validationInputs = await validationCache?.captureAuthoringValidationInputs(
       services.fileSystem,
       activeOpened.opened.snapshot,
@@ -380,7 +579,7 @@ export async function runNovelTeaCli(
       reusableAuthoring?.inventory ?? null,
     );
     if (reusableAuthoring && !validationInputs) {
-      const freshOpened = await openCliProject(services.workspace, discovery.projectRoot, {
+      const freshOpened = await openCliProject(activeWorkspace, discovery.projectRoot, {
         readOnly: command.dryRun,
       });
       if (!freshOpened.ok)
@@ -398,19 +597,66 @@ export async function runNovelTeaCli(
         activeOpened.opened.sourceContributions,
       );
     }
-    const semantic = await command.run({
-      cwd,
-      stdinJson,
-      fileSystem: services.fileSystem,
-      workspace: services.workspace,
-      snapshot: activeOpened.opened.snapshot,
-      nativeTools,
-      platformTools,
-      onPlatformProgress: options.onPlatformProgress,
-      forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
-    });
+    const freshnessProofMs = Date.now() - freshnessProofStarted;
+    if (options.expectedAuthoringValidationInputs) {
+      const { projectSourceInventoriesEqual } = await import('../shared/project-source-inventory');
+      if (
+        !validationInputs ||
+        !projectSourceInventoriesEqual(options.expectedAuthoringValidationInputs, validationInputs)
+      )
+        throw new AuthoringValidationAuthorityMismatchError();
+    }
+    let semantic;
+    try {
+      semantic = await command.run({
+        cwd,
+        stdinJson,
+        fileSystem: services.fileSystem,
+        workspace: activeWorkspace,
+        snapshot: activeOpened.opened.snapshot,
+        nativeTools,
+        platformTools,
+        onPlatformProgress: options.onPlatformProgress,
+        forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
+      });
+    } finally {
+      if (routing.projectAccess === 'opaque-write' && options.residentWorkspace)
+        await options.residentWorkspace.reconcileAfterOpaqueWrite(discovery.projectRoot);
+    }
 
+    if (
+      routing.projectAccess === 'read' &&
+      activeWorkspace === options.residentWorkspace &&
+      !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))
+    ) {
+      const retry = options.residentReadAttempt ?? 0;
+      if (retry < 2) return runNovelTeaCli(argv, { ...options, residentReadAttempt: retry + 1 });
+      throw new AuthoringValidationAuthorityMismatchError();
+    }
+
+    const diagnosticProjectionStarted = Date.now();
     const diagnostics = [...activeOpened.diagnostics, ...semantic.diagnostics];
+    let editorDiagnostics = activeOpened.opened.authoringDiagnostics;
+    if (validationCache) {
+      const [validation, settings] = await Promise.all([
+        import('../shared/project-schema/project-validation'),
+        import('../shared/project-schema/authoring-project-settings'),
+      ]);
+      const authoringDiagnostics = validation.collectProjectValidationDiagnostics(
+        activeOpened.opened.authoringDiagnostics,
+        settings.validateProjectSettingsAuthoringState(activeOpened.opened.snapshot.project),
+      );
+      const authoringKeys = new Set(authoringDiagnostics.map(editorDiagnosticProjectionKey));
+      const supplementalDiagnostics = validation
+        .classifyProjectValidationDiagnostics(semantic.diagnostics, { producer: 'compiler' })
+        .filter((diagnostic) => !authoringKeys.has(editorDiagnosticProjectionKey(diagnostic)));
+      editorDiagnostics = validation.collectProjectValidationDiagnostics(
+        authoringDiagnostics,
+        supplementalDiagnostics,
+      );
+    }
+    const diagnosticProjectionMs = Date.now() - diagnosticProjectionStarted;
+    const cachePublicationStarted = Date.now();
     if (validationInputs)
       await validationCache?.publishAuthoringCache(
         services.fileSystem,
@@ -422,31 +668,47 @@ export async function runNovelTeaCli(
           success: semantic.ok,
           exitCode: semantic.ok ? 0 : (semantic.exitCode ?? semanticExitCode(diagnostics)),
           diagnostics,
+          editorDiagnostics,
         },
         activeOpened.opened.validationContributions,
       );
+    const cachePublicationMs = Date.now() - cachePublicationStarted;
+    if (semantic.authoringValidationMetrics)
+      options.onAuthoringValidationInstrumentation?.({
+        discoveryMs,
+        cacheAdmissionMs,
+        workspaceAdmissionMs,
+        freshnessProofMs,
+        diagnosticProjectionMs,
+        cachePublicationMs,
+        validationWork: activeOpened.opened.validationWork,
+        sourceWork: activeOpened.opened.sourceWork,
+        ...semantic.authoringValidationMetrics,
+      });
     if (!semantic.ok)
-      return failure(
-        semantic.exitCode ?? semanticExitCode(diagnostics),
-        diagnostics,
-        globals.json,
+      return {
+        ...failure(semantic.exitCode ?? semanticExitCode(diagnostics), diagnostics, globals.json, {
+          projectRoot: discovery.projectRoot,
+          ...semantic.fields,
+        }),
+        editorDiagnostics,
+      };
+    return {
+      ...formatCliResult(
         {
+          success: true,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+          diagnostics,
           projectRoot: discovery.projectRoot,
           ...semantic.fields,
         },
-      );
-    return formatCliResult(
-      {
-        success: true,
-        exitCode: NOVELTEA_CLI_EXIT_CODES.success,
-        diagnostics,
-        projectRoot: discovery.projectRoot,
-        ...semantic.fields,
-      },
-      globals.json,
-      { success: semantic.humanSuccess ?? `NovelTea ${globals.command.join(' ')} succeeded.` },
-    );
+        globals.json,
+        { success: semantic.humanSuccess ?? `NovelTea ${globals.command.join(' ')} succeeded.` },
+      ),
+      editorDiagnostics,
+    };
   } catch (error) {
+    if (error instanceof AuthoringValidationAuthorityMismatchError) throw error;
     if (error instanceof CliCommandUsageError)
       return novelTeaCliUsageFailure(error.message, globals.json);
     const { ProjectWorkspaceMutationError } =

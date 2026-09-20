@@ -29,8 +29,11 @@ const archiveTool = () =>
   process.env.NOVELTEA_TAR ?? (process.platform === 'win32' ? 'tar.exe' : 'tar');
 const unzipTool = () => process.env.NOVELTEA_UNZIP ?? 'unzip';
 const zipInfoTool = () => process.env.NOVELTEA_ZIPINFO ?? 'zipinfo';
-let registryRoot =
-  process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ?? path.join(os.homedir(), '.noveltea', 'templates');
+let configuredRegistryRoot: string | null = null;
+const registryRoot = () =>
+  configuredRegistryRoot ??
+  process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ??
+  path.join(os.homedir(), '.noveltea', 'templates');
 const digest = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 const issue = (
   code: string,
@@ -39,14 +42,14 @@ const issue = (
 ): TemplateCompatibilityDiagnostic => ({ code, path: pathValue, message });
 
 export function configureTemplateRegistryRoot(root: string) {
-  registryRoot = path.resolve(root);
+  configuredRegistryRoot = path.resolve(root);
 }
 export function templateRootForToken(token: string): string {
   const match = /^([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)$/.exec(token);
   if (!match || match[1] === '.' || match[1] === '..' || match[2] === '.' || match[2] === '..') {
     throw new Error('Invalid installed-template token.');
   }
-  const root = path.resolve(registryRoot);
+  const root = path.resolve(registryRoot());
   const candidate = path.resolve(root, match[1], match[2]);
   const relative = path.relative(root, candidate);
   if (path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`)) {
@@ -180,10 +183,11 @@ export async function inspectPlayerTemplate(
 export async function listPlayerTemplates(
   query: TemplateRegistryQuery = {},
 ): Promise<InstalledTemplate[]> {
-  if (!existsSync(registryRoot)) return [];
+  const root = registryRoot();
+  if (!existsSync(root)) return [];
   const output: InstalledTemplate[] = [];
-  for (const templateId of await readdir(registryRoot)) {
-    const parent = path.join(registryRoot, templateId);
+  for (const templateId of await readdir(root)) {
+    const parent = path.join(root, templateId);
     if (!(await lstat(parent)).isDirectory()) continue;
     for (const buildId of await readdir(parent)) {
       const item = await inspectPlayerTemplate(templateId, buildId);
@@ -215,7 +219,7 @@ export async function installPlayerTemplate(
     const archiveSha256 = digest(archiveData);
     if (request.archiveSha256 && request.archiveSha256 !== archiveSha256)
       throw new Error('Template archive checksum does not match the requested checksum.');
-    temp = path.join(registryRoot, `.install-${process.pid}-${Date.now()}`);
+    temp = path.join(registryRoot(), `.install-${process.pid}-${Date.now()}`);
     await rm(temp, { recursive: true, force: true });
     await mkdir(temp, { recursive: true });
     const archive = await listArchive(request.archivePath);

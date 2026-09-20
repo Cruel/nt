@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { assetDataSchema } from './authoring-assets';
+import { assetRecordSchema } from './authoring-asset-record';
+export { assetRecordSchema } from './authoring-asset-record';
 import { archetypeDataSchema, archetypeRefSchema } from './authoring-archetypes';
 import { entityIdSchema } from './authoring-common';
 import { characterDataSchema } from './authoring-characters';
@@ -55,7 +56,6 @@ function ownerDefaultPropertyRecordSchema<Data extends z.ZodType>(data: Data) {
     .strict();
 }
 
-export const assetRecordSchema = recordSchema(assetDataSchema.strict());
 export const variableRecordSchema = recordSchema(variableDataSchema.strict());
 export const materialRecordSchema = recordSchema(materialDataSchema.strict());
 export const layoutRecordSchema = recordSchema(layoutDataSchema.strict());

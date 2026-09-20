@@ -77,10 +77,29 @@
       "problems": "Problemas",
       "references": "Referências",
       "shaderCompile": "Compilação de shaders",
-      "testPlayback": "Reprodução de testes"
+      "testPlayback": "Reprodução de testes",
+      "terminal": "Terminal"
     },
     "lastCommandDiagnostics": "Diagnósticos do último comando",
     "toggle": "Alternar painel inferior"
+  },
+  "terminal": {
+    "new": "Novo terminal",
+    "close": "Fechar {{label}}",
+    "closeRisk": "{{label}} pode ter um comando em execução. Fechá-lo e encerrar o processo?",
+    "starting": "Iniciando terminal…",
+    "failed": "Falha ao iniciar o terminal",
+    "retry": "Tentar novamente",
+    "exited": "Terminal encerrado",
+    "exitedWithCode": "Terminal encerrado ({{code}})",
+    "relaunch": "Reiniciar",
+    "needsAttention": "O Terminal precisa de atenção",
+    "tabNeedsAttention": "{{label}} precisa de atenção",
+    "tabRunning": "{{label}} com comando em execução",
+    "notificationCommandCompleted": "{{label}} concluiu um comando.",
+    "notificationNeedsAttention": "{{label}} precisa de atenção.",
+    "shutdownRisk_one": "{{count}} terminal pode ter um comando em execução. Sair do NovelTea e encerrá-lo?",
+    "shutdownRisk_other": "{{count}} terminais podem ter comandos em execução. Sair do NovelTea e encerrá-los?"
   },
   "externalConflict": {
     "title": "Alterações externas entram em conflito com edições não salvas",

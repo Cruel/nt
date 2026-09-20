@@ -1,9 +1,5 @@
 import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import {
-  EDITOR_EXPORT_LOCAL_STATE_FORMAT,
-  parseEditorExportLocalState,
-} from '../shared/project-schema/platform-export-contracts';
 import type { NovelTeaCliPlatformToolService } from './platform-tool-service';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 
@@ -87,6 +83,8 @@ export function createNovelTeaCliPlatformToolService(
         throw new Error(
           `Config destination '${resolved}' already exists; use --force to replace it.`,
         );
+      const { EDITOR_EXPORT_LOCAL_STATE_FORMAT, parseEditorExportLocalState } =
+        await import('../shared/project-schema/platform-export-contracts');
       const value = parseEditorExportLocalState({
         format: EDITOR_EXPORT_LOCAL_STATE_FORMAT,
         templateRoots: [],

@@ -9,6 +9,7 @@
     "preview": "Pré-visualização",
     "templates": "Templates do player",
     "templatesDescription": "Gerencie os templates de player instalados usados pelas exportações de plataforma.",
+    "terminal": "Terminal",
     "window": "Janela",
     "workspace": "Espaço de trabalho"
   },
@@ -203,6 +204,25 @@
   "page": {
     "description": "Preferências do editor",
     "title": "Configurações"
+  },
+  "terminal": {
+    "title": "Terminal",
+    "description": "Configure a apresentação do terminal integrado, o diretório alternativo e as notificações.",
+    "fontFamily": "Família da fonte",
+    "fontFamilyDescription": "Família ou pilha de fontes CSS usada pelas visualizações de terminal abertas.",
+    "fontSize": "Tamanho da fonte",
+    "fontSizeDescription": "Tamanho do texto do terminal entre 8 e 32 pixels.",
+    "fallbackCwd": "Diretório de trabalho alternativo",
+    "fallbackCwdDescription": "Usado somente por novos terminais criados quando nenhum Projeto está aberto.",
+    "fallbackCwdAutomatic": "Automático (diretório padrão de Projetos do NovelTea)",
+    "fallbackCwdInvalid": "Escolha um diretório existente.",
+    "fallbackCwdBrowseTitle": "Selecionar diretório alternativo do Terminal",
+    "browse": "Procurar…",
+    "resetFallbackCwd": "Redefinir diretório alternativo do Terminal",
+    "scrollback": "Linhas de histórico",
+    "scrollbackDescription": "Número de linhas de saída mantidas no histórico do xterm.",
+    "desktopNotifications": "Notificações da área de trabalho",
+    "desktopNotificationsDescription": "Permitir que eventos de atenção do terminal usem notificações nativas quando houver suporte."
   },
   "preview": {
     "description": "Diagnósticos e sobreposições da pré-visualização de runtime",

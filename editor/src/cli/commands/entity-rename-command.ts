@@ -19,7 +19,7 @@ export const entityRenameCommand: CliCommandDefinition = {
     const allowPossibleSourceReferences = parsed.flags.has('--allow-possible-source-references');
     return {
       dryRun,
-      mutation: true,
+      mutation: !dryRun,
       run: ({ workspace, snapshot }) =>
         renameEntity(workspace, snapshot, collection, fromId!, toId!, {
           dryRun,

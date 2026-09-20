@@ -60,6 +60,10 @@ Tabs should still deduplicate by their stable workbench resource identity. A tar
 
 Explicit navigation should win over restored tab state. If a tab restores scroll/source/splitter state on activation and a user action requested a target, the target reveal should run after restoration.
 
+### Bottom Panel Availability
+
+The bottom-panel host exists independently of whether a Project is open. Each bottom-panel definition declares an availability predicate over explicit workbench context; do not hide panels through Terminal-specific or component-local Project checks. Registry order is the deterministic fallback order when the persisted/current panel is unavailable. The fallback is presentation-only so temporarily missing context does not overwrite a Project's persisted bottom-panel visibility, size, or active-panel preference. `Output` is currently global; the remaining existing entries require an open Project until their narrower contextual requirements are classified. Extend the shared context/predicates when future panels depend on preview or capability state.
+
 Each editor tab-state or serializable draft owner must declare its exact schema identity and version.
 The shared restoration boundary discards a mismatch before invoking editor-specific restore logic.
 

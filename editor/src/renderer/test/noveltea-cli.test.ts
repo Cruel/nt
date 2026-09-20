@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { posix } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
 import {
@@ -48,6 +49,7 @@ import {
   NOVELTEA_AGENT_BOOTSTRAP_START,
   NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
   ProjectWorkspaceService,
+  ResidentProjectWorkspaceService,
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
 
@@ -63,14 +65,14 @@ function validProject() {
   return project;
 }
 
-function fixture(project: AuthoringProject = validProject()) {
+function fixture(project: AuthoringProject = validProject(), pathMetadata = false) {
   const files = Object.fromEntries(
     Object.entries(projectWorkspaceFiles(project, project.editor)).map(([file, text]) => [
       `${root}/${file}`,
       text,
     ]),
   );
-  const fileSystem = new InMemoryProjectWorkspaceFileSystem(files);
+  const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata });
   const workspace = new ProjectWorkspaceService(fileSystem);
   return { project, fileSystem, workspace };
 }
@@ -87,6 +89,32 @@ function options(
     workspace: value.workspace,
     ...(nativeTools ? { nativeTools } : {}),
     ...(platformTools ? { platformTools } : {}),
+  };
+}
+
+function validationNativeTools(): NovelTeaCliNativeToolService {
+  return {
+    async compileShaders() {
+      return { ok: true, success: true, diagnostics: [], outputs: [] };
+    },
+    async runHeadlessTest() {
+      return { ok: true, success: true };
+    },
+    async runUiTest() {
+      return { ok: true, success: true };
+    },
+    async exportPackage() {
+      return { ok: true, success: true };
+    },
+    async validateFontCoverage() {
+      return { ok: true, success: true, diagnostics: [] };
+    },
+    shaderc() {
+      return 0;
+    },
+    texturec() {
+      return 0;
+    },
   };
 }
 
@@ -352,6 +380,214 @@ describe('NovelTea headless CLI', () => {
     );
   });
 
+  it('uses resident Project generations across standalone read commands', async () => {
+    const value = fixture(validProject(), true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    const instrumentation: Array<{
+      sourceWork: { parsedJsonSources: number; wholeProjectSchemaParses: number };
+    }> = [];
+    const first = await runNovelTeaCli(['--json', 'validate'], {
+      ...options(value),
+      residentWorkspace,
+      onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
+    });
+    expect(first.exitCode).toBe(0);
+
+    const changed = structuredClone(value.project);
+    changed.rooms.start.label = 'Changed Start';
+    const changedFiles = projectWorkspaceFiles(changed, changed.editor);
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/rooms/start.json`,
+      changedFiles['records/rooms/start.json']!,
+    );
+    const second = await runNovelTeaCli(['--json', 'validate'], {
+      ...options(value),
+      residentWorkspace,
+      onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
+    });
+    expect(second.exitCode).toBe(0);
+    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBe(1);
+    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
+  });
+
+  it('hydrates a cold resident Project from reusable persistent authoring contributions', async () => {
+    const value = fixture(validProject(), true);
+    const nativeTools = validationNativeTools();
+    const published = await runNovelTeaCli(
+      ['--json', 'validate'],
+      options(value, root, nativeTools),
+    );
+    expect(published.exitCode).toBe(0);
+
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    const instrumentation: Array<{
+      sourceWork: {
+        parsedJsonSources: number;
+        reusedJsonSources: number;
+        wholeProjectSchemaParses: number;
+      };
+    }> = [];
+    const hydrated = await runNovelTeaCli(['--json', 'validate'], {
+      ...options(value, root, nativeTools),
+      residentWorkspace,
+      skipAuthoringWholeResultCache: true,
+      onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
+    });
+
+    expect(hydrated.exitCode).toBe(0);
+    expect(await residentWorkspace.hasResidentSession(root)).toBe(true);
+    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBe(0);
+    expect(instrumentation.at(-1)?.sourceWork.reusedJsonSources).toBeGreaterThan(0);
+    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
+  });
+
+  it('publishes an authoritative persistent authoring generation from a cold resident validation', async () => {
+    const value = fixture(validProject(), true);
+    const nativeTools = validationNativeTools();
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+
+    const validated = await runNovelTeaCli(['--json', 'validate'], {
+      ...options(value, root, nativeTools),
+      residentWorkspace,
+      skipAuthoringWholeResultCache: true,
+    });
+
+    expect(validated.exitCode).toBe(0);
+    expect(await value.fileSystem.inspect(`${root}/.noveltea/cache/authoring/current`)).toBe(
+      'file',
+    );
+  });
+
+  it('advances a resident Project generation across transactional localization writes', async () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Hello")\n',
+    };
+    const value = fixture(project, true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    expect(
+      (
+        await runNovelTeaCli(['--json', 'validate'], {
+          ...options(value),
+          residentWorkspace,
+        })
+      ).exitCode,
+    ).toBe(0);
+
+    const synchronized = await runNovelTeaCli(['--json', 'localization', 'sync'], {
+      ...options(value),
+      residentWorkspace,
+    });
+    expect(synchronized.exitCode).toBe(0);
+    expect(JSON.parse(synchronized.stdout)).toMatchObject({ changed: true });
+    expect(await residentWorkspace.hasResidentSession(root)).toBe(true);
+
+    const instrumentation: Array<{
+      sourceWork: { parsedJsonSources: number; wholeProjectSchemaParses: number };
+    }> = [];
+    const validated = await runNovelTeaCli(['--json', 'validate'], {
+      ...options(value),
+      residentWorkspace,
+      onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
+    });
+    expect(validated.exitCode).toBe(0);
+    // The resident generation retains the one source parse performed while advancing the sync
+    // transaction; the following read must not fall back to a whole-Project schema parse.
+    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBe(1);
+    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
+  });
+
+  it('advances structural transactional writes without reopening the whole Project', async () => {
+    const value = fixture(validProject(), true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    expect(
+      (
+        await runNovelTeaCli(['--json', 'validate'], {
+          ...options(value),
+          residentWorkspace,
+        })
+      ).exitCode,
+    ).toBe(0);
+
+    const created = await runNovelTeaCli(['--json', 'entity', 'create', 'rooms', 'hallway'], {
+      ...options(value),
+      residentWorkspace,
+    });
+    expect(created.exitCode).toBe(0);
+    expect(await residentWorkspace.hasResidentSession(root)).toBe(true);
+    expect(await value.fileSystem.inspect(`${root}/.noveltea/editor/state.json`)).toBe('file');
+
+    const instrumentation: Array<{
+      sourceWork: { parsedJsonSources: number; wholeProjectSchemaParses: number };
+    }> = [];
+    const validated = await runNovelTeaCli(['--json', 'validate'], {
+      ...options(value),
+      residentWorkspace,
+      onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
+    });
+    expect(validated.exitCode).toBe(0);
+    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBe(1);
+    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
+  });
+
+  it('permits a resident transactional mutation around an unrelated invalid source overlay', async () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Hello")\n',
+    };
+    const value = fixture(project, true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    expect(
+      (
+        await runNovelTeaCli(['--json', 'validate'], {
+          ...options(value),
+          residentWorkspace,
+        })
+      ).exitCode,
+    ).toBe(0);
+
+    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.json`, '{ invalid json');
+    const synchronized = await runNovelTeaCli(['--json', 'localization', 'sync'], {
+      ...options(value),
+      residentWorkspace,
+    });
+    expect(synchronized.exitCode).toBe(0);
+    expect(JSON.parse(synchronized.stdout)).toMatchObject({ changed: true });
+    expect(await value.fileSystem.readText(`${root}/records/rooms/start.json`)).toBe(
+      '{ invalid json',
+    );
+    expect(await residentWorkspace.hasResidentSession(root)).toBe(true);
+  });
+
+  it('blocks a resident transactional mutation whose dependency overlaps an invalid source', async () => {
+    const value = fixture(validProject(), true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    expect(
+      (
+        await runNovelTeaCli(['--json', 'validate'], {
+          ...options(value),
+          residentWorkspace,
+        })
+      ).exitCode,
+    ).toBe(0);
+
+    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.json`, '{ invalid json');
+    const renamed = await runNovelTeaCli(
+      ['--json', 'entity', 'rename', 'rooms', 'start', 'renamed'],
+      {
+        ...options(value),
+        residentWorkspace,
+      },
+    );
+    expect(renamed.exitCode).toBe(5);
+    expect(JSON.parse(renamed.stdout).diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'WORKSPACE_INVALID_SOURCE_DEPENDENCY' }),
+    );
+    expect(await value.fileSystem.inspect(`${root}/records/rooms/renamed.json`)).toBe('missing');
+  });
+
   it('keeps localization discovery read-only until deterministic sync is requested', async () => {
     const project = validProject();
     project.scripts.bootstrap!.data.source = {
@@ -523,6 +759,156 @@ describe('NovelTea headless CLI', () => {
         },
       ],
     });
+  });
+
+  it('lists platform profiles without parsing unrelated authoring domains', async () => {
+    const project = validProject();
+    project.export.profiles = [defaultPlatformExportProfile('linux')];
+    const value = fixture(project);
+    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+      string,
+      unknown
+    >;
+    manifest.settings = null;
+    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+    await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.json`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/traits.json`, '{"broken":');
+    await value.fileSystem.writeTextAtomic(`${root}/i18n/project.json`, '{"sourceLocale":');
+
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'profiles'],
+      options(value, root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      profiles: [{ id: 'linux-release', target: 'linux', architecture: 'x64' }],
+    });
+  });
+
+  it('preserves Project identity diagnostics during scoped platform profile preparation', async () => {
+    const value = fixture();
+    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+      string,
+      unknown
+    >;
+    manifest.project = { ...(manifest.project as Record<string, unknown>), id: '' };
+    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'profiles'],
+      options(value, root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(3);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      exitCode: 3,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'WORKSPACE_SOURCE_READ',
+          path: '/project/id',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
+  it('preserves export-profile semantic diagnostics during scoped platform profile preparation', async () => {
+    const project = validProject();
+    const profile = defaultPlatformExportProfile('linux');
+    profile.assetMemory = { kind: 'policy', policyId: 'missing-policy' };
+    project.export.profiles = [profile];
+    const value = fixture(project);
+
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'profiles'],
+      options(value, root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      success: true,
+      exitCode: 0,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'authoring.asset-memory-policy.reference.missing',
+          path: '/export/profiles/0/assetMemory/policyId',
+          severity: 'error',
+        }),
+      ]),
+      profiles: [{ id: 'linux-release' }],
+    });
+  });
+
+  it('preserves export-profile schema diagnostics during scoped platform profile preparation', async () => {
+    const project = validProject();
+    project.export.profiles = [defaultPlatformExportProfile('linux')];
+    const value = fixture(project);
+    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+      string,
+      unknown
+    >;
+    const exportSettings = manifest.export as Record<string, unknown>;
+    const runtime = exportSettings.runtime as Record<string, unknown>;
+    runtime.id = '';
+    const profiles = exportSettings.profiles as Array<Record<string, unknown>>;
+    profiles[0] = { ...profiles[0], target: 'not-a-platform' };
+    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'profiles'],
+      options(value, root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(3);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      exitCode: 3,
+      diagnostics: [
+        expect.objectContaining({
+          code: 'WORKSPACE_SOURCE_READ',
+          path: '/export/profiles/0/target',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          code: 'WORKSPACE_SOURCE_READ',
+          path: '/export/runtime/id',
+          severity: 'error',
+        }),
+      ],
+    });
+  });
+
+  it('preserves canonical ordering for multiple export semantic diagnostics', async () => {
+    const project = validProject();
+    project.export.assetMemoryPolicies = [
+      {
+        id: 'too-warm',
+        label: 'Too warm',
+        basePreset: 'low',
+        overrides: { warmPreparedCpuBytes: 40 * 1024 * 1024 },
+      },
+    ];
+    const profile = defaultPlatformExportProfile('linux');
+    profile.assetMemory = { kind: 'policy', policyId: 'missing-policy' };
+    project.export.profiles = [profile];
+    const value = fixture(project);
+
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'profiles'],
+      options(value, root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout).diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'authoring.asset-memory-policy.reference.missing',
+        path: '/export/profiles/0/assetMemory/policyId',
+      }),
+      expect.objectContaining({
+        code: 'authoring.asset-memory-policy.warm.exceeds-total',
+        path: '/export/assetMemoryPolicies/0/overrides/warmPreparedCpuBytes',
+      }),
+    ]);
   });
 
   it('exports the sole platform profile and forwards strict publication flags', async () => {
@@ -728,6 +1114,11 @@ describe('NovelTea headless CLI', () => {
     expect(help.stdout).toContain('Edit record JSON, Lua, RML, and RCSS source files directly');
     expect(help.stdout).toContain('noveltea validate');
     expect(help.stdout).toContain('--allow-localization-warnings');
+    expect(help.stdout).toContain('--no-daemon');
+
+    const noDaemonHelp = await runNovelTeaCli(['--no-daemon', '--help'], { cwd: '/missing' });
+    expect(noDaemonHelp.exitCode).toBe(0);
+    expect(noDaemonHelp.stdout).toBe(help.stdout);
 
     const version = await runNovelTeaCli(['--json', '--version'], { cwd: '/missing' });
     expect(version.exitCode).toBe(0);
@@ -847,6 +1238,196 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
+  it('audits Assets without requiring unrelated authoring domains to parse', async () => {
+    const value = fixture();
+    await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.json`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/records/scenes/broken.json`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/records/layouts/broken/layout.json`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/i18n/project.json`, '{"sourceLocale":');
+    await value.fileSystem.writeTextAtomic(`${root}/traits.json`, '{"broken":');
+    await value.fileSystem.writeTextAtomic(`${root}/assets/text/untracked.txt`, 'untracked');
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).toBe(0);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      untrackedFiles: [{ projectRelativePath: 'assets/text/untracked.txt', kind: 'text' }],
+    });
+  });
+
+  it('keeps malformed Asset records inside the asset-audit validation boundary', async () => {
+    const value = fixture();
+    await value.fileSystem.writeTextAtomic(`${root}/records/assets/broken.json`, '{}');
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).not.toBe(0);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'WORKSPACE_RECORD_ID_PATH_MISMATCH',
+          path: '/records/assets/broken.json',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
+  it('preserves field-specific Asset schema diagnostics during scoped audit preparation', async () => {
+    const value = fixture();
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/assets/broken.json`,
+      JSON.stringify({
+        id: 'broken',
+        label: 'Broken',
+        data: {
+          kind: 'not-an-asset-kind',
+          source: { type: 'project-file', path: 'assets/text/broken.txt' },
+          aliases: [],
+          imageMetadata: null,
+        },
+      }),
+    );
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).toBe(3);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      exitCode: 3,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'WORKSPACE_SOURCE_READ',
+          path: '/assets/broken/data/kind',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
+  it('rejects invalid declared Asset source routing inside the scoped boundary', async () => {
+    const value = fixture();
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/assets/broken.json`,
+      JSON.stringify({
+        id: 'broken',
+        label: 'Broken',
+        data: {
+          kind: 'text',
+          source: { type: 'project-file', path: '../outside.txt' },
+          aliases: [],
+          imageMetadata: null,
+        },
+      }),
+    );
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).not.toBe(0);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'WORKSPACE_PATH_INVALID',
+          path: '/',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
+  it('preserves workspace containment diagnostics for the scoped Asset boundary', async () => {
+    const value = fixture();
+    const recordsRoot = `${root}/records`;
+    const realpath = value.fileSystem.realpath.bind(value.fileSystem);
+    const relativePath = value.fileSystem.relativePath.bind(value.fileSystem);
+    value.fileSystem.realpath = async (pathValue: string) =>
+      pathValue === recordsRoot ? '/outside/records' : realpath(pathValue);
+    value.fileSystem.relativePath = (from: string, to: string) =>
+      from === root && to === '/outside/records' ? '../outside/records' : relativePath(from, to);
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).toBe(3);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      exitCode: 3,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'WORKSPACE_PATH_INVALID',
+          path: '/records',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
+  it('rejects an assets root that resolves outside the Project', async () => {
+    const value = fixture();
+    value.fileSystem.relativePath = posix.relative;
+    await value.fileSystem.writeTextAtomic(`${root}/assets/text/example.txt`, 'outside');
+    const realpath = value.fileSystem.realpath.bind(value.fileSystem);
+    value.fileSystem.realpath = async (pathValue: string) =>
+      pathValue.startsWith(`${root}/assets`)
+        ? pathValue.replace(root, '/outside')
+        : realpath(pathValue);
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).toBe(4);
+    expect(audit.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'asset.audit.path_escape', path: 'assets' }),
+    );
+  });
+
+  it('checks declared Asset source containment outside the conventional assets tree', async () => {
+    const value = fixture();
+    value.fileSystem.relativePath = posix.relative;
+    const source = `${root}/resources/example.txt`;
+    await value.fileSystem.writeTextAtomic(source, 'text');
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/assets/example.json`,
+      JSON.stringify({
+        id: 'example',
+        label: 'Example',
+        data: {
+          kind: 'text',
+          source: { type: 'project-file', path: 'resources/example.txt' },
+          aliases: [],
+          imageMetadata: null,
+        },
+      }),
+    );
+    const contained = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+    expect(contained.exitCode).toBe(0);
+
+    const realpath = value.fileSystem.realpath.bind(value.fileSystem);
+    value.fileSystem.realpath = async (pathValue: string) =>
+      pathValue === source ? '/outside/example.txt' : realpath(pathValue);
+    const escaped = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(escaped.exitCode).toBe(4);
+    expect(escaped.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'asset.audit.path_escape',
+        path: 'resources/example.txt',
+      }),
+    );
+  });
+
+  it('rejects directory cycles during Asset inventory traversal', async () => {
+    const value = fixture();
+    value.fileSystem.relativePath = posix.relative;
+    await value.fileSystem.writeTextAtomic(`${root}/assets/loop/example.txt`, 'text');
+    const realpath = value.fileSystem.realpath.bind(value.fileSystem);
+    value.fileSystem.realpath = async (pathValue: string) =>
+      pathValue === `${root}/assets/loop` ? `${root}/assets` : realpath(pathValue);
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).toBe(4);
+    expect(audit.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'asset.audit.path_cycle', path: 'assets/loop' }),
+    );
+  });
+
   it('reports an Asset-directory symlink escape as a semantic audit failure', async () => {
     const value = fixture();
     const escapedPath = `${root}/assets/text/escape.txt`;
@@ -856,8 +1437,45 @@ describe('NovelTea headless CLI', () => {
       pathValue === escapedPath ? '/outside/escape.txt' : realpath(pathValue);
 
     const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
-    expect(audit.exitCode).not.toBe(0);
+    expect(audit.exitCode).toBe(4);
     expect(JSON.parse(audit.stdout)).toMatchObject({
+      exitCode: 4,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'asset.audit.path_escape',
+          path: 'assets/text/escape.txt',
+          severity: 'error',
+        }),
+      ]),
+    });
+  });
+
+  it('reports a registered Asset symlink escape as the same semantic audit failure', async () => {
+    const value = fixture();
+    const escapedPath = `${root}/assets/text/escape.txt`;
+    await value.fileSystem.writeTextAtomic(escapedPath, 'outside');
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/assets/escape.json`,
+      JSON.stringify({
+        id: 'escape',
+        label: 'Escape',
+        data: {
+          kind: 'text',
+          source: { type: 'project-file', path: 'assets/text/escape.txt' },
+          aliases: [],
+          imageMetadata: null,
+        },
+      }),
+    );
+    const realpath = value.fileSystem.realpath.bind(value.fileSystem);
+    value.fileSystem.realpath = async (pathValue: string) =>
+      pathValue === escapedPath ? '/outside/escape.txt' : realpath(pathValue);
+
+    const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
+
+    expect(audit.exitCode).toBe(4);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      exitCode: 4,
       diagnostics: expect.arrayContaining([
         expect.objectContaining({
           code: 'asset.audit.path_escape',

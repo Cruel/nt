@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { NovelTeaElectronApi } from './shared/electron-api';
+import type { EditorValidationAuthority } from './shared/editor-tooling';
 import { IPC_CHANNELS } from './shared/ipc-channels';
 import { normalizeEditorIpcBoundaryError } from './shared/editor-ipc-boundary';
 
@@ -15,6 +16,7 @@ const api: NovelTeaElectronApi = {
   getAppInfo: () => invokeGuarded(IPC_CHANNELS.GET_APP_INFO),
   getDefaultProjectDirectory: () => invokeGuarded(IPC_CHANNELS.GET_DEFAULT_PROJECT_DIRECTORY),
   selectDirectory: (options = {}) => invokeGuarded(IPC_CHANNELS.SELECT_DIRECTORY, options),
+  validateDirectory: (path) => invokeGuarded(IPC_CHANNELS.VALIDATE_DIRECTORY, path),
   selectProjectDirectory: () => invokeGuarded(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY),
   selectPackageOutputPath: (defaultPath: string | null = null) =>
     invokeGuarded(IPC_CHANNELS.SELECT_PACKAGE_OUTPUT_PATH, defaultPath),
@@ -30,8 +32,9 @@ const api: NovelTeaElectronApi = {
   toggleMaximizeAppWindow: () => invokeGuarded(IPC_CHANNELS.TOGGLE_MAXIMIZE_APP_WINDOW),
   requestAppWindowExit: () => invokeGuarded(IPC_CHANNELS.REQUEST_APP_WINDOW_EXIT),
   completeAppWindowExit: () => invokeGuarded(IPC_CHANNELS.COMPLETE_APP_WINDOW_EXIT),
-  onAppWindowBeforeClose: (callback: () => void) => {
-    const listener = () => callback();
+  onAppWindowBeforeClose: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: unknown) =>
+      callback(request as never);
     ipcRenderer.on(IPC_CHANNELS.APP_WINDOW_BEFORE_CLOSE, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.APP_WINDOW_BEFORE_CLOSE, listener);
   },
@@ -44,6 +47,29 @@ const api: NovelTeaElectronApi = {
   isAppWindowMaximized: () => invokeGuarded(IPC_CHANNELS.IS_APP_WINDOW_MAXIMIZED),
   setNativeWindowFrame: (nativeFrame: boolean) =>
     invokeGuarded(IPC_CHANNELS.SET_NATIVE_WINDOW_FRAME, nativeFrame),
+  ensureTerminalState: () => invokeGuarded(IPC_CHANNELS.TERMINAL_ENSURE_STATE),
+  createTerminalSession: () => invokeGuarded(IPC_CHANNELS.TERMINAL_CREATE_SESSION),
+  selectTerminalSession: (sessionId) =>
+    invokeGuarded(IPC_CHANNELS.TERMINAL_SELECT_SESSION, sessionId),
+  closeTerminalSession: (request) => invokeGuarded(IPC_CHANNELS.TERMINAL_CLOSE_SESSION, request),
+  relaunchTerminalSession: (sessionId) =>
+    invokeGuarded(IPC_CHANNELS.TERMINAL_RELAUNCH_SESSION, sessionId),
+  writeTerminal: (sessionId, data) => invokeGuarded(IPC_CHANNELS.TERMINAL_WRITE, sessionId, data),
+  resizeTerminal: (request) => invokeGuarded(IPC_CHANNELS.TERMINAL_RESIZE, request),
+  showTerminalNotification: (request) =>
+    invokeGuarded(IPC_CHANNELS.TERMINAL_SHOW_NOTIFICATION, request),
+  onTerminalEvent: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: unknown) =>
+      callback(event as never);
+    ipcRenderer.on(IPC_CHANNELS.TERMINAL_EVENT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_EVENT, listener);
+  },
+  onTerminalNotificationClick: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: Parameters<typeof callback>[0]) =>
+      callback(event);
+    ipcRenderer.on(IPC_CHANNELS.TERMINAL_NOTIFICATION_CLICK, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_NOTIFICATION_CLICK, listener);
+  },
   getEnginePreviewSession: (projectSessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION, projectSessionId),
   reloadEnginePreview: (projectSessionId: string) =>
@@ -58,8 +84,11 @@ const api: NovelTeaElectronApi = {
   },
   openProject: (projectPath: string) => invokeGuarded(IPC_CHANNELS.OPEN_PROJECT, projectPath),
   closeActiveProject: () => invokeGuarded(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT),
-  validateProject: (projectSessionId: string, project: unknown) =>
-    ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_PROJECT, projectSessionId, project),
+  validateProject: (
+    projectSessionId: string,
+    project: unknown,
+    authority: EditorValidationAuthority,
+  ) => ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_PROJECT, projectSessionId, project, authority),
   listPlaybackTests: (project: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.LIST_PLAYBACK_TESTS, project),
   prepareEditorRuntime: (

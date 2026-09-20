@@ -33,6 +33,7 @@ export const localizationSyncCommand: CliCommandDefinition = {
             {
               operationLabel: 'cli localization sync',
               targetFiles: localizationFiles,
+              affectedPaths: ['/localization'],
               refreshAfterCommit: false,
             },
           );

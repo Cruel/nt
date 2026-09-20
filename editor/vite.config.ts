@@ -6,7 +6,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite-plus';
-import { cliStartupPolicy } from './scripts/cli-startup-policy';
+import { cliLazyModulePolicy, cliStartupPolicy } from './scripts/cli-startup-policy';
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../scripts/noveltea-version.mjs';
 
 const editorRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -16,7 +16,13 @@ const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
 const nodeRuntimeExternals = [
   ...new Set(builtinModules.flatMap((moduleName) => [moduleName, `node:${moduleName}`])),
 ];
-const electronRuntimeExternals = [...nodeRuntimeExternals, 'electron', 'sharp', /^sharp\//];
+const electronRuntimeExternals = [
+  ...nodeRuntimeExternals,
+  'electron',
+  'node-pty',
+  'sharp',
+  /^sharp\//,
+];
 const productionBuild = process.env.NODE_ENV === 'production';
 const editorCheckInputs = [
   'src/**/*',
@@ -28,7 +34,8 @@ const editorCheckInputs = [
 ];
 
 function shouldBundleNodeDependency(id: string): boolean {
-  if (id === 'electron' || id === 'sharp' || id.startsWith('sharp/')) return false;
+  if (id === 'electron' || id === 'node-pty' || id === 'sharp' || id.startsWith('sharp/'))
+    return false;
   const withoutNodeProtocol = id.startsWith('node:') ? id.slice(5) : id;
   return !builtinModules.includes(withoutNodeProtocol);
 }
@@ -312,7 +319,10 @@ export default defineConfig({
     {
       ...commonNodePack,
       name: 'node-tools',
-      plugins: [cliStartupPolicy('Node CLI', path.join(editorRoot, 'scripts/noveltea.ts'))],
+      plugins: [
+        cliStartupPolicy('Node CLI', path.join(editorRoot, 'scripts/noveltea.ts')),
+        cliLazyModulePolicy('Node application', path.join(editorRoot, 'src/cli/application.ts')),
+      ],
       deps: {
         ...commonNodePack.deps,
         onlyBundle: ['zod', 'resedit', 'pe-library', 'saxes', 'xmlchars'],
@@ -337,6 +347,7 @@ export default defineConfig({
           'ScriptC island',
           path.join(editorRoot, 'scripts/noveltea-scriptc-island.ts'),
         ),
+        cliLazyModulePolicy('ScriptC application', path.join(editorRoot, 'src/cli/application.ts')),
       ],
       deps: {
         ...commonNodePack.deps,

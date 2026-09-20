@@ -27,6 +27,10 @@ export {
 } from './project-workspace-transaction';
 export { InMemoryProjectWorkspaceFileSystem } from './testing';
 export {
+  ResidentProjectWorkspaceService,
+  type ResidentProjectWorkspaceServiceFactory,
+} from './resident-project-workspace-service';
+export {
   createHostProjectWorkspaceService,
   createNodeProjectWorkspaceService,
 } from './node-project-workspace-service';
@@ -49,13 +53,16 @@ export {
   publishProjectWorkspaceSnapshot,
   ProjectWorkspaceService,
   type ProjectWorkspaceDependencyAnalysis,
+  type ProjectWorkspaceDependencyWork,
   type ProjectWorkspaceFileRevision,
+  type ProjectWorkspaceReusableDependencyState,
   type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceOpenResult,
   type ProjectWorkspaceOpenOptions,
   type ProjectWorkspaceSaveUnitFileOwnership,
   type ProjectWorkspaceSnapshot,
   type ProjectWorkspaceSourceContribution,
+  type ProjectWorkspaceSourceWork,
   type ProjectWorkspaceSourceContributions,
   type ProjectWorkspaceWriteOptions,
 } from './project-workspace-service';

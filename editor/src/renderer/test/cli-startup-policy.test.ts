@@ -3,9 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { rolldown } from 'vite/rolldown';
 import { describe, expect, it } from 'vite-plus/test';
-import { cliStartupPolicy } from '../../../scripts/cli-startup-policy';
+import { cliLazyModulePolicy, cliStartupPolicy } from '../../../scripts/cli-startup-policy';
 
-async function bundleFixture(files: Record<string, string>, maxBytes?: number): Promise<void> {
+async function bundleFixture(
+  files: Record<string, string>,
+  maxBytes?: number,
+  lazyModule?: Readonly<{ name: string; maxBytes?: number }>,
+): Promise<void> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-startup-policy-'));
   try {
     for (const [name, source] of Object.entries(files))
@@ -14,7 +18,18 @@ async function bundleFixture(files: Record<string, string>, maxBytes?: number): 
     const build = await rolldown({
       input: [entry, ...(files['other.js'] ? [path.join(root, 'other.js')] : [])],
       external: ['sharp', 'node:fs'],
-      plugins: [cliStartupPolicy('Fixture CLI', entry, maxBytes)],
+      plugins: [
+        cliStartupPolicy('Fixture CLI', entry, maxBytes),
+        ...(lazyModule
+          ? [
+              cliLazyModulePolicy(
+                'Fixture application',
+                path.join(root, lazyModule.name),
+                lazyModule.maxBytes,
+              ),
+            ]
+          : []),
+      ],
     });
     try {
       await build.generate({ format: 'esm', minify: true });
@@ -75,5 +90,19 @@ describe('CLI startup bundle policy', () => {
         512,
       ),
     ).rejects.toThrow('static startup closure grew');
+  });
+
+  it('budgets the static closure of a dynamically loaded application module', async () => {
+    await expect(
+      bundleFixture(
+        {
+          'entry.js': 'export const load=()=>import("./application.js");',
+          'application.js': 'export {value} from "./shared.js";',
+          'shared.js': `export const value=${JSON.stringify('x'.repeat(1024))};`,
+        },
+        undefined,
+        { name: 'application.js', maxBytes: 512 },
+      ),
+    ).rejects.toThrow('static lazy-module closure grew');
   });
 });

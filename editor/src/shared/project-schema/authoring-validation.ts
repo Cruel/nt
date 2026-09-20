@@ -79,7 +79,7 @@ import {
   type ProjectValidationDiagnostic,
   type ProjectValidationDiagnosticLike,
 } from './project-validation';
-import { resolveAssetMemoryPolicy } from './platform-export-contracts';
+import { validateProjectExportSettings } from './authoring-project-export';
 import {
   authoringValidationChecks,
   type AuthoringValidationReuse,
@@ -1692,87 +1692,18 @@ function validateAssetMemoryPolicies(
   project: AuthoringProject,
   diagnostics: ProjectValidationDiagnosticLike[],
 ) {
-  const ids = new Map<string, number>();
-  const labels = new Map<string, number>();
-  for (const [index, policy] of project.export.assetMemoryPolicies.entries()) {
-    const base = `/export/assetMemoryPolicies/${index}`;
-    const priorId = ids.get(policy.id);
-    if (priorId !== undefined)
-      diagnostics.push(
-        diagnostic(
-          'error',
-          `${base}/id`,
-          `Asset memory policy ID '${policy.id}' is already used by policy ${priorId + 1}.`,
-          'Asset memory policies',
-          'authoring.asset-memory-policy.id.duplicate',
-        ),
-      );
-    else ids.set(policy.id, index);
-
-    const normalizedLabel = policy.label.trim().toLocaleLowerCase('en-US');
-    const priorLabel = labels.get(normalizedLabel);
-    if (priorLabel !== undefined)
-      diagnostics.push(
-        diagnostic(
-          'error',
-          `${base}/label`,
-          `Asset memory policy name '${policy.label}' duplicates policy ${priorLabel + 1}.`,
-          'Asset memory policies',
-          'authoring.asset-memory-policy.label.duplicate',
-        ),
-      );
-    else labels.set(normalizedLabel, index);
-
-    const warmFields = [
-      ['warmPreparedCpuBytes', 'preparedCpuBytes', 'prepared CPU'],
-      ['warmGpuBytes', 'gpuBytes', 'GPU'],
-      ['warmAudioBytes', 'audioBytes', 'audio'],
-    ] as const;
-    const targetFamilies = [
-      ['linux', 'Desktop'],
-      ['android', 'Android'],
-      ['web', 'Web'],
-    ] as const;
-    for (const [warmField, totalField, domainLabel] of warmFields) {
-      const warmBytes = policy.overrides[warmField];
-      if (warmBytes === undefined) continue;
-      for (const [target, targetLabel] of targetFamilies) {
-        const baseline = resolveAssetMemoryPolicy(target, {
-          kind: 'builtin',
-          preset: policy.basePreset,
-        });
-        const totalBytes = policy.overrides[totalField] ?? baseline[totalField];
-        if (warmBytes <= totalBytes) continue;
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${base}/overrides/${warmField}`,
-            `${targetLabel} Warm ${domainLabel} ceiling must not exceed its total residency ceiling.`,
-            'Asset memory policies',
-            'authoring.asset-memory-policy.warm.exceeds-total',
-          ),
-        );
-        break;
-      }
-    }
-  }
-
-  const knownIds = new Set(project.export.assetMemoryPolicies.map((policy) => policy.id));
-  for (const [index, profile] of project.export.profiles.entries()) {
-    if (profile.assetMemory.kind !== 'policy' || knownIds.has(profile.assetMemory.policyId))
-      continue;
+  for (const finding of validateProjectExportSettings(project.export))
     diagnostics.push(
       diagnostic(
         'error',
-        `/export/profiles/${index}/assetMemory/policyId`,
-        `Export profile '${profile.label}' references missing asset memory policy '${profile.assetMemory.policyId}'.`,
-        'Asset memory policies',
-        'authoring.asset-memory-policy.reference.missing',
+        finding.path,
+        finding.message,
+        finding.category,
+        finding.code,
         undefined,
-        [`/export/profiles/${index}/assetMemory`, '/export/assetMemoryPolicies'],
+        finding.ownerPaths,
       ),
     );
-  }
 }
 
 export function validateAuthoringProject(value: unknown): ProjectValidationDiagnostic[] {

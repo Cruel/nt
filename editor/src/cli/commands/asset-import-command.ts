@@ -293,6 +293,7 @@ async function importAssets(
       {
         operationLabel: 'cli asset import',
         extraTargets: externalTargets,
+        affectedPaths: ['/assets'],
       },
     );
   }
@@ -314,7 +315,7 @@ export const assetImportCommand: CliCommandDefinition = {
     const dryRun = parsed.flags.has('--dry-run');
     return {
       dryRun,
-      mutation: true,
+      mutation: !dryRun,
       run: (context) => importAssets(context, parsed.positionals, dryRun),
     };
   },

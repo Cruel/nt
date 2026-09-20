@@ -19,6 +19,7 @@ import type { EnginePreviewServer } from './engine-preview-server';
 import { openProject } from './services/editor-tool-service';
 import { createProject, saveProjectContent } from './services/project-file-service';
 import { importUntrackedProjectAssets } from './services/project-asset-audit-service';
+import { characterizePackagedNodePty } from './services/terminal-package-smoke';
 
 export const PACKAGE_SMOKE_FLAG = '--noveltea-package-smoke';
 export const PACKAGE_SMOKE_PREFIX = 'NOVELTEA_PACKAGE_SMOKE_RESULT=';
@@ -449,6 +450,11 @@ export async function runPackageSmoke(
     checks.sharp = Object.values(sharpFormats).every(Boolean);
     for (const [name, passed] of Object.entries(sharpFormats)) {
       checks[`sharp.${name}`] = passed;
+    }
+    const ptyChecks = await characterizePackagedNodePty(process.resourcesPath);
+    checks.nodePty = Object.values(ptyChecks).every(Boolean);
+    for (const [name, passed] of Object.entries(ptyChecks)) {
+      checks[`nodePty.${name}`] = passed;
     }
     checks.thumbnailProtocolDevelopmentOrigin =
       await characterizeThumbnailProtocolFromDevelopmentOrigin();

@@ -7,7 +7,9 @@ import {
   NOVELTEA_CLI_HELP,
   NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
   NOVELTEA_CLI_VERSION,
+  NOVELTEA_DAEMON_PROTOCOL_VERSION,
 } from '../src/cli/static-contracts';
+import { classifyNovelTeaCliCommand, type CliCommandRouting } from '../src/cli/command-routing';
 import { runNovelTeaScriptcProcess } from './noveltea-scriptc-process';
 
 declare function nativeInvokeToFile(
@@ -17,11 +19,20 @@ declare function nativeInvokeToFile(
 ): void;
 
 type HostResult = readonly [exitCode: number, stdout: string, stderr: string];
+type RequestOutputCapture = { stdout: string; stderr: string };
+type CapturedNativeEnvelope = Readonly<{
+  captureOk: boolean;
+  response: string;
+  stdout: string;
+  stderr: string;
+}>;
 
 let nativeCallSequence = 0;
 let nativeResponseRoot: string | null = null;
 let cachedStdin: string | null = null;
 let forceRuntimeCacheRebuild = false;
+let authoringCacheInventoryHint = '';
+let daemonRequestSequence = 0;
 
 function trace(message: string): void {
   if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-host] ${message}\n`);
@@ -294,7 +305,17 @@ function staticValidationPath(argv: readonly string[]): HostResult | null {
       buildIdentity: `${NOVELTEA_CLI_VERSION}:${NOVELTEA_CLI_BUILD_IDENTITY}`,
     });
     trace(`authoring cache ${probe?.status ?? 'unusable'}: ${probe?.reason ?? 'probe-failed'}`);
-    if (!probe || probe.ok !== true || probe.status !== 'hit') return null;
+    if (!probe || probe.ok !== true || probe.status !== 'hit') {
+      if (
+        probe?.status === 'stale' &&
+        probe.currentInputs &&
+        typeof probe.currentInputs.length === 'number'
+      ) {
+        const currentInputs: any = probe.currentInputs;
+        authoringCacheInventoryHint = JSON.stringify(currentInputs);
+      }
+      return null;
+    }
     const result: any = probe.result;
     const diagnostics: StaticDiagnostic[] = [];
     for (const item of result.diagnostics) {
@@ -572,6 +593,453 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
   );
 }
 
+type DaemonRequestContext = Readonly<{
+  argv: readonly string[];
+  cwd: string;
+  environment: Readonly<Record<string, string>>;
+  stdinText: string | null;
+  terminal: Readonly<{
+    stdin: boolean;
+    stdout: boolean;
+    stderr: boolean;
+    columns: number | null;
+    rows: number | null;
+  }>;
+  outputMode: 'json' | 'human';
+  replaySafe: boolean;
+  forceRuntimeCacheRebuild: boolean;
+  authoringCacheInventoryHint: string;
+}>;
+
+type DaemonNativeResponse = Readonly<{
+  ok?: boolean;
+  running?: boolean;
+  state?: string;
+  build?: string;
+  protocol?: number;
+  pid?: number | null;
+  stopped?: boolean;
+  started?: boolean;
+  error?: string;
+  token?: number;
+  requestId?: string;
+  method?: string;
+  payload?: DaemonRequestContext;
+  result?: HostResult | null;
+  active?: boolean;
+  cancelled?: boolean;
+  delivered?: boolean;
+}>;
+
+type DaemonStatusCore = Readonly<{
+  running: boolean;
+  state: string;
+  build: string;
+  protocol: number;
+  pid: number | null;
+}>;
+
+type DaemonBrokerContext = Readonly<{
+  build: string;
+  protocol: number;
+  daemonIdleMs?: number;
+  projectSessionIdleMs?: number;
+  runtimeRoot?: string;
+}>;
+
+function certificationPositiveInteger(name: string): number | undefined {
+  if (process.env.NOVELTEA_CLI_CERTIFICATION !== '1') return undefined;
+  const text = process.env[name];
+  if (!text) return undefined;
+  const value = Number(text);
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function daemonBrokerContext(): DaemonBrokerContext {
+  const certification = process.env.NOVELTEA_CLI_CERTIFICATION === '1';
+  const suffix = certification ? process.env.NOVELTEA_CLI_CERTIFICATION_DAEMON_ID : undefined;
+  const runtimeRoot = certification
+    ? process.env.NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT
+    : undefined;
+  return {
+    build: suffix ? `${NOVELTEA_CLI_BUILD_IDENTITY}:cert:${suffix}` : NOVELTEA_CLI_BUILD_IDENTITY,
+    protocol: NOVELTEA_DAEMON_PROTOCOL_VERSION,
+    daemonIdleMs: certificationPositiveInteger('NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS'),
+    projectSessionIdleMs: certificationPositiveInteger(
+      'NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS',
+    ),
+    runtimeRoot: runtimeRoot || undefined,
+  };
+}
+
+function daemonNativeRequest(action: string): DaemonNativeResponse {
+  const context = daemonBrokerContext();
+  return JSON.parse(
+    invokeHost(
+      'daemon',
+      JSON.stringify({
+        ...context,
+        action,
+      }),
+    ),
+  ) as DaemonNativeResponse;
+}
+
+function daemonEnsureNativeRequest(): DaemonNativeResponse {
+  const context = daemonBrokerContext();
+  return JSON.parse(
+    invokeHost(
+      'daemon',
+      JSON.stringify({
+        ...context,
+        action: 'ensure',
+        startupTimeoutMs: 2000,
+      }),
+    ),
+  ) as DaemonNativeResponse;
+}
+
+function daemonRequestNative(request: DaemonRequestContext): DaemonNativeResponse {
+  daemonRequestSequence += 1;
+  const context = daemonBrokerContext();
+  return JSON.parse(
+    invokeHost(
+      'daemon',
+      JSON.stringify({
+        ...context,
+        action: 'request',
+        requestId: `cli-${String(process.pid)}-${String(Date.now())}-${String(daemonRequestSequence)}`,
+        method: 'invoke',
+        payload: request,
+      }),
+    ),
+  ) as DaemonNativeResponse;
+}
+
+function daemonStatusCore(result: DaemonNativeResponse): DaemonStatusCore {
+  return {
+    running: result.running === true,
+    state: typeof result.state === 'string' ? result.state : 'stopped',
+    build: typeof result.build === 'string' ? result.build : NOVELTEA_CLI_BUILD_IDENTITY,
+    protocol:
+      typeof result.protocol === 'number' ? result.protocol : NOVELTEA_DAEMON_PROTOCOL_VERSION,
+    pid: typeof result.pid === 'number' ? result.pid : null,
+  };
+}
+
+function staticDaemonPath(argv: readonly string[]): HostResult | null {
+  let json = false;
+  let project = false;
+  let index = 0;
+  while (index < argv.length && argv[index]!.startsWith('--')) {
+    const argument = argv[index]!;
+    if (argument === '--json') {
+      if (json) return null;
+      json = true;
+      index += 1;
+      continue;
+    }
+    if (argument === '--project') {
+      if (project) return null;
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) return null;
+      project = true;
+      index += 2;
+      continue;
+    }
+    return null;
+  }
+  if (argv[index] !== 'daemon') return null;
+  if (project)
+    return formatStaticUsageError(json, "The 'daemon' command does not accept --project.");
+  const operation = argv[index + 1];
+  if ((operation !== 'status' && operation !== 'stop') || index + 2 !== argv.length)
+    return formatStaticUsageError(json, 'Usage: noveltea daemon <status|stop>');
+
+  const response = daemonNativeRequest(operation);
+  if (response?.ok === false) {
+    const message =
+      typeof response.error === 'string'
+        ? response.error
+        : 'NovelTea daemon broker operation failed.';
+    if (json)
+      return [
+        70,
+        `${JSON.stringify({
+          success: false,
+          exitCode: 70,
+          diagnostics: [{ code: 'DAEMON_BROKER', severity: 'error', path: '/', message }],
+          daemon: daemonStatusCore(response),
+          protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
+        })}\n`,
+        '',
+      ];
+    return [70, '', `[error] DAEMON_BROKER /: ${message}\n`];
+  }
+
+  const daemon = daemonStatusCore(response);
+  if (json)
+    return [
+      0,
+      `${JSON.stringify({
+        success: true,
+        exitCode: 0,
+        diagnostics: [],
+        daemon,
+        protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
+      })}\n`,
+      '',
+    ];
+  if (operation === 'stop')
+    return [
+      0,
+      response?.stopped === true
+        ? 'NovelTea daemon stopped.\n'
+        : 'NovelTea daemon is not running.\n',
+      '',
+    ];
+  return [
+    0,
+    daemon.running
+      ? `NovelTea daemon: ${String(daemon.state)} (pid ${String(daemon.pid)}, build ${String(daemon.build)}, protocol ${String(daemon.protocol)}).\n`
+      : `NovelTea daemon: stopped (build ${String(daemon.build)}, protocol ${String(daemon.protocol)}).\n`,
+    '',
+  ];
+}
+
+type HiddenDaemonBrokerInvocation = Readonly<{
+  build: string;
+  protocol: number;
+  daemonIdleMs: number;
+  projectSessionIdleMs: number;
+  runtimeRoot?: string;
+}>;
+
+function hiddenDaemonBrokerInvocation(
+  argv: readonly string[],
+): HiddenDaemonBrokerInvocation | null {
+  if (argv[0] !== '__daemon-broker') return null;
+  let build = '';
+  let protocolText = '';
+  let daemonIdleText = '';
+  let projectSessionIdleText = '';
+  let runtimeRoot = '';
+  for (let index = 1; index < argv.length; index += 2) {
+    const key = argv[index];
+    const value = argv[index + 1];
+    if (!key || !value) return null;
+    if (key === '--daemon-build' && build === '') build = value;
+    else if (key === '--daemon-protocol' && protocolText === '') protocolText = value;
+    else if (key === '--daemon-idle-ms' && daemonIdleText === '') daemonIdleText = value;
+    else if (key === '--project-session-idle-ms' && projectSessionIdleText === '')
+      projectSessionIdleText = value;
+    else if (key === '--daemon-runtime-root' && runtimeRoot === '') runtimeRoot = value;
+    else return null;
+  }
+  const protocol = Number(protocolText);
+  const daemonIdleMs = Number(daemonIdleText);
+  const projectSessionIdleMs = Number(projectSessionIdleText);
+  if (
+    build !== daemonBrokerContext().build ||
+    protocol !== NOVELTEA_DAEMON_PROTOCOL_VERSION ||
+    !Number.isSafeInteger(daemonIdleMs) ||
+    daemonIdleMs <= 0 ||
+    !Number.isSafeInteger(projectSessionIdleMs) ||
+    projectSessionIdleMs <= 0
+  )
+    return null;
+  return {
+    build,
+    protocol,
+    daemonIdleMs,
+    projectSessionIdleMs,
+    runtimeRoot: runtimeRoot || undefined,
+  };
+}
+
+function hiddenDaemonNativeRequest(
+  action: string,
+  invocation: HiddenDaemonBrokerInvocation,
+  token = 0,
+  requestOk = false,
+  result: HostResult | null = null,
+  error = '',
+): DaemonNativeResponse {
+  return JSON.parse(
+    invokeHost(
+      'daemon',
+      JSON.stringify({
+        action,
+        build: invocation.build,
+        protocol: invocation.protocol,
+        daemonIdleMs: invocation.daemonIdleMs,
+        projectSessionIdleMs: invocation.projectSessionIdleMs,
+        runtimeRoot: invocation.runtimeRoot,
+        token,
+        requestOk,
+        result,
+        error,
+      }),
+    ),
+  ) as DaemonNativeResponse;
+}
+
+function requestEnvironment(): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env))
+    if (typeof value === 'string') result[key] = value;
+  return result;
+}
+
+function commandStart(argv: readonly string[]): number {
+  let index = 0;
+  while (index < argv.length && argv[index]!.startsWith('--')) {
+    if (argv[index] === '--project') index += 2;
+    else index += 1;
+  }
+  return index;
+}
+
+function commandRouting(argv: readonly string[]): CliCommandRouting | null {
+  const index = commandStart(argv);
+  return classifyNovelTeaCliCommand(argv.slice(index));
+}
+
+function daemonRequestContext(
+  argv: readonly string[],
+  routing: CliCommandRouting | null,
+): DaemonRequestContext {
+  return {
+    argv,
+    cwd: process.cwd(),
+    environment: requestEnvironment(),
+    stdinText: routing?.stdin === 'json' ? invokeHost('read-stdin', '') : null,
+    terminal: {
+      stdin: process.stdin.isTTY === true,
+      stdout: process.stdout.isTTY === true,
+      stderr: process.stderr.isTTY === true,
+      columns: null,
+      rows: null,
+    },
+    outputMode: argv.includes('--json') ? 'json' : 'human',
+    replaySafe: routing?.replaySafe === true,
+    forceRuntimeCacheRebuild,
+    authoringCacheInventoryHint,
+  };
+}
+
+function requestInvokeHost(
+  context: DaemonRequestContext,
+  output: RequestOutputCapture,
+): typeof invokeHost {
+  return (operation, requestText) => {
+    if (operation === 'read-stdin') return context.stdinText ?? '';
+    if (operation === 'process-alive' || operation === 'run-process')
+      return invokeHost(operation, requestText);
+    const envelope = JSON.parse(
+      invokeHost(`capture:${operation}`, requestText),
+    ) as CapturedNativeEnvelope;
+    if (envelope.captureOk !== true) throw new Error('failed to capture daemon native output');
+    output.stdout += envelope.stdout;
+    output.stderr += envelope.stderr;
+    return envelope.response;
+  };
+}
+
+async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): Promise<number> {
+  const started = hiddenDaemonNativeRequest('serve-start', invocation);
+  if (started.ok !== true) {
+    const message =
+      typeof started.error === 'string' ? started.error : 'Failed to start NovelTea daemon broker.';
+    throw new Error(message);
+  }
+  trace('daemon broker reachable in starting state');
+  try {
+    trace('daemon QuickJS initialization starting');
+    // @ts-expect-error The private island package is materialized only during release staging.
+    const { runNovelTeaScriptcIsland } = await import('noveltea-scriptc-island');
+    trace('daemon QuickJS initialization completed');
+    const ready = hiddenDaemonNativeRequest('serve-ready', invocation);
+    if (ready.ok !== true) {
+      const message =
+        typeof ready.error === 'string' ? ready.error : 'Failed to mark NovelTea daemon ready.';
+      throw new Error(message);
+    }
+    for (;;) {
+      const next = hiddenDaemonNativeRequest('serve-next', invocation);
+      if (next.ok !== true) {
+        const message =
+          typeof next.error === 'string' ? next.error : 'NovelTea daemon broker failed.';
+        throw new Error(message);
+      }
+      if (next.stopped === true) break;
+      const token = next.token;
+      const payload = next.payload as DaemonRequestContext;
+      if (
+        !Number.isSafeInteger(token) ||
+        next.method !== 'invoke' ||
+        !payload ||
+        !Array.isArray(payload.argv)
+      ) {
+        hiddenDaemonNativeRequest(
+          'serve-complete',
+          invocation,
+          typeof token === 'number' ? token : 0,
+          false,
+          null,
+          'invalid daemon invocation request',
+        );
+        continue;
+      }
+      try {
+        const output: RequestOutputCapture = { stdout: '', stderr: '' };
+        const responseText = await runNovelTeaScriptcIsland(
+          JSON.stringify(payload.argv),
+          requestInvokeHost(payload, output),
+          payload.forceRuntimeCacheRebuild,
+          payload.authoringCacheInventoryHint,
+          {
+            cwd: payload.cwd,
+            environment: payload.environment,
+            residentProjectSessions: true,
+            projectSessionIdleMs: invocation.projectSessionIdleMs,
+            cancellationProbe: () => {
+              const status = hiddenDaemonNativeRequest('serve-cancelled', invocation, token);
+              return status.cancelled === true;
+            },
+          },
+        );
+        const response = JSON.parse(responseText) as HostResult;
+        const completed: HostResult = [
+          response[0],
+          `${output.stdout}${response[1]}`,
+          `${output.stderr}${response[2]}`,
+        ];
+        hiddenDaemonNativeRequest('serve-complete', invocation, token, true, completed);
+      } catch (error) {
+        hiddenDaemonNativeRequest(
+          'serve-complete',
+          invocation,
+          token,
+          false,
+          null,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+    const waited = hiddenDaemonNativeRequest('serve-wait', invocation);
+    if (waited.ok !== true) {
+      const message =
+        typeof waited.error === 'string' ? waited.error : 'NovelTea daemon broker failed.';
+      throw new Error(message);
+    }
+    return 0;
+  } catch (error) {
+    hiddenDaemonNativeRequest('serve-abort', invocation);
+    throw error;
+  }
+}
+
 function staticNativePath(argv: readonly string[]): HostResult | null {
   let project = false;
   let index = 0;
@@ -585,6 +1053,18 @@ function staticNativePath(argv: readonly string[]): HostResult | null {
   }
   if (argv[index] === 'shaderc') return [nativeShaderc(argv.slice(index + 1)), '', ''];
   if (argv[index] === 'texturec') return [nativeTexturec(argv.slice(index + 1)), '', ''];
+  return null;
+}
+
+function staticCommandPath(
+  argv: readonly string[],
+  routing: CliCommandRouting | null,
+): HostResult | null {
+  if (!routing) return null;
+  if (routing.staticCompletion === 'daemon-control') return staticDaemonPath(argv);
+  if (routing.staticCompletion === 'authoring-cache') return staticValidationPath(argv);
+  if (routing.staticCompletion === 'runtime-cache') return staticTestPath(argv);
+  if (routing.staticCompletion === 'native-tool') return staticNativePath(argv);
   return null;
 }
 
@@ -671,6 +1151,73 @@ function staticFastPath(argv: readonly string[]): HostResult | null {
   return [0, stdout, ''];
 }
 
+function strippedStaticArgv(argv: readonly string[]): readonly string[] {
+  let seen = false;
+  const result: string[] = [];
+  let inGlobals = true;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]!;
+    if (inGlobals && argument === '--no-daemon' && !seen) {
+      seen = true;
+      continue;
+    }
+    result.push(argument);
+    if (inGlobals && argument === '--project') {
+      const value = argv[index + 1];
+      if (value !== undefined) {
+        result.push(value);
+        index += 1;
+      }
+      continue;
+    }
+    if (inGlobals && !argument.startsWith('--')) inGlobals = false;
+  }
+  return result;
+}
+
+function daemonDisabled(argv: readonly string[]): boolean {
+  return process.env.NOVELTEA_NO_DAEMON === '1' || argv.includes('--no-daemon');
+}
+
+function privateInternalInvocation(argv: readonly string[]): boolean {
+  return (
+    argv[0] === '__editor-native' ||
+    argv[0] === '__shaderc-batch' ||
+    argv[0] === '__comfyui-cancel-certification'
+  );
+}
+
+async function runLocalIsland(argv: readonly string[]): Promise<HostResult> {
+  trace('dynamic island import starting');
+  // @ts-expect-error The private island package is materialized only during release staging.
+  const { runNovelTeaScriptcIsland } = await import('noveltea-scriptc-island');
+  trace('dynamic island import completed');
+  trace('dynamic island invocation starting');
+  const responseText = await runNovelTeaScriptcIsland(
+    JSON.stringify(argv),
+    invokeHost,
+    forceRuntimeCacheRebuild,
+    authoringCacheInventoryHint,
+  );
+  trace('dynamic island invocation completed');
+  return JSON.parse(responseText) as HostResult;
+}
+
+function daemonFailureResult(json: boolean, message: string): HostResult {
+  if (json)
+    return [
+      70,
+      `${JSON.stringify({
+        success: false,
+        exitCode: 70,
+        diagnostics: [{ code: 'DAEMON_EXECUTION', severity: 'error', path: '/', message }],
+        protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
+      })}\n`,
+      '',
+    ];
+  return [70, '', `[error] DAEMON_EXECUTION /: ${message}\n`];
+}
+
 function emit(result: HostResult): void {
   const stdoutText = result[1];
   const stderrText = result[2];
@@ -683,27 +1230,57 @@ async function main(): Promise<void> {
   try {
     // scriptc's argv slice throws when the process has no user arguments.
     const argv = process.argv.length > 2 ? process.argv.slice(2) : [];
-    const fastPath =
-      staticFastPath(argv) ??
-      staticValidationPath(argv) ??
-      staticTestPath(argv) ??
-      staticNativePath(argv);
+    const daemonInvocation = hiddenDaemonBrokerInvocation(argv);
+    if (daemonInvocation) {
+      exitCode = await runHiddenDaemonBroker(daemonInvocation);
+      return;
+    }
+    if (argv.length === 1 && argv[0] === '__daemon-ensure') {
+      const ensured = daemonEnsureNativeRequest();
+      process.stdout.write(`${JSON.stringify(ensured)}\n`);
+      exitCode = ensured.ok === false ? 70 : 0;
+      return;
+    }
+    const staticArgv = strippedStaticArgv(argv);
+    const routing = commandRouting(staticArgv);
+    const fastPath = staticFastPath(staticArgv) ?? staticCommandPath(staticArgv, routing);
     if (fastPath !== null) {
       emit(fastPath);
       exitCode = fastPath[0];
-    } else {
-      trace('dynamic island import starting');
-      // @ts-expect-error The private island package is materialized only during release staging.
-      const { runNovelTeaScriptcIsland } = await import('noveltea-scriptc-island');
-      trace('dynamic island import completed');
-      trace('dynamic island invocation starting');
-      const responseText = await runNovelTeaScriptcIsland(
-        JSON.stringify(argv),
-        invokeHost,
-        forceRuntimeCacheRebuild,
+    } else if (privateInternalInvocation(argv) || daemonDisabled(argv)) {
+      trace(
+        privateInternalInvocation(argv) ? 'private internal invocation' : 'daemon routing bypassed',
       );
-      trace('dynamic island invocation completed');
-      const response = JSON.parse(responseText) as [number, string, string];
+      const response = await runLocalIsland(argv);
+      emit(response);
+      exitCode = response[0];
+    } else {
+      const request = daemonRequestContext(argv, routing);
+      const ensured = daemonEnsureNativeRequest();
+      let response: HostResult | null = null;
+      if (ensured.ok !== false) {
+        trace('daemon invocation forwarding');
+        const daemonResponse = daemonRequestNative(request);
+        if (
+          daemonResponse.ok === true &&
+          daemonResponse.result !== undefined &&
+          daemonResponse.result !== null
+        ) {
+          response = daemonResponse.result;
+        } else {
+          const message =
+            typeof daemonResponse?.error === 'string'
+              ? daemonResponse.error
+              : 'Resident daemon execution failed.';
+          const safeConnectionFailure = message === 'daemon broker is not reachable';
+          if (!request.replaySafe && !safeConnectionFailure)
+            response = daemonFailureResult(request.outputMode === 'json', message);
+        }
+      }
+      if (response === null) {
+        trace('daemon acceleration unavailable; using local island fallback');
+        response = await runLocalIsland(argv);
+      }
       emit(response);
       exitCode = response[0];
     }

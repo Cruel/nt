@@ -67,6 +67,7 @@ describe('active Project session lifecycle', () => {
       await openProject(projectA),
       openedActivation,
     );
+    const openedIdentity = service.currentProjectIdentity();
     const createdActivation = service.beginProjectActivation();
     const created = await service.attachToSuccessfulResult(
       await createProject({
@@ -86,8 +87,11 @@ describe('active Project session lifecycle', () => {
     );
 
     expect(opened.projectSessionId).toBeDefined();
+    expect(openedIdentity).toMatchObject({ name: 'opened' });
+    expect(openedIdentity?.id).not.toBe(opened.projectSessionId);
     expect(created.projectSessionId).not.toBe(opened.projectSessionId);
     expect(created.projectSessionId).toBe(service.currentSessionId());
+    expect(service.currentProjectIdentity()).toMatchObject({ name: 'created' });
     expect(failed).not.toHaveProperty('projectSessionId');
     expect(service.currentSessionId()).toBe(created.projectSessionId);
   });

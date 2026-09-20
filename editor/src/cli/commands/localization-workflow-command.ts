@@ -247,6 +247,7 @@ function workflowMutationCommand(command: 'accept' | 'review'): CliCommandDefini
               {
                 operationLabel: `cli localization ${command}`,
                 targetFiles: localizationFiles,
+                affectedPaths: ['/localization'],
                 refreshAfterCommit: false,
               },
             );

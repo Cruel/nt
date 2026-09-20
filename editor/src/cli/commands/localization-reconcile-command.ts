@@ -154,6 +154,7 @@ export const localizationReconcileCommand: CliCommandDefinition = {
             {
               operationLabel: 'cli localization reconcile',
               targetFiles: localizationFiles,
+              affectedPaths: ['/localization'],
               refreshAfterCommit: false,
             },
           );
