@@ -55,27 +55,24 @@ function prepareZsh(env: Record<string, string>): PreparedTerminalShell {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-terminal-zsh-'));
   try {
     const originalZdotdir = env.ZDOTDIR ?? env.HOME ?? '';
-    const sourceOriginal = (name: string) => {
-      const original = originalZdotdir ? path.join(originalZdotdir, name) : '';
-      return original
-        ? `if [[ -f ${shellQuote(original)} ]]; then source ${shellQuote(original)}; fi\n`
-        : '';
-    };
+    const originalZshenv = originalZdotdir ? path.join(originalZdotdir, '.zshenv') : '';
+    const sourceUserStartup = (name: string) =>
+      `typeset -gx ZDOTDIR="\${__NOVELTEA_USER_ZDOTDIR-}"\nif [[ -n "$ZDOTDIR" && -f "$ZDOTDIR/${name}" ]]; then source "$ZDOTDIR/${name}"; fi\ntypeset -gx __NOVELTEA_USER_ZDOTDIR="\${ZDOTDIR:-\${HOME-}}"\ntypeset -gx ZDOTDIR=${shellQuote(directory)}\n`;
     fs.writeFileSync(
       path.join(directory, '.zshenv'),
-      `${sourceOriginal('.zshenv')}typeset -gx ZDOTDIR=${shellQuote(directory)}\n`,
+      `${originalZshenv ? `if [[ -f ${shellQuote(originalZshenv)} ]]; then source ${shellQuote(originalZshenv)}; fi\n` : ''}typeset -gx __NOVELTEA_USER_ZDOTDIR="\${ZDOTDIR:-\${HOME-}}"\ntypeset -gx ZDOTDIR=${shellQuote(directory)}\n`,
       { encoding: 'utf8', mode: 0o600 },
     );
-    fs.writeFileSync(path.join(directory, '.zprofile'), sourceOriginal('.zprofile'), {
+    fs.writeFileSync(path.join(directory, '.zprofile'), sourceUserStartup('.zprofile'), {
       encoding: 'utf8',
       mode: 0o600,
     });
     fs.writeFileSync(
       path.join(directory, '.zshrc'),
-      `${sourceOriginal('.zshrc')}autoload -Uz add-zsh-hook\n__noveltea_preexec() { print -n -- $'\\e]633;C\\a' }\n__noveltea_precmd() {\n  local __noveltea_status=$?\n  print -n -- $'\\e]633;D;'"$__noveltea_status"$'\\a'\n  print -n -- $'\\e]7;file://'"\${HOST-}""$PWD"$'\\a'\n  print -n -- $'\\e]633;A\\a'\n}\nadd-zsh-hook preexec __noveltea_preexec\nadd-zsh-hook precmd __noveltea_precmd\n`,
+      `${sourceUserStartup('.zshrc')}autoload -Uz add-zsh-hook\n__noveltea_preexec() { print -n -- $'\\e]633;C\\a' }\n__noveltea_precmd() {\n  local __noveltea_status=$?\n  print -n -- $'\\e]633;D;'"$__noveltea_status"$'\\a'\n  print -n -- $'\\e]7;file://'"\${HOST-}""$PWD"$'\\a'\n  print -n -- $'\\e]633;A\\a'\n}\nadd-zsh-hook preexec __noveltea_preexec\nadd-zsh-hook precmd __noveltea_precmd\n`,
       { encoding: 'utf8', mode: 0o600 },
     );
-    fs.writeFileSync(path.join(directory, '.zlogin'), sourceOriginal('.zlogin'), {
+    fs.writeFileSync(path.join(directory, '.zlogin'), sourceUserStartup('.zlogin'), {
       encoding: 'utf8',
       mode: 0o600,
     });

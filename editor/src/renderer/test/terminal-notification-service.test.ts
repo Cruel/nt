@@ -55,6 +55,41 @@ describe('TerminalNotificationService', () => {
     expect(emitClick).toHaveBeenCalledWith({ sessionId: 'session-1' });
   });
 
+  it('suppresses a notification if the window regains focus while localized content resolves', async () => {
+    let focused = false;
+    const deferred: {
+      resolve?: (value: { title: string; body: string }) => void;
+    } = {};
+    const show = vi.fn();
+    const createNotification = vi.fn(() => ({
+      show,
+      onClick() {},
+      onClose() {},
+    }));
+    const service = new TerminalNotificationService({
+      isSupported: () => true,
+      isWindowFocused: () => focused,
+      resolveSessionLabel: () => 'Terminal 1',
+      resolveContent: () =>
+        new Promise<{ title: string; body: string }>((resolve) => {
+          deferred.resolve = resolve;
+        }),
+      createNotification,
+      restoreWindow: vi.fn(),
+      showWindow: vi.fn(),
+      focusWindow: vi.fn(),
+      emitClick: vi.fn(),
+    });
+
+    const result = service.show({ sessionId: 'session-1', kind: 'bell' });
+    await vi.waitFor(() => expect(deferred.resolve).toBeTypeOf('function'));
+    focused = true;
+    deferred.resolve?.({ title: 'NovelTea', body: 'localized attention' });
+
+    await expect(result).resolves.toBe(false);
+    expect(show).not.toHaveBeenCalled();
+  });
+
   it('degrades silently when unsupported, focused, or the session is stale', async () => {
     const createNotification = vi.fn();
     const base = {
