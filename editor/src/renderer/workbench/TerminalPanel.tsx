@@ -20,7 +20,9 @@ export function TerminalPanel() {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const macOSRef = useRef(/^Mac/u.test(navigator.platform));
+  const selectedSessionRef = useRef<TerminalSessionSnapshot | null>(null);
+  const translationRef = useRef(t);
+  const macOSRef = useRef(navigator.platform.startsWith('Mac'));
   const terminalPreferences = usePreferencesStore((state) => state.terminal);
   const [terminalState, setTerminalState] = useState<TerminalHostSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +35,9 @@ export function TerminalPanel() {
       null,
     [terminalState],
   );
+  const selectedSessionId = selectedSession?.id ?? null;
+  selectedSessionRef.current = selectedSession;
+  translationRef.current = t;
 
   useEffect(() => {
     if (!terminalState) return;
@@ -163,7 +168,7 @@ export function TerminalPanel() {
       })
       .catch((error: unknown) => {
         if (disposed) return;
-        setRequestError(errorMessage(error, t('terminal.failed')));
+        setRequestError(errorMessage(error, translationRef.current('terminal.failed')));
         setLoading(false);
       });
 
@@ -202,20 +207,21 @@ export function TerminalPanel() {
 
   useEffect(() => {
     const terminal = terminalRef.current;
-    if (!terminal || !selectedSession) return;
-    sessionIdRef.current = selectedSession.id;
+    const session = selectedSessionRef.current;
+    if (!terminal || !session || session.id !== selectedSessionId) return;
+    sessionIdRef.current = session.id;
     terminal.reset();
-    if (selectedSession.output) terminal.write(selectedSession.output);
+    if (session.output) terminal.write(session.output);
     requestAnimationFrame(() => {
       fitAddonRef.current?.fit();
       void window.noveltea.resizeTerminal({
-        sessionId: selectedSession.id,
+        sessionId: session.id,
         columns: terminal.cols,
         rows: terminal.rows,
       });
       terminal.focus();
     });
-  }, [selectedSession?.id]);
+  }, [selectedSessionId]);
 
   async function selectSession(sessionId: string) {
     if (sessionId === terminalState?.selectedSessionId) {
