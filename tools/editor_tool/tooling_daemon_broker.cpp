@@ -9,9 +9,11 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -37,11 +39,11 @@
 #include <sddl.h>
 #else
 #include <cerrno>
-#include <csignal>
 #include <fcntl.h>
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #endif
+#include <poll.h>
 #include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -55,6 +57,69 @@ namespace {
 
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
+using IoDeadline = std::optional<Clock::time_point>;
+
+volatile std::sig_atomic_t client_interrupt_signal = 0;
+std::mutex client_interrupt_mutex;
+std::size_t client_interrupt_users = 0;
+using SignalHandler = void (*)(int);
+SignalHandler previous_sigint_handler = SIG_DFL;
+SignalHandler previous_sigterm_handler = SIG_DFL;
+
+void client_interrupt_handler(int signal_number)
+{
+    client_interrupt_signal = signal_number;
+}
+
+void acquire_client_interrupt_handler()
+{
+    std::scoped_lock lock(client_interrupt_mutex);
+    if (client_interrupt_users++ == 0) {
+        client_interrupt_signal = 0;
+        previous_sigint_handler = std::signal(SIGINT, client_interrupt_handler);
+        previous_sigterm_handler = std::signal(SIGTERM, client_interrupt_handler);
+    }
+}
+
+void release_client_interrupt_handler()
+{
+    std::scoped_lock lock(client_interrupt_mutex);
+    if (client_interrupt_users == 0)
+        return;
+    if (--client_interrupt_users == 0) {
+        std::signal(SIGINT, previous_sigint_handler);
+        std::signal(SIGTERM, previous_sigterm_handler);
+        client_interrupt_signal = 0;
+    }
+}
+
+class ClientInterruptScope {
+public:
+    explicit ClientInterruptScope(bool enabled) : enabled_(enabled)
+    {
+        if (!enabled_)
+            return;
+        acquire_client_interrupt_handler();
+    }
+
+    ~ClientInterruptScope()
+    {
+        if (!enabled_)
+            return;
+        release_client_interrupt_handler();
+    }
+
+    ClientInterruptScope(const ClientInterruptScope&) = delete;
+    ClientInterruptScope& operator=(const ClientInterruptScope&) = delete;
+
+    bool enabled() const { return enabled_; }
+
+private:
+    bool enabled_ = false;
+};
+
+std::mutex local_interrupt_scope_mutex;
+bool local_interrupt_scope_active = false;
 
 struct BrokerContext {
     std::string build;
@@ -346,20 +411,118 @@ void close_connection(ConnectionHandle connection)
 #endif
 }
 
-bool read_exact(ConnectionHandle connection, std::uint8_t* target, std::size_t size)
+void close_outbound_connection(ConnectionHandle connection)
+{
+#if defined(_WIN32)
+    if (connection != invalid_connection) {
+        CancelIoEx(connection, nullptr);
+        CloseHandle(connection);
+    }
+#else
+    close_connection(connection);
+#endif
+}
+
+std::uint64_t remaining_millis(Clock::time_point deadline)
+{
+    const auto now = Clock::now();
+    if (now >= deadline)
+        return 0;
+    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+    return static_cast<std::uint64_t>(std::max<std::int64_t>(1, remaining.count()));
+}
+
+#if defined(_WIN32)
+DWORD remaining_windows_timeout(Clock::time_point deadline)
+{
+    constexpr auto maximum = static_cast<std::uint64_t>(INFINITE - 1);
+    return static_cast<DWORD>(std::min(remaining_millis(deadline), maximum));
+}
+
+bool overlapped_transfer(ConnectionHandle connection, bool reading, std::uint8_t* bytes,
+                         std::size_t size, std::size_t& transferred, Clock::time_point deadline)
+{
+    transferred = 0;
+    if (remaining_millis(deadline) == 0)
+        return false;
+    OVERLAPPED operation{};
+    operation.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (operation.hEvent == nullptr)
+        return false;
+    const auto chunk = static_cast<DWORD>(std::min<std::size_t>(size, 64 * 1024));
+    DWORD immediate = 0;
+    const BOOL started = reading ? ReadFile(connection, bytes, chunk, &immediate, &operation)
+                                 : WriteFile(connection, bytes, chunk, &immediate, &operation);
+    if (started) {
+        transferred = immediate;
+        CloseHandle(operation.hEvent);
+        return immediate > 0;
+    }
+    if (GetLastError() != ERROR_IO_PENDING) {
+        CloseHandle(operation.hEvent);
+        return false;
+    }
+    const auto wait = WaitForSingleObject(operation.hEvent, remaining_windows_timeout(deadline));
+    if (wait != WAIT_OBJECT_0) {
+        CancelIoEx(connection, &operation);
+        WaitForSingleObject(operation.hEvent, INFINITE);
+        CloseHandle(operation.hEvent);
+        return false;
+    }
+    DWORD completed = 0;
+    const BOOL ok = GetOverlappedResult(connection, &operation, &completed, FALSE);
+    CloseHandle(operation.hEvent);
+    transferred = completed;
+    return ok && completed > 0;
+}
+#else
+bool wait_for_socket(ConnectionHandle connection, short events, Clock::time_point deadline)
+{
+    while (remaining_millis(deadline) > 0) {
+        pollfd descriptor{connection, events, 0};
+        const auto timeout = static_cast<int>(std::min<std::uint64_t>(
+            remaining_millis(deadline), static_cast<std::uint64_t>(INT_MAX)));
+        const auto result = ::poll(&descriptor, 1, timeout);
+        if (result > 0)
+            return (descriptor.revents & events) != 0 &&
+                   (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) == 0;
+        if (result == 0)
+            return false;
+        if (errno != EINTR)
+            return false;
+    }
+    return false;
+}
+#endif
+
+bool read_exact(ConnectionHandle connection, std::uint8_t* target, std::size_t size,
+                IoDeadline deadline = std::nullopt)
 {
     std::size_t offset = 0;
     while (offset < size) {
 #if defined(_WIN32)
+        if (deadline) {
+            std::size_t read = 0;
+            if (!overlapped_transfer(connection, true, target + offset, size - offset, read,
+                                     *deadline))
+                return false;
+            offset += read;
+            continue;
+        }
         DWORD read = 0;
         const auto chunk = static_cast<DWORD>(std::min<std::size_t>(size - offset, 64 * 1024));
         if (!ReadFile(connection, target + offset, chunk, &read, nullptr) || read == 0)
             return false;
         offset += read;
 #else
-        const auto read = ::recv(connection, target + offset, size - offset, 0);
+        if (deadline && !wait_for_socket(connection, POLLIN, *deadline))
+            return false;
+        const auto read =
+            ::recv(connection, target + offset, size - offset, deadline ? MSG_DONTWAIT : 0);
         if (read <= 0) {
             if (read < 0 && errno == EINTR)
+                continue;
+            if (deadline && read < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
                 continue;
             return false;
         }
@@ -369,11 +532,21 @@ bool read_exact(ConnectionHandle connection, std::uint8_t* target, std::size_t s
     return true;
 }
 
-bool write_all(ConnectionHandle connection, std::span<const std::uint8_t> bytes)
+bool write_all(ConnectionHandle connection, std::span<const std::uint8_t> bytes,
+               IoDeadline deadline = std::nullopt)
 {
     std::size_t offset = 0;
     while (offset < bytes.size()) {
 #if defined(_WIN32)
+        if (deadline) {
+            std::size_t written = 0;
+            if (!overlapped_transfer(connection, false,
+                                     const_cast<std::uint8_t*>(bytes.data()) + offset,
+                                     bytes.size() - offset, written, *deadline))
+                return false;
+            offset += written;
+            continue;
+        }
         DWORD written = 0;
         const auto chunk =
             static_cast<DWORD>(std::min<std::size_t>(bytes.size() - offset, 64 * 1024));
@@ -381,10 +554,14 @@ bool write_all(ConnectionHandle connection, std::span<const std::uint8_t> bytes)
             return false;
         offset += written;
 #else
-        const auto written =
-            ::send(connection, bytes.data() + offset, bytes.size() - offset, MSG_NOSIGNAL);
+        if (deadline && !wait_for_socket(connection, POLLOUT, *deadline))
+            return false;
+        const auto written = ::send(connection, bytes.data() + offset, bytes.size() - offset,
+                                    MSG_NOSIGNAL | (deadline ? MSG_DONTWAIT : 0));
         if (written <= 0) {
             if (written < 0 && errno == EINTR)
+                continue;
+            if (deadline && written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
                 continue;
             return false;
         }
@@ -394,16 +571,18 @@ bool write_all(ConnectionHandle connection, std::span<const std::uint8_t> bytes)
     return true;
 }
 
-bool send_payload(ConnectionHandle connection, std::string_view payload)
+bool send_payload(ConnectionHandle connection, std::string_view payload,
+                  IoDeadline deadline = std::nullopt)
 {
     const auto frame = encode_frame(payload);
-    return !frame.empty() && write_all(connection, frame);
+    return !frame.empty() && write_all(connection, frame, deadline);
 }
 
-std::optional<std::string> receive_payload(ConnectionHandle connection)
+std::optional<std::string> receive_payload(ConnectionHandle connection,
+                                           IoDeadline deadline = std::nullopt)
 {
     std::array<std::uint8_t, 4> header{};
-    if (!read_exact(connection, header.data(), header.size()))
+    if (!read_exact(connection, header.data(), header.size(), deadline))
         return std::nullopt;
     const std::uint32_t length = (static_cast<std::uint32_t>(header[0]) << 24U) |
                                  (static_cast<std::uint32_t>(header[1]) << 16U) |
@@ -412,7 +591,8 @@ std::optional<std::string> receive_payload(ConnectionHandle connection)
     if (length == 0 || length > max_frame_bytes)
         return std::nullopt;
     std::string payload(length, '\0');
-    if (!read_exact(connection, reinterpret_cast<std::uint8_t*>(payload.data()), payload.size()))
+    if (!read_exact(connection, reinterpret_cast<std::uint8_t*>(payload.data()), payload.size(),
+                    deadline))
         return std::nullopt;
     return payload;
 }
@@ -511,8 +691,7 @@ public:
             const auto token = next_request_token_.fetch_add(1);
             {
                 std::scoped_lock lock(queue_mutex_);
-                active_.emplace(token,
-                                ActiveRequest{client, queued.request_id, false});
+                active_.emplace(token, ActiveRequest{client, queued.request_id, false});
             }
             touch();
             return {{"ok", true},
@@ -524,8 +703,7 @@ public:
         }
     }
 
-    Json complete_request(std::uint64_t token, bool ok, const Json& result,
-                          std::string_view error)
+    Json complete_request(std::uint64_t token, bool ok, const Json& result, std::string_view error)
     {
         ActiveRequest active;
         {
@@ -534,15 +712,51 @@ public:
             if (found == active_.end())
                 return error_json("daemon request token is not active");
             active = found->second;
-            active_.erase(found);
+        }
+        bool delivered = false;
+        const auto client = active.client.lock();
+        if (client && client->current() != invalid_connection) {
+            const auto result_text = result.dump();
+            delivered = client->send(result_event_json(active.request_id, ok, result_text, error));
+        }
+        {
+            std::scoped_lock lock(queue_mutex_);
+            active_.erase(token);
         }
         touch();
+        active_cv_.notify_all();
+        return {{"ok", true}, {"delivered", delivered}};
+    }
+
+    Json emit_request_event(std::uint64_t token, const Json& event)
+    {
+        ActiveRequest active;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto found = active_.find(token);
+            if (found == active_.end())
+                return error_json("daemon request token is not active");
+            active = found->second;
+        }
         const auto client = active.client.lock();
         if (!client || client->current() == invalid_connection)
             return {{"ok", true}, {"delivered", false}};
-        const auto result_text = result.dump();
-        const auto delivered = client->send(result_event_json(active.request_id, ok, result_text, error));
-        return {{"ok", true}, {"delivered", delivered}};
+        const auto type = event.value("type", std::string{});
+        std::string payload;
+        if (type == "stdout" || type == "stderr") {
+            if (!event.contains("text") || !event["text"].is_string())
+                return error_json("daemon text event requires text");
+            payload = text_event_json(type, active.request_id, event["text"].get<std::string>());
+        } else if (type == "progress") {
+            if (!event.contains("message") || !event["message"].is_string())
+                return error_json("daemon progress event requires message");
+            payload = progress_event_json(active.request_id, event["message"].get<std::string>(),
+                                          event.value("completed", std::uint64_t{0}),
+                                          event.value("total", std::uint64_t{0}));
+        } else {
+            return error_json("unsupported daemon event type");
+        }
+        return {{"ok", true}, {"delivered", client->send(payload)}};
     }
 
     Json cancellation_status(std::uint64_t token)
@@ -576,6 +790,12 @@ public:
         return status_json();
     }
 
+    Json set_project_session_count(std::uint64_t count)
+    {
+        project_sessions_.store(count);
+        return status_json();
+    }
+
     Json wait()
     {
         {
@@ -588,14 +808,20 @@ public:
 
     void force_stop()
     {
-        const auto state = state_.load();
+        const auto state = state_.exchange(State::stopped);
         if (state == State::stopped)
             return;
-        state_.store(State::draining);
-        cancel_queued("daemon is draining");
-        close_listener();
+        cancel_queued("daemon is stopping");
+        stop_accepting();
+#if !defined(_WIN32)
+        std::error_code error;
+        std::filesystem::remove(endpoint_.socket_path, error);
+#endif
+        release_lifetime_ownership();
         close_clients();
-        finish_if_safe();
+        state_cv_.notify_all();
+        active_cv_.notify_all();
+        critical_cv_.notify_all();
         join_threads();
     }
 
@@ -612,8 +838,10 @@ public:
         {
             std::scoped_lock lock(queue_mutex_);
             result["queuedRequests"] = queued_.size();
+            result["activeRequests"] = active_.size();
         }
         result["criticalSections"] = critical_sections_.load();
+        result["projectSessions"] = project_sessions_.load();
         return result;
     }
 
@@ -822,14 +1050,10 @@ private:
                 continue;
             }
             if (method == "stop") {
-                state_.store(State::draining);
-                cancel_queued("daemon is draining");
-                {
-                    std::unique_lock lock(critical_mutex_);
-                    critical_cv_.wait(lock, [this] { return critical_sections_.load() == 0; });
-                }
+                begin_drain();
+                wait_for_drain();
+                finish_if_safe();
                 client->send(result_event_json(request_id, true, status_json().dump()));
-                request_stop();
                 break;
             }
             if (state_.load() == State::draining || state_.load() == State::stopped) {
@@ -907,9 +1131,10 @@ private:
     void cancel_client_requests(const std::shared_ptr<ClientConnection>& client)
     {
         std::scoped_lock lock(queue_mutex_);
-        queued_.erase(std::remove_if(queued_.begin(), queued_.end(), [&](const QueuedRequest& queued) {
-                          return queued.client.lock() == client;
-                      }),
+        queued_.erase(std::remove_if(queued_.begin(), queued_.end(),
+                                     [&](const QueuedRequest& queued) {
+                                         return queued.client.lock() == client;
+                                     }),
                       queued_.end());
         for (auto& [token, active] : active_) {
             (void)token;
@@ -943,34 +1168,58 @@ private:
         queue_cv_.notify_all();
     }
 
-    void request_stop()
+    void begin_drain()
     {
         const auto prior = state_.exchange(State::draining);
         if (prior == State::stopped)
             return;
         cancel_queued("daemon is draining");
+        stop_accepting();
+    }
+
+    void wait_for_drain()
+    {
+        {
+            std::unique_lock lock(queue_mutex_);
+            active_cv_.wait(lock, [this] { return active_.empty(); });
+        }
         {
             std::unique_lock lock(critical_mutex_);
             critical_cv_.wait(lock, [this] { return critical_sections_.load() == 0; });
         }
-        close_listener();
-        close_clients();
+    }
+
+    void request_stop()
+    {
+        begin_drain();
+        if (state_.load() == State::stopped)
+            return;
+        wait_for_drain();
         finish_if_safe();
+        close_clients();
     }
 
     void finish_if_safe()
     {
         if (state_.load() != State::draining || critical_sections_.load() != 0)
             return;
-        state_.store(State::stopped);
+        {
+            std::scoped_lock lock(queue_mutex_);
+            if (!queued_.empty() || !active_.empty())
+                return;
+        }
+        State expected = State::draining;
+        if (!state_.compare_exchange_strong(expected, State::stopped))
+            return;
 #if !defined(_WIN32)
         std::error_code error;
         std::filesystem::remove(endpoint_.socket_path, error);
 #endif
+        release_lifetime_ownership();
         state_cv_.notify_all();
     }
 
-    void close_listener()
+    void stop_accepting()
     {
         std::scoped_lock lock(listener_mutex_);
 #if defined(_WIN32)
@@ -979,6 +1228,19 @@ private:
             CloseHandle(pending_pipe_);
             pending_pipe_ = invalid_connection;
         }
+#else
+        if (listener_ >= 0) {
+            ::shutdown(listener_, SHUT_RDWR);
+            ::close(listener_);
+            listener_ = -1;
+        }
+#endif
+    }
+
+    void release_lifetime_ownership()
+    {
+        std::scoped_lock lock(listener_mutex_);
+#if defined(_WIN32)
         if (lifetime_mutex_ != nullptr) {
             if (lifetime_mutex_owned_)
                 ReleaseMutex(lifetime_mutex_);
@@ -987,17 +1249,18 @@ private:
             lifetime_mutex_owned_ = false;
         }
 #else
-        if (listener_ >= 0) {
-            ::shutdown(listener_, SHUT_RDWR);
-            ::close(listener_);
-            listener_ = -1;
-        }
         if (lifetime_lock_ >= 0) {
             ::flock(lifetime_lock_, LOCK_UN);
             ::close(lifetime_lock_);
             lifetime_lock_ = -1;
         }
 #endif
+    }
+
+    void close_listener()
+    {
+        stop_accepting();
+        release_lifetime_ownership();
     }
 
     void close_clients()
@@ -1017,6 +1280,13 @@ private:
             std::max<std::uint64_t>(10, std::min<std::uint64_t>(250, context_.daemon_idle_ms / 4)));
         while (state_.load() != State::stopped && state_.load() != State::draining) {
             std::this_thread::sleep_for(sleep_interval);
+            if (critical_sections_.load() != 0)
+                continue;
+            {
+                std::scoped_lock lock(queue_mutex_);
+                if (!queued_.empty() || !active_.empty())
+                    continue;
+            }
             const auto elapsed = now_millis() - last_activity_millis_.load();
             if (elapsed >= context_.daemon_idle_ms) {
                 request_stop();
@@ -1047,12 +1317,14 @@ private:
     std::atomic<State> state_{State::stopped};
     std::atomic<std::uint64_t> last_activity_millis_{0};
     std::atomic<std::uint64_t> critical_sections_{0};
+    std::atomic<std::uint64_t> project_sessions_{0};
     std::mutex critical_mutex_;
     std::condition_variable critical_cv_;
     mutable std::mutex state_mutex_;
     std::condition_variable state_cv_;
     mutable std::mutex queue_mutex_;
     std::condition_variable queue_cv_;
+    std::condition_variable active_cv_;
     std::vector<QueuedRequest> queued_;
     std::unordered_map<std::uint64_t, ActiveRequest> active_;
     std::atomic<std::uint64_t> next_request_token_{1};
@@ -1075,13 +1347,22 @@ private:
 std::mutex server_mutex;
 std::shared_ptr<BrokerServer> local_server;
 
-ConnectionHandle connect_endpoint(const Endpoint& endpoint)
+ConnectionHandle connect_endpoint(const Endpoint& endpoint, IoDeadline deadline = std::nullopt)
 {
 #if defined(_WIN32)
-    if (!WaitNamedPipeW(endpoint.pipe_name.c_str(), 100))
+    DWORD wait_timeout = 100;
+    if (deadline) {
+        const auto remaining = remaining_millis(*deadline);
+        if (remaining == 0)
+            return invalid_connection;
+        wait_timeout = static_cast<DWORD>(
+            std::min<std::uint64_t>(remaining, static_cast<std::uint64_t>(INFINITE - 1)));
+    }
+    if (!WaitNamedPipeW(endpoint.pipe_name.c_str(), wait_timeout))
         return invalid_connection;
+    const auto flags = deadline ? FILE_FLAG_OVERLAPPED : 0;
     const auto pipe = CreateFileW(endpoint.pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
-                                  nullptr, OPEN_EXISTING, 0, nullptr);
+                                  nullptr, OPEN_EXISTING, flags, nullptr);
     return pipe == INVALID_HANDLE_VALUE ? invalid_connection : pipe;
 #else
     const auto socket = ::socket(AF_UNIX, SOCK_STREAM, 0);
@@ -1091,7 +1372,27 @@ ConnectionHandle connect_endpoint(const Endpoint& endpoint)
     address.sun_family = AF_UNIX;
     const auto socket_text = endpoint.socket_path.string();
     std::memcpy(address.sun_path, socket_text.c_str(), socket_text.size() + 1);
-    if (::connect(socket, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
+    if (!deadline) {
+        if (::connect(socket, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
+            ::close(socket);
+            return invalid_connection;
+        }
+        return socket;
+    }
+    const auto flags = ::fcntl(socket, F_GETFL, 0);
+    if (flags < 0 || ::fcntl(socket, F_SETFL, flags | O_NONBLOCK) != 0) {
+        ::close(socket);
+        return invalid_connection;
+    }
+    if (::connect(socket, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0)
+        return socket;
+    if (errno != EINPROGRESS || !wait_for_socket(socket, POLLOUT, *deadline)) {
+        ::close(socket);
+        return invalid_connection;
+    }
+    int error = 0;
+    socklen_t error_size = sizeof(error);
+    if (::getsockopt(socket, SOL_SOCKET, SO_ERROR, &error, &error_size) != 0 || error != 0) {
         ::close(socket);
         return invalid_connection;
     }
@@ -1101,15 +1402,17 @@ ConnectionHandle connect_endpoint(const Endpoint& endpoint)
 
 Json client_request(const BrokerContext& context, std::string_view method, std::string request_id,
                     Json request_payload = Json::object(),
-                    std::optional<std::uint64_t> cancel_after_ms = std::nullopt)
+                    std::optional<std::uint64_t> cancel_after_ms = std::nullopt,
+                    IoDeadline deadline = std::nullopt)
 {
+    ClientInterruptScope interrupt_scope(method == "invoke");
     Endpoint endpoint;
     try {
         endpoint = make_endpoint(context);
     } catch (const std::exception& error) {
         return {{"ok", false}, {"error", error.what()}};
     }
-    const auto connection = connect_endpoint(endpoint);
+    const auto connection = connect_endpoint(endpoint, deadline);
     if (connection == invalid_connection) {
         if (method == "status")
             return {{"ok", true},
@@ -1131,29 +1434,81 @@ Json client_request(const BrokerContext& context, std::string_view method, std::
                           {"requestId", request_id},
                           {"method", std::string(method)},
                           {"payload", std::move(request_payload)}};
-    if (!send_payload(connection, request.dump())) {
-        close_connection(connection);
+    if (!send_payload(connection, request.dump(), deadline)) {
+        close_outbound_connection(connection);
         return {{"ok", false}, {"error", "failed to send daemon request"}};
+    }
+    std::optional<std::jthread> interrupt_watcher;
+    if (interrupt_scope.enabled()) {
+        interrupt_watcher.emplace([connection, request_id](std::stop_token stop_token) {
+            while (!stop_token.stop_requested()) {
+                if (client_interrupt_signal != 0) {
+                    const auto cancel_deadline = Clock::now() + std::chrono::milliseconds(250);
+                    (void)send_payload(connection, cancellation_event_json(request_id),
+                                       cancel_deadline);
+                    return;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+        });
     }
     if (cancel_after_ms) {
         std::this_thread::sleep_for(std::chrono::milliseconds(*cancel_after_ms));
-        if (!send_payload(connection, cancellation_event_json(request_id))) {
-            close_connection(connection);
+        if (!send_payload(connection, cancellation_event_json(request_id), deadline)) {
+            close_outbound_connection(connection);
             return {{"ok", false}, {"error", "failed to send daemon cancellation"}};
         }
     }
-    const auto response = receive_payload(connection);
-    close_connection(connection);
-    if (!response)
-        return {{"ok", false}, {"error", "daemon broker closed without a result"}};
-    auto event = Json::parse(*response, nullptr, false);
-    if (event.is_discarded() || event.value("type", std::string{}) != "result" ||
-        event.value("requestId", std::string{}) != request_id)
-        return {{"ok", false}, {"error", "daemon broker returned an invalid result frame"}};
-    if ((method == "status" || method == "stop") && event.value("ok", false) &&
-        event.contains("result") && event["result"].is_object())
-        return event["result"];
-    return event;
+    for (;;) {
+        const auto response = receive_payload(connection, deadline);
+        if (!response) {
+            close_outbound_connection(connection);
+            return {{"ok", false}, {"error", "daemon broker closed without a result"}};
+        }
+        auto event = Json::parse(*response, nullptr, false);
+        if (event.is_discarded() || event.value("requestId", std::string{}) != request_id) {
+            close_outbound_connection(connection);
+            return {{"ok", false}, {"error", "daemon broker returned an invalid result frame"}};
+        }
+        const auto type = event.value("type", std::string{});
+        if (type == "stdout" || type == "stderr") {
+            if (!event.contains("text") || !event["text"].is_string()) {
+                close_outbound_connection(connection);
+                return {{"ok", false}, {"error", "daemon broker returned an invalid text frame"}};
+            }
+            const auto& text = event["text"].get_ref<const std::string&>();
+            auto* stream = type == "stdout" ? stdout : stderr;
+            if (!text.empty()) {
+                std::fwrite(text.data(), 1, text.size(), stream);
+                std::fflush(stream);
+            }
+            continue;
+        }
+        if (type == "progress") {
+            if (!event.contains("message") || !event["message"].is_string()) {
+                close_outbound_connection(connection);
+                return {{"ok", false},
+                        {"error", "daemon broker returned an invalid progress frame"}};
+            }
+            const auto& message = event["message"].get_ref<const std::string&>();
+            if (!message.empty()) {
+                std::fwrite(message.data(), 1, message.size(), stderr);
+                if (message.back() != '\n')
+                    std::fputc('\n', stderr);
+                std::fflush(stderr);
+            }
+            continue;
+        }
+        if (type != "result") {
+            close_outbound_connection(connection);
+            return {{"ok", false}, {"error", "daemon broker returned an invalid result frame"}};
+        }
+        close_outbound_connection(connection);
+        if ((method == "status" || method == "stop") && event.value("ok", false) &&
+            event.contains("result") && event["result"].is_object())
+            return event["result"];
+        return event;
+    }
 }
 
 Json start_local_server(const BrokerContext& context)
@@ -1204,10 +1559,25 @@ Json complete_local_request(const Json& request)
         return {{"ok", false}, {"error", "daemon broker is not running in this process"}};
     if (!request.contains("token") || !request["token"].is_number_unsigned())
         return {{"ok", false}, {"error", "daemon completion requires request token"}};
-    return server->complete_request(request["token"].get<std::uint64_t>(),
-                                    request.value("requestOk", false),
-                                    request.value("result", Json(nullptr)),
-                                    request.value("error", std::string{}));
+    return server->complete_request(
+        request["token"].get<std::uint64_t>(), request.value("requestOk", false),
+        request.value("result", Json(nullptr)), request.value("error", std::string{}));
+}
+
+Json emit_local_request_event(const Json& request)
+{
+    std::shared_ptr<BrokerServer> server;
+    {
+        std::scoped_lock lock(server_mutex);
+        server = local_server;
+    }
+    if (!server)
+        return {{"ok", false}, {"error", "daemon broker is not running in this process"}};
+    if (!request.contains("token") || !request["token"].is_number_unsigned())
+        return {{"ok", false}, {"error", "daemon event requires request token"}};
+    if (!request.contains("event") || !request["event"].is_object())
+        return {{"ok", false}, {"error", "daemon event requires event payload"}};
+    return server->emit_request_event(request["token"].get<std::uint64_t>(), request["event"]);
 }
 
 Json local_cancellation_status(const Json& request)
@@ -1244,6 +1614,49 @@ Json leave_local_critical_section()
     }
     return server ? server->leave_critical_section()
                   : Json{{"ok", false}, {"error", "daemon broker is not running in this process"}};
+}
+
+Json set_local_project_session_count(const Json& request)
+{
+    std::shared_ptr<BrokerServer> server;
+    {
+        std::scoped_lock lock(server_mutex);
+        server = local_server;
+    }
+    if (!server)
+        return {{"ok", false}, {"error", "daemon broker is not running in this process"}};
+    if (!request.contains("projectSessions") || !request["projectSessions"].is_number_unsigned())
+        return {{"ok", false}, {"error", "daemon project session update requires projectSessions"}};
+    return server->set_project_session_count(request["projectSessions"].get<std::uint64_t>());
+}
+
+Json start_local_interrupt_scope()
+{
+    std::scoped_lock lock(local_interrupt_scope_mutex);
+    if (!local_interrupt_scope_active) {
+        acquire_client_interrupt_handler();
+        local_interrupt_scope_active = true;
+    }
+    return {{"ok", true}, {"cancelled", client_interrupt_signal != 0}};
+}
+
+Json local_interrupt_status()
+{
+    std::scoped_lock lock(local_interrupt_scope_mutex);
+    return {{"ok", true},
+            {"active", local_interrupt_scope_active},
+            {"cancelled", local_interrupt_scope_active && client_interrupt_signal != 0}};
+}
+
+Json stop_local_interrupt_scope()
+{
+    std::scoped_lock lock(local_interrupt_scope_mutex);
+    const bool cancelled = local_interrupt_scope_active && client_interrupt_signal != 0;
+    if (local_interrupt_scope_active) {
+        release_client_interrupt_handler();
+        local_interrupt_scope_active = false;
+    }
+    return {{"ok", true}, {"cancelled", cancelled}};
 }
 
 Json wait_local_server()
@@ -1485,7 +1898,9 @@ Json ensure_daemon(const Json& request, const BrokerContext& context)
     if (timeout_ms == 0 || timeout_ms > 30000)
         return {{"ok", false}, {"error", "daemon startupTimeoutMs is out of range"}};
 
-    auto current = client_request(context, "status", "ensure-status");
+    const auto deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
+    auto current =
+        client_request(context, "status", "ensure-status", Json::object(), std::nullopt, deadline);
     if (current.value("running", false)) {
         current["started"] = false;
         return current;
@@ -1509,11 +1924,11 @@ Json ensure_daemon(const Json& request, const BrokerContext& context)
         return {{"ok", false}, {"error", error.what()}};
     }
 
-    const auto deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
     const bool owner = startup_lock->try_acquire();
     bool spawned = false;
     if (owner) {
-        current = client_request(context, "status", "ensure-status-owner");
+        current = client_request(context, "status", "ensure-status-owner", Json::object(),
+                                 std::nullopt, deadline);
         if (!current.value("running", false)) {
 #if !defined(_WIN32)
             if (!safe_remove_stale_socket(endpoint))
@@ -1526,7 +1941,8 @@ Json ensure_daemon(const Json& request, const BrokerContext& context)
     }
 
     while (Clock::now() < deadline) {
-        auto status = client_request(context, "status", "ensure-status-wait");
+        auto status = client_request(context, "status", "ensure-status-wait", Json::object(),
+                                     std::nullopt, deadline);
         if (status.value("running", false)) {
             status["started"] = spawned;
             return status;
@@ -1671,12 +2087,22 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = take_local_request();
     else if (action == "serve-complete")
         result = complete_local_request(parsed);
+    else if (action == "serve-event")
+        result = emit_local_request_event(parsed);
     else if (action == "serve-cancelled")
         result = local_cancellation_status(parsed);
     else if (action == "serve-enter-critical")
         result = enter_local_critical_section();
     else if (action == "serve-leave-critical")
         result = leave_local_critical_section();
+    else if (action == "serve-project-sessions")
+        result = set_local_project_session_count(parsed);
+    else if (action == "local-cancel-start")
+        result = start_local_interrupt_scope();
+    else if (action == "local-cancelled")
+        result = local_interrupt_status();
+    else if (action == "local-cancel-stop")
+        result = stop_local_interrupt_scope();
     else if (action == "serve-wait")
         result = wait_local_server();
     else if (action == "serve-abort")

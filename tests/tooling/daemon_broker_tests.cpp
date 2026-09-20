@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -362,6 +363,226 @@ TEST_CASE("active daemon request observes client cancellation")
     REQUIRE(invoke_daemon(request)["ok"] == true);
 }
 
+TEST_CASE("active daemon request turns process interrupt into cooperative cancellation")
+{
+    auto request = context(unique_build("active-signal-cancel"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    auto work_request = request;
+    work_request["action"] = "request";
+    work_request["requestId"] = "active-signal-cancel";
+    work_request["method"] = "invoke";
+    work_request["payload"] = Json{{"argv", Json::array({"validate"})}};
+    auto pending =
+        std::async(std::launch::async, [work_request]() { return invoke_daemon(work_request); });
+
+    request["action"] = "serve-next";
+    const auto next = invoke_daemon(request);
+    REQUIRE(next["ok"] == true);
+    REQUIRE(next["stopped"] == false);
+
+    std::raise(SIGINT);
+    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+    request["action"] = "serve-cancelled";
+    request["token"] = next["token"];
+    const auto cancelled = invoke_daemon(request);
+    REQUIRE(cancelled["ok"] == true);
+    CHECK(cancelled["active"] == true);
+    CHECK(cancelled["cancelled"] == true);
+
+    request["action"] = "serve-complete";
+    request["requestOk"] = false;
+    request["result"] = nullptr;
+    request["error"] = "request cancelled";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    REQUIRE(pending.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    const auto result = pending.get();
+    CHECK(result["ok"] == false);
+    CHECK(result["error"] == "request cancelled");
+
+    request.erase("token");
+    request.erase("requestOk");
+    request.erase("result");
+    request.erase("error");
+    request["action"] = "stop";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-wait";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+
+TEST_CASE("local ScriptC fallback observes process cancellation")
+{
+    auto request = context(unique_build("local-cancel"));
+    request["action"] = "local-cancel-start";
+    const auto started = invoke_daemon(request);
+    REQUIRE(started["ok"] == true);
+    CHECK(started["cancelled"] == false);
+
+    std::raise(SIGINT);
+    request["action"] = "local-cancelled";
+    const auto cancelled = invoke_daemon(request);
+    REQUIRE(cancelled["ok"] == true);
+    CHECK(cancelled["active"] == true);
+    CHECK(cancelled["cancelled"] == true);
+
+    request["action"] = "local-cancel-stop";
+    const auto stopped = invoke_daemon(request);
+    REQUIRE(stopped["ok"] == true);
+    CHECK(stopped["cancelled"] == true);
+
+    request["action"] = "local-cancelled";
+    const auto inactive = invoke_daemon(request);
+    REQUIRE(inactive["ok"] == true);
+    CHECK(inactive["active"] == false);
+    CHECK(inactive["cancelled"] == false);
+}
+
+TEST_CASE("daemon client accepts streamed events before the final result")
+{
+    auto request = context(unique_build("stream-events"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    auto work_request = request;
+    work_request["action"] = "request";
+    work_request["requestId"] = "stream-events";
+    work_request["method"] = "invoke";
+    auto pending =
+        std::async(std::launch::async, [work_request]() { return invoke_daemon(work_request); });
+
+    request["action"] = "serve-next";
+    const auto next = invoke_daemon(request);
+    REQUIRE(next["ok"] == true);
+    REQUIRE(next["stopped"] == false);
+
+    request["action"] = "serve-event";
+    request["token"] = next["token"];
+    request["event"] = Json{{"type", "stdout"}, {"text", "streamed-event\n"}};
+    const auto streamed = invoke_daemon(request);
+    REQUIRE(streamed["ok"] == true);
+    CHECK(streamed["delivered"] == true);
+    CHECK(pending.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout);
+
+    request.erase("event");
+    request["action"] = "serve-complete";
+    request["requestOk"] = true;
+    request["result"] = Json{{"value", 9}};
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    REQUIRE(pending.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    const auto result = pending.get();
+    CHECK(result["ok"] == true);
+    CHECK(result["result"] == Json{{"value", 9}});
+
+    request.erase("token");
+    request.erase("requestOk");
+    request.erase("result");
+    request["action"] = "stop";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-wait";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+
+TEST_CASE("daemon graceful stop waits for active requests to settle")
+{
+    auto request = context(unique_build("active-drain"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    auto work_request = request;
+    work_request["action"] = "request";
+    work_request["requestId"] = "active-drain";
+    work_request["method"] = "invoke";
+    work_request["payload"] = Json{{"argv", Json::array({"validate"})}};
+    auto pending =
+        std::async(std::launch::async, [work_request]() { return invoke_daemon(work_request); });
+
+    request["action"] = "serve-next";
+    const auto next = invoke_daemon(request);
+    REQUIRE(next["ok"] == true);
+    REQUIRE(next["stopped"] == false);
+
+    auto stop_request = request;
+    stop_request.erase("token");
+    stop_request["action"] = "stop";
+    auto stopping =
+        std::async(std::launch::async, [stop_request]() { return invoke_daemon(stop_request); });
+    CHECK(stopping.wait_for(std::chrono::milliseconds(80)) == std::future_status::timeout);
+
+    request["action"] = "serve-complete";
+    request["token"] = next["token"];
+    request["requestOk"] = false;
+    request["result"] = nullptr;
+    request["error"] = "request cancelled";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    REQUIRE(stopping.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    const auto stopped = stopping.get();
+    REQUIRE(stopped["ok"] == true);
+    CHECK(stopped["running"] == false);
+    REQUIRE(pending.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    (void)pending.get();
+
+    request.erase("token");
+    request.erase("requestOk");
+    request.erase("result");
+    request.erase("error");
+    request["action"] = "serve-wait";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+
+TEST_CASE("daemon idle timeout ignores active and queued work")
+{
+    auto request = context(unique_build("active-idle"));
+    request["daemonIdleMs"] = 60;
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    auto work_request = request;
+    work_request["action"] = "request";
+    work_request["requestId"] = "active-idle";
+    work_request["method"] = "invoke";
+    auto pending =
+        std::async(std::launch::async, [work_request]() { return invoke_daemon(work_request); });
+
+    request["action"] = "serve-next";
+    const auto next = invoke_daemon(request);
+    REQUIRE(next["ok"] == true);
+    REQUIRE(next["stopped"] == false);
+    std::this_thread::sleep_for(std::chrono::milliseconds(140));
+
+    auto status_request = request;
+    status_request.erase("token");
+    status_request["action"] = "status";
+    const auto active_status = invoke_daemon(status_request);
+    CHECK(active_status["running"] == true);
+    CHECK(active_status["state"] == "ready");
+
+    request["action"] = "serve-complete";
+    request["token"] = next["token"];
+    request["requestOk"] = true;
+    request["result"] = Json{{"done", true}};
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    REQUIRE(pending.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    (void)pending.get();
+
+    request.erase("token");
+    request.erase("requestOk");
+    request.erase("result");
+    request["action"] = "serve-wait";
+    auto waiting = std::async(std::launch::async, [request]() { return invoke_daemon(request); });
+    REQUIRE(waiting.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    CHECK(waiting.get()["state"] == "stopped");
+}
+
 TEST_CASE("daemon graceful stop waits for transaction critical sections")
 {
     auto request = context(unique_build("critical"));
@@ -431,6 +652,54 @@ TEST_CASE("daemon idle drain preserves transaction critical sections")
 }
 
 #if !defined(_WIN32)
+TEST_CASE("daemon ensure bounds hung status I/O by the startup deadline")
+{
+    auto runtime = temp_runtime_root("hung-status");
+    std::filesystem::create_directories(runtime.path);
+    auto request = context(unique_build("hung-status"));
+    request["runtimeRoot"] = runtime.path.generic_string();
+    request["action"] = "ensure";
+    request["executablePath"] = "/bin/false";
+    request["startupTimeoutMs"] = 80;
+
+    const auto identity = noveltea::tooling::daemon::endpoint_identity(
+        request["build"].get<std::string>(), request["protocol"].get<std::uint32_t>());
+    const auto socket_path = runtime.path / ("daemon-" + identity + ".sock");
+    const auto lifetime_path = runtime.path / ("daemon-" + identity + ".live.lock");
+    const auto listener = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    REQUIRE(listener >= 0);
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    const auto socket_text = socket_path.string();
+    REQUIRE(socket_text.size() < sizeof(address.sun_path));
+    std::memcpy(address.sun_path, socket_text.c_str(), socket_text.size() + 1);
+    REQUIRE(::bind(listener, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
+    REQUIRE(::listen(listener, 1) == 0);
+
+    const auto lifetime = ::open(lifetime_path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+    REQUIRE(lifetime >= 0);
+    REQUIRE(::flock(lifetime, LOCK_EX | LOCK_NB) == 0);
+
+    std::thread hung([listener] {
+        const auto connection = ::accept(listener, nullptr, nullptr);
+        if (connection >= 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(350));
+            ::close(connection);
+        }
+    });
+    const auto started = std::chrono::steady_clock::now();
+    const auto rejected = invoke_daemon(request);
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    CHECK(rejected["ok"] == false);
+    CHECK(elapsed < std::chrono::milliseconds(250));
+
+    ::shutdown(listener, SHUT_RDWR);
+    ::close(listener);
+    hung.join();
+    ::flock(lifetime, LOCK_UN);
+    ::close(lifetime);
+}
+
 TEST_CASE("daemon startup refuses to unlink an endpoint with live ownership")
 {
     auto runtime = temp_runtime_root("live-endpoint");

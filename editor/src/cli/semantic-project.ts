@@ -13,6 +13,8 @@ import { authoringProjectSchema } from '../shared/project-schema/authoring-proje
 import { buildShaderMaterialProject } from '../shared/project-schema/shader-material-project';
 import { localizationFontCoverageLocales } from '../shared/localization-font-coverage';
 import {
+  projectWorkspaceAffectedFiles,
+  projectWorkspaceFile,
   projectWorkspaceFiles,
   type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceDependencyAnalysis,
@@ -177,20 +179,34 @@ function changedWorkspaceFiles(
   after: AuthoringProject,
   scriptSourcePaths: Readonly<Record<string, string>>,
   referenceRepairs: readonly string[] = [],
+  affectedPaths: readonly string[] = [],
 ): CliMutationPlan {
-  const beforeFiles = projectWorkspaceFiles(
-    before.project,
-    before.project.editor,
-    before.scriptSourcePaths,
+  const affectedFiles = projectWorkspaceAffectedFiles(
+    before,
+    after,
+    scriptSourcePaths,
+    affectedPaths,
   );
-  const afterFiles = projectWorkspaceFiles(after, after.editor, scriptSourcePaths);
+  const beforeFiles = affectedFiles
+    ? null
+    : projectWorkspaceFiles(before.project, before.project.editor, before.scriptSourcePaths);
+  const afterFiles = affectedFiles
+    ? null
+    : projectWorkspaceFiles(after, after.editor, scriptSourcePaths);
   const writes: string[] = [];
   const deletes: string[] = [];
-  for (const file of [
-    ...new Set([...Object.keys(beforeFiles), ...Object.keys(afterFiles)]),
-  ].sort()) {
-    if (beforeFiles[file] === afterFiles[file]) continue;
-    if (afterFiles[file] === undefined) deletes.push(file);
+  const candidates = affectedFiles
+    ? [...affectedFiles]
+    : [...new Set([...Object.keys(beforeFiles!), ...Object.keys(afterFiles!)])].sort();
+  for (const file of candidates) {
+    const beforeText = affectedFiles
+      ? projectWorkspaceFile(before.project, before.project.editor, before.scriptSourcePaths, file)
+      : beforeFiles![file];
+    const afterText = affectedFiles
+      ? projectWorkspaceFile(after, after.editor, scriptSourcePaths, file)
+      : afterFiles![file];
+    if (beforeText === afterText) continue;
+    if (afterText === undefined) deletes.push(file);
     else writes.push(file);
   }
   return {
@@ -432,6 +448,7 @@ export async function createEntity(
     candidate,
     snapshot.scriptSourcePaths,
     result.affectedPaths,
+    result.patches.map((patch) => patch.path),
   );
   if (!dryRun) {
     await workspace.write(
@@ -550,6 +567,7 @@ export async function renameEntity(
     snapshot,
     candidate,
     sourcePaths,
+    patches.map((patch) => patch.path),
     patches.map((patch) => patch.path),
   );
   if (!options.dryRun) {
@@ -690,6 +708,7 @@ export async function deleteEntity(
     candidate,
     snapshot.scriptSourcePaths,
     repair.plan.preview.map((item) => `${item.sourcePath}: ${item.action}`),
+    repair.plan.patches.map((patch) => patch.path),
   );
   if (!options.dryRun) {
     await workspace.write(

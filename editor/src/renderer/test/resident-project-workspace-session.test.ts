@@ -67,6 +67,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(firstSnapshot.project.rooms.foyer.label).toBe('Foyer');
     expect(second.snapshot.project.rooms.foyer.label).toBe('Changed Foyer');
     expect(second.sourceWork.parsedJsonSources).toBe(1);
+    expect(second.sourceWork.projectedJsonSources).toBe(1);
     expect(second.sourceWork.wholeProjectSchemaParses).toBe(0);
   });
 
@@ -225,6 +226,63 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(raced).toBe(true);
     expect(reopened.snapshot.project.rooms.foyer.label).toBe('Second Edit');
     expect(first.snapshot.project.rooms.foyer.label).toBe('Foyer');
+  });
+
+  it('reconciles every source that changes before candidate promotion', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    project.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      data: defaultRoomData('Hall'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const workspace = new ResidentProjectWorkspaceService(fileSystem);
+    const first = await workspace.open(ROOT);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('Initial Project open failed.');
+
+    const foyerPath = 'records/rooms/foyer.json';
+    const hallPath = 'records/rooms/hall.json';
+    const firstEdit = structuredClone(project);
+    firstEdit.rooms.foyer.label = 'Changed Foyer';
+    const secondEdit = structuredClone(firstEdit);
+    secondEdit.rooms.hall.label = 'Changed Hall';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${foyerPath}`,
+      projectWorkspaceFiles(firstEdit, firstEdit.editor)[foyerPath]!,
+    );
+
+    const originalReadBytes = fileSystem.readBytes.bind(fileSystem);
+    let raced = false;
+    fileSystem.readBytes = async (value) => {
+      const bytes = await originalReadBytes(value);
+      if (!raced && fileSystem.resolvePath(value) === `${ROOT}/${foyerPath}`) {
+        raced = true;
+        await fileSystem.writeTextAtomic(
+          `${ROOT}/${hallPath}`,
+          projectWorkspaceFiles(secondEdit, secondEdit.editor)[hallPath]!,
+        );
+      }
+      return bytes;
+    };
+
+    const reopened = await workspace.open(ROOT);
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('Raced Project reopen failed.');
+    expect(raced).toBe(true);
+    expect(reopened.snapshot.project.rooms.foyer.label).toBe('Changed Foyer');
+    expect(reopened.snapshot.project.rooms.hall.label).toBe('Changed Hall');
   });
 
   it('falls back safely for structural source additions and deletions', async () => {

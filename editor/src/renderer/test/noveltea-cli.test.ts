@@ -441,6 +441,42 @@ describe('NovelTea headless CLI', () => {
     expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
   });
 
+  it('hydrates the resident Project cache when a non-validation read opens the session first', async () => {
+    const value = fixture(validProject(), true);
+    const nativeTools = validationNativeTools();
+    const published = await runNovelTeaCli(
+      ['--json', 'validate'],
+      options(value, root, nativeTools),
+    );
+    expect(published.exitCode).toBe(0);
+
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    const usages = await runNovelTeaCli(['--json', 'usages', 'rooms', 'start'], {
+      ...options(value, root, nativeTools),
+      residentWorkspace,
+    });
+    expect(usages.exitCode).toBe(0);
+    expect(await residentWorkspace.hasResidentSession(root)).toBe(true);
+
+    const instrumentation: Array<{
+      sourceWork: {
+        parsedJsonSources: number;
+        reusedJsonSources: number;
+        wholeProjectSchemaParses: number;
+      };
+    }> = [];
+    const validated = await runNovelTeaCli(['--json', 'validate'], {
+      ...options(value, root, nativeTools),
+      residentWorkspace,
+      skipAuthoringWholeResultCache: true,
+      onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
+    });
+    expect(validated.exitCode).toBe(0);
+    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBe(0);
+    expect(instrumentation.at(-1)?.sourceWork.reusedJsonSources).toBeGreaterThan(0);
+    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
+  });
+
   it('publishes an authoritative persistent authoring generation from a cold resident validation', async () => {
     const value = fixture(validProject(), true);
     const nativeTools = validationNativeTools();
@@ -917,6 +953,8 @@ describe('NovelTea headless CLI', () => {
     project.export.profiles = [profile];
     const value = fixture(project);
     let request: Parameters<NovelTeaCliPlatformToolService['exportProject']>[0] | undefined;
+    let signal: AbortSignal | undefined;
+    const controller = new AbortController();
     const result = await runNovelTeaCli(
       [
         '--json',
@@ -928,25 +966,29 @@ describe('NovelTea headless CLI', () => {
         '--force',
         '--allow-untrusted-template',
       ],
-      options(
-        value,
-        root,
-        undefined,
-        platformTools({
-          async exportProject(value) {
-            request = value;
-            return {
-              ok: true,
-              success: true,
-              cancelled: false,
-              operationId: 'checked',
-              templateToken: 'linux@build-1',
-              outputDirectory: value.outputDirectory,
-              diagnostics: [],
-            };
-          },
-        }),
-      ),
+      {
+        ...options(
+          value,
+          root,
+          undefined,
+          platformTools({
+            async exportProject(value, _onProgress, abortSignal) {
+              request = value;
+              signal = abortSignal;
+              return {
+                ok: true,
+                success: true,
+                cancelled: false,
+                operationId: 'checked',
+                templateToken: 'linux@build-1',
+                outputDirectory: value.outputDirectory,
+                diagnostics: [],
+              };
+            },
+          }),
+        ),
+        abortSignal: controller.signal,
+      },
     );
 
     expect(result.exitCode).toBe(0);
@@ -958,6 +1000,7 @@ describe('NovelTea headless CLI', () => {
       sign: false,
       allowUntrustedTemplate: true,
     });
+    expect(signal).toBe(controller.signal);
   });
 
   it('uses a named shared signing configuration for headless export', async () => {

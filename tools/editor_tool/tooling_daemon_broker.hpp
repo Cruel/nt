@@ -9,7 +9,7 @@
 
 namespace noveltea::tooling::daemon {
 
-inline constexpr std::uint32_t protocol_version = 1;
+inline constexpr std::uint32_t protocol_version = 2;
 inline constexpr std::size_t max_frame_bytes = 1024 * 1024;
 inline constexpr std::uint64_t default_project_session_idle_ms = 5 * 60 * 1000;
 inline constexpr std::uint64_t default_daemon_idle_ms = 10 * 60 * 1000;

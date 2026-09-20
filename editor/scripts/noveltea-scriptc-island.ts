@@ -221,16 +221,19 @@ async function runNovelTeaScriptcIslandScoped(
       } as import('../src/shared/project-source-inventory').ProjectSourceInventory)
     : undefined;
   const environment = invocationContext.environment ?? process.env;
+  const publishResidentProjectSessionCount = () => {
+    if (!invocationContext.residentProjectSessions) return;
+    invokeHost('daemon-project-sessions', String(residentWorkspace?.residentSessionCount() ?? 0));
+  };
   if (invocationContext.residentProjectSessions) {
     residentInvokeHost = invokeHost;
     if (residentWorkspace && invocationContext.projectSessionIdleMs) {
       const evicted = residentWorkspace.evictIdleSessions(invocationContext.projectSessionIdleMs);
       if (evicted > 0) trace(`resident Project idle eviction: ${String(evicted)}`);
     }
+    publishResidentProjectSessionCount();
   }
-  const cancellationCertification =
-    environment.NOVELTEA_CLI_CERTIFICATION === '1' && argv[0] === '__comfyui-cancel-certification';
-  const effectiveArgv = cancellationCertification ? argv.slice(1) : argv;
+  const effectiveArgv = argv;
   const nativeTools = createNativeTools(invokeHost);
   const internal = await runInternalCommand(effectiveArgv, nativeTools, invokeHost);
   if (internal !== null) return internal;
@@ -308,8 +311,28 @@ async function runNovelTeaScriptcIslandScoped(
       );
       const createWorkspace = (
         workspaceFileSystem: import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem,
-      ) =>
-        new serviceModule.ProjectWorkspaceService(
+      ) => {
+        const daemonTransactionLifecycle = invocationContext.residentProjectSessions
+          ? {
+              enterCriticalSection() {
+                const response = JSON.parse(invokeResidentHost('daemon-enter-critical', '')) as {
+                  ok?: boolean;
+                  error?: string;
+                };
+                if (response.ok !== true)
+                  throw new Error(response.error ?? 'Failed to enter daemon transaction boundary.');
+              },
+              leaveCriticalSection() {
+                const response = JSON.parse(invokeResidentHost('daemon-leave-critical', '')) as {
+                  ok?: boolean;
+                  error?: string;
+                };
+                if (response.ok !== true)
+                  throw new Error(response.error ?? 'Failed to leave daemon transaction boundary.');
+              },
+            }
+          : undefined;
+        return new serviceModule.ProjectWorkspaceService(
           workspaceFileSystem,
           new transactionModule.ProjectWorkspaceTransactionService(
             workspaceFileSystem,
@@ -323,8 +346,10 @@ async function runNovelTeaScriptcIslandScoped(
             },
             process.pid,
             randomUUID,
+            daemonTransactionLifecycle,
           ),
         );
+      };
       workspace = createWorkspace(fileSystem);
       if (invocationContext.residentProjectSessions && !residentWorkspace) {
         const { ResidentProjectWorkspaceService } =
@@ -353,11 +378,7 @@ async function runNovelTeaScriptcIslandScoped(
     embeddedBuiltInFiles = comfyUi.scriptcComfyUiWorkflowFiles;
   }
 
-  const cancellationController =
-    cancellationCertification || invocationContext.cancellationProbe ? new AbortController() : null;
-  const cancellationTimer = cancellationCertification
-    ? setTimeout(() => cancellationController?.abort(), 500)
-    : null;
+  const cancellationController = invocationContext.cancellationProbe ? new AbortController() : null;
   const cancellationPoll = invocationContext.cancellationProbe
     ? setInterval(() => {
         if (invocationContext.cancellationProbe?.()) cancellationController?.abort();
@@ -365,6 +386,7 @@ async function runNovelTeaScriptcIslandScoped(
     : null;
   try {
     let validationProfileText = '';
+    const residentSessionCountBefore = residentWorkspace?.residentSessionCount() ?? 0;
     trace('application import starting');
     const { runNovelTeaCli } = await import('../src/cli/application');
     trace('application import completed');
@@ -379,7 +401,17 @@ async function runNovelTeaScriptcIslandScoped(
       nativeTools,
       ...(platformTools ? { platformTools } : {}),
       ...(embeddedBuiltInFiles ? { comfyUiWorkflowLibraryOptions: { embeddedBuiltInFiles } } : {}),
-      ...(cancellationController ? { comfyUiAbortSignal: cancellationController.signal } : {}),
+      ...(cancellationController ? { abortSignal: cancellationController.signal } : {}),
+      ...(invocationContext.residentProjectSessions && !bootstrap.globals.json
+        ? {
+            onPlatformProgress: (stage: string, message: string) => {
+              invokeHost('emit-progress', JSON.stringify({ stage, message }));
+            },
+            onComfyUiProgress: (stage: string, message: string) => {
+              invokeHost('emit-progress', JSON.stringify({ stage, message }));
+            },
+          }
+        : {}),
       ...(agentKitPayload ? { agentKitPayload } : {}),
       readStdinText: () => invokeHost('read-stdin', ''),
       forceRuntimeCacheRebuild,
@@ -395,13 +427,16 @@ async function runNovelTeaScriptcIslandScoped(
           : undefined,
     });
     trace('application invocation completed');
+    const residentSessionCountAfter = residentWorkspace?.residentSessionCount() ?? 0;
+    if (residentSessionCountAfter > residentSessionCountBefore)
+      trace(`resident Project session admitted: ${String(residentSessionCountAfter)}`);
+    publishResidentProjectSessionCount();
     return result(
       commandResult.exitCode,
       commandResult.stdout,
       `${validationProfileText}${commandResult.stderr}`,
     );
   } finally {
-    if (cancellationTimer) clearTimeout(cancellationTimer);
     if (cancellationPoll) clearInterval(cancellationPoll);
   }
 }

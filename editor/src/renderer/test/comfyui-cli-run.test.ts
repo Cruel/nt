@@ -1609,7 +1609,7 @@ describe('noveltea comfyui run scalar filesystem execution', () => {
       {
         cwd: root,
         comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
-        comfyUiAbortSignal: controller.signal,
+        abortSignal: controller.signal,
         onComfyUiProgress: (stage) => {
           if (stage === 'queued') controller.abort();
         },
