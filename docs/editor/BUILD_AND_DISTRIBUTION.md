@@ -136,7 +136,10 @@ platform/architecture, Electron and embedded Node versions, installed production
 staged file hash/mode/size, aggregate resource hashes, and relocation validation. Stage verification
 also executes a real `sharp` encode/decode operation, loads the staged `node-pty` native module, and
 rejects undeclared files, source trees, tests, caches, type-only packages, private keys, and
-checkout-path leaks.
+checkout-path leaks. node-pty staging prunes prebuild directories for other platform/architecture
+tuples before the manifest is created, and both stage and packaged verification require the exact
+current node-pty version plus the target-appropriate native binding rather than accepting an arbitrary
+`.node` file from another desktop target.
 
 The standalone `noveltea` CLI must be built for the release-admitted host or supplied by
 `NOVELTEA_CLI_PATH`. Normal staging refreshes the repository CLI automatically and copies it to
@@ -226,7 +229,12 @@ WasmTrapHandlers=true
 `pnpm -C editor run package:smoke` launches the latest unpacked application under a temporary profile. On
 Linux it uses Xvfb. The smoke verifies main startup, renderer load, preload API, packaged custom
 protocol and traversal rejection, isolation headers, engine-preview serving, editor assets, native
-tool presence, a real packaged `sharp` operation, and clean exit.
+tool presence, a real packaged `sharp` operation, and a real packaged node-pty lifecycle: spawn the
+supported local shell, exchange input/output, resize columns/rows, observe a known shell exit status,
+and explicitly terminate a second PTY cleanly. Release CI runs the same artifact/package-smoke path on
+Linux x64, Windows x64, and macOS arm64; the macOS host CLI is built on the already-qualified Apple
+Silicon desktop-host runner and then consumed by the editor packaging job. Package smoke never resolves
+node-pty or the CLI from a developer checkout or global installation.
 
 ## Native Artifacts and Release Collection
 
