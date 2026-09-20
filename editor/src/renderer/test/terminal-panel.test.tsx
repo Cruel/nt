@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useProjectStore } from '@/project/project-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type {
   TerminalEvent,
@@ -12,7 +13,11 @@ import type {
 
 const terminalMock = vi.hoisted(() => ({
   onData: null as ((data: string) => void) | null,
+  keyHandler: null as ((event: KeyboardEvent) => boolean) | null,
   writes: [] as string[],
+  pastes: [] as string[],
+  selectedText: '',
+  options: {} as Record<string, unknown>,
   resetCount: 0,
   focusCount: 0,
   fitCount: 0,
@@ -22,6 +27,11 @@ vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     cols = 100;
     rows = 30;
+    options: Record<string, unknown>;
+    constructor(options: Record<string, unknown>) {
+      this.options = { ...options };
+      terminalMock.options = this.options;
+    }
     loadAddon() {}
     open() {}
     write(data: string) {
@@ -34,6 +44,18 @@ vi.mock('@xterm/xterm', () => ({
       terminalMock.resetCount += 1;
     }
     dispose() {}
+    attachCustomKeyEventHandler(callback: (event: KeyboardEvent) => boolean) {
+      terminalMock.keyHandler = callback;
+    }
+    hasSelection() {
+      return terminalMock.selectedText.length > 0;
+    }
+    getSelection() {
+      return terminalMock.selectedText;
+    }
+    paste(data: string) {
+      terminalMock.pastes.push(data);
+    }
     onData(callback: (data: string) => void) {
       terminalMock.onData = callback;
       return { dispose() {} };
@@ -81,11 +103,23 @@ const initialState: TerminalHostSnapshot = {
 beforeEach(() => {
   vi.clearAllMocks();
   terminalMock.onData = null;
+  terminalMock.keyHandler = null;
   terminalMock.writes = [];
+  terminalMock.pastes = [];
+  terminalMock.selectedText = '';
+  terminalMock.options = {};
   terminalMock.resetCount = 0;
   terminalMock.focusCount = 0;
   terminalMock.fitCount = 0;
   useProjectStore.getState().clearProject();
+  usePreferencesStore.getState().resetToDefaults();
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: {
+      writeText: vi.fn().mockResolvedValue(undefined),
+      readText: vi.fn().mockResolvedValue('pasted'),
+    },
+  });
   useBottomPanelStore
     .getState()
     .hydrate({ visible: true, activePanelId: 'output', sizePercent: 30 });
@@ -247,5 +281,72 @@ describe('Terminal bottom panel', () => {
     act(() => useBottomPanelStore.getState().setActivePanelId('output'));
     act(() => useBottomPanelStore.getState().setActivePanelId('terminal'));
     await waitFor(() => expect(window.noveltea.ensureTerminalState).toHaveBeenCalledTimes(2));
+  });
+
+  it('applies terminal presentation preferences live without restarting the PTY', async () => {
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 1');
+    const creationCount = vi.mocked(window.noveltea.ensureTerminalState).mock.calls.length;
+    const fitCount = terminalMock.fitCount;
+
+    act(() => {
+      usePreferencesStore.getState().setTerminalPreferences({
+        fontFamily: 'Fira Code, monospace',
+        fontSize: 18,
+        scrollback: 24000,
+      });
+    });
+
+    await waitFor(() => expect(terminalMock.options.fontFamily).toBe('Fira Code, monospace'));
+    expect(terminalMock.options.fontSize).toBe(18);
+    expect(terminalMock.options.scrollback).toBe(24000);
+    await waitFor(() => expect(terminalMock.fitCount).toBeGreaterThan(fitCount));
+    expect(window.noveltea.ensureTerminalState).toHaveBeenCalledTimes(creationCount);
+  });
+
+  it('copies an xterm selection but leaves Ctrl+C unclaimed when there is no selection', async () => {
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 1');
+    await waitFor(() => expect(terminalMock.keyHandler).not.toBeNull());
+
+    terminalMock.selectedText = '';
+    expect(
+      terminalMock.keyHandler?.(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true })),
+    ).toBe(true);
+
+    terminalMock.selectedText = 'selected output';
+    expect(
+      terminalMock.keyHandler?.(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true })),
+    ).toBe(false);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('selected output');
+  });
+
+  it('keeps macOS Command copy/paste separate from Ctrl+C interrupt', async () => {
+    vi.mocked(window.noveltea.getAppInfo).mockResolvedValueOnce({
+      version: 'test',
+      electronVersion: '42.0.0',
+      platform: 'darwin',
+      arch: 'arm64',
+      packaged: false,
+      frameless: false,
+      nativeFrame: true,
+      preferredSystemLanguages: ['en-US'],
+      systemLocale: 'en-US',
+    });
+    useBottomPanelStore.getState().setActivePanelId('terminal');
+    render(<BottomPanel />);
+    await screen.findByText('Terminal 1');
+    await waitFor(() => expect(window.noveltea.getAppInfo).toHaveBeenCalled());
+    await waitFor(() => expect(terminalMock.keyHandler).not.toBeNull());
+
+    expect(
+      terminalMock.keyHandler?.(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true })),
+    ).toBe(true);
+    expect(
+      terminalMock.keyHandler?.(new KeyboardEvent('keydown', { key: 'v', metaKey: true })),
+    ).toBe(false);
+    await waitFor(() => expect(terminalMock.pastes).toContain('pasted'));
   });
 });

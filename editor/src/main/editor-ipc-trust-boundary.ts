@@ -237,6 +237,9 @@ export const selectDirectoryArgumentsSchema = z.tuple([
     })
     .strict(),
 ]);
+export const validateDirectoryArgumentsSchema = z.tuple([
+  z.string().min(1).max(MAX_DIALOG_PATH_LENGTH),
+]);
 
 export const noArgumentsSchema = z.tuple([]);
 export const saveUserExportConfigArgumentsSchema = z.tuple([userExportConfigSchema]);

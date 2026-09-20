@@ -193,6 +193,43 @@ describe('WorkspacePage new project modal', () => {
     expect(useBottomPanelStore.getState().visible).toBe(true);
   });
 
+  it('shows/focuses Terminal with its dedicated shortcut and hides it when already active', () => {
+    let shortcut:
+      | ((command: import('../../shared/editor-shortcuts').EditorShortcutCommand) => void)
+      | null = null;
+    vi.mocked(window.noveltea.onEditorShortcut).mockImplementation((callback) => {
+      shortcut = callback;
+      return () => undefined;
+    });
+    useBottomPanelStore.getState().setVisible(false);
+    render(<WorkspacePage />);
+
+    act(() => shortcut?.('toggle-terminal'));
+    expect(useBottomPanelStore.getState()).toMatchObject({
+      visible: true,
+      activePanelId: 'terminal',
+    });
+    act(() => shortcut?.('toggle-terminal'));
+    expect(useBottomPanelStore.getState().visible).toBe(false);
+  });
+
+  it('does not intercept ordinary editor shortcuts while focus is inside Terminal', () => {
+    render(<WorkspacePage />);
+    const terminal = document.createElement('div');
+    terminal.dataset.terminalPanel = '';
+    const textarea = document.createElement('textarea');
+    terminal.appendChild(textarea);
+    document.body.appendChild(terminal);
+
+    fireEvent.keyDown(textarea, { key: 'p', ctrlKey: true });
+    expect(screen.queryByRole('dialog', { name: /command/i })).not.toBeInTheDocument();
+
+    useBottomPanelStore.getState().setVisible(true);
+    fireEvent.keyDown(textarea, { key: 'j', ctrlKey: true });
+    expect(useBottomPanelStore.getState().visible).toBe(false);
+    terminal.remove();
+  });
+
   it('requires confirmation for a startup Project handoff and opens the imported Project after confirmation', async () => {
     vi.mocked(window.noveltea.takePendingProjectImport)
       .mockResolvedValueOnce({

@@ -34,6 +34,7 @@ import {
   terminalResizeArgumentsSchema,
   terminalSessionArgumentsSchema,
   terminalWriteArgumentsSchema,
+  validateDirectoryArgumentsSchema,
   type EditorIpcEvent,
   type EditorIpcMain,
   type EditorWebContents,
@@ -827,6 +828,13 @@ describe('guarded editor IPC registrar', () => {
       (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
     );
     expect(externalService).not.toHaveBeenCalled();
+  });
+
+  it('bounds directory validation requests at the guarded IPC boundary', () => {
+    expect(validateDirectoryArgumentsSchema.safeParse(['/tmp/Terminal Work']).success).toBe(true);
+    expect(validateDirectoryArgumentsSchema.safeParse([]).success).toBe(false);
+    expect(validateDirectoryArgumentsSchema.safeParse(['/tmp', 'extra']).success).toBe(false);
+    expect(validateDirectoryArgumentsSchema.safeParse(['x'.repeat(32_769)]).success).toBe(false);
   });
 
   it('accepts the owning live packaged top-level frame and parses before calling the service', async () => {

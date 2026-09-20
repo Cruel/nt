@@ -16,6 +16,7 @@ const api: NovelTeaElectronApi = {
   getAppInfo: () => invokeGuarded(IPC_CHANNELS.GET_APP_INFO),
   getDefaultProjectDirectory: () => invokeGuarded(IPC_CHANNELS.GET_DEFAULT_PROJECT_DIRECTORY),
   selectDirectory: (options = {}) => invokeGuarded(IPC_CHANNELS.SELECT_DIRECTORY, options),
+  validateDirectory: (path) => invokeGuarded(IPC_CHANNELS.VALIDATE_DIRECTORY, path),
   selectProjectDirectory: () => invokeGuarded(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY),
   selectPackageOutputPath: (defaultPath: string | null = null) =>
     invokeGuarded(IPC_CHANNELS.SELECT_PACKAGE_OUTPUT_PATH, defaultPath),

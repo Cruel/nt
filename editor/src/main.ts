@@ -118,6 +118,7 @@ import {
 } from './shared/project-import-handoff';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
+import { normalizeTerminalPreferences } from './shared/terminal-preferences';
 import {
   createImageThumbnailProtocolHandler,
   IMAGE_THUMBNAIL_SCHEME,
@@ -186,6 +187,7 @@ import {
   saveUserExportConfigArgumentsSchema,
   saveUserPreferencesArgumentsSchema,
   selectDirectoryArgumentsSchema,
+  validateDirectoryArgumentsSchema,
   stagePlatformExportArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
@@ -538,8 +540,8 @@ function getDefaultProjectDirectory() {
 async function resolveConfiguredTerminalFallbackCwd(): Promise<string | null> {
   try {
     const preferences = await loadNovelTeaUserPreferences();
-    const candidate = preferences.terminalFallbackCwd;
-    if (typeof candidate !== 'string' || candidate.trim() === '') return null;
+    const candidate = normalizeTerminalPreferences(preferences.terminal).fallbackCwd;
+    if (!candidate || candidate.trim() === '') return null;
     const real = await fs.promises.realpath(path.resolve(candidate));
     return (await fs.promises.stat(real)).isDirectory() ? real : null;
   } catch {
@@ -801,6 +803,18 @@ void app.whenReady().then(async () => {
         properties: ['openDirectory', 'createDirectory'],
       });
       return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.VALIDATE_DIRECTORY,
+    (arguments_) => validateDirectoryArgumentsSchema.parse(arguments_),
+    async (candidate) => {
+      try {
+        return (await fs.promises.stat(path.resolve(candidate))).isDirectory();
+      } catch {
+        return false;
+      }
     },
   );
 

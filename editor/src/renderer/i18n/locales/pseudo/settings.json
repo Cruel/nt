@@ -9,6 +9,7 @@
     "preview": "⟦Preview⟧",
     "templates": "⟦Player Templates⟧",
     "templatesDescription": "⟦Manage installed player templates used by platform exports.⟧",
+    "terminal": "⟦Terminal⟧",
     "window": "⟦Window⟧",
     "workspace": "⟦Workspace⟧"
   },
@@ -203,6 +204,25 @@
   "page": {
     "description": "⟦Editor preferences⟧",
     "title": "⟦Settings⟧"
+  },
+  "terminal": {
+    "title": "⟦Terminal⟧",
+    "description": "⟦Configure embedded terminal presentation, fallback location, and notifications.⟧",
+    "fontFamily": "⟦Font family⟧",
+    "fontFamilyDescription": "⟦CSS font-family or font stack used by mounted terminal views.⟧",
+    "fontSize": "⟦Font size⟧",
+    "fontSizeDescription": "⟦Terminal text size from 8 to 32 pixels.⟧",
+    "fallbackCwd": "⟦Fallback working directory⟧",
+    "fallbackCwdDescription": "⟦Used only for new terminals created when no Project is open.⟧",
+    "fallbackCwdAutomatic": "⟦Automatic (NovelTea default Project directory)⟧",
+    "fallbackCwdInvalid": "⟦Choose an existing directory.⟧",
+    "fallbackCwdBrowseTitle": "⟦Select Terminal Fallback Directory⟧",
+    "browse": "⟦Browse…⟧",
+    "resetFallbackCwd": "⟦Reset Terminal fallback directory⟧",
+    "scrollback": "⟦Scrollback lines⟧",
+    "scrollbackDescription": "⟦Number of terminal output lines retained in xterm scrollback.⟧",
+    "desktopNotifications": "⟦Desktop notifications⟧",
+    "desktopNotificationsDescription": "⟦Allow terminal attention events to use native notifications when supported.⟧"
   },
   "preview": {
     "description": "⟦Runtime preview diagnostics and overlays⟧",

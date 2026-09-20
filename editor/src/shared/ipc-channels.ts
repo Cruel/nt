@@ -2,6 +2,7 @@ export const IPC_CHANNELS = {
   GET_APP_INFO: 'noveltea:get-app-info',
   GET_DEFAULT_PROJECT_DIRECTORY: 'noveltea:get-default-project-directory',
   SELECT_DIRECTORY: 'noveltea:select-directory',
+  VALIDATE_DIRECTORY: 'noveltea:validate-directory',
   SELECT_PROJECT_DIRECTORY: 'noveltea:select-project-directory',
   SELECT_PACKAGE_OUTPUT_PATH: 'noveltea:select-package-output-path',
   SELECT_TEMPLATE_ARCHIVE_PATH: 'noveltea:select-template-archive-path',
