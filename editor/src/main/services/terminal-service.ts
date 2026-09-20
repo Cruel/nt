@@ -3,13 +3,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   terminalSessionRequiresCloseConfirmation,
+  type TerminalAttentionEvent,
   type TerminalCloseResult,
+  type TerminalCommandMetadata,
   type TerminalCommandState,
   type TerminalEvent,
   type TerminalHostSnapshot,
   type TerminalProjectOrigin,
   type TerminalSessionSnapshot,
 } from '../../shared/terminal';
+import { prepareTerminalShell, type PreparedTerminalShell } from './terminal-shell-integration';
 
 const MAX_BUFFER_CHARS = 1_000_000;
 
@@ -26,6 +29,7 @@ export interface TerminalPtyAdapter {
     shell: string;
     cwd: string;
     env: Record<string, string>;
+    args: string[];
     columns: number;
     rows: number;
   }): TerminalPtyProcess | Promise<TerminalPtyProcess>;
@@ -42,6 +46,11 @@ interface TerminalSession {
   output: string;
   status: 'running' | 'exited' | 'error';
   commandState: TerminalCommandState;
+  currentCommandStartedAt: string | null;
+  latestCommand: TerminalCommandMetadata | null;
+  latestAttention: TerminalAttentionEvent | null;
+  parser: TerminalOutputParser | null;
+  preparedShell: PreparedTerminalShell | null;
   error: string | null;
   exitCode: number | null;
   process: TerminalPtyProcess | null;
@@ -188,6 +197,11 @@ export class TerminalService {
       output: '',
       status: 'running',
       commandState: 'unknown',
+      currentCommandStartedAt: null,
+      latestCommand: null,
+      latestAttention: null,
+      parser: null,
+      preparedShell: null,
       error: null,
       exitCode: null,
       process: null,
@@ -223,38 +237,135 @@ export class TerminalService {
   private async spawnIntoSession(session: TerminalSession, cwd: string): Promise<void> {
     session.status = 'running';
     session.commandState = 'unknown';
+    session.currentCommandStartedAt = null;
     session.error = null;
     session.exitCode = null;
     session.lastKnownCwd = cwd;
     try {
+      const shell = this.options.resolveShell();
+      const preparedShell = prepareTerminalShell(
+        shell,
+        normalizedEnvironment(this.options.env ?? processEnv()),
+      );
+      session.preparedShell = preparedShell;
+      session.parser = new TerminalOutputParser(preparedShell.integrationExpected, {
+        onPrompt: () => this.handlePrompt(session),
+        onCommandStart: () => this.handleCommandStart(session),
+        onCommandComplete: (exitCode) => this.handleCommandComplete(session, exitCode),
+        onCwd: (nextCwd) => this.handleCwd(session, nextCwd),
+        onBell: () => this.handleBell(session),
+      });
       const process = await this.options.pty.spawn({
-        shell: this.options.resolveShell(),
+        shell,
         cwd,
-        env: normalizedEnvironment(this.options.env ?? processEnv()),
+        env: preparedShell.env,
+        args: preparedShell.args,
         columns: 80,
         rows: 24,
       });
       session.process = process;
       session.disposables.push(
         process.onData((data) => {
-          session.output = appendBuffer(session.output, data);
-          this.options.emit({ kind: 'output', sessionId: session.id, data });
+          const visibleData = session.parser?.push(data) ?? data;
+          if (!visibleData) return;
+          session.output = appendBuffer(session.output, visibleData);
+          this.options.emit({ kind: 'output', sessionId: session.id, data: visibleData });
         }),
         process.onExit(({ exitCode }) => {
           session.status = 'exited';
           session.commandState = 'idle';
+          session.currentCommandStartedAt = null;
           session.exitCode = Number.isInteger(exitCode) ? exitCode : null;
           session.process = null;
+          session.parser = null;
+          session.preparedShell?.dispose();
+          session.preparedShell = null;
+          this.emitMetadata(session);
           this.options.emit({ kind: 'exit', sessionId: session.id, exitCode: session.exitCode });
         }),
       );
     } catch (error) {
+      session.preparedShell?.dispose();
+      session.preparedShell = null;
+      session.parser = null;
       session.status = 'error';
       session.commandState = 'idle';
+      session.currentCommandStartedAt = null;
       session.error = error instanceof Error ? error.message : 'Terminal shell failed to start.';
       session.process = null;
+      this.emitMetadata(session);
       this.options.emit({ kind: 'error', sessionId: session.id, message: session.error });
     }
+  }
+
+  private handlePrompt(session: TerminalSession): void {
+    if (session.status !== 'running' || session.commandState === 'running') return;
+    session.commandState = 'idle';
+    this.emitMetadata(session);
+  }
+
+  private handleCommandStart(session: TerminalSession): void {
+    if (session.status !== 'running') return;
+    session.commandState = 'running';
+    session.currentCommandStartedAt = this.nowIso();
+    this.emitMetadata(session);
+  }
+
+  private handleCommandComplete(session: TerminalSession, exitCode: number | null): void {
+    if (session.status !== 'running') return;
+    const completedAt = this.options.now?.() ?? new Date();
+    const startedAt = session.currentCommandStartedAt;
+    session.commandState = 'idle';
+    session.currentCommandStartedAt = null;
+    if (startedAt) {
+      const durationMs = Math.max(0, completedAt.getTime() - new Date(startedAt).getTime());
+      session.latestCommand = {
+        startedAt,
+        completedAt: completedAt.toISOString(),
+        durationMs,
+        exitCode,
+      };
+      if (durationMs >= 3_000) {
+        this.emitAttention(session, 'command-completed', completedAt.toISOString());
+      }
+    }
+    this.emitMetadata(session);
+  }
+
+  private handleCwd(session: TerminalSession, cwd: string): void {
+    if (session.status !== 'running') return;
+    session.lastKnownCwd = cwd;
+    this.emitMetadata(session);
+  }
+
+  private handleBell(session: TerminalSession): void {
+    if (session.status !== 'running') return;
+    this.emitAttention(session, 'bell', this.nowIso());
+  }
+
+  private emitAttention(
+    session: TerminalSession,
+    kind: TerminalAttentionEvent['kind'],
+    occurredAt: string,
+  ): void {
+    const attention = { kind, occurredAt } satisfies TerminalAttentionEvent;
+    session.latestAttention = attention;
+    this.options.emit({ kind: 'attention', sessionId: session.id, attention: { ...attention } });
+  }
+
+  private emitMetadata(session: TerminalSession): void {
+    this.options.emit({
+      kind: 'metadata',
+      sessionId: session.id,
+      commandState: session.commandState,
+      currentCommandStartedAt: session.currentCommandStartedAt,
+      latestCommand: session.latestCommand ? { ...session.latestCommand } : null,
+      lastKnownCwd: session.lastKnownCwd,
+    });
+  }
+
+  private nowIso(): string {
+    return (this.options.now?.() ?? new Date()).toISOString();
   }
 
   private snapshotState(): TerminalHostSnapshot {
@@ -275,10 +386,117 @@ export class TerminalService {
       // PTY/process-tree cleanup is best-effort during close and application teardown.
     }
     session.process = null;
+    session.parser = null;
+    session.preparedShell?.dispose();
+    session.preparedShell = null;
   }
 
   private disposeSession(session: TerminalSession): void {
     this.disposeProcess(session);
+  }
+}
+
+interface TerminalOutputParserCallbacks {
+  onPrompt(): void;
+  onCommandStart(): void;
+  onCommandComplete(exitCode: number | null): void;
+  onCwd(cwd: string): void;
+  onBell(): void;
+}
+
+class TerminalOutputParser {
+  private pending = '';
+
+  constructor(
+    private readonly integrationExpected: boolean,
+    private readonly callbacks: TerminalOutputParserCallbacks,
+  ) {}
+
+  push(data: string): string {
+    const input = this.pending + data;
+    this.pending = '';
+    let output = '';
+    let index = 0;
+    while (index < input.length) {
+      const oscStart = input.indexOf('\u001b]', index);
+      const bell = input.indexOf('\u0007', index);
+      if (bell !== -1 && (oscStart === -1 || bell < oscStart)) {
+        output += input.slice(index, bell + 1);
+        this.callbacks.onBell();
+        index = bell + 1;
+        continue;
+      }
+      if (oscStart === -1) {
+        output += input.slice(index);
+        break;
+      }
+      output += input.slice(index, oscStart);
+      const terminator = findOscTerminator(input, oscStart + 2);
+      if (!terminator) {
+        this.pending = input.slice(oscStart);
+        if (this.pending.length > 8_192) {
+          output += this.pending;
+          this.pending = '';
+        }
+        break;
+      }
+      const content = input.slice(oscStart + 2, terminator.contentEnd);
+      if (!this.handleOsc(content)) {
+        output += input.slice(oscStart, terminator.sequenceEnd);
+      }
+      index = terminator.sequenceEnd;
+    }
+    return output;
+  }
+
+  private handleOsc(content: string): boolean {
+    if (!this.integrationExpected) return false;
+    if (content === '633;A') {
+      this.callbacks.onPrompt();
+      return true;
+    }
+    if (content === '633;C') {
+      this.callbacks.onCommandStart();
+      return true;
+    }
+    if (content.startsWith('633;D')) {
+      const rawExitCode = content.split(';')[2];
+      const parsedExitCode =
+        rawExitCode === undefined || rawExitCode === '' ? null : Number(rawExitCode);
+      this.callbacks.onCommandComplete(Number.isInteger(parsedExitCode) ? parsedExitCode : null);
+      return true;
+    }
+    if (content.startsWith('7;')) {
+      const cwd = cwdFromOsc7(content.slice(2));
+      if (cwd) this.callbacks.onCwd(cwd);
+      return true;
+    }
+    return false;
+  }
+}
+
+function findOscTerminator(
+  value: string,
+  start: number,
+): { contentEnd: number; sequenceEnd: number } | null {
+  for (let index = start; index < value.length; index += 1) {
+    if (value[index] === '\u0007') return { contentEnd: index, sequenceEnd: index + 1 };
+    if (value[index] === '\u001b' && value[index + 1] === '\\') {
+      return { contentEnd: index, sequenceEnd: index + 2 };
+    }
+  }
+  return null;
+}
+
+function cwdFromOsc7(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'file:') return null;
+    let pathname = decodeURIComponent(url.pathname);
+    if (/^\/[A-Za-z]:\//u.test(pathname)) pathname = pathname.slice(1);
+    return pathname || null;
+  } catch {
+    return null;
   }
 }
 
@@ -317,7 +535,7 @@ export function createNodePtyAdapter(): TerminalPtyAdapter {
   return {
     async spawn(options) {
       const nodePty = await import('node-pty');
-      return nodePty.spawn(options.shell, [], {
+      return nodePty.spawn(options.shell, options.args, {
         cwd: options.cwd,
         env: options.env,
         cols: options.columns,
@@ -335,6 +553,9 @@ function snapshot(session: TerminalSession): TerminalSessionSnapshot {
     sequence: session.sequence,
     status: session.status,
     commandState: session.commandState,
+    currentCommandStartedAt: session.currentCommandStartedAt,
+    latestCommand: session.latestCommand ? { ...session.latestCommand } : null,
+    latestAttention: session.latestAttention ? { ...session.latestAttention } : null,
     initialCwd: session.initialCwd,
     lastKnownCwd: session.lastKnownCwd,
     createdAt: session.createdAt,

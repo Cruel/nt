@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ import { PackageExportPanel } from '@/export/PackageExportPanel';
 import { TestPlaybackPanel } from './TestPlaybackPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { AssetPerformancePanel } from '@/asset-profiler/AssetPerformancePanel';
+import { terminalHasUnreadAttention, useTerminalAttentionStore } from './terminal-attention-store';
 
 function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
   if (value === null || value === undefined) {
@@ -173,6 +174,22 @@ export function BottomPanel() {
   const availabilityContext = { hasProject };
   const availablePanels = availableBottomPanelDefinitions(availabilityContext);
   const resolvedActivePanelId = resolveAvailableBottomPanelId(activePanelId, availabilityContext);
+  const terminalAttention = useTerminalAttentionStore((state) => state.attentionBySession);
+  const terminalHasUnread = terminalHasUnreadAttention(terminalAttention);
+  const terminalVisible = visible && resolvedActivePanelId === 'terminal';
+
+  useEffect(() => {
+    useTerminalAttentionStore.getState().setPanelVisible(terminalVisible);
+  }, [terminalVisible]);
+
+  useEffect(
+    () =>
+      window.noveltea.onTerminalEvent((event) => {
+        if (event.kind !== 'attention') return;
+        useTerminalAttentionStore.getState().receiveAttention(event.sessionId, event.attention);
+      }),
+    [],
+  );
 
   function selectPanel(panelId: BottomPanelId) {
     if (visible && resolvedActivePanelId === panelId) {
@@ -201,6 +218,13 @@ export function BottomPanel() {
               <span className="ml-1 rounded bg-muted px-1 font-mono text-[10px]">
                 {diagnostics.length}
               </span>
+            ) : null}
+            {panel.id === 'terminal' && terminalHasUnread ? (
+              <span
+                className="ml-1 inline-block size-1.5 rounded-full bg-current align-middle"
+                aria-label={t('terminal.needsAttention')}
+                data-terminal-aggregate-unread
+              />
             ) : null}
           </button>
         ))}
