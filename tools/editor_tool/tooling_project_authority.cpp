@@ -697,26 +697,57 @@ std::string wide_to_utf8(std::wstring_view value)
 class WindowsProjectWatcher final : public NativeProjectWatcher {
 public:
     WindowsProjectWatcher(fs::path root, PathCallback path_callback,
-                          UnknownCallback unknown_callback)
+                          UnknownCallback unknown_callback, std::function<void()> before_read,
+                          std::function<void()> stop_requested)
         : root_(std::move(root)), path_callback_(std::move(path_callback)),
-          unknown_callback_(std::move(unknown_callback))
+          unknown_callback_(std::move(unknown_callback)), before_read_(std::move(before_read)),
+          stop_requested_(std::move(stop_requested))
     {
-        directory_ = CreateFileW(root_.c_str(), FILE_LIST_DIRECTORY,
-                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                                 OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+        directory_ =
+            CreateFileW(root_.c_str(), FILE_LIST_DIRECTORY,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                        OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr);
         if (directory_ == INVALID_HANDLE_VALUE)
             throw std::runtime_error("Cannot initialize native Project watcher");
-        enumerate_directories();
-        thread_ = std::thread([this] { run(); });
+        stop_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        read_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (stop_event_ == nullptr || read_event_ == nullptr) {
+            if (read_event_ != nullptr)
+                CloseHandle(read_event_);
+            if (stop_event_ != nullptr)
+                CloseHandle(stop_event_);
+            CloseHandle(directory_);
+            read_event_ = nullptr;
+            stop_event_ = nullptr;
+            directory_ = INVALID_HANDLE_VALUE;
+            throw std::runtime_error("Cannot initialize native Project watcher events");
+        }
+        try {
+            enumerate_directories();
+            thread_ = std::thread([this] { run(); });
+        } catch (...) {
+            CloseHandle(read_event_);
+            CloseHandle(stop_event_);
+            CloseHandle(directory_);
+            read_event_ = nullptr;
+            stop_event_ = nullptr;
+            directory_ = INVALID_HANDLE_VALUE;
+            throw;
+        }
     }
 
     ~WindowsProjectWatcher() override
     {
-        stopping_.store(true);
-        if (thread_.joinable()) {
-            (void)CancelSynchronousIo(thread_.native_handle());
+        if (stop_event_ != nullptr)
+            (void)SetEvent(stop_event_);
+        if (stop_requested_)
+            stop_requested_();
+        if (thread_.joinable())
             thread_.join();
-        }
+        if (read_event_ != nullptr)
+            CloseHandle(read_event_);
+        if (stop_event_ != nullptr)
+            CloseHandle(stop_event_);
         if (directory_ != INVALID_HANDLE_VALUE)
             CloseHandle(directory_);
     }
@@ -789,14 +820,57 @@ private:
         constexpr DWORD filters = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
                                   FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE |
                                   FILE_NOTIFY_CHANGE_CREATION;
-        while (!stopping_.load()) {
-            DWORD bytes = 0;
-            const BOOL read =
+        for (;;) {
+            if (WaitForSingleObject(stop_event_, 0) == WAIT_OBJECT_0)
+                return;
+            if (before_read_)
+                before_read_();
+            // The stop event is checked again after the test seam and immediately before arming
+            // the overlapped request. A stop that wins this interleaving therefore cannot leave
+            // the watcher entering an uncancellable blocking read.
+            if (WaitForSingleObject(stop_event_, 0) == WAIT_OBJECT_0)
+                return;
+
+            OVERLAPPED overlapped{};
+            overlapped.hEvent = read_event_;
+            (void)ResetEvent(read_event_);
+            const BOOL started =
                 ReadDirectoryChangesW(directory_, buffer.data(), static_cast<DWORD>(buffer.size()),
-                                      TRUE, filters, &bytes, nullptr, nullptr);
-            if (!read) {
+                                      TRUE, filters, nullptr, &overlapped, nullptr);
+            const auto start_error = started ? ERROR_SUCCESS : GetLastError();
+            if (!started && start_error != ERROR_IO_PENDING) {
+                const auto error = start_error;
+                unknown_callback_();
+                if (error == ERROR_NOTIFY_ENUM_DIR)
+                    continue;
+                return;
+            }
+
+            const std::array<HANDLE, 2> wait_handles{stop_event_, read_event_};
+            const auto wait = WaitForMultipleObjects(static_cast<DWORD>(wait_handles.size()),
+                                                     wait_handles.data(), FALSE, INFINITE);
+            if (wait == WAIT_OBJECT_0) {
+                // CancelIoEx is race-safe for an overlapped operation whether it is still pending
+                // or completed concurrently. Wait for the operation event before allowing the
+                // stack OVERLAPPED/buffer to go out of scope.
+                (void)CancelIoEx(directory_, &overlapped);
+                (void)WaitForSingleObject(read_event_, INFINITE);
+                DWORD ignored = 0;
+                (void)GetOverlappedResult(directory_, &overlapped, &ignored, FALSE);
+                return;
+            }
+            if (wait != WAIT_OBJECT_0 + 1) {
+                (void)CancelIoEx(directory_, &overlapped);
+                (void)WaitForSingleObject(read_event_, INFINITE);
+                unknown_callback_();
+                return;
+            }
+
+            DWORD bytes = 0;
+            if (!GetOverlappedResult(directory_, &overlapped, &bytes, FALSE)) {
                 const auto error = GetLastError();
-                if (stopping_.load() && error == ERROR_OPERATION_ABORTED)
+                if (error == ERROR_OPERATION_ABORTED &&
+                    WaitForSingleObject(stop_event_, 0) == WAIT_OBJECT_0)
                     return;
                 unknown_callback_();
                 if (error == ERROR_NOTIFY_ENUM_DIR)
@@ -826,27 +900,37 @@ private:
     fs::path root_;
     PathCallback path_callback_;
     UnknownCallback unknown_callback_;
+    std::function<void()> before_read_;
+    std::function<void()> stop_requested_;
     HANDLE directory_ = INVALID_HANDLE_VALUE;
+    HANDLE stop_event_ = nullptr;
+    HANDLE read_event_ = nullptr;
     std::set<std::string> known_directories_;
-    std::atomic<bool> stopping_{false};
     std::thread thread_;
 };
 #endif
 
 std::unique_ptr<NativeProjectWatcher>
 make_native_watcher(const fs::path& root, NativeProjectWatcher::PathCallback path_callback,
-                    NativeProjectWatcher::UnknownCallback unknown_callback)
+                    NativeProjectWatcher::UnknownCallback unknown_callback,
+                    std::function<void()> before_read = {},
+                    std::function<void()> stop_requested = {})
 {
 #if defined(__linux__)
+    (void)before_read;
+    (void)stop_requested;
     return std::make_unique<InotifyProjectWatcher>(root, std::move(path_callback),
                                                    std::move(unknown_callback));
 #elif defined(_WIN32)
-    return std::make_unique<WindowsProjectWatcher>(root, std::move(path_callback),
-                                                   std::move(unknown_callback));
+    return std::make_unique<WindowsProjectWatcher>(
+        root, std::move(path_callback), std::move(unknown_callback), std::move(before_read),
+        std::move(stop_requested));
 #else
     (void)root;
     (void)path_callback;
     (void)unknown_callback;
+    (void)before_read;
+    (void)stop_requested;
     return nullptr;
 #endif
 }
@@ -952,8 +1036,8 @@ struct ProjectAuthorityManager::Impl {
         ++entry->watcher_epoch;
     }
 
-    static std::unique_ptr<NativeProjectWatcher>
-    make_watcher_for_entry(const std::shared_ptr<Entry>& entry)
+    std::unique_ptr<NativeProjectWatcher>
+    make_watcher_for_entry(const std::shared_ptr<Entry>& entry) const
     {
         const std::weak_ptr<Entry> weak = entry;
         return make_native_watcher(
@@ -965,7 +1049,8 @@ struct ProjectAuthorityManager::Impl {
             [weak] {
                 if (const auto locked = weak.lock())
                     mark_unknown(locked);
-            });
+            },
+            options.windows_watcher_before_read, options.windows_watcher_stop_requested);
     }
 
     void restore_watcher_coverage(const std::shared_ptr<Entry>& entry)
