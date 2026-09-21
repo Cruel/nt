@@ -101,7 +101,8 @@ public:
     [[nodiscard]] std::optional<ProjectAuthorityStatus>
     status(const std::filesystem::path& project_root) const;
 
-    // Adapter seam used by native watchers and deterministic broker tests.
+    // Deterministic adapter seams for watcher delivery/failure tests. Unknown notification also
+    // drops active native watcher coverage so recovery must recreate it before proving current.
     void notify_path_changed(const std::filesystem::path& project_root, std::string relative_path,
                              bool directory);
     void notify_watcher_unknown(const std::filesystem::path& project_root);

@@ -317,11 +317,13 @@ std::optional<ProjectSourceManifestEntry> capture_regular_file(
     const auto absolute = canonical_root / path_from_utf8(relative);
     std::error_code error;
     const auto link_status = fs::symlink_status(absolute, error);
-    if (link_status.type() == fs::file_type::not_found ||
-        error == std::errc::no_such_file_or_directory || error == std::errc::not_a_directory)
-        return std::nullopt;
-    if (error)
+    if (error) {
+        if (error == std::errc::no_such_file_or_directory || error == std::errc::not_a_directory)
+            return std::nullopt;
         throw std::runtime_error("Cannot inspect Project source: " + std::string(relative));
+    }
+    if (link_status.type() == fs::file_type::not_found)
+        return std::nullopt;
     if (fs::is_symlink(link_status))
         throw std::runtime_error("Project sources must not be symbolic links: " +
                                  std::string(relative));
@@ -361,7 +363,14 @@ void discover_scope(const fs::path& canonical_root, const ProjectSourceDiscovery
         const auto absolute_directory = canonical_root / path_from_utf8(relative_directory);
         std::error_code error;
         const auto directory_status = fs::symlink_status(absolute_directory, error);
-        if (error || directory_status.type() == fs::file_type::not_found)
+        if (error) {
+            if (error == std::errc::no_such_file_or_directory ||
+                error == std::errc::not_a_directory)
+                return;
+            throw std::runtime_error("Cannot inspect Project discovery directory: " +
+                                     relative_directory);
+        }
+        if (directory_status.type() == fs::file_type::not_found)
             return;
         if (fs::is_symlink(directory_status))
             throw std::runtime_error("Project discovery directory must not be a symbolic link: " +
@@ -873,6 +882,9 @@ struct ProjectAuthorityManager::Impl {
         std::uint64_t watcher_epoch = 0;
         std::uint64_t manifest_revision = 0;
         bool watcher_attempted = false;
+        bool watcher_rebuild_required = false;
+        std::uint64_t watcher_unknown_revision = 0;
+        bool released = false;
         std::unique_ptr<NativeProjectWatcher> watcher;
     };
 
@@ -880,6 +892,32 @@ struct ProjectAuthorityManager::Impl {
     {
         if (!options.mtime_reader)
             options.mtime_reader = native_mtime_nanoseconds;
+    }
+
+    ~Impl()
+    {
+        std::vector<std::shared_ptr<Entry>> removed;
+        {
+            std::scoped_lock lock(entries_mutex);
+            removed.reserve(entries.size());
+            for (auto& [key, entry] : entries) {
+                (void)key;
+                removed.push_back(std::move(entry));
+            }
+            entries.clear();
+        }
+
+        std::vector<std::unique_ptr<NativeProjectWatcher>> watchers;
+        watchers.reserve(removed.size());
+        for (const auto& entry : removed) {
+            std::scoped_lock lock(entry->mutex);
+            entry->released = true;
+            if (entry->watcher)
+                watchers.push_back(std::move(entry->watcher));
+        }
+        // Watcher destruction joins native threads. Keep every Entry strongly owned until all
+        // watchers are stopped so a callback can never destroy its own watcher.
+        watchers.clear();
     }
 
     static void mark_path(const std::shared_ptr<Entry>& entry, std::string relative_path,
@@ -892,7 +930,8 @@ struct ProjectAuthorityManager::Impl {
             return;
         }
         std::scoped_lock lock(entry->mutex);
-        if (!entry->configured || !event_relevant(entry->config, relative_path, directory))
+        if (entry->released || !entry->configured ||
+            !event_relevant(entry->config, relative_path, directory))
             return;
         entry->pending_paths.insert(std::move(relative_path));
         if (entry->state != ProjectAuthorityState::unknown)
@@ -900,11 +939,73 @@ struct ProjectAuthorityManager::Impl {
         ++entry->watcher_epoch;
     }
 
-    static void mark_unknown(const std::shared_ptr<Entry>& entry)
+    static void mark_unknown(const std::shared_ptr<Entry>& entry, bool rebuild_watcher = true)
     {
         std::scoped_lock lock(entry->mutex);
+        if (entry->released)
+            return;
         entry->state = ProjectAuthorityState::unknown;
+        if (rebuild_watcher && entry->watcher_attempted) {
+            entry->watcher_rebuild_required = true;
+            ++entry->watcher_unknown_revision;
+        }
         ++entry->watcher_epoch;
+    }
+
+    static std::unique_ptr<NativeProjectWatcher>
+    make_watcher_for_entry(const std::shared_ptr<Entry>& entry)
+    {
+        const std::weak_ptr<Entry> weak = entry;
+        return make_native_watcher(
+            entry->canonical_root,
+            [weak](std::string relative, bool directory) {
+                if (const auto locked = weak.lock())
+                    mark_path(locked, std::move(relative), directory);
+            },
+            [weak] {
+                if (const auto locked = weak.lock())
+                    mark_unknown(locked);
+            });
+    }
+
+    void restore_watcher_coverage(const std::shared_ptr<Entry>& entry)
+    {
+        if (!options.enable_native_watcher)
+            return;
+
+        std::unique_ptr<NativeProjectWatcher> previous;
+        std::uint64_t unknown_revision = 0;
+        {
+            std::scoped_lock lock(entry->mutex);
+            if (entry->released)
+                throw std::runtime_error("Project authority was released during observation");
+            if (!entry->watcher_rebuild_required)
+                return;
+            unknown_revision = entry->watcher_unknown_revision;
+            previous = std::move(entry->watcher);
+        }
+
+        // Always stop/join the uncertain watcher on this caller thread before replacing it. This
+        // also closes any stale or incomplete directory-watch set left by overflow/lost events.
+        previous.reset();
+
+        auto replacement = make_watcher_for_entry(entry);
+        std::unique_ptr<NativeProjectWatcher> discard;
+        bool released = false;
+        {
+            std::scoped_lock lock(entry->mutex);
+            if (entry->released) {
+                released = true;
+                discard = std::move(replacement);
+            } else {
+                entry->watcher = std::move(replacement);
+                if (entry->watcher_unknown_revision == unknown_revision)
+                    entry->watcher_rebuild_required = false;
+            }
+        }
+        discard.reset();
+        if (released)
+            throw std::runtime_error("Project authority was released during observation");
     }
 
     std::shared_ptr<Entry> entry_for_observation(const fs::path& canonical_root,
@@ -937,22 +1038,23 @@ struct ProjectAuthorityManager::Impl {
             }
         }
         if (start_watcher) {
-            const std::weak_ptr<Entry> weak = entry;
             try {
-                auto watcher = make_native_watcher(
-                    canonical_root,
-                    [weak](std::string relative, bool directory) {
-                        if (const auto locked = weak.lock())
-                            mark_path(locked, std::move(relative), directory);
-                    },
-                    [weak] {
-                        if (const auto locked = weak.lock())
-                            mark_unknown(locked);
-                    });
-                std::scoped_lock lock(entry->mutex);
-                entry->watcher = std::move(watcher);
+                auto watcher = make_watcher_for_entry(entry);
+                std::unique_ptr<NativeProjectWatcher> discard;
+                {
+                    std::scoped_lock lock(entry->mutex);
+                    if (entry->released)
+                        discard = std::move(watcher);
+                    else
+                        entry->watcher = std::move(watcher);
+                }
+                discard.reset();
             } catch (...) {
-                mark_unknown(entry);
+                // Watching accelerates discovery; an initial watcher setup failure does not make
+                // the complete native scan itself incorrect. Recovery from an already-running
+                // watcher becoming uncertain is stricter and is handled by
+                // restore_watcher_coverage.
+                mark_unknown(entry, false);
             }
         }
         return entry;
@@ -990,6 +1092,7 @@ ProjectObservation ProjectAuthorityManager::observe(const ProjectAuthorityReques
     const auto entry = impl_->entry_for_observation(canonical_root, config);
 
     for (std::size_t attempt = 0; attempt < kObservationAttempts; ++attempt) {
+        impl_->restore_watcher_coverage(entry);
         ProjectAuthorityState previous_state = ProjectAuthorityState::untracked;
         std::uint64_t watcher_epoch = 0;
         std::uint64_t manifest_revision = 0;
@@ -998,6 +1101,8 @@ ProjectObservation ProjectAuthorityManager::observe(const ProjectAuthorityReques
         NormalizedConfig current_config;
         {
             std::scoped_lock lock(entry->mutex);
+            if (entry->released)
+                throw std::runtime_error("Project authority was released during observation");
             previous_state = entry->state;
             watcher_epoch = entry->watcher_epoch;
             manifest_revision = entry->manifest_revision;
@@ -1011,7 +1116,8 @@ ProjectObservation ProjectAuthorityManager::observe(const ProjectAuthorityReques
         {
             std::scoped_lock lock(entry->mutex);
             if (entry->watcher_epoch != watcher_epoch ||
-                entry->manifest_revision != manifest_revision || entry->config != current_config)
+                entry->manifest_revision != manifest_revision || entry->config != current_config ||
+                (impl_->options.enable_native_watcher && entry->watcher_rebuild_required))
                 continue;
             const bool full_rescan =
                 !entry->manifest || previous_state == ProjectAuthorityState::unknown;
@@ -1057,8 +1163,18 @@ void ProjectAuthorityManager::notify_path_changed(const std::filesystem::path& p
 
 void ProjectAuthorityManager::notify_watcher_unknown(const std::filesystem::path& project_root)
 {
-    if (const auto entry = impl_->find_entry(project_root))
+    if (const auto entry = impl_->find_entry(project_root)) {
         Impl::mark_unknown(entry);
+        // This is also the deterministic test seam for lost watcher coverage: drop the native
+        // watcher here so recovery must actually recreate recursive watches rather than merely
+        // toggling authority state.
+        std::unique_ptr<NativeProjectWatcher> watcher;
+        {
+            std::scoped_lock lock(entry->mutex);
+            watcher = std::move(entry->watcher);
+        }
+        watcher.reset();
+    }
 }
 
 bool ProjectAuthorityManager::release(const std::filesystem::path& project_root)
@@ -1078,7 +1194,16 @@ bool ProjectAuthorityManager::release(const std::filesystem::path& project_root)
         removed = std::move(found->second);
         impl_->entries.erase(found);
     }
-    removed.reset();
+    std::unique_ptr<NativeProjectWatcher> watcher;
+    {
+        std::scoped_lock lock(removed->mutex);
+        removed->released = true;
+        watcher = std::move(removed->watcher);
+    }
+    // Stop/join before releasing the manager's strong Entry ownership. A callback may currently
+    // hold another shared_ptr<Entry>; that callback must never become the thread that destroys its
+    // own watcher.
+    watcher.reset();
     return true;
 }
 
