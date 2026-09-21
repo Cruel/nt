@@ -288,11 +288,30 @@ resolve_indexed_runtime_package(std::shared_ptr<assets::ZipAssetSource> package_
                                   .replaces_project_namespace = true});
 }
 
+void strip_loose_runtime_shader_sources(ShaderMaterialProject& shader_materials)
+{
+    for (auto& shader : shader_materials.shaders) {
+        for (auto& stage : shader.stages) {
+            stage.source.path.clear();
+            stage.source_text.clear();
+        }
+    }
+}
+
+std::string loose_runtime_package_path(std::string_view path)
+{
+    constexpr std::string_view project_prefix = "project:/";
+    return path.starts_with(project_prefix) ? std::string(path.substr(project_prefix.size()))
+                                            : std::string(path);
+}
+
 core::Result<RunningGameLoadInput, core::Diagnostics>
 make_loose_project_load_input(core::CompiledProject project,
                               std::optional<ShaderMaterialProject> shader_materials,
                               std::string runtime_locale)
 {
+    if (shader_materials)
+        strip_loose_runtime_shader_sources(*shader_materials);
     runtime_locale = startup_runtime_locale(project.localization(), runtime_locale);
     std::vector<core::RuntimePackageFile> files{{"game", 0, std::nullopt}};
     core::RuntimePackageManifest manifest{
@@ -314,8 +333,9 @@ make_loose_project_load_input(core::CompiledProject project,
         .entries = {{"game", 0, std::nullopt}},
     };
     for (const auto& asset : project.assets()) {
-        manifest.entries.push_back({asset.path, 0, std::nullopt});
-        files.push_back({asset.path, 0, std::nullopt});
+        const auto package_path = loose_runtime_package_path(asset.path);
+        manifest.entries.push_back({package_path, 0, std::nullopt});
+        files.push_back({package_path, 0, std::nullopt});
     }
     if (shader_materials) {
         std::vector<std::string> variants;
@@ -326,8 +346,9 @@ make_loose_project_load_input(core::CompiledProject project,
                         variants.end()) {
                         variants.push_back(binary.variant);
                     }
-                    manifest.entries.push_back({binary.path, 0, std::nullopt});
-                    files.push_back({binary.path, 0, std::nullopt});
+                    const auto package_path = loose_runtime_package_path(binary.path);
+                    manifest.entries.push_back({package_path, 0, std::nullopt});
+                    files.push_back({package_path, 0, std::nullopt});
                 }
             }
         }

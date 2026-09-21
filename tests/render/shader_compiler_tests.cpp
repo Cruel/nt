@@ -349,6 +349,50 @@ TEST_CASE(
     std::filesystem::remove_all(temp);
 }
 
+TEST_CASE("source program reflection normalizes Metal sampler bindings to logical inputs")
+{
+    const auto temp = unique_temp_dir("metal-sampler-reflection");
+    auto options = make_options(temp);
+    options.variants = noveltea::shader_compile_variants_from_names({"essl-300", "metal"});
+    write_text(options.engine_shader_root / "varying.def.sc",
+               "vec2 a_position : POSITION;\nvec2 v_uv : TEXCOORD0;\n");
+    write_text(options.engine_shader_root / "default.vs.sc",
+               "$input a_position\n$output v_uv\n#include <bgfx_shader.sh>\n"
+               "void main() { v_uv = a_position; gl_Position = vec4(a_position, 0.0, 1.0); }\n");
+    write_text(options.project_root / "shaders" / "custom.fs.sc",
+               "$input v_uv\n#include <bgfx_shader.sh>\nuniform vec4 u_tint;\n"
+               "SAMPLER2D(s_tex, 0);\n"
+               "void main() { gl_FragColor = u_tint + texture2D(s_tex, v_uv); }\n");
+
+    const noveltea::ShaderSourceProgramRequest request{
+        .vertex_source = "engine:/default.vs.sc",
+        .fragment_source = "project:/shaders/custom.fs.sc",
+        .varying_definition = "engine:/varying.def.sc",
+        .interface_contract = "preview:test",
+    };
+    const noveltea::ShaderCompilerService compiler;
+    const auto result = compiler.compile_source_program(request, options);
+    REQUIRE(result.success());
+
+    const auto metal_fragment =
+        std::find_if(result.outputs.begin(), result.outputs.end(), [](const auto& output) {
+            return output.stage == noveltea::ShaderStage::Fragment && output.variant == "metal";
+        });
+    REQUIRE(metal_fragment != result.outputs.end());
+    CHECK(std::none_of(metal_fragment->reflected_inputs.begin(),
+                       metal_fragment->reflected_inputs.end(), [](const auto& input) {
+                           return input.name == "s_texSampler" || input.name == "s_texTexture";
+                       }));
+    const auto sampler = std::find_if(
+        metal_fragment->reflected_inputs.begin(), metal_fragment->reflected_inputs.end(),
+        [](const auto& input) { return input.name == "s_tex"; });
+    REQUIRE(sampler != metal_fragment->reflected_inputs.end());
+    CHECK(sampler->kind == noveltea::ShaderReflectedInputKind::SampledImage);
+    CHECK(sampler->array_size == 1);
+
+    std::filesystem::remove_all(temp);
+}
+
 TEST_CASE("source program compiler rejects project include escapes")
 {
     const auto temp = unique_temp_dir("include-escape");

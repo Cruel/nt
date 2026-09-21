@@ -94,7 +94,7 @@ export function MaterialsLibraryEditor(_props: WorkbenchEditorProps) {
             >
               <div className="min-h-0 flex-1 bg-muted/20">
                 {livePreviews ? (
-                  <MaterialPreview materialId={id} className="min-h-0" />
+                  <MaterialPreview materialId={id} compact className="min-h-0" />
                 ) : (
                   <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
                     {t('materialsLibrary.previewDisabled')}

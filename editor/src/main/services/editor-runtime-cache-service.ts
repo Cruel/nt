@@ -12,6 +12,7 @@ import type { ProjectValidationDiagnostic } from '../../shared/project-schema/pr
 import {
   logicalRuntimeArtifactPaths,
   prepareRuntimeArtifact,
+  verifyPreparedRuntimeArtifact,
   type PreparedRuntimeArtifact,
 } from '../../shared/runtime-artifact-preparation';
 import {
@@ -36,7 +37,11 @@ import type { LoadedProjectWorkspaceSnapshot } from '../../shared/project-worksp
 import { executeCachedRuntimeArtifactWithRecovery } from '../../shared/runtime-cache-native-consumer';
 import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
 import type { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
-import { nodeRuntimeArtifactPaths } from './node-runtime-artifact-adapters';
+import {
+  nodeRuntimeArtifactPaths,
+  nodeShaderCompilerAdapter,
+} from './node-runtime-artifact-adapters';
+import type { ShaderCompileResponse } from '../../shared/editor-tooling';
 
 type CanonicalRuntimeResult =
   | {
@@ -132,30 +137,63 @@ export class EditorRuntimeCacheService {
     return runtimeProjectContentJson(project) === runtimeProjectContentJson(workspace.project());
   }
 
+  private shaderCompiler() {
+    return nodeShaderCompilerAdapter(
+      (shaderProject, options) =>
+        this.invokeNative('compile-shaders', {
+          shaderProject,
+          options,
+        }) as Promise<ShaderCompileResponse>,
+    );
+  }
+
+  private runtimePaths(projectRoot: string) {
+    return {
+      ...logicalRuntimeArtifactPaths,
+      shaderAssetRoot: () => nodeRuntimeArtifactPaths.shaderAssetRoot(projectRoot),
+      readProjectTextSources: (
+        _ignoredRoot: string | null,
+        entries: Parameters<NonNullable<typeof nodeRuntimeArtifactPaths.readProjectTextSources>>[1],
+      ) => nodeRuntimeArtifactPaths.readProjectTextSources!(projectRoot, entries),
+    };
+  }
+
+  private async verifyCachedArtifact(
+    project: AuthoringProject,
+    projectRoot: string,
+    artifact: PreparedRuntimeArtifact,
+  ) {
+    return verifyPreparedRuntimeArtifact(artifact, {
+      project,
+      projectRoot,
+      profile: selectedExportProfile(project),
+      paths: this.runtimePaths(projectRoot),
+    });
+  }
+
   private async prepareCanonicalArtifact(
     project: AuthoringProject,
     intent: 'play' | 'test-playback',
+    projectRoot: string,
   ) {
     return prepareRuntimeArtifact({
       project,
-      projectRoot: null,
+      projectRoot,
       profile: selectedExportProfile(project),
       intent,
-      paths: logicalRuntimeArtifactPaths,
+      shaderCompiler: this.shaderCompiler(),
+      paths: this.runtimePaths(projectRoot),
     });
   }
 
   private async preparePreviewArtifact(project: AuthoringProject, projectRoot: string) {
     return prepareRuntimeArtifact({
       project,
-      projectRoot: null,
+      projectRoot,
       profile: selectedExportProfile(project),
       intent: 'play',
-      paths: {
-        ...logicalRuntimeArtifactPaths,
-        readProjectTextSources: (_ignoredRoot, entries) =>
-          nodeRuntimeArtifactPaths.readProjectTextSources!(projectRoot, entries),
-      },
+      shaderCompiler: this.shaderCompiler(),
+      paths: this.runtimePaths(projectRoot),
     });
   }
 
@@ -179,6 +217,13 @@ export class EditorRuntimeCacheService {
     let observation: RuntimeBuildCacheObservation = lookup.enabled
       ? lookup.observation
       : { status: 'unusable', reason: 'metadata-unavailable' };
+    if (artifact) {
+      const verified = await this.verifyCachedArtifact(project, workspace.projectRoot(), artifact);
+      if (verified.status === 'rejected') {
+        artifact = undefined;
+        observation = { status: 'stale', reason: 'prepared-artifact-rejected' };
+      }
+    }
     const needsArtifact = !artifact;
     const needsCatalog = !testCatalog;
     const expectedTestInputs =
@@ -190,7 +235,11 @@ export class EditorRuntimeCacheService {
         : undefined;
 
     if (!artifact) {
-      const prepared = await this.prepareCanonicalArtifact(project, intent);
+      const prepared = await this.prepareCanonicalArtifact(
+        project,
+        intent,
+        workspace.projectRoot(),
+      );
       if (prepared.status !== 'prepared') {
         return { status: 'blocked', diagnostics: prepared.diagnostics, observation };
       }
@@ -276,20 +325,27 @@ export class EditorRuntimeCacheService {
     const snapshot = workspace.snapshot();
     const variant = contextKey(context);
     const lookup = await lookupRuntimeBuildCacheVariant(this.fileSystem, snapshot, variant);
+    const previewProject = previewProjectFromSaved(workspace.project(), project);
     if (lookup.enabled && lookup.artifact) {
-      return {
-        status: 'prepared',
-        artifact: lookup.artifact,
-        buildContext: context,
-        cache: {
-          scope: 'persistent-preview',
-          status: 'hit',
-          observation: lookup.observation,
-        },
-      };
+      const verified = await this.verifyCachedArtifact(
+        previewProject,
+        workspace.projectRoot(),
+        lookup.artifact,
+      );
+      if (verified.status === 'verified') {
+        return {
+          status: 'prepared',
+          artifact: lookup.artifact,
+          buildContext: context,
+          cache: {
+            scope: 'persistent-preview',
+            status: 'hit',
+            observation: lookup.observation,
+          },
+        };
+      }
     }
 
-    const previewProject = previewProjectFromSaved(workspace.project(), project);
     const prepared = await this.preparePreviewArtifact(previewProject, workspace.projectRoot());
     if (prepared.status !== 'prepared') {
       return {
@@ -441,7 +497,11 @@ export class EditorRuntimeCacheService {
     recoveryFingerprint: unknown,
   ): Promise<unknown> {
     if (!this.isCanonicalCacheEligible(workspace, project, recoveryFingerprint)) {
-      const prepared = await this.prepareCanonicalArtifact(project, 'test-playback');
+      const prepared = await this.prepareCanonicalArtifact(
+        project,
+        'test-playback',
+        workspace.projectRoot(),
+      );
       if (prepared.status !== 'prepared')
         return { ok: false, success: false, diagnostics: prepared.diagnostics };
       return this.invokeNative('run-test-suite', {

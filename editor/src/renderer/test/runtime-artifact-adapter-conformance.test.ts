@@ -112,6 +112,29 @@ describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) =
     expect(result.status).toBe('prepared');
   });
 
+  it('compiles authored shaders for Play artifacts', async () => {
+    const project = shaderProject();
+    const onCompile = vi.fn();
+    const result = await prepareRuntimeArtifact({
+      project,
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
+      intent: 'play',
+      shaderCompiler: adapterFactory(await successfulResponse(project), onCompile),
+      paths: rendererRuntimeArtifactPaths,
+    });
+
+    expect(result.status).toBe('prepared');
+    expect(onCompile).toHaveBeenCalledTimes(1);
+    if (result.status === 'prepared') {
+      const shaderId = result.artifact.shaderMaterialMetadata?.materials.basic?.shader;
+      expect(shaderId).toBeDefined();
+      expect(
+        result.artifact.shaderMaterialMetadata?.shaders[shaderId!]?.stages.fragment?.compiled,
+      ).toHaveProperty('glsl-330');
+    }
+  });
+
   it('accepts main-process classified diagnostic metadata', async () => {
     const project = shaderProject();
     const response = await successfulResponse(project);

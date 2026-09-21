@@ -8,6 +8,7 @@ import {
 import type { ShaderUniformValue } from '../../shared/project-schema/authoring-shaders';
 import type { MaterialPreviewProjectResources } from './material-preview-resources';
 import type { MaterialPreviewPointerState } from './material-preview-renderer';
+import { useOptionalWorkbenchEditorLocation } from '@/workbench/workbench-editor-location';
 
 const OUTSIDE_POINTER: MaterialPreviewPointerState = { x: -1, y: -1, pressed: false };
 
@@ -27,6 +28,7 @@ export function MaterialPreview({
   const { t } = useTranslation('workspace');
   const renderer = useMaterialPreviewGroupRenderer();
   const status = useMaterialPreviewGroupStatus();
+  const editorLocation = useOptionalWorkbenchEditorLocation();
   const projectResources = useMaterialPreviewProjectResources();
   const resources = explicitResources ?? projectResources;
   const [resourceStatus, setResourceStatus] = useState<{ stale: boolean } | null>(null);
@@ -44,8 +46,9 @@ export function MaterialPreview({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const registrationRef = useRef<ReturnType<typeof renderer.registerSurface> | null>(null);
   const [size, setSize] = useState({ width: 1, height: 1 });
-  const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined');
+  const [intersecting, setIntersecting] = useState(true);
   const pointerRef = useRef<MaterialPreviewPointerState>(OUTSIDE_POINTER);
+  const surfaceVisible = (!compact || intersecting) && (editorLocation?.isVisible ?? true);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -62,26 +65,30 @@ export function MaterialPreview({
   }, []);
 
   useEffect(() => {
+    if (!compact) {
+      setIntersecting(true);
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas || typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver((entries) => {
       const entry = entries[0];
-      if (entry) setVisible(entry.isIntersecting);
+      if (entry) setIntersecting(entry.isIntersecting);
     });
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, []);
+  }, [compact]);
 
   useEffect(() => {
     let active = true;
-    if (!visible) return () => void (active = false);
+    if (!surfaceVisible) return () => void (active = false);
     void resources.getMaterial(materialId).then((resource) => {
       if (active) setResourceStatus(resource ? { stale: resource.stale } : null);
     });
     return () => {
       active = false;
     };
-  }, [materialId, resources, resources.generation, visible]);
+  }, [materialId, resources, resources.generation, surfaceVisible]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -91,7 +98,7 @@ export function MaterialPreview({
       materialId,
       width: size.width,
       height: size.height,
-      visible,
+      visible: surfaceVisible,
       pointer: pointerRef.current,
       resources,
       parameterOverrides,
@@ -108,7 +115,7 @@ export function MaterialPreview({
     size.height,
     size.width,
     updateShaderProgramStatus,
-    visible,
+    surfaceVisible,
   ]);
 
   useEffect(
@@ -131,7 +138,7 @@ export function MaterialPreview({
       materialId,
       width: size.width,
       height: size.height,
-      visible,
+      visible: surfaceVisible,
       pointer: pointerRef.current,
       resources,
       parameterOverrides,
@@ -173,7 +180,7 @@ export function MaterialPreview({
             materialId,
             width: size.width,
             height: size.height,
-            visible,
+            visible: surfaceVisible,
             pointer: OUTSIDE_POINTER,
             resources,
             parameterOverrides,

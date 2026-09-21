@@ -96,7 +96,12 @@ void main() {
   fragColor = vec4(sampled.rgb * u_tint.rgb, sampled.a * u_tint.a);
 }`;
 
+function webGl2ShaderSource(source: string) {
+  return /^\s*#version\s+300\s+es\b/u.test(source) ? source : `#version 300 es\n${source}`;
+}
+
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string) {
+  source = webGl2ShaderSource(source);
   const shader = gl.createShader(type);
   if (!shader) throw new Error('Unable to allocate WebGL shader.');
   gl.shaderSource(shader, source);
@@ -647,6 +652,7 @@ export class MaterialPreviewGroupRenderer {
     if (this.backend !== undefined || this.disposed) return;
     this.backend = this.backendFactory({
       onContextLost: () => {
+        if (this.disposed) return;
         this.contextLost = true;
         this.setStatus({
           available: false,
@@ -655,6 +661,7 @@ export class MaterialPreviewGroupRenderer {
         });
       },
       onContextRestored: () => {
+        if (this.disposed) return;
         this.backend?.reset();
         this.contextLost = false;
         this.renderFailed = false;

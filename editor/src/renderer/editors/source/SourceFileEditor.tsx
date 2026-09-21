@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -65,6 +66,8 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
   const acceptDisk = useProjectSourceStore((state) => state.useDisk);
   const projectDocument = useProjectStore((state) => state.document);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
+  const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
+  const projectRevision = useProjectStore((state) => state.projectRevision);
   const setTabDirty = useWorkbenchStore((state) => state.setTabDirty);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const [saving, setSaving] = useState(false);
@@ -148,8 +151,13 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
   const localResources = localResourcesRef.current;
   const overlays = useMemo(() => shaderSourceOverlays(files, buffersById), [buffersById, files]);
   const previewAuthorityKey = useMemo(
-    () => shaderSourcePreviewAuthorityKey(attachedMaterialIds, overlays, files),
-    [attachedMaterialIds, files, overlays],
+    () =>
+      `${projectInstanceId ?? projectSessionId ?? 'none'}:${projectRevision}|${shaderSourcePreviewAuthorityKey(
+        attachedMaterialIds,
+        overlays,
+        files,
+      )}`,
+    [attachedMaterialIds, files, overlays, projectInstanceId, projectRevision, projectSessionId],
   );
   localResources.updateProject(project, previewAuthorityKey, {
     materialIds: attachedMaterialIds,
@@ -205,36 +213,38 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
               {t('shaderSourcePreview.affectedUsage', { count: usages.affectedMaterialIds.length })}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuLabel>{t('shaderSourcePreview.affectedMaterials')}</DropdownMenuLabel>
-              {usages.affectedMaterialIds.length === 0 ? (
-                <DropdownMenuItem disabled>
-                  {t('shaderSourcePreview.noAffectedMaterials')}
-                </DropdownMenuItem>
-              ) : (
-                usages.affectedMaterialIds.map((materialId) => (
-                  <DropdownMenuItem
-                    key={materialId}
-                    onClick={() =>
-                      openTab(
-                        buildMaterialDetailTabForRecord(
-                          materialId,
-                          project?.materials[materialId]?.label ?? materialId,
-                        ),
-                      )
-                    }
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {project?.materials[materialId]?.label ?? materialId}
-                    </span>
-                    <span className="ml-2 text-[10px] text-muted-foreground">
-                      {usageForMaterial(materialId, usages.direct, usages.transitive)?.kind ===
-                      'direct'
-                        ? t('shaderSourcePreview.direct')
-                        : t('shaderSourcePreview.included')}
-                    </span>
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{t('shaderSourcePreview.affectedMaterials')}</DropdownMenuLabel>
+                {usages.affectedMaterialIds.length === 0 ? (
+                  <DropdownMenuItem disabled>
+                    {t('shaderSourcePreview.noAffectedMaterials')}
                   </DropdownMenuItem>
-                ))
-              )}
+                ) : (
+                  usages.affectedMaterialIds.map((materialId) => (
+                    <DropdownMenuItem
+                      key={materialId}
+                      onClick={() =>
+                        openTab(
+                          buildMaterialDetailTabForRecord(
+                            materialId,
+                            project?.materials[materialId]?.label ?? materialId,
+                          ),
+                        )
+                      }
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {project?.materials[materialId]?.label ?? materialId}
+                      </span>
+                      <span className="ml-2 text-[10px] text-muted-foreground">
+                        {usageForMaterial(materialId, usages.direct, usages.transitive)?.kind ===
+                        'direct'
+                          ? t('shaderSourcePreview.direct')
+                          : t('shaderSourcePreview.included')}
+                      </span>
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
@@ -295,7 +305,7 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64">
             {unattachedDirect.length > 0 ? (
-              <>
+              <DropdownMenuGroup>
                 <DropdownMenuLabel>{t('shaderSourcePreview.directConsumers')}</DropdownMenuLabel>
                 {unattachedDirect.map((usage) => (
                   <DropdownMenuItem
@@ -305,13 +315,13 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
                     {project?.materials[usage.materialId]?.label ?? usage.materialId}
                   </DropdownMenuItem>
                 ))}
-              </>
+              </DropdownMenuGroup>
             ) : null}
             {unattachedDirect.length > 0 && unattachedTransitive.length > 0 ? (
               <DropdownMenuSeparator />
             ) : null}
             {unattachedTransitive.length > 0 ? (
-              <>
+              <DropdownMenuGroup>
                 <DropdownMenuLabel>
                   {t('shaderSourcePreview.transitiveConsumers')}
                 </DropdownMenuLabel>
@@ -323,7 +333,7 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
                     {project?.materials[usage.materialId]?.label ?? usage.materialId}
                   </DropdownMenuItem>
                 ))}
-              </>
+              </DropdownMenuGroup>
             ) : null}
             {unattachedDirect.length === 0 && unattachedTransitive.length === 0 ? (
               <DropdownMenuItem disabled>

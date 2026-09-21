@@ -5,7 +5,10 @@ import { WorkspaceDashboard } from '@/workspace/WorkspaceDashboard';
 import { defaultEditorRegistry } from './default-editors';
 import { resolveWorkbenchEditor } from './editor-registry';
 import { PersistentEditorSlot } from './persistent-editor-host';
-import { WorkbenchGroupPreviewHostPoolRegistration } from './workbench-group-services';
+import {
+  WorkbenchGroupMaterialPreviewRendererRegistration,
+  WorkbenchGroupPreviewHostPoolRegistration,
+} from './workbench-group-services';
 import { WorkbenchEditorPane } from './WorkbenchEditorPane';
 import { WorkbenchTabs } from './WorkbenchTabs';
 import { workbenchTabDockDndId } from './WorkbenchTabDndContext';
@@ -41,6 +44,7 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
       <WorkbenchTabs group={group} tabs={tabs} />
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <PreviewHostPoolProvider groupId={group.id} activeTabId={activeTab?.id ?? null}>
+          <WorkbenchGroupMaterialPreviewRendererRegistration groupId={group.id} />
           <WorkbenchGroupPreviewHostPoolRegistration groupId={group.id} />
           {activeTab ? (
             activeEditor?.policies.mountPolicy === 'keep-mounted-while-open' ? (

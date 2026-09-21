@@ -70,6 +70,53 @@ describe('focused Material editor', () => {
     ).toMatchObject({ editorType: 'engine-shader-source' });
   });
 
+  it('keeps texture choices compact until the selector is opened', async () => {
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    project.assets['texture-one'] = {
+      id: 'texture-one',
+      label: 'Texture One',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/texture-one.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.assets['texture-two'] = {
+      id: 'texture-two',
+      label: 'Texture Two',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/texture-two.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'b'.repeat(64)}`,
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    render(<MaterialEditor tab={materialTab('panel')} />);
+
+    expect(screen.queryByText('Texture One (texture-one)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Texture Two (texture-two)')).not.toBeInTheDocument();
+
+    const noTexture = screen.getByText('No texture');
+    fireEvent.click(noTexture.closest('button')!);
+
+    expect(await screen.findByText('Texture One (texture-one)')).toBeInTheDocument();
+    expect(screen.getByText('Texture Two (texture-two)')).toBeInTheDocument();
+  });
+
   it('keeps engine-bound inputs read-only and exposes orphan cleanup/rebind UI', () => {
     const project = createAuthoringProject();
     project.materials.hotspot = {

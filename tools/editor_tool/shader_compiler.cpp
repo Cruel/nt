@@ -821,6 +821,39 @@ reflect_shader_binary(const std::filesystem::path& path)
             .array_size = *array_size,
         });
     }
+
+    // Metal shaderc binaries expose a combined sampler as three reflected records:
+    // `<name>Sampler`, `<name>Texture`, and the original sampled-image name. The two
+    // companions are backend implementation details, while the original record uses
+    // an array count of zero for a non-array sampler. Normalize that backend encoding
+    // to the logical shader interface shared by the other renderer variants.
+    std::vector<std::string> sampled_images;
+    for (auto& input : reflected.inputs) {
+        if (input.kind != ShaderReflectedInputKind::SampledImage)
+            continue;
+        if (input.array_size == 0)
+            input.array_size = 1;
+        sampled_images.push_back(input.name);
+    }
+    reflected.inputs.erase(
+        std::remove_if(reflected.inputs.begin(), reflected.inputs.end(),
+                       [&sampled_images](const ShaderReflectedInput& input) {
+                           if (input.kind != ShaderReflectedInputKind::Uniform ||
+                               input.type != "unknown")
+                               return false;
+                           const std::string_view name = input.name;
+                           std::string_view logical_name;
+                           if (name.ends_with("Sampler"))
+                               logical_name = name.substr(0, name.size() - std::string_view("Sampler").size());
+                           else if (name.ends_with("Texture"))
+                               logical_name = name.substr(0, name.size() - std::string_view("Texture").size());
+                           else
+                               return false;
+                           return std::find(sampled_images.begin(), sampled_images.end(), logical_name) !=
+                                  sampled_images.end();
+                       }),
+        reflected.inputs.end());
+
     const auto payload_size = read_u32();
     if (!payload_size || offset + *payload_size > bytes->size())
         return std::nullopt;
