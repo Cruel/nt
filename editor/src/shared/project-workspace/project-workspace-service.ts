@@ -100,6 +100,11 @@ import type {
 import { escapeJsonPointerSegment, type JsonPointer } from '../json-pointer';
 import { sha256PrefixedBytes, sha256PrefixedUtf8 } from '../web-crypto';
 import {
+  overlayReadonlyArray,
+  overlayReadonlyMap,
+  overlayReadonlyRecord as overlayRecord,
+} from '../bounded-structural-sharing';
+import {
   EDITOR_LOCAL_STATE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
@@ -921,166 +926,6 @@ async function advanceRevisionState(
   return { revision: await revisionFromState(state), state };
 }
 
-function overlayRecord<T>(
-  base: Readonly<Record<string, T>>,
-  changes: Readonly<Record<string, T>>,
-  onEnumerate?: () => void,
-): Readonly<Record<string, T>> {
-  const keys = Object.keys(changes);
-  if (keys.length === 0) return base;
-  const own = new Set(keys);
-  return new Proxy(Object.create(null) as Record<string, T>, {
-    get(_target, property) {
-      if (typeof property !== 'string') return undefined;
-      return own.has(property) ? changes[property] : base[property];
-    },
-    has(_target, property) {
-      return typeof property === 'string' && (own.has(property) || property in base);
-    },
-    ownKeys() {
-      onEnumerate?.();
-      return [...new Set([...Reflect.ownKeys(base), ...keys])];
-    },
-    getOwnPropertyDescriptor(_target, property) {
-      if (typeof property !== 'string' || !(own.has(property) || property in base))
-        return undefined;
-      return {
-        configurable: true,
-        enumerable: true,
-        writable: false,
-        value: own.has(property) ? changes[property] : base[property],
-      };
-    },
-    set() {
-      return false;
-    },
-    deleteProperty() {
-      return false;
-    },
-    defineProperty() {
-      return false;
-    },
-  });
-}
-
-class OverlayReadonlyMap<K, V> implements ReadonlyMap<K, V> {
-  readonly #size: number;
-
-  constructor(
-    private readonly base: ReadonlyMap<K, V>,
-    private readonly changes: ReadonlyMap<K, V>,
-    private readonly deleted: ReadonlySet<K> = new Set(),
-  ) {
-    let size = base.size;
-    for (const key of deleted) if (base.has(key)) size -= 1;
-    for (const key of changes.keys()) if (!base.has(key) || deleted.has(key)) size += 1;
-    this.#size = size;
-  }
-
-  get size(): number {
-    return this.#size;
-  }
-
-  get(key: K): V | undefined {
-    if (this.deleted.has(key) && !this.changes.has(key)) return undefined;
-    return this.changes.has(key) ? this.changes.get(key) : this.base.get(key);
-  }
-
-  has(key: K): boolean {
-    if (this.deleted.has(key) && !this.changes.has(key)) return false;
-    return this.changes.has(key) || this.base.has(key);
-  }
-
-  private materialized(): Map<K, V> {
-    const values = new Map(this.base);
-    for (const key of this.deleted) values.delete(key);
-    for (const [key, value] of this.changes) values.set(key, value);
-    return values;
-  }
-
-  entries(): MapIterator<[K, V]> {
-    return this.materialized().entries();
-  }
-  keys(): MapIterator<K> {
-    return this.materialized().keys();
-  }
-  values(): MapIterator<V> {
-    return this.materialized().values();
-  }
-  forEach(callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: unknown): void {
-    for (const [key, value] of this.materialized()) callbackfn.call(thisArg, value, key, this);
-  }
-  [Symbol.iterator](): MapIterator<[K, V]> {
-    return this.entries();
-  }
-  get [Symbol.toStringTag](): string {
-    return 'OverlayReadonlyMap';
-  }
-}
-
-function overlayReadonlyMap<K, V>(
-  base: ReadonlyMap<K, V>,
-  changes: ReadonlyMap<K, V>,
-  deleted: ReadonlySet<K> = new Set(),
-): ReadonlyMap<K, V> {
-  return changes.size === 0 && deleted.size === 0
-    ? base
-    : new OverlayReadonlyMap(base, changes, deleted);
-}
-
-function overlayReadonlyArray<T>(
-  base: readonly T[],
-  changes: ReadonlyMap<number, T>,
-): readonly T[] {
-  if (changes.size === 0) return base;
-  const target: T[] = [];
-  target.length = base.length;
-  return new Proxy(target, {
-    get(_target, property, receiver) {
-      if (property === 'length') return base.length;
-      if (typeof property === 'string' && /^\d+$/u.test(property)) {
-        const index = Number(property);
-        return changes.get(index) ?? base[index];
-      }
-      return Reflect.get(base, property, receiver);
-    },
-    has(_target, property) {
-      if (typeof property === 'string' && /^\d+$/u.test(property)) {
-        const index = Number(property);
-        return index >= 0 && index < base.length;
-      }
-      return Reflect.has(base, property);
-    },
-    ownKeys() {
-      return Reflect.ownKeys(base);
-    },
-    getOwnPropertyDescriptor(_target, property) {
-      if (property === 'length')
-        return { configurable: false, enumerable: false, writable: true, value: base.length };
-      if (typeof property === 'string' && /^\d+$/u.test(property)) {
-        const index = Number(property);
-        if (index < 0 || index >= base.length) return undefined;
-        return {
-          configurable: true,
-          enumerable: true,
-          writable: false,
-          value: changes.get(index) ?? base[index],
-        };
-      }
-      return Reflect.getOwnPropertyDescriptor(base, property);
-    },
-    set() {
-      return false;
-    },
-    deleteProperty() {
-      return false;
-    },
-    defineProperty() {
-      return false;
-    },
-  });
-}
-
 async function readWorkspaceFileRevision(
   fileSystem: ProjectWorkspaceFileSystem,
   projectRoot: string,
@@ -1349,8 +1194,9 @@ function externalDescriptors(
   project: AuthoringProject,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
   sourceTexts?: ReadonlyMap<string, string>,
+  contributionKeys?: ReadonlySet<string>,
 ): readonly AuthoringLuaSourceDescriptor[] {
-  return collectAuthoringLuaSources(project).map((descriptor) => {
+  return collectAuthoringLuaSources(project, contributionKeys).map((descriptor) => {
     const match = descriptor.sourcePath.match(/^\/(scripts|layouts)\/([^/]+)/);
     if (!match || descriptor.sourceAssetId) return descriptor;
     const [, collection, id] = match;
@@ -1832,6 +1678,59 @@ function changedValidationContributionKeys(
   return keys;
 }
 
+function registryMembershipChanged(
+  before: Readonly<Record<string, unknown>>,
+  after: Readonly<Record<string, unknown>>,
+): boolean {
+  const beforeKeys = Object.keys(before);
+  const afterKeys = Object.keys(after);
+  return (
+    beforeKeys.length !== afterKeys.length || beforeKeys.some((key) => !Object.hasOwn(after, key))
+  );
+}
+
+function aggregateSemanticMembershipChanged(
+  changedSourcePaths: readonly string[],
+  before: AuthoringProject,
+  after: AuthoringProject,
+): boolean {
+  if (
+    changedSourcePaths.includes('traits.json') &&
+    registryMembershipChanged(before.traits, after.traits)
+  )
+    return true;
+  if (
+    changedSourcePaths.includes('project.json') &&
+    (registryMembershipChanged(before.interactableInstances, after.interactableInstances) ||
+      before.settings.cursors.named.length !== after.settings.cursors.named.length)
+  )
+    return true;
+  if (
+    changedSourcePaths.includes(LOCALIZATION_POLICY_FILE) &&
+    (before.localization.sourceLocale !== after.localization.sourceLocale ||
+      registryMembershipChanged(before.localization.locales, after.localization.locales))
+  )
+    return true;
+  if (
+    changedSourcePaths.includes(LOCALIZATION_MESSAGES_FILE) &&
+    registryMembershipChanged(before.localization.messages, after.localization.messages)
+  )
+    return true;
+  for (const path of changedSourcePaths) {
+    const localeMatch = /^i18n\/locales\/([^/]+)\.json$/u.exec(path);
+    if (!localeMatch) continue;
+    const locale = localeMatch[1]!;
+    if (
+      registryMembershipChanged(
+        before.localization.translations[locale] ?? {},
+        after.localization.translations[locale] ?? {},
+      )
+    )
+      return true;
+  }
+  return false;
+}
+
 function advanceSnapshotValidationState(
   base: SnapshotValidationState,
   contributions: readonly AuthoringValidationContribution[],
@@ -2247,44 +2146,58 @@ export class ProjectWorkspaceService {
         ),
       );
     const priorValidationState = this.snapshotValidationStates.get(base.snapshot);
-    const invalidValidationKeys = priorValidationState
-      ? changedValidationContributionKeys(
-          priorValidationState,
-          changedPaths,
-          base.snapshot.project,
-          project,
-        )
-      : null;
-    const validation = validateAdmittedAuthoringProject(project, {
-      contributions: base.validationContributions,
-      ...(priorValidationState && invalidValidationKeys
-        ? {
-            contributionsByKey: priorValidationState.byKey,
-            changedContributionKeys: invalidValidationKeys,
-            contributionIndexes: priorValidationState.indexByKey,
-            baseDiagnostics: base.diagnostics,
-          }
-        : {}),
-      changedSourcePaths: new Set(changedPaths),
-      resolveInputs: (paths) => {
-        if (paths.some((path) => path === '/' || path === '/editor' || path.startsWith('/editor/')))
-          return null;
-        const files = new Set<string>();
-        for (const path of paths) {
-          const overlappingFiles = sourceOwnerPathIndex.overlappingFiles(path);
-          for (const file of overlappingFiles) files.add(file);
-          const collection = path.split('/')[1] ?? '';
-          if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
-            for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
-              files.add(file);
-          } else if (overlappingFiles.length === 0) files.add('project.json');
+    const semanticMembershipChanged = aggregateSemanticMembershipChanged(
+      changedPaths,
+      base.snapshot.project,
+      project,
+    );
+    if (semanticMembershipChanged) fullProjectTraversals += 1;
+    const invalidValidationKeys =
+      priorValidationState && !semanticMembershipChanged
+        ? changedValidationContributionKeys(
+            priorValidationState,
+            changedPaths,
+            base.snapshot.project,
+            project,
+          )
+        : null;
+    const resolveValidationInputs: AuthoringValidationReuse['resolveInputs'] = (paths) => {
+      if (paths.some((path) => path === '/' || path === '/editor' || path.startsWith('/editor/')))
+        return null;
+      const files = new Set<string>();
+      for (const path of paths) {
+        const overlappingFiles = sourceOwnerPathIndex.overlappingFiles(path);
+        for (const file of overlappingFiles) files.add(file);
+        const collection = path.split('/')[1] ?? '';
+        if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
+          for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
+            files.add(file);
+        } else if (overlappingFiles.length === 0) files.add('project.json');
+      }
+      return [...files].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
+        path,
+        contentHash: fileRevisions[path]!.contentHash,
+      }));
+    };
+    const validationReuse: AuthoringValidationReuse = semanticMembershipChanged
+      ? {
+          contributions: [],
+          resolveInputs: resolveValidationInputs,
         }
-        return [...files].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
-          path,
-          contentHash: fileRevisions[path]!.contentHash,
-        }));
-      },
-    });
+      : {
+          contributions: base.validationContributions,
+          ...(priorValidationState && invalidValidationKeys
+            ? {
+                contributionsByKey: priorValidationState.byKey,
+                changedContributionKeys: invalidValidationKeys,
+                contributionIndexes: priorValidationState.indexByKey,
+                baseDiagnostics: base.diagnostics,
+              }
+            : {}),
+          changedSourcePaths: new Set(changedPaths),
+          resolveInputs: resolveValidationInputs,
+        };
+    const validation = validateAdmittedAuthoringProject(project, validationReuse);
     const changedLocalDiagnostics = sourceLocalDiagnostics(
       validation.diagnostics,
       changedOwnerPaths,
@@ -2310,23 +2223,79 @@ export class ProjectWorkspaceService {
         )
       : await aggregateRevisionState(fileRevisions);
     const workspaceRevision = aggregate.revision;
+    const priorAnalysis = this.snapshotDependencyAnalysis.get(base.snapshot);
+    const impactedOwnerPaths = new Set(changedOwnerPaths.values().flatMap((paths) => [...paths]));
+    const incrementalDependencyKeys =
+      priorAnalysis && !semanticMembershipChanged
+        ? incrementalDependencyContributionKeys(priorAnalysis, impactedOwnerPaths)
+        : null;
     const priorDescriptorIndex = this.snapshotExternalDescriptorIndexes.get(base.snapshot);
     let externalSourceDescriptors = base.snapshot.externalSourceDescriptors;
+    const changedRecordKeys = new Set<string>();
+    for (const path of changedPaths) {
+      const match = /^records\/([^/]+)\/([^/]+)\.json$/u.exec(path);
+      if (match && isAuthoringCollectionKey(match[1]!))
+        changedRecordKeys.add(recordContributionKey(match[1], match[2]!));
+    }
+    if (changedRecordKeys.size > 0) {
+      if (!priorDescriptorIndex) return null;
+      const keys = incrementalDependencyKeys ?? changedRecordKeys;
+      const freshByKey = new Map<string, AuthoringLuaSourceDescriptor[]>();
+      for (const descriptor of externalDescriptors(
+        project,
+        base.snapshot.scriptSourcePaths,
+        changedTextSources,
+        keys,
+      )) {
+        const descriptors = freshByKey.get(descriptor.contributionKey) ?? [];
+        descriptors.push(descriptor);
+        freshByKey.set(descriptor.contributionKey, descriptors);
+      }
+      const descriptorChanges = new Map<number, AuthoringLuaSourceDescriptor>();
+      for (const key of keys) {
+        const indexes = priorDescriptorIndex.indexesByContributionKey.get(key) ?? [];
+        const fresh = freshByKey.get(key) ?? [];
+        // Source membership/routing changes require rebuilding the descriptor indexes.
+        if (indexes.length !== fresh.length) return null;
+        for (let offset = 0; offset < indexes.length; offset += 1) {
+          const index = indexes[offset]!;
+          const previous = externalSourceDescriptors[index]!;
+          const descriptor = fresh[offset]!;
+          if (
+            previous.sourcePath !== descriptor.sourcePath ||
+            previous.sourceUrl !== descriptor.sourceUrl ||
+            previous.sourceAssetId !== descriptor.sourceAssetId
+          )
+            return null;
+          descriptorChanges.set(
+            index,
+            Object.freeze({
+              ...descriptor,
+              inlineText: descriptor.inlineText ?? previous.inlineText,
+            }),
+          );
+        }
+      }
+      externalSourceDescriptors = overlayReadonlyArray(
+        externalSourceDescriptors,
+        descriptorChanges,
+      );
+    }
     if (changedTextSources.size > 0) {
       if (priorDescriptorIndex) {
         const descriptorChanges = new Map<number, AuthoringLuaSourceDescriptor>();
         for (const [sourcePath, text] of changedTextSources)
           for (const index of priorDescriptorIndex.indexesByProjectPath.get(sourcePath) ?? []) {
-            const descriptor = base.snapshot.externalSourceDescriptors[index]!;
+            const descriptor = externalSourceDescriptors[index]!;
             descriptorChanges.set(index, Object.freeze({ ...descriptor, inlineText: text }));
           }
         externalSourceDescriptors = overlayReadonlyArray(
-          base.snapshot.externalSourceDescriptors,
+          externalSourceDescriptors,
           descriptorChanges,
         );
       } else {
         externalSourceDescriptors = Object.freeze(
-          base.snapshot.externalSourceDescriptors.map((descriptor) => {
+          externalSourceDescriptors.map((descriptor) => {
             const sourcePath = descriptor.sourceUrl.startsWith('project:/')
               ? descriptor.sourceUrl.slice('project:/'.length)
               : null;
@@ -2359,7 +2328,7 @@ export class ProjectWorkspaceService {
     this.snapshotValidators.set(snapshot, () => validation.diagnostics);
     this.snapshotValidationStates.set(
       snapshot,
-      priorValidationState && invalidValidationKeys
+      priorValidationState && invalidValidationKeys && !semanticMembershipChanged
         ? advanceSnapshotValidationState(
             priorValidationState,
             validation.contributions,
@@ -2368,11 +2337,6 @@ export class ProjectWorkspaceService {
         : createSnapshotValidationState(validation.contributions),
     );
     this.snapshotSourceOwnerIndexes.set(snapshot, sourceOwnerPathIndex);
-    const priorAnalysis = this.snapshotDependencyAnalysis.get(base.snapshot);
-    const impactedOwnerPaths = new Set(changedOwnerPaths.values().flatMap((paths) => [...paths]));
-    const incrementalDependencyKeys = priorAnalysis
-      ? incrementalDependencyContributionKeys(priorAnalysis, impactedOwnerPaths)
-      : null;
     if (priorAnalysis && incrementalDependencyKeys) {
       this.snapshotIncrementalDependencySeeds.set(snapshot, {
         base: priorAnalysis,
@@ -2380,7 +2344,9 @@ export class ProjectWorkspaceService {
         symbolProjection: this.snapshotLuaSymbolProjections.get(base.snapshot),
       });
     } else {
-      const dependencyReuse = this.snapshotDependencyReuse.get(base.snapshot);
+      const dependencyReuse = semanticMembershipChanged
+        ? undefined
+        : this.snapshotDependencyReuse.get(base.snapshot);
       if (dependencyReuse) {
         if (priorAnalysis) {
           const roots = [...impactedOwnerPaths].flatMap((path) =>
@@ -2515,9 +2481,16 @@ export class ProjectWorkspaceService {
         ]),
       ),
     );
+    const semanticMembershipChanged =
+      aggregateSemanticMembershipChanged(
+        changedPaths,
+        base.snapshot.project,
+        committedSnapshot.project,
+      ) ||
+      changedPaths.some((path) => !base.sourceContributions[path] || !sourceContributions[path]);
     const validation = validateAdmittedAuthoringProject(committedSnapshot.project, {
-      contributions: base.validationContributions,
-      changedSourcePaths: new Set(changedPaths),
+      contributions: semanticMembershipChanged ? [] : base.validationContributions,
+      ...(semanticMembershipChanged ? {} : { changedSourcePaths: new Set(changedPaths) }),
       resolveInputs: (paths) => {
         if (paths.some((path) => path === '/' || path === '/editor' || path.startsWith('/editor/')))
           return null;
@@ -2552,8 +2525,18 @@ export class ProjectWorkspaceService {
     }
 
     this.snapshotValidators.set(committedSnapshot, () => validation.diagnostics);
+    this.snapshotValidationStates.set(
+      committedSnapshot,
+      createSnapshotValidationState(validation.contributions),
+    );
+    this.snapshotExternalDescriptorIndexes.set(
+      committedSnapshot,
+      createSnapshotExternalDescriptorIndex(committedSnapshot.externalSourceDescriptors),
+    );
     this.snapshotSourceOwnerIndexes.set(committedSnapshot, sourceOwnerPathIndex);
-    const dependencyReuse = this.snapshotDependencyReuse.get(base.snapshot);
+    const dependencyReuse = semanticMembershipChanged
+      ? undefined
+      : this.snapshotDependencyReuse.get(base.snapshot);
     if (dependencyReuse) {
       const priorAnalysis = this.snapshotDependencyAnalysis.get(base.snapshot);
       const impactedOwnerPaths = new Set(changedOwnerPaths.values().flatMap((paths) => [...paths]));
@@ -3760,9 +3743,7 @@ export const collectProjectWorkspaceLuaSources = (
   contributionKeys?: Parameters<typeof collectAuthoringLuaSources>[1],
 ) =>
   contributionKeys
-    ? snapshot.externalSourceDescriptors.filter((descriptor) =>
-        contributionKeys.has(descriptor.contributionKey),
-      )
+    ? descriptorsForContributionKeys(snapshot, contributionKeys)
     : snapshot.externalSourceDescriptors;
 export const buildProjectWorkspaceSearchIndex = (snapshot: ProjectWorkspaceSnapshot) =>
   buildProjectSearchIndex(snapshot.project, {
