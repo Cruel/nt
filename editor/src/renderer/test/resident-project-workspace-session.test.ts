@@ -80,6 +80,42 @@ function createProjectAuthorityProbe() {
   };
 }
 
+function trackSemanticTransactionWrites(
+  fileSystem: InMemoryProjectWorkspaceFileSystem,
+  probe: ReturnType<typeof createProjectAuthorityProbe>,
+) {
+  const relativeSemanticPath = (value: string) => {
+    const absolute = fileSystem.resolvePath(value);
+    if (!absolute.startsWith(`${ROOT}/`)) return null;
+    const relative = absolute.slice(ROOT.length + 1);
+    return relative === 'project.json' ||
+      relative === 'editor.json' ||
+      relative === 'traits.json' ||
+      /^records\/[^/]+\/.+\.(?:json|lua|rml|rcss)$/u.test(relative) ||
+      /^scripts\/.+\.lua$/u.test(relative) ||
+      /^i18n\/.+\.json$/u.test(relative)
+      ? relative
+      : null;
+  };
+  const originalWrite = fileSystem.writeBytesAtomic.bind(fileSystem);
+  fileSystem.writeBytesAtomic = async (value, bytes) => {
+    const relative = relativeSemanticPath(value);
+    const existed = relative ? (await fileSystem.inspect(value)) === 'file' : false;
+    await originalWrite(value, bytes);
+    if (relative) {
+      if (existed) probe.change(relative);
+      else probe.add(relative);
+    }
+  };
+  const originalRemove = fileSystem.removeFile.bind(fileSystem);
+  fileSystem.removeFile = async (value) => {
+    const relative = relativeSemanticPath(value);
+    const existed = relative ? (await fileSystem.inspect(value)) === 'file' : false;
+    await originalRemove(value);
+    if (relative && existed) probe.remove(relative);
+  };
+}
+
 async function createNativeAssetWorkspace() {
   const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
   project.assets.image = {
@@ -302,6 +338,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
   it('refreshes native authority after adopting a committed Asset relocation', async () => {
     const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
+    trackSemanticTransactionWrites(fileSystem, probe);
     const changed = cloneAuthoringProject(project);
     changed.assets.image.data.source.path = 'assets/replaced.png';
     const original = await fileSystem.readFileRevision(`${ROOT}/assets/original.png`);
@@ -328,20 +365,72 @@ describe('ResidentProjectWorkspaceSession', () => {
       },
     );
     expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+    expect(probe.requests.at(-1)).toEqual([
+      'project.json',
+      'editor.json',
+      'traits.json',
+      'assets/replaced.png',
+    ]);
     expect(await workspace.verifyReadAuthority(first.snapshot)).toBe(false);
     const requestCount = probe.requests.length;
     const reopened = await workspace.open(ROOT);
     if (!reopened.ok) throw new Error('Committed Project reopen failed.');
     expect(reopened.snapshot.workspaceRevision).toBe(written.workspaceRevision);
-    expect(probe.requests.slice(requestCount)).toEqual([
-      ['project.json', 'editor.json', 'traits.json', 'assets/replaced.png'],
-    ]);
+    expect(probe.requests.slice(requestCount)).toEqual([null]);
     expect(await workspace.verifyReadAuthority(reopened.snapshot)).toBe(true);
     expect(probe.requests.at(-1)).toBeNull();
   });
 
+  it('rejects a committed Asset payload that changes before native promotion', async () => {
+    const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
+    trackSemanticTransactionWrites(fileSystem, probe);
+    const changed = cloneAuthoringProject(project);
+    changed.assets.image.data.source.path = 'assets/replaced.png';
+    const original = await fileSystem.readFileRevision(`${ROOT}/assets/original.png`);
+    const replacedPath = `${ROOT}/assets/replaced.png`;
+    const originalWrite = fileSystem.writeBytesAtomic.bind(fileSystem);
+    let replacedOnce = false;
+    fileSystem.writeBytesAtomic = async (value, bytes) => {
+      await originalWrite(value, bytes);
+      if (!replacedOnce && fileSystem.resolvePath(value) === replacedPath) {
+        replacedOnce = true;
+        await originalWrite(value, new TextEncoder().encode('external replacement'));
+        probe.change('assets/replaced.png');
+      }
+    };
+
+    await expect(
+      workspace.write(
+        ROOT,
+        first.snapshot.workspaceRevision,
+        changed,
+        changed.editor,
+        {},
+        {
+          affectedPaths: ['/assets/image'],
+          extraTargets: [
+            {
+              path: 'assets/original.png',
+              operation: 'delete',
+              expectedRevision: original.contentHash,
+            },
+            utf8WorkspaceTransactionTarget(
+              'assets/replaced.png',
+              PROJECT_WORKSPACE_ABSENT_REVISION,
+              'a',
+            ),
+          ],
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_REVISION_CONFLICT' });
+    expect(replacedOnce).toBe(true);
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+    expect(await fileSystem.readText(replacedPath)).toBe('external replacement');
+  });
+
   it('rebuilds validation membership when committed transactions add and remove records', async () => {
-    const { project, workspace, first } = await createNativeAssetWorkspace();
+    const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
+    trackSemanticTransactionWrites(fileSystem, probe);
     const changed = cloneAuthoringProject(project);
     changed.rooms.hall = {
       id: 'hall',
@@ -367,6 +456,266 @@ describe('ResidentProjectWorkspaceSession', () => {
         contribution.key.endsWith(':rooms:hall'),
       ),
     ).toBe(false);
+  });
+
+  it('admits a mutation candidate before publishing its transaction', async () => {
+    const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
+    trackSemanticTransactionWrites(fileSystem, probe);
+    const changed = cloneAuthoringProject(project);
+    changed.assets.image.label = 'Changed Image';
+    const recordPath = 'records/assets/image.json';
+    const beforeText = await fileSystem.readText(`${ROOT}/${recordPath}`);
+    let admitted = false;
+
+    await workspace.write(
+      ROOT,
+      first.snapshot.workspaceRevision,
+      changed,
+      changed.editor,
+      {},
+      {
+        affectedPaths: ['/assets/image'],
+        admitCandidateBeforeCommit: async (snapshot) => {
+          admitted = true;
+          expect(snapshot.project.assets.image.label).toBe('Changed Image');
+          expect(await fileSystem.readText(`${ROOT}/${recordPath}`)).toBe(beforeText);
+        },
+      },
+    );
+
+    expect(admitted).toBe(true);
+    const reopened = await workspace.open(ROOT);
+    if (!reopened.ok) throw new Error('Committed candidate did not remain resident.');
+    expect(reopened.snapshot.project.assets.image.label).toBe('Changed Image');
+  });
+
+  it('does not promote a candidate when the transactional write fails', async () => {
+    const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
+    trackSemanticTransactionWrites(fileSystem, probe);
+    const changed = cloneAuthoringProject(project);
+    changed.assets.image.label = 'Should Not Commit';
+    const recordPath = 'records/assets/image.json';
+    const originalWrite = fileSystem.writeBytesAtomic.bind(fileSystem);
+    let failed = false;
+    fileSystem.writeBytesAtomic = async (value, bytes) => {
+      if (!failed && fileSystem.resolvePath(value) === `${ROOT}/${recordPath}`) {
+        failed = true;
+        throw new Error('injected Project write failure');
+      }
+      return originalWrite(value, bytes);
+    };
+
+    await expect(
+      workspace.write(
+        ROOT,
+        first.snapshot.workspaceRevision,
+        changed,
+        changed.editor,
+        {},
+        {
+          affectedPaths: ['/assets/image'],
+        },
+      ),
+    ).rejects.toThrow('injected Project write failure');
+    expect(failed).toBe(true);
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+
+    const reopened = await workspace.open(ROOT);
+    if (!reopened.ok) throw new Error('Coherent generation did not survive failed write.');
+    expect(reopened.snapshot.project.assets.image.label).toBe(project.assets.image.label);
+  });
+
+  it('retains the coherent generation when post-write native proof fails', async () => {
+    const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
+    trackSemanticTransactionWrites(fileSystem, probe);
+    const changed = cloneAuthoringProject(project);
+    changed.assets.image.label = 'Committed Before Proof Failure';
+    probe.beforeObserve((count) => {
+      if (count !== 4) return;
+      probe.beforeObserve(null);
+      throw new Error('injected post-write native proof failure');
+    });
+
+    await expect(
+      workspace.write(
+        ROOT,
+        first.snapshot.workspaceRevision,
+        changed,
+        changed.editor,
+        {},
+        {
+          affectedPaths: ['/assets/image'],
+        },
+      ),
+    ).rejects.toThrow('injected post-write native proof failure');
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+    expect(first.snapshot.project.assets.image.label).toBe(project.assets.image.label);
+
+    const reconciled = await workspace.open(ROOT);
+    if (!reconciled.ok)
+      throw new Error('Committed disk state did not reconcile after proof failure.');
+    expect(reconciled.snapshot.project.assets.image.label).toBe('Committed Before Proof Failure');
+  });
+
+  it('does not promote a committed candidate when another source changes before native proof', async () => {
+    const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
+    trackSemanticTransactionWrites(fileSystem, probe);
+    const changed = cloneAuthoringProject(project);
+    changed.assets.image.label = 'Committed Candidate';
+    const assetRecordPath = `${ROOT}/records/assets/image.json`;
+    const racedRoomPath = 'records/rooms/raced.json';
+    const external = cloneAuthoringProject(project);
+    external.rooms.raced = {
+      id: 'raced',
+      label: 'External Room',
+      data: defaultRoomData('External Room'),
+    };
+    const racedRoomText = projectWorkspaceFiles(external, external.editor)[racedRoomPath]!;
+    const originalWrite = fileSystem.writeBytesAtomic.bind(fileSystem);
+    let injected = false;
+    fileSystem.writeBytesAtomic = async (value, bytes) => {
+      await originalWrite(value, bytes);
+      if (!injected && fileSystem.resolvePath(value) === assetRecordPath) {
+        injected = true;
+        await originalWrite(`${ROOT}/${racedRoomPath}`, new TextEncoder().encode(racedRoomText));
+        probe.add(racedRoomPath);
+      }
+    };
+
+    await expect(
+      workspace.write(
+        ROOT,
+        first.snapshot.workspaceRevision,
+        changed,
+        changed.editor,
+        {},
+        { affectedPaths: ['/assets/image'] },
+      ),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_REVISION_CONFLICT', targetPath: racedRoomPath });
+    expect(injected).toBe(true);
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+    expect(first.snapshot.project.assets.image.label).toBe(project.assets.image.label);
+
+    const reconciled = await workspace.open(ROOT);
+    if (!reconciled.ok) throw new Error('Raced committed disk state did not reconcile.');
+    expect(reconciled.snapshot.project.assets.image.label).toBe('Committed Candidate');
+    expect(reconciled.snapshot.project.rooms.raced?.label).toBe('External Room');
+  });
+
+  it('rejects a source edit that races mutation candidate creation', async () => {
+    const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
+    const changed = cloneAuthoringProject(project);
+    changed.assets.image.label = 'Mutation Candidate';
+    const roomPath = 'records/rooms/raced.json';
+    const external = cloneAuthoringProject(project);
+    external.rooms.raced = {
+      id: 'raced',
+      label: 'External Room',
+      data: defaultRoomData('External Room'),
+    };
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${roomPath}`,
+      projectWorkspaceFiles(external, external.editor)[roomPath]!,
+    );
+    probe.add(roomPath);
+
+    await expect(
+      workspace.write(
+        ROOT,
+        first.snapshot.workspaceRevision,
+        changed,
+        changed.editor,
+        {},
+        {
+          affectedPaths: ['/assets/image'],
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_REVISION_CONFLICT', targetPath: roomPath });
+    const persisted = JSON.parse(
+      await fileSystem.readText(`${ROOT}/records/assets/image.json`),
+    ) as { label: string };
+    expect(persisted.label).toBe(project.assets.image.label);
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+  });
+
+  it('rejects a pending source race even after native authority already consumed the delta', async () => {
+    const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
+    const roomPath = 'records/rooms/raced.json';
+    const external = cloneAuthoringProject(project);
+    external.rooms.raced = {
+      id: 'raced',
+      label: 'External Room',
+      data: defaultRoomData('External Room'),
+    };
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${roomPath}`,
+      projectWorkspaceFiles(external, external.editor)[roomPath]!,
+    );
+    probe.add(roomPath);
+    expect(await workspace.verifyReadAuthority(first.snapshot)).toBe(false);
+
+    const changed = cloneAuthoringProject(project);
+    changed.assets.image.label = 'Mutation Candidate';
+    await expect(
+      workspace.write(
+        ROOT,
+        first.snapshot.workspaceRevision,
+        changed,
+        changed.editor,
+        {},
+        { affectedPaths: ['/assets/image'] },
+      ),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_REVISION_CONFLICT', targetPath: roomPath });
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+  });
+
+  it('permits a native resident mutation around an unrelated invalid overlay', async () => {
+    const { project, fileSystem, probe, workspace } = await createNativeAssetWorkspace();
+    await fileSystem.writeTextAtomic(`${ROOT}/traits.json`, '{ invalid json');
+    probe.change('traits.json');
+    const mutationBase = await workspace.openForMutation(ROOT);
+    expect(mutationBase.ok).toBe(true);
+    if (!mutationBase.ok) throw new Error('Coherent mutation base was not retained.');
+    trackSemanticTransactionWrites(fileSystem, probe);
+    const changed = cloneAuthoringProject(project);
+    changed.assets.image.label = 'Safe Asset Mutation';
+
+    await workspace.write(
+      ROOT,
+      mutationBase.snapshot.workspaceRevision,
+      changed,
+      changed.editor,
+      {},
+      { affectedPaths: ['/assets/image'] },
+    );
+
+    expect(await fileSystem.readText(`${ROOT}/traits.json`)).toBe('{ invalid json');
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+  });
+
+  it('blocks a native resident mutation that overlaps an invalid overlay', async () => {
+    const { project, fileSystem, probe, workspace } = await createNativeAssetWorkspace();
+    const recordPath = 'records/assets/image.json';
+    await fileSystem.writeTextAtomic(`${ROOT}/${recordPath}`, '{ invalid json');
+    probe.change(recordPath);
+    const mutationBase = await workspace.openForMutation(ROOT);
+    expect(mutationBase.ok).toBe(true);
+    if (!mutationBase.ok) throw new Error('Coherent mutation base was not retained.');
+    const changed = cloneAuthoringProject(project);
+    changed.assets.image.label = 'Blocked Asset Mutation';
+
+    await expect(
+      workspace.write(
+        ROOT,
+        mutationBase.snapshot.workspaceRevision,
+        changed,
+        changed.editor,
+        {},
+        { affectedPaths: ['/assets/image'] },
+      ),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_INVALID_SOURCE_DEPENDENCY' });
+    expect(await fileSystem.readText(`${ROOT}/${recordPath}`)).toBe('{ invalid json');
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
   });
 
   it('restores native configuration when a discarded Asset candidate reverts to the coherent path', async () => {

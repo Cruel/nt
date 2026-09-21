@@ -1509,6 +1509,10 @@ export interface ProjectWorkspaceWriteOptions {
   readonly preflightSnapshot?: LoadedProjectWorkspaceSnapshot;
   /** Active editor sessions already own coherent state and can adopt the committed projection. */
   readonly refreshAfterCommit?: boolean;
+  /** Resident owners admit the exact projected candidate before the transaction publishes it. */
+  readonly admitCandidateBeforeCommit?: (
+    snapshot: LoadedProjectWorkspaceSnapshot,
+  ) => void | Promise<void>;
 }
 
 const sharedSnapshotValidators = new WeakMap<
@@ -3400,13 +3404,7 @@ export class ProjectWorkspaceService {
       );
     }
     targets.push(...(options.extraTargets ?? []));
-    if (targets.length > 0) {
-      await this.transactions.commit(projectRoot, {
-        transactionId: options.transactionId,
-        operationLabel: options.operationLabel ?? 'project save',
-        targets,
-      });
-    }
+    let projectedSnapshot: LoadedProjectWorkspaceSnapshot | null = null;
     if (options.refreshAfterCommit === false) {
       const canonicalSourceFileSet = fullProjection
         ? new Set(Object.keys(fullProjection))
@@ -3442,7 +3440,7 @@ export class ProjectWorkspaceService {
           throw new Error(`Committed workspace omitted revision state for '${file}'.`);
       const aggregate = await aggregateRevisionState(fileRevisions);
       const workspaceRevision = aggregate.revision;
-      const snapshot: LoadedProjectWorkspaceSnapshot = Object.freeze({
+      projectedSnapshot = Object.freeze({
         snapshotKind: 'loaded',
         projectRoot: openedSnapshot.projectRoot,
         manifestPath: openedSnapshot.manifestPath,
@@ -3455,14 +3453,24 @@ export class ProjectWorkspaceService {
         externalSourceDescriptors: externalDescriptors(project, projectedSourcePaths),
         scriptSourcePaths: Object.freeze(sortKeys(projectedSourcePaths)),
       });
-      snapshotRevisionStates.set(snapshot, aggregate.state);
+      snapshotRevisionStates.set(projectedSnapshot, aggregate.state);
+      await options.admitCandidateBeforeCommit?.(projectedSnapshot);
+    }
+    if (targets.length > 0) {
+      await this.transactions.commit(projectRoot, {
+        transactionId: options.transactionId,
+        operationLabel: options.operationLabel ?? 'project save',
+        targets,
+      });
+    }
+    if (projectedSnapshot) {
       // The active editor session must advance remaining dirty units' per-file recovery baselines
       // against the committed snapshot before persisting local state, so its caller owns that one
       // final local-state write in this branch.
       return withLazyWriteContent(
         {
-          workspaceRevision,
-          snapshot,
+          workspaceRevision: projectedSnapshot.workspaceRevision,
+          snapshot: projectedSnapshot,
         },
         project,
       );
