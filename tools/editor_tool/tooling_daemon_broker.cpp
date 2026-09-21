@@ -50,6 +50,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -636,7 +637,37 @@ struct ActiveRequest {
     std::weak_ptr<ClientConnection> client;
     std::string request_id;
     bool cancelled = false;
+    std::optional<std::uint64_t> owner_worker_id;
 };
+
+struct ChildProcess {
+#if defined(_WIN32)
+    HANDLE handle = nullptr;
+    DWORD pid = 0;
+#else
+    pid_t pid = -1;
+#endif
+};
+
+struct ProjectOwnerWorker {
+    std::uint64_t id = 0;
+    std::string canonical_root;
+    ChildProcess process;
+    std::vector<QueuedRequest> queued;
+    std::uint64_t last_activity_millis = 0;
+    std::uint64_t critical_sections = 0;
+    bool retiring = false;
+};
+
+[[nodiscard]] std::optional<ChildProcess>
+spawn_project_owner_process(const BrokerContext& context, std::uint64_t owner_worker_id);
+[[nodiscard]] bool child_process_alive(const ChildProcess& process);
+void terminate_child_process(ChildProcess& process);
+void release_child_process(ChildProcess& process);
+
+std::optional<ProjectAuthorityRequest> parse_project_authority_request(const Json& request,
+                                                                       std::string& error);
+Json project_observation_json(const ProjectObservation& observation);
 
 class BrokerServer : public std::enable_shared_from_this<BrokerServer> {
 public:
@@ -665,6 +696,7 @@ public:
         }
         touch();
         queue_cv_.notify_all();
+        owner_cv_.notify_all();
         return status_json();
     }
 
@@ -689,7 +721,7 @@ public:
             const auto token = next_request_token_.fetch_add(1);
             {
                 std::scoped_lock lock(queue_mutex_);
-                active_.emplace(token, ActiveRequest{client, queued.request_id, false});
+                active_.emplace(token, ActiveRequest{client, queued.request_id, false, std::nullopt});
             }
             touch();
             return {{"ok", true},
@@ -699,6 +731,120 @@ public:
                     {"method", queued.method},
                     {"payload", std::move(queued.payload)}};
         }
+    }
+
+    Json take_owner_request(std::uint64_t owner_worker_id)
+    {
+        for (;;) {
+            QueuedRequest queued;
+            {
+                std::unique_lock lock(queue_mutex_);
+                const bool awakened = owner_cv_.wait_for(lock, std::chrono::milliseconds(200),
+                                                         [this, owner_worker_id] {
+                    const auto found = project_owners_.find(owner_worker_id);
+                    return state_.load() == State::draining || state_.load() == State::stopped ||
+                           found == project_owners_.end() || found->second.retiring ||
+                           (state_.load() == State::ready && !found->second.queued.empty());
+                });
+                const auto found = project_owners_.find(owner_worker_id);
+                if (state_.load() == State::draining || state_.load() == State::stopped ||
+                    found == project_owners_.end() || found->second.retiring)
+                    return {{"ok", true}, {"stopped", true}};
+                if (!awakened)
+                    return {{"ok", true}, {"stopped", false}, {"idle", true}};
+                if (found->second.queued.empty())
+                    continue;
+                queued = std::move(found->second.queued.front());
+                found->second.queued.erase(found->second.queued.begin());
+                found->second.last_activity_millis = now_millis();
+            }
+            const auto client = queued.client.lock();
+            if (!client || client->current() == invalid_connection)
+                continue;
+            const auto token = next_request_token_.fetch_add(1);
+            {
+                std::scoped_lock lock(queue_mutex_);
+                const auto owner = project_owners_.find(owner_worker_id);
+                if (owner == project_owners_.end() || owner->second.retiring)
+                    continue;
+                active_.emplace(
+                    token,
+                    ActiveRequest{client, queued.request_id, false, std::optional(owner_worker_id)});
+                owner->second.last_activity_millis = now_millis();
+            }
+            touch();
+            return {{"ok", true},
+                    {"stopped", false},
+                    {"token", token},
+                    {"requestId", queued.request_id},
+                    {"method", queued.method},
+                    {"payload", std::move(queued.payload)}};
+        }
+    }
+
+    Json complete_owner_request(std::uint64_t owner_worker_id, std::uint64_t token, bool ok,
+                                const Json& result, std::string_view error)
+    {
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto found = active_.find(token);
+            if (found == active_.end() || found->second.owner_worker_id != owner_worker_id)
+                return error_json("daemon Project-owner request token is not active for this worker");
+        }
+        auto completed = complete_request(token, ok, result, error);
+        if (completed.value("ok", false))
+            touch_owner(owner_worker_id);
+        return completed;
+    }
+
+    Json emit_owner_request_event(std::uint64_t owner_worker_id, std::uint64_t token,
+                                  const Json& event)
+    {
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto found = active_.find(token);
+            if (found == active_.end() || found->second.owner_worker_id != owner_worker_id)
+                return error_json("daemon Project-owner event token is not active for this worker");
+        }
+        return emit_request_event(token, event);
+    }
+
+    Json owner_cancellation_status(std::uint64_t owner_worker_id, std::uint64_t token)
+    {
+        std::scoped_lock lock(queue_mutex_);
+        const auto found = active_.find(token);
+        if (found == active_.end() || found->second.owner_worker_id != owner_worker_id)
+            return {{"ok", true}, {"active", false}, {"cancelled", true}};
+        return {{"ok", true}, {"active", true}, {"cancelled", found->second.cancelled}};
+    }
+
+    Json owner_reconciliation_status(std::uint64_t owner_worker_id)
+    {
+        std::string root;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner == project_owners_.end() || owner->second.retiring)
+                return {{"ok", false}, {"error", "daemon Project owner is not active"}};
+            root = owner->second.canonical_root;
+        }
+#if defined(_WIN32)
+        const std::filesystem::path project_root = utf8_to_wide(root);
+#else
+        const std::filesystem::path project_root = root;
+#endif
+        const auto status = project_authority_.status(project_root);
+        const bool needed = status && (status->state == ProjectAuthorityState::dirty ||
+                                       status->state == ProjectAuthorityState::unknown);
+        return {{"ok", true}, {"needsReconcile", needed}};
+    }
+
+    Json record_owner_activity(std::uint64_t owner_worker_id)
+    {
+        if (!touch_owner(owner_worker_id))
+            return error_json("daemon Project owner is not active");
+        touch();
+        return {{"ok", true}};
     }
 
     Json complete_request(std::uint64_t token, bool ok, const Json& result, std::string_view error)
@@ -788,9 +934,42 @@ public:
         return status_json();
     }
 
+    Json enter_owner_critical_section(std::uint64_t owner_worker_id)
+    {
+        {
+            std::scoped_lock critical_lock(critical_mutex_);
+            if (state_.load() == State::draining || state_.load() == State::stopped)
+                return error_json("daemon broker is draining");
+            std::scoped_lock queue_lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner == project_owners_.end() || owner->second.retiring)
+                return error_json("daemon Project owner is not active");
+            owner->second.critical_sections += 1;
+            critical_sections_.fetch_add(1);
+        }
+        return status_json();
+    }
+
+    Json leave_owner_critical_section(std::uint64_t owner_worker_id)
+    {
+        {
+            std::scoped_lock critical_lock(critical_mutex_);
+            std::scoped_lock queue_lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner == project_owners_.end() || owner->second.retiring)
+                return error_json("daemon Project owner is not active");
+            if (owner->second.critical_sections == 0)
+                return error_json("daemon Project-owner critical-section count is already zero");
+            owner->second.critical_sections -= 1;
+            critical_sections_.fetch_sub(1);
+        }
+        critical_cv_.notify_all();
+        return status_json();
+    }
+
     Json set_project_session_count(std::uint64_t count)
     {
-        project_sessions_.store(count);
+        generic_project_sessions_.store(count);
         return status_json();
     }
 
@@ -799,8 +978,50 @@ public:
         return project_authority_.observe(request);
     }
 
+    ProjectObservation observe_owner_project(std::uint64_t owner_worker_id,
+                                             const ProjectAuthorityRequest& request)
+    {
+#if defined(_WIN32)
+        const auto requested_root =
+            canonical_project_owner_root(wide_to_utf8(request.project_root.wstring()), false);
+#else
+        const auto requested_root =
+            canonical_project_owner_root(request.project_root.string(), false);
+#endif
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner == project_owners_.end() || owner->second.retiring ||
+                owner->second.canonical_root != requested_root)
+                throw std::runtime_error("Project authority request does not belong to this owner worker");
+        }
+        auto observation = project_authority_.observe(request);
+        if (!observation.delta.added.empty() || !observation.delta.changed.empty() ||
+            !observation.delta.removed.empty())
+            touch_owner(owner_worker_id);
+        return observation;
+    }
+
     bool release_project(const std::filesystem::path& project_root)
     {
+        return project_authority_.release(project_root);
+    }
+
+    bool release_owner_project(std::uint64_t owner_worker_id,
+                               const std::filesystem::path& project_root)
+    {
+#if defined(_WIN32)
+        const auto requested_root =
+            canonical_project_owner_root(wide_to_utf8(project_root.wstring()), false);
+#else
+        const auto requested_root = canonical_project_owner_root(project_root.string(), false);
+#endif
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner == project_owners_.end() || owner->second.canonical_root != requested_root)
+                return false;
+        }
         return project_authority_.release(project_root);
     }
 
@@ -820,6 +1041,7 @@ public:
         if (state == State::stopped)
             return;
         cancel_queued("daemon is stopping");
+        retire_all_project_owners("daemon is stopping");
         stop_accepting();
 #if !defined(_WIN32)
         std::error_code error;
@@ -849,7 +1071,11 @@ public:
             result["activeRequests"] = active_.size();
         }
         result["criticalSections"] = critical_sections_.load();
-        result["projectSessions"] = project_sessions_.load();
+        {
+            std::scoped_lock lock(queue_mutex_);
+            result["projectOwnerWorkers"] = project_owners_.size();
+            result["projectSessions"] = project_owners_.size() + generic_project_sessions_.load();
+        }
         result["projectAuthorities"] = project_authority_.tracked_project_count();
         return result;
     }
@@ -894,6 +1120,230 @@ private:
     }
 
     void touch() { last_activity_millis_.store(now_millis()); }
+
+    bool touch_owner(std::uint64_t owner_worker_id)
+    {
+        std::scoped_lock lock(queue_mutex_);
+        const auto found = project_owners_.find(owner_worker_id);
+        if (found == project_owners_.end() || found->second.retiring)
+            return false;
+        found->second.last_activity_millis = now_millis();
+        return true;
+    }
+
+    bool request_id_pending_locked(const std::shared_ptr<ClientConnection>& client,
+                                   std::string_view request_id) const
+    {
+        const auto matches = [&](const QueuedRequest& queued) {
+            return queued.request_id == request_id && queued.client.lock() == client;
+        };
+        if (std::find_if(queued_.begin(), queued_.end(), matches) != queued_.end())
+            return true;
+        for (const auto& [id, owner] : project_owners_) {
+            (void)id;
+            if (std::find_if(owner.queued.begin(), owner.queued.end(), matches) != owner.queued.end())
+                return true;
+        }
+        return false;
+    }
+
+    std::optional<std::uint64_t> ensure_project_owner_locked(const std::string& canonical_root)
+    {
+        if (const auto existing = project_owner_by_root_.find(canonical_root);
+            existing != project_owner_by_root_.end()) {
+            const auto owner = project_owners_.find(existing->second);
+            if (owner != project_owners_.end() && !owner->second.retiring &&
+                child_process_alive(owner->second.process))
+                return owner->first;
+        }
+
+        const auto owner_worker_id = next_owner_worker_id_.fetch_add(1);
+        auto process = spawn_project_owner_process(context_, owner_worker_id);
+        if (!process)
+            return std::nullopt;
+        ProjectOwnerWorker owner;
+        owner.id = owner_worker_id;
+        owner.canonical_root = canonical_root;
+        owner.process = *process;
+        owner.last_activity_millis = now_millis();
+        project_owners_.emplace(owner_worker_id, std::move(owner));
+        project_owner_by_root_[canonical_root] = owner_worker_id;
+        owner_cv_.notify_all();
+        return owner_worker_id;
+    }
+
+    std::optional<std::string>
+    queue_project_owner_request(const std::shared_ptr<ClientConnection>& client,
+                                const std::string& request_id, const std::string& method,
+                                const Json& payload)
+    {
+        if (method != "invoke" || !payload.is_object() || !payload.contains("ownerProjectRoot") ||
+            payload["ownerProjectRoot"].is_null())
+            return std::string{};
+        if (!payload["ownerProjectRoot"].is_string() ||
+            payload["ownerProjectRoot"].get_ref<const std::string&>().empty())
+            return "daemon Project owner root is malformed";
+
+        std::string canonical_root;
+        try {
+            const bool explicit_project = payload.value("ownerProjectRootExplicit", false);
+            canonical_root = canonical_project_owner_root(
+                payload["ownerProjectRoot"].get_ref<const std::string&>(), !explicit_project);
+            if (canonical_root.empty())
+                return std::string{};
+        } catch (const std::exception& error) {
+            return error.what();
+        }
+
+        std::optional<std::uint64_t> dead_owner;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            if (const auto mapped = project_owner_by_root_.find(canonical_root);
+                mapped != project_owner_by_root_.end()) {
+                const auto owner = project_owners_.find(mapped->second);
+                if (owner == project_owners_.end() || !child_process_alive(owner->second.process))
+                    dead_owner = mapped->second;
+            }
+        }
+        if (dead_owner)
+            retire_project_owner(*dead_owner, "daemon Project owner exited unexpectedly", true);
+
+        std::scoped_lock lock(queue_mutex_);
+        if (state_.load() == State::draining || state_.load() == State::stopped)
+            return "daemon is draining";
+        if (request_id_pending_locked(client, request_id))
+            return "duplicate pending daemon request id";
+        const auto owner_worker_id = ensure_project_owner_locked(canonical_root);
+        if (!owner_worker_id)
+            return "failed to start daemon Project owner worker";
+        auto& owner = project_owners_.at(*owner_worker_id);
+        owner.queued.push_back(QueuedRequest{client, request_id, method, payload});
+        owner.last_activity_millis = now_millis();
+        owner_cv_.notify_all();
+        touch();
+        return std::nullopt;
+    }
+
+    void retire_project_owner(std::uint64_t owner_worker_id, std::string_view reason,
+                              bool process_already_dead = false)
+    {
+        ProjectOwnerWorker owner;
+        std::vector<ActiveRequest> active;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto found = project_owners_.find(owner_worker_id);
+            if (found == project_owners_.end())
+                return;
+            found->second.retiring = true;
+            owner = std::move(found->second);
+            project_owners_.erase(found);
+            if (const auto root = project_owner_by_root_.find(owner.canonical_root);
+                root != project_owner_by_root_.end() && root->second == owner_worker_id)
+                project_owner_by_root_.erase(root);
+            for (auto iterator = active_.begin(); iterator != active_.end();) {
+                if (iterator->second.owner_worker_id == owner_worker_id) {
+                    active.push_back(iterator->second);
+                    iterator = active_.erase(iterator);
+                } else {
+                    ++iterator;
+                }
+            }
+        }
+        if (owner.critical_sections != 0) {
+            {
+                std::scoped_lock lock(critical_mutex_);
+                const auto current = critical_sections_.load();
+                critical_sections_.store(current >= owner.critical_sections
+                                             ? current - owner.critical_sections
+                                             : 0);
+            }
+            critical_cv_.notify_all();
+        }
+        owner_cv_.notify_all();
+        active_cv_.notify_all();
+#if defined(_WIN32)
+        const std::filesystem::path root = utf8_to_wide(owner.canonical_root);
+#else
+        const std::filesystem::path root = owner.canonical_root;
+#endif
+        (void)project_authority_.release(root);
+        if (process_already_dead)
+            release_child_process(owner.process);
+        else
+            terminate_child_process(owner.process);
+        for (const auto& queued : owner.queued) {
+            if (const auto client = queued.client.lock())
+                client->send(result_event_json(queued.request_id, false, "null", reason));
+        }
+        for (const auto& request : active) {
+            if (const auto client = request.client.lock())
+                client->send(result_event_json(request.request_id, false, "null", reason));
+        }
+    }
+
+    void retire_all_project_owners(std::string_view reason)
+    {
+        std::vector<std::uint64_t> owners;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            owners.reserve(project_owners_.size());
+            for (const auto& [id, owner] : project_owners_) {
+                (void)owner;
+                owners.push_back(id);
+            }
+        }
+        for (const auto id : owners)
+            retire_project_owner(id, reason);
+    }
+
+    void maintain_project_owners()
+    {
+        constexpr std::size_t owner_soft_limit = 8;
+        std::vector<std::pair<std::uint64_t, bool>> retire;
+        std::vector<std::pair<std::uint64_t, std::uint64_t>> pressure_candidates;
+        const auto now = now_millis();
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner_is_active = [&](std::uint64_t id) {
+                return std::any_of(active_.begin(), active_.end(), [&](const auto& item) {
+                    return item.second.owner_worker_id == id;
+                });
+            };
+            for (const auto& [id, owner] : project_owners_) {
+                if (!child_process_alive(owner.process)) {
+                    retire.emplace_back(id, true);
+                    continue;
+                }
+                if (!owner.queued.empty() || owner_is_active(id) || owner.critical_sections != 0)
+                    continue;
+                const bool idle_expired =
+                    now - owner.last_activity_millis >= context_.project_session_idle_ms;
+                if (idle_expired)
+                    retire.emplace_back(id, false);
+                else
+                    pressure_candidates.emplace_back(owner.last_activity_millis, id);
+            }
+            const auto survivors = project_owners_.size() - retire.size();
+            if (survivors > owner_soft_limit) {
+                std::sort(pressure_candidates.begin(), pressure_candidates.end());
+                const auto pressure_evictions =
+                    std::min(survivors - owner_soft_limit, pressure_candidates.size());
+                for (std::size_t index = 0; index < pressure_evictions; ++index)
+                    retire.emplace_back(pressure_candidates[index].second, false);
+            }
+            for (const auto& [id, already_dead] : retire) {
+                (void)already_dead;
+                const auto owner = project_owners_.find(id);
+                if (owner != project_owners_.end())
+                    owner->second.retiring = true;
+            }
+        }
+        for (const auto& [id, already_dead] : retire)
+            retire_project_owner(id,
+                                 already_dead ? "daemon Project owner exited unexpectedly"
+                                              : "daemon Project owner was evicted",
+                                 already_dead);
+    }
 
     static std::uint64_t now_millis()
     {
@@ -1039,7 +1489,6 @@ private:
             const auto payload = receive_payload(handle);
             if (!payload)
                 break;
-            touch();
             const auto message = Json::parse(*payload, nullptr, false);
             if (message.is_discarded() || !message.is_object())
                 break;
@@ -1048,12 +1497,15 @@ private:
             if (request_id.empty())
                 break;
             if (type == "cancel") {
+                touch();
                 cancel_request(client, request_id);
                 continue;
             }
             if (type != "request")
                 break;
             const auto method = message.value("method", std::string{});
+            if (!method.starts_with("owner-"))
+                touch();
             if (method == "status") {
                 client->send(result_event_json(request_id, true, status_json().dump()));
                 continue;
@@ -1064,6 +1516,164 @@ private:
                 finish_if_safe();
                 client->send(result_event_json(request_id, true, status_json().dump()));
                 break;
+            }
+            const auto message_payload = message.value("payload", Json::object());
+            if (method == "owner-next") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "owner-next requires ownerWorkerId"));
+                    continue;
+                }
+                const auto result =
+                    take_owner_request(message_payload["ownerWorkerId"].get<std::uint64_t>());
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "owner-complete") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("token") ||
+                    !message_payload["token"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "owner-complete requires worker and token"));
+                    continue;
+                }
+                const auto result = complete_owner_request(
+                    message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                    message_payload["token"].get<std::uint64_t>(),
+                    message_payload.value("requestOk", false),
+                    message_payload.value("result", Json(nullptr)),
+                    message_payload.value("error", std::string{}));
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "owner-cancelled") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("token") ||
+                    !message_payload["token"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "owner-cancelled requires worker and token"));
+                    continue;
+                }
+                const auto result = owner_cancellation_status(
+                    message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                    message_payload["token"].get<std::uint64_t>());
+                client->send(result_event_json(request_id, true, result.dump()));
+                continue;
+            }
+            if (method == "owner-needs-reconcile" || method == "owner-activity") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "Project-owner maintenance requires worker"));
+                    continue;
+                }
+                const auto owner_worker_id =
+                    message_payload["ownerWorkerId"].get<std::uint64_t>();
+                const auto result = method == "owner-needs-reconcile"
+                                        ? owner_reconciliation_status(owner_worker_id)
+                                        : record_owner_activity(owner_worker_id);
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "owner-event") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("token") ||
+                    !message_payload["token"].is_number_unsigned() ||
+                    !message_payload.contains("event") || !message_payload["event"].is_object()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "owner-event requires worker, token, and event"));
+                    continue;
+                }
+                const auto result = emit_owner_request_event(
+                    message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                    message_payload["token"].get<std::uint64_t>(), message_payload["event"]);
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "owner-enter-critical" || method == "owner-leave-critical") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "Project-owner critical request requires worker"));
+                    continue;
+                }
+                const auto owner_worker_id =
+                    message_payload["ownerWorkerId"].get<std::uint64_t>();
+                const auto result = method == "owner-enter-critical"
+                                        ? enter_owner_critical_section(owner_worker_id)
+                                        : leave_owner_critical_section(owner_worker_id);
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "owner-project-sessions") {
+                client->send(result_event_json(request_id, true, status_json().dump()));
+                continue;
+            }
+            if (method == "owner-project-observe") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "Project-owner observation requires worker"));
+                    continue;
+                }
+                std::string authority_error;
+                const auto authority_request =
+                    parse_project_authority_request(message_payload, authority_error);
+                if (!authority_request) {
+                    client->send(result_event_json(request_id, false, "null", authority_error));
+                    continue;
+                }
+                try {
+                    const auto observation = observe_owner_project(
+                        message_payload["ownerWorkerId"].get<std::uint64_t>(), *authority_request);
+                    const auto result = project_observation_json(observation);
+                    client->send(result_event_json(request_id, true, result.dump()));
+                } catch (const std::exception& error) {
+                    client->send(result_event_json(request_id, false, "null", error.what()));
+                }
+                continue;
+            }
+            if (method == "owner-project-release") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("projectRoot") ||
+                    !message_payload["projectRoot"].is_string()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "Project-owner release requires worker and root"));
+                    continue;
+                }
+#if defined(_WIN32)
+                const std::filesystem::path root =
+                    utf8_to_wide(message_payload["projectRoot"].get_ref<const std::string&>());
+#else
+                const std::filesystem::path root = message_payload["projectRoot"].get<std::string>();
+#endif
+                const auto released = release_owner_project(
+                    message_payload["ownerWorkerId"].get<std::uint64_t>(), root);
+                const Json result = {{"ok", true}, {"released", released}};
+                client->send(result_event_json(request_id, true, result.dump()));
+                continue;
+            }
+            if (method == "invoke" && message_payload.is_object() &&
+                message_payload.contains("ownerProjectRoot") &&
+                !message_payload["ownerProjectRoot"].is_null()) {
+                const auto routed =
+                    queue_project_owner_request(client, request_id, method, message_payload);
+                if (!routed)
+                    continue;
+                if (!routed->empty()) {
+                    client->send(result_event_json(request_id, false, "null", *routed));
+                    continue;
+                }
             }
             if (state_.load() == State::draining || state_.load() == State::stopped) {
                 client->send(result_event_json(request_id, false, "null", "daemon is draining"));
@@ -1119,6 +1729,20 @@ private:
                 queued_.erase(found);
                 removed = true;
             }
+            if (!removed) {
+                for (auto& [id, owner] : project_owners_) {
+                    (void)id;
+                    const auto owner_found = std::find_if(
+                        owner.queued.begin(), owner.queued.end(), [&](const QueuedRequest& queued) {
+                            return queued.request_id == request_id && queued.client.lock() == client;
+                        });
+                    if (owner_found == owner.queued.end())
+                        continue;
+                    owner.queued.erase(owner_found);
+                    removed = true;
+                    break;
+                }
+            }
         }
         if (removed) {
             Json event =
@@ -1145,6 +1769,14 @@ private:
                                          return queued.client.lock() == client;
                                      }),
                       queued_.end());
+        for (auto& [id, owner] : project_owners_) {
+            (void)id;
+            owner.queued.erase(std::remove_if(owner.queued.begin(), owner.queued.end(),
+                                              [&](const QueuedRequest& queued) {
+                                                  return queued.client.lock() == client;
+                                              }),
+                               owner.queued.end());
+        }
         for (auto& [token, active] : active_) {
             (void)token;
             if (active.client.lock() == client)
@@ -1158,6 +1790,12 @@ private:
         {
             std::scoped_lock lock(queue_mutex_);
             queued.swap(queued_);
+            for (auto& [id, owner] : project_owners_) {
+                (void)id;
+                queued.insert(queued.end(), std::make_move_iterator(owner.queued.begin()),
+                              std::make_move_iterator(owner.queued.end()));
+                owner.queued.clear();
+            }
         }
         for (const auto& request : queued) {
             if (const auto client = request.client.lock()) {
@@ -1175,6 +1813,7 @@ private:
             }
         }
         queue_cv_.notify_all();
+        owner_cv_.notify_all();
     }
 
     void begin_drain()
@@ -1188,13 +1827,23 @@ private:
 
     void wait_for_drain()
     {
-        {
-            std::unique_lock lock(queue_mutex_);
-            active_cv_.wait(lock, [this] { return active_.empty(); });
+        for (;;) {
+            {
+                std::unique_lock lock(queue_mutex_);
+                if (active_.empty())
+                    break;
+                active_cv_.wait_for(lock, std::chrono::milliseconds(50));
+            }
+            maintain_project_owners();
         }
-        {
-            std::unique_lock lock(critical_mutex_);
-            critical_cv_.wait(lock, [this] { return critical_sections_.load() == 0; });
+        for (;;) {
+            {
+                std::unique_lock lock(critical_mutex_);
+                if (critical_sections_.load() == 0)
+                    break;
+                critical_cv_.wait_for(lock, std::chrono::milliseconds(50));
+            }
+            maintain_project_owners();
         }
     }
 
@@ -1220,6 +1869,7 @@ private:
         State expected = State::draining;
         if (!state_.compare_exchange_strong(expected, State::stopped))
             return;
+        retire_all_project_owners("daemon is stopping");
 #if !defined(_WIN32)
         std::error_code error;
         std::filesystem::remove(endpoint_.socket_path, error);
@@ -1289,6 +1939,7 @@ private:
             std::max<std::uint64_t>(10, std::min<std::uint64_t>(250, context_.daemon_idle_ms / 4)));
         while (state_.load() != State::stopped && state_.load() != State::draining) {
             std::this_thread::sleep_for(sleep_interval);
+            maintain_project_owners();
             if (critical_sections_.load() != 0)
                 continue;
             {
@@ -1326,7 +1977,7 @@ private:
     std::atomic<State> state_{State::stopped};
     std::atomic<std::uint64_t> last_activity_millis_{0};
     std::atomic<std::uint64_t> critical_sections_{0};
-    std::atomic<std::uint64_t> project_sessions_{0};
+    std::atomic<std::uint64_t> generic_project_sessions_{0};
     ProjectAuthorityManager project_authority_;
     std::mutex critical_mutex_;
     std::condition_variable critical_cv_;
@@ -1334,10 +1985,14 @@ private:
     std::condition_variable state_cv_;
     mutable std::mutex queue_mutex_;
     std::condition_variable queue_cv_;
+    std::condition_variable owner_cv_;
     std::condition_variable active_cv_;
     std::vector<QueuedRequest> queued_;
     std::unordered_map<std::uint64_t, ActiveRequest> active_;
     std::atomic<std::uint64_t> next_request_token_{1};
+    std::unordered_map<std::uint64_t, ProjectOwnerWorker> project_owners_;
+    std::unordered_map<std::string, std::uint64_t> project_owner_by_root_;
+    std::atomic<std::uint64_t> next_owner_worker_id_{1};
     std::mutex clients_mutex_;
     std::unordered_set<std::shared_ptr<ClientConnection>> clients_;
     std::vector<std::thread> client_threads_;
@@ -1895,6 +2550,94 @@ bool safe_remove_stale_socket(const Endpoint& endpoint)
     return safe;
 }
 
+std::optional<ChildProcess> spawn_project_owner_process(const BrokerContext& context,
+                                                        std::uint64_t owner_worker_id)
+{
+    const auto executable_path = current_executable_path();
+    if (!executable_path)
+        return std::nullopt;
+    const auto protocol = std::to_string(context.protocol);
+    const auto daemon_idle = std::to_string(context.daemon_idle_ms);
+    const auto project_idle = std::to_string(context.project_session_idle_ms);
+    const auto worker_id = std::to_string(owner_worker_id);
+    const auto runtime_root =
+        context.runtime_root_override ? context.runtime_root_override->string() : std::string{};
+    const auto child = ::fork();
+    if (child < 0)
+        return std::nullopt;
+    if (child == 0) {
+        const int devnull = ::open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+            ::dup2(devnull, STDIN_FILENO);
+            ::dup2(devnull, STDOUT_FILENO);
+            ::dup2(devnull, STDERR_FILENO);
+            if (devnull > STDERR_FILENO)
+                ::close(devnull);
+        }
+        if (runtime_root.empty()) {
+            ::execl(executable_path->c_str(), executable_path->c_str(), "__daemon-owner",
+                    "--daemon-build", context.build.c_str(), "--daemon-protocol", protocol.c_str(),
+                    "--daemon-idle-ms", daemon_idle.c_str(), "--project-session-idle-ms",
+                    project_idle.c_str(), "--owner-worker-id", worker_id.c_str(),
+                    static_cast<char*>(nullptr));
+        } else {
+            ::execl(executable_path->c_str(), executable_path->c_str(), "__daemon-owner",
+                    "--daemon-build", context.build.c_str(), "--daemon-protocol", protocol.c_str(),
+                    "--daemon-idle-ms", daemon_idle.c_str(), "--project-session-idle-ms",
+                    project_idle.c_str(), "--daemon-runtime-root", runtime_root.c_str(),
+                    "--owner-worker-id", worker_id.c_str(), static_cast<char*>(nullptr));
+        }
+        _exit(127);
+    }
+    return ChildProcess{.pid = child};
+}
+
+bool child_process_alive(const ChildProcess& process)
+{
+    if (process.pid <= 0)
+        return false;
+    for (;;) {
+        int status = 0;
+        const auto result = ::waitpid(process.pid, &status, WNOHANG);
+        if (result == 0)
+            return true;
+        if (result == process.pid)
+            return false;
+        if (errno == EINTR)
+            continue;
+        return errno == ECHILD ? (::kill(process.pid, 0) == 0 || errno == EPERM) : false;
+    }
+}
+
+void terminate_child_process(ChildProcess& process)
+{
+    if (process.pid <= 0)
+        return;
+    if (child_process_alive(process))
+        (void)::kill(process.pid, SIGTERM);
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        int status = 0;
+        const auto result = ::waitpid(process.pid, &status, WNOHANG);
+        if (result == process.pid || (result < 0 && errno == ECHILD)) {
+            process.pid = -1;
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    (void)::kill(process.pid, SIGKILL);
+    (void)::waitpid(process.pid, nullptr, 0);
+    process.pid = -1;
+}
+
+void release_child_process(ChildProcess& process)
+{
+    if (process.pid <= 0)
+        return;
+    int status = 0;
+    (void)::waitpid(process.pid, &status, WNOHANG);
+    process.pid = -1;
+}
+
 bool spawn_daemon_process(const std::string& executable_path, const BrokerContext& context)
 {
     const auto protocol = std::to_string(context.protocol);
@@ -1996,6 +2739,75 @@ std::wstring quote_windows_argument(std::wstring_view value)
     result.append(slashes * 2, L'\\');
     result.push_back(L'\"');
     return result;
+}
+
+std::optional<ChildProcess> spawn_project_owner_process(const BrokerContext& context,
+                                                        std::uint64_t owner_worker_id)
+{
+    const auto executable_path = current_executable_path();
+    if (!executable_path)
+        return std::nullopt;
+    std::vector<std::wstring> args = {utf8_to_wide(*executable_path),
+                                      L"__daemon-owner",
+                                      L"--daemon-build",
+                                      utf8_to_wide(context.build),
+                                      L"--daemon-protocol",
+                                      std::to_wstring(context.protocol),
+                                      L"--daemon-idle-ms",
+                                      std::to_wstring(context.daemon_idle_ms),
+                                      L"--project-session-idle-ms",
+                                      std::to_wstring(context.project_session_idle_ms)};
+    if (context.runtime_root_override) {
+        args.push_back(L"--daemon-runtime-root");
+        args.push_back(context.runtime_root_override->wstring());
+    }
+    args.push_back(L"--owner-worker-id");
+    args.push_back(std::to_wstring(owner_worker_id));
+    std::wstring command_line;
+    for (const auto& argument : args) {
+        if (!command_line.empty())
+            command_line.push_back(L' ');
+        command_line += quote_windows_argument(argument);
+    }
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    std::vector<wchar_t> mutable_command(command_line.begin(), command_line.end());
+    mutable_command.push_back(L'\0');
+    if (!CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, nullptr, &startup, &process))
+        return std::nullopt;
+    CloseHandle(process.hThread);
+    return ChildProcess{.handle = process.hProcess, .pid = process.dwProcessId};
+}
+
+bool child_process_alive(const ChildProcess& process)
+{
+    if (process.handle == nullptr)
+        return false;
+    DWORD exit_code = 0;
+    return GetExitCodeProcess(process.handle, &exit_code) && exit_code == STILL_ACTIVE;
+}
+
+void terminate_child_process(ChildProcess& process)
+{
+    if (process.handle == nullptr)
+        return;
+    if (child_process_alive(process)) {
+        (void)TerminateProcess(process.handle, 1);
+        (void)WaitForSingleObject(process.handle, 1000);
+    }
+    CloseHandle(process.handle);
+    process.handle = nullptr;
+    process.pid = 0;
+}
+
+void release_child_process(ChildProcess& process)
+{
+    if (process.handle != nullptr)
+        CloseHandle(process.handle);
+    process.handle = nullptr;
+    process.pid = 0;
 }
 
 bool spawn_daemon_process(const std::string& executable_path, const BrokerContext& context)
@@ -2106,6 +2918,96 @@ Json ensure_daemon(const Json& request, const BrokerContext& context)
             {"error", "daemon broker did not become reachable before startup timeout"}};
 }
 
+class OwnerControlChannel {
+public:
+    ~OwnerControlChannel() { reset(); }
+
+    Json request(const BrokerContext& context, std::string_view method, std::string request_id,
+                 const Json& payload)
+    {
+        std::scoped_lock lock(mutex_);
+        Endpoint endpoint;
+        try {
+            endpoint = make_endpoint(context);
+        } catch (const std::exception& error) {
+            return {{"ok", false}, {"error", error.what()}};
+        }
+        const auto endpoint_key = key(endpoint);
+        if (connection_ == invalid_connection || endpoint_key_ != endpoint_key) {
+            reset_locked();
+            connection_ = connect_endpoint(endpoint);
+            if (connection_ == invalid_connection)
+                return {{"ok", false}, {"error", "daemon broker is not reachable"}};
+            endpoint_key_ = endpoint_key;
+        }
+
+        const Json request = {{"type", "request"},
+                              {"requestId", request_id},
+                              {"method", std::string(method)},
+                              {"payload", payload}};
+        if (!send_payload(connection_, request.dump())) {
+            reset_locked();
+            return {{"ok", false}, {"error", "failed to send daemon owner request"}};
+        }
+        const auto response = receive_payload(connection_);
+        if (!response) {
+            reset_locked();
+            return {{"ok", false}, {"error", "daemon broker closed owner control channel"}};
+        }
+        auto event = Json::parse(*response, nullptr, false);
+        if (event.is_discarded() || event.value("requestId", std::string{}) != request_id ||
+            event.value("type", std::string{}) != "result") {
+            reset_locked();
+            return {{"ok", false}, {"error", "daemon broker returned an invalid owner result"}};
+        }
+        return event;
+    }
+
+private:
+    static std::string key(const Endpoint& endpoint)
+    {
+#if defined(_WIN32)
+        return endpoint.identity + "\n" + wide_to_utf8(endpoint.pipe_name);
+#else
+        return endpoint.socket_path.string();
+#endif
+    }
+
+    void reset()
+    {
+        std::scoped_lock lock(mutex_);
+        reset_locked();
+    }
+
+    void reset_locked()
+    {
+        close_outbound_connection(connection_);
+        connection_ = invalid_connection;
+        endpoint_key_.clear();
+    }
+
+    std::mutex mutex_;
+    ConnectionHandle connection_ = invalid_connection;
+    std::string endpoint_key_;
+};
+
+Json owner_client_request(const BrokerContext& context, std::string_view method, const Json& payload)
+{
+    static std::atomic<std::uint64_t> sequence{1};
+    static OwnerControlChannel channel;
+    const auto request_id =
+        "owner-control-" + std::to_string(sequence.fetch_add(1, std::memory_order_relaxed));
+    auto response = channel.request(context, method, request_id, payload);
+    if (response.value("type", std::string{}) != "result")
+        return response;
+    if (!response.value("ok", false))
+        return {{"ok", false},
+                {"error", response.value("error", std::string("daemon owner request failed"))}};
+    if (response.contains("result") && response["result"].is_object())
+        return response["result"];
+    return {{"ok", false}, {"error", "daemon owner request returned no result"}};
+}
+
 std::uint64_t write_response(const Json& result, std::uint8_t* response,
                              std::uint64_t response_capacity)
 {
@@ -2117,6 +3019,55 @@ std::uint64_t write_response(const Json& result, std::uint8_t* response,
 }
 
 } // namespace
+
+std::string canonical_project_owner_root(std::string_view project_root, bool search_upwards)
+{
+#if defined(_WIN32)
+    std::filesystem::path logical = utf8_to_wide(project_root);
+#else
+    std::filesystem::path logical = std::string(project_root);
+#endif
+    std::error_code error;
+    logical = std::filesystem::absolute(logical, error);
+    if (error || logical.empty())
+        throw std::runtime_error("Cannot resolve Project owner nomination");
+
+    if (search_upwards) {
+        auto candidate = logical.lexically_normal();
+        bool found_project = false;
+        for (;;) {
+            error.clear();
+            if (std::filesystem::exists(candidate / "project.json", error) && !error) {
+                logical = candidate;
+                found_project = true;
+                break;
+            }
+            const auto parent = candidate.parent_path();
+            if (parent.empty() || parent == candidate)
+                break;
+            candidate = parent;
+        }
+        if (!found_project)
+            return {};
+    } else {
+        error.clear();
+        if (!std::filesystem::exists(logical / "project.json", error) || error)
+            return {};
+    }
+
+    error.clear();
+    const auto canonical = std::filesystem::canonical(logical, error);
+    if (error || canonical.empty())
+        throw std::runtime_error("Cannot resolve canonical Project owner root");
+    error.clear();
+    if (!std::filesystem::is_directory(canonical, error) || error)
+        throw std::runtime_error("Cannot resolve canonical Project owner root");
+#if defined(_WIN32)
+    return wide_to_utf8(canonical.lexically_normal().wstring());
+#else
+    return canonical.lexically_normal().string();
+#endif
+}
 
 bool FrameDecoder::feed(std::span<const std::uint8_t> bytes)
 {
@@ -2254,6 +3205,28 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = observe_local_project(parsed);
     else if (action == "serve-project-release")
         result = release_local_project(parsed);
+    else if (action == "owner-next")
+        result = owner_client_request(*context, "owner-next", parsed);
+    else if (action == "owner-complete")
+        result = owner_client_request(*context, "owner-complete", parsed);
+    else if (action == "owner-event")
+        result = owner_client_request(*context, "owner-event", parsed);
+    else if (action == "owner-cancelled")
+        result = owner_client_request(*context, "owner-cancelled", parsed);
+    else if (action == "owner-needs-reconcile")
+        result = owner_client_request(*context, "owner-needs-reconcile", parsed);
+    else if (action == "owner-activity")
+        result = owner_client_request(*context, "owner-activity", parsed);
+    else if (action == "owner-enter-critical")
+        result = owner_client_request(*context, "owner-enter-critical", parsed);
+    else if (action == "owner-leave-critical")
+        result = owner_client_request(*context, "owner-leave-critical", parsed);
+    else if (action == "owner-project-sessions")
+        result = owner_client_request(*context, "owner-project-sessions", parsed);
+    else if (action == "owner-project-observe")
+        result = owner_client_request(*context, "owner-project-observe", parsed);
+    else if (action == "owner-project-release")
+        result = owner_client_request(*context, "owner-project-release", parsed);
     else if (action == "local-cancel-start")
         result = start_local_interrupt_scope();
     else if (action == "local-cancelled")

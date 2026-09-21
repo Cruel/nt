@@ -20,3 +20,5 @@ export declare function runNovelTeaScriptcIsland(
   authoringCacheInventoryText?: string,
   invocationContext?: ScriptcInvocationContext,
 ): Promise<string>;
+
+export declare function reconcileNovelTeaResidentProjects(): Promise<number>;

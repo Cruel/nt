@@ -31,6 +31,14 @@ private:
 [[nodiscard]] std::string endpoint_identity(std::string_view build_identity,
                                             std::uint32_t daemon_protocol_version);
 
+/**
+ * Resolve a scheduler Project nomination to its canonical physical root.
+ * Implicit cwd nominations search upward for the nearest project.json; explicit --project
+ * nominations remain exact so scheduler admission preserves the public discovery contract.
+ */
+[[nodiscard]] std::string canonical_project_owner_root(std::string_view project_root,
+                                                       bool search_upwards);
+
 [[nodiscard]] std::string result_event_json(std::string_view request_id, bool ok,
                                             std::string_view result_json,
                                             std::string_view error = {});

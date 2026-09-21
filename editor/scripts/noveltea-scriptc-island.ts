@@ -19,6 +19,10 @@ const invokeResidentHost: ScriptcHostInvoke = (operation, request) => {
   return residentInvokeHost(operation, request);
 };
 
+export async function reconcileNovelTeaResidentProjects(): Promise<number> {
+  return residentWorkspace ? residentWorkspace.reconcileResidentSessions() : 0;
+}
+
 function residentProjectAuthority(): import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectAuthority {
   const stringArray = (value: unknown, field: string): string[] => {
     if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string'))

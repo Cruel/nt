@@ -578,6 +578,32 @@ TEST_CASE("daemon endpoint identity separates build and protocol")
     CHECK(first != endpoint_identity("build-a", 2));
 }
 
+TEST_CASE("daemon Project-owner nomination preserves explicit roots and discovers implicit roots")
+{
+    using noveltea::tooling::daemon::canonical_project_owner_root;
+    auto root = temp_project_root("owner-root");
+    const auto nested = root.path / "nested" / "deeper";
+    std::filesystem::create_directories(nested);
+
+    const auto canonical_root = std::filesystem::canonical(root.path).lexically_normal();
+    CHECK(std::filesystem::path(canonical_project_owner_root(nested.string(), true)) ==
+          canonical_root);
+    CHECK(canonical_project_owner_root(nested.string(), false).empty());
+    CHECK(std::filesystem::path(canonical_project_owner_root(root.path.string(), false)) ==
+          canonical_root);
+
+    auto non_project = temp_runtime_root("owner-root-none");
+    std::filesystem::create_directories(non_project.path / "nested");
+    CHECK(canonical_project_owner_root((non_project.path / "nested").string(), true).empty());
+
+#if !defined(_WIN32)
+    const auto alias = root.path / "owner-alias";
+    std::filesystem::create_directory_symlink(root.path, alias);
+    CHECK(std::filesystem::path(canonical_project_owner_root(alias.string(), false)) ==
+          canonical_root);
+#endif
+}
+
 TEST_CASE("ScriptC daemon adapter executes stateful broker actions once")
 {
     auto request = context(unique_build("scriptc-adapter"));

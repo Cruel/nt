@@ -20,6 +20,16 @@ declare function nativeInvokeToFile(
 
 type HostResult = readonly [exitCode: number, stdout: string, stderr: string];
 type RequestOutputCapture = { stdout: string; stderr: string };
+type DaemonProjectDiscoveryScope = Readonly<{
+  root: string;
+  extensions: readonly string[];
+  excludedPrefixes: readonly string[];
+}>;
+type DaemonProjectAuthorityConfiguration = Readonly<{
+  projectRoot: string;
+  authoritativePaths: readonly string[];
+  discoveryScopes: readonly DaemonProjectDiscoveryScope[];
+}>;
 type CapturedNativeEnvelope = Readonly<{
   captureOk: boolean;
   response: string;
@@ -33,7 +43,7 @@ let cachedStdin: string | null = null;
 let forceRuntimeCacheRebuild = false;
 let authoringCacheInventoryHint = '';
 let daemonRequestSequence = 0;
-const residentProjectAuthorityRequests = new Map<string, Readonly<Record<string, unknown>>>();
+const residentProjectAuthorityRequests = new Map<string, DaemonProjectAuthorityConfiguration>();
 
 function trace(message: string): void {
   if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-host] ${message}\n`);
@@ -597,6 +607,8 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
 type DaemonRequestContext = Readonly<{
   argv: readonly string[];
   cwd: string;
+  ownerProjectRoot: string | null;
+  ownerProjectRootExplicit: boolean;
   environment: Readonly<Record<string, string>>;
   stdinText: string | null;
   terminal: Readonly<{
@@ -621,6 +633,8 @@ type DaemonNativeResponse = Readonly<{
   protocol?: number;
   pid?: number | null;
   stopped?: boolean;
+  idle?: boolean;
+  needsReconcile?: boolean;
   started?: boolean;
   error?: string;
   token?: number;
@@ -632,6 +646,19 @@ type DaemonNativeResponse = Readonly<{
   cancelled?: boolean;
   delivered?: boolean;
   projectSessions?: number;
+  authority?: string;
+  previousAuthority?: string;
+  unchanged?: boolean;
+  fullRescan?: boolean;
+  watcherPaths?: readonly string[];
+  delta?: Readonly<{
+    added?: readonly string[];
+    changed?: readonly string[];
+    removed?: readonly string[];
+  }>;
+  manifest?: Readonly<{
+    canonicalRoot?: string;
+  }>;
 }>;
 
 type DaemonStatusCore = Readonly<{
@@ -847,6 +874,11 @@ type HiddenDaemonBrokerInvocation = Readonly<{
   runtimeRoot?: string;
 }>;
 
+type HiddenDaemonOwnerInvocation = HiddenDaemonBrokerInvocation &
+  Readonly<{
+    ownerWorkerId: number;
+  }>;
+
 function hiddenDaemonBrokerInvocation(
   argv: readonly string[],
 ): HiddenDaemonBrokerInvocation | null {
@@ -889,6 +921,52 @@ function hiddenDaemonBrokerInvocation(
   };
 }
 
+function hiddenDaemonOwnerInvocation(argv: readonly string[]): HiddenDaemonOwnerInvocation | null {
+  if (argv[0] !== '__daemon-owner') return null;
+  let build = '';
+  let protocolText = '';
+  let daemonIdleText = '';
+  let projectSessionIdleText = '';
+  let runtimeRoot = '';
+  let ownerWorkerIdText = '';
+  for (let index = 1; index < argv.length; index += 2) {
+    const key = argv[index];
+    const value = argv[index + 1];
+    if (!key || !value) return null;
+    if (key === '--daemon-build' && build === '') build = value;
+    else if (key === '--daemon-protocol' && protocolText === '') protocolText = value;
+    else if (key === '--daemon-idle-ms' && daemonIdleText === '') daemonIdleText = value;
+    else if (key === '--project-session-idle-ms' && projectSessionIdleText === '')
+      projectSessionIdleText = value;
+    else if (key === '--daemon-runtime-root' && runtimeRoot === '') runtimeRoot = value;
+    else if (key === '--owner-worker-id' && ownerWorkerIdText === '') ownerWorkerIdText = value;
+    else return null;
+  }
+  const protocol = Number(protocolText);
+  const daemonIdleMs = Number(daemonIdleText);
+  const projectSessionIdleMs = Number(projectSessionIdleText);
+  const ownerWorkerId = Number(ownerWorkerIdText);
+  if (
+    build !== daemonBrokerContext().build ||
+    protocol !== daemonBrokerContext().protocol ||
+    !Number.isSafeInteger(daemonIdleMs) ||
+    daemonIdleMs <= 0 ||
+    !Number.isSafeInteger(projectSessionIdleMs) ||
+    projectSessionIdleMs <= 0 ||
+    !Number.isSafeInteger(ownerWorkerId) ||
+    ownerWorkerId <= 0
+  )
+    return null;
+  return {
+    build,
+    protocol,
+    daemonIdleMs,
+    projectSessionIdleMs,
+    runtimeRoot: runtimeRoot || undefined,
+    ownerWorkerId,
+  };
+}
+
 function hiddenDaemonNativeRequest(
   action: string,
   invocation: HiddenDaemonBrokerInvocation,
@@ -910,19 +988,60 @@ function hiddenDaemonNativeRequest(
 function hiddenDaemonPayloadNativeRequest(
   action: string,
   invocation: HiddenDaemonBrokerInvocation,
-  payload: Readonly<Record<string, unknown>>,
+  payload: Readonly<{
+    token?: number;
+    requestOk?: boolean;
+    result?: HostResult | null;
+    error?: string;
+    projectSessions?: number;
+    ownerWorkerId?: number;
+    event?: Readonly<Record<string, unknown>>;
+  }>,
 ): DaemonNativeResponse {
   return JSON.parse(
     invokeHost(
       'daemon',
       JSON.stringify({
-        ...payload,
         action,
         build: invocation.build,
         protocol: invocation.protocol,
         daemonIdleMs: invocation.daemonIdleMs,
         projectSessionIdleMs: invocation.projectSessionIdleMs,
         runtimeRoot: invocation.runtimeRoot,
+        token: payload.token,
+        requestOk: payload.requestOk,
+        result: payload.result,
+        error: payload.error,
+        projectSessions: payload.projectSessions,
+        ownerWorkerId: payload.ownerWorkerId,
+        event: payload.event,
+      }),
+    ),
+  ) as DaemonNativeResponse;
+}
+
+function hiddenDaemonProjectAuthorityNativeRequest(
+  action: string,
+  invocation: HiddenDaemonBrokerInvocation,
+  ownerWorkerId: number | undefined,
+  projectRoot: string,
+  authoritativePaths: readonly string[] | undefined,
+  discoveryScopes: readonly DaemonProjectDiscoveryScope[] | undefined,
+): DaemonNativeResponse {
+  return JSON.parse(
+    invokeHost(
+      'daemon',
+      JSON.stringify({
+        action,
+        build: invocation.build,
+        protocol: invocation.protocol,
+        daemonIdleMs: invocation.daemonIdleMs,
+        projectSessionIdleMs: invocation.projectSessionIdleMs,
+        runtimeRoot: invocation.runtimeRoot,
+        ownerWorkerId,
+        projectRoot,
+        authoritativePaths,
+        discoveryScopes,
       }),
     ),
   ) as DaemonNativeResponse;
@@ -957,6 +1076,33 @@ function requestEnvironment(): Record<string, string> {
   return result;
 }
 
+function daemonStringArray(value: unknown): readonly string[] | null {
+  if (!Array.isArray(value)) return null;
+  const result: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') return null;
+    result.push(entry);
+  }
+  return result;
+}
+
+function daemonProjectDiscoveryScopes(
+  value: unknown,
+): readonly DaemonProjectDiscoveryScope[] | null {
+  if (!Array.isArray(value)) return null;
+  const result: DaemonProjectDiscoveryScope[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+    const record = entry as Readonly<Record<string, unknown>>;
+    const root = record.root;
+    const extensions = daemonStringArray(record.extensions);
+    const excludedPrefixes = daemonStringArray(record.excludedPrefixes);
+    if (typeof root !== 'string' || extensions === null || excludedPrefixes === null) return null;
+    result.push({ root, extensions, excludedPrefixes });
+  }
+  return result;
+}
+
 function commandStart(argv: readonly string[]): number {
   let index = 0;
   while (index < argv.length && argv[index]!.startsWith('--')) {
@@ -971,6 +1117,39 @@ function commandRouting(argv: readonly string[]): CliCommandRouting | null {
   return classifyNovelTeaCliCommand(argv.slice(index));
 }
 
+function daemonOwnerProjectRoot(
+  argv: readonly string[],
+  routing: CliCommandRouting | null,
+): string | null {
+  if (
+    routing?.projectAccess !== 'read' &&
+    routing?.projectAccess !== 'transactional-write' &&
+    routing?.projectAccess !== 'opaque-write'
+  )
+    return null;
+  let projectArgument: string | null = null;
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] !== '--project') continue;
+    const value = argv[index + 1];
+    if (value && !value.startsWith('--')) projectArgument = value;
+    break;
+  }
+  return resolve(process.cwd(), projectArgument ?? '.');
+}
+
+function daemonOwnerProjectRootExplicit(
+  argv: readonly string[],
+  routing: CliCommandRouting | null,
+): boolean {
+  if (
+    routing?.projectAccess !== 'read' &&
+    routing?.projectAccess !== 'transactional-write' &&
+    routing?.projectAccess !== 'opaque-write'
+  )
+    return false;
+  return argv.includes('--project');
+}
+
 function daemonRequestContext(
   argv: readonly string[],
   routing: CliCommandRouting | null,
@@ -978,6 +1157,8 @@ function daemonRequestContext(
   return {
     argv,
     cwd: process.cwd(),
+    ownerProjectRoot: daemonOwnerProjectRoot(argv, routing),
+    ownerProjectRootExplicit: daemonOwnerProjectRootExplicit(argv, routing),
     environment: requestEnvironment(),
     stdinText: routing?.stdin === 'json' ? invokeHost('read-stdin', '') : null,
     terminal: currentTerminalContext(),
@@ -994,31 +1175,47 @@ function requestInvokeHost(
   output: RequestOutputCapture,
   invocation: HiddenDaemonBrokerInvocation,
   token: number,
+  ownerWorkerId?: number,
 ): typeof invokeHost {
   const emitEvent = (event: Readonly<Record<string, unknown>>) => {
-    const response = hiddenDaemonEventNativeRequest(invocation, token, event);
+    const response = ownerWorkerId
+      ? hiddenDaemonPayloadNativeRequest('owner-event', invocation, { ownerWorkerId, token, event })
+      : hiddenDaemonEventNativeRequest(invocation, token, event);
     if (response.ok !== true)
       throw new Error(response.error ?? 'Failed to stream daemon request event.');
   };
   return (operation, requestText) => {
     if (operation === 'read-stdin') return context.stdinText ?? '';
     if (operation === 'daemon-enter-critical')
-      return JSON.stringify(daemonNativeRequest('serve-enter-critical'));
+      return JSON.stringify(
+        ownerWorkerId
+          ? hiddenDaemonPayloadNativeRequest('owner-enter-critical', invocation, { ownerWorkerId })
+          : daemonNativeRequest('serve-enter-critical'),
+      );
     if (operation === 'daemon-leave-critical')
-      return JSON.stringify(daemonNativeRequest('serve-leave-critical'));
+      return JSON.stringify(
+        ownerWorkerId
+          ? hiddenDaemonPayloadNativeRequest('owner-leave-critical', invocation, { ownerWorkerId })
+          : daemonNativeRequest('serve-leave-critical'),
+      );
     if (operation === 'daemon-project-sessions') {
       const projectSessions = Number(requestText);
       if (!Number.isSafeInteger(projectSessions) || projectSessions < 0)
         throw new Error('Daemon Project session count is malformed.');
-      const response = hiddenDaemonNativeRequest(
-        'serve-project-sessions',
-        invocation,
-        0,
-        false,
-        null,
-        '',
-        projectSessions,
-      );
+      const response = ownerWorkerId
+        ? hiddenDaemonPayloadNativeRequest('owner-project-sessions', invocation, {
+            ownerWorkerId,
+            projectSessions,
+          })
+        : hiddenDaemonNativeRequest(
+            'serve-project-sessions',
+            invocation,
+            0,
+            false,
+            null,
+            '',
+            projectSessions,
+          );
       if (response.ok !== true)
         throw new Error(response.error ?? 'Failed to publish daemon Project session count.');
       return JSON.stringify(response);
@@ -1031,19 +1228,21 @@ function requestInvokeHost(
       const projectRoot = request.projectRoot;
       if (typeof projectRoot !== 'string' || projectRoot.length === 0)
         throw new Error('Daemon Project authority request requires projectRoot.');
-      let payload = request;
+      let payload: DaemonProjectAuthorityConfiguration | null = null;
       if (operation === 'daemon-project-observe') {
         const hasAuthoritativePaths = request.authoritativePaths !== undefined;
         const hasDiscoveryScopes = request.discoveryScopes !== undefined;
         if (hasAuthoritativePaths !== hasDiscoveryScopes)
           throw new Error('Daemon Project authority configuration is incomplete.');
         if (hasAuthoritativePaths) {
-          if (!Array.isArray(request.authoritativePaths) || !Array.isArray(request.discoveryScopes))
+          const authoritativePaths = daemonStringArray(request.authoritativePaths);
+          const discoveryScopes = daemonProjectDiscoveryScopes(request.discoveryScopes);
+          if (authoritativePaths === null || discoveryScopes === null)
             throw new Error('Daemon Project authority configuration is malformed.');
           payload = {
             projectRoot,
-            authoritativePaths: request.authoritativePaths,
-            discoveryScopes: request.discoveryScopes,
+            authoritativePaths,
+            discoveryScopes,
           };
           residentProjectAuthorityRequests.set(projectRoot, payload);
         } else {
@@ -1053,10 +1252,19 @@ function requestInvokeHost(
           payload = configured;
         }
       }
-      const response = hiddenDaemonPayloadNativeRequest(
-        operation === 'daemon-project-observe' ? 'serve-project-observe' : 'serve-project-release',
+      const response = hiddenDaemonProjectAuthorityNativeRequest(
+        operation === 'daemon-project-observe'
+          ? ownerWorkerId
+            ? 'owner-project-observe'
+            : 'serve-project-observe'
+          : ownerWorkerId
+            ? 'owner-project-release'
+            : 'serve-project-release',
         invocation,
-        payload,
+        ownerWorkerId,
+        projectRoot,
+        payload?.authoritativePaths,
+        payload?.discoveryScopes,
       );
       if (response.ok !== true)
         throw new Error(response.error ?? 'Daemon Project authority operation failed.');
@@ -1064,19 +1272,18 @@ function requestInvokeHost(
         residentProjectAuthorityRequests.delete(projectRoot);
       let responseForIsland: unknown = response;
       if (operation === 'daemon-project-observe') {
-        const dynamicResponse = response as unknown as Readonly<Record<string, unknown>>;
-        const manifest = dynamicResponse.manifest;
-        if (manifest && typeof manifest === 'object' && !Array.isArray(manifest))
+        const manifest = response.manifest;
+        if (manifest)
           responseForIsland = {
-            ok: dynamicResponse.ok,
-            authority: dynamicResponse.authority,
-            previousAuthority: dynamicResponse.previousAuthority,
-            unchanged: dynamicResponse.unchanged,
-            fullRescan: dynamicResponse.fullRescan,
-            watcherPaths: dynamicResponse.watcherPaths,
-            delta: dynamicResponse.delta,
+            ok: response.ok,
+            authority: response.authority,
+            previousAuthority: response.previousAuthority,
+            unchanged: response.unchanged,
+            fullRescan: response.fullRescan,
+            watcherPaths: response.watcherPaths,
+            delta: response.delta,
             manifest: {
-              canonicalRoot: (manifest as Readonly<Record<string, unknown>>).canonicalRoot,
+              canonicalRoot: manifest.canonicalRoot,
               entries: [],
             },
           };
@@ -1200,6 +1407,102 @@ async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): 
     hiddenDaemonNativeRequest('serve-abort', invocation);
     throw error;
   }
+}
+
+async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Promise<number> {
+  trace(`daemon Project owner ${String(invocation.ownerWorkerId)} QuickJS initialization starting`);
+  // @ts-expect-error The private island package is materialized only during release staging.
+  const island = await import('noveltea-scriptc-island');
+  const { runNovelTeaScriptcIsland, reconcileNovelTeaResidentProjects } = island;
+  trace(
+    `daemon Project owner ${String(invocation.ownerWorkerId)} QuickJS initialization completed`,
+  );
+  for (;;) {
+    const next = hiddenDaemonPayloadNativeRequest('owner-next', invocation, {
+      ownerWorkerId: invocation.ownerWorkerId,
+    });
+    if (next.ok !== true) {
+      const message =
+        typeof next.error === 'string' ? next.error : 'NovelTea daemon Project owner failed.';
+      throw new Error(message);
+    }
+    if (next.stopped === true) break;
+    if (next.idle === true) {
+      const status = hiddenDaemonPayloadNativeRequest('owner-needs-reconcile', invocation, {
+        ownerWorkerId: invocation.ownerWorkerId,
+      });
+      if (status.ok === true && status.needsReconcile === true) {
+        const advanced = await reconcileNovelTeaResidentProjects();
+        if (advanced > 0)
+          hiddenDaemonPayloadNativeRequest('owner-activity', invocation, {
+            ownerWorkerId: invocation.ownerWorkerId,
+          });
+      }
+      continue;
+    }
+    const token = next.token;
+    const payload = next.payload as DaemonRequestContext;
+    if (
+      typeof token !== 'number' ||
+      !Number.isSafeInteger(token) ||
+      next.method !== 'invoke' ||
+      !payload ||
+      !Array.isArray(payload.argv)
+    ) {
+      hiddenDaemonPayloadNativeRequest('owner-complete', invocation, {
+        ownerWorkerId: invocation.ownerWorkerId,
+        token: typeof token === 'number' ? token : 0,
+        requestOk: false,
+        result: null,
+        error: 'invalid daemon Project-owner invocation request',
+      });
+      continue;
+    }
+    try {
+      const output: RequestOutputCapture = { stdout: '', stderr: '' };
+      const responseText = await runNovelTeaScriptcIsland(
+        JSON.stringify(payload.argv),
+        requestInvokeHost(payload, output, invocation, token, invocation.ownerWorkerId),
+        payload.forceRuntimeCacheRebuild,
+        payload.authoringCacheInventoryHint,
+        {
+          cwd: payload.cwd,
+          environment: payload.environment,
+          terminal: payload.terminal,
+          residentProjectSessions: true,
+          cancellationProbe: () => {
+            const status = hiddenDaemonPayloadNativeRequest('owner-cancelled', invocation, {
+              ownerWorkerId: invocation.ownerWorkerId,
+              token,
+            });
+            return status.cancelled === true;
+          },
+        },
+      );
+      const response = JSON.parse(responseText) as HostResult;
+      const completed: HostResult = [
+        response[0],
+        `${output.stdout}${response[1]}`,
+        `${output.stderr}${response[2]}`,
+      ];
+      hiddenDaemonPayloadNativeRequest('owner-complete', invocation, {
+        ownerWorkerId: invocation.ownerWorkerId,
+        token,
+        requestOk: true,
+        result: completed,
+        error: '',
+      });
+    } catch (error) {
+      hiddenDaemonPayloadNativeRequest('owner-complete', invocation, {
+        ownerWorkerId: invocation.ownerWorkerId,
+        token,
+        requestOk: false,
+        result: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return 0;
 }
 
 function staticNativePath(argv: readonly string[]): HostResult | null {
@@ -1399,6 +1702,11 @@ async function main(): Promise<void> {
   try {
     // scriptc's argv slice throws when the process has no user arguments.
     const argv = process.argv.length > 2 ? process.argv.slice(2) : [];
+    const ownerInvocation = hiddenDaemonOwnerInvocation(argv);
+    if (ownerInvocation) {
+      exitCode = await runHiddenDaemonOwner(ownerInvocation);
+      return;
+    }
     const daemonInvocation = hiddenDaemonBrokerInvocation(argv);
     if (daemonInvocation) {
       exitCode = await runHiddenDaemonBroker(daemonInvocation);

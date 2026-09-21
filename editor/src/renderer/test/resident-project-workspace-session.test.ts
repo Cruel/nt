@@ -1672,6 +1672,45 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(await workspace.hasResidentSession(ROOT)).toBe(false);
   });
 
+  it('reconciles watcher-driven resident changes without treating unchanged observations as activity', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const opened = await workspace.open(ROOT);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error('Initial Project open failed.');
+
+    expect(await workspace.reconcileResidentSessions()).toBe(0);
+
+    const changed = structuredClone(project);
+    changed.rooms.foyer.label = 'Watcher Reconciled';
+    const relativePath = 'records/rooms/foyer.json';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${relativePath}`,
+      projectWorkspaceFiles(changed, changed.editor)[relativePath]!,
+    );
+    probe.change(relativePath);
+
+    expect(await workspace.reconcileResidentSessions()).toBe(1);
+    const resident = await workspace.open(ROOT);
+    expect(resident.ok).toBe(true);
+    if (!resident.ok) throw new Error('Reconciled Project open failed.');
+    expect(resident.snapshot.project.rooms.foyer.label).toBe('Watcher Reconciled');
+    expect(await workspace.reconcileResidentSessions()).toBe(0);
+  });
+
   it('retains the coherent generation across an invalid overlay and repairs incrementally', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.rooms.foyer = {
