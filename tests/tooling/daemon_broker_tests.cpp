@@ -345,6 +345,61 @@ TEST_CASE("Project authority native watcher revokes relevant proofs and ignores 
     CHECK(ignored->state == ProjectAuthorityState::proven);
     CHECK(ignored->pending_paths.empty());
 }
+
+TEST_CASE("Project authority unknown recovery rebuilds recursive native watcher coverage")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("watcher-recovery");
+    ProjectAuthorityManager authority;
+    REQUIRE(authority.observe(project_authority_request(root.path)).manifest.entries.size() == 6);
+
+    // The deterministic unknown seam drops the native watcher, emulating coverage lost after an
+    // overflow or watcher restart. Create a source subtree while no watcher can observe it.
+    authority.notify_watcher_unknown(root.path);
+    const auto unknown = authority.status(root.path);
+    REQUIRE(unknown);
+    CHECK(unknown->state == ProjectAuthorityState::unknown);
+    write_project_file(root.path / "records/recovered/new.json", "{}\n");
+
+    const auto recovered = authority.observe(project_authority_request(root.path));
+    CHECK(recovered.previous_state == ProjectAuthorityState::unknown);
+    CHECK(recovered.full_rescan);
+    CHECK(recovered.delta.added == std::vector<std::string>{"records/recovered/new.json"});
+    REQUIRE(authority.status(root.path));
+    CHECK(authority.status(root.path)->state == ProjectAuthorityState::proven);
+
+    // Recovery is only complete if the newly discovered directory is watched afterward.
+    write_project_file(root.path / "records/recovered/new.json", "{\"changed\":true}\n");
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        const auto status = authority.status(root.path);
+        if (status && status->state == ProjectAuthorityState::dirty)
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    const auto dirty = authority.status(root.path);
+    REQUIRE(dirty);
+    CHECK(dirty->state == ProjectAuthorityState::dirty);
+    CHECK(dirty->pending_paths == std::vector<std::string>{"records/recovered/new.json"});
+}
+
+TEST_CASE("Project authority release stops native watcher before dropping Project ownership")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("watcher-release");
+    ProjectAuthorityManager authority;
+    REQUIRE(authority.observe(project_authority_request(root.path)).manifest.entries.size() == 6);
+
+    // Queue a burst so release overlaps native callback activity. Release must synchronously
+    // stop/join the watcher while it still owns the Entry, rather than allowing callback-held
+    // ownership to destroy the watcher on its own thread.
+    for (int index = 0; index < 64; ++index)
+        write_project_file(root.path / "records/room.json",
+                           "{\"id\":" + std::to_string(index) + "}\n");
+
+    CHECK(authority.release(root.path));
+    CHECK(authority.tracked_project_count() == 0);
+    CHECK_FALSE(authority.status(root.path).has_value());
+}
 #endif
 
 TEST_CASE(
@@ -411,6 +466,24 @@ TEST_CASE("daemon broker exposes one batched Project authority observation actio
     CHECK(unchanged["previousAuthority"] == "proven");
     CHECK(unchanged["delta"] ==
           Json{{"added", Json::array()}, {"changed", Json::array()}, {"removed", Json::array()}});
+
+#if !defined(_WIN32)
+    // ENAMETOOLONG is a deterministic metadata-inspection failure even when tests run as root.
+    // It must not be treated as an absent discovery root or replace the retained manifest.
+    const auto valid_discovery_scopes = request["discoveryScopes"];
+    request["discoveryScopes"].push_back(
+        {{"root", std::string(300, 'x')}, {"extensions", Json::array({".json"})}});
+    const auto discovery_error = invoke_daemon_via_scriptc_adapter(request);
+    CHECK(discovery_error["ok"] == false);
+    CHECK(discovery_error["error"].get<std::string>().find(
+              "Cannot inspect Project discovery directory") != std::string::npos);
+
+    request["discoveryScopes"] = valid_discovery_scopes;
+    const auto recovered_after_discovery_error = invoke_daemon_via_scriptc_adapter(request);
+    REQUIRE(recovered_after_discovery_error["ok"] == true);
+    CHECK(recovered_after_discovery_error["fullRescan"] == true);
+    CHECK(recovered_after_discovery_error["unchanged"] == true);
+#endif
 
     std::filesystem::remove(root.path / "records/room.json");
     std::filesystem::create_directory(root.path / "records/room.json");
