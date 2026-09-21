@@ -10,3 +10,4 @@ comfyui-workflow-manifest	1	development	editor	editor/src/shared/comfyui-workflo
 editor-runtime-protocol	1	development	editor+engine	editor/src/shared/preview-protocol.ts,editor/src/shared/focused-preview-contracts.ts,engine/include/noveltea/core/editor_protocol.hpp	editor/src/shared/preview-protocol.ts,engine/src/core/editor_runtime_protocol.cpp
 runtime-user-settings	1	development	engine	engine/src/core/runtime_user_settings_codec.cpp	engine/src/core/runtime_user_settings_codec.cpp
 cli-json-protocol	1	development	editor	editor/src/cli/contracts.ts	editor/src/cli/contracts.ts,editor/src/cli/application.ts,scripts/development-snapshot.mjs
+daemon-protocol	1	development	editor	editor/src/cli/static-contracts.ts,editor/scripts/noveltea-scriptc-host.ts	editor/scripts/noveltea-scriptc-host.ts,tools/editor_tool/tooling_daemon_broker.cpp

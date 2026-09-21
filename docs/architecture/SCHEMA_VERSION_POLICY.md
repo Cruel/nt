@@ -37,6 +37,7 @@ are:
 | Editor Runtime Protocol | 1 | Editor/runtime preview, playback, profiling, and related IPC. |
 | Runtime User Settings Format | 1 | Player-side user settings that survive game/runtime updates. |
 | CLI JSON Protocol | 1 | Machine-readable `noveltea --json` interface. |
+| Daemon Protocol | 1 | Private standalone CLI client/broker/worker framing and compatibility identity. |
 
 No other current schema has an independent compatibility epoch unless it is first added to this
 inventory by an explicit architecture decision.
