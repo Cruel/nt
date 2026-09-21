@@ -14,7 +14,7 @@ import { parseLayoutData } from './project-schema/authoring-layouts';
 import { parseScriptModuleData } from './project-schema/authoring-script-modules';
 import { serializeCompiledProjectWire } from './project-schema/compiled-project';
 import type { ExportProfileData, ExportShaderVariant } from './project-schema/authoring-export';
-import type { AuthoringProject } from './project-schema/authoring-project';
+import { cloneAuthoringProject, type AuthoringProject } from './project-schema/authoring-project';
 import type { LuaSourceSnapshot } from './project-schema/authoring-lua-analysis';
 import { isSha256Digest, type Sha256Digest } from './project-text-sources';
 import {
@@ -244,7 +244,7 @@ function preparedRuntimeArtifactSourceFingerprint(
   profile: ExportProfileData,
   recoveryFingerprint: unknown = null,
 ): string {
-  const runtimeContentProject = structuredClone(project);
+  const runtimeContentProject = cloneAuthoringProject(project);
   runtimeContentProject.tests = {};
   return hashString(
     stableStringify({
@@ -267,7 +267,7 @@ function runtimeProjectVersion(value: string): string {
 }
 
 function runtimeCompilationProject(project: AuthoringProject): AuthoringProject {
-  const runtimeProject = structuredClone(project);
+  const runtimeProject = cloneAuthoringProject(project);
   runtimeProject.editor = emptyEditorProjectState();
   runtimeProject.project.name = runtimeProjectName(project.project.name);
   runtimeProject.project.version = runtimeProjectVersion(project.project.version);

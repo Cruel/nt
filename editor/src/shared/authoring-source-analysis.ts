@@ -138,15 +138,12 @@ export function collectAuthoringLuaSources(
   contributionKeys?: ReadonlySet<AuthoringDependencyContributionKey>,
 ): readonly AuthoringLuaSourceDescriptor[] {
   const output: AuthoringLuaSourceDescriptor[] = [];
-  const includesContribution = (key: string) =>
-    contributionKeys === undefined || contributionKeys.has(key);
-  for (const [id, record] of Object.entries(project.scripts).sort(([a], [b]) =>
-    a.localeCompare(b),
-  )) {
+  const appendScript = (id: string) => {
+    const record = project.scripts[id];
+    if (!record) return;
     const contributionKey = recordContributionKey('scripts', id);
-    if (!includesContribution(contributionKey)) continue;
     const parsed = parseScriptModuleData(record.data);
-    if (!parsed) continue;
+    if (!parsed) return;
     const base = `/scripts/${escapeJsonPointerSegment(id)}/data/source`;
     output.push({
       executionSurface: 'script-record',
@@ -162,14 +159,13 @@ export function collectAuthoringLuaSources(
       focusedAdmission: false,
       supportsExplicitFallback: false,
     });
-  }
-  for (const [id, record] of Object.entries(project.layouts).sort(([a], [b]) =>
-    a.localeCompare(b),
-  )) {
+  };
+  const appendLayout = (id: string) => {
+    const record = project.layouts[id];
+    if (!record) return;
     const contributionKey = recordContributionKey('layouts', id);
-    if (!includesContribution(contributionKey)) continue;
     const parsed = parseLayoutData(record.data);
-    if (!parsed) continue;
+    if (!parsed) return;
     const owner = recordKey('layouts', id);
     for (const [name, sourceKind] of [
       ['lua', 'lua'],
@@ -218,50 +214,85 @@ export function collectAuthoringLuaSources(
         dependencyTemplateIds: (parsed.dependencies.templates ?? []).map((ref) => ref.$ref.id),
       });
     }
-  }
-  for (const collection of Object.keys(schemaParsers) as (keyof typeof schemaParsers)[]) {
-    for (const [id, record] of Object.entries(project[collection]).sort(([a], [b]) =>
-      a.localeCompare(b),
-    )) {
-      const contributionKey = recordContributionKey(collection, id);
-      if (!includesContribution(contributionKey)) continue;
-      const parsed = schemaParsers[collection](record.data) as unknown;
-      if (!parsed) continue;
-      const baseSegments = [collection, id, 'data'];
-      const owner = recordKey(collection, id);
-      for (const registered of collectRegisteredAuthoringLuaSources(collection, parsed)) {
-        const absoluteSourcePath = buildJsonPointer([...baseSegments, ...registered.sourcePath]);
-        if (registered.scriptRecordId) {
-          const descriptor = sourceDescriptorFromScript(
-            project,
-            registered.scriptRecordId,
-            owner,
-            contributionKey,
-            absoluteSourcePath,
-            baseSegments,
-            registered,
-          );
-          if (descriptor) output.push(descriptor);
-          continue;
-        }
-        output.push({
-          executionSurface: registered.surface,
+  };
+  const appendRegistered = (collection: keyof typeof schemaParsers, id: string) => {
+    const record = project[collection][id];
+    if (!record) return;
+    const contributionKey = recordContributionKey(collection, id);
+    const parsed = schemaParsers[collection](record.data) as unknown;
+    if (!parsed) return;
+    const baseSegments = [collection, id, 'data'];
+    const owner = recordKey(collection, id);
+    for (const registered of collectRegisteredAuthoringLuaSources(collection, parsed)) {
+      const absoluteSourcePath = buildJsonPointer([...baseSegments, ...registered.sourcePath]);
+      if (registered.scriptRecordId) {
+        const descriptor = sourceDescriptorFromScript(
+          project,
+          registered.scriptRecordId,
+          owner,
           contributionKey,
-          semanticOwner: owner,
-          sourcePath: absoluteSourcePath,
-          sourceKind: 'lua',
-          sourceUrl: 'authoring:inline-lua',
-          inlineText: registered.sourceText,
-          focusedAdmission: registered.focusedAdmission,
-          focusedFacet: registered.focusedFacet,
-          supportsExplicitFallback: registered.supportsExplicitFallback,
-          explicitDependenciesPath: registered.explicitDependenciesPath
-            ? buildJsonPointer([...baseSegments, ...registered.explicitDependenciesPath])
-            : undefined,
-          explicitDependencies: registered.explicitDependencies,
-        });
+          absoluteSourcePath,
+          baseSegments,
+          registered,
+        );
+        if (descriptor) output.push(descriptor);
+        continue;
+      }
+      output.push({
+        executionSurface: registered.surface,
+        contributionKey,
+        semanticOwner: owner,
+        sourcePath: absoluteSourcePath,
+        sourceKind: 'lua',
+        sourceUrl: 'authoring:inline-lua',
+        inlineText: registered.sourceText,
+        focusedAdmission: registered.focusedAdmission,
+        focusedFacet: registered.focusedFacet,
+        supportsExplicitFallback: registered.supportsExplicitFallback,
+        explicitDependenciesPath: registered.explicitDependenciesPath
+          ? buildJsonPointer([...baseSegments, ...registered.explicitDependenciesPath])
+          : undefined,
+        explicitDependencies: registered.explicitDependencies,
+      });
+    }
+  };
+
+  if (contributionKeys) {
+    const selected: Array<readonly [AuthoringCollectionKey, string]> = [];
+    const collectionKeys = new Set<string>(authoringCollectionKeys);
+    for (const key of contributionKeys) {
+      if (!key.startsWith('record:')) continue;
+      try {
+        const parsed = JSON.parse(key.slice('record:'.length)) as unknown;
+        if (
+          !Array.isArray(parsed) ||
+          parsed.length !== 3 ||
+          parsed[0] !== 'record' ||
+          typeof parsed[1] !== 'string' ||
+          !collectionKeys.has(parsed[1]) ||
+          typeof parsed[2] !== 'string'
+        )
+          continue;
+        selected.push([parsed[1] as AuthoringCollectionKey, parsed[2]]);
+      } catch {
+        continue;
       }
     }
+    selected.sort(
+      ([leftCollection, leftId], [rightCollection, rightId]) =>
+        leftCollection.localeCompare(rightCollection) || leftId.localeCompare(rightId),
+    );
+    for (const [collection, id] of selected) {
+      if (collection === 'scripts') appendScript(id);
+      else if (collection === 'layouts') appendLayout(id);
+      else if (collection in schemaParsers)
+        appendRegistered(collection as keyof typeof schemaParsers, id);
+    }
+  } else {
+    for (const id of Object.keys(project.scripts).sort()) appendScript(id);
+    for (const id of Object.keys(project.layouts).sort()) appendLayout(id);
+    for (const collection of Object.keys(schemaParsers) as (keyof typeof schemaParsers)[])
+      for (const id of Object.keys(project[collection]).sort()) appendRegistered(collection, id);
   }
   return Object.freeze(
     output.sort(
@@ -1557,15 +1588,37 @@ export function collectAuthoringSourceRequirements(
   contributionKey?: AuthoringDependencyContributionKey,
 ): readonly string[] {
   const ids = new Set<string>();
-  for (const descriptor of collectAuthoringLuaSources(project))
+  for (const descriptor of collectAuthoringLuaSources(
+    project,
+    contributionKey === undefined ? undefined : new Set([contributionKey]),
+  ))
     if (
       descriptor.sourceAssetId &&
       (contributionKey === undefined || descriptor.contributionKey === contributionKey)
     )
       ids.add(descriptor.sourceAssetId);
-  for (const [id, record] of Object.entries(project.layouts)) {
-    if (contributionKey !== undefined && recordContributionKey('layouts', id) !== contributionKey)
-      continue;
+  let layoutIds: readonly string[];
+  if (contributionKey === undefined) layoutIds = Object.keys(project.layouts);
+  else {
+    try {
+      const parsed = contributionKey.startsWith('record:')
+        ? (JSON.parse(contributionKey.slice('record:'.length)) as unknown)
+        : null;
+      layoutIds =
+        Array.isArray(parsed) &&
+        parsed.length === 3 &&
+        parsed[0] === 'record' &&
+        parsed[1] === 'layouts' &&
+        typeof parsed[2] === 'string'
+          ? [parsed[2]]
+          : [];
+    } catch {
+      layoutIds = [];
+    }
+  }
+  for (const id of layoutIds) {
+    const record = project.layouts[id];
+    if (!record) continue;
     const layout = parseLayoutData(record.data);
     if (!layout) continue;
     for (const ref of layout.dependencies.templates ?? []) ids.add(ref.$ref.id);

@@ -9,7 +9,7 @@ import {
   type LocalizationSourceCandidate,
   type LocalizationSourceOccurrenceCandidate,
 } from './localization-source-tracking';
-import type { AuthoringProject } from './project-schema/authoring-project';
+import { cloneAuthoringProject, type AuthoringProject } from './project-schema/authoring-project';
 import type {
   OrphanedLocalizationMessage,
   SourceMessageTrackingEntry,
@@ -471,7 +471,7 @@ export function applyLocalizationReconciliation(
     };
 
   const synced = synchronizeLocalizationMessageTracking(project, sourceDescriptors);
-  const next = structuredClone(synced.project);
+  const next = cloneAuthoringProject(synced.project);
   const currents = new Map(flattenCurrent(next, sourceDescriptors).map((item) => [item.id, item]));
   const previous = new Map(flattenPrevious(next).map((item) => [item.occurrence.messageId, item]));
   const usedPrevious = new Set<string>();

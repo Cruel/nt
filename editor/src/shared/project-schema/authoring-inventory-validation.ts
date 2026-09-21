@@ -1,6 +1,6 @@
 import { resolveGameplayInstanceRecord } from './authoring-archetypes';
 import { parseCharacterData } from './authoring-characters';
-import { parseInteractableData, type InteractableInstanceData } from './authoring-interactables';
+import { parseInteractableData } from './authoring-interactables';
 import type { InventoryReferenceData } from './authoring-inventories';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { parseRoomData } from './authoring-rooms';
@@ -159,53 +159,80 @@ export function validateAuthoringInventories(
   project: AuthoringProject,
 ): InventorySchemaDiagnostic[] {
   const diagnostics: InventorySchemaDiagnostic[] = [];
+  diagnostics.push(...validateProjectInventories(project));
+  for (const id of Object.keys(project.characters))
+    diagnostics.push(...validateCharacterInventories(project, id));
+  for (const id of Object.keys(project.rooms))
+    diagnostics.push(...validateRoomInventories(project, id));
+  for (const id of Object.keys(project.interactables))
+    diagnostics.push(...validateInteractableDefinitionInventories(project, id));
+  for (const id of Object.keys(project.interactableInstances))
+    diagnostics.push(...validateInteractableInstanceInventories(project, id));
+  return diagnostics;
+}
+
+export function validateProjectInventories(project: AuthoringProject): InventorySchemaDiagnostic[] {
+  const diagnostics: InventorySchemaDiagnostic[] = [];
   validateInventoryIds(project.inventories, '/inventories', diagnostics);
+  return diagnostics;
+}
 
-  const interactableLocations = new Map<string, InteractableInstanceData['location']>();
+export function validateCharacterInventories(
+  project: AuthoringProject,
+  id: string,
+): InventorySchemaDiagnostic[] {
+  const diagnostics: InventorySchemaDiagnostic[] = [];
+  const record = effectiveRecord(project, 'character', project.characters[id]);
+  const data = record ? parseCharacterData(record.data) : null;
+  if (!data) return diagnostics;
+  const base = `/characters/${escapePathSegment(id)}/data`;
+  validateInventoryIds(data.inventories, `${base}/inventories`, diagnostics);
+  return diagnostics;
+}
 
-  for (const [id, rawRecord] of Object.entries(project.characters)) {
-    const record = effectiveRecord(project, 'character', rawRecord);
-    const data = record ? parseCharacterData(record.data) : null;
-    if (!data) continue;
-    const base = `/characters/${escapePathSegment(id)}/data`;
-    validateInventoryIds(data.inventories, `${base}/inventories`, diagnostics);
-  }
+export function validateRoomInventories(
+  project: AuthoringProject,
+  id: string,
+): InventorySchemaDiagnostic[] {
+  const diagnostics: InventorySchemaDiagnostic[] = [];
+  const record = effectiveRecord(project, 'room', project.rooms[id]);
+  const data = record ? parseRoomData(record.data) : null;
+  if (!data) return diagnostics;
+  validateFeatureInventoryIds(
+    data.features,
+    `/rooms/${escapePathSegment(id)}/data/features`,
+    diagnostics,
+  );
+  return diagnostics;
+}
 
-  for (const [id, rawRecord] of Object.entries(project.rooms)) {
-    const record = effectiveRecord(project, 'room', rawRecord);
-    const data = record ? parseRoomData(record.data) : null;
-    if (!data) continue;
-    validateFeatureInventoryIds(
-      data.features,
-      `/rooms/${escapePathSegment(id)}/data/features`,
-      diagnostics,
+export function validateInteractableDefinitionInventories(
+  project: AuthoringProject,
+  id: string,
+): InventorySchemaDiagnostic[] {
+  const diagnostics: InventorySchemaDiagnostic[] = [];
+  const record = effectiveRecord(project, 'interactable', project.interactables[id]);
+  const data = record ? parseInteractableData(record.data) : null;
+  if (!data) return diagnostics;
+  const base = `/interactables/${escapePathSegment(id)}/data`;
+  validateInventoryIds(data.inventories, `${base}/inventories`, diagnostics);
+  validateFeatureInventoryIds(data.features, `${base}/features`, diagnostics);
+  return diagnostics;
+}
+
+export function validateInteractableInstanceInventories(
+  project: AuthoringProject,
+  id: string,
+): InventorySchemaDiagnostic[] {
+  const diagnostics: InventorySchemaDiagnostic[] = [];
+  const instance = project.interactableInstances[id];
+  if (!instance) return diagnostics;
+  const base = `/interactableInstances/${escapePathSegment(id)}`;
+  const location = instance.location;
+  if (location.kind === 'inventory') {
+    diagnostics.push(
+      ...validateInventoryReference(project, location.inventory, `${base}/location/inventory`),
     );
-  }
-
-  for (const [id, rawRecord] of Object.entries(project.interactables)) {
-    const record = effectiveRecord(project, 'interactable', rawRecord);
-    const data = record ? parseInteractableData(record.data) : null;
-    if (!data) continue;
-    const base = `/interactables/${escapePathSegment(id)}/data`;
-    validateInventoryIds(data.inventories, `${base}/inventories`, diagnostics);
-    validateFeatureInventoryIds(data.features, `${base}/features`, diagnostics);
-  }
-
-  for (const [id, instance] of Object.entries(project.interactableInstances)) {
-    const base = `/interactableInstances/${escapePathSegment(id)}`;
-    interactableLocations.set(id, instance.location);
-    if (instance.location.kind === 'inventory')
-      diagnostics.push(
-        ...validateInventoryReference(
-          project,
-          instance.location.inventory,
-          `${base}/location/inventory`,
-        ),
-      );
-  }
-
-  for (const [id, location] of interactableLocations) {
-    if (location.kind !== 'inventory') continue;
     const visited = new Set<string>([id]);
     let currentReference: InventoryReferenceData | null = location.inventory;
     while (currentReference) {
@@ -222,10 +249,9 @@ export function validateAuthoringInventories(
         break;
       }
       visited.add(ownerId);
-      const ownerLocation = interactableLocations.get(ownerId);
+      const ownerLocation = project.interactableInstances[ownerId]?.location;
       currentReference = ownerLocation?.kind === 'inventory' ? ownerLocation.inventory : null;
     }
   }
-
   return diagnostics;
 }

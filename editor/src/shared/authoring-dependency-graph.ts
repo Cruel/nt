@@ -151,6 +151,76 @@ function immutableMap<K, V>(entries: Iterable<readonly [K, V]>): ReadonlyMap<K, 
   return new ImmutableMap(entries);
 }
 
+class OverlayReadonlyMap<K, V> implements ReadonlyMap<K, V> {
+  readonly #size: number;
+
+  constructor(
+    private readonly base: ReadonlyMap<K, V>,
+    private readonly changes: ReadonlyMap<K, V>,
+    private readonly deleted: ReadonlySet<K> = new Set(),
+  ) {
+    let size = base.size;
+    for (const key of deleted) if (base.has(key)) size -= 1;
+    for (const key of changes.keys()) if (!base.has(key) || deleted.has(key)) size += 1;
+    this.#size = size;
+  }
+
+  get size(): number {
+    return this.#size;
+  }
+
+  get(key: K): V | undefined {
+    if (this.deleted.has(key) && !this.changes.has(key)) return undefined;
+    return this.changes.has(key) ? this.changes.get(key) : this.base.get(key);
+  }
+
+  has(key: K): boolean {
+    if (this.deleted.has(key) && !this.changes.has(key)) return false;
+    return this.changes.has(key) || this.base.has(key);
+  }
+
+  private materialized(): Map<K, V> {
+    const values = new Map(this.base);
+    for (const key of this.deleted) values.delete(key);
+    for (const [key, value] of this.changes) values.set(key, value);
+    return values;
+  }
+
+  entries(): MapIterator<[K, V]> {
+    return this.materialized().entries();
+  }
+
+  keys(): MapIterator<K> {
+    return this.materialized().keys();
+  }
+
+  values(): MapIterator<V> {
+    return this.materialized().values();
+  }
+
+  forEach(callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: unknown): void {
+    for (const [key, value] of this.materialized()) callbackfn.call(thisArg, value, key, this);
+  }
+
+  [Symbol.iterator](): MapIterator<[K, V]> {
+    return this.entries();
+  }
+
+  get [Symbol.toStringTag](): string {
+    return 'OverlayReadonlyMap';
+  }
+}
+
+function overlayReadonlyMap<K, V>(
+  base: ReadonlyMap<K, V>,
+  changes: ReadonlyMap<K, V>,
+  deleted: ReadonlySet<K> = new Set(),
+): ReadonlyMap<K, V> {
+  return changes.size === 0 && deleted.size === 0
+    ? base
+    : new OverlayReadonlyMap(base, changes, deleted);
+}
+
 function sortedUnique(values: Iterable<string>): readonly string[] {
   return Object.freeze([...new Set(values)].sort());
 }
@@ -440,6 +510,21 @@ function missingTargetDiagnostic(
   });
 }
 
+function freezeContribution(
+  contribution: AuthoringDependencyGraphContribution,
+): AuthoringDependencyGraphContribution {
+  return Object.freeze({
+    ...contribution,
+    nodes: Object.freeze(contribution.nodes.map(freezeNode)),
+    edges: Object.freeze(contribution.edges.map(freezeEdge)),
+    diagnostics: Object.freeze(contribution.diagnostics.map(freezeDiagnostic)),
+    derivationDependencies: Object.freeze(
+      contribution.derivationDependencies.map((dependency) => Object.freeze({ ...dependency })),
+    ),
+    literalOccurrences: Object.freeze([...contribution.literalOccurrences]),
+  });
+}
+
 export function createAuthoringDependencyGraphContributionSet(
   contributions: Iterable<AuthoringDependencyGraphContribution>,
 ): AuthoringDependencyGraphContributionSet {
@@ -452,16 +537,7 @@ export function createAuthoringDependencyGraphContributionSet(
     if (byKey.has(contribution.key)) {
       throw new Error(`Duplicate graph contribution key: ${contribution.key}`);
     }
-    const frozen = Object.freeze({
-      ...contribution,
-      nodes: Object.freeze(contribution.nodes.map(freezeNode)),
-      edges: Object.freeze(contribution.edges.map(freezeEdge)),
-      diagnostics: Object.freeze(contribution.diagnostics.map(freezeDiagnostic)),
-      derivationDependencies: Object.freeze(
-        contribution.derivationDependencies.map((dependency) => Object.freeze({ ...dependency })),
-      ),
-      literalOccurrences: Object.freeze([...contribution.literalOccurrences]),
-    });
+    const frozen = freezeContribution(contribution);
     byKey.set(contribution.key, frozen);
 
     for (const dependency of frozen.derivationDependencies) {
@@ -497,10 +573,211 @@ export function replaceAuthoringDependencyGraphContributions(
   replacements: Iterable<AuthoringDependencyGraphContribution>,
   removedKeys: Iterable<string> = [],
 ): AuthoringDependencyGraphContributionSet {
-  const next = new Map(current.byKey);
-  for (const key of removedKeys) next.delete(key);
-  for (const replacement of replacements) next.set(replacement.key, replacement);
-  return createAuthoringDependencyGraphContributionSet(next.values());
+  const replacementMap = new Map<string, AuthoringDependencyGraphContribution>();
+  for (const replacement of replacements)
+    replacementMap.set(replacement.key, freezeContribution(replacement));
+  const deleted = new Set(removedKeys);
+  for (const key of replacementMap.keys()) deleted.delete(key);
+  const changedKeys = new Set([...replacementMap.keys(), ...deleted]);
+
+  const patchIndex = (
+    base: ReadonlyMap<string, readonly string[]>,
+    oldValues: (contribution: AuthoringDependencyGraphContribution) => readonly string[],
+    newValues: (contribution: AuthoringDependencyGraphContribution) => readonly string[],
+  ): ReadonlyMap<string, readonly string[]> => {
+    const touched = new Set<string>();
+    for (const key of changedKeys) {
+      const prior = current.byKey.get(key);
+      if (prior) oldValues(prior).forEach((value) => touched.add(value));
+      const replacement = replacementMap.get(key);
+      if (replacement) newValues(replacement).forEach((value) => touched.add(value));
+    }
+    const changes = new Map<string, readonly string[]>();
+    const removed = new Set<string>();
+    for (const value of touched) {
+      const owners = new Set(base.get(value) ?? []);
+      for (const key of changedKeys) owners.delete(key);
+      for (const [key, replacement] of replacementMap)
+        if (newValues(replacement).includes(value)) owners.add(key);
+      if (owners.size === 0) removed.add(value);
+      else changes.set(value, sortedUnique(owners));
+    }
+    return overlayReadonlyMap(base, changes, removed);
+  };
+
+  const byDerivationKey = patchIndex(
+    current.contributionKeysByDerivationKey,
+    (contribution) =>
+      contribution.derivationDependencies.map(serializeAuthoringDependencyDerivationDependency),
+    (contribution) =>
+      contribution.derivationDependencies.map(serializeAuthoringDependencyDerivationDependency),
+  );
+  const byDecodedLiteral = patchIndex(
+    current.contributionKeysByDecodedLiteral,
+    (contribution) => contribution.literalOccurrences.map((occurrence) => occurrence.decodedValue),
+    (contribution) => contribution.literalOccurrences.map((occurrence) => occurrence.decodedValue),
+  );
+  return Object.freeze({
+    byKey: overlayReadonlyMap(current.byKey, replacementMap, deleted),
+    contributionKeysByDerivationKey: byDerivationKey,
+    contributionKeysByDecodedLiteral: byDecodedLiteral,
+  });
+}
+
+function normalizedContributionEdges(
+  contribution: AuthoringDependencyGraphContribution,
+): ReadonlyMap<string, AuthoringDependencyEdge> {
+  const byRelationship = new Map<string, AuthoringDependencyEdge>();
+  for (const edge of contribution.edges) {
+    const canonicalId = createAuthoringDependencyEdgeId(edge);
+    if (edge.id !== canonicalId) throw new Error(`Non-canonical graph edge id: ${edge.id}`);
+    const relationship = authoringDependencyRelationshipKey(edge);
+    const current = byRelationship.get(relationship);
+    byRelationship.set(relationship, current ? mergeEdges(current, edge) : freezeEdge(edge));
+  }
+  return byRelationship;
+}
+
+function diagnosticKey(diagnostic: AuthoringDependencyGraphDiagnostic): string {
+  return JSON.stringify([
+    diagnostic.severity,
+    diagnostic.code,
+    diagnostic.path,
+    diagnostic.message,
+    diagnostic.sourceUrl ?? null,
+    diagnostic.line ?? null,
+    diagnostic.column ?? null,
+  ]);
+}
+
+/**
+ * Patch a graph from a bounded set of contribution replacements. Node identity/ownership must stay
+ * stable; topology-changing record edits conservatively fall back to full assembly so incoming
+ * dependencies from unrelated contributions cannot become stale.
+ */
+export function patchAuthoringDependencyGraph(
+  currentGraph: AuthoringDependencyGraph,
+  currentContributions: AuthoringDependencyGraphContributionSet,
+  nextContributions: AuthoringDependencyGraphContributionSet,
+  changedKeys: ReadonlySet<string>,
+): AuthoringDependencyGraph | null {
+  if (changedKeys.size === 0) return currentGraph;
+
+  const nodeChanges = new Map<string, AuthoringDependencyNode>();
+  const oldEdges = new Map<string, AuthoringDependencyEdge>();
+  const newEdges = new Map<string, AuthoringDependencyEdge>();
+  const oldDiagnostics: AuthoringDependencyGraphDiagnostic[] = [];
+  const newDiagnostics: AuthoringDependencyGraphDiagnostic[] = [];
+
+  for (const key of changedKeys) {
+    const previous = currentContributions.byKey.get(key);
+    const next = nextContributions.byKey.get(key);
+    if (!previous || !next) return null;
+    const previousNodes = new Map(
+      previous.nodes.map((node) => [serializeAuthoringDependencyNodeKey(node.key), node]),
+    );
+    const nextNodes = new Map(
+      next.nodes.map((node) => [serializeAuthoringDependencyNodeKey(node.key), node]),
+    );
+    if (
+      previousNodes.size !== nextNodes.size ||
+      [...previousNodes.keys()].some((nodeKey) => !nextNodes.has(nodeKey))
+    )
+      return null;
+    for (const [nodeKey, node] of nextNodes) {
+      const prior = previousNodes.get(nodeKey)!;
+      if (prior.owningPath !== node.owningPath) return null;
+      if (node.keyText !== nodeKey)
+        throw new Error(`Non-canonical graph node keyText: ${node.keyText}`);
+      nodeChanges.set(nodeKey, freezeNode(node));
+    }
+    for (const [relationship, edge] of normalizedContributionEdges(previous))
+      oldEdges.set(relationship, edge);
+    for (const [relationship, edge] of normalizedContributionEdges(next))
+      newEdges.set(relationship, edge);
+    oldDiagnostics.push(...previous.diagnostics);
+    newDiagnostics.push(...next.diagnostics.map(freezeDiagnostic));
+  }
+
+  const oldEdgeIds = new Set([...oldEdges.values()].map((edge) => edge.id));
+  for (const [relationship, edge] of newEdges) {
+    const sourceKey = serializeAuthoringDependencyNodeKey(edge.source);
+    for (const edgeId of currentGraph.outgoingEdgeIdsByNodeKey.get(sourceKey) ?? []) {
+      if (oldEdgeIds.has(edgeId)) continue;
+      const existing = currentGraph.edgesById.get(edgeId);
+      if (existing && authoringDependencyRelationshipKey(existing) === relationship)
+        throw new Error(`Conflicting graph edge ownership: ${relationship}`);
+    }
+  }
+
+  const edgeChanges = new Map<string, AuthoringDependencyEdge>();
+  const deletedEdgeIds = new Set<string>();
+  const newEdgeIds = new Set<string>();
+  for (const edge of newEdges.values()) {
+    edgeChanges.set(edge.id, edge);
+    newEdgeIds.add(edge.id);
+  }
+  for (const edge of oldEdges.values()) if (!newEdgeIds.has(edge.id)) deletedEdgeIds.add(edge.id);
+  const edgesById = overlayReadonlyMap(currentGraph.edgesById, edgeChanges, deletedEdgeIds);
+
+  const patchAdjacency = (
+    base: ReadonlyMap<string, readonly string[]>,
+    side: 'source' | 'target',
+  ): ReadonlyMap<string, readonly string[]> => {
+    const touched = new Set<string>();
+    for (const edge of oldEdges.values())
+      touched.add(serializeAuthoringDependencyNodeKey(edge[side]));
+    for (const edge of newEdges.values())
+      touched.add(serializeAuthoringDependencyNodeKey(edge[side]));
+    const changes = new Map<string, readonly string[]>();
+    const deleted = new Set<string>();
+    for (const nodeKey of touched) {
+      const ids = new Set((base.get(nodeKey) ?? []).filter((id) => !oldEdgeIds.has(id)));
+      for (const edge of newEdges.values())
+        if (serializeAuthoringDependencyNodeKey(edge[side]) === nodeKey) ids.add(edge.id);
+      if (ids.size === 0) deleted.add(nodeKey);
+      else changes.set(nodeKey, Object.freeze([...ids].sort()));
+    }
+    return overlayReadonlyMap(base, changes, deleted);
+  };
+
+  const nodesByKey = overlayReadonlyMap(currentGraph.nodesByKey, nodeChanges);
+  const removeDiagnosticCounts = new Map<string, number>();
+  const removeDiagnostic = (diagnostic: AuthoringDependencyGraphDiagnostic) => {
+    const key = diagnosticKey(diagnostic);
+    removeDiagnosticCounts.set(key, (removeDiagnosticCounts.get(key) ?? 0) + 1);
+  };
+  oldDiagnostics.forEach(removeDiagnostic);
+  for (const edge of oldEdges.values())
+    if (!currentGraph.nodesByKey.has(serializeAuthoringDependencyNodeKey(edge.target)))
+      removeDiagnostic(missingTargetDiagnostic(edge));
+
+  const diagnostics = currentGraph.diagnostics.filter((diagnostic) => {
+    const key = diagnosticKey(diagnostic);
+    const count = removeDiagnosticCounts.get(key) ?? 0;
+    if (count === 0) return true;
+    removeDiagnosticCounts.set(key, count - 1);
+    return false;
+  });
+  diagnostics.push(...newDiagnostics);
+  for (const edge of newEdges.values())
+    if (!nodesByKey.has(serializeAuthoringDependencyNodeKey(edge.target)))
+      diagnostics.push(missingTargetDiagnostic(edge));
+  diagnostics.sort(
+    (left, right) =>
+      left.path.localeCompare(right.path) ||
+      left.code.localeCompare(right.code) ||
+      left.message.localeCompare(right.message),
+  );
+
+  return Object.freeze({
+    nodesByKey,
+    edgesById,
+    outgoingEdgeIdsByNodeKey: patchAdjacency(currentGraph.outgoingEdgeIdsByNodeKey, 'source'),
+    incomingEdgeIdsByNodeKey: patchAdjacency(currentGraph.incomingEdgeIdsByNodeKey, 'target'),
+    sourceNodeKeysByOwnedPath: currentGraph.sourceNodeKeysByOwnedPath,
+    diagnostics: Object.freeze(diagnostics),
+  });
 }
 
 export function assembleAuthoringDependencyGraph(
@@ -2331,7 +2608,7 @@ function propertyResolutionImpactPaths(
   ];
 }
 
-function buildLuaSymbolProjection(
+export function buildAuthoringLuaSymbolProjection(
   project: AuthoringProject,
 ): ReadonlyMap<string, readonly AuthoringDependencyNodeKey[]> {
   const byLiteral = new Map<string, AuthoringDependencyNodeKey[]>();
@@ -2363,7 +2640,7 @@ export function projectAuthoringLiteralEvidence(
   symbolProjection: ReadonlyMap<
     string,
     readonly AuthoringDependencyNodeKey[]
-  > = buildLuaSymbolProjection(project),
+  > = buildAuthoringLuaSymbolProjection(project),
 ): LuaReferenceOccurrence<AuthoringDependencyNodeKey> | null {
   const candidates = symbolProjection.get(occurrence.decodedValue);
   return candidates ? { ...occurrence, confidence: 'lexical', candidateTargets: candidates } : null;
@@ -2377,7 +2654,7 @@ export function classifyAuthoringLiteralEvidence(
   symbolProjection: ReadonlyMap<
     string,
     readonly AuthoringDependencyNodeKey[]
-  > = buildLuaSymbolProjection(project),
+  > = buildAuthoringLuaSymbolProjection(project),
 ) {
   const recognized = classifyRecognizedAuthoringSourceReference(
     { project, occurrence, region },
@@ -2468,12 +2745,15 @@ function addLuaEvidenceToContribution(
   analyses: readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[],
   lexicalEnabled: boolean,
   recognizers: readonly AuthoringSourceReferenceRecognizer[] = AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
+  symbolProjection: ReadonlyMap<
+    string,
+    readonly AuthoringDependencyNodeKey[]
+  > = buildAuthoringLuaSymbolProjection(project),
 ): AuthoringDependencyGraphContribution {
   const edges = [...base.edges];
   const diagnostics = [...base.diagnostics];
   const literals = [...base.literalOccurrences];
   const derivationDependencies = [...base.derivationDependencies];
-  const symbolProjection = buildLuaSymbolProjection(project);
   for (const descriptor of descriptors) {
     if (descriptor.sourceAssetId) {
       derivationDependencies.push({ kind: 'source-asset', assetId: descriptor.sourceAssetId });
@@ -2912,6 +3192,7 @@ export function deriveAuthoringDependencyContributionFromPrepared(
   analyses: readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[],
   lexicalEnabled: boolean,
   recognizers: readonly AuthoringSourceReferenceRecognizer[] = AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
+  symbolProjection?: ReadonlyMap<string, readonly AuthoringDependencyNodeKey[]>,
 ): AuthoringDependencyGraphContribution | null {
   const base = deriveStructuralContributionByKey(project, contributionKey);
   return base
@@ -2922,6 +3203,7 @@ export function deriveAuthoringDependencyContributionFromPrepared(
         analyses,
         lexicalEnabled,
         recognizers,
+        symbolProjection,
       )
     : null;
 }
@@ -2960,6 +3242,7 @@ export async function buildAuthoringDependencyGraphContributionSet(
           string,
           readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
         >();
+  const symbolProjection = buildAuthoringLuaSymbolProjection(project);
   return createAuthoringDependencyGraphContributionSet(
     enumerateAuthoringDependencyContributionKeys(project).map((contributionKey) => {
       const contribution = deriveAuthoringDependencyContributionFromPrepared(
@@ -2969,6 +3252,7 @@ export async function buildAuthoringDependencyGraphContributionSet(
         analyses.get(contributionKey) ?? [],
         luaAnalysis.mode === 'enabled',
         recognizers,
+        symbolProjection,
       );
       if (!contribution)
         throw new Error(`Unable to derive graph contribution '${contributionKey}'.`);

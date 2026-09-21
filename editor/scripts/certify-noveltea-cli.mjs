@@ -1537,15 +1537,20 @@ async function certifyDaemonAuthoringCacheResidency(tempRoot, pristine) {
     );
   const cachedInvalid = runNative(args, {
     cwd: hydratedRoot,
-    env: { ...process.env, NOVELTEA_CLI_TRACE: '1' },
+    env: {
+      ...process.env,
+      NOVELTEA_CLI_TRACE: '1',
+      NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+    },
   });
   if (
     cachedInvalid.status !== 4 ||
-    !cachedInvalid.stderr.includes('authoring cache hit: static/native validate path admitted') ||
-    cachedInvalid.stderr.includes('[scriptc-host] daemon invocation forwarding')
+    cachedInvalid.stderr.includes('authoring cache hit: static/native validate path admitted') ||
+    !cachedInvalid.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
+    !validationProfile(cachedInvalid)
   )
     fail(
-      `Resident deterministic validation failure did not become a static cache hit: ${cachedInvalid.stderr}`,
+      `Resident deterministic validation failure unexpectedly republished the rich authoring cache: ${cachedInvalid.stderr}`,
     );
 
   const fallbackRoot = path.join(tempRoot, 'daemon-authoring-cache-fallback');
@@ -2284,7 +2289,7 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
     largeUnrelatedRecords: 600,
     largeChangedMs: Math.round(largeChanged.elapsed * 10) / 10,
     largeWork: validationProfile(largeChanged.result),
-    note: 'Disk-authority source inventory remains O(Project source count); semantic parse/validation work should remain scoped to the affected dependency closure.',
+    note: 'Native batched physical observation may remain O(Project source count); QuickJS semantic parse/validation/dependency work should remain scoped to the affected dependency closure.',
   };
 
   process.stdout.write(`[performance] ${JSON.stringify(report)}\n`);

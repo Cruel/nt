@@ -61,12 +61,25 @@ export interface AuthoringValidationInstrumentation {
     reusedContributions: number;
     analyzedOwners: number;
     reusedSourceAnalyses: number;
+    fullProjectTraversals: number;
   }>;
   readonly compilerWork: Readonly<{
     wholeProjectNormalizations: number;
     linkBuilds: number;
     artifactLowerings: number;
     serializations: number;
+  }>;
+  readonly usefulWork: Readonly<{
+    authoredFilesReread: number;
+    jsonSourcesParsed: number;
+    textSourcesRead: number;
+    validationChecksRecomputed: number;
+    dependencyWorkRecomputed: number;
+    dependencyContributionsRecomputed: number;
+    sourceAnalysesRecomputed: number;
+    fullProjectTraversals: number;
+    fullProjectProjections: number;
+    foregroundSerializations: number;
   }>;
 }
 
@@ -546,9 +559,14 @@ export async function runNovelTeaCli(
   }
 
   const reusableAuthoring = authoringCacheAdmission?.reusable ?? null;
+  // Once the daemon owns a coherent resident Project generation, native physical authority plus
+  // resident semantic deltas are the foreground freshness path. Rebuilding/publishing the rich
+  // persistent semantic cache here would reintroduce O(Project) work after every isolated edit.
+  // Cold/restart admission keeps the existing persisted-cache behavior until #330 narrows it.
+  const foregroundValidationCache = residentSessionAlreadyLoaded ? null : validationCache;
   const validationBaseline = reusableAuthoring
     ? null
-    : await validationCache?.captureAuthoringSourceBaseline(
+    : await foregroundValidationCache?.captureAuthoringSourceBaseline(
         services.fileSystem,
         discovery.projectRoot,
       );
@@ -575,7 +593,7 @@ export async function runNovelTeaCli(
   try {
     let activeOpened = opened;
     const freshnessProofStarted = Date.now();
-    let validationInputs = await validationCache?.captureAuthoringValidationInputs(
+    let validationInputs = await foregroundValidationCache?.captureAuthoringValidationInputs(
       services.fileSystem,
       activeOpened.opened.snapshot,
       validationBaseline ?? null,
@@ -594,7 +612,7 @@ export async function runNovelTeaCli(
           { projectRoot: discovery.projectRoot },
         );
       activeOpened = freshOpened;
-      validationInputs = await validationCache?.captureAuthoringValidationInputs(
+      validationInputs = await foregroundValidationCache?.captureAuthoringValidationInputs(
         services.fileSystem,
         activeOpened.opened.snapshot,
         validationBaseline ?? null,
@@ -664,7 +682,7 @@ export async function runNovelTeaCli(
     const diagnosticProjectionMs = Date.now() - diagnosticProjectionStarted;
     const cachePublicationStarted = Date.now();
     if (validationInputs)
-      await validationCache?.publishAuthoringCache(
+      await foregroundValidationCache?.publishAuthoringCache(
         services.fileSystem,
         discovery.projectRoot,
         validationInputs,
@@ -679,7 +697,9 @@ export async function runNovelTeaCli(
         activeOpened.opened.validationContributions,
       );
     const cachePublicationMs = Date.now() - cachePublicationStarted;
-    if (semantic.authoringValidationMetrics)
+    if (semantic.authoringValidationMetrics) {
+      const dependencyWork = semantic.authoringValidationMetrics.dependencyWork;
+      const compilerWork = semantic.authoringValidationMetrics.compilerWork;
       options.onAuthoringValidationInstrumentation?.({
         discoveryMs,
         cacheAdmissionMs,
@@ -690,7 +710,25 @@ export async function runNovelTeaCli(
         validationWork: activeOpened.opened.validationWork,
         sourceWork: activeOpened.opened.sourceWork,
         ...semantic.authoringValidationMetrics,
+        usefulWork: {
+          authoredFilesReread: activeOpened.opened.sourceWork.authoredFilesReread,
+          jsonSourcesParsed: activeOpened.opened.sourceWork.parsedJsonSources,
+          textSourcesRead: activeOpened.opened.sourceWork.readTextSources,
+          validationChecksRecomputed: activeOpened.opened.validationWork.executed,
+          dependencyWorkRecomputed:
+            dependencyWork.derivedContributions + dependencyWork.analyzedOwners,
+          dependencyContributionsRecomputed: dependencyWork.derivedContributions,
+          sourceAnalysesRecomputed: dependencyWork.analyzedOwners,
+          fullProjectTraversals:
+            activeOpened.opened.sourceWork.fullProjectTraversals +
+            dependencyWork.fullProjectTraversals +
+            compilerWork.wholeProjectNormalizations,
+          fullProjectProjections: activeOpened.opened.sourceWork.fullProjectProjections,
+          foregroundSerializations:
+            activeOpened.opened.sourceWork.foregroundSerializations + compilerWork.serializations,
+        },
       });
+    }
     if (!semantic.ok)
       return {
         ...failure(semantic.exitCode ?? semanticExitCode(diagnostics), diagnostics, globals.json, {

@@ -269,6 +269,13 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
 export type RecoveryFileOwnershipHints = Readonly<Record<string, readonly string[]>>;
 export type ResidentProjectWorkspaceCoherence = 'coherent' | 'resync-needed' | 'invalid';
 
+export interface ResidentProjectGenerationIdentity {
+  readonly sessionEpoch: number;
+  readonly generation: number;
+}
+
+let nextResidentProjectSessionEpoch = 1;
+
 export interface InvalidAuthoringSourceBlock {
   readonly files: readonly string[];
   readonly ownerPaths: readonly string[];
@@ -315,6 +322,8 @@ function sameAuthoringFileStamp(
 export class ResidentProjectWorkspaceSession {
   private readonly fileSystem: ResidentProjectWorkspaceFileSystem;
   private readonly workspace: ProjectWorkspaceService;
+  private readonly sessionEpochValue = nextResidentProjectSessionEpoch++;
+  private generationValue = 1;
   private snapshotValue: LoadedProjectWorkspaceSnapshot;
   private editorStateValue: EditorProjectState;
   private openedValue: Extract<ProjectWorkspaceOpenResult, { ok: true }> | null;
@@ -368,6 +377,20 @@ export class ResidentProjectWorkspaceSession {
 
   openedGeneration(): Extract<ProjectWorkspaceOpenResult, { ok: true }> | null {
     return this.openedValue;
+  }
+
+  generationIdentity(): ResidentProjectGenerationIdentity {
+    return Object.freeze({
+      sessionEpoch: this.sessionEpochValue,
+      generation: this.generationValue,
+    });
+  }
+
+  isGeneration(identity: ResidentProjectGenerationIdentity): boolean {
+    return (
+      identity.sessionEpoch === this.sessionEpochValue &&
+      identity.generation === this.generationValue
+    );
   }
 
   editorState(): EditorProjectState {
@@ -484,6 +507,7 @@ export class ResidentProjectWorkspaceSession {
   ): void {
     if (snapshot.projectRoot !== this.snapshotValue.projectRoot)
       throw new Error('Active workspace snapshot belongs to a different project root.');
+    if (snapshot !== this.snapshotValue) this.generationValue += 1;
     this.snapshotValue = snapshot;
     this.editorStateValue = editorState;
     this.openedValue = null;

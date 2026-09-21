@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
-import { runNovelTeaCli } from '../../cli/application';
+import { runNovelTeaCli, type AuthoringValidationInstrumentation } from '../../cli/application';
 import {
   createNovelTeaAgentKitPayload,
   createNovelTeaRawSchemaFiles,
@@ -383,9 +383,7 @@ describe('NovelTea headless CLI', () => {
   it('uses resident Project generations across standalone read commands', async () => {
     const value = fixture(validProject(), true);
     const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
-    const instrumentation: Array<{
-      sourceWork: { parsedJsonSources: number; wholeProjectSchemaParses: number };
-    }> = [];
+    const instrumentation: AuthoringValidationInstrumentation[] = [];
     const first = await runNovelTeaCli(['--json', 'validate'], {
       ...options(value),
       residentWorkspace,
@@ -406,8 +404,23 @@ describe('NovelTea headless CLI', () => {
       onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
     });
     expect(second.exitCode).toBe(0);
-    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBe(1);
-    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
+    const latest = instrumentation.at(-1)!;
+    expect(latest.sourceWork.parsedJsonSources).toBe(1);
+    expect(latest.sourceWork.wholeProjectSchemaParses).toBe(0);
+    expect(latest.usefulWork).toMatchObject({
+      authoredFilesReread: 1,
+      jsonSourcesParsed: 1,
+      textSourcesRead: 0,
+      fullProjectTraversals: 0,
+      fullProjectProjections: 0,
+      foregroundSerializations: 0,
+    });
+    expect(latest.usefulWork.validationChecksRecomputed).toBeGreaterThan(0);
+    expect(latest.usefulWork.dependencyWorkRecomputed).toBeGreaterThan(0);
+    expect(latest.usefulWork.dependencyContributionsRecomputed).toBe(
+      latest.dependencyWork.derivedContributions,
+    );
+    expect(latest.usefulWork.sourceAnalysesRecomputed).toBe(latest.dependencyWork.analyzedOwners);
   });
 
   it('hydrates a cold resident Project from reusable persistent authoring contributions', async () => {

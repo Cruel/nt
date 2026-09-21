@@ -12,10 +12,20 @@ export interface AuthoringValidationContribution {
   readonly inputPaths: readonly string[];
   readonly sourceRevisions: readonly Readonly<{ path: string; contentHash: string }>[];
   readonly diagnostics: readonly ProjectValidationDiagnostic[];
+  /** Input paths could not be reduced to exact physical source revisions for reuse. */
+  readonly unresolvedInputs?: true;
 }
 
 export interface AuthoringValidationReuse {
   readonly contributions: readonly AuthoringValidationContribution[];
+  /** Resident-only key index so an incremental generation need not remap every prior check. */
+  readonly contributionsByKey?: ReadonlyMap<string, AuthoringValidationContribution>;
+  /** Exact check keys invalidated by the changed physical sources, including the scope prefix. */
+  readonly changedContributionKeys?: ReadonlySet<string>;
+  /** Stable prior-array positions for copy-on-write contribution replacement. */
+  readonly contributionIndexes?: ReadonlyMap<string, number>;
+  /** Aggregate diagnostics for the coherent base generation. */
+  readonly baseDiagnostics?: readonly ProjectValidationDiagnostic[];
   /**
    * When a resident generation knows the exact physical files that changed, contributions whose
    * admitted source revisions do not intersect that set are reusable without re-resolving their
@@ -31,6 +41,64 @@ export interface AuthoringValidationReuse {
 export interface AuthoringValidationWork {
   executed: number;
   reused: number;
+}
+
+function overlayContributions(
+  base: readonly AuthoringValidationContribution[],
+  changes: ReadonlyMap<number, AuthoringValidationContribution>,
+): readonly AuthoringValidationContribution[] {
+  if (changes.size === 0) return base;
+  const target: AuthoringValidationContribution[] = [];
+  target.length = base.length;
+  const proxy: readonly AuthoringValidationContribution[] = new Proxy(target, {
+    get(_target, property, receiver) {
+      if (property === 'length') return base.length;
+      if (typeof property === 'string' && /^\d+$/u.test(property)) {
+        const index = Number(property);
+        return changes.get(index) ?? base[index];
+      }
+      return Reflect.get(base, property, receiver);
+    },
+    has(_target, property) {
+      if (typeof property === 'string' && /^\d+$/u.test(property)) {
+        const index = Number(property);
+        return index >= 0 && index < base.length;
+      }
+      return Reflect.has(base, property);
+    },
+    ownKeys() {
+      return Reflect.ownKeys(base);
+    },
+    getOwnPropertyDescriptor(_target, property) {
+      if (property === 'length')
+        return { configurable: false, enumerable: false, writable: true, value: base.length };
+      if (typeof property === 'string' && /^\d+$/u.test(property)) {
+        const index = Number(property);
+        if (index < 0 || index >= base.length) return undefined;
+        return {
+          configurable: true,
+          enumerable: true,
+          writable: false,
+          value: changes.get(index) ?? base[index],
+        };
+      }
+      return Reflect.getOwnPropertyDescriptor(base, property);
+    },
+    set() {
+      return false;
+    },
+    deleteProperty() {
+      return false;
+    },
+    defineProperty() {
+      return false;
+    },
+  });
+  return proxy;
+}
+
+function validationDiagnosticKey(diagnostic: ProjectValidationDiagnostic): string {
+  return JSON.stringify(diagnostic);
 }
 
 const registries = new Set<string>([...authoringCollectionKeys, 'traits', 'interactableInstances']);
@@ -91,43 +159,125 @@ function trackInputs(project: AuthoringProject, inputs: Set<string>): AuthoringP
 }
 
 export function authoringValidationChecks(reuse?: AuthoringValidationReuse, scope = 'workspace') {
-  const previous = new Map(reuse?.contributions.map((entry) => [entry.key, entry]));
-  const contributions: AuthoringValidationContribution[] = [];
+  const previous =
+    reuse?.contributionsByKey ?? new Map(reuse?.contributions.map((entry) => [entry.key, entry]));
+  const contributions = new Map<string, AuthoringValidationContribution>();
+  const visited = new Set<string>();
   const work: AuthoringValidationWork = { executed: 0, reused: 0 };
+  const incremental = Boolean(
+    reuse?.changedContributionKeys && reuse.contributionIndexes && reuse.baseDiagnostics,
+  );
+  const scopedKey = (key: string) => `${scope}:${key}`;
+  const priorIsUnchanged = (prior: AuthoringValidationContribution): boolean => {
+    if (!reuse) return false;
+    if (prior.unresolvedInputs) return false;
+    if (
+      reuse.changedSourcePaths &&
+      prior.sourceRevisions.every((revision) => !reuse.changedSourcePaths!.has(revision.path))
+    )
+      return true;
+    const current = reuse.resolveInputs(prior.inputPaths);
+    return current !== null && JSON.stringify(current) === JSON.stringify(prior.sourceRevisions);
+  };
+  const pendingKeys = (): ReadonlySet<string> | null => {
+    if (incremental) {
+      const prefix = `${scope}:`;
+      return new Set(
+        [...reuse!.changedContributionKeys!]
+          .filter((key) => key.startsWith(prefix))
+          .map((key) => key.slice(prefix.length)),
+      );
+    }
+    if (!reuse?.changedSourcePaths) return null;
+    const prefix = `${scope}:`;
+    return new Set(
+      [...previous.values()]
+        .filter((prior) => !priorIsUnchanged(prior) && prior.key.startsWith(prefix))
+        .map((prior) => prior.key.slice(prefix.length)),
+    );
+  };
   const run = (
     key: string,
-    project: AuthoringProject,
+    project: AuthoringProject | (() => AuthoringProject),
     validate: (project: AuthoringProject, diagnostics: ProjectValidationDiagnosticLike[]) => void,
     derivedInputs: readonly string[] = [],
   ): readonly ProjectValidationDiagnostic[] => {
-    key = `${scope}:${key}`;
+    key = scopedKey(key);
+    visited.add(key);
     const prior = previous.get(key);
-    if (prior && reuse) {
-      if (
-        reuse.changedSourcePaths &&
-        prior.sourceRevisions.every((revision) => !reuse.changedSourcePaths!.has(revision.path))
-      ) {
-        contributions.push(prior);
+    if (incremental && prior && !reuse!.changedContributionKeys!.has(key)) return [];
+    if (prior && priorIsUnchanged(prior)) {
+      if (!incremental) {
+        contributions.set(key, prior);
         work.reused++;
         return prior.diagnostics;
       }
-      const current = reuse.resolveInputs(prior.inputPaths);
-      if (current && JSON.stringify(current) === JSON.stringify(prior.sourceRevisions)) {
-        contributions.push(prior);
-        work.reused++;
-        return prior.diagnostics;
-      }
+      contributions.set(key, prior);
+      return prior.diagnostics;
     }
     work.executed++;
     const inputPaths = new Set(derivedInputs);
     const diagnostics: ProjectValidationDiagnosticLike[] = [];
-    validate(reuse ? trackInputs(project, inputPaths) : project, diagnostics);
+    const resolvedProject = typeof project === 'function' ? project() : project;
+    validate(reuse ? trackInputs(resolvedProject, inputPaths) : resolvedProject, diagnostics);
     const classified = classifyProjectValidationDiagnostics(diagnostics, { producer: 'authoring' });
     const paths = [...inputPaths].sort();
     const sourceRevisions = reuse?.resolveInputs(paths);
-    if (sourceRevisions)
-      contributions.push({ key, inputPaths: paths, sourceRevisions, diagnostics: classified });
+    if (reuse)
+      contributions.set(key, {
+        key,
+        inputPaths: paths,
+        sourceRevisions: sourceRevisions ?? [],
+        diagnostics: classified,
+        ...(sourceRevisions ? {} : { unresolvedInputs: true as const }),
+      });
     return classified;
   };
-  return { run, contributions, work };
+  const complete = () => {
+    const diagnostics: ProjectValidationDiagnostic[] = [];
+    if (incremental) {
+      const changes = new Map<number, AuthoringValidationContribution>();
+      for (const [key, contribution] of contributions) {
+        const index = reuse!.contributionIndexes!.get(key);
+        if (index === undefined)
+          throw new Error(`Incremental validation contribution '${key}' has no stable index.`);
+        changes.set(index, contribution);
+      }
+      const removeCounts = new Map<string, number>();
+      for (const key of reuse!.changedContributionKeys!) {
+        const prior = previous.get(key);
+        if (!prior) continue;
+        for (const diagnostic of prior.diagnostics) {
+          const diagnosticKey = validationDiagnosticKey(diagnostic);
+          removeCounts.set(diagnosticKey, (removeCounts.get(diagnosticKey) ?? 0) + 1);
+        }
+      }
+      for (const diagnostic of reuse!.baseDiagnostics!) {
+        const diagnosticKey = validationDiagnosticKey(diagnostic);
+        const count = removeCounts.get(diagnosticKey) ?? 0;
+        if (count === 0) diagnostics.push(diagnostic);
+        else removeCounts.set(diagnosticKey, count - 1);
+      }
+      work.reused = Math.max(0, previous.size - work.executed);
+      return {
+        diagnostics,
+        contributions: overlayContributions(reuse!.contributions, changes),
+      };
+    }
+    if (reuse) {
+      for (const prior of previous.values()) {
+        if (visited.has(prior.key) || contributions.has(prior.key)) continue;
+        contributions.set(prior.key, prior);
+        work.reused++;
+        diagnostics.push(...prior.diagnostics);
+      }
+    }
+    return {
+      diagnostics,
+      contributions: [...contributions.values()].sort((left, right) =>
+        left.key.localeCompare(right.key),
+      ),
+    };
+  };
+  return { run, pendingKeys, complete, work };
 }
