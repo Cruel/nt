@@ -69,7 +69,10 @@ import {
   type AuthoringProject,
   type AuthoringRecordBase,
 } from '../../../shared/project-schema/authoring-project';
-import { prepareRuntimeArtifact } from '../../../shared/runtime-artifact-preparation';
+import {
+  prepareRuntimeArtifact,
+  type PreparedRuntimeArtifact,
+} from '../../../shared/runtime-artifact-preparation';
 import { projectWithPreviewLocale } from '../../../shared/preview-locale';
 import { rendererRuntimeArtifactPaths } from '../../export/runtime-artifact-adapters';
 import {
@@ -447,6 +450,26 @@ function nextRecordedTestId(project: AuthoringProject | null) {
   return `${base}-${index}`;
 }
 
+function previewAssetsForArtifact(artifact: PreparedRuntimeArtifact) {
+  const assets = artifact.fileEntries.map((entry) => ({
+    sourcePath: entry.source,
+    runtimePath: entry.packagePath,
+  }));
+  if (artifact.requiredShaderBinaryPaths.length === 0) return assets;
+  const shaderAssetRoot = artifact.packageOptions.shaderAssetRoot;
+  if (!shaderAssetRoot) return assets;
+  const normalizedRoot = shaderAssetRoot.replace(/\\/g, '/').replace(/\/+$/u, '');
+  const markerIndex = normalizedRoot.lastIndexOf('/.noveltea/build');
+  const sourcePrefix = markerIndex >= 0 ? normalizedRoot.slice(markerIndex + 1) : '.noveltea/build';
+  for (const runtimePath of artifact.requiredShaderBinaryPaths) {
+    assets.push({
+      sourcePath: `${sourcePrefix}/${runtimePath}`.replace(/^\/+/, ''),
+      runtimePath,
+    });
+  }
+  return assets;
+}
+
 async function compiledProjectDiagnosticEntries(
   project: AuthoringProject | null,
   recoveryFingerprint: unknown,
@@ -489,10 +512,7 @@ async function compiledProjectDiagnosticEntries(
         ok: true,
         compiledProject: shared.artifact.compiledProject,
         shaderMaterialMetadata: shared.artifact.shaderMaterialMetadata ?? null,
-        previewAssets: shared.artifact.fileEntries.map((entry) => ({
-          sourcePath: entry.source,
-          runtimePath: entry.packagePath,
-        })),
+        previewAssets: previewAssetsForArtifact(shared.artifact),
         sourceFingerprint: shared.artifact.sourceFingerprint,
         blockers: diagnostics.filter((diagnostic) =>
           projectValidationBlocksBoundary(diagnostic, 'runtime-package'),

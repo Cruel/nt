@@ -4,7 +4,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectItem } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { MaterialPreview } from '@/material-preview/MaterialPreview';
@@ -192,8 +198,8 @@ function MaterialShaderSourceRow({
   );
 
   return (
-    <div className="space-y-1.5 rounded border p-2">
-      <div className="grid gap-2 @3xl:grid-cols-[100px_1fr_auto]">
+    <div className="space-y-1 rounded border p-1.5">
+      <div className="grid items-center gap-1.5 @3xl:grid-cols-[90px_minmax(160px,1fr)_auto]">
         <div className="self-center">
           <Label className="capitalize">{stage}</Label>
           <div className="mt-1 text-[10px] text-muted-foreground">
@@ -209,13 +215,14 @@ function MaterialShaderSourceRow({
           <Button
             size="sm"
             variant="outline"
+            className="h-6 px-2 text-xs"
             disabled={!effectivePath}
             onClick={openEffectiveSource}
           >
             {t('materialEditor.openSource')}
           </Button>
           {sourcePath ? (
-            <Badge variant="outline" className="h-8">
+            <Badge variant="outline" className="h-6 px-2 text-[10px]">
               {t('materialEditor.sourceUsage', { count: usageCount })}
             </Badge>
           ) : null}
@@ -223,6 +230,7 @@ function MaterialShaderSourceRow({
             <Button
               size="sm"
               variant="outline"
+              className="h-6 px-2 text-xs"
               disabled={busy}
               onClick={() => void makeSpecificCopy()}
             >
@@ -231,7 +239,13 @@ function MaterialShaderSourceRow({
                 : t('materialEditor.makeMaterialSpecific')}
             </Button>
           ) : null}
-          <Button size="sm" variant="outline" disabled={!local} onClick={onReset}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2 text-xs"
+            disabled={!local}
+            onClick={onReset}
+          >
             {t('materialEditor.reset')}
           </Button>
         </div>
@@ -327,15 +341,15 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
     currentDerivedInterface?.samplers ?? (customSource ? {} : (effective?.preset.samplers ?? {}));
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
+    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-3">
       <div className="flex items-start gap-3" data-workbench-anchor="material.summary">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-lg font-semibold">{record.label}</h2>
+            <h2 className="truncate text-base font-semibold">{record.label}</h2>
             <Badge variant="outline">{materialId}</Badge>
             {effective ? <Badge variant="secondary">{effective.role}</Badge> : null}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">{t('materialEditor.summary')}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{t('materialEditor.summary')}</p>
         </div>
       </div>
 
@@ -344,10 +358,10 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
           {t('materialEditor.invalidData')}
         </div>
       ) : null}
-      <div className="mt-4 grid gap-4 @7xl:grid-cols-[1fr_320px]">
-        <div className="space-y-4">
+      <div className="mt-3 grid gap-3 @7xl:grid-cols-[1fr_320px]">
+        <div className="space-y-3">
           <section
-            className="grid gap-3 rounded border p-3 @3xl:grid-cols-2"
+            className="grid gap-2 rounded border p-2.5 @3xl:grid-cols-2"
             data-workbench-anchor="material.settings"
           >
             <div className="space-y-1">
@@ -375,32 +389,49 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                   }
                 }}
               >
-                {materialPresetIdValues.map((presetId) => (
-                  <SelectItem key={presetId} value={`preset:${presetId}`}>
-                    {materialPresets[presetId].label} ({t('materialEditor.presetSuffix')})
-                  </SelectItem>
-                ))}
-                {Object.entries(project.materials)
-                  .filter(([id]) => materialCanInheritFrom(project, materialId, id))
-                  .map(([id, materialRecord]) => (
-                    <SelectItem key={id} value={`material:${id}`}>
-                      {materialRecord.label} ({id})
+                <SelectTrigger size="sm" className="w-full min-w-0">
+                  <SelectValue>
+                    {data.base.kind === 'preset'
+                      ? `${materialPresets[data.base.preset].label} (${t('materialEditor.presetSuffix')})`
+                      : `${
+                          project.materials[data.base.material.$ref.id]?.label ??
+                          data.base.material.$ref.id
+                        } (${data.base.material.$ref.id})`}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {materialPresetIdValues.map((presetId) => (
+                    <SelectItem key={presetId} value={`preset:${presetId}`}>
+                      {materialPresets[presetId].label} ({t('materialEditor.presetSuffix')})
                     </SelectItem>
                   ))}
+                  {Object.entries(project.materials)
+                    .filter(([id]) => materialCanInheritFrom(project, materialId, id))
+                    .map(([id, materialRecord]) => (
+                      <SelectItem key={id} value={`material:${id}`}>
+                        {materialRecord.label} ({id})
+                      </SelectItem>
+                    ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
               <Label>{t('materialEditor.effectiveContract')}</Label>
-              <div className="flex h-9 items-center gap-2 rounded border px-3 text-xs">
+              <div className="flex h-6 items-center gap-2 rounded border px-2 text-xs">
                 <span>{effective?.preset.label ?? t('materialEditor.invalidContract')}</span>
                 {effective ? <Badge variant="outline">{effective.role}</Badge> : null}
               </div>
             </div>
           </section>
 
-          <section className="space-y-3 rounded border p-3" data-workbench-anchor="material.shader">
+          <section
+            className="space-y-2 rounded border p-2.5"
+            data-workbench-anchor="material.shader"
+          >
             <h3 className="text-sm font-medium">{t('materialEditor.shaderSources')}</h3>
-            <p className="text-xs text-muted-foreground">{t('materialEditor.shaderSourcesHelp')}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {t('materialEditor.shaderSourcesHelp')}
+            </p>
             {(['vertex', 'fragment', 'varying'] as const).map((stage) => {
               const effectivePath =
                 stage === 'vertex'
@@ -446,7 +477,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
           </section>
 
           <section
-            className="space-y-3 rounded border p-3"
+            className="space-y-2 rounded border p-2.5"
             data-workbench-anchor="material.parameters"
           >
             <h3 className="text-sm font-medium">{t('materialEditor.parameters')}</h3>
@@ -477,11 +508,11 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                 return (
                   <div
                     key={name}
-                    className="grid gap-2 rounded border p-2 @3xl:grid-cols-[160px_160px_1fr_auto]"
+                    className="grid items-center gap-1.5 rounded border p-1.5 @3xl:grid-cols-[150px_140px_minmax(140px,1fr)_auto]"
                   >
                     <div>
                       <div className="text-xs font-medium">{declarationLabel ?? name}</div>
-                      <div className="font-mono text-[10px] text-muted-foreground">
+                      <div className="font-mono text-[10px] leading-tight text-muted-foreground">
                         {name} · {declaration.type}
                       </div>
                       {current?.editor?.control ? (
@@ -511,8 +542,13 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                           setParameter(name, { ...local, value: value === 'true' })
                         }
                       >
-                        <SelectItem value="false">false</SelectItem>
-                        <SelectItem value="true">true</SelectItem>
+                        <SelectTrigger size="sm" className="w-full min-w-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent align="start">
+                          <SelectItem value="false">false</SelectItem>
+                          <SelectItem value="true">true</SelectItem>
+                        </SelectContent>
                       </Select>
                     ) : (
                       <Input
@@ -530,6 +566,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                     <Button
                       size="sm"
                       variant="outline"
+                      className="h-6 px-2 text-xs"
                       disabled={!local}
                       onClick={() => clearParameter(name)}
                     >
@@ -554,7 +591,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
               .map((name) => (
                 <div
                   key={name}
-                  className="grid gap-2 rounded border border-dashed p-2 text-xs @3xl:grid-cols-[1fr_180px_auto]"
+                  className="grid items-center gap-1.5 rounded border border-dashed p-1.5 text-xs @3xl:grid-cols-[1fr_160px_auto]"
                 >
                   <span className="self-center">
                     {t('materialEditor.orphanedParameter', { name })}
@@ -563,26 +600,37 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                     value="__orphan__"
                     onValueChange={(value) => rebindParameter(name, String(value))}
                   >
-                    <SelectItem value="__orphan__" disabled>
-                      {t('materialEditor.rebind')}
-                    </SelectItem>
-                    {Object.entries(parameterDeclarations)
-                      .filter(([, declaration]) => {
-                        const source = data.parameters[name];
-                        return (
-                          (source?.value === undefined ||
-                            (declaration.binding == null &&
-                              isUniformValueCompatible(declaration.type, source.value))) &&
-                          (source?.binding === undefined || source.binding === declaration.binding)
-                        );
-                      })
-                      .map(([candidate]) => (
-                        <SelectItem key={candidate} value={candidate}>
-                          {candidate}
-                        </SelectItem>
-                      ))}
+                    <SelectTrigger size="sm" className="w-full min-w-0">
+                      <SelectValue>{t('materialEditor.rebind')}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="start">
+                      <SelectItem value="__orphan__" disabled>
+                        {t('materialEditor.rebind')}
+                      </SelectItem>
+                      {Object.entries(parameterDeclarations)
+                        .filter(([, declaration]) => {
+                          const source = data.parameters[name];
+                          return (
+                            (source?.value === undefined ||
+                              (declaration.binding == null &&
+                                isUniformValueCompatible(declaration.type, source.value))) &&
+                            (source?.binding === undefined ||
+                              source.binding === declaration.binding)
+                          );
+                        })
+                        .map(([candidate]) => (
+                          <SelectItem key={candidate} value={candidate}>
+                            {candidate}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
                   </Select>
-                  <Button size="sm" variant="outline" onClick={() => clearParameter(name)}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => clearParameter(name)}
+                  >
                     {t('materialEditor.remove')}
                   </Button>
                 </div>
@@ -590,7 +638,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
           </section>
 
           <section
-            className="space-y-3 rounded border p-3"
+            className="space-y-2 rounded border p-2.5"
             data-workbench-anchor="material.textures"
           >
             <h3 className="text-sm font-medium">{t('materialEditor.textures')}</h3>
@@ -612,11 +660,11 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                 return (
                   <div
                     key={name}
-                    className="grid gap-2 rounded border p-2 @3xl:grid-cols-[160px_1fr_160px_auto]"
+                    className="grid items-center gap-1.5 rounded border p-1.5 @3xl:grid-cols-[140px_minmax(180px,1fr)_130px_auto]"
                   >
                     <div>
                       <div className="font-mono text-xs">{name}</div>
-                      <div className="mt-1 text-[10px] text-muted-foreground">
+                      <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
                         {provenanceLabel(project, materialId, provenance, t)}
                       </div>
                       {declaration.binding ? (
@@ -646,12 +694,28 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                           });
                         }}
                       >
-                        <SelectItem value="__none__">{t('materialEditor.noTexture')}</SelectItem>
-                        {imageAssets.map((asset) => (
-                          <SelectItem key={asset.id} value={asset.id}>
-                            {asset.label} ({asset.id})
-                          </SelectItem>
-                        ))}
+                        <SelectTrigger size="sm" className="w-full min-w-0">
+                          <SelectValue>
+                            {refId === '__none__'
+                              ? t('materialEditor.noTexture')
+                              : (() => {
+                                  const asset = imageAssets.find(
+                                    (candidate) => candidate.id === refId,
+                                  );
+                                  return asset ? `${asset.label} (${asset.id})` : refId;
+                                })()}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent align="start" className="max-w-[28rem]">
+                          <SelectItem value="__none__">{t('materialEditor.noTexture')}</SelectItem>
+                          {imageAssets.map((asset) => (
+                            <SelectItem key={asset.id} value={asset.id}>
+                              <span className="block max-w-[24rem] truncate">
+                                {asset.label} ({asset.id})
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
                       </Select>
                     )}
                     <Select
@@ -664,15 +728,21 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                         })
                       }
                     >
-                      {materialTextureFilteringValues.map((filter) => (
-                        <SelectItem key={filter} value={filter}>
-                          {filter}
-                        </SelectItem>
-                      ))}
+                      <SelectTrigger size="sm" className="w-full min-w-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start">
+                        {materialTextureFilteringValues.map((filter) => (
+                          <SelectItem key={filter} value={filter}>
+                            {filter}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
                     </Select>
                     <Button
                       size="sm"
                       variant="outline"
+                      className="h-6 px-2 text-xs"
                       disabled={!local}
                       onClick={() => clearTexture(name)}
                     >
@@ -694,7 +764,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
               .map((name) => (
                 <div
                   key={name}
-                  className="grid gap-2 rounded border border-dashed p-2 text-xs @3xl:grid-cols-[1fr_180px_auto]"
+                  className="grid items-center gap-1.5 rounded border border-dashed p-1.5 text-xs @3xl:grid-cols-[1fr_160px_auto]"
                 >
                   <span className="self-center">
                     {t('materialEditor.orphanedTexture', { name })}
@@ -703,24 +773,35 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                     value="__orphan__"
                     onValueChange={(value) => rebindTexture(name, String(value))}
                   >
-                    <SelectItem value="__orphan__" disabled>
-                      {t('materialEditor.rebind')}
-                    </SelectItem>
-                    {Object.entries(textureDeclarations)
-                      .filter(([, declaration]) => {
-                        const source = data.textures[name];
-                        return (
-                          (source?.source === undefined || declaration.binding == null) &&
-                          (source?.binding === undefined || source.binding === declaration.binding)
-                        );
-                      })
-                      .map(([candidate]) => (
-                        <SelectItem key={candidate} value={candidate}>
-                          {candidate}
-                        </SelectItem>
-                      ))}
+                    <SelectTrigger size="sm" className="w-full min-w-0">
+                      <SelectValue>{t('materialEditor.rebind')}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="start">
+                      <SelectItem value="__orphan__" disabled>
+                        {t('materialEditor.rebind')}
+                      </SelectItem>
+                      {Object.entries(textureDeclarations)
+                        .filter(([, declaration]) => {
+                          const source = data.textures[name];
+                          return (
+                            (source?.source === undefined || declaration.binding == null) &&
+                            (source?.binding === undefined ||
+                              source.binding === declaration.binding)
+                          );
+                        })
+                        .map(([candidate]) => (
+                          <SelectItem key={candidate} value={candidate}>
+                            {candidate}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
                   </Select>
-                  <Button size="sm" variant="outline" onClick={() => clearTexture(name)}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => clearTexture(name)}
+                  >
                     {t('materialEditor.remove')}
                   </Button>
                 </div>

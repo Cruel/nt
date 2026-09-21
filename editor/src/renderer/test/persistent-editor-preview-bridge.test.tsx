@@ -80,6 +80,8 @@ vi.mock('@/components/engine-preview-host', () => ({
 vi.mock('@/workbench/default-editors', async () => {
   const React = await import('react');
   const { DerivedPreviewPane } = await import('@/preview/DerivedPreviewPane');
+  const { useMaterialPreviewGroupRenderer } =
+    await import('@/material-preview/material-preview-provider');
 
   function PooledPersistentEditor({ tab }: { tab: WorkbenchTab }) {
     React.useEffect(() => {
@@ -131,6 +133,11 @@ vi.mock('@/workbench/default-editors', async () => {
     );
   }
 
+  function PersistentMaterialPreviewEditor() {
+    useMaterialPreviewGroupRenderer();
+    return <div data-testid="persistent-material-preview-editor">Material preview editor</div>;
+  }
+
   function NormalEditor() {
     return <div data-testid="normal-editor">Normal editor</div>;
   }
@@ -146,6 +153,14 @@ vi.mock('@/workbench/default-editors', async () => {
             mountPolicy: 'keep-mounted-while-open',
             previewHostPolicy: 'pooled-per-tab-group',
             previewPersistence: 'derived',
+          };
+        }
+        if (editorType === 'persistent-material-preview') {
+          return {
+            type: editorType,
+            label: 'Persistent Material preview',
+            component: PersistentMaterialPreviewEditor,
+            mountPolicy: 'keep-mounted-while-open',
           };
         }
         if (editorType === 'full-game-preview') {
@@ -186,6 +201,13 @@ const persistentTab: WorkbenchTab = {
   title: 'Persistent pooled preview',
   editorType: 'persistent-pooled-preview',
   resource: { kind: 'tool', stableId: 'tool:persistent-pooled-preview' },
+};
+
+const persistentMaterialPreviewTab: WorkbenchTab = {
+  id: 'tab:persistent-material-preview',
+  title: 'Persistent Material preview',
+  editorType: 'persistent-material-preview',
+  resource: { kind: 'tool', stableId: 'tool:persistent-material-preview' },
 };
 
 const playTab: WorkbenchTab = {
@@ -324,6 +346,20 @@ afterEach(() => {
 });
 
 describe('persistent editor group preview service bridge', () => {
+  it('makes the owning workbench group Material renderer available to persistent editors', async () => {
+    replaceSplitWorkbench({
+      rootTabIds: [persistentMaterialPreviewTab.id],
+      rootActiveTabId: persistentMaterialPreviewTab.id,
+      targetTabIds: [targetNormalTab.id],
+      targetActiveTabId: targetNormalTab.id,
+      tabs: [persistentMaterialPreviewTab, targetNormalTab],
+    });
+
+    render(<Workbench />);
+
+    expect(await screen.findByTestId('persistent-material-preview-editor')).toBeInTheDocument();
+  });
+
   it('moves a persistent pooled preview to the new group pool and resends a complete payload without remounting', async () => {
     replaceSplitWorkbench({
       rootTabIds: [rootNormalTab.id, persistentTab.id],

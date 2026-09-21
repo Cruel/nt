@@ -294,6 +294,67 @@ TEST_CASE("packaged JSON data Assets load through the native Lua Asset boundary"
     )"));
 }
 
+TEST_CASE("loose compiled project strips shader sources before runtime package assembly")
+{
+    // Editor Play mounts authored shader metadata beside the loose compiled project; the runtime
+    // package boundary must receive only the compiled stage payloads.
+    auto gameplay = minimal_gameplay();
+    nlohmann::json shader_materials = {
+        {"schema", "noveltea.shader-materials"},
+        {"shaders",
+         {{"custom",
+           {{"display_name", "Custom"},
+            {"stages",
+             {{"vertex",
+               {{"source_text", "void main() {}"},
+                {"compiled",
+                 {{"glsl-330",
+                   {{"runtimePath", "project:/shaders/derived/glsl-330/custom.vs.bin"},
+                    {"byteHash", "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+                    {"byteSize", 1}}}}}}},
+              {"fragment",
+               {{"source_text", "void main() {}"},
+                {"compiled",
+                 {{"glsl-330",
+                   {{"runtimePath", "project:/shaders/derived/glsl-330/custom.fs.bin"},
+                    {"byteHash", "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+                    {"byteSize", 1}}}}}}}}},
+            {"uniforms", nlohmann::json::object()},
+            {"samplers", nlohmann::json::object()},
+            {"roles", nlohmann::json::array({"engine-2d"})},
+            {"role_bindings", nlohmann::json::object()}}}}},
+        {"materials",
+         {{"preview",
+           {{"display_name", "Preview"},
+            {"role", "engine-2d"},
+            {"shader", "custom"},
+            {"uniforms", nlohmann::json::object()},
+            {"textures", nlohmann::json::object()},
+            {"blend", "premultiplied-alpha"}}}}},
+    };
+
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    source->add("project:/game", json_bytes(gameplay));
+    source->add("project:/shader-materials.json", json_bytes(shader_materials));
+    assets::AssetManager manager;
+    manager.mount("project", source);
+
+    auto resolved = runtime::resolve_running_game_source(manager, "project:/game", "en");
+    if (!resolved.has_value()) {
+        for (const auto& diagnostic : resolved.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message);
+    }
+    REQUIRE(resolved.has_value());
+    REQUIRE(resolved.value_if()->input.package.shader_materials().has_value());
+    const auto& shaders = resolved.value_if()->input.package.shader_materials()->shaders;
+    REQUIRE(shaders.size() == 1);
+    REQUIRE(shaders.front().stages.size() == 2);
+    for (const auto& stage : shaders.front().stages) {
+        CHECK(stage.source.empty());
+        CHECK(stage.source_text.empty());
+    }
+}
+
 TEST_CASE("loose compiled project propagates the negotiated startup locale")
 {
     auto gameplay = minimal_gameplay();

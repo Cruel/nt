@@ -17,7 +17,10 @@ import {
   selectOpenPersistentWorkbenchTabs,
   selectWorkbenchTabGroupId,
 } from './persistent-editor-selectors';
-import { WorkbenchGroupPreviewHostPoolBridge } from './workbench-group-services';
+import {
+  WorkbenchGroupMaterialPreviewRendererBridge,
+  WorkbenchGroupPreviewHostPoolBridge,
+} from './workbench-group-services';
 import { WorkbenchEditorPane } from './WorkbenchEditorPane';
 import { useWorkbenchStore } from './workbench-store';
 import type { WorkbenchTab } from './workbench-types';
@@ -515,11 +518,19 @@ function PersistentEditorHost({ tab }: { tab: WorkbenchTab }) {
     />
   );
 
-  if (resolved.policies.previewHostPolicy !== 'pooled-per-tab-group') return editorPane;
+  const materialBridgedEditorPane = (
+    <WorkbenchGroupMaterialPreviewRendererBridge groupId={groupId}>
+      {editorPane}
+    </WorkbenchGroupMaterialPreviewRendererBridge>
+  );
+
+  if (resolved.policies.previewHostPolicy !== 'pooled-per-tab-group') {
+    return materialBridgedEditorPane;
+  }
 
   return (
     <WorkbenchGroupPreviewHostPoolBridge groupId={groupId}>
-      {editorPane}
+      {materialBridgedEditorPane}
     </WorkbenchGroupPreviewHostPoolBridge>
   );
 }

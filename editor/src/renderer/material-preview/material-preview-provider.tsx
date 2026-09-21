@@ -43,6 +43,8 @@ export async function resolveMaterialPreviewAssetUrl(assetId: string): Promise<s
 export function MaterialPreviewProjectProvider({ children }: { children: ReactNode }) {
   const document = useProjectStore((state) => state.document);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
+  const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
+  const projectRevision = useProjectStore((state) => state.projectRevision);
   const shaderSources = useProjectSourceStore((state) => state.files).filter(
     (file) => file.kind === 'shader',
   );
@@ -66,9 +68,13 @@ export function MaterialPreviewProjectProvider({ children }: { children: ReactNo
     .map((file) => `${file.id}:${file.contentHash ?? 'absent'}`)
     .sort()
     .join('|');
-  resources.updateProject(project, `${projectSessionId ?? 'none'}|${shaderSourceRevision}`, {
-    scopeKey: projectSessionId,
-  });
+  resources.updateProject(
+    project,
+    `${projectInstanceId ?? projectSessionId ?? 'none'}:${projectRevision}|${shaderSourceRevision}`,
+    {
+      scopeKey: projectSessionId,
+    },
+  );
   const generation = resources.generation;
   const scopeKey = projectSessionId;
   const value = useMemo(
@@ -132,15 +138,41 @@ export function MaterialPreviewGroupProvider({
     void scopeKey;
     return new MaterialPreviewGroupRenderer(resources, backendFactory, scheduler);
   }, [backendFactory, resources, scheduler, scopeKey]);
+  const disposalTokensRef = useRef(new WeakMap<MaterialPreviewGroupRenderer, object>());
   useEffect(() => {
     renderer.invalidateProjectResources();
   }, [generation, renderer]);
-  useEffect(() => () => renderer.dispose(), [renderer]);
+  useEffect(() => {
+    const token = {};
+    const disposalTokens = disposalTokensRef.current;
+    disposalTokens.set(renderer, token);
+    return () => {
+      queueMicrotask(() => {
+        if (disposalTokens.get(renderer) !== token) return;
+        disposalTokens.delete(renderer);
+        renderer.dispose();
+      });
+    };
+  }, [renderer]);
   return <GroupRendererContext.Provider value={renderer}>{children}</GroupRendererContext.Provider>;
 }
 
+export function MaterialPreviewGroupRendererBridge({
+  renderer,
+  children,
+}: {
+  renderer: MaterialPreviewGroupRenderer;
+  children: ReactNode;
+}) {
+  return <GroupRendererContext.Provider value={renderer}>{children}</GroupRendererContext.Provider>;
+}
+
+export function useOptionalMaterialPreviewGroupRenderer() {
+  return useContext(GroupRendererContext);
+}
+
 export function useMaterialPreviewGroupRenderer() {
-  const renderer = useContext(GroupRendererContext);
+  const renderer = useOptionalMaterialPreviewGroupRenderer();
   if (!renderer) throw new Error('Material preview group renderer is not available.');
   return renderer;
 }

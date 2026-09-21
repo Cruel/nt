@@ -130,9 +130,7 @@ rendering, so Layout presentation centering and pointer transforms cannot remain
 external resize. An active but not-yet-published candidate uses `active=true, visible=false`; it must
 continue ticking until mandatory asset preparation and owner-thread finalization complete.
 
-The group-service registry is intentionally narrow. Do not turn it into a
-general service locator; register another service only when a concrete
-group-scoped dependency requires it.
+The group-service registry is intentionally narrow. It currently bridges the pooled engine-preview facade and the per-group Material preview renderer into persistent editor hosts, because those hosts are physically outside their owning group subtree. Do not turn it into a general service locator; register another service only when a concrete group-scoped dependency requires it.
 
 ## Teardown and State Restoration
 

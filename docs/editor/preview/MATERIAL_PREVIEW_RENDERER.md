@@ -21,13 +21,13 @@ A full engine preview remains authoritative when gameplay state, exact scene com
 - exposes reflected Material interfaces and browser shader payloads without writing derived state into the Project;
 - resolves Material texture Asset references, aliases, and `project:/` URIs to registered image Assets;
 - decodes each referenced image once and shares that decoded CPU resource across groups;
-- invalidates the derived snapshot and decoded resource cache when Project authority advances.
+- invalidates the derived snapshot and decoded resource cache when semantic Project authority advances; renderer-local/editor metadata object replacement does not advance preview authority or cancel in-flight Material builds.
 
 This layer owns no WebGL handles. Side-by-side workbench groups therefore reuse the same resolved/decoded Project inputs while keeping their GPU state independent.
 
 ## Workbench-Group Renderer
 
-Each rendered workbench group owns one `MaterialPreviewGroupRenderer`. Its WebGL2 backend is created lazily when the first Material preview surface registers. All registered surfaces in the group share:
+Each rendered workbench group owns one `MaterialPreviewGroupRenderer`. Its WebGL2 backend is created lazily when the first Material preview surface registers. Persistent editors are physically hosted outside the group subtree, so the workbench's narrow group-service bridge publishes the owning group's renderer into those stable hosts without allocating a second renderer. All registered surfaces in the group share:
 
 - one WebGL2 context and scratch render canvas;
 - program, texture, and geometry-buffer caches;
@@ -36,7 +36,7 @@ Each rendered workbench group owns one `MaterialPreviewGroupRenderer`. Its WebGL
 
 A `MaterialPreview` surface owns only its visible canvas, measured size, visibility, Material ID, and pointer state. It registers and unregisters with the group renderer; it never creates a WebGL context. The group renderer renders each visible surface into its shared WebGL scratch target and copies the resulting frame into that surface's canvas. This keeps independent surface sizing and interaction without requiring an atlas or an editor-wide overlay canvas.
 
-Visible previews are live by default and receive the same group-frame timestamp. Intersection visibility suspends offscreen surfaces; when every registered surface is hidden, the group stops scheduling frames. Static-Material detection is intentionally not required.
+Visible previews are live by default and receive the same group-frame timestamp. Compact thumbnail-style previews use intersection visibility to suspend offscreen surfaces. Full editor previews follow workbench visibility directly, and a preview inside a retained persistent editor is suspended whenever that editor host is not workbench-visible. When every registered surface is hidden, the group stops scheduling frames. Static-Material detection is intentionally not required.
 
 Project invalidation clears the group's GPU caches before refreshed Project resources are consumed, preventing stale programs or textures from crossing generations.
 
@@ -64,7 +64,7 @@ Selection remains ordinary authoring state: hover/focus and preview toggles do n
 
 The effective Material `preview.geometry` and `preview.background` metadata selects the representative harness. Preset defaults currently provide `quad`, `rounded-rect`, `sprite`, and `glyphs` geometries plus transparent, checker, dark, and light backgrounds. Material overrides flow through normal inheritance resolution.
 
-Custom source-backed Materials use the compiler's `essl-300` browser payload when available, so their shader source runs through the same Web shader compilation path used for browser-facing derived artifacts. The lightweight harness supplies effective author-settable values plus common engine inputs such as time, preview bounds, and hotspot pointer state.
+Custom source-backed Materials use the compiler's `essl-300` browser payload when available, so their shader source runs through the same Web shader compilation path used for browser-facing derived artifacts. Native browser payloads are normalized with the required `#version 300 es` directive before WebGL2 compilation when the compiler payload omits it. The lightweight harness supplies effective author-settable values plus common engine inputs such as time, preview bounds, and hotspot pointer state.
 
 Built-in/common 2D Materials use the lightweight WebGL harness with the canonical sampler, uniform, blend, texture, and effective-value semantics. Context-heavy roles deliberately use representative fixtures:
 
@@ -79,7 +79,7 @@ Add new role-specific fixtures by extending the harness selection from effective
 
 WebGL2 initialization failure is stable for the owning group and surfaces a `material-preview.webgl2-unavailable` diagnostic state. A render failure surfaces `material-preview.render-failed`. Neither case automatically launches a full engine preview.
 
-WebGL context loss is handled once by the group renderer. The surface canvases and editor/tab state remain mounted. On restoration, shared GPU state is rebuilt centrally and live surfaces resume on the existing group clock. The temporary state uses `material-preview.context-lost`.
+WebGL context loss is handled once by the group renderer. The surface canvases and editor/tab state remain mounted. On restoration, shared GPU state is rebuilt centrally and live surfaces resume on the existing group clock. The temporary state uses `material-preview.context-lost`. Intentional renderer disposal may release its WebGL context, but that teardown must not publish context-loss status to retained or transitioning editor surfaces.
 
 ## Implementation
 

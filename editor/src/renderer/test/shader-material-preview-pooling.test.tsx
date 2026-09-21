@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, render, waitFor } from '@testing-library/react';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
@@ -9,6 +10,9 @@ import {
   MaterialPreviewGroupProvider,
   MaterialPreviewProjectProvider,
 } from '@/material-preview/material-preview-provider';
+import { MaterialPreview } from '@/material-preview/MaterialPreview';
+import { MaterialPreviewProjectResources } from '@/material-preview/material-preview-resources';
+import { WorkbenchEditorLocationProvider } from '@/workbench/workbench-editor-location';
 import type { MaterialPreviewBackendFactory } from '@/material-preview/material-preview-renderer';
 import type {
   WorkbenchGroup as WorkbenchGroupModel,
@@ -99,6 +103,121 @@ beforeEach(() => {
 });
 
 describe('Material lightweight previews', () => {
+  it('keeps the group renderer alive through React StrictMode effect replay', async () => {
+    const renderFrame = vi.fn();
+    const dispose = vi.fn();
+    const backendFactory: MaterialPreviewBackendFactory = vi.fn(() => ({
+      render: renderFrame,
+      invalidateProjectResources: vi.fn(),
+      reset: vi.fn(),
+      dispose,
+    }));
+
+    render(
+      <StrictMode>
+        <MaterialPreviewProjectProvider>
+          <MaterialPreviewGroupProvider backendFactory={backendFactory}>
+            <MaterialPreview materialId="panel" />
+          </MaterialPreviewGroupProvider>
+        </MaterialPreviewProjectProvider>
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(renderFrame).toHaveBeenCalled());
+    expect(dispose).not.toHaveBeenCalled();
+  });
+
+  it('does not let IntersectionObserver suppress a full editor preview', async () => {
+    class NeverIntersectingObserver {
+      constructor(private readonly callback: IntersectionObserverCallback) {}
+      observe(target: Element) {
+        this.callback(
+          [{ isIntersecting: false, target } as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver,
+        );
+      }
+      disconnect() {}
+      unobserve() {}
+      takeRecords() {
+        return [];
+      }
+      readonly root = null;
+      readonly rootMargin = '0px';
+      readonly thresholds = [0];
+    }
+    vi.stubGlobal('IntersectionObserver', NeverIntersectingObserver);
+    try {
+      const project = createAuthoringProject();
+      project.materials.panel = {
+        id: 'panel',
+        label: 'Panel',
+        data: defaultMaterialData('Panel', 'engine-2d'),
+      };
+      const resources = new MaterialPreviewProjectResources({
+        compileShaders: vi.fn().mockResolvedValue([]),
+        resolveAssetUrl: vi.fn().mockResolvedValue(null),
+        decodeImage: vi.fn().mockResolvedValue(null),
+      });
+      resources.updateProject(project);
+      const getMaterial = vi.spyOn(resources, 'getMaterial');
+
+      render(
+        <MaterialPreviewProjectProvider>
+          <MaterialPreviewGroupProvider backendFactory={noWebGlBackend}>
+            <WorkbenchEditorLocationProvider
+              location={{
+                tabId: 'material',
+                groupId: 'root',
+                isActiveInGroup: true,
+                isVisible: true,
+              }}
+            >
+              <MaterialPreview materialId="panel" resources={resources} />
+            </WorkbenchEditorLocationProvider>
+          </MaterialPreviewGroupProvider>
+        </MaterialPreviewProjectProvider>,
+      );
+
+      await waitFor(() => expect(getMaterial).toHaveBeenCalled());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('suspends a preview retained inside a hidden persistent editor host', async () => {
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    const resources = new MaterialPreviewProjectResources({
+      compileShaders: vi.fn().mockResolvedValue([]),
+      resolveAssetUrl: vi.fn().mockResolvedValue(null),
+      decodeImage: vi.fn().mockResolvedValue(null),
+    });
+    resources.updateProject(project);
+    const getMaterial = vi.spyOn(resources, 'getMaterial');
+    const renderPreview = (isVisible: boolean) => (
+      <MaterialPreviewProjectProvider>
+        <MaterialPreviewGroupProvider backendFactory={noWebGlBackend}>
+          <WorkbenchEditorLocationProvider
+            location={{ tabId: 'source', groupId: 'root', isActiveInGroup: isVisible, isVisible }}
+          >
+            <MaterialPreview materialId="panel" resources={resources} />
+          </WorkbenchEditorLocationProvider>
+        </MaterialPreviewGroupProvider>
+      </MaterialPreviewProjectProvider>
+    );
+
+    const view = render(renderPreview(false));
+    await Promise.resolve();
+    expect(getMaterial).not.toHaveBeenCalled();
+
+    view.rerender(renderPreview(true));
+    await waitFor(() => expect(getMaterial).toHaveBeenCalled());
+  });
+
   it('uses a reusable lightweight Material canvas instead of an engine-preview iframe', () => {
     const view = renderGroup(group(materialTab.id));
 

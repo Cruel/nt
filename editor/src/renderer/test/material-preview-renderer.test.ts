@@ -218,6 +218,21 @@ describe('Material preview Project resources', () => {
     expect(changed?.resolved.preview).toEqual({ geometry: 'rounded-rect', background: 'dark' });
   });
 
+  it('keeps preview resources stable when only the Project object identity changes under the same semantic authority', async () => {
+    const project = materialProject();
+    const resources = createResources();
+    resources.updateProject(project, 'project-instance:7|shader-revisions');
+    const firstGeneration = resources.generation;
+    const first = resources.getMaterial('panel');
+
+    const metadataOnlyReplacement = structuredClone(project);
+    resources.updateProject(metadataOnlyReplacement, 'project-instance:7|shader-revisions');
+
+    expect(resources.generation).toBe(firstGeneration);
+    expect(resources.getMaterial('panel')).toBe(first);
+    await expect(first).resolves.not.toBeNull();
+  });
+
   it('invalidates the Project snapshot when shader-source authority advances without replacing the Project object', async () => {
     const project = materialProject();
     const resources = createResources();
@@ -317,6 +332,29 @@ describe('Material preview Project resources', () => {
       )[0]?.fragmentSource,
     ).toBe('project:/shaders/panel.sc');
     expect(options).toEqual({ sourceOverlays: { 'shaders/panel.sc': 'unsaved panel source' } });
+  });
+
+  it('turns thrown preview compiler failures into diagnostics instead of rejected Material loads', async () => {
+    const project = materialProject();
+    project.materials.panel!.data = {
+      ...defaultMaterialData('Panel'),
+      shader: { fragment: { kind: 'project' as const, path: 'shaders/panel.sc' } },
+    };
+    const resources = createResources({
+      compileShaders: vi
+        .fn()
+        .mockRejectedValue(new Error('Shader preview compilation was cancelled.')),
+    });
+    resources.updateProject(project, 'source-tab:cancelled', { materialIds: ['panel'] });
+
+    const material = await resources.getMaterial('panel');
+
+    expect(material?.compileDiagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'error',
+        message: 'Shader preview compilation was cancelled.',
+      }),
+    ]);
   });
 
   it('retains the last successful browser program and marks it stale after a live compile failure', async () => {
@@ -459,6 +497,34 @@ describe('Material preview workbench-group renderer', () => {
       expect.objectContaining({ name: 'u_useTexture' }),
       [1, 0, 0, 0],
     );
+  });
+
+  it('normalizes native essl-300 browser payloads into valid WebGL2 shader sources', async () => {
+    const gl = fakeWebGlContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlMaterialPreviewBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    const resources = createResources();
+    resources.updateProject(materialProject());
+    const base = await resources.getMaterial('panel');
+    const compiled = {
+      ...base!,
+      vertexShaderSource:
+        '\nuniform mat4 u_modelViewProj;\nlayout(location = 1) in vec2 a_position;\nvoid main() {}',
+      fragmentShaderSource:
+        'precision mediump float;\nlayout(location = 0) out vec4 bgfx_FragColor;\nvoid main() {}',
+    };
+
+    backend!.render(surface('panel'), compiled, 0);
+
+    expect(vi.mocked(gl.shaderSource).mock.calls.map(([, source]) => source)).toEqual([
+      expect.stringMatching(/^#version 300 es\n/u),
+      expect.stringMatching(/^#version 300 es\n/u),
+    ]);
   });
 
   it('reports an initial WebGL shader failure without rendering an unrelated fallback', async () => {
@@ -748,6 +814,34 @@ describe('Material preview workbench-group renderer', () => {
     expect(backend.backends[0]?.invalidateProjectResources).toHaveBeenCalledTimes(1);
     expect(backend.backends[0]?.reset).not.toHaveBeenCalled();
     renderer.dispose();
+  });
+
+  it('does not publish context-loss status when disposal intentionally releases WebGL', () => {
+    const resources = createResources();
+    resources.updateProject(materialProject());
+    const clock = manualScheduler();
+    let onContextLost: (() => void) | null = null;
+    const renderer = new MaterialPreviewGroupRenderer(
+      resources,
+      (options) => {
+        onContextLost = options.onContextLost;
+        return {
+          render: vi.fn(),
+          invalidateProjectResources: vi.fn(),
+          reset: vi.fn(),
+          dispose: vi.fn(() => onContextLost?.()),
+        };
+      },
+      clock.scheduler,
+    );
+    const listener = vi.fn();
+    renderer.subscribe(listener);
+    renderer.registerSurface(surface('panel'));
+
+    renderer.dispose();
+
+    expect(renderer.status).toEqual({ available: true, code: null, message: null });
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it('centralizes context-loss status and recovers the existing group renderer', () => {

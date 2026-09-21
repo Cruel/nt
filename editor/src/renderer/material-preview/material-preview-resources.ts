@@ -173,12 +173,19 @@ export class MaterialPreviewProjectResources {
     options: MaterialPreviewProjectOptions = {},
   ) {
     const optionsKey = previewOptionsKey(options);
-    if (
-      this.project === project &&
-      this.projectAuthorityKey === authorityKey &&
-      this.projectOptionsKey === optionsKey
-    )
+    const sameAuthority =
+      authorityKey !== null
+        ? this.projectAuthorityKey === authorityKey
+        : this.project === project && this.projectAuthorityKey === null;
+    if (sameAuthority && this.projectOptionsKey === optionsKey) {
+      // The caller-provided authority key is the semantic Project revision boundary. Local editor
+      // metadata can replace the Project document object without changing authoring content; keep
+      // the preview generation/cache stable in that case while retaining the newest equivalent
+      // document reference for the next real authority change.
+      this.project = project;
+      this.projectOptions = options;
       return;
+    }
     const nextScopeKey = options.scopeKey ?? null;
     if (nextScopeKey !== this.lastGoodScopeKey && this.lastGoodScopeKey !== null) {
       this.lastGoodOutputsByProgram.clear();
@@ -227,11 +234,25 @@ export class MaterialPreviewProjectResources {
       let compileDiagnostics: readonly ShaderCompileDiagnostic[] = [];
       const stalePrograms = new Set<string>();
       if (requestedPrograms.length > 0) {
-        const compiled = normalizeCompileResult(
-          await this.dependencies.compileShaders(compilation, {
-            sourceOverlays: this.projectOptions.sourceOverlays,
-          }),
-        );
+        let compiled: MaterialPreviewCompileResult;
+        try {
+          compiled = normalizeCompileResult(
+            await this.dependencies.compileShaders(compilation, {
+              sourceOverlays: this.projectOptions.sourceOverlays,
+            }),
+          );
+        } catch (error) {
+          compiled = {
+            success: false,
+            outputs: [],
+            diagnostics: [
+              {
+                severity: 'error',
+                message: error instanceof Error ? error.message : String(error),
+              },
+            ],
+          };
+        }
         compileDiagnostics = compiled.diagnostics;
         if (compiled.success) {
           outputs = compiled.outputs;
@@ -258,7 +279,7 @@ export class MaterialPreviewProjectResources {
       }
       const built =
         outputs.length > 0 ? await buildShaderMaterialProject(project, outputs) : initial;
-      if (generation !== this.projectGeneration || project !== this.project) return null;
+      if (generation !== this.projectGeneration) return null;
       return { generation, project, built, outputs, compileDiagnostics, stalePrograms };
     })();
     this.projectSnapshots.set(snapshotKey, snapshot);
@@ -300,7 +321,7 @@ export class MaterialPreviewProjectResources {
         }),
       ),
     );
-    if (generation !== this.projectGeneration || project !== this.project) return null;
+    if (generation !== this.projectGeneration) return null;
 
     return {
       materialId,
