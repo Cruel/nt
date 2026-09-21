@@ -656,7 +656,9 @@ struct ProjectOwnerWorker {
     std::vector<QueuedRequest> queued;
     std::uint64_t last_activity_millis = 0;
     std::uint64_t critical_sections = 0;
+    bool reconciling = false;
     bool retiring = false;
+    bool retirement_started = false;
 };
 
 [[nodiscard]] std::optional<ChildProcess>
@@ -826,6 +828,9 @@ public:
             const auto owner = project_owners_.find(owner_worker_id);
             if (owner == project_owners_.end() || owner->second.retiring)
                 return {{"ok", false}, {"error", "daemon Project owner is not active"}};
+            if (owner->second.reconciling)
+                return {{"ok", false}, {"error", "daemon Project owner is already reconciling"}};
+            owner->second.reconciling = true;
             root = owner->second.canonical_root;
         }
 #if defined(_WIN32)
@@ -833,17 +838,43 @@ public:
 #else
         const std::filesystem::path project_root = root;
 #endif
-        const auto status = project_authority_.status(project_root);
+        std::optional<ProjectAuthorityStatus> status;
+        try {
+            status = project_authority_.status(project_root);
+        } catch (...) {
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner != project_owners_.end())
+                owner->second.reconciling = false;
+            owner_cv_.notify_all();
+            throw;
+        }
         const bool needed = status && (status->state == ProjectAuthorityState::dirty ||
                                        status->state == ProjectAuthorityState::unknown);
+        if (!needed) {
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner != project_owners_.end())
+                owner->second.reconciling = false;
+            owner_cv_.notify_all();
+        }
         return {{"ok", true}, {"needsReconcile", needed}};
     }
 
-    Json record_owner_activity(std::uint64_t owner_worker_id)
+    Json complete_owner_reconciliation(std::uint64_t owner_worker_id, bool advanced)
     {
-        if (!touch_owner(owner_worker_id))
-            return error_json("daemon Project owner is not active");
-        touch();
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner == project_owners_.end() || !owner->second.reconciling)
+                return error_json("daemon Project owner is not reconciling");
+            owner->second.reconciling = false;
+            if (advanced && !owner->second.retiring)
+                owner->second.last_activity_millis = now_millis();
+        }
+        owner_cv_.notify_all();
+        if (advanced)
+            touch();
         return {{"ok", true}};
     }
 
@@ -1155,6 +1186,7 @@ private:
             if (owner != project_owners_.end() && !owner->second.retiring &&
                 child_process_alive(owner->second.process))
                 return owner->first;
+            return std::nullopt;
         }
 
         const auto owner_worker_id = next_owner_worker_id_.fetch_add(1);
@@ -1195,51 +1227,71 @@ private:
             return error.what();
         }
 
-        std::optional<std::uint64_t> dead_owner;
-        {
-            std::scoped_lock lock(queue_mutex_);
-            if (const auto mapped = project_owner_by_root_.find(canonical_root);
-                mapped != project_owner_by_root_.end()) {
-                const auto owner = project_owners_.find(mapped->second);
-                if (owner == project_owners_.end() || !child_process_alive(owner->second.process))
-                    dead_owner = mapped->second;
+        for (;;) {
+            std::optional<std::uint64_t> dead_owner;
+            {
+                std::unique_lock lock(queue_mutex_);
+                if (state_.load() == State::draining || state_.load() == State::stopped)
+                    return "daemon is draining";
+                if (request_id_pending_locked(client, request_id))
+                    return "duplicate pending daemon request id";
+                if (const auto mapped = project_owner_by_root_.find(canonical_root);
+                    mapped != project_owner_by_root_.end()) {
+                    const auto owner = project_owners_.find(mapped->second);
+                    if (owner == project_owners_.end()) {
+                        project_owner_by_root_.erase(mapped);
+                    } else if (owner->second.retiring) {
+                        owner_cv_.wait(lock, [this, &canonical_root, owner_worker_id = owner->first] {
+                            if (state_.load() == State::draining || state_.load() == State::stopped)
+                                return true;
+                            const auto mapped = project_owner_by_root_.find(canonical_root);
+                            return mapped == project_owner_by_root_.end() ||
+                                   mapped->second != owner_worker_id;
+                        });
+                        continue;
+                    } else if (!child_process_alive(owner->second.process)) {
+                        dead_owner = owner->first;
+                    }
+                }
+                if (!dead_owner) {
+                    const auto owner_worker_id = ensure_project_owner_locked(canonical_root);
+                    if (!owner_worker_id)
+                        return "failed to start daemon Project owner worker";
+                    auto& owner = project_owners_.at(*owner_worker_id);
+                    owner.queued.push_back(QueuedRequest{client, request_id, method, payload});
+                    owner.last_activity_millis = now_millis();
+                    owner_cv_.notify_all();
+                    touch();
+                    return std::nullopt;
+                }
             }
-        }
-        if (dead_owner)
             retire_project_owner(*dead_owner, "daemon Project owner exited unexpectedly", true);
-
-        std::scoped_lock lock(queue_mutex_);
-        if (state_.load() == State::draining || state_.load() == State::stopped)
-            return "daemon is draining";
-        if (request_id_pending_locked(client, request_id))
-            return "duplicate pending daemon request id";
-        const auto owner_worker_id = ensure_project_owner_locked(canonical_root);
-        if (!owner_worker_id)
-            return "failed to start daemon Project owner worker";
-        auto& owner = project_owners_.at(*owner_worker_id);
-        owner.queued.push_back(QueuedRequest{client, request_id, method, payload});
-        owner.last_activity_millis = now_millis();
-        owner_cv_.notify_all();
-        touch();
-        return std::nullopt;
+        }
     }
 
     void retire_project_owner(std::uint64_t owner_worker_id, std::string_view reason,
                               bool process_already_dead = false)
     {
-        ProjectOwnerWorker owner;
+        ChildProcess process;
+        std::string canonical_root;
+        std::vector<QueuedRequest> queued;
         std::vector<ActiveRequest> active;
+        std::uint64_t owner_critical_sections = 0;
         {
             std::scoped_lock lock(queue_mutex_);
             const auto found = project_owners_.find(owner_worker_id);
             if (found == project_owners_.end())
                 return;
+            if (found->second.retirement_started)
+                return;
             found->second.retiring = true;
-            owner = std::move(found->second);
-            project_owners_.erase(found);
-            if (const auto root = project_owner_by_root_.find(owner.canonical_root);
-                root != project_owner_by_root_.end() && root->second == owner_worker_id)
-                project_owner_by_root_.erase(root);
+            found->second.retirement_started = true;
+            process = found->second.process;
+            canonical_root = found->second.canonical_root;
+            queued = std::move(found->second.queued);
+            found->second.queued.clear();
+            owner_critical_sections = found->second.critical_sections;
+            found->second.critical_sections = 0;
             for (auto iterator = active_.begin(); iterator != active_.end();) {
                 if (iterator->second.owner_worker_id == owner_worker_id) {
                     active.push_back(iterator->second);
@@ -1249,12 +1301,12 @@ private:
                 }
             }
         }
-        if (owner.critical_sections != 0) {
+        if (owner_critical_sections != 0) {
             {
                 std::scoped_lock lock(critical_mutex_);
                 const auto current = critical_sections_.load();
-                critical_sections_.store(current >= owner.critical_sections
-                                             ? current - owner.critical_sections
+                critical_sections_.store(current >= owner_critical_sections
+                                             ? current - owner_critical_sections
                                              : 0);
             }
             critical_cv_.notify_all();
@@ -1262,18 +1314,28 @@ private:
         owner_cv_.notify_all();
         active_cv_.notify_all();
 #if defined(_WIN32)
-        const std::filesystem::path root = utf8_to_wide(owner.canonical_root);
+        const std::filesystem::path root = utf8_to_wide(canonical_root);
 #else
-        const std::filesystem::path root = owner.canonical_root;
+        const std::filesystem::path root = canonical_root;
 #endif
-        (void)project_authority_.release(root);
         if (process_already_dead)
-            release_child_process(owner.process);
+            release_child_process(process);
         else
-            terminate_child_process(owner.process);
-        for (const auto& queued : owner.queued) {
-            if (const auto client = queued.client.lock())
-                client->send(result_event_json(queued.request_id, false, "null", reason));
+            terminate_child_process(process);
+        (void)project_authority_.release(root);
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto found = project_owners_.find(owner_worker_id);
+            if (found != project_owners_.end())
+                project_owners_.erase(found);
+            if (const auto mapped = project_owner_by_root_.find(canonical_root);
+                mapped != project_owner_by_root_.end() && mapped->second == owner_worker_id)
+                project_owner_by_root_.erase(mapped);
+        }
+        owner_cv_.notify_all();
+        for (const auto& request : queued) {
+            if (const auto client = request.client.lock())
+                client->send(result_event_json(request.request_id, false, "null", reason));
         }
         for (const auto& request : active) {
             if (const auto client = request.client.lock())
@@ -1304,17 +1366,22 @@ private:
         const auto now = now_millis();
         {
             std::scoped_lock lock(queue_mutex_);
+            std::size_t non_retiring_owners = 0;
             const auto owner_is_active = [&](std::uint64_t id) {
                 return std::any_of(active_.begin(), active_.end(), [&](const auto& item) {
                     return item.second.owner_worker_id == id;
                 });
             };
             for (const auto& [id, owner] : project_owners_) {
+                if (owner.retiring)
+                    continue;
+                ++non_retiring_owners;
                 if (!child_process_alive(owner.process)) {
                     retire.emplace_back(id, true);
                     continue;
                 }
-                if (!owner.queued.empty() || owner_is_active(id) || owner.critical_sections != 0)
+                if (!owner.queued.empty() || owner_is_active(id) || owner.critical_sections != 0 ||
+                    owner.reconciling)
                     continue;
                 const bool idle_expired =
                     now - owner.last_activity_millis >= context_.project_session_idle_ms;
@@ -1323,7 +1390,7 @@ private:
                 else
                     pressure_candidates.emplace_back(owner.last_activity_millis, id);
             }
-            const auto survivors = project_owners_.size() - retire.size();
+            const auto survivors = non_retiring_owners - retire.size();
             if (survivors > owner_soft_limit) {
                 std::sort(pressure_candidates.begin(), pressure_candidates.end());
                 const auto pressure_evictions =
@@ -1565,7 +1632,7 @@ private:
                 client->send(result_event_json(request_id, true, result.dump()));
                 continue;
             }
-            if (method == "owner-needs-reconcile" || method == "owner-activity") {
+            if (method == "owner-needs-reconcile" || method == "owner-reconcile-complete") {
                 if (!message_payload.contains("ownerWorkerId") ||
                     !message_payload["ownerWorkerId"].is_number_unsigned()) {
                     client->send(result_event_json(request_id, false, "null",
@@ -1574,9 +1641,13 @@ private:
                 }
                 const auto owner_worker_id =
                     message_payload["ownerWorkerId"].get<std::uint64_t>();
-                const auto result = method == "owner-needs-reconcile"
-                                        ? owner_reconciliation_status(owner_worker_id)
-                                        : record_owner_activity(owner_worker_id);
+                Json result;
+                if (method == "owner-needs-reconcile") {
+                    result = owner_reconciliation_status(owner_worker_id);
+                } else {
+                    result = complete_owner_reconciliation(
+                        owner_worker_id, message_payload.value("advanced", false));
+                }
                 client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
                                                result.value("error", std::string{})));
                 continue;
@@ -3215,8 +3286,8 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = owner_client_request(*context, "owner-cancelled", parsed);
     else if (action == "owner-needs-reconcile")
         result = owner_client_request(*context, "owner-needs-reconcile", parsed);
-    else if (action == "owner-activity")
-        result = owner_client_request(*context, "owner-activity", parsed);
+    else if (action == "owner-reconcile-complete")
+        result = owner_client_request(*context, "owner-reconcile-complete", parsed);
     else if (action == "owner-enter-critical")
         result = owner_client_request(*context, "owner-enter-critical", parsed);
     else if (action == "owner-leave-critical")
