@@ -995,6 +995,7 @@ function hiddenDaemonPayloadNativeRequest(
     error?: string;
     projectSessions?: number;
     ownerWorkerId?: number;
+    advanced?: boolean;
     event?: Readonly<Record<string, unknown>>;
   }>,
 ): DaemonNativeResponse {
@@ -1014,6 +1015,7 @@ function hiddenDaemonPayloadNativeRequest(
         error: payload.error,
         projectSessions: payload.projectSessions,
         ownerWorkerId: payload.ownerWorkerId,
+        advanced: payload.advanced,
         event: payload.event,
       }),
     ),
@@ -1432,11 +1434,15 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
         ownerWorkerId: invocation.ownerWorkerId,
       });
       if (status.ok === true && status.needsReconcile === true) {
-        const advanced = await reconcileNovelTeaResidentProjects();
-        if (advanced > 0)
-          hiddenDaemonPayloadNativeRequest('owner-activity', invocation, {
+        let advanced = false;
+        try {
+          advanced = (await reconcileNovelTeaResidentProjects()) > 0;
+        } finally {
+          hiddenDaemonPayloadNativeRequest('owner-reconcile-complete', invocation, {
             ownerWorkerId: invocation.ownerWorkerId,
+            advanced,
           });
+        }
       }
       continue;
     }
