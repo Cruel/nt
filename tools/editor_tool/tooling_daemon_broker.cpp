@@ -1,5 +1,6 @@
 #include "tooling_daemon_broker.hpp"
 #include "tooling_native_c.h"
+#include "tooling_project_authority.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
 
@@ -66,10 +67,7 @@ using SignalHandler = void (*)(int);
 SignalHandler previous_sigint_handler = SIG_DFL;
 SignalHandler previous_sigterm_handler = SIG_DFL;
 
-void client_interrupt_handler(int signal_number)
-{
-    client_interrupt_signal = signal_number;
-}
+void client_interrupt_handler(int signal_number) { client_interrupt_signal = signal_number; }
 
 void acquire_client_interrupt_handler()
 {
@@ -796,6 +794,16 @@ public:
         return status_json();
     }
 
+    ProjectObservation observe_project(const ProjectAuthorityRequest& request)
+    {
+        return project_authority_.observe(request);
+    }
+
+    bool release_project(const std::filesystem::path& project_root)
+    {
+        return project_authority_.release(project_root);
+    }
+
     Json wait()
     {
         {
@@ -842,6 +850,7 @@ public:
         }
         result["criticalSections"] = critical_sections_.load();
         result["projectSessions"] = project_sessions_.load();
+        result["projectAuthorities"] = project_authority_.tracked_project_count();
         return result;
     }
 
@@ -1318,6 +1327,7 @@ private:
     std::atomic<std::uint64_t> last_activity_millis_{0};
     std::atomic<std::uint64_t> critical_sections_{0};
     std::atomic<std::uint64_t> project_sessions_{0};
+    ProjectAuthorityManager project_authority_;
     std::mutex critical_mutex_;
     std::condition_variable critical_cv_;
     mutable std::mutex state_mutex_;
@@ -1628,6 +1638,149 @@ Json set_local_project_session_count(const Json& request)
     if (!request.contains("projectSessions") || !request["projectSessions"].is_number_unsigned())
         return {{"ok", false}, {"error", "daemon project session update requires projectSessions"}};
     return server->set_project_session_count(request["projectSessions"].get<std::uint64_t>());
+}
+
+bool parse_string_array(const Json& object, std::string_view field,
+                        std::vector<std::string>& output, std::string& error, bool required = true)
+{
+    const auto found = object.find(std::string(field));
+    if (found == object.end()) {
+        if (!required)
+            return true;
+        error = std::string(field) + " is required";
+        return false;
+    }
+    if (!found->is_array()) {
+        error = std::string(field) + " must be an array";
+        return false;
+    }
+    output.clear();
+    output.reserve(found->size());
+    for (const auto& value : *found) {
+        if (!value.is_string()) {
+            error = std::string(field) + " must contain only strings";
+            return false;
+        }
+        output.push_back(value.get<std::string>());
+    }
+    return true;
+}
+
+std::optional<ProjectAuthorityRequest> parse_project_authority_request(const Json& request,
+                                                                       std::string& error)
+{
+    if (!request.contains("projectRoot") || !request["projectRoot"].is_string() ||
+        request["projectRoot"].get_ref<const std::string&>().empty()) {
+        error = "Project authority observation requires projectRoot";
+        return std::nullopt;
+    }
+
+    ProjectAuthorityRequest result;
+#if defined(_WIN32)
+    result.project_root = utf8_to_wide(request["projectRoot"].get_ref<const std::string&>());
+#else
+    result.project_root = request["projectRoot"].get<std::string>();
+#endif
+    if (!parse_string_array(request, "authoritativePaths", result.authoritative_paths, error))
+        return std::nullopt;
+
+    if (request.contains("discoveryScopes")) {
+        if (!request["discoveryScopes"].is_array()) {
+            error = "discoveryScopes must be an array";
+            return std::nullopt;
+        }
+        for (const auto& encoded_scope : request["discoveryScopes"]) {
+            if (!encoded_scope.is_object() || !encoded_scope.contains("root") ||
+                !encoded_scope["root"].is_string() ||
+                encoded_scope["root"].get_ref<const std::string&>().empty()) {
+                error = "Each Project discovery scope requires a non-empty root";
+                return std::nullopt;
+            }
+            ProjectSourceDiscoveryScope scope;
+            scope.root = encoded_scope["root"].get<std::string>();
+            if (!parse_string_array(encoded_scope, "extensions", scope.extensions, error))
+                return std::nullopt;
+            if (!parse_string_array(encoded_scope, "excludedPrefixes", scope.excluded_prefixes,
+                                    error, false))
+                return std::nullopt;
+            result.discovery_scopes.push_back(std::move(scope));
+        }
+    }
+    return result;
+}
+
+Json project_manifest_json(const ProjectSourceManifest& manifest)
+{
+    Json entries = Json::array();
+    for (const auto& entry : manifest.entries) {
+        Json encoded = {{"path", entry.path},
+                        {"sourceIdentity", entry.source_identity},
+                        {"byteSize", entry.byte_size}};
+        if (entry.mtime_nanoseconds)
+            encoded["mtimeNanoseconds"] = std::to_string(*entry.mtime_nanoseconds);
+        else
+            encoded["mtimeNanoseconds"] = nullptr;
+        if (entry.content_hash)
+            encoded["contentHash"] = *entry.content_hash;
+        entries.push_back(std::move(encoded));
+    }
+    return {{"canonicalRoot", manifest.canonical_root}, {"entries", std::move(entries)}};
+}
+
+Json project_observation_json(const ProjectObservation& observation)
+{
+    return {{"ok", true},
+            {"authority", "proven"},
+            {"previousAuthority", project_authority_state_name(observation.previous_state)},
+            {"unchanged", observation.unchanged},
+            {"fullRescan", observation.full_rescan},
+            {"watcherPaths", observation.watcher_paths},
+            {"delta",
+             {{"added", observation.delta.added},
+              {"changed", observation.delta.changed},
+              {"removed", observation.delta.removed}}},
+            {"manifest", project_manifest_json(observation.manifest)}};
+}
+
+Json observe_local_project(const Json& request)
+{
+    std::shared_ptr<BrokerServer> server;
+    {
+        std::scoped_lock lock(server_mutex);
+        server = local_server;
+    }
+    if (!server)
+        return {{"ok", false}, {"error", "daemon broker is not running in this process"}};
+    std::string error;
+    const auto authority_request = parse_project_authority_request(request, error);
+    if (!authority_request)
+        return {{"ok", false}, {"error", std::move(error)}};
+    try {
+        return project_observation_json(server->observe_project(*authority_request));
+    } catch (const std::exception& exception) {
+        return {{"ok", false}, {"error", exception.what()}};
+    }
+}
+
+Json release_local_project(const Json& request)
+{
+    std::shared_ptr<BrokerServer> server;
+    {
+        std::scoped_lock lock(server_mutex);
+        server = local_server;
+    }
+    if (!server)
+        return {{"ok", false}, {"error", "daemon broker is not running in this process"}};
+    if (!request.contains("projectRoot") || !request["projectRoot"].is_string() ||
+        request["projectRoot"].get_ref<const std::string&>().empty())
+        return {{"ok", false}, {"error", "Project authority release requires projectRoot"}};
+#if defined(_WIN32)
+    const std::filesystem::path root =
+        utf8_to_wide(request["projectRoot"].get_ref<const std::string&>());
+#else
+    const std::filesystem::path root = request["projectRoot"].get<std::string>();
+#endif
+    return {{"ok", true}, {"released", server->release_project(root)}};
 }
 
 Json start_local_interrupt_scope()
@@ -2097,6 +2250,10 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = leave_local_critical_section();
     else if (action == "serve-project-sessions")
         result = set_local_project_session_count(parsed);
+    else if (action == "serve-project-observe")
+        result = observe_local_project(parsed);
+    else if (action == "serve-project-release")
+        result = release_local_project(parsed);
     else if (action == "local-cancel-start")
         result = start_local_interrupt_scope();
     else if (action == "local-cancelled")

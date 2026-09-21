@@ -1,5 +1,6 @@
 #include "tooling_daemon_broker.hpp"
 #include "tooling_native_c.h"
+#include "tooling_project_authority.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -11,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -97,7 +99,338 @@ TempRuntimeRoot temp_runtime_root(std::string_view suffix)
     return root;
 }
 
+struct TempProjectRoot {
+    std::filesystem::path path;
+    ~TempProjectRoot()
+    {
+        std::error_code error;
+        std::filesystem::remove_all(path, error);
+    }
+};
+
+void write_project_file(const std::filesystem::path& path, std::string_view contents)
+{
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    REQUIRE(output.good());
+    output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+    REQUIRE(output.good());
+}
+
+TempProjectRoot temp_project_root(std::string_view suffix)
+{
+    TempProjectRoot root{
+        std::filesystem::temp_directory_path() /
+        ("noveltea-project-authority-" + std::string(suffix) + "-" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))};
+    std::filesystem::create_directories(root.path);
+    write_project_file(root.path / "project.json", "{}\n");
+    write_project_file(root.path / "editor.json", "{}\n");
+    write_project_file(root.path / "traits.json", "{}\n");
+    write_project_file(root.path / "records/room.json", "{\"id\":\"room\"}\n");
+    write_project_file(root.path / "scripts/main.lua", "return true\n");
+    write_project_file(root.path / "i18n/en.json", "{}\n");
+    write_project_file(root.path / "records/ignored.txt", "ignored\n");
+    return root;
+}
+
+noveltea::tooling::daemon::ProjectAuthorityRequest
+project_authority_request(const std::filesystem::path& root)
+{
+    using noveltea::tooling::daemon::ProjectSourceDiscoveryScope;
+    return {
+        .project_root = root,
+        .authoritative_paths = {"project.json", "editor.json", "traits.json"},
+        .discovery_scopes =
+            {
+                ProjectSourceDiscoveryScope{
+                    .root = "records",
+                    .extensions = {".json", ".lua", ".rcss", ".rml"},
+                },
+                ProjectSourceDiscoveryScope{.root = "scripts", .extensions = {".lua"}},
+                ProjectSourceDiscoveryScope{.root = "i18n", .extensions = {".json"}},
+            },
+    };
+}
+
+std::vector<std::string>
+manifest_paths(const noveltea::tooling::daemon::ProjectSourceManifest& manifest)
+{
+    std::vector<std::string> paths;
+    paths.reserve(manifest.entries.size());
+    for (const auto& entry : manifest.entries)
+        paths.push_back(entry.path);
+    return paths;
+}
+
 } // namespace
+
+TEST_CASE("Project authority batches unchanged and add-change-remove observation")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("delta");
+    ProjectAuthorityManager authority({.enable_native_watcher = false});
+
+    const auto first = authority.observe(project_authority_request(root.path));
+    CHECK(first.previous_state == ProjectAuthorityState::untracked);
+    CHECK_FALSE(first.unchanged);
+    CHECK(first.full_rescan);
+    CHECK(first.delta.added == manifest_paths(first.manifest));
+    CHECK(first.delta.changed.empty());
+    CHECK(first.delta.removed.empty());
+    CHECK(manifest_paths(first.manifest) ==
+          std::vector<std::string>{"editor.json", "i18n/en.json", "project.json",
+                                   "records/room.json", "scripts/main.lua", "traits.json"});
+    for (const auto& entry : first.manifest.entries) {
+        CHECK_FALSE(entry.source_identity.empty());
+        CHECK(entry.byte_size > 0);
+        CHECK(entry.mtime_nanoseconds.has_value());
+        CHECK_FALSE(entry.content_hash.has_value());
+    }
+
+    const auto unchanged = authority.observe(project_authority_request(root.path));
+    CHECK(unchanged.previous_state == ProjectAuthorityState::proven);
+    CHECK(unchanged.unchanged);
+    CHECK_FALSE(unchanged.full_rescan);
+    CHECK(unchanged.delta.added.empty());
+    CHECK(unchanged.delta.changed.empty());
+    CHECK(unchanged.delta.removed.empty());
+
+    write_project_file(root.path / "records/room.json", "{\"id\":\"room-2\"}\n");
+    write_project_file(root.path / "records/new.json", "{}\n");
+    std::filesystem::remove(root.path / "scripts/main.lua");
+    write_project_file(root.path / "records/ignored.txt", "unrelated change\n");
+
+    const auto changed = authority.observe(project_authority_request(root.path));
+    CHECK_FALSE(changed.unchanged);
+    CHECK(changed.delta.added == std::vector<std::string>{"records/new.json"});
+    CHECK(changed.delta.changed == std::vector<std::string>{"records/room.json"});
+    CHECK(changed.delta.removed == std::vector<std::string>{"scripts/main.lua"});
+    const auto changed_paths = manifest_paths(changed.manifest);
+    CHECK(std::find(changed_paths.begin(), changed_paths.end(), "records/ignored.txt") ==
+          changed_paths.end());
+
+    const auto alias = root.path / "records/..";
+    const auto aliased = authority.observe(project_authority_request(alias));
+    CHECK(aliased.unchanged);
+    CHECK(aliased.manifest.canonical_root == first.manifest.canonical_root);
+    CHECK(authority.tracked_project_count() == 1);
+}
+
+TEST_CASE("Project authority detects same-path same-metadata physical source replacement")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("source-identity");
+    ProjectAuthorityManager authority({.enable_native_watcher = false});
+    const auto first = authority.observe(project_authority_request(root.path));
+    const auto before =
+        std::find_if(first.manifest.entries.begin(), first.manifest.entries.end(),
+                     [](const auto& entry) { return entry.path == "records/room.json"; });
+    REQUIRE(before != first.manifest.entries.end());
+    REQUIRE(before->mtime_nanoseconds.has_value());
+
+    const auto source_path = root.path / "records/room.json";
+    const auto replacement_path = root.path / "records/room-replacement.tmp";
+    const auto original_write_time = std::filesystem::last_write_time(source_path);
+    write_project_file(replacement_path, "{\"id\":\"ROOM\"}\n");
+    REQUIRE(std::filesystem::file_size(replacement_path) == before->byte_size);
+    std::filesystem::last_write_time(replacement_path, original_write_time);
+    std::filesystem::remove(source_path);
+    std::filesystem::rename(replacement_path, source_path);
+
+    const auto replaced = authority.observe(project_authority_request(root.path));
+    const auto after =
+        std::find_if(replaced.manifest.entries.begin(), replaced.manifest.entries.end(),
+                     [](const auto& entry) { return entry.path == "records/room.json"; });
+    REQUIRE(after != replaced.manifest.entries.end());
+    CHECK(after->byte_size == before->byte_size);
+    CHECK(after->mtime_nanoseconds == before->mtime_nanoseconds);
+    CHECK(after->source_identity != before->source_identity);
+    CHECK(replaced.delta.changed == std::vector<std::string>{"records/room.json"});
+}
+
+TEST_CASE("Project authority reports exact authoritative source deletion and restoration")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("authoritative-deletion");
+    ProjectAuthorityManager authority({.enable_native_watcher = false});
+    REQUIRE(authority.observe(project_authority_request(root.path)).manifest.entries.size() == 6);
+
+    std::filesystem::remove(root.path / "traits.json");
+    const auto removed = authority.observe(project_authority_request(root.path));
+    CHECK(removed.delta.added.empty());
+    CHECK(removed.delta.changed.empty());
+    CHECK(removed.delta.removed == std::vector<std::string>{"traits.json"});
+    CHECK(manifest_paths(removed.manifest) ==
+          std::vector<std::string>{"editor.json", "i18n/en.json", "project.json",
+                                   "records/room.json", "scripts/main.lua"});
+
+    write_project_file(root.path / "traits.json", "{}\n");
+    const auto restored = authority.observe(project_authority_request(root.path));
+    CHECK(restored.delta.added == std::vector<std::string>{"traits.json"});
+    CHECK(restored.delta.changed.empty());
+    CHECK(restored.delta.removed.empty());
+}
+
+TEST_CASE("Project authority watcher dirtiness coalesces and unknown state forces a full rescan")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("watcher-state");
+    ProjectAuthorityManager authority({.enable_native_watcher = false});
+    const auto initial = authority.observe(project_authority_request(root.path));
+    REQUIRE(initial.manifest.entries.size() == 6);
+
+    authority.notify_path_changed(root.path, "records/room.json", false);
+    authority.notify_path_changed(root.path, "records/room.json", false);
+    authority.notify_path_changed(root.path, "scripts/main.lua", false);
+    authority.notify_path_changed(root.path, "records/ignored.txt", false);
+    const auto dirty = authority.status(root.path);
+    REQUIRE(dirty);
+    CHECK(dirty->state == ProjectAuthorityState::dirty);
+    CHECK(dirty->has_manifest);
+    CHECK(dirty->pending_paths ==
+          std::vector<std::string>{"records/room.json", "scripts/main.lua"});
+
+    const auto coalesced = authority.observe(project_authority_request(root.path));
+    CHECK(coalesced.previous_state == ProjectAuthorityState::dirty);
+    CHECK(coalesced.unchanged);
+    CHECK(coalesced.watcher_paths ==
+          std::vector<std::string>{"records/room.json", "scripts/main.lua"});
+    CHECK_FALSE(coalesced.full_rescan);
+
+    authority.notify_watcher_unknown(root.path);
+    const auto unknown = authority.status(root.path);
+    REQUIRE(unknown);
+    CHECK(unknown->state == ProjectAuthorityState::unknown);
+    CHECK(unknown->has_manifest);
+
+    const auto recovered = authority.observe(project_authority_request(root.path));
+    CHECK(recovered.previous_state == ProjectAuthorityState::unknown);
+    CHECK(recovered.full_rescan);
+    CHECK(recovered.unchanged);
+    REQUIRE(authority.status(root.path));
+    CHECK(authority.status(root.path)->state == ProjectAuthorityState::proven);
+}
+
+#if defined(__linux__) || defined(_WIN32)
+TEST_CASE("Project authority native watcher revokes relevant proofs and ignores unrelated files")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("native-watcher");
+    ProjectAuthorityManager authority;
+    REQUIRE(authority.observe(project_authority_request(root.path)).manifest.entries.size() == 6);
+
+    write_project_file(root.path / "records/room.json", "{\"id\":\"room-a\"}\n");
+    write_project_file(root.path / "records/room.json", "{\"id\":\"room-b\"}\n");
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        const auto status = authority.status(root.path);
+        if (status && status->state == ProjectAuthorityState::dirty)
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    const auto dirty = authority.status(root.path);
+    REQUIRE(dirty);
+    CHECK(dirty->state == ProjectAuthorityState::dirty);
+    CHECK(dirty->has_manifest);
+    CHECK(dirty->pending_paths == std::vector<std::string>{"records/room.json"});
+
+    const auto reconciled = authority.observe(project_authority_request(root.path));
+    CHECK(reconciled.previous_state == ProjectAuthorityState::dirty);
+    CHECK(reconciled.delta.changed == std::vector<std::string>{"records/room.json"});
+
+    write_project_file(root.path / "records/ignored.txt", "watcher should ignore this\n");
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    const auto ignored = authority.status(root.path);
+    REQUIRE(ignored);
+    CHECK(ignored->state == ProjectAuthorityState::proven);
+    CHECK(ignored->pending_paths.empty());
+}
+#endif
+
+TEST_CASE(
+    "Project authority falls back to content identity when nanosecond metadata is unavailable")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("metadata-fallback");
+    ProjectAuthorityManager authority({
+        .enable_native_watcher = false,
+        .mtime_reader = [](const std::filesystem::path&) -> std::optional<std::uint64_t> {
+            return std::nullopt;
+        },
+    });
+
+    const auto first = authority.observe(project_authority_request(root.path));
+    REQUIRE_FALSE(first.manifest.entries.empty());
+    for (const auto& entry : first.manifest.entries) {
+        CHECK_FALSE(entry.source_identity.empty());
+        CHECK_FALSE(entry.mtime_nanoseconds.has_value());
+        CHECK(entry.content_hash.has_value());
+    }
+    CHECK(authority.observe(project_authority_request(root.path)).unchanged);
+
+    write_project_file(root.path / "records/room.json", "{\"id\":\"ROom\"}\n");
+    const auto changed = authority.observe(project_authority_request(root.path));
+    CHECK(changed.delta.changed == std::vector<std::string>{"records/room.json"});
+}
+
+TEST_CASE("daemon broker exposes one batched Project authority observation action")
+{
+    auto root = temp_project_root("broker-observe");
+    auto request = context(unique_build("project-observe"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    request["action"] = "serve-project-observe";
+    request["projectRoot"] = root.path.generic_string();
+    request["authoritativePaths"] = Json::array({"project.json", "editor.json", "traits.json"});
+    request["discoveryScopes"] =
+        Json::array({{{"root", "records"},
+                      {"extensions", Json::array({".json", ".lua", ".rcss", ".rml"})},
+                      {"excludedPrefixes", Json::array()}},
+                     {{"root", "scripts"},
+                      {"extensions", Json::array({".lua"})},
+                      {"excludedPrefixes", Json::array()}},
+                     {{"root", "i18n"},
+                      {"extensions", Json::array({".json"})},
+                      {"excludedPrefixes", Json::array()}}});
+    const auto first = invoke_daemon_via_scriptc_adapter(request);
+    REQUIRE(first["ok"] == true);
+    CHECK(first["authority"] == "proven");
+    CHECK(first["previousAuthority"] == "untracked");
+    CHECK(first["fullRescan"] == true);
+    REQUIRE(first["manifest"]["entries"].is_array());
+    CHECK(first["manifest"]["entries"].size() == 6);
+    for (const auto& entry : first["manifest"]["entries"]) {
+        REQUIRE(entry["sourceIdentity"].is_string());
+        CHECK_FALSE(entry["sourceIdentity"].get<std::string>().empty());
+    }
+
+    const auto unchanged = invoke_daemon_via_scriptc_adapter(request);
+    REQUIRE(unchanged["ok"] == true);
+    CHECK(unchanged["unchanged"] == true);
+    CHECK(unchanged["previousAuthority"] == "proven");
+    CHECK(unchanged["delta"] ==
+          Json{{"added", Json::array()}, {"changed", Json::array()}, {"removed", Json::array()}});
+
+    std::filesystem::remove(root.path / "records/room.json");
+    std::filesystem::create_directory(root.path / "records/room.json");
+    const auto reclassified = invoke_daemon_via_scriptc_adapter(request);
+    CHECK(reclassified["ok"] == false);
+    CHECK(reclassified["error"].get<std::string>().find("not a regular file") != std::string::npos);
+
+    request["action"] = "serve-project-release";
+    request.erase("authoritativePaths");
+    request.erase("discoveryScopes");
+    const auto released = invoke_daemon_via_scriptc_adapter(request);
+    REQUIRE(released["ok"] == true);
+    CHECK(released["released"] == true);
+
+    request.erase("projectRoot");
+    request["action"] = "stop";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-wait";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
 
 TEST_CASE("daemon frames are length-prefixed, fragment-safe, and bounded")
 {
