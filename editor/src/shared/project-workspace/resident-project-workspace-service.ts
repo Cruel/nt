@@ -7,6 +7,7 @@ import {
 import { readReusableAuthoringContributions } from '../authoring-cache';
 import { parseAssetData } from '../project-schema/authoring-assets';
 import type { AuthoringProject } from '../project-schema/authoring-project';
+import { sha256PrefixedBytes } from '../web-crypto';
 import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
 import {
   assetSourcePaths,
@@ -720,94 +721,162 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     return coherent ? this.logicalView(entry, coherent, logicalRoot) : reconciled;
   }
 
-  private async proveCommittedGeneration(
+  private changedCanonicalPaths(
+    before: LoadedProjectWorkspaceSnapshot,
+    after: LoadedProjectWorkspaceSnapshot,
+  ): readonly string[] {
+    return [...new Set([...before.canonicalSourceFiles, ...after.canonicalSourceFiles])]
+      .filter(
+        (path) =>
+          (before.fileRevisions[path]?.contentHash ?? 'absent') !==
+          (after.fileRevisions[path]?.contentHash ?? 'absent'),
+      )
+      .sort();
+  }
+
+  private async proveChangedFiles(
     entry: ResidentEntry,
     opened: SuccessfulOpen,
-    observed: ProjectSourceInventory,
     changedCanonicalPaths: readonly string[],
-  ): Promise<ProjectSourceInventory | null> {
+  ): Promise<boolean> {
     for (const relativePath of changedCanonicalPaths) {
       const expected = opened.snapshot.fileRevisions[relativePath];
       const absolute = this.residentFileSystem.joinPath(entry.canonicalRoot, relativePath);
       if (!expected) {
-        if ((await this.residentFileSystem.inspect(absolute)) !== 'missing') return null;
+        if ((await this.residentFileSystem.inspect(absolute)) !== 'missing') return false;
         continue;
       }
       try {
         const actual = await this.residentFileSystem.readFileRevision(absolute);
         if (actual.byteSize !== expected.byteSize || actual.contentHash !== expected.contentHash)
-          return null;
+          return false;
       } catch {
-        return null;
+        return false;
       }
     }
-    const proof = await this.captureInventory(opened.snapshot);
-    return proof && projectSourceInventoriesEqual(observed, proof) ? proof : null;
+    return true;
+  }
+
+  private async proveExtraTransactionTargets(
+    entry: ResidentEntry,
+    options: ProjectWorkspaceWriteOptions,
+  ): Promise<boolean> {
+    for (const target of options.extraTargets ?? []) {
+      const absolute = this.residentFileSystem.joinPath(entry.canonicalRoot, target.path);
+      if (target.operation === 'delete') {
+        if ((await this.residentFileSystem.inspect(absolute)) !== 'missing') return false;
+        continue;
+      }
+      const bytes = target.bytes;
+      if (!bytes) return false;
+      try {
+        const actual = await this.residentFileSystem.readFileRevision(absolute);
+        if (
+          actual.byteSize !== bytes.byteLength ||
+          actual.contentHash !== (await sha256PrefixedBytes(bytes))
+        )
+          return false;
+      } catch {
+        return false;
+      }
+    }
+    return true;
   }
 
   private async adoptCommittedTransaction(
     entry: ResidentEntry,
     before: SuccessfulOpen,
-    prewriteAuthority: ProjectSourceInventory,
+    prewriteAuthority: ProjectSourceInventory | null,
     written: ProjectWorkspaceWriteResult,
     options: ProjectWorkspaceWriteOptions,
+    candidate: SuccessfulOpen,
+    changedCanonicalPaths: readonly string[],
   ): Promise<void> {
-    const observed = await this.captureInventory(written.snapshot);
-    if (!observed) {
+    if (candidate.snapshot.workspaceRevision !== written.snapshot.workspaceRevision) {
       entry.session.markResyncNeeded();
-      this.sessions.delete(entry.canonicalRoot);
-      return;
+      throw new ProjectWorkspaceMutationError(
+        'WORKSPACE_REVISION_CONFLICT',
+        'The committed Project generation did not match the admitted mutation candidate.',
+      );
     }
-    const changes = changedInventoryPaths(prewriteAuthority, observed);
-    const canonicalPaths = new Set([
-      ...before.snapshot.canonicalSourceFiles,
-      ...written.snapshot.canonicalSourceFiles,
-    ]);
-    const changedCanonicalPaths = [...canonicalPaths]
-      .filter(
-        (path) =>
-          (before.snapshot.fileRevisions[path]?.contentHash ?? 'absent') !==
-          (written.snapshot.fileRevisions[path]?.contentHash ?? 'absent'),
-      )
-      .sort();
-    const transactionPaths = new Set([
-      ...changedCanonicalPaths,
-      ...(options.extraTargets ?? []).map((target) => target.path),
-    ]);
-    if (changes.paths.some((path) => !transactionPaths.has(path))) {
-      entry.session.markResyncNeeded();
-      this.sessions.delete(entry.canonicalRoot);
-      return;
-    }
-    if (
-      JSON.stringify(before.snapshot.scriptSourcePaths) !==
-      JSON.stringify(written.snapshot.scriptSourcePaths)
-    ) {
-      entry.session.markResyncNeeded();
-      this.sessions.delete(entry.canonicalRoot);
-      await this.openCold(entry.canonicalRoot, {});
-      return;
-    }
-    const candidate = entry.session
-      .service()
-      .advanceCommittedSnapshot(before, written.snapshot, changedCanonicalPaths);
 
-    if (!candidate?.ok) {
-      entry.session.markResyncNeeded();
-      this.sessions.delete(entry.canonicalRoot);
-      return;
+    let fallbackProof: ProjectSourceInventory | null = null;
+    if (this.nativeAuthority) {
+      const candidateAssetSourcePaths = assetAuthorityPathsAfterChanges(
+        entry.nativeAssetSourcePaths,
+        before.snapshot.project,
+        candidate.snapshot.project,
+        changedCanonicalPaths,
+        before.snapshot.canonicalSourceFiles.length !==
+          candidate.snapshot.canonicalSourceFiles.length,
+      );
+      let observation: ResidentProjectAuthorityObservation;
+      try {
+        observation = await this.observeNativeAuthority(
+          entry.canonicalRoot,
+          candidateAssetSourcePaths,
+        );
+      } catch (error) {
+        entry.session.markResyncNeeded();
+        throw error;
+      }
+      const delta = this.recordNativeObservation(entry, observation);
+      const expectedSemanticPaths = changedCanonicalPaths.filter(isResidentSemanticSourcePath);
+      if (
+        delta.paths.length !== expectedSemanticPaths.length ||
+        delta.paths.some((path, index) => path !== expectedSemanticPaths[index]) ||
+        !(await this.proveChangedFiles(entry, candidate, changedCanonicalPaths)) ||
+        !(await this.proveExtraTransactionTargets(entry, options))
+      ) {
+        entry.session.markResyncNeeded();
+        throw new ProjectWorkspaceMutationError(
+          'WORKSPACE_REVISION_CONFLICT',
+          'Project sources changed while proving the committed mutation.',
+          delta.paths.find((path) => !expectedSemanticPaths.includes(path)),
+        );
+      }
+      entry.nativeAssetSourcePaths = candidateAssetSourcePaths;
+    } else {
+      if (!prewriteAuthority)
+        throw new Error('Resident mutation fallback authority is unavailable.');
+      const observed = await this.captureInventory(written.snapshot);
+      if (!observed) {
+        entry.session.markResyncNeeded();
+        throw new ProjectWorkspaceMutationError(
+          'WORKSPACE_REVISION_CONFLICT',
+          'Project sources could not be proven after the committed mutation.',
+        );
+      }
+      const changes = changedInventoryPaths(prewriteAuthority, observed);
+      const transactionPaths = new Set([
+        ...changedCanonicalPaths,
+        ...(options.extraTargets ?? []).map((target) => target.path),
+      ]);
+      if (
+        changes.paths.some((path) => !transactionPaths.has(path)) ||
+        !(await this.proveChangedFiles(entry, candidate, changedCanonicalPaths))
+      ) {
+        entry.session.markResyncNeeded();
+        throw new ProjectWorkspaceMutationError(
+          'WORKSPACE_REVISION_CONFLICT',
+          'Project sources changed while proving the committed mutation.',
+          changes.paths.find((path) => !transactionPaths.has(path)),
+        );
+      }
+      const proof = await this.captureInventory(candidate.snapshot);
+      if (!proof || !projectSourceInventoriesEqual(observed, proof)) {
+        entry.session.markResyncNeeded();
+        throw new ProjectWorkspaceMutationError(
+          'WORKSPACE_REVISION_CONFLICT',
+          'Project sources changed while proving the committed mutation.',
+        );
+      }
+      fallbackProof = proof;
+      entry.authority = mergeInventoryPaths(entry.authority ?? prewriteAuthority, proof, [
+        ...new Set([...changes.paths, ...changedCanonicalPaths]),
+      ]);
     }
-    const proof = await this.proveCommittedGeneration(
-      entry,
-      candidate,
-      observed,
-      changedCanonicalPaths,
-    );
-    if (!proof || candidate.snapshot.workspaceRevision !== written.snapshot.workspaceRevision) {
-      entry.session.markResyncNeeded();
-      this.sessions.delete(entry.canonicalRoot);
-      return;
-    }
+
     const sameSourceSet =
       before.snapshot.canonicalSourceFiles.length ===
         candidate.snapshot.canonicalSourceFiles.length &&
@@ -818,19 +887,15 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       preserveInvalidOverlay: entry.session.invalidAuthoringSources().length > 0,
       ...(sameSourceSet ? { projectionPaths: changedCanonicalPaths } : {}),
     });
-    entry.authority = mergeInventoryPaths(entry.authority ?? prewriteAuthority, proof, [
-      ...new Set([...changes.paths, ...changedCanonicalPaths]),
-    ]);
-    if (this.nativeAuthority)
-      entry.nativeAssetSourcePaths = assetAuthorityPathsAfterChanges(
-        entry.nativeAssetSourcePaths,
-        before.snapshot.project,
-        candidate.snapshot.project,
-        changedCanonicalPaths,
-        !sameSourceSet,
-      );
+    if (this.nativeAuthority) {
+      entry.pendingNativeSemanticPaths.clear();
+      entry.pendingNativeStructuralChange = false;
+      entry.authority = null;
+    } else if (!fallbackProof) {
+      entry.authority = prewriteAuthority;
+    }
     this.bindSnapshot(entry, candidate.snapshot);
-    await entry.session.captureAuthoringFileStamps(changes.paths);
+    await entry.session.captureAuthoringFileStamps(changedCanonicalPaths);
   }
 
   override async write(
@@ -855,7 +920,6 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       const before = entry.session.openedGeneration();
       if (!before) {
         entry.session.markResyncNeeded();
-        this.sessions.delete(entry.canonicalRoot);
         return entry.session
           .service()
           .write(
@@ -878,31 +942,74 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           `Project source ${invalidSourceBlock.files.map((file) => `'${file}'`).join(', ')} is invalid on disk and overlaps this mutation.`,
         );
 
-      const prewriteAuthority = await this.captureInventory(before.snapshot);
-      if (!prewriteAuthority) {
-        entry.session.markResyncNeeded();
-        this.sessions.delete(entry.canonicalRoot);
-        return entry.session
-          .service()
-          .write(
-            entry.canonicalRoot,
-            expectedRevision,
-            project,
-            editorState,
-            sourcePathOverrides,
-            options,
+      let prewriteAuthority: ProjectSourceInventory | null = null;
+      if (this.nativeAuthority) {
+        const observation = await this.observeNativeAuthority(
+          entry.canonicalRoot,
+          entry.nativeAssetSourcePaths,
+        );
+        this.recordNativeObservation(entry, observation);
+        const invalidOverlayPaths = new Set(entry.session.invalidAuthoringSources());
+        const unresolvedPendingPath = [...entry.pendingNativeSemanticPaths]
+          .sort()
+          .find((path) => !invalidOverlayPaths.has(path));
+        if (unresolvedPendingPath) {
+          throw new ProjectWorkspaceMutationError(
+            'WORKSPACE_REVISION_CONFLICT',
+            `Project source '${unresolvedPendingPath}' changed before the mutation could commit.`,
+            unresolvedPendingPath,
           );
+        }
+      } else {
+        prewriteAuthority = await this.captureInventory(before.snapshot);
+        if (!prewriteAuthority) {
+          entry.session.markResyncNeeded();
+          throw new ProjectWorkspaceMutationError(
+            'WORKSPACE_REVISION_CONFLICT',
+            'Project sources could not be proven before the mutation could commit.',
+          );
+        }
       }
-      const written = await entry.session
-        .service()
-        .write(entry.canonicalRoot, expectedRevision, project, editorState, sourcePathOverrides, {
-          ...options,
-          preflightSnapshot: before.snapshot,
-          refreshAfterCommit: false,
-        });
-      await entry.session.service().writeEditorLocalState(entry.canonicalRoot, editorState);
-      await this.adoptCommittedTransaction(entry, before, prewriteAuthority, written, options);
-      return written;
+
+      let admittedCandidate: SuccessfulOpen | null = null;
+      let changedCanonicalPaths: readonly string[] = [];
+      let committed = false;
+      try {
+        const written = await entry.session
+          .service()
+          .write(entry.canonicalRoot, expectedRevision, project, editorState, sourcePathOverrides, {
+            ...options,
+            preflightSnapshot: before.snapshot,
+            refreshAfterCommit: false,
+            admitCandidateBeforeCommit: async (snapshot) => {
+              await options.admitCandidateBeforeCommit?.(snapshot);
+              changedCanonicalPaths = this.changedCanonicalPaths(before.snapshot, snapshot);
+              const candidate = entry.session
+                .service()
+                .advanceCommittedSnapshot(before, snapshot, changedCanonicalPaths);
+              if (!candidate?.ok)
+                throw new Error('Project mutation candidate could not be admitted.');
+              admittedCandidate = candidate;
+            },
+          });
+        committed = true;
+        if (!admittedCandidate)
+          throw new Error('Project mutation did not produce an admitted candidate generation.');
+        await entry.session.service().writeEditorLocalState(entry.canonicalRoot, editorState);
+        await this.adoptCommittedTransaction(
+          entry,
+          before,
+          prewriteAuthority,
+          written,
+          options,
+          admittedCandidate,
+          changedCanonicalPaths,
+        );
+        return written;
+      } catch (error) {
+        if (committed) entry.session.markResyncNeeded();
+        throw error;
+      }
     });
   }
 
