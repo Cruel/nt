@@ -400,6 +400,49 @@ TEST_CASE("Project authority release stops native watcher before dropping Projec
     CHECK(authority.tracked_project_count() == 0);
     CHECK_FALSE(authority.status(root.path).has_value());
 }
+
+#if defined(_WIN32)
+TEST_CASE("Project authority Windows watcher stops when shutdown wins before overlapped read")
+{
+    using namespace noveltea::tooling::daemon;
+    using namespace std::chrono_literals;
+
+    auto root = temp_project_root("windows-stop-before-read");
+    std::promise<void> before_read_reached;
+    auto before_read = before_read_reached.get_future();
+    std::promise<void> permit_read;
+    auto permit_read_future = permit_read.get_future().share();
+    std::promise<void> stop_requested;
+    auto stop = stop_requested.get_future();
+    bool block_first_read = true;
+
+    ProjectAuthorityManager authority({
+        .enable_native_watcher = true,
+        .windows_watcher_before_read =
+            [&] {
+                if (!block_first_read)
+                    return;
+                block_first_read = false;
+                before_read_reached.set_value();
+                permit_read_future.wait();
+            },
+        .windows_watcher_stop_requested = [&] { stop_requested.set_value(); },
+    });
+    REQUIRE(authority.observe(project_authority_request(root.path)).manifest.entries.size() == 6);
+    REQUIRE(before_read.wait_for(2s) == std::future_status::ready);
+
+    auto released = std::async(std::launch::async, [&] { return authority.release(root.path); });
+    // Prove shutdown has signalled the explicit stop event while the watcher is still paused in
+    // the exact pre-read interleaving that used to race CancelSynchronousIo.
+    REQUIRE(stop.wait_for(2s) == std::future_status::ready);
+    CHECK(released.wait_for(0ms) == std::future_status::timeout);
+
+    permit_read.set_value();
+    REQUIRE(released.wait_for(2s) == std::future_status::ready);
+    CHECK(released.get());
+    CHECK(authority.tracked_project_count() == 0);
+}
+#endif
 #endif
 
 TEST_CASE(

@@ -80,6 +80,12 @@ struct ProjectAuthorityStatus {
 struct ProjectAuthorityOptions {
     bool enable_native_watcher = true;
     std::function<std::optional<std::uint64_t>(const std::filesystem::path&)> mtime_reader;
+    // Deterministic Windows watcher lifecycle test seam invoked immediately before an overlapped
+    // directory observation is armed.
+    std::function<void()> windows_watcher_before_read;
+    // Deterministic Windows watcher lifecycle test seam invoked after the stop event is signalled
+    // and before the owning thread waits for watcher termination.
+    std::function<void()> windows_watcher_stop_requested;
 };
 
 /**
