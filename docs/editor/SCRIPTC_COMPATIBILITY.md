@@ -26,6 +26,26 @@ The native tooling archive continues to own shader compilation, raw bgfx shaderc
 
 The resident broker also owns a private native Project physical-authority module keyed by canonical physical Project root. One batched observation conservatively discovers the configured Project source families and returns the retained/refreshed manifest plus compact added/changed/removed paths using the exact relative path, native physical file identity (POSIX device/inode or Windows volume/file index), byte size, and nanosecond mtime where the host provides it; metadata-unavailable entries fall back to content identity rather than being admitted by an inexact timestamp. Native filesystem watchers are discovery accelerators only: relevant events coalesce changed-path hints and revoke `proven` authority without discarding the last manifest, ignored unrelated files do not revoke it, and overflow/lost-event uncertainty changes the state to `unknown`. Recovery from watcher uncertainty stops the uncertain watcher, recreates complete native watcher coverage, and performs a complete native rescan under that coverage before proving the Project current again. Linux uses recursive inotify tracking and Windows uses subtree directory notifications. The ScriptC island exposes this authority directly to `ResidentProjectWorkspaceService`; each observation's semantic delta is retained until a coherent QuickJS generation has been promoted, including when a post-command proof consumed the native delta first. Candidate reconciliation is followed by another native observation, so a physical race cannot be hidden by the native manifest advancing. QuickJS therefore rereads changed semantic sources only, while structural add/remove uncertainty can still fall back to conservative re-admission. Semantic Project reconciliation remains owned by QuickJS rather than the watcher or native manifest.
 
+The static host retains the native observation configuration (declared Asset paths and discovery
+scopes). Ordinary island observations send only the canonical Project root, and the host returns the
+compact delta without copying the full native manifest into QuickJS. The resident owner tracks the
+last successfully installed configuration separately from the coherent semantic generation: candidate
+proofs may install a configuration even when their candidate is discarded. Every observation compares
+its desired configuration against that installed identity, including after transactional writes; an
+observation failure makes the installed identity uncertain and forces reconfiguration on retry.
+
+Resident record, validation, and dependency indexes share persistent search-tree overrides. Updates
+copy only changed-key search paths and advance Map sizes from the current delta; they neither chain
+one view per generation nor compact by rescanning historical changes. Keys use exact string identity
+with locale-independent ordering, so distinct Unicode source paths remain distinct. Aggregate-file
+membership changes (for example adding a Trait inside `traits.json`) explicitly widen validation and
+dependency reconciliation rather than reusing a check set that cannot contain the new member.
+Full validation drops checks and diagnostics for removed owners; committed structural transactions
+apply the same membership rule and prepare the indexes needed by the next resident source edit.
+Existing JSON-record edits refresh affected Lua/source descriptors as well as dependency contributions;
+source membership or routing changes conservatively rebuild descriptor indexes, while stable owners
+use indexed descriptor replacement without scanning unrelated sources.
+
 ## Build-time source embedding
 
 The hand-authored agent-kit source remains canonical under `editor/agent-kit/`, while curator-only source/ref metadata lives beside it in `editor/agent-kit-provenance.json`. Release builds generate a private staged package containing the exact source texts plus that provenance object. The QuickJS island embeds the package, combines the texts with JSON Schemas generated from the shared Zod schemas when `agent sync` is invoked, and places provenance only in the generated manifest. No generated agent-kit source copy is checked in, and curator metadata is never emitted as an agent-facing file.

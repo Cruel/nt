@@ -33,6 +33,7 @@ let cachedStdin: string | null = null;
 let forceRuntimeCacheRebuild = false;
 let authoringCacheInventoryHint = '';
 let daemonRequestSequence = 0;
+const residentProjectAuthorityRequests = new Map<string, Readonly<Record<string, unknown>>>();
 
 function trace(message: string): void {
   if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-host] ${message}\n`);
@@ -1026,14 +1027,61 @@ function requestInvokeHost(
       const parsed = requestText === '' ? {} : (JSON.parse(requestText) as unknown);
       if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
         throw new Error('Daemon Project authority request is malformed.');
+      const request = parsed as Readonly<Record<string, unknown>>;
+      const projectRoot = request.projectRoot;
+      if (typeof projectRoot !== 'string' || projectRoot.length === 0)
+        throw new Error('Daemon Project authority request requires projectRoot.');
+      let payload = request;
+      if (operation === 'daemon-project-observe') {
+        const hasAuthoritativePaths = request.authoritativePaths !== undefined;
+        const hasDiscoveryScopes = request.discoveryScopes !== undefined;
+        if (hasAuthoritativePaths !== hasDiscoveryScopes)
+          throw new Error('Daemon Project authority configuration is incomplete.');
+        if (hasAuthoritativePaths) {
+          if (!Array.isArray(request.authoritativePaths) || !Array.isArray(request.discoveryScopes))
+            throw new Error('Daemon Project authority configuration is malformed.');
+          payload = {
+            projectRoot,
+            authoritativePaths: request.authoritativePaths,
+            discoveryScopes: request.discoveryScopes,
+          };
+          residentProjectAuthorityRequests.set(projectRoot, payload);
+        } else {
+          const configured = residentProjectAuthorityRequests.get(projectRoot);
+          if (!configured)
+            throw new Error('Daemon Project authority observation has no cached configuration.');
+          payload = configured;
+        }
+      }
       const response = hiddenDaemonPayloadNativeRequest(
         operation === 'daemon-project-observe' ? 'serve-project-observe' : 'serve-project-release',
         invocation,
-        parsed as Readonly<Record<string, unknown>>,
+        payload,
       );
       if (response.ok !== true)
         throw new Error(response.error ?? 'Daemon Project authority operation failed.');
-      return JSON.stringify(response);
+      if (operation === 'daemon-project-release')
+        residentProjectAuthorityRequests.delete(projectRoot);
+      let responseForIsland: unknown = response;
+      if (operation === 'daemon-project-observe') {
+        const dynamicResponse = response as unknown as Readonly<Record<string, unknown>>;
+        const manifest = dynamicResponse.manifest;
+        if (manifest && typeof manifest === 'object' && !Array.isArray(manifest))
+          responseForIsland = {
+            ok: dynamicResponse.ok,
+            authority: dynamicResponse.authority,
+            previousAuthority: dynamicResponse.previousAuthority,
+            unchanged: dynamicResponse.unchanged,
+            fullRescan: dynamicResponse.fullRescan,
+            watcherPaths: dynamicResponse.watcherPaths,
+            delta: dynamicResponse.delta,
+            manifest: {
+              canonicalRoot: (manifest as Readonly<Record<string, unknown>>).canonicalRoot,
+              entries: [],
+            },
+          };
+      }
+      return JSON.stringify(responseForIsland);
     }
     if (operation === 'emit-progress') {
       if (!context.streamedEvents || context.outputMode === 'json') return '';

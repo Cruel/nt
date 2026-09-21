@@ -54,6 +54,7 @@ import {
   classifyRecognizedAuthoringSourceReference,
   type AuthoringSourceReferenceRecognizer,
 } from './authoring-source-references';
+import { overlayReadonlyMap } from './bounded-structural-sharing';
 
 export interface AuthoringStructuralAdapterDeclaration {
   collection: AuthoringCollectionKey;
@@ -149,76 +150,6 @@ class ImmutableMap<K, V> implements ReadonlyMap<K, V> {
 
 function immutableMap<K, V>(entries: Iterable<readonly [K, V]>): ReadonlyMap<K, V> {
   return new ImmutableMap(entries);
-}
-
-class OverlayReadonlyMap<K, V> implements ReadonlyMap<K, V> {
-  readonly #size: number;
-
-  constructor(
-    private readonly base: ReadonlyMap<K, V>,
-    private readonly changes: ReadonlyMap<K, V>,
-    private readonly deleted: ReadonlySet<K> = new Set(),
-  ) {
-    let size = base.size;
-    for (const key of deleted) if (base.has(key)) size -= 1;
-    for (const key of changes.keys()) if (!base.has(key) || deleted.has(key)) size += 1;
-    this.#size = size;
-  }
-
-  get size(): number {
-    return this.#size;
-  }
-
-  get(key: K): V | undefined {
-    if (this.deleted.has(key) && !this.changes.has(key)) return undefined;
-    return this.changes.has(key) ? this.changes.get(key) : this.base.get(key);
-  }
-
-  has(key: K): boolean {
-    if (this.deleted.has(key) && !this.changes.has(key)) return false;
-    return this.changes.has(key) || this.base.has(key);
-  }
-
-  private materialized(): Map<K, V> {
-    const values = new Map(this.base);
-    for (const key of this.deleted) values.delete(key);
-    for (const [key, value] of this.changes) values.set(key, value);
-    return values;
-  }
-
-  entries(): MapIterator<[K, V]> {
-    return this.materialized().entries();
-  }
-
-  keys(): MapIterator<K> {
-    return this.materialized().keys();
-  }
-
-  values(): MapIterator<V> {
-    return this.materialized().values();
-  }
-
-  forEach(callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: unknown): void {
-    for (const [key, value] of this.materialized()) callbackfn.call(thisArg, value, key, this);
-  }
-
-  [Symbol.iterator](): MapIterator<[K, V]> {
-    return this.entries();
-  }
-
-  get [Symbol.toStringTag](): string {
-    return 'OverlayReadonlyMap';
-  }
-}
-
-function overlayReadonlyMap<K, V>(
-  base: ReadonlyMap<K, V>,
-  changes: ReadonlyMap<K, V>,
-  deleted: ReadonlySet<K> = new Set(),
-): ReadonlyMap<K, V> {
-  return changes.size === 0 && deleted.size === 0
-    ? base
-    : new OverlayReadonlyMap(base, changes, deleted);
 }
 
 function sortedUnique(values: Iterable<string>): readonly string[] {

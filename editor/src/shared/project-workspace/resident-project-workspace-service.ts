@@ -5,6 +5,8 @@ import {
   type ProjectSourceInventory,
 } from '../project-source-inventory';
 import { readReusableAuthoringContributions } from '../authoring-cache';
+import { parseAssetData } from '../project-schema/authoring-assets';
+import type { AuthoringProject } from '../project-schema/authoring-project';
 import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
 import {
   assetSourcePaths,
@@ -28,8 +30,10 @@ export type ResidentProjectWorkspaceServiceFactory = (
 
 export interface ResidentProjectAuthorityRequest {
   readonly projectRoot: string;
-  readonly authoritativePaths: readonly string[];
-  readonly discoveryScopes: readonly ProjectSourceDiscoveryScope[];
+  /** Present only when the native authority configuration must be created or replaced. */
+  readonly authoritativePaths?: readonly string[];
+  /** Present together with authoritativePaths; omitted for ordinary observations. */
+  readonly discoveryScopes?: readonly ProjectSourceDiscoveryScope[];
 }
 
 export interface ResidentProjectAuthorityObservation {
@@ -88,6 +92,30 @@ function semanticObservationDelta(observation: ResidentProjectAuthorityObservati
     paths: [...new Set([...added, ...changed, ...removed])].sort(),
     structural: added.length > 0 || removed.length > 0,
   };
+}
+
+function assetRecordSourcePath(project: AuthoringProject, id: string): string | null {
+  const record = project.assets[id];
+  if (!record) return null;
+  return parseAssetData(record.data)?.source.path ?? null;
+}
+
+function assetAuthorityPathsAfterChanges(
+  currentPaths: readonly string[],
+  before: AuthoringProject,
+  after: AuthoringProject,
+  changedSources: readonly string[],
+  structural: boolean,
+): readonly string[] {
+  if (structural) return Object.freeze(assetSourcePaths(after));
+  for (const path of changedSources) {
+    const match = /^records\/assets\/([^/]+)\.json$/u.exec(path);
+    if (!match) continue;
+    const id = match[1]!;
+    if (assetRecordSourcePath(before, id) !== assetRecordSourcePath(after, id))
+      return Object.freeze(assetSourcePaths(after));
+  }
+  return currentPaths;
 }
 
 async function workspaceSettled(
@@ -160,6 +188,7 @@ type ResidentEntry = {
   authority: ProjectSourceInventory | null;
   readonly pendingNativeSemanticPaths: Set<string>;
   pendingNativeStructuralChange: boolean;
+  nativeAssetSourcePaths: readonly string[];
   lastUsedAtMilliseconds: number;
 };
 
@@ -224,6 +253,8 @@ function mergeInventoryPaths(
  */
 export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
   private readonly sessions = new Map<string, ResidentEntry>();
+  // A rejected candidate can configure native authority without becoming the coherent generation.
+  private readonly installedNativeAssetPaths = new Map<string, readonly string[]>();
   private readonly snapshotBindings = new WeakMap<ProjectWorkspaceSnapshot, SnapshotBinding>();
 
   constructor(
@@ -244,27 +275,37 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
 
   private authorityRequest(
     canonicalRoot: string,
-    snapshot?: LoadedProjectWorkspaceSnapshot,
+    nativeAssetSourcePaths?: readonly string[],
   ): ResidentProjectAuthorityRequest {
+    if (!nativeAssetSourcePaths) return { projectRoot: canonicalRoot };
     return {
       projectRoot: canonicalRoot,
-      authoritativePaths: [
-        'project.json',
-        'editor.json',
-        'traits.json',
-        ...(snapshot ? assetSourcePaths(snapshot.project) : []),
-      ],
+      authoritativePaths: ['project.json', 'editor.json', 'traits.json', ...nativeAssetSourcePaths],
       discoveryScopes: residentDiscoveryScopes,
     };
   }
 
-  private observeNativeAuthority(
+  private async observeNativeAuthority(
     canonicalRoot: string,
-    snapshot?: LoadedProjectWorkspaceSnapshot,
+    nativeAssetSourcePaths: readonly string[],
   ): Promise<ResidentProjectAuthorityObservation> {
     if (!this.nativeAuthority)
       throw new Error('Native Project authority is unavailable for resident reconciliation.');
-    return this.nativeAuthority.observe(this.authorityRequest(canonicalRoot, snapshot));
+    const installed = this.installedNativeAssetPaths.get(canonicalRoot);
+    try {
+      const observation = await this.nativeAuthority.observe(
+        this.authorityRequest(
+          canonicalRoot,
+          installed === nativeAssetSourcePaths ? undefined : nativeAssetSourcePaths,
+        ),
+      );
+      this.installedNativeAssetPaths.set(canonicalRoot, nativeAssetSourcePaths);
+      return observation;
+    } catch (error) {
+      // The host may have installed the request before the observation failed.
+      this.installedNativeAssetPaths.delete(canonicalRoot);
+      throw error;
+    }
   }
 
   private recordNativeObservation(
@@ -329,7 +370,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       // Establish native physical authority before accepting any reusable semantic state. Reuse
       // hints supplied by an earlier caller-side inventory may already be stale by the time this
       // owner is admitted, so recertify the persistent contributions under this baseline instead.
-      await this.observeNativeAuthority(canonicalRoot);
+      await this.observeNativeAuthority(canonicalRoot, []);
       admissionOptions = {
         ...options,
         reusableSourceContributions: undefined,
@@ -350,7 +391,8 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const opened = await workspace.open(canonicalRoot, admissionOptions);
         if (!opened.ok) return opened;
-        const proof = await this.observeNativeAuthority(canonicalRoot, opened.snapshot);
+        const nativeAssetSourcePaths = Object.freeze(assetSourcePaths(opened.snapshot.project));
+        const proof = await this.observeNativeAuthority(canonicalRoot, nativeAssetSourcePaths);
         if (semanticObservationDelta(proof).paths.length > 0) {
           // Any reusable semantic product was admitted against the pre-open physical baseline.
           // Once the final native proof observes a semantic race, those products are no longer
@@ -374,6 +416,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           authority: null,
           pendingNativeSemanticPaths: new Set(),
           pendingNativeStructuralChange: false,
+          nativeAssetSourcePaths,
           lastUsedAtMilliseconds: Date.now(),
         };
         this.sessions.set(canonicalRoot, entry);
@@ -417,6 +460,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         authority,
         pendingNativeSemanticPaths: new Set(),
         pendingNativeStructuralChange: false,
+        nativeAssetSourcePaths: Object.freeze([]),
         lastUsedAtMilliseconds: Date.now(),
       };
       this.sessions.set(canonicalRoot, entry);
@@ -462,7 +506,10 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     ]);
     let structural =
       entry.pendingNativeStructuralChange || entry.session.invalidAuthoringSources().includes('*');
-    let observation = await this.observeNativeAuthority(entry.canonicalRoot, current.snapshot);
+    let observation = await this.observeNativeAuthority(
+      entry.canonicalRoot,
+      entry.nativeAssetSourcePaths,
+    );
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const delta = this.recordNativeObservation(entry, observation);
@@ -498,11 +545,22 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         return candidate;
       }
 
+      const candidateAssetSourcePaths = assetAuthorityPathsAfterChanges(
+        entry.nativeAssetSourcePaths,
+        current.snapshot.project,
+        candidate.snapshot.project,
+        changedSources,
+        structural,
+      );
+
       // The proof is intentionally another native observation. It both detects watcher dirtiness
       // and performs the authoritative scan. If it advances the native manifest because of a race,
       // retain every prior pending path: the semantic candidate was never promoted, so the next
       // attempt still starts from the last coherent semantic generation.
-      const proof = await this.observeNativeAuthority(entry.canonicalRoot, candidate.snapshot);
+      const proof = await this.observeNativeAuthority(
+        entry.canonicalRoot,
+        candidateAssetSourcePaths,
+      );
       const raced = this.recordNativeObservation(entry, proof);
       if (raced.paths.length > 0) {
         raced.paths.forEach((path) => pendingPaths.add(path));
@@ -527,6 +585,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       entry.authority = null;
       entry.pendingNativeSemanticPaths.clear();
       entry.pendingNativeStructuralChange = false;
+      entry.nativeAssetSourcePaths = candidateAssetSourcePaths;
       this.bindSnapshot(entry, candidate.snapshot);
       return candidate;
     }
@@ -762,6 +821,14 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     entry.authority = mergeInventoryPaths(entry.authority ?? prewriteAuthority, proof, [
       ...new Set([...changes.paths, ...changedCanonicalPaths]),
     ]);
+    if (this.nativeAuthority)
+      entry.nativeAssetSourcePaths = assetAuthorityPathsAfterChanges(
+        entry.nativeAssetSourcePaths,
+        before.snapshot.project,
+        candidate.snapshot.project,
+        changedCanonicalPaths,
+        !sameSourceSet,
+      );
     this.bindSnapshot(entry, candidate.snapshot);
     await entry.session.captureAuthoringFileStamps(changes.paths);
   }
@@ -872,6 +939,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       if (nowMilliseconds - entry.lastUsedAtMilliseconds < maxIdleMilliseconds) continue;
       entry.session.markResyncNeeded();
       this.sessions.delete(canonicalRoot);
+      this.installedNativeAssetPaths.delete(canonicalRoot);
       this.nativeAuthority?.release(canonicalRoot);
       evicted += 1;
     }
@@ -885,7 +953,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     if (this.nativeAuthority) {
       const observation = await this.observeNativeAuthority(
         binding.entry.canonicalRoot,
-        binding.canonicalSnapshot,
+        binding.entry.nativeAssetSourcePaths,
       );
       const delta = this.recordNativeObservation(binding.entry, observation);
       return observation.unchanged && delta.paths.length === 0;

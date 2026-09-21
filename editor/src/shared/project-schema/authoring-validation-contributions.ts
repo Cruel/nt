@@ -6,6 +6,7 @@ import {
   type ProjectValidationDiagnosticLike,
 } from './project-validation';
 import { escapeJsonPointerSegment } from '../json-pointer';
+import { overlayReadonlyArray } from '../bounded-structural-sharing';
 
 export interface AuthoringValidationContribution {
   readonly key: string;
@@ -41,60 +42,6 @@ export interface AuthoringValidationReuse {
 export interface AuthoringValidationWork {
   executed: number;
   reused: number;
-}
-
-function overlayContributions(
-  base: readonly AuthoringValidationContribution[],
-  changes: ReadonlyMap<number, AuthoringValidationContribution>,
-): readonly AuthoringValidationContribution[] {
-  if (changes.size === 0) return base;
-  const target: AuthoringValidationContribution[] = [];
-  target.length = base.length;
-  const proxy: readonly AuthoringValidationContribution[] = new Proxy(target, {
-    get(_target, property, receiver) {
-      if (property === 'length') return base.length;
-      if (typeof property === 'string' && /^\d+$/u.test(property)) {
-        const index = Number(property);
-        return changes.get(index) ?? base[index];
-      }
-      return Reflect.get(base, property, receiver);
-    },
-    has(_target, property) {
-      if (typeof property === 'string' && /^\d+$/u.test(property)) {
-        const index = Number(property);
-        return index >= 0 && index < base.length;
-      }
-      return Reflect.has(base, property);
-    },
-    ownKeys() {
-      return Reflect.ownKeys(base);
-    },
-    getOwnPropertyDescriptor(_target, property) {
-      if (property === 'length')
-        return { configurable: false, enumerable: false, writable: true, value: base.length };
-      if (typeof property === 'string' && /^\d+$/u.test(property)) {
-        const index = Number(property);
-        if (index < 0 || index >= base.length) return undefined;
-        return {
-          configurable: true,
-          enumerable: true,
-          writable: false,
-          value: changes.get(index) ?? base[index],
-        };
-      }
-      return Reflect.getOwnPropertyDescriptor(base, property);
-    },
-    set() {
-      return false;
-    },
-    deleteProperty() {
-      return false;
-    },
-    defineProperty() {
-      return false;
-    },
-  });
-  return proxy;
 }
 
 function validationDiagnosticKey(diagnostic: ProjectValidationDiagnostic): string {
@@ -261,10 +208,11 @@ export function authoringValidationChecks(reuse?: AuthoringValidationReuse, scop
       work.reused = Math.max(0, previous.size - work.executed);
       return {
         diagnostics,
-        contributions: overlayContributions(reuse!.contributions, changes),
+        contributions: overlayReadonlyArray(reuse!.contributions, changes),
       };
     }
-    if (reuse) {
+    // A full validation visits every live check; unvisited checks then belong to removed owners.
+    if (reuse?.changedSourcePaths) {
       for (const prior of previous.values()) {
         if (visited.has(prior.key) || contributions.has(prior.key)) continue;
         contributions.set(prior.key, prior);

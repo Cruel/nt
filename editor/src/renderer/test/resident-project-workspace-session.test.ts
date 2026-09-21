@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { cloneAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  defaultInteractableData,
+  defaultInteractableInstanceData,
+} from '../../shared/project-schema/authoring-interactables';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   InMemoryProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
   projectWorkspaceFiles,
+  PROJECT_WORKSPACE_ABSENT_REVISION,
+  utf8WorkspaceTransactionTarget,
 } from '../../shared/project-workspace';
 import { ResidentProjectWorkspaceSession } from '../../shared/project-workspace/resident-project-workspace-session';
 import {
@@ -23,10 +29,16 @@ function createProjectAuthorityProbe() {
   let observationCount = 0;
   const observations: Array<Readonly<{ added: string[]; changed: string[]; removed: string[] }>> =
     [];
+  const requests: Array<readonly string[] | null> = [];
+  let configuredPaths: readonly string[] | null = null;
   const authority: ResidentProjectAuthority = {
     async observe(request) {
       observationCount += 1;
       await beforeObserve?.(observationCount);
+      if (request.authoritativePaths) configuredPaths = [...request.authoritativePaths];
+      else if (!configuredPaths)
+        throw new Error('Project authority observation was not configured before reuse.');
+      requests.push(request.authoritativePaths ? [...request.authoritativePaths] : null);
       const delta = {
         added: [...pending.added].sort(),
         changed: [...pending.changed].sort(),
@@ -52,6 +64,7 @@ function createProjectAuthorityProbe() {
   return {
     authority,
     observations,
+    requests,
     change(...paths: string[]) {
       pending.changed.push(...paths);
     },
@@ -65,6 +78,36 @@ function createProjectAuthorityProbe() {
       beforeObserve = callback;
     },
   };
+}
+
+async function createNativeAssetWorkspace() {
+  const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+  project.assets.image = {
+    id: 'image',
+    label: 'Image',
+    data: {
+      kind: 'image',
+      source: { type: 'project-file', path: 'assets/original.png' },
+      aliases: [],
+      sampling: 'linear',
+      byteSize: 1,
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+    },
+  };
+  const files = Object.fromEntries(
+    Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+      `${ROOT}/${relativePath}`,
+      text,
+    ]),
+  );
+  files[`${ROOT}/assets/original.png`] = 'a';
+  const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+  const probe = createProjectAuthorityProbe();
+  const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+  const first = await workspace.open(ROOT);
+  if (!first.ok) throw new Error('Initial Project open failed.');
+  return { project, fileSystem, probe, workspace, first };
 }
 
 async function createResidentSession() {
@@ -167,6 +210,376 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(dependency.work.reusedContributions).toBeGreaterThan(300);
     expect(dependency.work.fullProjectTraversals).toBe(0);
     expect(byteReads).toBe(1);
+  }, 15_000);
+
+  it('does not enumerate the Asset registry for an unrelated native freshness check', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    for (let index = 0; index < 160; index += 1) {
+      const id = `image-${String(index).padStart(3, '0')}`;
+      project.assets[id] = {
+        id,
+        label: `Image ${index}`,
+        data: {
+          kind: 'image',
+          source: { type: 'project-file', path: `assets/${id}.png` },
+          aliases: [],
+          sampling: 'linear',
+          byteSize: 1,
+          contentHash: `sha256:${'a'.repeat(64)}`,
+          imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+        },
+      };
+    }
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('Initial Project open failed.');
+
+    const roomPath = 'records/rooms/foyer.json';
+    const persistedRoom = JSON.parse(files[`${ROOT}/${roomPath}`]!) as Record<string, unknown>;
+    persistedRoom.label = 'Changed Foyer';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${roomPath}`,
+      `${JSON.stringify(persistedRoom, null, 2)}\n`,
+    );
+    probe.change(roomPath);
+
+    const assetRegistry = first.snapshot.project.assets;
+    const originalObjectValues = Object.values;
+    Object.values = ((value: object) => {
+      if (value === assetRegistry)
+        throw new Error('Unrelated resident freshness check enumerated the Asset registry.');
+      return originalObjectValues(value);
+    }) as typeof Object.values;
+    let second;
+    try {
+      second = await workspace.open(ROOT);
+    } finally {
+      Object.values = originalObjectValues;
+    }
+    expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error('Incremental Project reopen failed.');
+    expect(second.sourceWork.fullProjectTraversals).toBe(0);
+    expect(probe.requests.at(-1)).toBeNull();
+    expect(
+      probe.requests.findLast((request): request is readonly string[] => request !== null),
+    ).toEqual(
+      expect.arrayContaining([
+        'project.json',
+        'editor.json',
+        'traits.json',
+        'assets/image-000.png',
+      ]),
+    );
+
+    const changedAsset = cloneAuthoringProject(second.snapshot.project);
+    changedAsset.assets['image-000']!.data.source.path = 'assets/replaced.png';
+    const assetRecordPath = 'records/assets/image-000.json';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${assetRecordPath}`,
+      projectWorkspaceFiles(changedAsset, changedAsset.editor)[assetRecordPath]!,
+    );
+    probe.change(assetRecordPath);
+    const third = await workspace.open(ROOT);
+    expect(third.ok).toBe(true);
+    if (!third.ok) throw new Error('Asset source-path reconciliation failed.');
+    expect(probe.requests.at(-1)).toContain('assets/replaced.png');
+    expect(probe.requests.at(-1)).not.toContain('assets/image-000.png');
+  });
+
+  it('refreshes native authority after adopting a committed Asset relocation', async () => {
+    const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
+    const changed = cloneAuthoringProject(project);
+    changed.assets.image.data.source.path = 'assets/replaced.png';
+    const original = await fileSystem.readFileRevision(`${ROOT}/assets/original.png`);
+    const written = await workspace.write(
+      ROOT,
+      first.snapshot.workspaceRevision,
+      changed,
+      changed.editor,
+      {},
+      {
+        affectedPaths: ['/assets/image'],
+        extraTargets: [
+          {
+            path: 'assets/original.png',
+            operation: 'delete',
+            expectedRevision: original.contentHash,
+          },
+          utf8WorkspaceTransactionTarget(
+            'assets/replaced.png',
+            PROJECT_WORKSPACE_ABSENT_REVISION,
+            'a',
+          ),
+        ],
+      },
+    );
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+    expect(await workspace.verifyReadAuthority(first.snapshot)).toBe(false);
+    const requestCount = probe.requests.length;
+    const reopened = await workspace.open(ROOT);
+    if (!reopened.ok) throw new Error('Committed Project reopen failed.');
+    expect(reopened.snapshot.workspaceRevision).toBe(written.workspaceRevision);
+    expect(probe.requests.slice(requestCount)).toEqual([
+      ['project.json', 'editor.json', 'traits.json', 'assets/replaced.png'],
+    ]);
+    expect(await workspace.verifyReadAuthority(reopened.snapshot)).toBe(true);
+    expect(probe.requests.at(-1)).toBeNull();
+  });
+
+  it('rebuilds validation membership when committed transactions add and remove records', async () => {
+    const { project, workspace, first } = await createNativeAssetWorkspace();
+    const changed = cloneAuthoringProject(project);
+    changed.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      data: defaultRoomData('Hall'),
+      archetype: { $ref: { collection: 'archetypes', id: 'missing' } },
+    };
+    await workspace.write(ROOT, first.snapshot.workspaceRevision, changed, changed.editor);
+    const added = await workspace.open(ROOT);
+    if (!added.ok) throw new Error('Committed record addition failed.');
+    expect(
+      added.diagnostics.some((diagnostic) => diagnostic.path === '/rooms/hall/archetype'),
+    ).toBe(true);
+    delete changed.rooms.hall;
+    await workspace.write(ROOT, added.snapshot.workspaceRevision, changed, changed.editor);
+    const removed = await workspace.open(ROOT);
+    if (!removed.ok) throw new Error('Committed record removal failed.');
+    expect(
+      removed.diagnostics.some((diagnostic) => diagnostic.path?.startsWith('/rooms/hall/')),
+    ).toBe(false);
+    expect(
+      removed.validationContributions.some((contribution) =>
+        contribution.key.endsWith(':rooms:hall'),
+      ),
+    ).toBe(false);
+  });
+
+  it('restores native configuration when a discarded Asset candidate reverts to the coherent path', async () => {
+    const { project, fileSystem, probe, workspace } = await createNativeAssetWorkspace();
+    const relativePath = 'records/assets/image.json';
+    const changed = cloneAuthoringProject(project);
+    changed.assets.image.data.source.path = 'assets/replaced.png';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${relativePath}`,
+      projectWorkspaceFiles(changed, changed.editor)[relativePath]!,
+    );
+    probe.change(relativePath);
+    probe.beforeObserve(async (count) => {
+      if (count !== 4) return;
+      probe.beforeObserve(null);
+      await fileSystem.writeTextAtomic(
+        `${ROOT}/${relativePath}`,
+        projectWorkspaceFiles(project, project.editor)[relativePath]!,
+      );
+      probe.change(relativePath);
+    });
+
+    const reopened = await workspace.open(ROOT);
+    if (!reopened.ok) throw new Error('Raced Asset reconciliation failed.');
+    expect(reopened.snapshot.project.assets.image.data.source.path).toBe('assets/original.png');
+    expect(probe.requests.slice(2)).toEqual([
+      null,
+      ['project.json', 'editor.json', 'traits.json', 'assets/replaced.png'],
+      ['project.json', 'editor.json', 'traits.json', 'assets/original.png'],
+    ]);
+    expect(await workspace.verifyReadAuthority(reopened.snapshot)).toBe(true);
+    expect(probe.requests.at(-1)).toBeNull();
+  });
+
+  it('reinstalls native configuration after an uncertain observation failure', async () => {
+    const { probe, workspace } = await createNativeAssetWorkspace();
+    probe.beforeObserve(() => {
+      probe.beforeObserve(null);
+      throw new Error('Native observation failed');
+    });
+    await expect(workspace.open(ROOT)).rejects.toThrow('Native observation failed');
+    const reopened = await workspace.open(ROOT);
+    expect(reopened.ok).toBe(true);
+    expect(probe.requests.at(-1)).toEqual([
+      'project.json',
+      'editor.json',
+      'traits.json',
+      'assets/original.png',
+    ]);
+  });
+
+  it('widens validation when Trait membership changes inside traits.json', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.traits.legacy = {
+      id: 'legacy',
+      label: 'Legacy',
+      ownerKinds: ['room'],
+      properties: [],
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('Initial Project open failed.');
+    await workspace.buildDependencyGraphAnalysis(first.snapshot);
+
+    const changed = cloneAuthoringProject(project);
+    delete changed.traits.legacy;
+    changed.traits['new-trait'] = {
+      id: 'different-id',
+      label: 'New Trait',
+      ownerKinds: ['room'],
+      properties: [],
+    };
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/traits.json`,
+      projectWorkspaceFiles(changed, changed.editor)['traits.json']!,
+    );
+    probe.change('traits.json');
+
+    const reopened = await workspace.open(ROOT);
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('Trait membership reconciliation failed.');
+    expect(reopened.diagnostics).toContainEqual(
+      expect.objectContaining({
+        path: '/traits/new-trait/id',
+        message: expect.stringContaining("must match map key 'new-trait'"),
+      }),
+    );
+    expect(reopened.validationContributions.map((entry) => entry.key)).toContain(
+      'workspace:trait-definition:new-trait',
+    );
+    expect(reopened.validationContributions.map((entry) => entry.key)).not.toContain(
+      'workspace:trait-definition:legacy',
+    );
+    expect(reopened.sourceWork.fullProjectTraversals).toBeGreaterThan(0);
+    const dependency = await workspace.buildDependencyGraphAnalysis(reopened.snapshot);
+    expect(
+      [...dependency.graph.nodesByKey.values()].some(
+        (node) => node.owningPath === '/traits/new-trait',
+      ),
+    ).toBe(true);
+    expect(
+      [...dependency.graph.nodesByKey.values()].some(
+        (node) => node.owningPath === '/traits/legacy',
+      ),
+    ).toBe(false);
+  });
+
+  it('widens validation when Interactable Instance membership changes inside project.json', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.interactables.box = {
+      id: 'box',
+      label: 'Box',
+      data: defaultInteractableData('Box'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('Initial Project open failed.');
+
+    const changed = cloneAuthoringProject(project);
+    changed.interactableInstances.box = defaultInteractableInstanceData('box', 'box', {
+      kind: 'inventory',
+      inventory: { owner: { kind: 'project' }, inventoryId: 'missing' },
+    });
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/project.json`,
+      projectWorkspaceFiles(changed, changed.editor)['project.json']!,
+    );
+    probe.change('project.json');
+
+    const reopened = await workspace.open(ROOT);
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('Interactable Instance membership reconciliation failed.');
+    expect(reopened.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.inventory.missing',
+        path: '/interactableInstances/box/location/inventory/inventoryId',
+      }),
+    );
+    expect(reopened.validationContributions.map((entry) => entry.key)).toContain(
+      'workspace:inventories-owner:instances:box',
+    );
+    expect(reopened.sourceWork.fullProjectTraversals).toBeGreaterThan(0);
+  });
+
+  it('keeps long resident edit histories change-proportional', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    project.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      data: defaultRoomData('Hall'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('Initial Project open failed.');
+    const unchangedHall = first.snapshot.project.rooms.hall;
+    const roomPath = 'records/rooms/foyer.json';
+    const persistedRoom = JSON.parse(files[`${ROOT}/${roomPath}`]!) as Record<string, unknown>;
+
+    let latest = first;
+    for (let index = 0; index < 96; index += 1) {
+      persistedRoom.label = `Foyer ${index}`;
+      await fileSystem.writeTextAtomic(
+        `${ROOT}/${roomPath}`,
+        `${JSON.stringify(persistedRoom, null, 2)}\n`,
+      );
+      probe.change(roomPath);
+      const reopened = await workspace.open(ROOT);
+      expect(reopened.ok).toBe(true);
+      if (!reopened.ok) throw new Error(`Resident generation ${index} failed.`);
+      expect(reopened.sourceWork).toMatchObject({
+        authoredFilesReread: 1,
+        parsedJsonSources: 1,
+        fullProjectTraversals: 0,
+        fullProjectProjections: 0,
+        foregroundSerializations: 0,
+      });
+      latest = reopened;
+    }
+
+    expect(latest.snapshot.project.rooms.foyer.label).toBe('Foyer 95');
+    expect(latest.snapshot.project.rooms.hall).toBe(unchangedHall);
   }, 15_000);
 
   it('drops stale reusable contributions when cold admission races the native proof', async () => {
@@ -304,6 +717,55 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(byteReads).toEqual([`${ROOT}/${relativePath}`, `${ROOT}/${relativePath}`]);
   });
 
+  it('refreshes inline Lua descriptors and dependency evidence after an existing JSON edit', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    for (const id of ['owner', 'before', 'after'])
+      project.rooms[id] = { id, label: id, data: defaultRoomData(id) };
+    project.rooms.owner.data.description.source = { kind: 'lua-expression', source: "'before'" };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([path, text]) => [
+        `${ROOT}/${path}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    if (!first.ok) throw new Error('Initial Project open failed.');
+    await workspace.buildDependencyGraphAnalysis(first.snapshot);
+    const changed = cloneAuthoringProject(project);
+    changed.rooms.owner.data.description.source = { kind: 'lua-expression', source: "'after'" };
+    const path = 'records/rooms/owner.json';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${path}`,
+      projectWorkspaceFiles(changed, changed.editor)[path]!,
+    );
+    probe.change(path);
+
+    const reopened = await workspace.open(ROOT);
+    if (!reopened.ok) throw new Error('Inline Lua reconciliation failed.');
+    expect(reopened.sourceWork.authoredFilesReread).toBe(1);
+    expect(reopened.snapshot.project.rooms.before).toBe(first.snapshot.project.rooms.before);
+    expect(
+      reopened.snapshot.externalSourceDescriptors.find((descriptor) =>
+        descriptor.sourcePath.startsWith('/rooms/owner/'),
+      )?.inlineText,
+    ).toBe("'after'");
+    const dependency = await workspace.buildDependencyGraphAnalysis(reopened.snapshot);
+    const targets = [...dependency.graph.edgesById.values()]
+      .filter(
+        (edge) =>
+          edge.sourcePath.startsWith('/rooms/owner/data/description/') &&
+          edge.target.kind === 'record' &&
+          edge.target.collection === 'rooms',
+      )
+      .map((edge) => (edge.target.kind === 'record' ? edge.target.id : null));
+    expect(targets).toContain('after');
+    expect(targets).not.toContain('before');
+    expect(dependency.work.fullProjectTraversals).toBe(0);
+  });
+
   it('repairs a malformed native-delta overlay from the last coherent generation', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.rooms.foyer = {
@@ -367,6 +829,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     const withHall = structuredClone(project);
     withHall.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
     const hallPath = 'records/rooms/hall.json';
+    withHall.rooms.hall.archetype = { $ref: { collection: 'archetypes', id: 'missing' } };
     await fileSystem.writeTextAtomic(
       `${ROOT}/${hallPath}`,
       projectWorkspaceFiles(withHall, withHall.editor)[hallPath]!,
@@ -376,6 +839,9 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(added.ok).toBe(true);
     if (!added.ok) throw new Error('Structural add reconciliation failed.');
     expect(added.snapshot.project.rooms.hall.label).toBe('Hall');
+    expect(
+      added.diagnostics.some((diagnostic) => diagnostic.path === '/rooms/hall/archetype'),
+    ).toBe(true);
 
     await fileSystem.removeFile(`${ROOT}/${hallPath}`);
     probe.remove(hallPath);
@@ -383,6 +849,14 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(removed.ok).toBe(true);
     if (!removed.ok) throw new Error('Structural remove reconciliation failed.');
     expect(removed.snapshot.project.rooms.hall).toBeUndefined();
+    expect(
+      removed.diagnostics.some((diagnostic) => diagnostic.path?.startsWith('/rooms/hall/')),
+    ).toBe(false);
+    expect(
+      removed.validationContributions.some((contribution) =>
+        contribution.key.endsWith(':rooms:hall'),
+      ),
+    ).toBe(false);
   });
 
   it('rereads only a changed Lua source through native authority', async () => {
