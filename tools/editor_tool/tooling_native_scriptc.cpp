@@ -29,6 +29,7 @@ using NativeOperation = std::uint64_t (*)(const std::uint8_t*, std::uint64_t, st
                                           std::uint64_t);
 
 constexpr std::size_t native_response_headroom = 64 * 1024;
+constexpr std::size_t project_authority_response_capacity = 16 * 1024 * 1024;
 
 std::uint64_t terminal_size_json(const std::uint8_t*, std::uint64_t, std::uint8_t* response,
                                  std::uint64_t response_capacity)
@@ -37,8 +38,10 @@ std::uint64_t terminal_size_json(const std::uint8_t*, std::uint64_t, std::uint8_
 #if defined(_WIN32)
     CONSOLE_SCREEN_BUFFER_INFO info{};
     const auto output = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (output != INVALID_HANDLE_VALUE && output != nullptr && GetConsoleScreenBufferInfo(output, &info)) {
-        result["columns"] = static_cast<std::uint64_t>(info.srWindow.Right - info.srWindow.Left + 1);
+    if (output != INVALID_HANDLE_VALUE && output != nullptr &&
+        GetConsoleScreenBufferInfo(output, &info)) {
+        result["columns"] =
+            static_cast<std::uint64_t>(info.srWindow.Right - info.srWindow.Left + 1);
         result["rows"] = static_cast<std::uint64_t>(info.srWindow.Bottom - info.srWindow.Top + 1);
     }
 #else
@@ -102,6 +105,17 @@ NativeOperation operation_for(std::string_view operation)
     if (operation == "terminal-size")
         return &terminal_size_json;
     return nullptr;
+}
+
+bool daemon_project_authority_observation(const std::uint8_t* request_bytes,
+                                          std::size_t request_size)
+{
+    if (request_bytes == nullptr || request_size == 0)
+        return false;
+    const auto request = nlohmann::json::parse(
+        std::string_view(reinterpret_cast<const char*>(request_bytes), request_size), nullptr,
+        false);
+    return request.is_object() && request.value("action", std::string{}) == "serve-project-observe";
 }
 
 std::filesystem::path filesystem_path_from_utf8(std::string_view value)
@@ -223,7 +237,8 @@ CapturedNativeResponse invoke_captured(NativeOperation operation, const std::uin
         return {};
     }
 
-    const auto required = operation(request_bytes, static_cast<std::uint64_t>(request_size), nullptr, 0);
+    const auto required =
+        operation(request_bytes, static_cast<std::uint64_t>(request_size), nullptr, 0);
     std::vector<std::uint8_t> response(response_capacity(required));
     const auto written = operation(request_bytes, static_cast<std::uint64_t>(request_size),
                                    response.data(), response.size());
@@ -259,9 +274,8 @@ extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* oper
                                                operation_size);
     constexpr std::string_view capture_prefix = "capture:";
     const bool capture_output = requested_operation.starts_with(capture_prefix);
-    const std::string_view operation = capture_output
-                                           ? requested_operation.substr(capture_prefix.size())
-                                           : requested_operation;
+    const std::string_view operation =
+        capture_output ? requested_operation.substr(capture_prefix.size()) : requested_operation;
     const std::string_view response_path(reinterpret_cast<const char*>(response_path_bytes),
                                          response_path_size);
     const auto native_operation = operation_for(operation);
@@ -282,7 +296,10 @@ extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* oper
     }
 
     if (operation == "daemon") {
-        std::vector<std::uint8_t> response(noveltea::tooling::daemon::max_frame_bytes);
+        const auto capacity = daemon_project_authority_observation(request_bytes, request_size)
+                                  ? project_authority_response_capacity
+                                  : noveltea::tooling::daemon::max_frame_bytes;
+        std::vector<std::uint8_t> response(capacity);
         const auto written =
             native_operation(request_bytes, static_cast<std::uint64_t>(request_size),
                              response.data(), response.size());

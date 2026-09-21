@@ -897,21 +897,31 @@ function hiddenDaemonNativeRequest(
   error = '',
   projectSessions = 0,
 ): DaemonNativeResponse {
+  return hiddenDaemonPayloadNativeRequest(action, invocation, {
+    token,
+    requestOk,
+    result,
+    error,
+    projectSessions,
+  });
+}
+
+function hiddenDaemonPayloadNativeRequest(
+  action: string,
+  invocation: HiddenDaemonBrokerInvocation,
+  payload: Readonly<Record<string, unknown>>,
+): DaemonNativeResponse {
   return JSON.parse(
     invokeHost(
       'daemon',
       JSON.stringify({
+        ...payload,
         action,
         build: invocation.build,
         protocol: invocation.protocol,
         daemonIdleMs: invocation.daemonIdleMs,
         projectSessionIdleMs: invocation.projectSessionIdleMs,
         runtimeRoot: invocation.runtimeRoot,
-        token,
-        requestOk,
-        result,
-        error,
-        projectSessions,
       }),
     ),
   ) as DaemonNativeResponse;
@@ -1010,6 +1020,19 @@ function requestInvokeHost(
       );
       if (response.ok !== true)
         throw new Error(response.error ?? 'Failed to publish daemon Project session count.');
+      return JSON.stringify(response);
+    }
+    if (operation === 'daemon-project-observe' || operation === 'daemon-project-release') {
+      const parsed = requestText === '' ? {} : (JSON.parse(requestText) as unknown);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw new Error('Daemon Project authority request is malformed.');
+      const response = hiddenDaemonPayloadNativeRequest(
+        operation === 'daemon-project-observe' ? 'serve-project-observe' : 'serve-project-release',
+        invocation,
+        parsed as Readonly<Record<string, unknown>>,
+      );
+      if (response.ok !== true)
+        throw new Error(response.error ?? 'Daemon Project authority operation failed.');
       return JSON.stringify(response);
     }
     if (operation === 'emit-progress') {
