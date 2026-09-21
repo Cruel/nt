@@ -1039,6 +1039,22 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     return this.sessions.size;
   }
 
+  async reconcileResidentSessions(): Promise<number> {
+    let advanced = 0;
+    for (const entry of Array.from(this.sessions.values())) {
+      const before = entry.session.generationIdentity();
+      const result = await this.reconcile(entry, {});
+      if (!result.ok) {
+        advanced += 1;
+        continue;
+      }
+      const after = entry.session.generationIdentity();
+      if (before.sessionEpoch !== after.sessionEpoch || before.generation !== after.generation)
+        advanced += 1;
+    }
+    return advanced;
+  }
+
   evictIdleSessions(maxIdleMilliseconds: number, nowMilliseconds = Date.now()): number {
     if (!Number.isFinite(maxIdleMilliseconds) || maxIdleMilliseconds <= 0) return 0;
     let evicted = 0;

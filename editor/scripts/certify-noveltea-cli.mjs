@@ -1682,6 +1682,225 @@ async function daemonRssBytes(pid) {
   }
 }
 
+async function linuxChildProcessIds(pid) {
+  if (isWindows) return [];
+  try {
+    const text = await readFile(`/proc/${pid}/task/${pid}/children`, 'utf8');
+    return text
+      .trim()
+      .split(/\s+/u)
+      .filter(Boolean)
+      .map(Number)
+      .filter((value) => Number.isSafeInteger(value) && value > 0);
+  } catch {
+    return [];
+  }
+}
+
+async function certifyProjectOwnerScheduling(tempRoot, pristine) {
+  const runtimeRoot = path.join(tempRoot, 'project-owner-runtime');
+  const firstRoot = path.join(tempRoot, 'project-owner-first');
+  const secondRoot = path.join(tempRoot, 'project-owner-second');
+  const aliasRoot = path.join(tempRoot, 'project-owner-alias');
+  await resetCase(pristine, firstRoot);
+  await resetCase(pristine, secondRoot);
+  const environment = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `project-owner-${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '10000',
+  };
+  const traceEnvironment = { ...environment, NOVELTEA_CLI_TRACE: '1' };
+  runNative(['daemon', 'stop'], { env: environment });
+  try {
+    requireSuccess(
+      'Project-owner first Project admission',
+      runNative(['--project', firstRoot, '--json', 'asset', 'audit'], {
+        cwd: firstRoot,
+        env: traceEnvironment,
+      }),
+    );
+    let status = requireSuccess(
+      'Project-owner first Project status',
+      runNative(['--json', 'daemon', 'status'], { env: environment }),
+    );
+    const initialDaemon = JSON.parse(status.stdout).daemon;
+    if (initialDaemon.projectSessions !== 1)
+      fail(`First Project did not establish exactly one owner: ${status.stdout}`);
+
+    if (!isWindows) {
+      await rm(aliasRoot, { recursive: true, force: true });
+      await symlink(firstRoot, aliasRoot, 'dir');
+      requireSuccess(
+        'Project-owner physical alias admission',
+        runNative(['--project', aliasRoot, '--json', 'asset', 'audit'], {
+          cwd: aliasRoot,
+          env: traceEnvironment,
+        }),
+      );
+      status = requireSuccess(
+        'Project-owner alias status',
+        runNative(['--json', 'daemon', 'status'], { env: environment }),
+      );
+      if (JSON.parse(status.stdout).daemon.projectSessions !== 1)
+        fail(`Physical Project alias created a duplicate owner: ${status.stdout}`);
+    }
+
+    const [first, second] = await Promise.all([
+      runAsync(nativeCli, ['--project', firstRoot, '--json', 'platform', 'profiles'], {
+        cwd: firstRoot,
+        env: traceEnvironment,
+      }).then((invocation) => invocation.result()),
+      runAsync(nativeCli, ['--project', secondRoot, '--json', 'platform', 'profiles'], {
+        cwd: secondRoot,
+        env: traceEnvironment,
+      }).then((invocation) => invocation.result()),
+    ]);
+    requireSuccess('Project-owner concurrent first Project', first);
+    requireSuccess('Project-owner concurrent second Project', second);
+    status = requireSuccess(
+      'Project-owner multi-Project status',
+      runNative(['--json', 'daemon', 'status'], { env: environment }),
+    );
+    if (JSON.parse(status.stdout).daemon.projectSessions !== 2)
+      fail(`Two physical Projects did not establish two owners: ${status.stdout}`);
+
+    let crashRecovery = null;
+    if (!isWindows) {
+      const children = await linuxChildProcessIds(initialDaemon.pid);
+      if (children.length !== 2)
+        fail(`Expected two Project-owner child processes, found ${children.length}.`);
+      process.kill(children[0], 'SIGKILL');
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (!(await linuxChildProcessIds(initialDaemon.pid)).includes(children[0])) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      if ((await linuxChildProcessIds(initialDaemon.pid)).includes(children[0]))
+        fail('Killed Project-owner process did not exit before crash-recovery certification.');
+      const recoveredFirst = requireSuccess(
+        'Project-owner crash recovery first Project',
+        runNative(['--project', firstRoot, '--json', 'asset', 'audit'], {
+          cwd: firstRoot,
+          env: traceEnvironment,
+        }),
+      );
+      const recoveredSecond = requireSuccess(
+        'Project-owner crash recovery second Project',
+        runNative(['--project', secondRoot, '--json', 'asset', 'audit'], {
+          cwd: secondRoot,
+          env: traceEnvironment,
+        }),
+      );
+      if (
+        !recoveredFirst.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
+        !recoveredSecond.stderr.includes('[scriptc-host] daemon invocation forwarding')
+      )
+        fail('Project-owner crash recovery did not remain on daemon routing.');
+      const recoveredStatus = requireSuccess(
+        'Project-owner crash recovery status',
+        runNative(['--json', 'daemon', 'status'], { env: environment }),
+      );
+      const recoveredDaemon = JSON.parse(recoveredStatus.stdout).daemon;
+      if (recoveredDaemon.pid !== initialDaemon.pid || recoveredDaemon.projectSessions !== 2)
+        fail(`Owner crash disturbed daemon or sibling owner: ${recoveredStatus.stdout}`);
+      crashRecovery = true;
+    }
+
+    requireSuccess(
+      'Project-owner scheduler stop before activity certification',
+      runNative(['--json', 'daemon', 'stop'], { env: environment }),
+    );
+    const activityEnvironment = {
+      ...environment,
+      NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${environment.NOVELTEA_CLI_CERTIFICATION_DAEMON_ID}-activity`,
+      NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '700',
+    };
+    const activityTraceEnvironment = { ...activityEnvironment, NOVELTEA_CLI_TRACE: '1' };
+    requireSuccess(
+      'Project-owner watcher activity admission',
+      runNative(['--project', firstRoot, '--json', 'usages', 'rooms', 'gallery'], {
+        cwd: firstRoot,
+        env: activityTraceEnvironment,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    const foyerPath = path.join(firstRoot, 'records', 'rooms', 'foyer.json');
+    const foyer = JSON.parse(await readFile(foyerPath, 'utf8'));
+    foyer.label = `${foyer.label} watcher activity`;
+    await writeJson(foyerPath, foyer);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    let activityStatus = requireSuccess(
+      'Project-owner watcher activity status',
+      runNative(['--json', 'daemon', 'status'], { env: activityEnvironment }),
+    );
+    if (JSON.parse(activityStatus.stdout).daemon.projectSessions !== 1)
+      fail(
+        `Meaningful watcher reconciliation did not refresh owner activity: ${activityStatus.stdout}`,
+      );
+
+    await writeFile(
+      path.join(firstRoot, 'records', 'watcher-noise.txt'),
+      'ignored watcher noise\n',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 850));
+    activityStatus = requireSuccess(
+      'Project-owner watcher-noise eviction status',
+      runNative(['--json', 'daemon', 'status'], { env: activityEnvironment }),
+    );
+    if (JSON.parse(activityStatus.stdout).daemon.projectSessions !== 0)
+      fail(`Watcher noise kept an idle Project owner alive: ${activityStatus.stdout}`);
+    requireSuccess(
+      'Project-owner activity daemon stop',
+      runNative(['--json', 'daemon', 'stop'], { env: activityEnvironment }),
+    );
+
+    const pressureEnvironment = {
+      ...environment,
+      NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${environment.NOVELTEA_CLI_CERTIFICATION_DAEMON_ID}-pressure`,
+      NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '60000',
+    };
+    const pressureTraceEnvironment = { ...pressureEnvironment, NOVELTEA_CLI_TRACE: '1' };
+    for (let index = 0; index < 9; index += 1) {
+      const pressureRoot = path.join(tempRoot, `project-owner-pressure-${index}`);
+      await resetCase(pristine, pressureRoot);
+      requireSuccess(
+        `Project-owner pressure admission ${index + 1}`,
+        runNative(['--project', pressureRoot, '--json', 'asset', 'audit'], {
+          cwd: pressureRoot,
+          env: pressureTraceEnvironment,
+        }),
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const pressureStatus = requireSuccess(
+      'Project-owner pressure status',
+      runNative(['--json', 'daemon', 'status'], { env: pressureEnvironment }),
+    );
+    if (JSON.parse(pressureStatus.stdout).daemon.projectSessions !== 8)
+      fail(
+        `Project-owner memory pressure did not reduce residency to the internal cap: ${pressureStatus.stdout}`,
+      );
+    requireSuccess(
+      'Project-owner pressure daemon stop',
+      runNative(['--json', 'daemon', 'stop'], { env: pressureEnvironment }),
+    );
+
+    return {
+      canonicalAliasDeduplication: !isWindows,
+      distinctProjectOwners: true,
+      ownerCrashRecovery: crashRecovery,
+      activityAwareEviction: true,
+      pressureEviction: true,
+    };
+  } finally {
+    runNative(['daemon', 'stop'], { env: environment });
+    await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
+    await rm(aliasRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function certifyDaemonBuildProtocolIsolation(tempRoot) {
   const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), 'nt-daemon-isolation-'));
   const common = {
@@ -1761,6 +1980,7 @@ async function certifyResidentDaemon(tempRoot, pristine) {
   const root = path.join(tempRoot, 'resident-daemon');
   const runtimeRoot = path.join(tempRoot, 'resident-daemon-runtime');
   await resetCase(pristine, root);
+  const projectOwners = await certifyProjectOwnerScheduling(tempRoot, pristine);
   const buildProtocolIsolation = await certifyDaemonBuildProtocolIsolation(tempRoot);
   const daemonEnvironment = {
     ...process.env,
@@ -2057,6 +2277,7 @@ async function certifyResidentDaemon(tempRoot, pristine) {
     startupElection: true,
     secureEndpoint: true,
     buildProtocolIsolation,
+    projectOwners,
     midRequestReadReplay: true,
     midRequestUnsafeNoReplay: true,
     crashRestart: true,
