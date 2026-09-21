@@ -1,4 +1,4 @@
-import type { AuthoringProject } from './project-schema/authoring-project';
+import { cloneAuthoringProject, type AuthoringProject } from './project-schema/authoring-project';
 import type {
   SourceMessageTrackingEntry,
   SourceMessageTrackingOccurrence,
@@ -153,7 +153,7 @@ export function synchronizeLocalizationMessageTracking(
   project: AuthoringProject,
   sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
 ): LocalizationSyncResult {
-  const next = structuredClone(project);
+  const next = cloneAuthoringProject(project);
   const currents = flattenCurrent(project, sourceDescriptors);
   const previous = flattenPrevious(project);
   const currentMatched = new Set<string>();

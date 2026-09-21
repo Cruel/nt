@@ -7,6 +7,7 @@ import {
   findAuthoringDependencyUsages,
   localizationMessageNodeKey,
 } from '../../shared/authoring-dependency-graph';
+import { cloneAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectWorkspaceChangedLocalizationFiles } from '../../shared/project-workspace/project-workspace-service';
 import { cliDiagnostic } from '../contracts';
 import type { CliCommandDefinition, CliCommandContext } from './types';
@@ -225,7 +226,7 @@ function workflowMutationCommand(command: 'accept' | 'review'): CliCommandDefini
               fields: { locale: parsed.locale, messageIds: parsed.messageIds },
             };
 
-          const candidate = structuredClone(project);
+          const candidate = cloneAuthoringProject(project);
           for (const patch of patches) {
             const translation =
               candidate.localization.translations[parsed.locale]?.[patch.messageId];

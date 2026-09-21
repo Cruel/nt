@@ -17,17 +17,78 @@ import {
   type ProjectWorkspaceWriteOptions,
 } from './project-workspace-service';
 import { ProjectWorkspaceMutationError } from './project-workspace-transaction';
-import { ResidentProjectWorkspaceSession } from './resident-project-workspace-session';
+import {
+  ResidentProjectWorkspaceSession,
+  type ResidentProjectGenerationIdentity,
+} from './resident-project-workspace-session';
 
 export type ResidentProjectWorkspaceServiceFactory = (
   fileSystem: ProjectWorkspaceFileSystem,
 ) => ProjectWorkspaceService;
+
+export interface ResidentProjectAuthorityRequest {
+  readonly projectRoot: string;
+  readonly authoritativePaths: readonly string[];
+  readonly discoveryScopes: readonly ProjectSourceDiscoveryScope[];
+}
+
+export interface ResidentProjectAuthorityObservation {
+  readonly previousAuthority: 'untracked' | 'proven' | 'dirty' | 'unknown';
+  readonly unchanged: boolean;
+  readonly fullRescan: boolean;
+  readonly watcherPaths: readonly string[];
+  readonly delta: Readonly<{
+    added: readonly string[];
+    changed: readonly string[];
+    removed: readonly string[];
+  }>;
+  readonly manifest: Readonly<{
+    canonicalRoot: string;
+    entries: readonly Readonly<{
+      path: string;
+      sourceIdentity?: string;
+      byteSize?: number;
+      mtimeNanoseconds?: string | null;
+      contentHash?: string | null;
+    }>[];
+  }>;
+}
+
+/** Native daemon physical-authority seam. Watchers provide hints; observe() is the proof. */
+export interface ResidentProjectAuthority {
+  observe(request: ResidentProjectAuthorityRequest): Promise<ResidentProjectAuthorityObservation>;
+  release(projectRoot: string): void;
+}
 
 const residentDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = Object.freeze([
   { root: 'records', extensions: ['.json', '.lua', '.rcss', '.rml'], excludedPrefixes: [] },
   { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
   { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
 ]);
+
+function isResidentSemanticSourcePath(path: string): boolean {
+  return (
+    path === 'project.json' ||
+    path === 'editor.json' ||
+    path === 'traits.json' ||
+    /^records\/[^/]+\/.+\.(?:json|lua|rml|rcss)$/u.test(path) ||
+    /^scripts\/.+\.lua$/u.test(path) ||
+    /^i18n\/.+\.json$/u.test(path)
+  );
+}
+
+function semanticObservationDelta(observation: ResidentProjectAuthorityObservation) {
+  const added = observation.delta.added.filter(isResidentSemanticSourcePath);
+  const changed = observation.delta.changed.filter(isResidentSemanticSourcePath);
+  const removed = observation.delta.removed.filter(isResidentSemanticSourcePath);
+  return {
+    added,
+    changed,
+    removed,
+    paths: [...new Set([...added, ...changed, ...removed])].sort(),
+    structural: added.length > 0 || removed.length > 0,
+  };
+}
 
 async function workspaceSettled(
   fileSystem: ProjectWorkspaceFileSystem,
@@ -96,13 +157,16 @@ type ProjectWorkspaceWriteResult = Awaited<ReturnType<ProjectWorkspaceService['w
 type ResidentEntry = {
   readonly canonicalRoot: string;
   readonly session: ResidentProjectWorkspaceSession;
-  authority: ProjectSourceInventory;
+  authority: ProjectSourceInventory | null;
+  readonly pendingNativeSemanticPaths: Set<string>;
+  pendingNativeStructuralChange: boolean;
   lastUsedAtMilliseconds: number;
 };
 
 type SnapshotBinding = Readonly<{
   entry: ResidentEntry;
   canonicalSnapshot: LoadedProjectWorkspaceSnapshot;
+  generation: ResidentProjectGenerationIdentity;
 }>;
 
 function inventoryByPath(
@@ -167,6 +231,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     private readonly createSessionWorkspace: ResidentProjectWorkspaceServiceFactory = (
       fileSystem,
     ) => new ProjectWorkspaceService(fileSystem),
+    private readonly nativeAuthority?: ResidentProjectAuthority,
   ) {
     super(residentFileSystem);
   }
@@ -177,9 +242,48 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     return captureResidentInventory(this.residentFileSystem, snapshot);
   }
 
+  private authorityRequest(
+    canonicalRoot: string,
+    snapshot?: LoadedProjectWorkspaceSnapshot,
+  ): ResidentProjectAuthorityRequest {
+    return {
+      projectRoot: canonicalRoot,
+      authoritativePaths: [
+        'project.json',
+        'editor.json',
+        'traits.json',
+        ...(snapshot ? assetSourcePaths(snapshot.project) : []),
+      ],
+      discoveryScopes: residentDiscoveryScopes,
+    };
+  }
+
+  private observeNativeAuthority(
+    canonicalRoot: string,
+    snapshot?: LoadedProjectWorkspaceSnapshot,
+  ): Promise<ResidentProjectAuthorityObservation> {
+    if (!this.nativeAuthority)
+      throw new Error('Native Project authority is unavailable for resident reconciliation.');
+    return this.nativeAuthority.observe(this.authorityRequest(canonicalRoot, snapshot));
+  }
+
+  private recordNativeObservation(
+    entry: ResidentEntry,
+    observation: ResidentProjectAuthorityObservation,
+  ): ReturnType<typeof semanticObservationDelta> {
+    const delta = semanticObservationDelta(observation);
+    delta.paths.forEach((path) => entry.pendingNativeSemanticPaths.add(path));
+    entry.pendingNativeStructuralChange ||= delta.structural;
+    return delta;
+  }
+
   private bindSnapshot(entry: ResidentEntry, snapshot: LoadedProjectWorkspaceSnapshot): void {
     entry.lastUsedAtMilliseconds = Date.now();
-    this.snapshotBindings.set(snapshot, { entry, canonicalSnapshot: snapshot });
+    this.snapshotBindings.set(snapshot, {
+      entry,
+      canonicalSnapshot: snapshot,
+      generation: entry.session.generationIdentity(),
+    });
   }
 
   private logicalView(
@@ -196,7 +300,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       projectRoot: logicalRoot,
       manifestPath: this.residentFileSystem.joinPath(logicalRoot, 'project.json'),
     }) as LoadedProjectWorkspaceSnapshot;
-    this.snapshotBindings.set(snapshot, { entry, canonicalSnapshot: opened.snapshot });
+    this.snapshotBindings.set(snapshot, {
+      entry,
+      canonicalSnapshot: opened.snapshot,
+      generation: entry.session.generationIdentity(),
+    });
     return { ...opened, snapshot };
   }
 
@@ -216,6 +324,65 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
   ): Promise<ProjectWorkspaceOpenResult> {
     const workspace = this.createSessionWorkspace(this.residentFileSystem);
     let admissionOptions = options;
+
+    if (this.nativeAuthority) {
+      // Establish native physical authority before accepting any reusable semantic state. Reuse
+      // hints supplied by an earlier caller-side inventory may already be stale by the time this
+      // owner is admitted, so recertify the persistent contributions under this baseline instead.
+      await this.observeNativeAuthority(canonicalRoot);
+      admissionOptions = {
+        ...options,
+        reusableSourceContributions: undefined,
+        reusableValidationContributions: undefined,
+        reusableDependencyState: undefined,
+      };
+      const reusable = await readReusableAuthoringContributions(
+        this.residentFileSystem,
+        canonicalRoot,
+      );
+      if (reusable)
+        admissionOptions = {
+          ...admissionOptions,
+          reusableSourceContributions: reusable.sourceContributions,
+          reusableValidationContributions: reusable.validationContributions,
+          reusableDependencyState: reusable.dependencyState,
+        };
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const opened = await workspace.open(canonicalRoot, admissionOptions);
+        if (!opened.ok) return opened;
+        const proof = await this.observeNativeAuthority(canonicalRoot, opened.snapshot);
+        if (semanticObservationDelta(proof).paths.length > 0) {
+          // Any reusable semantic product was admitted against the pre-open physical baseline.
+          // Once the final native proof observes a semantic race, those products are no longer
+          // proven for the refreshed manifest. Retry from canonical disk state rather than letting
+          // a stale reusable source survive simply because native authority has already advanced.
+          admissionOptions = {
+            ...options,
+            reusableSourceContributions: undefined,
+            reusableValidationContributions: undefined,
+            reusableDependencyState: undefined,
+          };
+          continue;
+        }
+        const session = ResidentProjectWorkspaceSession.fromOpenedWithHost(opened, {
+          fileSystem: this.residentFileSystem,
+          createWorkspaceService: this.createSessionWorkspace,
+        });
+        const entry: ResidentEntry = {
+          canonicalRoot,
+          session,
+          authority: null,
+          pendingNativeSemanticPaths: new Set(),
+          pendingNativeStructuralChange: false,
+          lastUsedAtMilliseconds: Date.now(),
+        };
+        this.sessions.set(canonicalRoot, entry);
+        this.bindSnapshot(entry, opened.snapshot);
+        return opened;
+      }
+      throw new Error('Project sources changed continuously during resident Project admission.');
+    }
+
     if (
       !options.reusableSourceContributions &&
       !options.reusableValidationContributions &&
@@ -233,6 +400,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           reusableDependencyState: reusable.dependencyState,
         };
     }
+
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const opened = await workspace.open(canonicalRoot, admissionOptions);
       if (!opened.ok) return opened;
@@ -247,6 +415,8 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         canonicalRoot,
         session,
         authority,
+        pendingNativeSemanticPaths: new Set(),
+        pendingNativeStructuralChange: false,
         lastUsedAtMilliseconds: Date.now(),
       };
       this.sessions.set(canonicalRoot, entry);
@@ -260,6 +430,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     entry: ResidentEntry,
     options: ProjectWorkspaceOpenOptions,
   ): Promise<ProjectWorkspaceOpenResult> {
+    if (this.nativeAuthority) {
+      entry.session.markResyncNeeded();
+      this.sessions.delete(entry.canonicalRoot);
+      return this.openCold(entry.canonicalRoot, options);
+    }
     entry.session.invalidateCachedProjectState();
     const reopened = await entry.session.service().open(entry.canonicalRoot, options);
     if (!reopened.ok) return reopened;
@@ -276,6 +451,89 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     return reopened;
   }
 
+  private async reconcileNative(
+    entry: ResidentEntry,
+    current: SuccessfulOpen,
+    options: ProjectWorkspaceOpenOptions,
+  ): Promise<ProjectWorkspaceOpenResult> {
+    const pendingPaths = new Set([
+      ...entry.pendingNativeSemanticPaths,
+      ...entry.session.invalidAuthoringSources().filter((path) => path !== '*'),
+    ]);
+    let structural =
+      entry.pendingNativeStructuralChange || entry.session.invalidAuthoringSources().includes('*');
+    let observation = await this.observeNativeAuthority(entry.canonicalRoot, current.snapshot);
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const delta = this.recordNativeObservation(entry, observation);
+      delta.paths.forEach((path) => pendingPaths.add(path));
+      structural ||= delta.structural;
+      if (pendingPaths.size === 0 && !structural) return current;
+
+      const changedSources = [...pendingPaths].sort();
+      let candidate: ProjectWorkspaceOpenResult | null = null;
+      if (
+        !structural &&
+        changedSources.every((path) => Object.hasOwn(current.sourceContributions, path))
+      ) {
+        entry.session.invalidate(changedSources);
+        candidate = await entry.session.service().reconcileExistingSources(current, changedSources);
+      }
+      if (!candidate) {
+        entry.session.invalidate(changedSources);
+        const changed = new Set(changedSources);
+        const reusableSourceContributions = Object.freeze(
+          Object.fromEntries(
+            Object.entries(current.sourceContributions).filter(([path]) => !changed.has(path)),
+          ),
+        );
+        candidate = await entry.session.service().open(entry.canonicalRoot, {
+          ...options,
+          reusableSourceContributions,
+          reusableValidationContributions: current.validationContributions,
+        });
+      }
+      if (!candidate.ok) {
+        entry.session.recordInvalidAuthoringSources(changedSources);
+        return candidate;
+      }
+
+      // The proof is intentionally another native observation. It both detects watcher dirtiness
+      // and performs the authoritative scan. If it advances the native manifest because of a race,
+      // retain every prior pending path: the semantic candidate was never promoted, so the next
+      // attempt still starts from the last coherent semantic generation.
+      const proof = await this.observeNativeAuthority(entry.canonicalRoot, candidate.snapshot);
+      const raced = this.recordNativeObservation(entry, proof);
+      if (raced.paths.length > 0) {
+        raced.paths.forEach((path) => pendingPaths.add(path));
+        structural ||= raced.structural;
+        observation = proof;
+        continue;
+      }
+
+      // Native authority classifies every add/remove as structural, so an ordinary changed-source
+      // reconciliation can reuse the source-set identity without walking the complete Project.
+      const sameSourceSet =
+        !structural ||
+        (current.snapshot.canonicalSourceFiles.length ===
+          candidate.snapshot.canonicalSourceFiles.length &&
+          current.snapshot.canonicalSourceFiles.every(
+            (path, index) => path === candidate.snapshot.canonicalSourceFiles[index],
+          ));
+      entry.session.adoptOpened(
+        candidate,
+        sameSourceSet ? { projectionPaths: changedSources } : {},
+      );
+      entry.authority = null;
+      entry.pendingNativeSemanticPaths.clear();
+      entry.pendingNativeStructuralChange = false;
+      this.bindSnapshot(entry, candidate.snapshot);
+      return candidate;
+    }
+
+    throw new Error('Project sources changed continuously during resident Project reconciliation.');
+  }
+
   private async reconcile(
     entry: ResidentEntry,
     options: ProjectWorkspaceOpenOptions,
@@ -283,6 +541,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     return entry.session.runExclusive(async () => {
       const current = entry.session.openedGeneration();
       if (!current) return this.reopenResidentEntry(entry, options);
+      if (this.nativeAuthority) return this.reconcileNative(entry, current, options);
 
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const observed = await this.captureInventory(current.snapshot);
@@ -290,9 +549,12 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           entry.session.markResyncNeeded();
           return this.reopenResidentEntry(entry, options);
         }
-        if (projectSourceInventoriesEqual(entry.authority, observed)) return current;
+        if (entry.authority && projectSourceInventoriesEqual(entry.authority, observed))
+          return current;
 
-        const changes = changedInventoryPaths(entry.authority, observed);
+        const changes = entry.authority
+          ? changedInventoryPaths(entry.authority, observed)
+          : { structural: true, paths: current.snapshot.canonicalSourceFiles };
         const canonicalSources = new Set(current.snapshot.canonicalSourceFiles);
         const changedSources = changes.paths.filter((path) => canonicalSources.has(path));
         const onlyNonSemanticChanges = !changes.structural && changedSources.length === 0;
@@ -304,10 +566,12 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         }
 
         let candidate: ProjectWorkspaceOpenResult | null = null;
-        if (!changes.structural && changedSources.length === changes.paths.length)
+        if (!changes.structural && changedSources.length === changes.paths.length) {
+          entry.session.invalidate(changedSources);
           candidate = await entry.session
             .service()
             .reconcileExistingSources(current, changedSources);
+        }
         if (!candidate) {
           entry.session.invalidate(changes.paths);
           const changed = new Set(changes.paths);
@@ -495,7 +759,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       preserveInvalidOverlay: entry.session.invalidAuthoringSources().length > 0,
       ...(sameSourceSet ? { projectionPaths: changedCanonicalPaths } : {}),
     });
-    entry.authority = mergeInventoryPaths(entry.authority, proof, [
+    entry.authority = mergeInventoryPaths(entry.authority ?? prewriteAuthority, proof, [
       ...new Set([...changes.paths, ...changedCanonicalPaths]),
     ]);
     this.bindSnapshot(entry, candidate.snapshot);
@@ -608,6 +872,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       if (nowMilliseconds - entry.lastUsedAtMilliseconds < maxIdleMilliseconds) continue;
       entry.session.markResyncNeeded();
       this.sessions.delete(canonicalRoot);
+      this.nativeAuthority?.release(canonicalRoot);
       evicted += 1;
     }
     return evicted;
@@ -616,8 +881,21 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
   async verifyReadAuthority(snapshot: LoadedProjectWorkspaceSnapshot): Promise<boolean> {
     const binding = this.snapshotBindings.get(snapshot);
     if (!binding) return true;
+    if (!binding.entry.session.isGeneration(binding.generation)) return false;
+    if (this.nativeAuthority) {
+      const observation = await this.observeNativeAuthority(
+        binding.entry.canonicalRoot,
+        binding.canonicalSnapshot,
+      );
+      const delta = this.recordNativeObservation(binding.entry, observation);
+      return observation.unchanged && delta.paths.length === 0;
+    }
     const current = await this.captureInventory(binding.canonicalSnapshot);
-    return current !== null && projectSourceInventoriesEqual(binding.entry.authority, current);
+    return (
+      current !== null &&
+      binding.entry.authority !== null &&
+      projectSourceInventoriesEqual(binding.entry.authority, current)
+    );
   }
 
   override preflightCompiledArtifact(snapshot: ProjectWorkspaceSnapshot) {

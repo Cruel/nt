@@ -6,7 +6,7 @@ import {
 import { packageMessageIds } from './authoring-message-lowering';
 import { resolveMessage } from './message-resolution';
 import { parseJsonPointer } from './json-pointer';
-import type { AuthoringProject } from './project-schema/authoring-project';
+import { cloneAuthoringProject, type AuthoringProject } from './project-schema/authoring-project';
 import {
   messagePlaceholderNames,
   type MessagePattern,
@@ -182,7 +182,7 @@ export function lowerManagedLuaLocalization(project: AuthoringProject): {
   managedSourcePaths: readonly string[];
   managedMessageIds: readonly string[];
 } {
-  const lowered = structuredClone(project);
+  const lowered = cloneAuthoringProject(project);
   const diagnostics: ManagedLuaLoweringDiagnostic[] = [];
   const pending: PendingOccurrence[] = [];
   const seenPaths = new Set<string>();

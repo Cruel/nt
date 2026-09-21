@@ -12,6 +12,7 @@ import {
   type ImageAssetMetadata,
 } from '../../shared/project-schema/authoring-assets';
 import type { AssetAuthoringRecord } from '../../shared/project-schema/authoring-records';
+import { cloneAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { PROJECT_WORKSPACE_ABSENT_REVISION } from '../../shared/project-workspace';
 import { sha256PrefixedBytes } from '../../shared/web-crypto';
 import { cliDiagnostic } from '../contracts';
@@ -195,7 +196,7 @@ async function importAssets(
       ? await context.fileSystem.realpath(assetsRoot)
       : null;
   const usableAssetsReal = assetsReal && isContained(projectReal, assetsReal) ? assetsReal : null;
-  const candidate = structuredClone(context.snapshot.project);
+  const candidate = cloneAuthoringProject(context.snapshot.project);
   const outputs: Readonly<Record<string, unknown>>[] = [];
   const diagnostics = [];
   const plannedPaths = new Set(

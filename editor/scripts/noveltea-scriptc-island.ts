@@ -19,6 +19,53 @@ const invokeResidentHost: ScriptcHostInvoke = (operation, request) => {
   return residentInvokeHost(operation, request);
 };
 
+function residentProjectAuthority(): import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectAuthority {
+  const stringArray = (value: unknown, field: string): string[] => {
+    if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string'))
+      throw new Error(`Native Project authority returned malformed ${field}.`);
+    return value;
+  };
+  return {
+    async observe(request) {
+      const value = JSON.parse(
+        invokeResidentHost('daemon-project-observe', JSON.stringify(request)),
+      ) as Record<string, unknown>;
+      const delta = value.delta as Record<string, unknown> | undefined;
+      const manifest = value.manifest as Record<string, unknown> | undefined;
+      const previousAuthority = value.previousAuthority;
+      if (
+        !['untracked', 'proven', 'dirty', 'unknown'].includes(String(previousAuthority)) ||
+        typeof value.unchanged !== 'boolean' ||
+        typeof value.fullRescan !== 'boolean' ||
+        !delta ||
+        !manifest ||
+        typeof manifest.canonicalRoot !== 'string' ||
+        !Array.isArray(manifest.entries)
+      )
+        throw new Error('Native Project authority observation is malformed.');
+      return {
+        previousAuthority: previousAuthority as 'untracked' | 'proven' | 'dirty' | 'unknown',
+        unchanged: value.unchanged,
+        fullRescan: value.fullRescan,
+        watcherPaths: stringArray(value.watcherPaths, 'watcherPaths'),
+        delta: {
+          added: stringArray(delta.added, 'delta.added'),
+          changed: stringArray(delta.changed, 'delta.changed'),
+          removed: stringArray(delta.removed, 'delta.removed'),
+        },
+        manifest: {
+          canonicalRoot: manifest.canonicalRoot,
+          entries:
+            manifest.entries as import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectAuthorityObservation['manifest']['entries'],
+        },
+      };
+    },
+    release(projectRoot) {
+      invokeResidentHost('daemon-project-release', JSON.stringify({ projectRoot }));
+    },
+  };
+}
+
 function trace(message: string): void {
   if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-island] ${message}\n`);
 }
@@ -355,7 +402,11 @@ async function runNovelTeaScriptcIslandScoped(
       if (invocationContext.residentProjectSessions && !residentWorkspace) {
         const { ResidentProjectWorkspaceService } =
           await import('../src/shared/project-workspace/resident-project-workspace-service');
-        residentWorkspace = new ResidentProjectWorkspaceService(fileSystem, createWorkspace);
+        residentWorkspace = new ResidentProjectWorkspaceService(
+          fileSystem,
+          createWorkspace,
+          residentProjectAuthority(),
+        );
       }
     }
   }

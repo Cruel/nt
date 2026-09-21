@@ -314,69 +314,83 @@ export function validateInteractableHotspotAuthoringSemantics(
   return diagnostics;
 }
 
+export function validateRoomHotspotAuthoringSemantics(
+  project: AuthoringProject,
+  roomId: string,
+): HotspotAuthoringDiagnostic[] {
+  const record = project.rooms[roomId];
+  const room = record ? parseRoomData(record.data) : null;
+  if (!room) return [];
+  const diagnostics: HotspotAuthoringDiagnostic[] = [];
+  const base = `/rooms/${roomId}/data`;
+  if (room.hotspots.length > 0)
+    diagnostics.push(
+      ...validateSourceImage(
+        project,
+        'Rooms',
+        room.background.asset?.$ref.id ?? null,
+        `${base}/background/asset`,
+        false,
+      ),
+    );
+  const exits = new Set(room.exits.map((exit) => exit.id));
+  room.hotspots.forEach((hotspot, index) => {
+    const path = `${base}/hotspots/${index}`;
+    if (hotspot.target.kind === 'owner-feature') {
+      const featureId = hotspot.target.featureId;
+      if (!room.features.some((feature) => feature.id === featureId))
+        diagnostics.push(
+          diagnostic(
+            'Rooms',
+            `${path}/target/featureId`,
+            `Room Feature '${featureId}' does not belong to Room '${roomId}'.`,
+            'hotspot.authoring.target.feature-missing',
+          ),
+        );
+    } else if (hotspot.target.kind === 'subject') {
+      diagnostics.push(
+        ...validateSubject(project, 'Rooms', hotspot.target.subject, `${path}/target/subject`),
+      );
+    } else if (!exits.has(hotspot.target.exitId))
+      diagnostics.push(
+        diagnostic(
+          'Rooms',
+          `${path}/target/exitId`,
+          `Room hotspot exit '${hotspot.target.exitId}' does not belong to Room '${roomId}'.`,
+          'hotspot.authoring.exit.foreign',
+        ),
+      );
+    diagnostics.push(
+      ...validateHighlight(project, 'Rooms', hotspot.highlight, 'custom', `${path}/highlight`),
+    );
+  });
+  return diagnostics;
+}
+
+export function validateInteractableRecordHotspotAuthoringSemantics(
+  project: AuthoringProject,
+  interactableId: string,
+): HotspotAuthoringDiagnostic[] {
+  const record = project.interactables[interactableId];
+  const interactable = record ? parseInteractableData(record.data) : null;
+  if (!interactable) return [];
+  return validateInteractableHotspotAuthoringSemantics(
+    project,
+    interactable,
+    `/interactables/${interactableId}/data/presentation`,
+    `Interactable '${interactableId}'`,
+  );
+}
+
 export function validateHotspotAuthoringSemantics(
   project: AuthoringProject,
 ): HotspotAuthoringDiagnostic[] {
   const diagnostics: HotspotAuthoringDiagnostic[] = [];
-  for (const [roomId, record] of Object.entries(project.rooms)) {
-    const room = parseRoomData(record.data);
-    if (!room) continue;
-    const base = `/rooms/${roomId}/data`;
-    if (room.hotspots.length > 0)
-      diagnostics.push(
-        ...validateSourceImage(
-          project,
-          'Rooms',
-          room.background.asset?.$ref.id ?? null,
-          `${base}/background/asset`,
-          false,
-        ),
-      );
-    const exits = new Set(room.exits.map((exit) => exit.id));
-    room.hotspots.forEach((hotspot, index) => {
-      const path = `${base}/hotspots/${index}`;
-      if (hotspot.target.kind === 'owner-feature') {
-        const featureId = hotspot.target.featureId;
-        if (!room.features.some((feature) => feature.id === featureId))
-          diagnostics.push(
-            diagnostic(
-              'Rooms',
-              `${path}/target/featureId`,
-              `Room Feature '${featureId}' does not belong to Room '${roomId}'.`,
-              'hotspot.authoring.target.feature-missing',
-            ),
-          );
-      } else if (hotspot.target.kind === 'subject') {
-        diagnostics.push(
-          ...validateSubject(project, 'Rooms', hotspot.target.subject, `${path}/target/subject`),
-        );
-      } else if (!exits.has(hotspot.target.exitId))
-        diagnostics.push(
-          diagnostic(
-            'Rooms',
-            `${path}/target/exitId`,
-            `Room hotspot exit '${hotspot.target.exitId}' does not belong to Room '${roomId}'.`,
-            'hotspot.authoring.exit.foreign',
-          ),
-        );
-      diagnostics.push(
-        ...validateHighlight(project, 'Rooms', hotspot.highlight, 'custom', `${path}/highlight`),
-      );
-    });
-  }
-
-  for (const [interactableId, record] of Object.entries(project.interactables)) {
-    const interactable = parseInteractableData(record.data);
-    if (!interactable) continue;
-    const base = `/interactables/${interactableId}/data/presentation`;
+  for (const roomId of Object.keys(project.rooms))
+    diagnostics.push(...validateRoomHotspotAuthoringSemantics(project, roomId));
+  for (const interactableId of Object.keys(project.interactables))
     diagnostics.push(
-      ...validateInteractableHotspotAuthoringSemantics(
-        project,
-        interactable,
-        base,
-        `Interactable '${interactableId}'`,
-      ),
+      ...validateInteractableRecordHotspotAuthoringSemantics(project, interactableId),
     );
-  }
   return diagnostics;
 }

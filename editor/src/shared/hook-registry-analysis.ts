@@ -67,6 +67,13 @@ export interface HookRegistryAnalysis {
   explain(hook: RoomHookKind, target: string): HookRegistryExplanation;
 }
 
+export interface HookRegistryAnalysisOptions {
+  /** Limit direct Room registrations to these owners while still considering bootstrap conflicts. */
+  readonly roomIds?: readonly string[];
+  /** Analyze only bootstrap registrations/diagnostics. */
+  readonly bootstrapOnly?: boolean;
+}
+
 const hookKinds = new Set<string>(roomHookKindValues);
 
 function capabilityProfile(hook: RoomHookKind): HookCapabilityProfile {
@@ -239,13 +246,21 @@ function literalBootstrapRegistrations(
   return { registrations, dynamicUncertainty };
 }
 
-export function analyzeHookRegistry(project: AuthoringProject): HookRegistryAnalysis {
+export function analyzeHookRegistry(
+  project: AuthoringProject,
+  options: HookRegistryAnalysisOptions = {},
+): HookRegistryAnalysis {
   const registrations: HookRegistryRegistration[] = [];
   const diagnostics: HookRegistryAnalysisDiagnostic[] = [];
 
-  for (const [roomId, record] of Object.entries(project.rooms).sort(([a], [b]) =>
-    a.localeCompare(b),
-  )) {
+  const roomIds = options.bootstrapOnly
+    ? []
+    : options.roomIds
+      ? [...new Set(options.roomIds)].sort()
+      : Object.keys(project.rooms).sort();
+  for (const roomId of roomIds) {
+    const record = project.rooms[roomId];
+    if (!record) continue;
     const room = parseRoomData(record.data);
     if (!room) continue;
     room.scriptHooks.forEach((mapping, index) => {
@@ -267,7 +282,10 @@ export function analyzeHookRegistry(project: AuthoringProject): HookRegistryAnal
     });
   }
 
-  const bootstrap = literalBootstrapRegistrations(project, diagnostics);
+  const bootstrapDiagnostics: HookRegistryAnalysisDiagnostic[] = [];
+  const bootstrap = literalBootstrapRegistrations(project, bootstrapDiagnostics);
+  if (options.roomIds === undefined || options.bootstrapOnly)
+    diagnostics.push(...bootstrapDiagnostics);
   registrations.push(...bootstrap.registrations);
 
   const groups = new Map<string, HookRegistryRegistration[]>();
@@ -279,6 +297,12 @@ export function analyzeHookRegistry(project: AuthoringProject): HookRegistryAnal
   }
   for (const group of groups.values()) {
     if (group.length < 2) continue;
+    if (
+      options.roomIds !== undefined &&
+      !options.bootstrapOnly &&
+      !group.some((registration) => registration.source === 'direct-definition')
+    )
+      continue;
     for (const registration of group) {
       diagnostics.push({
         severity: 'error',

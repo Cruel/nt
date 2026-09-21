@@ -106,6 +106,26 @@ export function parseAuthoringProject(value: unknown): AuthoringProject {
   return authoringProjectSchema.parse(value);
 }
 
+function cloneAuthoringValue<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((entry) => cloneAuthoringValue(entry)) as T;
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Readonly<Record<string, unknown>>).map(([key, entry]) => [
+      key,
+      cloneAuthoringValue(entry),
+    ]),
+  ) as T;
+}
+
+/**
+ * Clone the JSON-shaped authoring model without relying on the platform structured-clone
+ * algorithm. Resident Project generations may expose structurally shared record views that are
+ * intentionally not structured-cloneable; mutation callers still need an ordinary mutable value.
+ */
+export function cloneAuthoringProject(project: AuthoringProject): AuthoringProject {
+  return cloneAuthoringValue(project);
+}
+
 export function createAuthoringProject(
   options: CreateAuthoringProjectOptions = {},
 ): AuthoringProject {
