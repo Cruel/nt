@@ -18,8 +18,17 @@ import { CliCommandUsageError } from './errors';
 
 export { CliCommandUsageError } from './errors';
 
+export interface CliTerminalContext {
+  readonly stdin: boolean;
+  readonly stdout: boolean;
+  readonly stderr: boolean;
+  readonly columns: number | null;
+  readonly rows: number | null;
+}
+
 interface CliCommandContextBase {
   readonly cwd: string;
+  readonly terminal?: CliTerminalContext;
   readonly stdinJson?: unknown;
   readonly fileSystem: ProjectWorkspaceFileSystem;
   readonly nativeTools: NovelTeaCliNativeToolService;

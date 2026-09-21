@@ -650,6 +650,28 @@ type DaemonBrokerContext = Readonly<{
   runtimeRoot?: string;
 }>;
 
+function currentTerminalContext(): DaemonRequestContext['terminal'] {
+  let columns: number | null = null;
+  let rows: number | null = null;
+  if (process.stdout.isTTY === true) {
+    const size = JSON.parse(invokeHost('terminal-size', '')) as {
+      columns?: number | null;
+      rows?: number | null;
+    };
+    if (typeof size.columns === 'number' && Number.isSafeInteger(size.columns) && size.columns > 0)
+      columns = size.columns;
+    if (typeof size.rows === 'number' && Number.isSafeInteger(size.rows) && size.rows > 0)
+      rows = size.rows;
+  }
+  return {
+    stdin: process.stdin.isTTY === true,
+    stdout: process.stdout.isTTY === true,
+    stderr: process.stderr.isTTY === true,
+    columns,
+    rows,
+  };
+}
+
 function certificationPositiveInteger(name: string): number | undefined {
   if (process.env.NOVELTEA_CLI_CERTIFICATION !== '1') return undefined;
   const text = process.env[name];
@@ -666,7 +688,9 @@ function daemonBrokerContext(): DaemonBrokerContext {
     : undefined;
   return {
     build: suffix ? `${NOVELTEA_CLI_BUILD_IDENTITY}:cert:${suffix}` : NOVELTEA_CLI_BUILD_IDENTITY,
-    protocol: NOVELTEA_DAEMON_PROTOCOL_VERSION,
+    protocol:
+      certificationPositiveInteger('NOVELTEA_CLI_CERTIFICATION_DAEMON_PROTOCOL') ??
+      NOVELTEA_DAEMON_PROTOCOL_VERSION,
     daemonIdleMs: certificationPositiveInteger('NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS'),
     projectSessionIdleMs: certificationPositiveInteger(
       'NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS',
@@ -848,7 +872,7 @@ function hiddenDaemonBrokerInvocation(
   const projectSessionIdleMs = Number(projectSessionIdleText);
   if (
     build !== daemonBrokerContext().build ||
-    protocol !== NOVELTEA_DAEMON_PROTOCOL_VERSION ||
+    protocol !== daemonBrokerContext().protocol ||
     !Number.isSafeInteger(daemonIdleMs) ||
     daemonIdleMs <= 0 ||
     !Number.isSafeInteger(projectSessionIdleMs) ||
@@ -945,13 +969,7 @@ function daemonRequestContext(
     cwd: process.cwd(),
     environment: requestEnvironment(),
     stdinText: routing?.stdin === 'json' ? invokeHost('read-stdin', '') : null,
-    terminal: {
-      stdin: process.stdin.isTTY === true,
-      stdout: process.stdout.isTTY === true,
-      stderr: process.stderr.isTTY === true,
-      columns: null,
-      rows: null,
-    },
+    terminal: currentTerminalContext(),
     outputMode: argv.includes('--json') ? 'json' : 'human',
     replaySafe: routing?.replaySafe === true,
     streamedEvents: routing?.streamedEvents === true,
@@ -1073,6 +1091,7 @@ async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): 
           {
             cwd: payload.cwd,
             environment: payload.environment,
+            terminal: payload.terminal,
             residentProjectSessions: true,
             projectSessionIdleMs: invocation.projectSessionIdleMs,
             cancellationProbe: () => {
@@ -1271,6 +1290,7 @@ async function runLocalIsland(argv: readonly string[]): Promise<HostResult> {
       forceRuntimeCacheRebuild,
       authoringCacheInventoryHint,
       {
+        terminal: currentTerminalContext(),
         cancellationProbe: () => daemonNativeRequest('local-cancelled').cancelled === true,
       },
     );

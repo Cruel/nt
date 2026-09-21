@@ -1677,10 +1677,86 @@ async function daemonRssBytes(pid) {
   }
 }
 
+async function certifyDaemonBuildProtocolIsolation(tempRoot) {
+  const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), 'nt-daemon-isolation-'));
+  const common = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '10000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '10000',
+    NOVELTEA_CLI_TRACE: '1',
+  };
+  const buildA = {
+    ...common,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `isolation-a-${process.pid}`,
+  };
+  const buildB = {
+    ...common,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `isolation-b-${process.pid}`,
+  };
+  const protocolB = {
+    ...buildA,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_PROTOCOL: '2',
+  };
+  const environments = [buildA, buildB, protocolB];
+  try {
+    for (const environment of environments) runNative(['daemon', 'stop'], { env: environment });
+    for (const [label, environment] of [
+      ['build A', buildA],
+      ['build B', buildB],
+      ['protocol B', protocolB],
+    ]) {
+      const started = requireSuccess(
+        `daemon isolation ${label}`,
+        runNative(['--json', 'comfyui', 'workflows'], { cwd: tempRoot, env: environment }),
+      );
+      if (!started.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+        fail(`Daemon isolation ${label} did not route through its resident daemon.`);
+    }
+    const statusFor = (label, environment) => {
+      const status = requireSuccess(
+        `daemon isolation ${label} status`,
+        runNative(['--json', 'daemon', 'status'], { env: environment }),
+      );
+      const daemon = JSON.parse(status.stdout).daemon;
+      if (daemon.running !== true || daemon.state !== 'ready' || !Number.isSafeInteger(daemon.pid))
+        fail(`Daemon isolation ${label} did not report a ready daemon: ${status.stdout}`);
+      return daemon;
+    };
+    const a = statusFor('build A', buildA);
+    const b = statusFor('build B', buildB);
+    const p = statusFor('protocol B', protocolB);
+    if (new Set([a.pid, b.pid, p.pid]).size !== 3)
+      fail('Distinct daemon build/protocol identities did not coexist in separate processes.');
+    if (a.build === b.build || a.protocol !== 1 || p.protocol !== 2 || a.build !== p.build)
+      fail('Daemon build/protocol isolation identities were not established as intended.');
+
+    requireSuccess('daemon isolation stop build B', runNative(['daemon', 'stop'], { env: buildB }));
+    const aAfterBuildStop = statusFor('build A after build B stop', buildA);
+    const pAfterBuildStop = statusFor('protocol B after build B stop', protocolB);
+    if (aAfterBuildStop.pid !== a.pid || pAfterBuildStop.pid !== p.pid)
+      fail('Stopping one build identity disturbed another compatible daemon endpoint.');
+
+    requireSuccess(
+      'daemon isolation stop protocol B',
+      runNative(['daemon', 'stop'], { env: protocolB }),
+    );
+    const aAfterProtocolStop = statusFor('build A after protocol B stop', buildA);
+    if (aAfterProtocolStop.pid !== a.pid)
+      fail('Stopping one protocol identity disturbed the canonical protocol daemon.');
+    return true;
+  } finally {
+    for (const environment of environments) runNative(['daemon', 'stop'], { env: environment });
+    await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function certifyResidentDaemon(tempRoot, pristine) {
   const root = path.join(tempRoot, 'resident-daemon');
   const runtimeRoot = path.join(tempRoot, 'resident-daemon-runtime');
   await resetCase(pristine, root);
+  const buildProtocolIsolation = await certifyDaemonBuildProtocolIsolation(tempRoot);
   const daemonEnvironment = {
     ...process.env,
     NOVELTEA_CLI_CERTIFICATION: '1',
@@ -1803,15 +1879,88 @@ async function certifyResidentDaemon(tempRoot, pristine) {
       fail('Validation completed through neither the daemon nor the static exact path.');
   }
 
-  process.kill(readyPayload.pid);
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    try {
-      process.kill(readyPayload.pid, 0);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    } catch {
-      break;
-    }
+  const replayServer = await startComfyUiCertificationServer(tempRoot, 'first-system-stats-hangs');
+  try {
+    await writeFile(replayServer.logPath, '');
+    const replayInvocation = await runAsync(
+      nativeCli,
+      ['--json', 'comfyui', 'status', '--server', replayServer.url],
+      { cwd: root, env: traceEnvironment },
+    );
+    const replayResultPromise = replayInvocation.result();
+    await waitForComfyUiRequest(replayServer.logPath, '/system_stats');
+    process.kill(readyPayload.pid);
+    const replayResult = requireSuccess(
+      'daemon mid-request read-only replay',
+      await replayResultPromise,
+    );
+    if (
+      !replayResult.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
+      !replayResult.stderr.includes(
+        '[scriptc-host] daemon acceleration unavailable; using local island fallback',
+      )
+    )
+      fail('Read-only daemon crash did not replay through the canonical local fallback.');
+    const replayRequests = await readComfyUiRequests(replayServer.logPath);
+    if (replayRequests.filter((request) => request.path === '/system_stats').length !== 2)
+      fail('Read-only daemon crash did not produce exactly one replayed request.');
+  } finally {
+    await replayServer.stop();
   }
+
+  const unsafeWarmup = requireSuccess(
+    'daemon restart before unsafe crash certification',
+    runNative(['--json', 'comfyui', 'workflows'], { cwd: root, env: traceEnvironment }),
+  );
+  if (!unsafeWarmup.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail('Daemon did not restart before unsafe crash certification.');
+  const unsafeStatus = requireSuccess(
+    'daemon unsafe crash status',
+    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+  );
+  const unsafePayload = JSON.parse(unsafeStatus.stdout).daemon;
+  if (!Number.isSafeInteger(unsafePayload.pid) || unsafePayload.pid <= 0)
+    fail(`Unsafe crash certification did not expose a daemon pid: ${unsafeStatus.stdout}`);
+
+  const unsafeServer = await startComfyUiCertificationServer(tempRoot, 'never-complete');
+  try {
+    await writeFile(unsafeServer.logPath, '');
+    const unsafeInvocation = await runAsync(
+      nativeCli,
+      [
+        '--json',
+        'comfyui',
+        'run',
+        'flux2-klein-text-to-image',
+        '--server',
+        unsafeServer.url,
+        '--input',
+        'prompt=daemon crash no replay',
+        '--output',
+        `images=${path.join(tempRoot, 'daemon-crash-no-replay')}`,
+      ],
+      { cwd: root, env: traceEnvironment },
+    );
+    const unsafeResultPromise = unsafeInvocation.result();
+    await waitForComfyUiRequestPrefix(unsafeServer.logPath, '/history/');
+    process.kill(unsafePayload.pid);
+    const unsafeResult = await unsafeResultPromise;
+    if (unsafeResult.status !== 70)
+      fail(`Unsafe daemon crash exited ${unsafeResult.status}, expected DAEMON_EXECUTION exit 70.`);
+    if (
+      unsafeResult.stderr.includes('daemon acceleration unavailable; using local island fallback')
+    )
+      fail('Unsafe daemon request was blindly replayed after mid-request daemon death.');
+    const unsafeEnvelope = JSON.parse(unsafeResult.stdout);
+    if (!unsafeEnvelope.diagnostics?.some((item) => item.code === 'DAEMON_EXECUTION'))
+      fail(`Unsafe daemon crash did not report DAEMON_EXECUTION: ${unsafeResult.stdout}`);
+    const unsafeRequests = await readComfyUiRequests(unsafeServer.logPath);
+    if (unsafeRequests.filter((request) => request.path === '/prompt').length !== 1)
+      fail('Unsafe daemon crash duplicated the opaque ComfyUI prompt side effect.');
+  } finally {
+    await unsafeServer.stop();
+  }
+
   const restartedRead = requireSuccess(
     'daemon crash read-only restart',
     runNative(['--project', root, '--json', 'asset', 'audit'], {
@@ -1902,7 +2051,9 @@ async function certifyResidentDaemon(tempRoot, pristine) {
     platform: `${process.platform}/${process.arch}`,
     startupElection: true,
     secureEndpoint: true,
-    buildProtocolIsolation: true,
+    buildProtocolIsolation,
+    midRequestReadReplay: true,
+    midRequestUnsafeNoReplay: true,
     crashRestart: true,
     idleShutdown: true,
     projectSessionIdleEviction: true,

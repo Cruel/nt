@@ -23,6 +23,7 @@ import {
   type NovelTeaCliPlatformToolService,
 } from './platform-tool-service';
 import { CliCommandUsageError, parseCliCommand } from './commands';
+import type { CliTerminalContext } from './commands/types';
 import type { NovelTeaAgentKitPayload } from './agent-kit';
 import type { WorkflowLibraryServiceOptions } from '../main/services/comfyui-workflow-library-service';
 
@@ -81,6 +82,7 @@ export interface ResidentCliProjectWorkspace extends ProjectWorkspaceService {
 
 export interface RunNovelTeaCliOptions {
   readonly cwd?: string;
+  readonly terminal?: CliTerminalContext;
   readonly fileSystem?: ProjectWorkspaceFileSystem;
   readonly workspace?: ProjectWorkspaceService;
   readonly residentWorkspace?: ResidentCliProjectWorkspace;
@@ -452,6 +454,7 @@ export async function runNovelTeaCli(
         );
       const semantic = await command.run({
         cwd,
+        terminal: options.terminal,
         stdinJson,
         fileSystem: fileSystemService,
         preparation: prepared.preparation,
@@ -611,6 +614,7 @@ export async function runNovelTeaCli(
     try {
       semantic = await command.run({
         cwd,
+        terminal: options.terminal,
         stdinJson,
         fileSystem: services.fileSystem,
         workspace: activeWorkspace,

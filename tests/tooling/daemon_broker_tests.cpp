@@ -40,18 +40,16 @@ Json invoke_daemon(const Json& request)
                                    static_cast<std::size_t>(required)));
 }
 
-Json invoke_daemon_via_scriptc_adapter(const Json& request)
+Json invoke_scriptc_adapter(std::string_view operation, std::string_view request_text)
 {
-    const auto text = request.dump();
     const auto response_path =
         std::filesystem::temp_directory_path() /
         ("noveltea-daemon-scriptc-" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
-    const std::string operation = "daemon";
     const auto response_path_text = response_path.generic_string();
     noveltea_tooling_scriptc_invoke_to_file(
         reinterpret_cast<const std::uint8_t*>(operation.data()), operation.size(),
-        reinterpret_cast<const std::uint8_t*>(text.data()), text.size(),
+        reinterpret_cast<const std::uint8_t*>(request_text.data()), request_text.size(),
         reinterpret_cast<const std::uint8_t*>(response_path_text.data()),
         response_path_text.size());
     std::ifstream input(response_path, std::ios::binary);
@@ -60,6 +58,11 @@ Json invoke_daemon_via_scriptc_adapter(const Json& request)
     std::error_code error;
     std::filesystem::remove(response_path, error);
     return Json::parse(response);
+}
+
+Json invoke_daemon_via_scriptc_adapter(const Json& request)
+{
+    return invoke_scriptc_adapter("daemon", request.dump());
 }
 
 std::string unique_build(std::string_view suffix)
@@ -138,6 +141,17 @@ TEST_CASE("ScriptC daemon adapter executes stateful broker actions once")
     REQUIRE(invoke_daemon(request)["ok"] == true);
     request["action"] = "serve-wait";
     REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+
+TEST_CASE("ScriptC native adapter reports terminal dimensions when available")
+{
+    const auto terminal = invoke_scriptc_adapter("terminal-size", "");
+    REQUIRE(terminal.contains("columns"));
+    REQUIRE(terminal.contains("rows"));
+    if (!terminal["columns"].is_null())
+        CHECK(terminal["columns"].get<std::uint64_t>() > 0);
+    if (!terminal["rows"].is_null())
+        CHECK(terminal["rows"].get<std::uint64_t>() > 0);
 }
 
 TEST_CASE("daemon protocol event shapes preserve request identity")

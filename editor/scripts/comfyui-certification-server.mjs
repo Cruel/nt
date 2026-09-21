@@ -10,6 +10,7 @@ const png = Buffer.from(
 );
 const prompts = new Map();
 let promptCounter = 0;
+let systemStatsRequests = 0;
 
 const classes = [
   'CFGGuider',
@@ -69,7 +70,12 @@ const server = http.createServer(async (request, response) => {
     });
     response.setHeader('content-type', 'application/json');
     if (url.pathname === '/system_stats') {
-      if (mode === 'request-timeout') return;
+      systemStatsRequests += 1;
+      if (
+        mode === 'request-timeout' ||
+        (mode === 'first-system-stats-hangs' && systemStatsRequests === 1)
+      )
+        return;
       return response.end(JSON.stringify({ system: { comfyui_version: 'certification-1.0' } }));
     }
     if (url.pathname === '/queue' && request.method === 'GET')

@@ -46,6 +46,19 @@ if (bootstrap.complete) {
   const { runNovelTeaCli } = await import('../src/cli/application');
   const result = await runNovelTeaCli(arguments_, {
     readStdinText,
+    terminal: {
+      stdin: process.stdin.isTTY === true,
+      stdout: process.stdout.isTTY === true,
+      stderr: process.stderr.isTTY === true,
+      columns:
+        process.stdout.isTTY === true && typeof process.stdout.columns === 'number'
+          ? process.stdout.columns
+          : null,
+      rows:
+        process.stdout.isTTY === true && typeof process.stdout.rows === 'number'
+          ? process.stdout.rows
+          : null,
+    },
     ...(nativeTools ? { nativeTools } : {}),
     ...(platformTools ? { platformTools } : {}),
     onPlatformProgress: bootstrap.globals.json

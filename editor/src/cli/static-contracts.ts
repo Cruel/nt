@@ -4,7 +4,7 @@ export const NOVELTEA_CLI_VERSION = NOVELTEA_VERSION;
 export const NOVELTEA_CLI_BUILD_IDENTITY = NOVELTEA_BUILD_IDENTITY;
 export const NOVELTEA_CLI_JSON_PROTOCOL_VERSION = 1 as const;
 /** Private resident-daemon transport identity; independent from the public CLI JSON protocol. */
-export const NOVELTEA_DAEMON_PROTOCOL_VERSION = 2 as const;
+export const NOVELTEA_DAEMON_PROTOCOL_VERSION = 1 as const;
 
 export const NOVELTEA_CLI_HELP = `NovelTea headless CLI
 

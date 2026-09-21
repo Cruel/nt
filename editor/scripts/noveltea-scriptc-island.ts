@@ -172,6 +172,7 @@ async function runInternalCommand(
 export interface ScriptcInvocationContext {
   readonly cwd?: string;
   readonly environment?: Readonly<Record<string, string>>;
+  readonly terminal?: import('../src/cli/commands/types').CliTerminalContext;
   readonly cancellationProbe?: () => boolean;
   readonly residentProjectSessions?: boolean;
   readonly projectSessionIdleMs?: number;
@@ -393,6 +394,7 @@ async function runNovelTeaScriptcIslandScoped(
     trace('application invocation starting');
     const commandResult = await runNovelTeaCli(effectiveArgv, {
       ...(invocationContext.cwd ? { cwd: invocationContext.cwd } : {}),
+      ...(invocationContext.terminal ? { terminal: invocationContext.terminal } : {}),
       ...(fileSystem ? { fileSystem } : {}),
       ...(workspace ? { workspace } : {}),
       ...(invocationContext.residentProjectSessions && residentWorkspace

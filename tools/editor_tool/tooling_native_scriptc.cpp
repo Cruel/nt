@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -18,6 +19,7 @@
 #include <io.h>
 #include <windows.h>
 #else
+#include <sys/ioctl.h>
 #include <unistd.h>
 #endif
 
@@ -27,6 +29,31 @@ using NativeOperation = std::uint64_t (*)(const std::uint8_t*, std::uint64_t, st
                                           std::uint64_t);
 
 constexpr std::size_t native_response_headroom = 64 * 1024;
+
+std::uint64_t terminal_size_json(const std::uint8_t*, std::uint64_t, std::uint8_t* response,
+                                 std::uint64_t response_capacity)
+{
+    nlohmann::json result = {{"columns", nullptr}, {"rows", nullptr}};
+#if defined(_WIN32)
+    CONSOLE_SCREEN_BUFFER_INFO info{};
+    const auto output = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (output != INVALID_HANDLE_VALUE && output != nullptr && GetConsoleScreenBufferInfo(output, &info)) {
+        result["columns"] = static_cast<std::uint64_t>(info.srWindow.Right - info.srWindow.Left + 1);
+        result["rows"] = static_cast<std::uint64_t>(info.srWindow.Bottom - info.srWindow.Top + 1);
+    }
+#else
+    winsize size{};
+    if (::ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_col > 0 && size.ws_row > 0) {
+        result["columns"] = static_cast<std::uint64_t>(size.ws_col);
+        result["rows"] = static_cast<std::uint64_t>(size.ws_row);
+    }
+#endif
+    const auto text = result.dump();
+    const auto required = static_cast<std::uint64_t>(text.size());
+    if (response != nullptr && response_capacity >= required && required != 0)
+        std::memcpy(response, text.data(), text.size());
+    return required;
+}
 
 std::size_t response_capacity(std::uint64_t required)
 {
@@ -72,6 +99,8 @@ NativeOperation operation_for(std::string_view operation)
         return &noveltea_tooling_create_archive_json;
     if (operation == "daemon")
         return &noveltea_tooling_daemon_json;
+    if (operation == "terminal-size")
+        return &terminal_size_json;
     return nullptr;
 }
 
