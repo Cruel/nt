@@ -77,6 +77,20 @@ struct ProjectAuthorityStatus {
     std::vector<std::string> pending_paths;
 };
 
+/**
+ * Native physical-authority baseline associated with one portable Project generation.
+ *
+ * The checkpoint intentionally contains only native source-discovery/proof state. It is retained
+ * separately from opaque serialized Project bytes so crash recovery can compare current disk state
+ * against the exact physical baseline that produced a retained semantic generation.
+ */
+struct ProjectAuthorityCheckpoint {
+    std::filesystem::path canonical_root;
+    std::vector<std::string> authoritative_paths;
+    std::vector<ProjectSourceDiscoveryScope> discovery_scopes;
+    ProjectSourceManifest manifest;
+};
+
 struct ProjectAuthorityOptions {
     bool enable_native_watcher = true;
     std::function<std::optional<std::uint64_t>(const std::filesystem::path&)> mtime_reader;
@@ -106,6 +120,17 @@ public:
     [[nodiscard]] ProjectObservation observe(const ProjectAuthorityRequest& request);
     [[nodiscard]] std::optional<ProjectAuthorityStatus>
     status(const std::filesystem::path& project_root) const;
+    [[nodiscard]] std::optional<ProjectAuthorityCheckpoint>
+    checkpoint(const std::filesystem::path& project_root) const;
+
+    /**
+     * Replace retained native authority with the exact baseline associated with a portable
+     * generation and leave it dormant/unknown. The next observation recreates watcher coverage and
+     * performs a complete proof against this baseline, recovering deltas already consumed by a
+     * crashed owner after the snapshot was prepared.
+     */
+    [[nodiscard]] bool
+    restore_checkpoint_for_rehydration(const ProjectAuthorityCheckpoint& checkpoint);
 
     // Deterministic adapter seams for watcher delivery/failure tests. Unknown notification also
     // drops active native watcher coverage so recovery must recreate it before proving current.
@@ -113,6 +138,9 @@ public:
                              bool directory);
     void notify_watcher_unknown(const std::filesystem::path& project_root);
 
+    /** Stop native watcher coverage while retaining the last manifest/configuration for
+     * rehydration. */
+    [[nodiscard]] bool suspend(const std::filesystem::path& project_root);
     [[nodiscard]] bool release(const std::filesystem::path& project_root);
     [[nodiscard]] std::size_t tracked_project_count() const;
 

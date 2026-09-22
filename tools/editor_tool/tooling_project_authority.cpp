@@ -1239,6 +1239,81 @@ ProjectAuthorityManager::status(const std::filesystem::path& project_root) const
     };
 }
 
+std::optional<ProjectAuthorityCheckpoint>
+ProjectAuthorityManager::checkpoint(const std::filesystem::path& project_root) const
+{
+    const auto entry = impl_->find_entry(project_root);
+    if (!entry)
+        return std::nullopt;
+    std::scoped_lock lock(entry->mutex);
+    if (entry->released || !entry->configured || entry->state != ProjectAuthorityState::proven ||
+        !entry->manifest)
+        return std::nullopt;
+    return ProjectAuthorityCheckpoint{
+        .canonical_root = entry->canonical_root,
+        .authoritative_paths = entry->config.authoritative_paths,
+        .discovery_scopes = entry->config.discovery_scopes,
+        .manifest = *entry->manifest,
+    };
+}
+
+bool ProjectAuthorityManager::restore_checkpoint_for_rehydration(
+    const ProjectAuthorityCheckpoint& checkpoint)
+{
+    fs::path canonical_root;
+    NormalizedConfig config;
+    try {
+        canonical_root = canonical_project_root(checkpoint.canonical_root);
+        if (checkpoint.manifest.canonical_root != path_utf8(canonical_root))
+            return false;
+        config = normalize_config(ProjectAuthorityRequest{
+            .project_root = canonical_root,
+            .authoritative_paths = checkpoint.authoritative_paths,
+            .discovery_scopes = checkpoint.discovery_scopes,
+        });
+    } catch (...) {
+        return false;
+    }
+
+    const auto key = path_utf8(canonical_root);
+    std::shared_ptr<Impl::Entry> entry;
+    {
+        std::scoped_lock lock(impl_->entries_mutex);
+        auto [found, inserted] =
+            impl_->entries.try_emplace(key, std::make_shared<Impl::Entry>(canonical_root));
+        (void)inserted;
+        entry = found->second;
+    }
+
+    std::unique_ptr<NativeProjectWatcher> watcher;
+    {
+        std::scoped_lock lock(entry->mutex);
+        if (entry->released)
+            return false;
+        watcher = std::move(entry->watcher);
+    }
+    // Recovery runs on the broker thread after the owner is no longer allowed to observe this
+    // Project. Stop/join any watcher from the crashed owner's newer authority state before
+    // installing the snapshot-specific baseline, so no late callback can contaminate it.
+    watcher.reset();
+
+    {
+        std::scoped_lock lock(entry->mutex);
+        if (entry->released)
+            return false;
+        entry->config = std::move(config);
+        entry->configured = true;
+        entry->state = ProjectAuthorityState::unknown;
+        entry->manifest = checkpoint.manifest;
+        entry->pending_paths.clear();
+        entry->watcher_attempted = false;
+        entry->watcher_rebuild_required = false;
+        ++entry->watcher_epoch;
+        ++entry->manifest_revision;
+    }
+    return true;
+}
+
 void ProjectAuthorityManager::notify_path_changed(const std::filesystem::path& project_root,
                                                   std::string relative_path, bool directory)
 {
@@ -1260,6 +1335,29 @@ void ProjectAuthorityManager::notify_watcher_unknown(const std::filesystem::path
         }
         watcher.reset();
     }
+}
+
+bool ProjectAuthorityManager::suspend(const std::filesystem::path& project_root)
+{
+    const auto entry = impl_->find_entry(project_root);
+    if (!entry)
+        return false;
+    std::unique_ptr<NativeProjectWatcher> watcher;
+    {
+        std::scoped_lock lock(entry->mutex);
+        if (entry->released)
+            return false;
+        entry->state = ProjectAuthorityState::unknown;
+        entry->pending_paths.clear();
+        entry->watcher_rebuild_required = false;
+        entry->watcher_attempted = false;
+        ++entry->watcher_epoch;
+        watcher = std::move(entry->watcher);
+    }
+    // Dormant retained authority is deliberately unwatched. The next observation recreates watcher
+    // coverage before its full proof, so filesystem changes while no owner exists cannot be missed.
+    watcher.reset();
+    return true;
 }
 
 bool ProjectAuthorityManager::release(const std::filesystem::path& project_root)

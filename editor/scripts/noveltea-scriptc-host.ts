@@ -658,7 +658,24 @@ type DaemonNativeResponse = Readonly<{
   }>;
   manifest?: Readonly<{
     canonicalRoot?: string;
+    entries?: readonly Readonly<{
+      path?: string;
+      sourceIdentity?: string;
+      byteSize?: number;
+      mtimeNanoseconds?: string | null;
+      contentHash?: string | null;
+    }>[];
   }>;
+  found?: boolean;
+  canonicalRoot?: string;
+  coldSessionEpoch?: number;
+  sessionEpoch?: number;
+  generation?: number;
+  chunkCount?: number;
+  ownerMetadata?: string;
+  chunk?: string;
+  snapshotCount?: number;
+  snapshotBytes?: number;
 }>;
 
 type DaemonStatusCore = Readonly<{
@@ -997,6 +1014,11 @@ function hiddenDaemonPayloadNativeRequest(
     ownerWorkerId?: number;
     advanced?: boolean;
     event?: Readonly<Record<string, unknown>>;
+    sessionEpoch?: number;
+    generation?: number;
+    ownerMetadata?: string;
+    chunk?: string;
+    index?: number;
   }>,
 ): DaemonNativeResponse {
   return JSON.parse(
@@ -1017,6 +1039,11 @@ function hiddenDaemonPayloadNativeRequest(
         ownerWorkerId: payload.ownerWorkerId,
         advanced: payload.advanced,
         event: payload.event,
+        sessionEpoch: payload.sessionEpoch,
+        generation: payload.generation,
+        ownerMetadata: payload.ownerMetadata,
+        chunk: payload.chunk,
+        index: payload.index,
       }),
     ),
   ) as DaemonNativeResponse;
@@ -1275,7 +1302,16 @@ function requestInvokeHost(
       let responseForIsland: unknown = response;
       if (operation === 'daemon-project-observe') {
         const manifest = response.manifest;
-        if (manifest)
+        if (manifest) {
+          const externalPaths =
+            request.includeManifestEntries === true
+              ? new Set(
+                  (payload?.authoritativePaths ?? []).filter(
+                    (path) =>
+                      path !== 'project.json' && path !== 'editor.json' && path !== 'traits.json',
+                  ),
+                )
+              : null;
           responseForIsland = {
             ok: response.ok,
             authority: response.authority,
@@ -1286,11 +1322,84 @@ function requestInvokeHost(
             delta: response.delta,
             manifest: {
               canonicalRoot: manifest.canonicalRoot,
-              entries: [],
+              entries: externalPaths
+                ? (manifest.entries ?? []).filter(
+                    (entry) => typeof entry.path === 'string' && externalPaths.has(entry.path),
+                  )
+                : [],
             },
           };
+        }
       }
       return JSON.stringify(responseForIsland);
+    }
+    if (operation === 'daemon-project-generation') {
+      if (!ownerWorkerId)
+        throw new Error(
+          'Resident Project generation announcements require a dedicated Project owner.',
+        );
+      const parsed = requestText === '' ? {} : (JSON.parse(requestText) as unknown);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw new Error('Resident Project generation announcement is malformed.');
+      const request = parsed as Readonly<Record<string, unknown>>;
+      if (
+        !Number.isSafeInteger(request.sessionEpoch) ||
+        (request.sessionEpoch as number) <= 0 ||
+        !Number.isSafeInteger(request.generation) ||
+        (request.generation as number) <= 0
+      )
+        throw new Error('Resident Project generation identity is malformed.');
+      const response = hiddenDaemonPayloadNativeRequest('owner-project-generation', invocation, {
+        ownerWorkerId,
+        sessionEpoch: request.sessionEpoch as number,
+        generation: request.generation as number,
+      });
+      if (response.ok !== true)
+        throw new Error(response.error ?? 'Resident Project generation announcement failed.');
+      return JSON.stringify(response);
+    }
+    if (
+      operation === 'daemon-project-snapshot-begin' ||
+      operation === 'daemon-project-snapshot-chunk' ||
+      operation === 'daemon-project-snapshot-commit'
+    ) {
+      if (!ownerWorkerId)
+        throw new Error('Portable Project snapshots require a dedicated Project owner.');
+      const parsed = requestText === '' ? {} : (JSON.parse(requestText) as unknown);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw new Error('Portable Project snapshot request is malformed.');
+      const request = parsed as Readonly<Record<string, unknown>>;
+      let response: DaemonNativeResponse;
+      if (operation === 'daemon-project-snapshot-begin') {
+        if (
+          !Number.isSafeInteger(request.sessionEpoch) ||
+          (request.sessionEpoch as number) <= 0 ||
+          !Number.isSafeInteger(request.generation) ||
+          (request.generation as number) <= 0 ||
+          typeof request.ownerMetadata !== 'string'
+        )
+          throw new Error('Portable Project snapshot identity is malformed.');
+        response = hiddenDaemonPayloadNativeRequest('owner-snapshot-begin', invocation, {
+          ownerWorkerId,
+          sessionEpoch: request.sessionEpoch as number,
+          generation: request.generation as number,
+          ownerMetadata: request.ownerMetadata,
+        });
+      } else if (operation === 'daemon-project-snapshot-chunk') {
+        if (typeof request.chunk !== 'string' || request.chunk.length === 0)
+          throw new Error('Portable Project snapshot chunk is malformed.');
+        response = hiddenDaemonPayloadNativeRequest('owner-snapshot-chunk', invocation, {
+          ownerWorkerId,
+          chunk: request.chunk,
+        });
+      } else {
+        response = hiddenDaemonPayloadNativeRequest('owner-snapshot-commit', invocation, {
+          ownerWorkerId,
+        });
+      }
+      if (response.ok !== true)
+        throw new Error(response.error ?? 'Portable Project snapshot operation failed.');
+      return JSON.stringify(response);
     }
     if (operation === 'emit-progress') {
       if (!context.streamedEvents || context.outputMode === 'json') return '';
@@ -1411,14 +1520,75 @@ async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): 
   }
 }
 
+function ownerProjectStartupState(invocation: HiddenDaemonOwnerInvocation): Readonly<{
+  coldSessionEpoch: number;
+  retainedSnapshot?: Readonly<{
+    projectRoot: string;
+    snapshotText: string;
+    ownerMetadataText: string;
+  }>;
+}> {
+  const descriptor = hiddenDaemonPayloadNativeRequest('owner-snapshot-describe', invocation, {
+    ownerWorkerId: invocation.ownerWorkerId,
+  });
+  if (descriptor.ok !== true)
+    throw new Error(descriptor.error ?? 'Failed to inspect retained portable Project snapshot.');
+  if (
+    !Number.isSafeInteger(descriptor.coldSessionEpoch) ||
+    (descriptor.coldSessionEpoch as number) <= 0
+  )
+    throw new Error('Portable Project owner cold session epoch is malformed.');
+  const coldSessionEpoch = descriptor.coldSessionEpoch as number;
+  if (descriptor.found !== true) return { coldSessionEpoch };
+  if (
+    typeof descriptor.canonicalRoot !== 'string' ||
+    descriptor.canonicalRoot.length === 0 ||
+    !Number.isSafeInteger(descriptor.sessionEpoch) ||
+    (descriptor.sessionEpoch as number) <= 0 ||
+    !Number.isSafeInteger(descriptor.generation) ||
+    (descriptor.generation as number) <= 0 ||
+    !Number.isSafeInteger(descriptor.chunkCount) ||
+    (descriptor.chunkCount as number) <= 0 ||
+    typeof descriptor.ownerMetadata !== 'string'
+  )
+    throw new Error('Retained portable Project snapshot descriptor is malformed.');
+  const chunks: string[] = [];
+  for (let index = 0; index < (descriptor.chunkCount as number); index += 1) {
+    const response = hiddenDaemonPayloadNativeRequest('owner-snapshot-read', invocation, {
+      ownerWorkerId: invocation.ownerWorkerId,
+      sessionEpoch: descriptor.sessionEpoch as number,
+      generation: descriptor.generation as number,
+      index,
+    });
+    if (response.ok !== true || typeof response.chunk !== 'string')
+      throw new Error(response.error ?? 'Failed to read retained portable Project snapshot.');
+    chunks.push(response.chunk);
+  }
+  return {
+    coldSessionEpoch,
+    retainedSnapshot: {
+      projectRoot: descriptor.canonicalRoot,
+      snapshotText: chunks.join(''),
+      ownerMetadataText: descriptor.ownerMetadata,
+    },
+  };
+}
+
 async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Promise<number> {
   trace(`daemon Project owner ${String(invocation.ownerWorkerId)} QuickJS initialization starting`);
   // @ts-expect-error The private island package is materialized only during release staging.
   const island = await import('noveltea-scriptc-island');
-  const { runNovelTeaScriptcIsland, reconcileNovelTeaResidentProjects } = island;
+  const {
+    runNovelTeaScriptcIsland,
+    reconcileNovelTeaResidentProjects,
+    prepareNovelTeaResidentProjectSnapshots,
+    novelTeaResidentProjectSessionCount,
+  } = island;
   trace(
     `daemon Project owner ${String(invocation.ownerWorkerId)} QuickJS initialization completed`,
   );
+  const startupState = ownerProjectStartupState(invocation);
+  let retainedSnapshotPending = startupState.retainedSnapshot;
   for (;;) {
     const next = hiddenDaemonPayloadNativeRequest('owner-next', invocation, {
       ownerWorkerId: invocation.ownerWorkerId,
@@ -1444,6 +1614,15 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
           });
         }
       }
+      try {
+        const prepared = await prepareNovelTeaResidentProjectSnapshots();
+        if (prepared > 0)
+          trace(`daemon Project owner prepared ${String(prepared)} portable snapshot(s)`);
+      } catch (error) {
+        trace(
+          `daemon Project owner snapshot maintenance failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       continue;
     }
     const token = next.token;
@@ -1465,6 +1644,7 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
       continue;
     }
     try {
+      const residentProjectSnapshot = retainedSnapshotPending;
       const output: RequestOutputCapture = { stdout: '', stderr: '' };
       const responseText = await runNovelTeaScriptcIsland(
         JSON.stringify(payload.argv),
@@ -1476,6 +1656,8 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
           environment: payload.environment,
           terminal: payload.terminal,
           residentProjectSessions: true,
+          residentProjectSessionEpoch: startupState.coldSessionEpoch,
+          ...(residentProjectSnapshot ? { residentProjectSnapshot } : {}),
           cancellationProbe: () => {
             const status = hiddenDaemonPayloadNativeRequest('owner-cancelled', invocation, {
               ownerWorkerId: invocation.ownerWorkerId,
@@ -1485,6 +1667,7 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
           },
         },
       );
+      if (novelTeaResidentProjectSessionCount() > 0) retainedSnapshotPending = undefined;
       const response = JSON.parse(responseText) as HostResult;
       const completed: HostResult = [
         response[0],

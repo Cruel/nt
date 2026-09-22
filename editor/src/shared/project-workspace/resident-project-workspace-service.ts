@@ -7,6 +7,7 @@ import {
 import { readReusableAuthoringContributions } from '../authoring-cache';
 import { parseAssetData } from '../project-schema/authoring-assets';
 import type { AuthoringProject } from '../project-schema/authoring-project';
+import type { EditorProjectState } from '../project-schema/editor-project-state';
 import { sha256PrefixedBytes } from '../web-crypto';
 import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
 import {
@@ -35,6 +36,8 @@ export interface ResidentProjectAuthorityRequest {
   readonly authoritativePaths?: readonly string[];
   /** Present together with authoritativePaths; omitted for ordinary observations. */
   readonly discoveryScopes?: readonly ProjectSourceDiscoveryScope[];
+  /** Snapshot preparation may request retained native metadata for external Asset payloads. */
+  readonly includeManifestEntries?: boolean;
 }
 
 export interface ResidentProjectAuthorityObservation {
@@ -183,6 +186,37 @@ async function captureResidentAuthority(
 type SuccessfulOpen = Extract<ProjectWorkspaceOpenResult, { ok: true }>;
 type ProjectWorkspaceWriteResult = Awaited<ReturnType<ProjectWorkspaceService['write']>>;
 
+const PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION = 1 as const;
+
+type PortableResidentProjectSnapshot = Readonly<{
+  version: typeof PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION;
+  identity: ResidentProjectGenerationIdentity;
+  snapshot: LoadedProjectWorkspaceSnapshot;
+  editorState: EditorProjectState;
+  sourceContributions: SuccessfulOpen['sourceContributions'];
+  validationContributions: SuccessfulOpen['validationContributions'];
+  externalAssets: readonly Readonly<{
+    path: string;
+    sourceIdentity?: string;
+    byteSize?: number;
+    mtimeNanoseconds?: string | null;
+    contentHash?: string | null;
+  }>[];
+}>;
+
+type PortableResidentProjectOwnerMetadata = Readonly<{
+  version: typeof PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION;
+  canonicalRoot: string;
+  nativeAssetSourcePaths: readonly string[];
+}>;
+
+export interface PreparedPortableResidentProjectSnapshot {
+  readonly projectRoot: string;
+  readonly identity: ResidentProjectGenerationIdentity;
+  readonly snapshotText: string;
+  readonly ownerMetadataText: string;
+}
+
 type ResidentEntry = {
   readonly canonicalRoot: string;
   readonly session: ResidentProjectWorkspaceSession;
@@ -191,6 +225,7 @@ type ResidentEntry = {
   pendingNativeStructuralChange: boolean;
   nativeAssetSourcePaths: readonly string[];
   lastUsedAtMilliseconds: number;
+  portableSnapshot: PreparedPortableResidentProjectSnapshot | null;
 };
 
 type SnapshotBinding = Readonly<{
@@ -264,8 +299,14 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       fileSystem,
     ) => new ProjectWorkspaceService(fileSystem),
     private readonly nativeAuthority?: ResidentProjectAuthority,
+    private readonly residentSessionEpoch?: number,
   ) {
     super(residentFileSystem);
+    if (
+      residentSessionEpoch !== undefined &&
+      (!Number.isSafeInteger(residentSessionEpoch) || residentSessionEpoch <= 0)
+    )
+      throw new Error('Resident Project session epoch must be a positive safe integer.');
   }
 
   private captureInventory(
@@ -277,18 +318,25 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
   private authorityRequest(
     canonicalRoot: string,
     nativeAssetSourcePaths?: readonly string[],
+    includeManifestEntries = false,
   ): ResidentProjectAuthorityRequest {
-    if (!nativeAssetSourcePaths) return { projectRoot: canonicalRoot };
+    if (!nativeAssetSourcePaths)
+      return {
+        projectRoot: canonicalRoot,
+        ...(includeManifestEntries ? { includeManifestEntries: true } : {}),
+      };
     return {
       projectRoot: canonicalRoot,
       authoritativePaths: ['project.json', 'editor.json', 'traits.json', ...nativeAssetSourcePaths],
       discoveryScopes: residentDiscoveryScopes,
+      ...(includeManifestEntries ? { includeManifestEntries: true } : {}),
     };
   }
 
   private async observeNativeAuthority(
     canonicalRoot: string,
     nativeAssetSourcePaths: readonly string[],
+    includeManifestEntries = false,
   ): Promise<ResidentProjectAuthorityObservation> {
     if (!this.nativeAuthority)
       throw new Error('Native Project authority is unavailable for resident reconciliation.');
@@ -298,6 +346,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         this.authorityRequest(
           canonicalRoot,
           installed === nativeAssetSourcePaths ? undefined : nativeAssetSourcePaths,
+          includeManifestEntries,
         ),
       );
       this.installedNativeAssetPaths.set(canonicalRoot, nativeAssetSourcePaths);
@@ -314,9 +363,28 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     observation: ResidentProjectAuthorityObservation,
   ): ReturnType<typeof semanticObservationDelta> {
     const delta = semanticObservationDelta(observation);
+    const assetPaths = new Set(entry.nativeAssetSourcePaths);
+    const externalAssetChanged = [
+      ...observation.delta.added,
+      ...observation.delta.changed,
+      ...observation.delta.removed,
+    ].some((path) => assetPaths.has(path));
+    if (externalAssetChanged) entry.portableSnapshot = null;
     delta.paths.forEach((path) => entry.pendingNativeSemanticPaths.add(path));
     entry.pendingNativeStructuralChange ||= delta.structural;
     return delta;
+  }
+
+  private nativeObservationChangesExternalAsset(
+    entry: ResidentEntry,
+    observation: ResidentProjectAuthorityObservation,
+  ): boolean {
+    const assetPaths = new Set(entry.nativeAssetSourcePaths);
+    return [
+      ...observation.delta.added,
+      ...observation.delta.changed,
+      ...observation.delta.removed,
+    ].some((path) => assetPaths.has(path));
   }
 
   private bindSnapshot(entry: ResidentEntry, snapshot: LoadedProjectWorkspaceSnapshot): void {
@@ -407,10 +475,16 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           };
           continue;
         }
-        const session = ResidentProjectWorkspaceSession.fromOpenedWithHost(opened, {
-          fileSystem: this.residentFileSystem,
-          createWorkspaceService: this.createSessionWorkspace,
-        });
+        const session = ResidentProjectWorkspaceSession.fromOpenedWithHost(
+          opened,
+          {
+            fileSystem: this.residentFileSystem,
+            createWorkspaceService: this.createSessionWorkspace,
+          },
+          this.residentSessionEpoch === undefined
+            ? undefined
+            : { sessionEpoch: this.residentSessionEpoch, generation: 1 },
+        );
         const entry: ResidentEntry = {
           canonicalRoot,
           session,
@@ -419,6 +493,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           pendingNativeStructuralChange: false,
           nativeAssetSourcePaths,
           lastUsedAtMilliseconds: Date.now(),
+          portableSnapshot: null,
         };
         this.sessions.set(canonicalRoot, entry);
         this.bindSnapshot(entry, opened.snapshot);
@@ -450,10 +525,16 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       if (!opened.ok) return opened;
       const authority = await captureResidentAuthority(this.residentFileSystem, opened.snapshot);
       if (!authority) continue;
-      const session = ResidentProjectWorkspaceSession.fromOpenedWithHost(opened, {
-        fileSystem: this.residentFileSystem,
-        createWorkspaceService: this.createSessionWorkspace,
-      });
+      const session = ResidentProjectWorkspaceSession.fromOpenedWithHost(
+        opened,
+        {
+          fileSystem: this.residentFileSystem,
+          createWorkspaceService: this.createSessionWorkspace,
+        },
+        this.residentSessionEpoch === undefined
+          ? undefined
+          : { sessionEpoch: this.residentSessionEpoch, generation: 1 },
+      );
       await session.captureAuthoringFileStamps();
       const entry: ResidentEntry = {
         canonicalRoot,
@@ -463,6 +544,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         pendingNativeStructuralChange: false,
         nativeAssetSourcePaths: Object.freeze([]),
         lastUsedAtMilliseconds: Date.now(),
+        portableSnapshot: null,
       };
       this.sessions.set(canonicalRoot, entry);
       this.bindSnapshot(entry, opened.snapshot);
@@ -513,10 +595,22 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     );
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
+      const externalAssetChanged = this.nativeObservationChangesExternalAsset(entry, observation);
       const delta = this.recordNativeObservation(entry, observation);
       delta.paths.forEach((path) => pendingPaths.add(path));
       structural ||= delta.structural;
-      if (pendingPaths.size === 0 && !structural) return current;
+      if (pendingPaths.size === 0 && !structural) {
+        if (externalAssetChanged) {
+          const advanced = entry.session.advanceAuthorityGeneration();
+          if (!advanced)
+            throw new Error(
+              'Resident Project generation disappeared during Asset authority advance.',
+            );
+          this.bindSnapshot(entry, advanced.snapshot);
+          return advanced;
+        }
+        return current;
+      }
 
       const changedSources = [...pendingPaths].sort();
       let candidate: ProjectWorkspaceOpenResult | null = null;
@@ -1037,6 +1131,214 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
 
   residentSessionCount(): number {
     return this.sessions.size;
+  }
+
+  async residentGenerationIdentity(
+    projectRoot: string,
+  ): Promise<ResidentProjectGenerationIdentity | null> {
+    const canonicalRoot = await this.canonicalProjectRoot(
+      this.residentFileSystem.resolvePath(projectRoot),
+    );
+    const entry = canonicalRoot ? this.sessions.get(canonicalRoot) : undefined;
+    return entry?.session.generationIdentity() ?? null;
+  }
+
+  residentGenerationIdentities(): readonly Readonly<{
+    projectRoot: string;
+    identity: ResidentProjectGenerationIdentity;
+  }>[] {
+    return [...this.sessions.values()].map((entry) => ({
+      projectRoot: entry.canonicalRoot,
+      identity: entry.session.generationIdentity(),
+    }));
+  }
+
+  async preparePortableSnapshot(
+    projectRoot: string,
+  ): Promise<PreparedPortableResidentProjectSnapshot | null> {
+    const canonicalRoot = await this.canonicalProjectRoot(
+      this.residentFileSystem.resolvePath(projectRoot),
+    );
+    const entry = canonicalRoot ? this.sessions.get(canonicalRoot) : undefined;
+    if (!entry || entry.session.coherenceState() !== 'coherent') return null;
+    return entry.session.runExclusive(async () => {
+      let opened = entry.session.openedGeneration();
+      if (!opened) return null;
+
+      let externalAssets: PortableResidentProjectSnapshot['externalAssets'] = [];
+      if (this.nativeAuthority) {
+        let proof = await this.observeNativeAuthority(
+          entry.canonicalRoot,
+          entry.nativeAssetSourcePaths,
+          true,
+        );
+        let externalAssetChanged = this.nativeObservationChangesExternalAsset(entry, proof);
+        const delta = this.recordNativeObservation(entry, proof);
+        if (
+          delta.paths.length > 0 ||
+          entry.pendingNativeSemanticPaths.size > 0 ||
+          entry.pendingNativeStructuralChange
+        ) {
+          const reconciled = await this.reconcileNative(entry, opened, {});
+          if (!reconciled.ok || entry.session.coherenceState() !== 'coherent') return null;
+          opened = reconciled;
+
+          // Snapshot maintenance may be the operation that first consumed a watcher delta. Reprove
+          // after reconciling that pending state so the serialized semantic generation and the
+          // separately retained native authority checkpoint describe the same physical baseline.
+          proof = await this.observeNativeAuthority(
+            entry.canonicalRoot,
+            entry.nativeAssetSourcePaths,
+            true,
+          );
+          externalAssetChanged = this.nativeObservationChangesExternalAsset(entry, proof);
+          const postReconcileDelta = this.recordNativeObservation(entry, proof);
+          if (
+            postReconcileDelta.paths.length > 0 ||
+            entry.pendingNativeSemanticPaths.size > 0 ||
+            entry.pendingNativeStructuralChange
+          )
+            return null;
+        }
+        if (externalAssetChanged) {
+          const advanced = entry.session.advanceAuthorityGeneration();
+          if (!advanced) return null;
+          opened = advanced;
+        }
+        const assetPaths = new Set(entry.nativeAssetSourcePaths);
+        externalAssets = Object.freeze(
+          proof.manifest.entries.filter((candidate) => assetPaths.has(candidate.path)),
+        );
+      } else if (entry.authority) {
+        const assetPaths = new Set(assetSourcePaths(opened.snapshot.project));
+        externalAssets = Object.freeze(
+          entry.authority.entries
+            .filter((candidate) => assetPaths.has(candidate.path))
+            .map((candidate) => ({
+              path: candidate.path,
+              byteSize: candidate.byteSize,
+              mtimeNanoseconds:
+                candidate.mtimeNanoseconds === null
+                  ? null
+                  : (candidate.mtimeNanoseconds?.toString() ?? null),
+            })),
+        );
+      }
+
+      const identity = entry.session.generationIdentity();
+      if (
+        entry.portableSnapshot?.identity.sessionEpoch === identity.sessionEpoch &&
+        entry.portableSnapshot.identity.generation === identity.generation
+      )
+        return entry.portableSnapshot;
+
+      const snapshot: PortableResidentProjectSnapshot = {
+        version: PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION,
+        identity,
+        snapshot: opened.snapshot,
+        editorState: opened.editorState,
+        sourceContributions: opened.sourceContributions,
+        validationContributions: opened.validationContributions,
+        externalAssets,
+      };
+      const ownerMetadata: PortableResidentProjectOwnerMetadata = {
+        version: PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION,
+        canonicalRoot: entry.canonicalRoot,
+        nativeAssetSourcePaths: entry.nativeAssetSourcePaths,
+      };
+      const prepared = Object.freeze({
+        projectRoot: entry.canonicalRoot,
+        identity,
+        snapshotText: JSON.stringify(snapshot),
+        ownerMetadataText: JSON.stringify(ownerMetadata),
+      });
+      entry.portableSnapshot = prepared;
+      return prepared;
+    });
+  }
+
+  async preparePortableSnapshots(): Promise<readonly PreparedPortableResidentProjectSnapshot[]> {
+    const prepared: PreparedPortableResidentProjectSnapshot[] = [];
+    for (const entry of this.sessions.values()) {
+      const snapshot = await this.preparePortableSnapshot(entry.canonicalRoot);
+      if (snapshot) prepared.push(snapshot);
+    }
+    return prepared;
+  }
+
+  async rehydratePortableSnapshot(
+    projectRoot: string,
+    snapshotText: string,
+    ownerMetadataText: string,
+  ): Promise<boolean> {
+    const logicalRoot = this.residentFileSystem.resolvePath(projectRoot);
+    const canonicalRoot = await this.canonicalProjectRoot(logicalRoot);
+    if (!canonicalRoot || this.sessions.has(canonicalRoot)) return false;
+
+    let portable: PortableResidentProjectSnapshot;
+    let ownerMetadata: PortableResidentProjectOwnerMetadata;
+    try {
+      portable = JSON.parse(snapshotText) as PortableResidentProjectSnapshot;
+      ownerMetadata = JSON.parse(ownerMetadataText) as PortableResidentProjectOwnerMetadata;
+    } catch {
+      return false;
+    }
+    if (
+      portable?.version !== PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION ||
+      ownerMetadata?.version !== PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION ||
+      ownerMetadata.canonicalRoot !== canonicalRoot ||
+      portable.snapshot?.snapshotKind !== 'loaded' ||
+      portable.snapshot.projectRoot !== canonicalRoot ||
+      portable.snapshot.manifestPath !==
+        this.residentFileSystem.joinPath(canonicalRoot, 'project.json') ||
+      !Number.isSafeInteger(portable.identity?.sessionEpoch) ||
+      portable.identity.sessionEpoch <= 0 ||
+      !Number.isSafeInteger(portable.identity?.generation) ||
+      portable.identity.generation <= 0 ||
+      !Array.isArray(ownerMetadata.nativeAssetSourcePaths) ||
+      ownerMetadata.nativeAssetSourcePaths.some((path) => typeof path !== 'string') ||
+      !portable.sourceContributions ||
+      !Array.isArray(portable.validationContributions)
+    )
+      return false;
+
+    try {
+      const session = ResidentProjectWorkspaceSession.fromSnapshotWithHost(
+        portable.snapshot,
+        portable.editorState,
+        {
+          fileSystem: this.residentFileSystem,
+          createWorkspaceService: this.createSessionWorkspace,
+        },
+        portable.identity,
+      );
+      const opened = await session.service().open(canonicalRoot, {
+        reusableSourceContributions: portable.sourceContributions,
+        reusableValidationContributions: portable.validationContributions,
+      });
+      if (!opened.ok) return false;
+      session.rehydrateOpened(opened);
+      const entry: ResidentEntry = {
+        canonicalRoot,
+        session,
+        authority: null,
+        pendingNativeSemanticPaths: new Set(),
+        pendingNativeStructuralChange: false,
+        nativeAssetSourcePaths: Object.freeze([...ownerMetadata.nativeAssetSourcePaths]),
+        lastUsedAtMilliseconds: Date.now(),
+        portableSnapshot: Object.freeze({
+          projectRoot: canonicalRoot,
+          identity: portable.identity,
+          snapshotText,
+          ownerMetadataText,
+        }),
+      };
+      this.sessions.set(canonicalRoot, entry);
+      this.bindSnapshot(entry, opened.snapshot);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async reconcileResidentSessions(): Promise<number> {

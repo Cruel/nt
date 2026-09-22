@@ -1,8 +1,12 @@
 #pragma once
 
+#include "tooling_project_authority.hpp"
+
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -13,6 +17,7 @@ inline constexpr std::uint32_t protocol_version = 1;
 inline constexpr std::size_t max_frame_bytes = 1024 * 1024;
 inline constexpr std::uint64_t default_project_session_idle_ms = 5 * 60 * 1000;
 inline constexpr std::uint64_t default_daemon_idle_ms = 10 * 60 * 1000;
+inline constexpr std::size_t default_project_snapshot_budget_bytes = 64 * 1024 * 1024;
 
 class FrameDecoder {
 public:
@@ -47,5 +52,61 @@ private:
 [[nodiscard]] std::string progress_event_json(std::string_view request_id, std::string_view message,
                                               std::uint64_t completed, std::uint64_t total);
 [[nodiscard]] std::string cancellation_event_json(std::string_view request_id);
+
+struct ProjectGenerationIdentity {
+    std::uint64_t session_epoch = 0;
+    std::uint64_t generation = 0;
+
+    friend bool operator==(const ProjectGenerationIdentity&,
+                           const ProjectGenerationIdentity&) = default;
+};
+
+struct RetainedProjectSnapshot {
+    std::string canonical_root;
+    ProjectGenerationIdentity identity;
+    std::string opaque_owner_metadata;
+    std::size_t chunk_count = 0;
+    std::size_t byte_size = 0;
+    std::size_t pin_count = 0;
+    std::uint64_t last_used_millis = 0;
+};
+
+/** Native RAM-only storage for opaque portable Project-generation bytes. */
+class ProjectSnapshotStore {
+public:
+    ProjectSnapshotStore();
+    [[nodiscard]] bool declare_current(std::string canonical_root,
+                                       ProjectGenerationIdentity identity,
+                                       std::uint64_t now_millis);
+    [[nodiscard]] bool publish(std::string canonical_root, ProjectGenerationIdentity identity,
+                               std::vector<std::string> opaque_chunks,
+                               std::string opaque_owner_metadata,
+                               ProjectAuthorityCheckpoint authority_checkpoint,
+                               std::uint64_t now_millis);
+    [[nodiscard]] std::optional<RetainedProjectSnapshot> latest(std::string_view canonical_root,
+                                                                std::uint64_t now_millis);
+    [[nodiscard]] std::optional<RetainedProjectSnapshot> find(std::string_view canonical_root,
+                                                              ProjectGenerationIdentity identity,
+                                                              std::uint64_t now_millis);
+    [[nodiscard]] std::optional<std::string> chunk(std::string_view canonical_root,
+                                                   ProjectGenerationIdentity identity,
+                                                   std::size_t index, std::uint64_t now_millis);
+    [[nodiscard]] std::optional<ProjectAuthorityCheckpoint>
+    authority_checkpoint(std::string_view canonical_root, ProjectGenerationIdentity identity,
+                         std::uint64_t now_millis);
+    [[nodiscard]] bool pin_current(std::string_view canonical_root,
+                                   ProjectGenerationIdentity identity, std::uint64_t now_millis);
+    [[nodiscard]] bool unpin(std::string_view canonical_root, ProjectGenerationIdentity identity,
+                             std::uint64_t now_millis);
+    void invalidate_current(std::string_view canonical_root);
+    void trim_dormant_to_budget(const std::vector<std::string>& active_roots,
+                                std::size_t byte_budget);
+    [[nodiscard]] std::size_t retained_bytes() const;
+    [[nodiscard]] std::size_t snapshot_count() const;
+
+private:
+    struct Impl;
+    std::shared_ptr<Impl> impl_;
+};
 
 } // namespace noveltea::tooling::daemon
