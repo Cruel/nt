@@ -117,6 +117,10 @@ export interface RunNovelTeaCliOptions {
   readonly comfyUiWorkflowLibraryOptions?: WorkflowLibraryServiceOptions;
   readonly abortSignal?: AbortSignal;
   readonly onComfyUiProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
+  /** Internal daemon preparation pass: reconcile/open the Project but do not execute the command. */
+  readonly prepareResidentSnapshotOnly?: boolean;
+  /** Internal disposable-worker contract: native already pinned the supplied immutable generation. */
+  readonly trustPinnedResidentSnapshot?: boolean;
   /** Internal bounded retry counter for resident read authority races. */
   readonly residentReadAttempt?: number;
 }
@@ -628,6 +632,28 @@ export async function runNovelTeaCli(
       )
         throw new AuthoringValidationAuthorityMismatchError();
     }
+    if (options.prepareResidentSnapshotOnly) {
+      if (
+        routing.projectAccess === 'read' &&
+        activeWorkspace === options.residentWorkspace &&
+        !options.trustPinnedResidentSnapshot &&
+        !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))
+      ) {
+        const retry = options.residentReadAttempt ?? 0;
+        if (retry < 2) return runNovelTeaCli(argv, { ...options, residentReadAttempt: retry + 1 });
+        throw new AuthoringValidationAuthorityMismatchError();
+      }
+      return formatCliResult(
+        {
+          success: true,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+          diagnostics: activeOpened.diagnostics,
+          projectRoot: discovery.projectRoot,
+        },
+        globals.json,
+        { success: 'NovelTea resident Project snapshot preparation succeeded.' },
+      );
+    }
     let semantic;
     try {
       semantic = await command.run({
@@ -651,6 +677,7 @@ export async function runNovelTeaCli(
     if (
       routing.projectAccess === 'read' &&
       activeWorkspace === options.residentWorkspace &&
+      !options.trustPinnedResidentSnapshot &&
       !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))
     ) {
       const retry = options.residentReadAttempt ?? 0;

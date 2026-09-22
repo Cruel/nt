@@ -1976,11 +1976,196 @@ async function certifyDaemonBuildProtocolIsolation(tempRoot) {
   }
 }
 
+async function certifyDisposableTestScheduling(tempRoot) {
+  const source = path.join(repositoryRoot, 'tests', 'projects', 'feature-lab');
+  const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), 'nt-disposable-'));
+  const environment = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `disposable-test-${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '60000',
+  };
+  const traceEnvironment = { ...environment, NOVELTEA_CLI_TRACE: '1' };
+  const resetFeatureLab = async (name) => {
+    const root = path.join(tempRoot, name);
+    await rm(root, { recursive: true, force: true });
+    await cp(source, root, { recursive: true });
+    await rm(path.join(root, '.noveltea', 'cache'), { recursive: true, force: true });
+    return root;
+  };
+  const status = () => {
+    const result = requireSuccess(
+      'disposable Test scheduler status',
+      runNative(['--json', 'daemon', 'status'], { env: environment }),
+    );
+    return JSON.parse(result.stdout).daemon;
+  };
+  const waitForStatus = async (label, predicate, timeoutMs = 5000) => {
+    const deadline = Date.now() + timeoutMs;
+    let latest = null;
+    while (Date.now() < deadline) {
+      latest = status();
+      if (predicate(latest)) return latest;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    fail(`${label} timed out; last daemon status: ${JSON.stringify(latest)}`);
+  };
+
+  runNative(['daemon', 'stop'], { env: environment });
+  try {
+    const generationRoot = await resetFeatureLab('disposable-test-generation');
+    const longEnvironment = {
+      ...traceEnvironment,
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
+    };
+    const longTest = await runAsync(
+      nativeCli,
+      ['--project', generationRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
+      { cwd: generationRoot, env: longEnvironment },
+    );
+    const activeStatus = await waitForStatus(
+      'Disposable Test warm-standby certification',
+      (daemon) => daemon.disposableBusyWorkers >= 1 && daemon.disposableStandbyWorkers >= 1,
+    );
+    const daemonPid = activeStatus.pid;
+    const roomPath = path.join(generationRoot, 'records', 'rooms', 'feature-lab-home.json');
+    const room = JSON.parse(await readFile(roomPath, 'utf8'));
+    room.label = `${room.label} generation advance`;
+    await writeJson(roomPath, room);
+    requireSuccess(
+      'Disposable Test concurrent foreground validation',
+      runNative(['--project', generationRoot, '--json', 'validate'], {
+        cwd: generationRoot,
+        env: traceEnvironment,
+      }),
+    );
+    const longResult = await longTest.result();
+    requireSuccess('Disposable Test generation-pinned execution', longResult);
+    if (!longResult.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+      fail('Generation-pinned Test did not exercise the resident daemon route.');
+    await waitForStatus(
+      'Disposable Test standby replenishment',
+      (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
+    );
+
+    const queueRoot = await resetFeatureLab('disposable-test-cap');
+    const cappedEnvironment = {
+      ...traceEnvironment,
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '2000',
+    };
+    const queuedRuns = [];
+    for (let index = 0; index < 5; index += 1) {
+      queuedRuns.push(
+        await runAsync(
+          nativeCli,
+          ['--project', queueRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
+          { cwd: queueRoot, env: cappedEnvironment },
+        ),
+      );
+    }
+    await waitForStatus(
+      'Disposable Test worker-cap queue certification',
+      (daemon) => daemon.disposableBusyWorkers === 4 && daemon.disposableQueuedJobs >= 1,
+      8000,
+    );
+    for (let index = 0; index < queuedRuns.length; index += 1)
+      requireSuccess(`Disposable Test capped run ${index + 1}`, await queuedRuns[index].result());
+    await waitForStatus(
+      'Disposable Test post-cap standby replenishment',
+      (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
+    );
+
+    const cancellationRoot = await resetFeatureLab('disposable-test-cancellation');
+    const cancellationEnvironment = {
+      ...traceEnvironment,
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '5000',
+    };
+    const cancellationArgs = [
+      '--project',
+      cancellationRoot,
+      '--json',
+      'test',
+      'run',
+      'rooms-interactions-flow',
+    ];
+    const cancellation = isWindows
+      ? await runWindowsConsoleProcess(nativeCli, cancellationArgs, {
+          cwd: cancellationRoot,
+          env: cancellationEnvironment,
+        })
+      : {
+          invocation: await runAsync(nativeCli, cancellationArgs, {
+            cwd: cancellationRoot,
+            env: cancellationEnvironment,
+          }),
+          pid: null,
+        };
+    await waitForStatus(
+      'Disposable Test cancellation admission',
+      (daemon) => daemon.disposableBusyWorkers >= 1,
+    );
+    if (isWindows) await sendWindowsConsoleCtrlC(cancellation.pid);
+    else cancellation.invocation.child.kill('SIGINT');
+    const cancellationResult = await cancellation.invocation.result();
+    if (cancellationResult.status !== 130)
+      fail(
+        `Disposable Test cancellation exited ${cancellationResult.status}, expected 130.\n` +
+          `${cancellationResult.stdout}\n${cancellationResult.stderr}`,
+      );
+    await waitForStatus(
+      'Disposable Test cancellation standby replenishment',
+      (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
+    );
+
+    const crashRoot = await resetFeatureLab('disposable-test-crash');
+    const crashResult = runNative(
+      ['--project', crashRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
+      {
+        cwd: crashRoot,
+        env: {
+          ...traceEnvironment,
+          NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH: '1',
+        },
+      },
+    );
+    if (crashResult.status === 0)
+      fail('Disposable Test worker crash unexpectedly reported success.');
+    const recovered = await waitForStatus(
+      'Disposable Test crash standby replenishment',
+      (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
+    );
+    if (recovered.pid !== daemonPid)
+      fail('Disposable Test worker crash replaced or terminated the daemon broker.');
+    requireSuccess(
+      'Disposable Test crash isolation owner validation',
+      runNative(['--project', crashRoot, '--json', 'validate'], {
+        cwd: crashRoot,
+        env: traceEnvironment,
+      }),
+    );
+
+    return {
+      generationPinned: true,
+      foregroundPriority: true,
+      warmStandby: true,
+      cappedQueue: true,
+      cancellationIsolation: true,
+      crashIsolation: true,
+    };
+  } finally {
+    runNative(['daemon', 'stop'], { env: environment });
+    await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function certifyResidentDaemon(tempRoot, pristine) {
   const root = path.join(tempRoot, 'resident-daemon');
   const runtimeRoot = path.join(tempRoot, 'resident-daemon-runtime');
   await resetCase(pristine, root);
   const projectOwners = await certifyProjectOwnerScheduling(tempRoot, pristine);
+  const disposableTests = await certifyDisposableTestScheduling(tempRoot);
   const buildProtocolIsolation = await certifyDaemonBuildProtocolIsolation(tempRoot);
   const daemonEnvironment = {
     ...process.env,
@@ -2277,6 +2462,7 @@ async function certifyResidentDaemon(tempRoot, pristine) {
     startupElection: true,
     secureEndpoint: true,
     buildProtocolIsolation,
+    disposableTests,
     projectOwners,
     midRequestReadReplay: true,
     midRequestUnsafeNoReplay: true,

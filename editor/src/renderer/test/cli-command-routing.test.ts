@@ -87,6 +87,24 @@ describe('CLI semantic command routing', () => {
     expect(classifyNovelTeaCliCommand(['test', 'run', 'smoke'])).toMatchObject({
       staticCompletion: 'runtime-cache',
       quickJsRequiredAfterStaticMiss: true,
+      executionClass: 'disposable-heavy',
+    });
+  });
+
+  it('classifies daemon execution semantics independently from static completion', () => {
+    expect(classifyNovelTeaCliCommand(['validate'])).toMatchObject({
+      executionClass: 'owner-short',
+    });
+    expect(classifyNovelTeaCliCommand(['entity', 'create', 'rooms', 'hall'])).toMatchObject({
+      executionClass: 'owner-mutation',
+    });
+    expect(classifyNovelTeaCliCommand(['test', 'run'])).toMatchObject({
+      staticCompletion: 'runtime-cache',
+      executionClass: 'disposable-heavy',
+    });
+    expect(classifyNovelTeaCliCommand(['test', 'run-spec'])).toMatchObject({
+      staticCompletion: 'runtime-cache',
+      executionClass: 'disposable-heavy',
     });
   });
 

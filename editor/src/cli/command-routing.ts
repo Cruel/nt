@@ -7,9 +7,11 @@ export type CliStaticCompletion =
 
 export type CliProjectAccess = 'none' | 'read' | 'transactional-write' | 'opaque-write';
 export type CliStdinRequirement = 'none' | 'json';
+export type CliExecutionClass = 'direct' | 'owner-short' | 'owner-mutation' | 'disposable-heavy';
 
 export interface CliCommandRouting {
   readonly staticCompletion: CliStaticCompletion;
+  readonly executionClass: CliExecutionClass;
   readonly quickJsRequiredAfterStaticMiss: boolean;
   readonly requiresExistingProject: boolean;
   readonly projectAccess: CliProjectAccess;
@@ -21,6 +23,7 @@ export interface CliCommandRouting {
 
 const noProjectRead: CliCommandRouting = {
   staticCompletion: 'none',
+  executionClass: 'direct',
   quickJsRequiredAfterStaticMiss: true,
   requiresExistingProject: false,
   projectAccess: 'none',
@@ -34,6 +37,7 @@ const projectRead: CliCommandRouting = {
   ...noProjectRead,
   requiresExistingProject: true,
   projectAccess: 'read',
+  executionClass: 'owner-short',
 };
 
 const projectDirectoryTool: CliCommandRouting = {
@@ -50,6 +54,7 @@ function projectMutation(command: readonly string[], dryRunFlag = '--dry-run'): 
   return {
     ...projectRead,
     projectAccess: 'transactional-write',
+    executionClass: 'owner-mutation',
     replaySafe: false,
   };
 }
@@ -97,6 +102,7 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
       return {
         ...noProjectRead,
         projectAccess: 'opaque-write',
+        executionClass: 'owner-mutation',
         replaySafe: false,
         streamedEvents: true,
         cancellation: true,
@@ -127,6 +133,7 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
       return {
         ...projectRead,
         projectAccess: 'transactional-write',
+        executionClass: 'owner-mutation',
         replaySafe: false,
         stdin: 'json',
       };
@@ -142,6 +149,7 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
     return {
       ...projectRead,
       staticCompletion: 'runtime-cache',
+      executionClass: 'disposable-heavy',
       stdin: operation === 'run-spec' || operation === 'run-ui-spec' ? 'json' : 'none',
       cancellation: true,
     };
@@ -158,6 +166,7 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
       return {
         ...projectRead,
         projectAccess: 'opaque-write',
+        executionClass: 'owner-mutation',
         replaySafe: false,
         streamedEvents: true,
         cancellation: true,

@@ -11,6 +11,18 @@ export interface ScriptcInvocationContext {
   readonly cancellationProbe?: () => boolean;
   readonly residentProjectSessions?: boolean;
   readonly projectSessionIdleMs?: number;
+  readonly residentProjectSessionEpoch?: number;
+  readonly residentProjectSnapshot?: Readonly<{
+    projectRoot: string;
+    snapshotText: string;
+    ownerMetadataText: string;
+  }>;
+  readonly pinnedProjectSnapshot?: Readonly<{
+    projectRoot: string;
+    snapshotText: string;
+    ownerMetadataText: string;
+  }>;
+  readonly prepareResidentSnapshotOnly?: boolean;
 }
 
 export declare function runNovelTeaScriptcIsland(
@@ -22,3 +34,5 @@ export declare function runNovelTeaScriptcIsland(
 ): Promise<string>;
 
 export declare function reconcileNovelTeaResidentProjects(): Promise<number>;
+export declare function prepareNovelTeaResidentProjectSnapshots(): Promise<number>;
+export declare function novelTeaResidentProjectSessionCount(): number;

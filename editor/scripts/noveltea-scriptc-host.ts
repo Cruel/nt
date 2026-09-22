@@ -606,6 +606,7 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
 
 type DaemonRequestContext = Readonly<{
   argv: readonly string[];
+  executionClass: CliCommandRouting['executionClass'];
   cwd: string;
   ownerProjectRoot: string | null;
   ownerProjectRootExplicit: boolean;
@@ -634,6 +635,7 @@ type DaemonNativeResponse = Readonly<{
   pid?: number | null;
   stopped?: boolean;
   idle?: boolean;
+  prepareDisposable?: boolean;
   needsReconcile?: boolean;
   started?: boolean;
   error?: string;
@@ -646,6 +648,10 @@ type DaemonNativeResponse = Readonly<{
   cancelled?: boolean;
   delivered?: boolean;
   projectSessions?: number;
+  disposableWorkers?: number;
+  disposableQueuedJobs?: number;
+  disposableStandbyWorkers?: number;
+  disposableBusyWorkers?: number;
   authority?: string;
   previousAuthority?: string;
   unchanged?: boolean;
@@ -685,6 +691,10 @@ type DaemonStatusCore = Readonly<{
   protocol: number;
   pid: number | null;
   projectSessions: number;
+  disposableWorkers: number;
+  disposableQueuedJobs: number;
+  disposableStandbyWorkers: number;
+  disposableBusyWorkers: number;
 }>;
 
 type DaemonBrokerContext = Readonly<{
@@ -800,6 +810,25 @@ function daemonStatusCore(result: DaemonNativeResponse): DaemonStatusCore {
       typeof result.projectSessions === 'number' && Number.isSafeInteger(result.projectSessions)
         ? result.projectSessions
         : 0,
+    disposableWorkers:
+      typeof result.disposableWorkers === 'number' && Number.isSafeInteger(result.disposableWorkers)
+        ? result.disposableWorkers
+        : 0,
+    disposableQueuedJobs:
+      typeof result.disposableQueuedJobs === 'number' &&
+      Number.isSafeInteger(result.disposableQueuedJobs)
+        ? result.disposableQueuedJobs
+        : 0,
+    disposableStandbyWorkers:
+      typeof result.disposableStandbyWorkers === 'number' &&
+      Number.isSafeInteger(result.disposableStandbyWorkers)
+        ? result.disposableStandbyWorkers
+        : 0,
+    disposableBusyWorkers:
+      typeof result.disposableBusyWorkers === 'number' &&
+      Number.isSafeInteger(result.disposableBusyWorkers)
+        ? result.disposableBusyWorkers
+        : 0,
   };
 }
 
@@ -896,6 +925,11 @@ type HiddenDaemonOwnerInvocation = HiddenDaemonBrokerInvocation &
     ownerWorkerId: number;
   }>;
 
+type HiddenDaemonDisposableInvocation = HiddenDaemonBrokerInvocation &
+  Readonly<{
+    disposableWorkerId: number;
+  }>;
+
 function hiddenDaemonBrokerInvocation(
   argv: readonly string[],
 ): HiddenDaemonBrokerInvocation | null {
@@ -984,6 +1018,54 @@ function hiddenDaemonOwnerInvocation(argv: readonly string[]): HiddenDaemonOwner
   };
 }
 
+function hiddenDaemonDisposableInvocation(
+  argv: readonly string[],
+): HiddenDaemonDisposableInvocation | null {
+  if (argv[0] !== '__daemon-disposable') return null;
+  let build = '';
+  let protocolText = '';
+  let daemonIdleText = '';
+  let projectSessionIdleText = '';
+  let runtimeRoot = '';
+  let workerIdText = '';
+  for (let index = 1; index < argv.length; index += 2) {
+    const key = argv[index];
+    const value = argv[index + 1];
+    if (!key || !value) return null;
+    if (key === '--daemon-build' && build === '') build = value;
+    else if (key === '--daemon-protocol' && protocolText === '') protocolText = value;
+    else if (key === '--daemon-idle-ms' && daemonIdleText === '') daemonIdleText = value;
+    else if (key === '--project-session-idle-ms' && projectSessionIdleText === '')
+      projectSessionIdleText = value;
+    else if (key === '--daemon-runtime-root' && runtimeRoot === '') runtimeRoot = value;
+    else if (key === '--disposable-worker-id' && workerIdText === '') workerIdText = value;
+    else return null;
+  }
+  const protocol = Number(protocolText);
+  const daemonIdleMs = Number(daemonIdleText);
+  const projectSessionIdleMs = Number(projectSessionIdleText);
+  const disposableWorkerId = Number(workerIdText);
+  if (
+    build !== daemonBrokerContext().build ||
+    protocol !== daemonBrokerContext().protocol ||
+    !Number.isSafeInteger(daemonIdleMs) ||
+    daemonIdleMs <= 0 ||
+    !Number.isSafeInteger(projectSessionIdleMs) ||
+    projectSessionIdleMs <= 0 ||
+    !Number.isSafeInteger(disposableWorkerId) ||
+    disposableWorkerId <= 0
+  )
+    return null;
+  return {
+    build,
+    protocol,
+    daemonIdleMs,
+    projectSessionIdleMs,
+    runtimeRoot: runtimeRoot || undefined,
+    disposableWorkerId,
+  };
+}
+
 function hiddenDaemonNativeRequest(
   action: string,
   invocation: HiddenDaemonBrokerInvocation,
@@ -1012,6 +1094,7 @@ function hiddenDaemonPayloadNativeRequest(
     error?: string;
     projectSessions?: number;
     ownerWorkerId?: number;
+    disposableWorkerId?: number;
     advanced?: boolean;
     event?: Readonly<Record<string, unknown>>;
     sessionEpoch?: number;
@@ -1031,12 +1114,14 @@ function hiddenDaemonPayloadNativeRequest(
         daemonIdleMs: invocation.daemonIdleMs,
         projectSessionIdleMs: invocation.projectSessionIdleMs,
         runtimeRoot: invocation.runtimeRoot,
+        enableDisposableWorkers: true,
         token: payload.token,
         requestOk: payload.requestOk,
         result: payload.result,
         error: payload.error,
         projectSessions: payload.projectSessions,
         ownerWorkerId: payload.ownerWorkerId,
+        disposableWorkerId: payload.disposableWorkerId,
         advanced: payload.advanced,
         event: payload.event,
         sessionEpoch: payload.sessionEpoch,
@@ -1185,6 +1270,7 @@ function daemonRequestContext(
 ): DaemonRequestContext {
   return {
     argv,
+    executionClass: routing?.executionClass ?? 'direct',
     cwd: process.cwd(),
     ownerProjectRoot: daemonOwnerProjectRoot(argv, routing),
     ownerProjectRootExplicit: daemonOwnerProjectRootExplicit(argv, routing),
@@ -1205,11 +1291,18 @@ function requestInvokeHost(
   invocation: HiddenDaemonBrokerInvocation,
   token: number,
   ownerWorkerId?: number,
+  disposableWorkerId?: number,
 ): typeof invokeHost {
   const emitEvent = (event: Readonly<Record<string, unknown>>) => {
     const response = ownerWorkerId
       ? hiddenDaemonPayloadNativeRequest('owner-event', invocation, { ownerWorkerId, token, event })
-      : hiddenDaemonEventNativeRequest(invocation, token, event);
+      : disposableWorkerId
+        ? hiddenDaemonPayloadNativeRequest('disposable-event', invocation, {
+            disposableWorkerId,
+            token,
+            event,
+          })
+        : hiddenDaemonEventNativeRequest(invocation, token, event);
     if (response.ok !== true)
       throw new Error(response.error ?? 'Failed to stream daemon request event.');
   };
@@ -1303,15 +1396,15 @@ function requestInvokeHost(
       if (operation === 'daemon-project-observe') {
         const manifest = response.manifest;
         if (manifest) {
-          const externalPaths =
-            request.includeManifestEntries === true
-              ? new Set(
-                  (payload?.authoritativePaths ?? []).filter(
-                    (path) =>
-                      path !== 'project.json' && path !== 'editor.json' && path !== 'traits.json',
-                  ),
+          const includeManifestEntries = request.includeManifestEntries === true;
+          const externalPaths = new Set(
+            includeManifestEntries
+              ? (payload?.authoritativePaths ?? []).filter(
+                  (path) =>
+                    path !== 'project.json' && path !== 'editor.json' && path !== 'traits.json',
                 )
-              : null;
+              : [],
+          );
           responseForIsland = {
             ok: response.ok,
             authority: response.authority,
@@ -1322,7 +1415,7 @@ function requestInvokeHost(
             delta: response.delta,
             manifest: {
               canonicalRoot: manifest.canonicalRoot,
-              entries: externalPaths
+              entries: includeManifestEntries
                 ? (manifest.entries ?? []).filter(
                     (entry) => typeof entry.path === 'string' && externalPaths.has(entry.path),
                   )
@@ -1343,10 +1436,12 @@ function requestInvokeHost(
         throw new Error('Resident Project generation announcement is malformed.');
       const request = parsed as Readonly<Record<string, unknown>>;
       if (
+        typeof request.sessionEpoch !== 'number' ||
         !Number.isSafeInteger(request.sessionEpoch) ||
-        (request.sessionEpoch as number) <= 0 ||
+        request.sessionEpoch <= 0 ||
+        typeof request.generation !== 'number' ||
         !Number.isSafeInteger(request.generation) ||
-        (request.generation as number) <= 0
+        request.generation <= 0
       )
         throw new Error('Resident Project generation identity is malformed.');
       const response = hiddenDaemonPayloadNativeRequest('owner-project-generation', invocation, {
@@ -1372,10 +1467,12 @@ function requestInvokeHost(
       let response: DaemonNativeResponse;
       if (operation === 'daemon-project-snapshot-begin') {
         if (
+          typeof request.sessionEpoch !== 'number' ||
           !Number.isSafeInteger(request.sessionEpoch) ||
-          (request.sessionEpoch as number) <= 0 ||
+          request.sessionEpoch <= 0 ||
+          typeof request.generation !== 'number' ||
           !Number.isSafeInteger(request.generation) ||
-          (request.generation as number) <= 0 ||
+          request.generation <= 0 ||
           typeof request.ownerMetadata !== 'string'
         )
           throw new Error('Portable Project snapshot identity is malformed.');
@@ -1645,6 +1742,7 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
     }
     try {
       const residentProjectSnapshot = retainedSnapshotPending;
+      const prepareDisposable = next.prepareDisposable === true;
       const output: RequestOutputCapture = { stdout: '', stderr: '' };
       const responseText = await runNovelTeaScriptcIsland(
         JSON.stringify(payload.argv),
@@ -1657,7 +1755,8 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
           terminal: payload.terminal,
           residentProjectSessions: true,
           residentProjectSessionEpoch: startupState.coldSessionEpoch,
-          ...(residentProjectSnapshot ? { residentProjectSnapshot } : {}),
+          residentProjectSnapshot,
+          prepareResidentSnapshotOnly: prepareDisposable,
           cancellationProbe: () => {
             const status = hiddenDaemonPayloadNativeRequest('owner-cancelled', invocation, {
               ownerWorkerId: invocation.ownerWorkerId,
@@ -1668,6 +1767,11 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
         },
       );
       if (novelTeaResidentProjectSessionCount() > 0) retainedSnapshotPending = undefined;
+      if (prepareDisposable) {
+        const prepared = await prepareNovelTeaResidentProjectSnapshots();
+        if (prepared > 0)
+          trace(`daemon Project owner prepared ${String(prepared)} portable snapshot(s) on demand`);
+      }
       const response = JSON.parse(responseText) as HostResult;
       const completed: HostResult = [
         response[0],
@@ -1691,6 +1795,131 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
       });
     }
   }
+  return 0;
+}
+
+async function runHiddenDaemonDisposable(
+  invocation: HiddenDaemonDisposableInvocation,
+): Promise<number> {
+  trace(
+    `daemon disposable worker ${String(invocation.disposableWorkerId)} QuickJS initialization starting`,
+  );
+  // @ts-expect-error The private island package is materialized only during release staging.
+  const { runNovelTeaScriptcIsland } = await import('noveltea-scriptc-island');
+  trace(
+    `daemon disposable worker ${String(invocation.disposableWorkerId)} QuickJS initialization completed`,
+  );
+  const ready = hiddenDaemonPayloadNativeRequest('disposable-ready', invocation, {
+    disposableWorkerId: invocation.disposableWorkerId,
+  });
+  if (ready.ok !== true)
+    throw new Error(ready.error ?? 'Failed to mark NovelTea disposable worker ready.');
+
+  const next = hiddenDaemonPayloadNativeRequest('disposable-next', invocation, {
+    disposableWorkerId: invocation.disposableWorkerId,
+  });
+  if (next.ok !== true)
+    throw new Error(next.error ?? 'NovelTea disposable worker failed to acquire work.');
+  if (next.stopped === true) return 0;
+  const token = next.token;
+  const payload = next.payload as DaemonRequestContext;
+  if (
+    typeof token !== 'number' ||
+    !Number.isSafeInteger(token) ||
+    next.method !== 'invoke' ||
+    !payload ||
+    !Array.isArray(payload.argv) ||
+    typeof next.canonicalRoot !== 'string' ||
+    next.canonicalRoot.length === 0 ||
+    !Number.isSafeInteger(next.chunkCount) ||
+    (next.chunkCount as number) <= 0 ||
+    typeof next.ownerMetadata !== 'string'
+  )
+    throw new Error('NovelTea disposable worker received a malformed assignment.');
+
+  const chunks: string[] = [];
+  for (let index = 0; index < (next.chunkCount as number); index += 1) {
+    const chunk = hiddenDaemonPayloadNativeRequest('disposable-snapshot-read', invocation, {
+      disposableWorkerId: invocation.disposableWorkerId,
+      token,
+      index,
+    });
+    if (chunk.ok !== true || typeof chunk.chunk !== 'string')
+      throw new Error(chunk.error ?? 'Failed to read pinned portable Project snapshot.');
+    chunks.push(chunk.chunk);
+  }
+
+  try {
+    if (payload.environment.NOVELTEA_CLI_CERTIFICATION === '1') {
+      const delayText = payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS;
+      const delayMs = delayText ? Number(delayText) : 0;
+      if (Number.isSafeInteger(delayMs) && delayMs > 0 && delayMs <= 10_000) {
+        const deadline = Date.now() + delayMs;
+        while (Date.now() < deadline) {
+          // Deliberately remain alive after cancellation here. The certification path proves that
+          // native cancellation may retire a disposable worker after the cooperative grace period.
+          hiddenDaemonPayloadNativeRequest('disposable-cancelled', invocation, {
+            disposableWorkerId: invocation.disposableWorkerId,
+            token,
+          });
+        }
+      }
+      if (payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH === '1') process.exit(97);
+    }
+    const output: RequestOutputCapture = { stdout: '', stderr: '' };
+    const responseText = await runNovelTeaScriptcIsland(
+      JSON.stringify(payload.argv),
+      requestInvokeHost(
+        payload,
+        output,
+        invocation,
+        token,
+        undefined,
+        invocation.disposableWorkerId,
+      ),
+      payload.forceRuntimeCacheRebuild,
+      payload.authoringCacheInventoryHint,
+      {
+        cwd: payload.cwd,
+        environment: payload.environment,
+        terminal: payload.terminal,
+        pinnedProjectSnapshot: {
+          projectRoot: next.canonicalRoot,
+          snapshotText: chunks.join(''),
+          ownerMetadataText: next.ownerMetadata,
+        },
+        cancellationProbe: () => {
+          const status = hiddenDaemonPayloadNativeRequest('disposable-cancelled', invocation, {
+            disposableWorkerId: invocation.disposableWorkerId,
+            token,
+          });
+          return status.cancelled === true;
+        },
+      },
+    );
+    const response = JSON.parse(responseText) as HostResult;
+    const completed: HostResult = [
+      response[0],
+      `${output.stdout}${response[1]}`,
+      `${output.stderr}${response[2]}`,
+    ];
+    hiddenDaemonPayloadNativeRequest('disposable-complete', invocation, {
+      disposableWorkerId: invocation.disposableWorkerId,
+      token,
+      requestOk: true,
+      result: completed,
+      error: '',
+    });
+  } catch (error) {
+    hiddenDaemonPayloadNativeRequest('disposable-complete', invocation, {
+      disposableWorkerId: invocation.disposableWorkerId,
+      token,
+      requestOk: false,
+      result: null,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  // One-job workers deliberately retire instead of retaining arbitrary QuickJS state.
   return 0;
 }
 
@@ -1879,6 +2108,28 @@ function daemonFailureResult(json: boolean, message: string): HostResult {
   return [70, '', `[error] DAEMON_EXECUTION /: ${message}\n`];
 }
 
+function daemonInterruptedResult(json: boolean): HostResult {
+  if (json)
+    return [
+      130,
+      `${JSON.stringify({
+        success: false,
+        exitCode: 130,
+        diagnostics: [
+          {
+            code: 'CLI_INTERRUPTED',
+            severity: 'error',
+            path: '/',
+            message: 'Command interrupted.',
+          },
+        ],
+        protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
+      })}\n`,
+      '',
+    ];
+  return [130, '', '[error] CLI_INTERRUPTED /: Command interrupted.\n'];
+}
+
 function emit(result: HostResult): void {
   const stdoutText = result[1];
   const stderrText = result[2];
@@ -1894,6 +2145,11 @@ async function main(): Promise<void> {
     const ownerInvocation = hiddenDaemonOwnerInvocation(argv);
     if (ownerInvocation) {
       exitCode = await runHiddenDaemonOwner(ownerInvocation);
+      return;
+    }
+    const disposableInvocation = hiddenDaemonDisposableInvocation(argv);
+    if (disposableInvocation) {
+      exitCode = await runHiddenDaemonDisposable(disposableInvocation);
       return;
     }
     const daemonInvocation = hiddenDaemonBrokerInvocation(argv);
@@ -1933,13 +2189,17 @@ async function main(): Promise<void> {
           daemonResponse.result !== null
         ) {
           response = daemonResponse.result;
+        } else if (daemonResponse.cancelled === true) {
+          response = daemonInterruptedResult(request.outputMode === 'json');
         } else {
           const message =
             typeof daemonResponse?.error === 'string'
               ? daemonResponse.error
               : 'Resident daemon execution failed.';
           const safeConnectionFailure = message === 'daemon broker is not reachable';
-          if (!request.replaySafe && !safeConnectionFailure)
+          const replayDisallowed =
+            !request.replaySafe || request.executionClass === 'disposable-heavy';
+          if (replayDisallowed && !safeConnectionFailure)
             response = daemonFailureResult(request.outputMode === 'json', message);
         }
       } else trace(`daemon ensure failed: ${ensured.error ?? 'unknown daemon startup failure'}`);
