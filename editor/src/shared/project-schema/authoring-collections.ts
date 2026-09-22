@@ -1,4 +1,4 @@
-export const AUTHORING_PROJECT_SCHEMA = 'noveltea.authoring.project' as const;
+export { AUTHORING_PROJECT_SCHEMA } from '../schema-static-contracts';
 
 export const authoringCollectionKeys = [
   'assets',

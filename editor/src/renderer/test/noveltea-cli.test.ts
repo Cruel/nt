@@ -423,7 +423,7 @@ describe('NovelTea headless CLI', () => {
     expect(latest.usefulWork.sourceAnalysesRecomputed).toBe(latest.dependencyWork.analyzedOwners);
   });
 
-  it('hydrates a cold resident Project from reusable persistent authoring contributions', async () => {
+  it('reconstructs a cold resident Project instead of hydrating persisted semantic contributions', async () => {
     const value = fixture(validProject(), true);
     const nativeTools = validationNativeTools();
     const published = await runNovelTeaCli(
@@ -433,13 +433,7 @@ describe('NovelTea headless CLI', () => {
     expect(published.exitCode).toBe(0);
 
     const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
-    const instrumentation: Array<{
-      sourceWork: {
-        parsedJsonSources: number;
-        reusedJsonSources: number;
-        wholeProjectSchemaParses: number;
-      };
-    }> = [];
+    const instrumentation: AuthoringValidationInstrumentation[] = [];
     const hydrated = await runNovelTeaCli(['--json', 'validate'], {
       ...options(value, root, nativeTools),
       residentWorkspace,
@@ -449,12 +443,12 @@ describe('NovelTea headless CLI', () => {
 
     expect(hydrated.exitCode).toBe(0);
     expect(await residentWorkspace.hasResidentSession(root)).toBe(true);
-    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBe(0);
-    expect(instrumentation.at(-1)?.sourceWork.reusedJsonSources).toBeGreaterThan(0);
-    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
+    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBeGreaterThan(0);
+    expect(instrumentation.at(-1)?.sourceWork.reusedJsonSources).toBe(0);
+    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(1);
   });
 
-  it('hydrates the resident Project cache when a non-validation read opens the session first', async () => {
+  it('reuses the RAM-resident Project generation when a non-validation read opens it first', async () => {
     const value = fixture(validProject(), true);
     const nativeTools = validationNativeTools();
     const published = await runNovelTeaCli(
@@ -470,27 +464,18 @@ describe('NovelTea headless CLI', () => {
     });
     expect(usages.exitCode).toBe(0);
     expect(await residentWorkspace.hasResidentSession(root)).toBe(true);
+    const before = residentWorkspace.residentGenerationIdentities();
 
-    const instrumentation: Array<{
-      sourceWork: {
-        parsedJsonSources: number;
-        reusedJsonSources: number;
-        wholeProjectSchemaParses: number;
-      };
-    }> = [];
     const validated = await runNovelTeaCli(['--json', 'validate'], {
       ...options(value, root, nativeTools),
       residentWorkspace,
       skipAuthoringWholeResultCache: true,
-      onAuthoringValidationInstrumentation: (entry) => instrumentation.push(entry),
     });
     expect(validated.exitCode).toBe(0);
-    expect(instrumentation.at(-1)?.sourceWork.parsedJsonSources).toBe(0);
-    expect(instrumentation.at(-1)?.sourceWork.reusedJsonSources).toBeGreaterThan(0);
-    expect(instrumentation.at(-1)?.sourceWork.wholeProjectSchemaParses).toBe(0);
+    expect(residentWorkspace.residentGenerationIdentities()).toEqual(before);
   });
 
-  it('publishes an authoritative persistent authoring generation from a cold resident validation', async () => {
+  it('does not publish persistent semantic state from a cold resident validation', async () => {
     const value = fixture(validProject(), true);
     const nativeTools = validationNativeTools();
     const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
@@ -502,8 +487,8 @@ describe('NovelTea headless CLI', () => {
     });
 
     expect(validated.exitCode).toBe(0);
-    expect(await value.fileSystem.inspect(`${root}/.noveltea/cache/authoring/current`)).toBe(
-      'file',
+    expect(await value.fileSystem.inspect(`${root}/.noveltea/cache/authoring/current.json`)).toBe(
+      'missing',
     );
   });
 

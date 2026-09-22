@@ -82,12 +82,20 @@ async function fixture(options: { actionableMissingProperty?: boolean } = {}) {
   };
 }
 
-async function currentGeneration(root: string) {
-  return (
-    JSON.parse(await readFile(path.join(root, '.noveltea/cache/authoring/current'), 'utf8')) as {
-      generation: string;
+async function currentCache(root: string) {
+  return readFile(path.join(root, '.noveltea/cache/authoring/current.json'), 'utf8');
+}
+
+async function waitForCurrentCache(root: string) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      return await currentCache(root);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
     }
-  ).generation;
+  }
+  return currentCache(root);
 }
 
 afterEach(async () => {
@@ -100,7 +108,7 @@ describe('editor authoring validation cache sharing', () => {
     const nativeTools = tools();
     const warmed = await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools });
     expect(warmed.exitCode).toBe(0);
-    const generation = await currentGeneration(root);
+    const generation = await waitForCurrentCache(root);
     const sessionLocal = vi.fn(async () => ({ ok: true, success: true, diagnostics: [] }));
     const service = new EditorAuthoringValidationService({ nativeTools });
 
@@ -117,7 +125,7 @@ describe('editor authoring validation cache sharing', () => {
       diagnostics: warmed.envelope.diagnostics,
     });
     expect(sessionLocal).not.toHaveBeenCalled();
-    expect(await currentGeneration(root)).toBe(generation);
+    expect(await currentCache(root)).toBe(generation);
   });
 
   it('publishes clean editor validation for a later CLI cache hit', async () => {
@@ -131,11 +139,11 @@ describe('editor authoring validation cache sharing', () => {
       authority: 'disk-authoritative',
       validateSessionLocal: async () => ({ ok: true, success: true, diagnostics: [] }),
     });
-    const generation = await currentGeneration(root);
+    const generation = await waitForCurrentCache(root);
     const cliResult = await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools });
 
     expect(cliResult.editorDiagnostics).toEqual(editorResult.diagnostics);
-    expect(await currentGeneration(root)).toBe(generation);
+    expect(await currentCache(root)).toBe(generation);
   });
 
   it('preserves actionable editor diagnostics when consuming a CLI-warmed cache generation', async () => {
@@ -181,7 +189,7 @@ describe('editor authoring validation cache sharing', () => {
     const { root, project, workspace } = await fixture();
     const nativeTools = tools();
     await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools });
-    const generation = await currentGeneration(root);
+    const generation = await waitForCurrentCache(root);
     const dirty = structuredClone(project);
     dirty.project.name = 'Unsaved editor name';
     const sessionLocal = vi.fn(async () => ({
@@ -214,7 +222,7 @@ describe('editor authoring validation cache sharing', () => {
     expect(explicitDirty.success).toBe(false);
     expect(mismatchedCleanClaim.success).toBe(false);
     expect(sessionLocal).toHaveBeenCalledTimes(2);
-    expect(await currentGeneration(root)).toBe(generation);
+    expect(await currentCache(root)).toBe(generation);
   });
 
   it('keeps clean validation semantics when cache persistence is unavailable', async () => {
@@ -236,7 +244,7 @@ describe('editor authoring validation cache sharing', () => {
     expect(result.success).toBe(true);
     expect(result.diagnostics.some((diagnostic) => diagnostic.severity === 'warning')).toBe(true);
     expect(sessionLocal).not.toHaveBeenCalled();
-    await expect(currentGeneration(root)).rejects.toBeTruthy();
+    await expect(currentCache(root)).rejects.toBeTruthy();
   });
 
   it('falls back to rich session-local validation if disk changes after authority capture but before CLI admission', async () => {
@@ -275,7 +283,7 @@ describe('editor authoring validation cache sharing', () => {
       }),
     );
     expect(sessionLocal).toHaveBeenCalledTimes(1);
-    await expect(currentGeneration(root)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(currentCache(root)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('becomes cache-eligible only after the active workspace reconciles the saved disk generation', async () => {
@@ -291,7 +299,7 @@ describe('editor authoring validation cache sharing', () => {
       authority: 'disk-authoritative',
       validateSessionLocal: async () => ({ ok: true, success: true, diagnostics: [] }),
     });
-    await expect(currentGeneration(root)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(currentCache(root)).rejects.toMatchObject({ code: 'ENOENT' });
 
     const projectJsonPath = path.join(root, 'project.json');
     const projectJson = JSON.parse(await readFile(projectJsonPath, 'utf8')) as {
@@ -308,6 +316,6 @@ describe('editor authoring validation cache sharing', () => {
       authority: 'disk-authoritative',
       validateSessionLocal: async () => ({ ok: true, success: true, diagnostics: [] }),
     });
-    await expect(currentGeneration(root)).resolves.toBeTruthy();
+    await expect(waitForCurrentCache(root)).resolves.toBeTruthy();
   });
 });

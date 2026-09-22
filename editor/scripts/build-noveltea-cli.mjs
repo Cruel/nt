@@ -81,6 +81,12 @@ const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-isl
 const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
 const hostProcessSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-process.ts');
 const staticContractsSource = path.join(editorRoot, 'src', 'cli', 'static-contracts.ts');
+const schemaStaticContractsSource = path.join(
+  editorRoot,
+  'src',
+  'shared',
+  'schema-static-contracts.ts',
+);
 const commandRoutingSource = path.join(editorRoot, 'src', 'cli', 'command-routing.ts');
 const productVersionSource = path.join(editorRoot, 'src', 'shared', 'product-version.ts');
 
@@ -448,6 +454,7 @@ try {
   const stagedHost = path.join(stageRoot, 'noveltea-scriptc-host.ts');
   const stagedHostProcess = path.join(stageRoot, 'noveltea-scriptc-process.ts');
   const stagedStaticContracts = path.join(stageRoot, 'static-contracts.ts');
+  const stagedSchemaStaticContracts = path.join(stageRoot, 'schema-static-contracts.ts');
   const stagedCommandRouting = path.join(stageRoot, 'command-routing.ts');
   const stagedProductVersion = path.join(stageRoot, 'product-version.ts');
   const stagedHostSource = (await readFile(hostSource, 'utf8'))
@@ -457,14 +464,14 @@ try {
       '// @ts-expect-error The private island package is materialized only during release staging.',
       '',
     );
-  const stagedStaticContractsSource = (await readFile(staticContractsSource, 'utf8')).replace(
-    '../shared/product-version',
-    './product-version',
-  );
+  const stagedStaticContractsSource = (await readFile(staticContractsSource, 'utf8'))
+    .replace('../shared/product-version', './product-version')
+    .replace('../shared/schema-static-contracts', './schema-static-contracts');
   const stagedProductVersionSource = (await readFile(productVersionSource, 'utf8'))
     .replace('__NOVELTEA_VERSION__', JSON.stringify(productVersion))
     .replace('__NOVELTEA_BUILD_IDENTITY__', JSON.stringify(buildIdentity));
   await writeFile(stagedStaticContracts, stagedStaticContractsSource);
+  await cp(schemaStaticContractsSource, stagedSchemaStaticContracts);
   await cp(commandRoutingSource, stagedCommandRouting);
   await writeFile(stagedProductVersion, stagedProductVersionSource);
   await cp(hostProcessSource, stagedHostProcess);

@@ -49,6 +49,8 @@ struct ProjectSourceManifestEntry {
 struct ProjectSourceManifest {
     std::string canonical_root;
     std::vector<ProjectSourceManifestEntry> entries;
+
+    friend bool operator==(const ProjectSourceManifest&, const ProjectSourceManifest&) = default;
 };
 
 struct ProjectSourceDelta {
@@ -89,6 +91,9 @@ struct ProjectAuthorityCheckpoint {
     std::vector<std::string> authoritative_paths;
     std::vector<ProjectSourceDiscoveryScope> discovery_scopes;
     ProjectSourceManifest manifest;
+
+    friend bool operator==(const ProjectAuthorityCheckpoint&,
+                           const ProjectAuthorityCheckpoint&) = default;
 };
 
 struct ProjectAuthorityOptions {

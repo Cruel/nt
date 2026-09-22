@@ -112,8 +112,6 @@ export interface RunNovelTeaCliOptions {
   readonly forceAuthoringCacheRebuild?: boolean;
   readonly skipAuthoringWholeResultCache?: boolean;
   readonly expectedAuthoringValidationInputs?: ProjectSourceInventory;
-  /** Trusted static-host metadata captured by the native authoring-cache probe. */
-  readonly precomputedAuthoringCacheInventory?: ProjectSourceInventory;
   readonly comfyUiWorkflowLibraryOptions?: WorkflowLibraryServiceOptions;
   readonly abortSignal?: AbortSignal;
   readonly onComfyUiProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
@@ -534,14 +532,14 @@ export async function runNovelTeaCli(
       ? await options.residentWorkspace.hasResidentSession(discovery.projectRoot)
       : false;
   const authoringCacheAdmission =
-    options.forceAuthoringCacheRebuild || residentSessionAlreadyLoaded
+    options.forceAuthoringCacheRebuild ||
+    residentSessionAlreadyLoaded ||
+    options.skipAuthoringWholeResultCache
       ? null
       : await validationCache?.readAuthoringCacheAdmission(
           services.fileSystem,
           discovery.projectRoot,
           options.expectedAuthoringValidationInputs ?? null,
-          options.skipAuthoringWholeResultCache ?? false,
-          options.precomputedAuthoringCacheInventory ?? null,
         );
   const cacheAdmissionMs = Date.now() - cacheAdmissionStarted;
   const cachedValidation = options.skipAuthoringWholeResultCache
@@ -564,25 +562,10 @@ export async function runNovelTeaCli(
     };
   }
 
-  const reusableAuthoring = authoringCacheAdmission?.reusable ?? null;
-  // Once the daemon owns a coherent resident Project generation, native physical authority plus
-  // resident semantic deltas are the foreground freshness path. Rebuilding/publishing the rich
-  // persistent semantic cache here would reintroduce O(Project) work after every isolated edit.
-  // Cold/restart admission keeps the existing persisted-cache behavior until #330 narrows it.
-  const foregroundValidationCache = residentSessionAlreadyLoaded ? null : validationCache;
-  const validationBaseline = reusableAuthoring
-    ? null
-    : await foregroundValidationCache?.captureAuthoringSourceBaseline(
-        services.fileSystem,
-        discovery.projectRoot,
-      );
   const { openCliProject } = await import('./semantic-project');
   const workspaceAdmissionStarted = Date.now();
   const opened = await openCliProject(activeWorkspace, discovery.projectRoot, {
     readOnly: command.dryRun,
-    reusableSourceContributions: reusableAuthoring?.sourceContributions,
-    reusableValidationContributions: reusableAuthoring?.validationContributions,
-    reusableDependencyState: reusableAuthoring?.dependencyState,
     ...(routing.projectAccess === 'transactional-write' && options.residentWorkspace
       ? {
           openProject: (projectRoot, openOptions) =>
@@ -597,34 +580,19 @@ export async function runNovelTeaCli(
     });
 
   try {
-    let activeOpened = opened;
+    const activeOpened = opened;
     const freshnessProofStarted = Date.now();
-    let validationInputs = await foregroundValidationCache?.captureAuthoringValidationInputs(
-      services.fileSystem,
-      activeOpened.opened.snapshot,
-      validationBaseline ?? null,
-      activeOpened.opened.sourceContributions,
-      reusableAuthoring?.inventory ?? null,
-    );
-    if (reusableAuthoring && !validationInputs) {
-      const freshOpened = await openCliProject(activeWorkspace, discovery.projectRoot, {
-        readOnly: command.dryRun,
-      });
-      if (!freshOpened.ok)
-        return failure(
-          workspaceOpenExitCode(freshOpened.diagnostics),
-          freshOpened.diagnostics,
-          globals.json,
-          { projectRoot: discovery.projectRoot },
-        );
-      activeOpened = freshOpened;
-      validationInputs = await foregroundValidationCache?.captureAuthoringValidationInputs(
-        services.fileSystem,
-        activeOpened.opened.snapshot,
-        validationBaseline ?? null,
-        activeOpened.opened.sourceContributions,
-      );
-    }
+    // Resident owners already use the daemon's batched native authority proof. Re-inventorying the
+    // complete Project in TypeScript here would defeat the resident change-proportional path. The
+    // narrow on-disk cache is produced only by non-resident callers (editor/Node/no-daemon); daemon
+    // resident results are retained/persisted by native maintenance after foreground completion.
+    const validationInputs =
+      validationCache && !residentProjectSession && options.expectedAuthoringValidationInputs
+        ? await validationCache.captureAuthoringValidationAuthorityInputs(
+            services.fileSystem,
+            activeOpened.opened.snapshot,
+          )
+        : null;
     const freshnessProofMs = Date.now() - freshnessProofStarted;
     if (options.expectedAuthoringValidationInputs) {
       const { projectSourceInventoriesEqual } = await import('../shared/project-source-inventory');
@@ -711,21 +679,33 @@ export async function runNovelTeaCli(
     }
     const diagnosticProjectionMs = Date.now() - diagnosticProjectionStarted;
     const cachePublicationStarted = Date.now();
-    if (validationInputs)
-      await foregroundValidationCache?.publishAuthoringCache(
-        services.fileSystem,
-        discovery.projectRoot,
-        validationInputs,
-        activeOpened.opened.sourceContributions,
-        semantic.authoringDependencyAnalysis,
-        {
-          success: semantic.ok,
-          exitCode: semantic.ok ? 0 : (semantic.exitCode ?? semanticExitCode(diagnostics)),
-          diagnostics,
-          editorDiagnostics,
-        },
-        activeOpened.opened.validationContributions,
-      );
+    if (validationCache && !residentProjectSession) {
+      const exactResult = {
+        success: semantic.ok,
+        exitCode: semantic.ok ? 0 : (semantic.exitCode ?? semanticExitCode(diagnostics)),
+        diagnostics,
+        editorDiagnostics,
+      };
+      // Persistence is restart acceleration, not foreground correctness. If an editor caller
+      // supplied an exact expected authority we already proved it above; ordinary cold/no-daemon
+      // validation captures its publication authority entirely after the result is known. Neither
+      // the physical inventory nor the cache write may hold the foreground validation open.
+      void (async () => {
+        const publishInputs =
+          validationInputs ??
+          (await validationCache.captureAuthoringValidationAuthorityInputs(
+            services.fileSystem,
+            activeOpened.opened.snapshot,
+          ));
+        if (publishInputs)
+          await validationCache.publishAuthoringCache(
+            services.fileSystem,
+            discovery.projectRoot,
+            publishInputs,
+            exactResult,
+          );
+      })().catch(() => {});
+    }
     const cachePublicationMs = Date.now() - cachePublicationStarted;
     if (semantic.authoringValidationMetrics) {
       const dependencyWork = semantic.authoringValidationMetrics.dependencyWork;

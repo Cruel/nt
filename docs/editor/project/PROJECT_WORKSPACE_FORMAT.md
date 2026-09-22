@@ -265,28 +265,29 @@ closed instead of changing journal state. Non-dry-run semantic mutations persist
 workspace transaction service used by editor structural writes.
 
 `noveltea validate` uses the shared authoring compiler/validation and dependency/source-analysis
-pipeline. Clean disk validation may publish an immutable Project-local authoring-cache generation
-containing the exact source inventory, canonical diagnostics, and a digest-protected per-source
-contribution artifact. Each canonical authoring source contribution is keyed by its Project-relative
-path and exact content hash and retains its normalized parsed JSON fragment or source text, schema
-admission, precise semantic owner paths, and only validation diagnostics whose inputs are provably
-confined to that physical source. Attribution alone does not make a cross-record/reference finding
-source-local. The same artifact retains dependency-graph contributions and source-analysis products
-with the exact source revisions they depend on. Source-analysis products additionally depend on the
-complete analyzed-source revision set because analyzer byte/occurrence limits are snapshot-wide;
-Asset-backed text sources participate through their exact external source-file revisions. A stale
-whole-validation result may therefore rebuild from cached normalized fragments without rereading or
-reparsing unrelated unchanged JSON sources: fresh fragments are normalized by their owning schemas,
-and malformed or otherwise uncertain input falls back to the canonical full-Project parser.
-Changed-source semantic contributions are filtered out. Semantic validation is also retained as
-per-check contributions: each check records the Project input paths it actually reads and binds those
-inputs to the exact owning source revisions. A partial reassembly reruns checks whose recorded inputs
-intersect changed source revisions while reusing unaffected findings, then applies the same canonical
-diagnostic classification, ordering, and deduplication as fresh whole-Project validation. If only
-metadata changed, the affected source is reread and hashed; exact byte identity re-admits the prior
-source and semantic contributions. Added, deleted, structurally reclassified, or otherwise uncertain
-candidate-source inventory disables contribution reuse conservatively and falls back to fresh
-validation.
+pipeline. Incremental parsed-source, validation, dependency, and source-analysis reuse belongs to the
+live resident Project owner and is never persisted as a Project Workspace checkpoint. A cold owner
+reconstructs those semantic products canonically unless it is rehydrated from a RAM-only portable
+Project snapshot retained by the daemon.
+
+Clean disk validation may publish only a narrow exact-result cache under
+`.noveltea/cache/authoring/current.json`. That file contains the exact physical Project manifest,
+the validation semantic key, and canonical CLI/editor diagnostics/result. Physical entries bind the
+relative path, native source identity, byte size, and exact nanosecond mtime, while conservative
+discovery covers the normal `records/`, `scripts/`, and `i18n/` source families plus authoritative
+Workspace/Asset paths. The semantic key binds the NovelTea/CLI build, Workspace/authoring schema,
+compiler/runtime identity, and validation profile/options/configuration. Exact reuse is admitted only
+when both the semantic key and physical authority still match; same-path replacement with restored
+size/mtime therefore misses because its native source identity changed. A miss does not attempt partial
+persistent semantic reuse.
+
+Cache publication is optional restart acceleration after foreground correctness. Resident daemon
+validation retains an exact result in native memory and publishes it only from idle maintenance;
+clean editor/no-daemon validation starts best-effort publication without waiting for it. Corrupt,
+missing, incompatible, stale, unsafe, or unwritable cache state falls back to normal canonical
+validation and never changes diagnostics. No authoring-cache `generations/` tree, parsed-source
+artifact, validation-contribution artifact, dependency contribution, source-analysis checkpoint, or
+resident generation identity is part of the production Workspace persistence contract.
 
 Projects with authored Shaders or Materials also run shader readiness for `glsl-330`, `essl-300`, and
 `metal` through the standalone `noveltea` native tooling boundary. The retired

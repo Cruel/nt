@@ -4,7 +4,6 @@ import {
   type ProjectSourceDiscoveryScope,
   type ProjectSourceInventory,
 } from '../project-source-inventory';
-import { readReusableAuthoringContributions } from '../authoring-cache';
 import { parseAssetData } from '../project-schema/authoring-assets';
 import type { AuthoringProject } from '../project-schema/authoring-project';
 import type { EditorProjectState } from '../project-schema/editor-project-state';
@@ -69,9 +68,9 @@ export interface ResidentProjectAuthority {
 }
 
 const residentDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = Object.freeze([
+  { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
   { root: 'records', extensions: ['.json', '.lua', '.rcss', '.rml'], excludedPrefixes: [] },
   { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
-  { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
 ]);
 
 function isResidentSemanticSourcePath(path: string): boolean {
@@ -433,46 +432,28 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     options: ProjectWorkspaceOpenOptions,
   ): Promise<ProjectWorkspaceOpenResult> {
     const workspace = this.createSessionWorkspace(this.residentFileSystem);
-    let admissionOptions = options;
+    const admissionOptions = {
+      ...options,
+      // Persistent semantic contribution hydration was removed. These reuse hooks remain valid for
+      // RAM-resident generation/snapshot reuse, but a cold Project always reconstructs semantics
+      // canonically from authored sources.
+      reusableSourceContributions: undefined,
+      reusableValidationContributions: undefined,
+      reusableDependencyState: undefined,
+    };
 
     if (this.nativeAuthority) {
-      // Establish native physical authority before accepting any reusable semantic state. Reuse
-      // hints supplied by an earlier caller-side inventory may already be stale by the time this
-      // owner is admitted, so recertify the persistent contributions under this baseline instead.
+      // Establish the physical baseline before cold semantic reconstruction. Native authority is
+      // the only persisted/restart acceleration boundary; no semantic products are loaded here.
       await this.observeNativeAuthority(canonicalRoot, []);
-      admissionOptions = {
-        ...options,
-        reusableSourceContributions: undefined,
-        reusableValidationContributions: undefined,
-        reusableDependencyState: undefined,
-      };
-      const reusable = await readReusableAuthoringContributions(
-        this.residentFileSystem,
-        canonicalRoot,
-      );
-      if (reusable)
-        admissionOptions = {
-          ...admissionOptions,
-          reusableSourceContributions: reusable.sourceContributions,
-          reusableValidationContributions: reusable.validationContributions,
-          reusableDependencyState: reusable.dependencyState,
-        };
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const opened = await workspace.open(canonicalRoot, admissionOptions);
         if (!opened.ok) return opened;
         const nativeAssetSourcePaths = Object.freeze(assetSourcePaths(opened.snapshot.project));
         const proof = await this.observeNativeAuthority(canonicalRoot, nativeAssetSourcePaths);
         if (semanticObservationDelta(proof).paths.length > 0) {
-          // Any reusable semantic product was admitted against the pre-open physical baseline.
-          // Once the final native proof observes a semantic race, those products are no longer
-          // proven for the refreshed manifest. Retry from canonical disk state rather than letting
-          // a stale reusable source survive simply because native authority has already advanced.
-          admissionOptions = {
-            ...options,
-            reusableSourceContributions: undefined,
-            reusableValidationContributions: undefined,
-            reusableDependencyState: undefined,
-          };
+          // The canonical read raced physical change. Retry from authored sources against the
+          // newly observed baseline rather than promoting mixed physical generations.
           continue;
         }
         const session = ResidentProjectWorkspaceSession.fromOpenedWithHost(
@@ -500,24 +481,6 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         return opened;
       }
       throw new Error('Project sources changed continuously during resident Project admission.');
-    }
-
-    if (
-      !options.reusableSourceContributions &&
-      !options.reusableValidationContributions &&
-      !options.reusableDependencyState
-    ) {
-      const reusable = await readReusableAuthoringContributions(
-        this.residentFileSystem,
-        canonicalRoot,
-      );
-      if (reusable)
-        admissionOptions = {
-          ...options,
-          reusableSourceContributions: reusable.sourceContributions,
-          reusableValidationContributions: reusable.validationContributions,
-          reusableDependencyState: reusable.dependencyState,
-        };
     }
 
     for (let attempt = 0; attempt < 3; attempt += 1) {

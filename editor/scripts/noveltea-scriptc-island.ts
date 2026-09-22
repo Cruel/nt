@@ -5,6 +5,7 @@ import type {
   LocalizationFontCoverageResponse,
 } from '../src/shared/localization-font-coverage';
 import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
+import { NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY } from '../src/cli/static-contracts';
 import type { ScriptcHostInvoke } from './noveltea-scriptc-path-metadata';
 
 let residentInvokeHost: ScriptcHostInvoke | null = null;
@@ -137,6 +138,48 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/res
 
 function trace(message: string): void {
   if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-island] ${message}\n`);
+}
+
+async function retainExactResidentValidation(
+  commandResult: import('../src/cli/contracts').NovelTeaCliCommandResult,
+  invokeHost: ScriptcHostInvoke,
+): Promise<void> {
+  const projectRoot = commandResult.envelope.projectRoot;
+  const diagnostics = commandResult.envelope.diagnostics;
+  if (
+    typeof projectRoot !== 'string' ||
+    diagnostics.some((item) => item.severity === 'error' && item.code.startsWith('native.'))
+  )
+    return;
+  const { formatCliResult } = await import('../src/cli/contracts');
+  const envelope = {
+    success: commandResult.envelope.success,
+    exitCode: commandResult.exitCode,
+    diagnostics,
+    projectRoot,
+  };
+  const human = formatCliResult(envelope, false, {
+    success: 'NovelTea validate succeeded.',
+    failure: diagnostics[0]?.message ?? 'Command failed.',
+  });
+  const json = formatCliResult(envelope, true, {
+    success: 'NovelTea validate succeeded.',
+    failure: diagnostics[0]?.message ?? 'Command failed.',
+  });
+  invokeHost(
+    'daemon-authoring-validation-result',
+    JSON.stringify({
+      semanticKey: NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY,
+      result: {
+        success: commandResult.envelope.success,
+        exitCode: commandResult.exitCode,
+        diagnostics,
+        editorDiagnostics: commandResult.editorDiagnostics ?? [],
+      },
+      humanResult: [human.exitCode, human.stdout, human.stderr],
+      jsonResult: [json.exitCode, json.stdout, json.stderr],
+    }),
+  );
 }
 
 function createNativeTools(invoke: ScriptcHostInvoke): NovelTeaCliNativeToolService {
@@ -352,7 +395,6 @@ export async function runNovelTeaScriptcIsland(
   argvText: string,
   invokeHost: ScriptcHostInvoke,
   forceRuntimeCacheRebuild = false,
-  authoringCacheInventoryText = '',
   invocationContext: ScriptcInvocationContext = {},
 ): Promise<string> {
   const previousEnvironment = invocationContext.environment ? { ...process.env } : null;
@@ -366,7 +408,6 @@ export async function runNovelTeaScriptcIsland(
       argvText,
       invokeHost,
       forceRuntimeCacheRebuild,
-      authoringCacheInventoryText,
       invocationContext,
     );
   } finally {
@@ -382,15 +423,9 @@ async function runNovelTeaScriptcIslandScoped(
   argvText: string,
   invokeHost: ScriptcHostInvoke,
   forceRuntimeCacheRebuild: boolean,
-  authoringCacheInventoryText: string,
   invocationContext: ScriptcInvocationContext,
 ): Promise<string> {
   const argv = JSON.parse(argvText) as string[];
-  const precomputedAuthoringCacheInventory = authoringCacheInventoryText
-    ? ({
-        entries: JSON.parse(authoringCacheInventoryText),
-      } as import('../src/shared/project-source-inventory').ProjectSourceInventory)
-    : undefined;
   const environment = invocationContext.environment ?? process.env;
   const publishResidentProjectSessionCount = () => {
     if (!invocationContext.residentProjectSessions) return;
@@ -625,7 +660,6 @@ async function runNovelTeaScriptcIslandScoped(
               ),
             }
           : {}),
-        ...(precomputedAuthoringCacheInventory ? { precomputedAuthoringCacheInventory } : {}),
         onAuthoringValidationInstrumentation:
           environment.NOVELTEA_CLI_VALIDATION_PROFILE === '1'
             ? (instrumentation) => {
@@ -637,6 +671,13 @@ async function runNovelTeaScriptcIslandScoped(
       if (invocationContext.residentProjectSessionEpoch !== undefined)
         announceResidentProjectGenerations();
     }
+    if (
+      family === 'validate' &&
+      invocationContext.residentProjectSessionEpoch !== undefined &&
+      !invocationContext.prepareResidentSnapshotOnly &&
+      novelTeaResidentProjectSessionCount() > 0
+    )
+      await retainExactResidentValidation(commandResult, invokeHost);
     trace('application invocation completed');
     const residentSessionCountAfter = residentWorkspace?.residentSessionCount() ?? 0;
     if (residentSessionCountAfter > residentSessionCountBefore)

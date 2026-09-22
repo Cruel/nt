@@ -1381,59 +1381,31 @@ async function certifyAuthoringCache(tempRoot, pristine) {
   project.entrypoint = originalEntrypoint;
   await writeJson(manifestPath, project);
   invoke('authoring semantic repair', true);
-  const pointerPath = path.join(cacheRoot, 'current');
-  const pointer = JSON.parse(await readFile(pointerPath, 'utf8'));
-  await writeFile(path.join(cacheRoot, 'generations', pointer.generation, 'manifest.json'), '{}');
-  invoke('authoring corrupt generation', true);
-  await writeFile(pointerPath, '{broken');
-  invoke('authoring malformed pointer', true);
-  const incompatiblePointer = JSON.parse(await readFile(pointerPath, 'utf8'));
-  const incompatiblePath = path.join(
-    cacheRoot,
-    'generations',
-    incompatiblePointer.generation,
-    'manifest.json',
-  );
-  const incompatible = JSON.parse(await readFile(incompatiblePath, 'utf8'));
-  incompatible.buildIdentity = 'different-build';
-  const text = JSON.stringify(incompatible);
-  await writeFile(incompatiblePath, text);
-  await writeJson(pointerPath, {
-    ...incompatiblePointer,
-    manifestSha256: `sha256:${sha256(text)}`,
-  });
-  invoke('authoring incompatible build', true);
-  await rm(pointerPath);
-  await mkdir(pointerPath);
+  const currentPath = path.join(cacheRoot, 'current.json');
+  await writeFile(currentPath, '{}');
+  invoke('authoring corrupt exact result', true);
+  await writeFile(currentPath, '{broken');
+  invoke('authoring malformed exact result', true);
+  const incompatible = JSON.parse(await readFile(currentPath, 'utf8'));
+  incompatible.semanticKey = 'different-validation-semantics';
+  await writeJson(currentPath, incompatible);
+  invoke('authoring incompatible semantic identity', true);
+  await rm(currentPath);
+  await mkdir(currentPath);
   invoke('authoring best-effort publication', true);
-  await rm(pointerPath, { recursive: true });
+  await rm(currentPath, { recursive: true });
   invoke('authoring publication recovery', true);
   invoke('authoring recovered warm hit', false);
-  const incompletePointer = JSON.parse(await readFile(pointerPath, 'utf8'));
-  const incompleteManifestPath = path.join(
-    cacheRoot,
-    'generations',
-    incompletePointer.generation,
-    'manifest.json',
-  );
-  const incompleteManifest = JSON.parse(await readFile(incompleteManifestPath, 'utf8'));
+  const incompleteManifest = JSON.parse(await readFile(currentPath, 'utf8'));
   incompleteManifest.inputs = incompleteManifest.inputs.filter(
     (input) => input.path !== 'traits.json',
   );
-  const incompleteText = JSON.stringify(incompleteManifest);
-  await writeFile(incompleteManifestPath, incompleteText);
-  await writeJson(pointerPath, {
-    ...incompletePointer,
-    manifestSha256: `sha256:${sha256(incompleteText)}`,
-  });
+  await writeJson(currentPath, incompleteManifest);
   invoke('authoring missing authoritative root fragment', true);
   if (!isWindows) {
-    const before = await readFile(pointerPath, 'utf8');
     const link = path.join(root, 'scripts/ignored-link.txt');
     await symlink(path.join(root, 'scripts/README.md'), link);
     invoke('authoring conservative native rejection', true);
-    if ((await readFile(pointerPath, 'utf8')) === before)
-      fail('Rejected native authoring admission reused the cache inside the island.');
     await rm(link);
     invoke('authoring native uncertainty resolved', false);
   }
@@ -1441,147 +1413,161 @@ async function certifyAuthoringCache(tempRoot, pristine) {
 }
 
 async function certifyDaemonAuthoringCacheResidency(tempRoot, pristine) {
-  const hydratedRoot = path.join(tempRoot, 'daemon-authoring-cache-hydration');
-  await resetCase(pristine, hydratedRoot);
-  const args = ['--project', hydratedRoot, '--json', 'validate'];
-  requireSuccess(
-    'daemon authoring cache seed',
-    runNative(args, {
-      cwd: hydratedRoot,
-      env: { ...process.env, NOVELTEA_NO_DAEMON: '1' },
-    }),
-  );
+  const root = path.join(tempRoot, 'daemon-authoring-exact-cache');
+  const runtimeRoot = path.join(os.tmpdir(), `nt-authoring-exact-${process.pid}-${Date.now()}`);
+  await resetCase(pristine, root);
+  const args = ['--project', root, '--json', 'validate'];
+  const environment = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `authoring-exact-${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '250',
+  };
+  const traced = {
+    ...environment,
+    NOVELTEA_CLI_TRACE: '1',
+    NOVELTEA_CLI_VALIDATION_PROFILE: '1',
+  };
+  runNative(['daemon', 'stop'], { env: environment });
+  try {
+    const cacheRoot = path.join(root, '.noveltea/cache/authoring');
+    await mkdir(cacheRoot, { recursive: true });
+    // Block only optional disk publication. Native RAM retention must still answer unchanged
+    // validation, proving persistence is not the owner fast path.
+    await mkdir(path.join(cacheRoot, 'current.json'));
 
-  const roomPath = path.join(hydratedRoot, 'records/rooms/gallery.json');
-  const room = JSON.parse(await readFile(roomPath, 'utf8'));
-  room.label = `${room.label} hydrated`;
-  await writeJson(roomPath, room);
-  const hydrated = requireSuccess(
-    'daemon authoring cache hydration',
-    runNative(args, {
-      cwd: hydratedRoot,
-      env: {
-        ...process.env,
-        NOVELTEA_CLI_TRACE: '1',
-        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
-      },
-    }),
-  );
-  if (!hydrated.stderr.includes('[scriptc-host] daemon invocation forwarding'))
-    fail('Stale authoring-cache validation did not route through the resident daemon.');
-  const hydratedProfile = validationProfile(hydrated);
-  if (
-    !hydratedProfile ||
-    hydratedProfile.sourceWork.reusedJsonSources <= 0 ||
-    hydratedProfile.sourceWork.wholeProjectSchemaParses !== 0
-  )
-    fail(
-      `Cold resident Project did not hydrate persistent authoring contributions: ${hydrated.stderr}`,
+    const cold = requireSuccess(
+      'daemon authoring exact cold admission',
+      runNative(args, { cwd: root, env: traced }),
     );
+    if (!cold.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+      fail(`Cold exact-validation certification did not route through the daemon.\n${cold.stderr}`);
+    const coldProfile = validationProfile(cold);
+    if (
+      !coldProfile ||
+      coldProfile.sourceWork.parsedJsonSources <= 0 ||
+      coldProfile.sourceWork.wholeProjectSchemaParses !== 1
+    )
+      fail(`Cold resident validation was not canonical: ${cold.stderr}`);
 
-  const exact = requireSuccess(
-    'daemon authoring static exact hit',
-    runNative(args, {
-      cwd: hydratedRoot,
-      env: {
-        ...process.env,
-        NOVELTEA_CLI_TRACE: '1',
-        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
-      },
-    }),
-  );
-  if (!exact.stderr.includes('authoring cache hit: static/native validate path admitted'))
-    fail(`Exact authoring-cache validation did not stay static/native: ${exact.stderr}`);
-  if (
-    exact.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
-    validationProfile(exact)
-  )
-    fail('Exact authoring-cache validation contacted the daemon instead of returning statically.');
-
-  room.label = `${room.label} resident`;
-  await writeJson(roomPath, room);
-  const resident = requireSuccess(
-    'daemon authoring resident validation',
-    runNative(args, {
-      cwd: hydratedRoot,
-      env: {
-        ...process.env,
-        NOVELTEA_CLI_TRACE: '1',
-        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
-      },
-    }),
-  );
-  const residentProfile = validationProfile(resident);
-  if (
-    !residentProfile ||
-    residentProfile.sourceWork.parsedJsonSources !== 1 ||
-    residentProfile.sourceWork.wholeProjectSchemaParses !== 0
-  )
-    fail(`Warm resident validation did not stay change-scoped: ${resident.stderr}`);
-
-  const projectPath = path.join(hydratedRoot, 'project.json');
-  const project = JSON.parse(await readFile(projectPath, 'utf8'));
-  project.entrypoint = { kind: 'room', id: 'missing-daemon-cache-room' };
-  await writeJson(projectPath, project);
-  const invalid = runNative(args, {
-    cwd: hydratedRoot,
-    env: {
-      ...process.env,
-      NOVELTEA_CLI_TRACE: '1',
-      NOVELTEA_CLI_VALIDATION_PROFILE: '1',
-    },
-  });
-  if (invalid.status !== 4 || !validationProfile(invalid))
-    fail(
-      `Resident deterministic validation failure was not computed canonically: ${invalid.stderr}`,
+    const memoryHit = requireSuccess(
+      'daemon authoring exact native-memory hit',
+      runNative(args, { cwd: root, env: traced }),
     );
-  const cachedInvalid = runNative(args, {
-    cwd: hydratedRoot,
-    env: {
-      ...process.env,
-      NOVELTEA_CLI_TRACE: '1',
-      NOVELTEA_CLI_VALIDATION_PROFILE: '1',
-    },
-  });
-  if (
-    cachedInvalid.status !== 4 ||
-    cachedInvalid.stderr.includes('authoring cache hit: static/native validate path admitted') ||
-    !cachedInvalid.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
-    !validationProfile(cachedInvalid)
-  )
-    fail(
-      `Resident deterministic validation failure unexpectedly republished the rich authoring cache: ${cachedInvalid.stderr}`,
-    );
+    if (
+      !memoryHit.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
+      validationProfile(memoryHit) ||
+      memoryHit.stderr.includes('authoring cache hit: static/native validate path admitted')
+    )
+      fail(`Exact validation did not return from daemon-native memory: ${memoryHit.stderr}`);
 
-  const fallbackRoot = path.join(tempRoot, 'daemon-authoring-cache-fallback');
-  await resetCase(pristine, fallbackRoot);
-  const fallbackCacheRoot = path.join(fallbackRoot, '.noveltea/cache/authoring');
-  await mkdir(fallbackCacheRoot, { recursive: true });
-  await writeFile(path.join(fallbackCacheRoot, 'current'), '{broken');
-  const fallback = requireSuccess(
-    'daemon authoring canonical cold fallback',
-    runNative(['--project', fallbackRoot, '--json', 'validate'], {
-      cwd: fallbackRoot,
-      env: {
-        ...process.env,
-        NOVELTEA_CLI_TRACE: '1',
-        NOVELTEA_CLI_VALIDATION_PROFILE: '1',
-      },
-    }),
-  );
-  const fallbackProfile = validationProfile(fallback);
-  if (
-    !fallbackProfile ||
-    fallbackProfile.sourceWork.parsedJsonSources <= 0 ||
-    fallbackProfile.sourceWork.wholeProjectSchemaParses !== 1
-  )
-    fail(
-      `Unusable persistent state did not fall back to canonical cold admission: ${fallback.stderr}`,
+    let evictedStatus = null;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      evictedStatus = requireSuccess(
+        'daemon authoring owner eviction status',
+        runNative(['--json', 'daemon', 'status'], { env: environment }),
+      );
+      if (JSON.parse(evictedStatus.stdout).daemon.projectSessions === 0) break;
+    }
+    if (!evictedStatus || JSON.parse(evictedStatus.stdout).daemon.projectSessions !== 0)
+      fail(`Exact-validation owner did not evict while idle: ${evictedStatus?.stdout ?? ''}`);
+    const evictedMemoryHit = requireSuccess(
+      'daemon authoring exact hit after owner eviction',
+      runNative(args, { cwd: root, env: traced }),
     );
+    if (
+      !evictedMemoryHit.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
+      validationProfile(evictedMemoryHit)
+    )
+      fail(
+        `Exact validation did not survive owner eviction in native state: ${evictedMemoryHit.stderr}`,
+      );
 
-  process.stdout.write(
-    '[daemon-authoring-cache] static > resident > cold fallback ordering: PASS\n',
-  );
+    const projectPath = path.join(root, 'project.json');
+    const project = JSON.parse(await readFile(projectPath, 'utf8'));
+    const originalEntrypoint = project.entrypoint;
+    project.entrypoint = { kind: 'room', id: 'missing-daemon-cache-room' };
+    await writeJson(projectPath, project);
+    const invalid = runNative(args, { cwd: root, env: traced });
+    if (invalid.status !== 4 || !validationProfile(invalid))
+      fail(`Changed invalid Project was not recomputed canonically: ${invalid.stderr}`);
+    const cachedInvalid = runNative(args, { cwd: root, env: traced });
+    if (
+      cachedInvalid.status !== 4 ||
+      !cachedInvalid.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
+      validationProfile(cachedInvalid)
+    )
+      fail(
+        `Exact deterministic failure was not retained in native memory: ${cachedInvalid.stderr}`,
+      );
+
+    project.entrypoint = originalEntrypoint;
+    await writeJson(projectPath, project);
+    await rm(path.join(cacheRoot, 'current.json'), { recursive: true, force: true });
+    const recovered = requireSuccess(
+      'daemon authoring persistent publication recovery',
+      runNative(args, { cwd: root, env: traced }),
+    );
+    if (!validationProfile(recovered))
+      fail(`Repaired Project did not recompute before persistent publication: ${recovered.stderr}`);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        await readFile(path.join(cacheRoot, 'current.json'), 'utf8');
+        break;
+      } catch {
+        if (attempt === 99) fail('Daemon did not publish the narrow exact cache while idle.');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+    requireSuccess(
+      'daemon authoring stop before restart cache hit',
+      runNative(['--json', 'daemon', 'stop'], { env: environment }),
+    );
+    const restartHit = requireSuccess(
+      'daemon authoring persistent restart hit',
+      runNative(args, { cwd: root, env: traced }),
+    );
+    if (
+      !restartHit.stderr.includes('authoring cache hit: static/native validate path admitted') ||
+      restartHit.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
+      validationProfile(restartHit)
+    )
+      fail(
+        `Whole-daemon restart did not use the narrow persistent exact cache: ${restartHit.stderr}`,
+      );
+
+    const fallbackRoot = path.join(tempRoot, 'daemon-authoring-cache-fallback');
+    await resetCase(pristine, fallbackRoot);
+    const fallbackCacheRoot = path.join(fallbackRoot, '.noveltea/cache/authoring');
+    await mkdir(fallbackCacheRoot, { recursive: true });
+    await writeFile(path.join(fallbackCacheRoot, 'current.json'), '{broken');
+    const fallback = requireSuccess(
+      'daemon authoring canonical cold fallback',
+      runNative(['--project', fallbackRoot, '--json', 'validate'], {
+        cwd: fallbackRoot,
+        env: traced,
+      }),
+    );
+    const fallbackProfile = validationProfile(fallback);
+    if (
+      !fallbackProfile ||
+      fallbackProfile.sourceWork.parsedJsonSources <= 0 ||
+      fallbackProfile.sourceWork.wholeProjectSchemaParses !== 1
+    )
+      fail(
+        `Unusable persistent exact state did not fall back to canonical cold admission: ${fallback.stderr}`,
+      );
+
+    process.stdout.write(
+      '[daemon-authoring-cache] native exact hit, eviction, restart persistence, recovery: PASS\n',
+    );
+  } finally {
+    runNative(['daemon', 'stop'], { env: environment });
+    await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 function certifyEditorAuthoringCacheSharing() {
