@@ -244,6 +244,10 @@ export interface ProjectWorkspaceSourceWork {
   readonly fullProjectTraversals: number;
   readonly fullProjectProjections: number;
   readonly foregroundSerializations: number;
+  /** Bytes serialized synchronously on the foreground semantic path. */
+  readonly foregroundSerializedBytes: number;
+  /** Whether this generation changed inputs that can affect localization font coverage. */
+  readonly localizationCoverageInputsChanged: boolean;
 }
 
 export interface ProjectWorkspaceDependencyWork {
@@ -1656,6 +1660,17 @@ function recordEditIsPresentationOnly(
   );
 }
 
+function localizationCoverageInputsChanged(
+  changedSourcePaths: readonly string[],
+  before: AuthoringProject,
+  after: AuthoringProject,
+): boolean {
+  return !(
+    changedSourcePaths.length > 0 &&
+    changedSourcePaths.every((path) => recordEditIsPresentationOnly(before, after, path))
+  );
+}
+
 function changedValidationContributionKeys(
   state: SnapshotValidationState,
   changedSourcePaths: readonly string[],
@@ -2407,6 +2422,12 @@ export class ProjectWorkspaceService {
           fullProjectTraversals: (priorRevisionState ? 0 : 1) + fullProjectTraversals,
           fullProjectProjections: 0,
           foregroundSerializations: 0,
+          foregroundSerializedBytes: 0,
+          localizationCoverageInputsChanged: localizationCoverageInputsChanged(
+            changedPaths,
+            base.snapshot.project,
+            project,
+          ),
         },
       },
       project,
@@ -2599,6 +2620,12 @@ export class ProjectWorkspaceService {
           fullProjectTraversals: 1,
           fullProjectProjections: 0,
           foregroundSerializations: 0,
+          foregroundSerializedBytes: 0,
+          localizationCoverageInputsChanged: localizationCoverageInputsChanged(
+            changedPaths,
+            base.snapshot.project,
+            committedSnapshot.project,
+          ),
         },
       },
       committedSnapshot.project,
@@ -2637,6 +2664,8 @@ export class ProjectWorkspaceService {
             fullProjectTraversals: 1,
             fullProjectProjections: 0,
             foregroundSerializations: 0,
+            foregroundSerializedBytes: 0,
+            localizationCoverageInputsChanged: true,
           };
           let requiresFullSchemaParse = false;
           const reusableContribution = (relativePath: string) => {

@@ -11,7 +11,10 @@ import type { AuthoringProject, ReferenceTarget } from '../shared/project-schema
 import type { ProjectValidationDiagnostic } from '../shared/project-schema/project-validation';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { buildShaderMaterialProject } from '../shared/project-schema/shader-material-project';
-import { localizationFontCoverageLocales } from '../shared/localization-font-coverage';
+import {
+  localizationFontCoverageLocales,
+  type LocalizationFontCoverageLocale,
+} from '../shared/localization-font-coverage';
 import {
   projectWorkspaceAffectedFiles,
   projectWorkspaceFile,
@@ -63,6 +66,8 @@ export interface CliAuthoringValidationMetrics {
   readonly preflightMs: number;
   readonly dependencyMs: number;
   readonly nativeMs: number;
+  readonly fontCoveragePreparationMs: number;
+  readonly fontCoverageNativeMs: number;
   readonly dependencyWork: ProjectWorkspaceDependencyAnalysis['work'];
   readonly compilerWork: Readonly<{
     wholeProjectNormalizations: number;
@@ -80,6 +85,28 @@ export interface CliSemanticResult {
   readonly exitCode?: NovelTeaCliExitCode;
   readonly authoringDependencyAnalysis?: ProjectWorkspaceDependencyAnalysis;
   readonly authoringValidationMetrics?: CliAuthoringValidationMetrics;
+}
+
+const localizationCoveragePreparationCache = new WeakMap<
+  ProjectWorkspaceService,
+  Map<string, readonly LocalizationFontCoverageLocale[]>
+>();
+
+function preparedLocalizationCoverageLocales(
+  workspace: ProjectWorkspaceService,
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  sourceWork: ProjectWorkspaceSourceWork,
+): readonly LocalizationFontCoverageLocale[] {
+  let byProject = localizationCoveragePreparationCache.get(workspace);
+  if (!byProject) {
+    byProject = new Map();
+    localizationCoveragePreparationCache.set(workspace, byProject);
+  }
+  const cached = byProject.get(snapshot.projectRoot);
+  if (cached && !sourceWork.localizationCoverageInputsChanged) return cached;
+  const prepared = localizationFontCoverageLocales(snapshot.project);
+  byProject.set(snapshot.projectRoot, prepared);
+  return prepared;
 }
 
 function workspaceDiagnosticCode(message: string, fallback = 'WORKSPACE_SOURCE_READ'): string {
@@ -267,6 +294,7 @@ export async function usagesForEntity(
 export async function validateCliProject(
   workspace: ProjectWorkspaceService,
   snapshot: LoadedProjectWorkspaceSnapshot,
+  sourceWork: ProjectWorkspaceSourceWork,
   nativeTools: NovelTeaCliNativeToolService,
 ): Promise<CliSemanticResult> {
   const preflightStarted = Date.now();
@@ -279,6 +307,8 @@ export async function validateCliProject(
   const dependencyAnalysis = await workspace.buildDependencyGraphAnalysis(snapshot);
   const dependencyMs = Date.now() - dependencyStarted;
   const nativeStarted = Date.now();
+  let fontCoveragePreparationMs = 0;
+  let fontCoverageNativeMs = 0;
   diagnostics.push(
     ...dependencyAnalysis.graph.diagnostics.map((item) =>
       cliDiagnostic(item.code, item.path, item.message, item.severity, {
@@ -290,10 +320,15 @@ export async function validateCliProject(
   );
   if (nativeTools.validateFontCoverage && !diagnostics.some((item) => item.severity === 'error')) {
     try {
+      const preparationStarted = Date.now();
+      const locales = preparedLocalizationCoverageLocales(workspace, snapshot, sourceWork);
+      fontCoveragePreparationMs = Date.now() - preparationStarted;
+      const coverageStarted = Date.now();
       const response = await nativeTools.validateFontCoverage({
         projectRoot: snapshot.projectRoot,
-        locales: localizationFontCoverageLocales(snapshot.project),
+        locales,
       });
+      fontCoverageNativeMs = Date.now() - coverageStarted;
       diagnostics.push(
         ...response.diagnostics.map((item) =>
           cliDiagnostic(
@@ -376,6 +411,8 @@ export async function validateCliProject(
       preflightMs,
       dependencyMs,
       nativeMs: Date.now() - nativeStarted,
+      fontCoveragePreparationMs,
+      fontCoverageNativeMs,
       dependencyWork: dependencyAnalysis.work,
       compilerWork: {
         wholeProjectNormalizations: preflight.stages.some(

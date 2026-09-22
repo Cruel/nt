@@ -125,6 +125,7 @@ struct BrokerContext {
     std::uint32_t protocol = protocol_version;
     std::uint64_t daemon_idle_ms = default_daemon_idle_ms;
     std::uint64_t project_session_idle_ms = default_project_session_idle_ms;
+    std::uint64_t disposable_extra_idle_ms = 30'000;
     std::optional<std::filesystem::path> runtime_root_override;
     bool disposable_worker_processes_enabled = true;
 };
@@ -175,6 +176,13 @@ std::optional<BrokerContext> parse_context(const Json& request, std::string& err
             return std::nullopt;
         }
         context.project_session_idle_ms = request["projectSessionIdleMs"].get<std::uint64_t>();
+    }
+    if (request.contains("disposableExtraIdleMs")) {
+        if (!request["disposableExtraIdleMs"].is_number_unsigned()) {
+            error = "disposableExtraIdleMs must be an unsigned integer";
+            return std::nullopt;
+        }
+        context.disposable_extra_idle_ms = request["disposableExtraIdleMs"].get<std::uint64_t>();
     }
     if (request.contains("runtimeRoot")) {
         if (!request["runtimeRoot"].is_string() ||
@@ -946,6 +954,8 @@ public:
                     .canonical_root = canonical_root,
                     .identity = *active_generation,
                 });
+                disposable_queues_.fetch_add(1);
+                snapshot_handoffs_.fetch_add(1);
                 assign_disposable_jobs_locked();
             }
             touch_owner(owner_worker_id);
@@ -1380,7 +1390,9 @@ public:
 
     ProjectObservation observe_project(const ProjectAuthorityRequest& request)
     {
-        return project_authority_.observe(request);
+        auto observation = project_authority_.observe(request);
+        record_authority_observation(observation);
+        return observation;
     }
 
     ProjectObservation observe_owner_project(std::uint64_t owner_worker_id,
@@ -1402,6 +1414,7 @@ public:
                     "Project authority request does not belong to this owner worker");
         }
         auto observation = project_authority_.observe(request);
+        record_authority_observation(observation);
         if (!observation.delta.added.empty() || !observation.delta.changed.empty() ||
             !observation.delta.removed.empty())
             touch_owner(owner_worker_id);
@@ -1454,6 +1467,7 @@ public:
             return error_json("resident Project generation could not be declared current");
         owner->second.active_session_epoch = identity.session_epoch;
         owner->second.active_generation = identity;
+        generation_promotions_.fetch_add(1);
         return {{"ok", true}};
     }
 
@@ -1520,6 +1534,7 @@ public:
                 std::move(canonical_root), pending.identity, std::move(pending.chunks),
                 std::move(pending.owner_metadata), *authority_checkpoint, now_millis()))
             return error_json("portable Project snapshot was rejected as stale");
+        snapshot_publications_.fetch_add(1);
         {
             std::scoped_lock lock(queue_mutex_);
             const auto owner = project_owners_.find(owner_worker_id);
@@ -1638,10 +1653,45 @@ public:
                 disposable_workers_.begin(), disposable_workers_.end(), [](const auto& entry) {
                     return entry.second.state == DisposableWorkerState::busy;
                 });
+            result["engineeringOwnerPids"] = Json::array();
+            for (const auto& [id, owner] : project_owners_) {
+                (void)id;
+#if defined(_WIN32)
+                result["engineeringOwnerPids"].push_back(owner.process.pid);
+#else
+                result["engineeringOwnerPids"].push_back(owner.process.pid);
+#endif
+            }
+            result["engineeringDisposablePids"] = Json::array();
+            for (const auto& [id, worker] : disposable_workers_) {
+                (void)id;
+#if defined(_WIN32)
+                result["engineeringDisposablePids"].push_back(worker.process.pid);
+#else
+                result["engineeringDisposablePids"].push_back(worker.process.pid);
+#endif
+            }
         }
         result["projectAuthorities"] = project_authority_.tracked_project_count();
         result["projectSnapshots"] = project_snapshots_.snapshot_count();
         result["projectSnapshotBytes"] = project_snapshots_.retained_bytes();
+        result["engineeringCounters"] = {
+            {"authorityObservations", authority_observations_.load()},
+            {"filesObserved", files_observed_.load()},
+            {"changedPaths", changed_paths_.load()},
+            {"nativeBoundaryCalls", native_boundary_calls_.load()},
+            {"ownerSpawns", owner_spawns_.load()},
+            {"ownerColdAdmissions", owner_cold_admissions_.load()},
+            {"ownerRehydrations", owner_rehydrations_.load()},
+            {"exactResultHits", exact_result_hits_.load()},
+            {"generationPromotions", generation_promotions_.load()},
+            {"snapshotPublications", snapshot_publications_.load()},
+            {"snapshotHandoffs", snapshot_handoffs_.load()},
+            {"disposableSpawns", disposable_spawns_.load()},
+            {"disposableQueues", disposable_queues_.load()},
+            {"ownerRetirements", owner_retirements_.load()},
+            {"disposableRetirements", disposable_retirements_.load()},
+        };
         return result;
     }
 
@@ -1686,6 +1736,14 @@ private:
 
     void touch() { last_activity_millis_.store(now_millis()); }
 
+    void record_authority_observation(const ProjectObservation& observation)
+    {
+        authority_observations_.fetch_add(1);
+        files_observed_.fetch_add(observation.manifest.entries.size());
+        changed_paths_.fetch_add(observation.delta.added.size() + observation.delta.changed.size() +
+                                 observation.delta.removed.size());
+    }
+
     bool touch_owner(std::uint64_t owner_worker_id)
     {
         std::scoped_lock lock(queue_mutex_);
@@ -1697,7 +1755,6 @@ private:
     }
 
     static constexpr std::size_t disposable_worker_cap = 4;
-    static constexpr std::uint64_t disposable_extra_idle_ms = 30'000;
     static constexpr std::uint64_t disposable_cancel_grace_ms = 100;
 
     std::size_t live_disposable_workers_locked() const
@@ -1726,6 +1783,7 @@ private:
         auto process = spawn_disposable_worker_process(context_, worker_id);
         if (!process)
             return false;
+        disposable_spawns_.fetch_add(1);
         disposable_workers_.emplace(worker_id, DisposableWorker{
                                                    .id = worker_id,
                                                    .process = *process,
@@ -1823,6 +1881,11 @@ private:
         auto process = spawn_project_owner_process(context_, owner_worker_id);
         if (!process)
             return std::nullopt;
+        owner_spawns_.fetch_add(1);
+        if (retained_snapshot)
+            owner_rehydrations_.fetch_add(1);
+        else
+            owner_cold_admissions_.fetch_add(1);
         ProjectOwnerWorker owner;
         owner.id = owner_worker_id;
         owner.canonical_root = canonical_root;
@@ -1893,6 +1956,7 @@ private:
                     .authoritative_paths = retained->authority.authoritative_paths,
                     .discovery_scopes = retained->authority.discovery_scopes,
                 });
+                record_authority_observation(observation);
                 if (observation.manifest != retained->authority.manifest) {
                     std::scoped_lock lock(validation_mutex_);
                     const auto found = exact_validation_results_.find(canonical_root);
@@ -1940,6 +2004,7 @@ private:
             .canonical_root = {},
             .identity = std::nullopt,
         });
+        disposable_queues_.fetch_add(1);
         assign_disposable_jobs_locked();
         ensure_disposable_standby_locked();
         touch();
@@ -2043,6 +2108,7 @@ private:
                             owner_cv_.notify_all();
                             active_cv_.notify_all();
                             if (exact) {
+                                exact_result_hits_.fetch_add(1);
                                 lock.unlock();
                                 client->send(result_event_json(request_id, true, exact->dump()));
                                 touch();
@@ -2106,6 +2172,7 @@ private:
                 return;
             found->second.retiring = true;
             found->second.retirement_started = true;
+            owner_retirements_.fetch_add(1);
             process = found->second.process;
             canonical_root = found->second.canonical_root;
             queued = std::move(found->second.queued);
@@ -2355,7 +2422,7 @@ private:
                         disposable_cancel_grace_ms;
                 const bool excess_idle_expired =
                     worker.state == DisposableWorkerState::idle && standby_count > 1 &&
-                    now - worker.last_activity_millis >= disposable_extra_idle_ms;
+                    now - worker.last_activity_millis >= context_.disposable_extra_idle_ms;
                 if (alive && worker.state != DisposableWorkerState::retiring &&
                     !cancellation_expired && !excess_idle_expired)
                     continue;
@@ -2410,6 +2477,7 @@ private:
             }
         }
         if (!retirements.empty()) {
+            disposable_retirements_.fetch_add(retirements.size());
             std::scoped_lock lock(queue_mutex_);
             for (const auto& retirement : retirements)
                 disposable_workers_.erase(retirement.id);
@@ -2695,6 +2763,8 @@ private:
             if (type != "request")
                 break;
             const auto method = message.value("method", std::string{});
+            if (method.starts_with("owner-") || method.starts_with("disposable-"))
+                native_boundary_calls_.fetch_add(1);
             if (!method.starts_with("owner-"))
                 touch();
             if (method == "status") {
@@ -3512,6 +3582,21 @@ private:
     std::atomic<std::uint64_t> critical_sections_{0};
     std::atomic<std::uint64_t> exact_validation_probes_{0};
     std::atomic<std::uint64_t> generic_project_sessions_{0};
+    std::atomic<std::uint64_t> authority_observations_{0};
+    std::atomic<std::uint64_t> files_observed_{0};
+    std::atomic<std::uint64_t> changed_paths_{0};
+    std::atomic<std::uint64_t> native_boundary_calls_{0};
+    std::atomic<std::uint64_t> owner_spawns_{0};
+    std::atomic<std::uint64_t> owner_cold_admissions_{0};
+    std::atomic<std::uint64_t> owner_rehydrations_{0};
+    std::atomic<std::uint64_t> exact_result_hits_{0};
+    std::atomic<std::uint64_t> generation_promotions_{0};
+    std::atomic<std::uint64_t> snapshot_publications_{0};
+    std::atomic<std::uint64_t> snapshot_handoffs_{0};
+    std::atomic<std::uint64_t> disposable_spawns_{0};
+    std::atomic<std::uint64_t> disposable_queues_{0};
+    std::atomic<std::uint64_t> owner_retirements_{0};
+    std::atomic<std::uint64_t> disposable_retirements_{0};
     ProjectAuthorityManager project_authority_;
     ProjectSnapshotStore project_snapshots_;
     std::mutex validation_mutex_;

@@ -1626,6 +1626,39 @@ function validationProfile(result) {
   return JSON.parse(line.slice('[validation-profile] '.length));
 }
 
+function schedulerProfile(result) {
+  const line = result.stderr
+    .split(/\r?\n/u)
+    .find((entry) => entry.startsWith('[scheduler-profile] '));
+  if (!line) return null;
+  return JSON.parse(line.slice('[scheduler-profile] '.length));
+}
+
+function workerProfile(result) {
+  const line = result.stderr.split(/\r?\n/u).find((entry) => entry.startsWith('[worker-profile] '));
+  if (!line) return null;
+  return JSON.parse(line.slice('[worker-profile] '.length));
+}
+
+function requireIncrementalValidationWork(label, profile) {
+  if (!profile?.usefulWork) fail(`${label} did not emit validation useful-work counters.`);
+  const work = profile.usefulWork;
+  if (work.authoredFilesReread !== 1 || work.jsonSourcesParsed !== 1 || work.textSourcesRead !== 0)
+    fail(`${label} reread more than the isolated changed JSON source: ${JSON.stringify(work)}`);
+  if (
+    work.fullProjectTraversals !== 0 ||
+    work.fullProjectProjections !== 0 ||
+    work.foregroundSerializations !== 0 ||
+    work.foregroundSerializedBytes !== 0
+  )
+    fail(`${label} performed forbidden whole-Project foreground work: ${JSON.stringify(work)}`);
+  return work;
+}
+
+function maxUsefulWork(profiles, field) {
+  return Math.max(...profiles.map((profile) => profile.usefulWork[field]));
+}
+
 async function inflateValidationBenchmark(root, count = 120) {
   const source = JSON.parse(
     await readFile(path.join(root, 'records', 'rooms', 'foyer.json'), 'utf8'),
@@ -1668,18 +1701,23 @@ async function daemonRssBytes(pid) {
   }
 }
 
-async function linuxChildProcessIds(pid) {
-  if (isWindows) return [];
+async function rssForProcesses(pids) {
+  const entries = [];
+  for (const pid of pids) entries.push({ pid, rssBytes: await daemonRssBytes(pid) });
+  return {
+    processes: entries,
+    totalBytes: entries.every((entry) => entry.rssBytes !== null)
+      ? entries.reduce((total, entry) => total + entry.rssBytes, 0)
+      : null,
+  };
+}
+
+function processExists(pid) {
   try {
-    const text = await readFile(`/proc/${pid}/task/${pid}/children`, 'utf8');
-    return text
-      .trim()
-      .split(/\s+/u)
-      .filter(Boolean)
-      .map(Number)
-      .filter((value) => Number.isSafeInteger(value) && value > 0);
+    process.kill(pid, 0);
+    return true;
   } catch {
-    return [];
+    return false;
   }
 }
 
@@ -1753,46 +1791,64 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
     if (JSON.parse(status.stdout).daemon.projectSessions !== 2)
       fail(`Two physical Projects did not establish two owners: ${status.stdout}`);
 
-    let crashRecovery = null;
-    if (!isWindows) {
-      const children = await linuxChildProcessIds(initialDaemon.pid);
-      if (children.length !== 2)
-        fail(`Expected two Project-owner child processes, found ${children.length}.`);
-      process.kill(children[0], 'SIGKILL');
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        if (!(await linuxChildProcessIds(initialDaemon.pid)).includes(children[0])) break;
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      if ((await linuxChildProcessIds(initialDaemon.pid)).includes(children[0]))
-        fail('Killed Project-owner process did not exit before crash-recovery certification.');
-      const recoveredFirst = requireSuccess(
-        'Project-owner crash recovery first Project',
-        runNative(['--project', firstRoot, '--json', 'asset', 'audit'], {
-          cwd: firstRoot,
-          env: traceEnvironment,
-        }),
-      );
-      const recoveredSecond = requireSuccess(
-        'Project-owner crash recovery second Project',
-        runNative(['--project', secondRoot, '--json', 'asset', 'audit'], {
-          cwd: secondRoot,
-          env: traceEnvironment,
-        }),
-      );
-      if (
-        !recoveredFirst.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
-        !recoveredSecond.stderr.includes('[scriptc-host] daemon invocation forwarding')
-      )
-        fail('Project-owner crash recovery did not remain on daemon routing.');
-      const recoveredStatus = requireSuccess(
-        'Project-owner crash recovery status',
-        runNative(['--json', 'daemon', 'status'], { env: environment }),
-      );
-      const recoveredDaemon = JSON.parse(recoveredStatus.stdout).daemon;
-      if (recoveredDaemon.pid !== initialDaemon.pid || recoveredDaemon.projectSessions !== 2)
-        fail(`Owner crash disturbed daemon or sibling owner: ${recoveredStatus.stdout}`);
-      crashRecovery = true;
-    }
+    const processInventoryResult = requireSuccess(
+      'Project-owner engineering process inventory',
+      runNative(['--project', firstRoot, '--json', 'asset', 'audit'], {
+        cwd: firstRoot,
+        env: { ...traceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
+      }),
+    );
+    const processInventory = schedulerProfile(processInventoryResult);
+    if (
+      !processInventory ||
+      processInventory.resident?.ownerPids?.length !== 2 ||
+      processInventory.resident?.disposablePids?.length < 1
+    )
+      fail(`Project-owner process inventory was incomplete: ${processInventoryResult.stderr}`);
+    const ownerMemory = await rssForProcesses(processInventory.resident.ownerPids);
+    const standbyMemory = await rssForProcesses(processInventory.resident.disposablePids);
+    const brokerMemory = await daemonRssBytes(initialDaemon.pid);
+
+    const killedOwnerPid = processInventory.resident.ownerPids[0];
+    process.kill(killedOwnerPid, 'SIGKILL');
+    for (let attempt = 0; attempt < 100 && processExists(killedOwnerPid); attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    if (processExists(killedOwnerPid))
+      fail('Killed Project-owner process did not exit before crash-recovery certification.');
+    const crashProfileEnvironment = {
+      ...traceEnvironment,
+      NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
+    };
+    const recoveredFirst = requireSuccess(
+      'Project-owner crash recovery first Project',
+      runNative(['--project', firstRoot, '--json', 'asset', 'audit'], {
+        cwd: firstRoot,
+        env: crashProfileEnvironment,
+      }),
+    );
+    const recoveredSecond = requireSuccess(
+      'Project-owner crash recovery second Project',
+      runNative(['--project', secondRoot, '--json', 'asset', 'audit'], {
+        cwd: secondRoot,
+        env: crashProfileEnvironment,
+      }),
+    );
+    if (
+      !recoveredFirst.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
+      !recoveredSecond.stderr.includes('[scriptc-host] daemon invocation forwarding')
+    )
+      fail('Project-owner crash recovery did not remain on daemon routing.');
+    const recoveryProfiles = [schedulerProfile(recoveredFirst), schedulerProfile(recoveredSecond)];
+    if (!recoveryProfiles.some((profile) => (profile?.workerSpawns?.owner ?? 0) === 1))
+      fail('Owner-process death did not produce exactly one replacement owner admission.');
+    const recoveredStatus = requireSuccess(
+      'Project-owner crash recovery status',
+      runNative(['--json', 'daemon', 'status'], { env: environment }),
+    );
+    const recoveredDaemon = JSON.parse(recoveredStatus.stdout).daemon;
+    if (recoveredDaemon.pid !== initialDaemon.pid || recoveredDaemon.projectSessions !== 2)
+      fail(`Owner crash disturbed daemon or sibling owner: ${recoveredStatus.stdout}`);
+    const crashRecovery = true;
 
     requireSuccess(
       'Project-owner scheduler stop before activity certification',
@@ -1837,6 +1893,16 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
     );
     if (JSON.parse(activityStatus.stdout).daemon.projectSessions !== 0)
       fail(`Watcher noise kept an idle Project owner alive: ${activityStatus.stdout}`);
+    const rehydrated = requireSuccess(
+      'Project-owner retained snapshot rehydration',
+      runNative(['--project', firstRoot, '--json', 'usages', 'rooms', 'gallery'], {
+        cwd: firstRoot,
+        env: { ...activityTraceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
+      }),
+    );
+    const rehydrationProfile = schedulerProfile(rehydrated);
+    if (!rehydrationProfile?.ownerRehydration || rehydrationProfile.ownerColdAdmission)
+      fail(`Idle owner did not rehydrate its retained RAM snapshot: ${rehydrated.stderr}`);
     requireSuccess(
       'Project-owner activity daemon stop',
       runNative(['--json', 'daemon', 'stop'], { env: activityEnvironment }),
@@ -1877,8 +1943,15 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
       canonicalAliasDeduplication: !isWindows,
       distinctProjectOwners: true,
       ownerCrashRecovery: crashRecovery,
+      dormantSnapshotRehydration: true,
       activityAwareEviction: true,
       pressureEviction: true,
+      memory: {
+        brokerRssBytes: brokerMemory,
+        ownerRss: ownerMemory,
+        standbyRss: standbyMemory,
+        retainedSnapshotBytes: processInventory.resident.snapshotBytes,
+      },
     };
   } finally {
     runNative(['daemon', 'stop'], { env: environment });
@@ -1972,6 +2045,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
     NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
     NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
     NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '60000',
+    NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_IDLE_MS: '250',
   };
   const traceEnvironment = { ...environment, NOVELTEA_CLI_TRACE: '1' };
   const resetFeatureLab = async (name) => {
@@ -2005,6 +2079,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
     const longEnvironment = {
       ...traceEnvironment,
       NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
+      NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
     };
     const longTest = await runAsync(
       nativeCli,
@@ -2031,6 +2106,17 @@ async function certifyDisposableTestScheduling(tempRoot) {
     requireSuccess('Disposable Test generation-pinned execution', longResult);
     if (!longResult.stderr.includes('[scriptc-host] daemon invocation forwarding'))
       fail('Generation-pinned Test did not exercise the resident daemon route.');
+    const longSchedulerProfile = schedulerProfile(longResult);
+    const longWorkerProfile = workerProfile(longResult);
+    if (
+      !longSchedulerProfile?.snapshotHandoff ||
+      longSchedulerProfile.queuedDisposableJobs < 1 ||
+      longWorkerProfile?.workerKind !== 'disposable' ||
+      longWorkerProfile.hasProjectSnapshot !== true ||
+      longWorkerProfile.snapshotBytes <= 0 ||
+      longWorkerProfile.snapshotReadMs < 0
+    )
+      fail(`Disposable Test did not expose snapshot/worker diagnostics: ${longResult.stderr}`);
     await waitForStatus(
       'Disposable Test standby replenishment',
       (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
@@ -2062,6 +2148,14 @@ async function certifyDisposableTestScheduling(tempRoot) {
       'Disposable Test post-cap standby replenishment',
       (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
     );
+    await waitForStatus(
+      'Disposable Test excess-idle retirement',
+      (daemon) =>
+        daemon.disposableWorkers === 1 &&
+        daemon.disposableBusyWorkers === 0 &&
+        daemon.disposableStandbyWorkers === 1,
+      5000,
+    );
 
     const cancellationRoot = await resetFeatureLab('disposable-test-cancellation');
     const cancellationEnvironment = {
@@ -2092,7 +2186,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
       'Disposable Test cancellation admission',
       (daemon) => daemon.disposableBusyWorkers >= 1,
     );
-    if (isWindows) await sendWindowsConsoleCtrlC(cancellation.pid);
+    if (isWindows) sendWindowsConsoleCtrlC(cancellation.pid);
     else cancellation.invocation.child.kill('SIGINT');
     const cancellationResult = await cancellation.invocation.result();
     if (cancellationResult.status !== 130)
@@ -2137,8 +2231,13 @@ async function certifyDisposableTestScheduling(tempRoot) {
       foregroundPriority: true,
       warmStandby: true,
       cappedQueue: true,
+      idleExcessRetirement: true,
       cancellationIsolation: true,
       crashIsolation: true,
+      diagnostics: {
+        scheduler: longSchedulerProfile,
+        worker: longWorkerProfile,
+      },
     };
   } finally {
     runNative(['daemon', 'stop'], { env: environment });
@@ -2274,7 +2373,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       'Disposable output cancellation admission',
       (daemon) => daemon.disposableBusyWorkers >= 1,
     );
-    if (isWindows) await sendWindowsConsoleCtrlC(cancellation.pid);
+    if (isWindows) sendWindowsConsoleCtrlC(cancellation.pid);
     else cancellation.invocation.child.kill('SIGINT');
     const cancellationResult = await cancellation.invocation.result();
     if (cancellationResult.status !== 130)
@@ -2677,7 +2776,7 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
   const report = {
     targetsMs: { trivial: 300, lightweightProject: 500 },
     targetsRatio: { oneSourceValidationSpeedup: 2 },
-    note: 'Engineering observations only; certification does not fail on wall-clock thresholds or speedup targets.',
+    note: 'Trivial/lightweight timings remain engineering observations. Feature Lab resident one-source latency and structural change-proportionality are release gates.',
     cases: {
       nodeVersion: measureRepeated('Node version', () => runNode(['--json', '--version'])),
       scriptcVersion: measureRepeated('ScriptC version', () => runNative(['--json', '--version'])),
@@ -2813,6 +2912,22 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
     }),
   );
   const featureLabRecord = path.join(featureLabRoot, 'records', 'rooms', 'feature-lab-home.json');
+  {
+    const room = JSON.parse(await readFile(featureLabRecord, 'utf8'));
+    room.label = 'Feature Lab Home benchmark warmup';
+    await writeJson(featureLabRecord, room);
+    const warmup = requireSuccess(
+      'Feature Lab resident one-record benchmark warmup',
+      runNative(['--project', featureLabRoot, '--json', 'validate'], {
+        cwd: featureLabRoot,
+        env: profileEnvironment,
+      }),
+    );
+    requireIncrementalValidationWork(
+      'Feature Lab resident one-record benchmark warmup',
+      validationProfile(warmup),
+    );
+  }
   const featureLabSamples = [];
   const featureLabWork = [];
   for (let index = 0; index < 7; index += 1) {
@@ -2836,6 +2951,63 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
     samples: featureLabSamples.map((value) => Math.round(value * 10) / 10),
     work: featureLabWork,
   };
+  for (let index = 0; index < featureLabWork.length; index += 1)
+    requireIncrementalValidationWork(
+      `Feature Lab one-record benchmark ${index + 1}`,
+      featureLabWork[index],
+    );
+  if (report.cases.featureLabResidentOneRecord.medianMs > 75)
+    fail(
+      `Feature Lab resident one-source median ${report.cases.featureLabResidentOneRecord.medianMs} ms exceeds the 75 ms release gate.`,
+    );
+  if (report.cases.featureLabResidentOneRecord.p95Ms > 100)
+    fail(
+      `Feature Lab resident one-source p95 ${report.cases.featureLabResidentOneRecord.p95Ms} ms exceeds the 100 ms release gate.`,
+    );
+
+  const featureLabRoom = JSON.parse(await readFile(featureLabRecord, 'utf8'));
+  featureLabRoom.label = 'Feature Lab Home scheduler diagnostics';
+  await writeJson(featureLabRecord, featureLabRoom);
+  const featureLabSchedulerResult = requireSuccess(
+    'Feature Lab scheduler diagnostics',
+    runNative(['--project', featureLabRoot, '--json', 'validate'], {
+      cwd: featureLabRoot,
+      env: {
+        ...profileEnvironment,
+        NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
+      },
+    }),
+  );
+  const featureLabScheduler = schedulerProfile(featureLabSchedulerResult);
+  if (
+    !featureLabScheduler ||
+    featureLabScheduler.routingClass !== 'owner-short' ||
+    featureLabScheduler.ownerHit !== true ||
+    featureLabScheduler.changedPathCount < 1 ||
+    featureLabScheduler.physicalFilesObserved < 1 ||
+    featureLabScheduler.nativeBoundaryCalls < 1
+  )
+    fail(
+      `Feature Lab scheduler diagnostics did not expose resident authority work: ${featureLabSchedulerResult.stderr}`,
+    );
+  report.cases.featureLabResidentOneRecord.scheduler = featureLabScheduler;
+
+  const smallScalingSamples = [];
+  const smallScalingWork = [];
+  for (let index = 0; index < 5; index += 1) {
+    await editValidationBenchmarkRecord(scriptcValidateRoot, `Small scaling change ${index}`);
+    const measured = elapsedMilliseconds(() =>
+      runNative(['--project', scriptcValidateRoot, '--json', 'validate'], {
+        cwd: scriptcValidateRoot,
+        env: profileEnvironment,
+      }),
+    );
+    requireSuccess(`small synthetic one-source benchmark ${index + 1}`, measured.result);
+    smallScalingSamples.push(measured.elapsed);
+    const profile = validationProfile(measured.result);
+    requireIncrementalValidationWork(`small synthetic one-source benchmark ${index + 1}`, profile);
+    smallScalingWork.push(profile);
+  }
 
   const largeRoot = path.join(tempRoot, 'performance-large-validate');
   await resetCase(pristine, largeRoot);
@@ -2847,21 +3019,42 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
       env: profileEnvironment,
     }),
   );
-  await editValidationBenchmarkRecord(largeRoot, 'Large synthetic incremental change');
-  const largeChanged = elapsedMilliseconds(() =>
-    runNative(['--project', largeRoot, '--json', 'validate'], {
-      cwd: largeRoot,
-      env: profileEnvironment,
-    }),
-  );
-  requireSuccess('large synthetic one-source changed validate benchmark', largeChanged.result);
+  const largeScalingSamples = [];
+  const largeScalingWork = [];
+  for (let index = 0; index < 5; index += 1) {
+    await editValidationBenchmarkRecord(largeRoot, `Large synthetic incremental change ${index}`);
+    const measured = elapsedMilliseconds(() =>
+      runNative(['--project', largeRoot, '--json', 'validate'], {
+        cwd: largeRoot,
+        env: profileEnvironment,
+      }),
+    );
+    requireSuccess(`large synthetic one-source benchmark ${index + 1}`, measured.result);
+    largeScalingSamples.push(measured.elapsed);
+    const profile = validationProfile(measured.result);
+    requireIncrementalValidationWork(`large synthetic one-source benchmark ${index + 1}`, profile);
+    largeScalingWork.push(profile);
+  }
+  for (const field of [
+    'validationChecksRecomputed',
+    'dependencyWorkRecomputed',
+    'dependencyContributionsRecomputed',
+    'sourceAnalysesRecomputed',
+  ]) {
+    const small = maxUsefulWork(smallScalingWork, field);
+    const large = maxUsefulWork(largeScalingWork, field);
+    if (large > Math.max(2, small * 2))
+      fail(
+        `Large-Project isolated edit scaled ${field} with unrelated records (${String(small)} -> ${String(large)}).`,
+      );
+  }
   report.cases.dependencyClosureScaling = {
     smallUnrelatedRecords: 120,
-    smallChangedMs: report.cases.scriptcValidate.oneSourceChangedMs,
-    smallWork: report.cases.scriptcValidate.oneSourceWork,
+    smallTiming: summarizeBenchmark(smallScalingSamples),
+    smallWork: smallScalingWork,
     largeUnrelatedRecords: 600,
-    largeChangedMs: Math.round(largeChanged.elapsed * 10) / 10,
-    largeWork: validationProfile(largeChanged.result),
+    largeTiming: summarizeBenchmark(largeScalingSamples),
+    largeWork: largeScalingWork,
     note: 'Native batched physical observation may remain O(Project source count); QuickJS semantic parse/validation/dependency work should remain scoped to the affected dependency closure.',
   };
 

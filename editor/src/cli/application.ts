@@ -56,6 +56,8 @@ export interface AuthoringValidationInstrumentation {
   readonly preflightMs: number;
   readonly dependencyMs: number;
   readonly nativeMs: number;
+  readonly fontCoveragePreparationMs: number;
+  readonly fontCoverageNativeMs: number;
   readonly dependencyWork: Readonly<{
     derivedContributions: number;
     reusedContributions: number;
@@ -80,6 +82,7 @@ export interface AuthoringValidationInstrumentation {
     fullProjectTraversals: number;
     fullProjectProjections: number;
     foregroundSerializations: number;
+    foregroundSerializedBytes: number;
   }>;
 }
 
@@ -633,6 +636,7 @@ export async function runNovelTeaCli(
         fileSystem: services.fileSystem,
         workspace: activeWorkspace,
         snapshot: activeOpened.opened.snapshot,
+        sourceWork: activeOpened.opened.sourceWork,
         nativeTools,
         platformTools,
         onPlatformProgress: options.onPlatformProgress,
@@ -736,6 +740,7 @@ export async function runNovelTeaCli(
           fullProjectProjections: activeOpened.opened.sourceWork.fullProjectProjections,
           foregroundSerializations:
             activeOpened.opened.sourceWork.foregroundSerializations + compilerWork.serializations,
+          foregroundSerializedBytes: activeOpened.opened.sourceWork.foregroundSerializedBytes,
         },
       });
     }
