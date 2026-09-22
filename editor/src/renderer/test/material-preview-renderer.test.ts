@@ -72,7 +72,6 @@ function manualScheduler() {
 function fakeWebGlContext() {
   const uniforms = [
     { name: 'u_time', type: 0x8b52 },
-    { name: 'u_useTexture', type: 0x8b52 },
     { name: 'u_modelViewProj', type: 0x8b5c },
   ];
   const gl = {
@@ -493,10 +492,9 @@ describe('Material preview workbench-group renderer', () => {
       expect.objectContaining({ name: 'u_time' }),
       [2.5, 0, 0, 0],
     );
-    expect(gl.uniform4fv).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'u_useTexture' }),
-      [1, 0, 0, 0],
-    );
+    expect(gl.getUniformLocation).toHaveBeenCalledWith(expect.anything(), 's_texColor');
+    expect(gl.uniform1i).toHaveBeenCalledWith(expect.objectContaining({ name: 's_texColor' }), 0);
+    expect(gl.pixelStorei).toHaveBeenCalledWith(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
   });
 
   it('normalizes native essl-300 browser payloads into valid WebGL2 shader sources', async () => {

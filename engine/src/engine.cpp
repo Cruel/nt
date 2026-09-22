@@ -445,11 +445,6 @@ ShaderMaterialProject make_demo_shader_materials()
     shader.display_name = "Demo Engine 2D Quad";
     shader.roles = {ShaderRole::Engine2D};
     shader.stages = {std::move(vertex), std::move(fragment)};
-    ShaderUniformDeclaration use_texture;
-    use_texture.name = "u_useTexture";
-    use_texture.type = ShaderUniformType::Float;
-    use_texture.default_value = 1.0f;
-    shader.uniforms.push_back(std::move(use_texture));
     shader.samplers.push_back(
         ShaderSamplerDeclaration{.name = "s_texColor", .binding = std::nullopt});
 
@@ -458,11 +453,6 @@ ShaderMaterialProject make_demo_shader_materials()
     material.role = ShaderRole::Engine2D;
     material.shader = ShaderId("quad");
     material.display_name = "Demo Engine 2D Material Quad";
-    material.textures.push_back(MaterialTextureAssignment{
-        .sampler = "s_texColor",
-        .source = "$draw.texture",
-        .filtering = MaterialTextureSampler::ClampLinear,
-    });
 
     ShaderStageDefinition postprocess_vertex;
     postprocess_vertex.stage = ShaderStage::Vertex;

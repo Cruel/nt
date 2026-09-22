@@ -301,8 +301,8 @@ private:
     uint16_t m_hotspot_alpha_program = UINT16_MAX;
     uint16_t m_hotspot_custom_program = UINT16_MAX;
     uint16_t m_checker_texture = UINT16_MAX;
+    uint16_t m_white_texture = UINT16_MAX;
     uint16_t m_sampler = UINT16_MAX;
-    uint16_t m_use_texture_uniform = UINT16_MAX;
     uint16_t m_world_color_texture = UINT16_MAX;
     uint16_t m_world_color_framebuffer = UINT16_MAX;
     uint16_t m_world_color_width = 0;

@@ -56,7 +56,7 @@ beforeEach(() => {
 });
 
 describe('MaterialSelector', () => {
-  it('previews compatible Materials and occurrence overrides without mutating until selection', async () => {
+  it('does not preview obsolete renderer-owned Engine2D overrides as authored parameters', async () => {
     const user = userEvent.setup();
     const onValueChange = vi.fn();
     const view = renderSelector({
@@ -71,26 +71,20 @@ describe('MaterialSelector', () => {
 
     const collapsedCanvas = view.container.querySelector('[data-material-preview="panel"]');
     await waitFor(() =>
-      expect(collapsedCanvas).toHaveAttribute(
-        'data-material-preview-parameter-overrides',
-        'u_useTexture',
-      ),
+      expect(collapsedCanvas).not.toHaveAttribute('data-material-preview-parameter-overrides'),
     );
     await user.click(screen.getByRole('button', { name: 'Choose Material' }));
 
     const candidate = screen.getByRole('button', { name: /Alternate/ });
     expect(screen.queryByRole('button', { name: /Post FX/ })).not.toBeInTheDocument();
-    await waitFor(() => expect(candidate).toHaveAttribute('data-applied-overrides', '1'));
+    await waitFor(() => expect(candidate).toHaveAttribute('data-applied-overrides', '0'));
     expect(candidate).toHaveAttribute('data-total-overrides', '2');
-    expect(screen.getAllByText('1 of 2 overrides apply').length).toBeGreaterThan(0);
+    expect(screen.queryByText('1 of 2 overrides apply')).not.toBeInTheDocument();
 
     const candidateCanvas = document.querySelector(
       '[data-material-selector-candidate="alternate"] [data-material-preview="alternate"]',
     );
-    expect(candidateCanvas).toHaveAttribute(
-      'data-material-preview-parameter-overrides',
-      'u_useTexture',
-    );
+    expect(candidateCanvas).not.toHaveAttribute('data-material-preview-parameter-overrides');
     await user.click(screen.getByRole('checkbox', { name: 'Preview occurrence overrides' }));
     await waitFor(() =>
       expect(candidateCanvas).not.toHaveAttribute('data-material-preview-parameter-overrides'),

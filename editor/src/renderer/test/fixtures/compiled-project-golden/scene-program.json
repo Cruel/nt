@@ -1836,26 +1836,19 @@
               "completionDependencies": [],
               "id": "background-material",
               "instruction": {
-                "clock": "gameplay",
+                "asset": null,
+                "color": null,
                 "durationMs": 0,
-                "easing": "linear",
+                "fit": "cover",
                 "id": "background-material",
-                "kind": "material-parameter",
+                "kind": "set-background",
                 "material": {
                   "id": "sprite-material",
                   "kind": "material"
                 },
                 "owner": "invocation",
-                "parameter": "u_useTexture",
                 "skippable": true,
-                "target": {
-                  "kind": "background"
-                },
                 "transition": "none",
-                "value": {
-                  "type": "float",
-                  "value": 0.9
-                },
                 "waitForCompletion": false
               },
               "timeline": {
@@ -4103,13 +4096,7 @@
       },
       {
         "id": "sprite-material",
-        "parameters": [
-          {
-            "name": "u_useTexture",
-            "rendererBinding": null,
-            "type": "float"
-          }
-        ],
+        "parameters": [],
         "postprocessScope": "world",
         "role": "engine-2d"
       }
@@ -4138,7 +4125,7 @@
       }
     ]
   },
-  "saveContract": "sc1:b0924c4dd2905057fde6341dfa9b2983",
+  "saveContract": "sc1:5d9248219cf374e3a7ef5d1176731aef",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

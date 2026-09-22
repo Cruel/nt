@@ -16,12 +16,11 @@ void main()
 #include "bgfx_shader.sh"
 
 SAMPLER2D(s_texColor, 0);
-uniform vec4 u_useTexture;
 
 void main()
 {
-    vec4 texel = texture2D(s_texColor, v_texcoord0);
-    gl_FragColor = v_color0 * mix(vec4(1.0, 1.0, 1.0, 1.0), texel, u_useTexture.x);
+    vec4 color = v_color0 * texture2D(s_texColor, v_texcoord0);
+    gl_FragColor = vec4(color.rgb * color.a, color.a);
 }
 `,
   'engine:/vs_text.sc': `$input a_position, a_texcoord0, a_color0

@@ -70,7 +70,7 @@ describe('focused Material editor', () => {
     ).toMatchObject({ editorType: 'engine-shader-source' });
   });
 
-  it('keeps texture choices compact until the selector is opened', async () => {
+  it('does not expose the renderer-owned Engine2D draw texture as authored configuration', () => {
     const project = createAuthoringProject();
     project.materials.panel = {
       id: 'panel',
@@ -110,11 +110,8 @@ describe('focused Material editor', () => {
     expect(screen.queryByText('Texture One (texture-one)')).not.toBeInTheDocument();
     expect(screen.queryByText('Texture Two (texture-two)')).not.toBeInTheDocument();
 
-    const noTexture = screen.getByText('No texture');
-    fireEvent.click(noTexture.closest('button')!);
-
-    expect(await screen.findByText('Texture One (texture-one)')).toBeInTheDocument();
-    expect(screen.getByText('Texture Two (texture-two)')).toBeInTheDocument();
+    expect(screen.queryByText('No texture')).not.toBeInTheDocument();
+    expect(screen.queryByText('s_texColor')).not.toBeInTheDocument();
   });
 
   it('keeps engine-bound inputs read-only and exposes orphan cleanup/rebind UI', () => {

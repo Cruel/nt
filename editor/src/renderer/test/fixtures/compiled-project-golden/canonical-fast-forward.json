@@ -2647,13 +2647,7 @@
     "materialInterfaces": [
       {
         "id": "sprite-material",
-        "parameters": [
-          {
-            "name": "u_useTexture",
-            "rendererBinding": null,
-            "type": "float"
-          }
-        ],
+        "parameters": [],
         "postprocessScope": "world",
         "role": "engine-2d"
       }
@@ -2682,7 +2676,7 @@
       }
     ]
   },
-  "saveContract": "sc1:7eddce50a5d97926ee06d0202a335f6a",
+  "saveContract": "sc1:e74297ced6b7b2443e0ca7bec7926a00",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

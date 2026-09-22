@@ -26,6 +26,15 @@ struct PackedMaterialUniform {
 [[nodiscard]] MaterialTextureSampler
 resolve_draw_texture_sampler(MaterialTextureSampler material_sampler,
                              MaterialTextureSampler image_sampler) noexcept;
+
+struct ResolvedDrawTexture {
+    bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
+    MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
+};
+
+[[nodiscard]] ResolvedDrawTexture
+resolve_renderer_draw_texture(const QuadCommand* command,
+                              bgfx::TextureHandle neutral_texture) noexcept;
 [[nodiscard]] PackedMaterialUniform pack_material_uniform(const ShaderUniformValue& value) noexcept;
 [[nodiscard]] std::array<float, 4>
 pack_shader_standard_input(ShaderInputSemantic semantic, const ShaderStandardInputs& inputs,
@@ -50,7 +59,8 @@ struct BgfxMaterialBindResult {
 class BgfxMaterialBinder {
 public:
     BgfxMaterialBinder(const assets::AssetManager& assets, BgfxShaderProgramCache& programs,
-                       bgfx::TextureHandle fallback_texture);
+                       bgfx::TextureHandle fallback_texture,
+                       bgfx::TextureHandle neutral_draw_texture = BGFX_INVALID_HANDLE);
     ~BgfxMaterialBinder();
 
     BgfxMaterialBinder(const BgfxMaterialBinder&) = delete;
@@ -103,6 +113,7 @@ private:
     assets::AssetLeaseLookupScope m_asset_lookup_scope = assets::AssetLeaseLookupScope::Runtime;
     BgfxShaderProgramCache& m_programs;
     bgfx::TextureHandle m_fallback_texture = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle m_neutral_draw_texture = BGFX_INVALID_HANDLE;
     std::unordered_map<std::string, bgfx::UniformHandle> m_uniforms;
     std::unordered_map<std::string, bgfx::UniformHandle> m_samplers;
 };

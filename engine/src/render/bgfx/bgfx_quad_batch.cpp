@@ -992,9 +992,10 @@ void Renderer::draw_fullscreen_color(Color color)
         return;
     }
 
-    const float use_texture_uniform[] = {0.0f, 0.0f, 0.0f, 0.0f};
-    bgfx::setUniform(bgfx::UniformHandle{m_use_texture_uniform}, use_texture_uniform);
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
+    bgfx::setTexture(0, bgfx::UniformHandle{m_sampler}, bgfx::TextureHandle{m_white_texture},
+                     bgfx_backend::bgfx_sampler_flags(MaterialTextureSampler::ClampLinear));
+    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
+                   BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA));
     bgfx::setScissor(UINT16_MAX);
     bgfx::submit(ViewGameTransition, bgfx::ProgramHandle{m_quad_program});
 }
@@ -1019,7 +1020,12 @@ void Renderer::create_2d()
         return;
     }
     m_sampler = bgfx::createUniform("s_texColor", bgfx::UniformType::Sampler).idx;
-    m_use_texture_uniform = bgfx::createUniform("u_useTexture", bgfx::UniformType::Vec4).idx;
+
+    constexpr uint32_t white_pixel = 0xffffffff;
+    m_white_texture = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8,
+                                            BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
+                                            bgfx::copy(&white_pixel, sizeof(white_pixel)))
+                          .idx;
 
     constexpr uint32_t pixels[16] = {
         0xffffffff, 0xff3b82f6, 0xffffffff, 0xff3b82f6, 0xff3b82f6, 0xffffffff,
@@ -1042,8 +1048,9 @@ void Renderer::create_2d()
     m_assets->bind_hotspot_mask_loader(m_typed_asset_loader.get());
     m_assets->bind_shader_program_loader(m_typed_asset_loader.get());
     m_assets->bind_material_loader(m_typed_asset_loader.get());
-    m_material_binder = std::make_unique<BgfxMaterialBinder>(
-        *m_assets, *m_shader_program_cache, bgfx::TextureHandle{m_checker_texture});
+    m_material_binder = std::make_unique<BgfxMaterialBinder>(*m_assets, *m_shader_program_cache,
+                                                             bgfx::TextureHandle{m_checker_texture},
+                                                             bgfx::TextureHandle{m_white_texture});
     m_material_binder->set_asset_lookup_scope(m_asset_lease_lookup_scope);
 }
 
@@ -1060,8 +1067,8 @@ void Renderer::destroy_2d()
     m_shader_program_cache.reset();
     if (bgfx::isValid(bgfx::TextureHandle{m_checker_texture}))
         bgfx::destroy(bgfx::TextureHandle{m_checker_texture});
-    if (bgfx::isValid(bgfx::UniformHandle{m_use_texture_uniform}))
-        bgfx::destroy(bgfx::UniformHandle{m_use_texture_uniform});
+    if (bgfx::isValid(bgfx::TextureHandle{m_white_texture}))
+        bgfx::destroy(bgfx::TextureHandle{m_white_texture});
     if (bgfx::isValid(bgfx::UniformHandle{m_sampler}))
         bgfx::destroy(bgfx::UniformHandle{m_sampler});
     if (bgfx::isValid(bgfx::ProgramHandle{m_quad_program}))
@@ -1071,7 +1078,7 @@ void Renderer::destroy_2d()
     if (bgfx::isValid(bgfx::ProgramHandle{m_hotspot_custom_program}))
         bgfx::destroy(bgfx::ProgramHandle{m_hotspot_custom_program});
     m_checker_texture = UINT16_MAX;
-    m_use_texture_uniform = UINT16_MAX;
+    m_white_texture = UINT16_MAX;
     m_sampler = UINT16_MAX;
     m_quad_program = UINT16_MAX;
     m_hotspot_alpha_program = UINT16_MAX;
@@ -1218,7 +1225,8 @@ bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t vi
     if (!set_quad_buffers(command))
         return false;
 
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
+    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
+                   BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA));
 
     const auto scissor = current_scissor();
     if (scissor.active) {
@@ -1276,13 +1284,14 @@ void Renderer::submit_default_quad(const QuadCommand& command, std::uint16_t vie
 
     const uint16_t texture = command.texture.handle;
     const bool use_texture = texture != UINT16_MAX && bgfx::isValid(bgfx::TextureHandle{texture});
-    const float use_texture_uniform[] = {use_texture ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
-    bgfx::setUniform(bgfx::UniformHandle{m_use_texture_uniform}, use_texture_uniform);
-    if (use_texture) {
-        bgfx::setTexture(0, bgfx::UniformHandle{m_sampler}, bgfx::TextureHandle{texture},
-                         bgfx_backend::bgfx_sampler_flags(command.texture_sampler));
-    }
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
+    const auto texture_handle =
+        use_texture ? bgfx::TextureHandle{texture} : bgfx::TextureHandle{m_white_texture};
+    const auto sampler =
+        use_texture ? command.texture_sampler : MaterialTextureSampler::ClampLinear;
+    bgfx::setTexture(0, bgfx::UniformHandle{m_sampler}, texture_handle,
+                     bgfx_backend::bgfx_sampler_flags(sampler));
+    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
+                   BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA));
 
     // Per-draw-call scissor from the current stack top.
     const auto scissor = current_scissor();
@@ -1309,8 +1318,6 @@ void Renderer::submit_copy_quad(const QuadCommand& command, std::uint16_t view)
     if (!use_texture)
         return;
 
-    const float use_texture_uniform[] = {1.0f, 0.0f, 0.0f, 0.0f};
-    bgfx::setUniform(bgfx::UniformHandle{m_use_texture_uniform}, use_texture_uniform);
     bgfx::setTexture(0, bgfx::UniformHandle{m_sampler}, bgfx::TextureHandle{texture},
                      bgfx_backend::bgfx_sampler_flags(command.texture_sampler));
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);

@@ -381,7 +381,7 @@ describe('compiled project cross-language golden corpus', () => {
           ),
         ),
       ),
-    ).toEqual(['actor', 'background', 'postprocess']);
+    ).toEqual(['postprocess']);
     expect(
       sorted(
         new Set(

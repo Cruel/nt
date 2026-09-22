@@ -115,6 +115,24 @@ TEST_CASE("draw texture sampling overrides filtering while preserving address mo
           MaterialTextureSampler::RepeatLinear);
 }
 
+TEST_CASE("renderer draw texture resolves the current quad texture or neutral source")
+{
+    noveltea::QuadCommand textured;
+    textured.texture = noveltea::Texture{42};
+    textured.texture_sampler = noveltea::MaterialTextureSampler::ClampNearest;
+
+    const auto current =
+        noveltea::bgfx_backend::resolve_renderer_draw_texture(&textured, bgfx::TextureHandle{77});
+    CHECK(current.texture.idx == 42);
+    CHECK(current.sampler == noveltea::MaterialTextureSampler::ClampNearest);
+
+    noveltea::QuadCommand untextured;
+    const auto neutral =
+        noveltea::bgfx_backend::resolve_renderer_draw_texture(&untextured, bgfx::TextureHandle{77});
+    CHECK(neutral.texture.idx == 77);
+    CHECK(neutral.sampler == noveltea::MaterialTextureSampler::ClampLinear);
+}
+
 TEST_CASE("linear texture uploads build a complete averaged RGBA8 mip chain")
 {
     using noveltea::bgfx_backend::build_rgba8_mip_chain;

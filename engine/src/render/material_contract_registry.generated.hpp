@@ -342,7 +342,7 @@ inline constexpr std::array<MaterialPresetContract, 6> presets{{
             .geometry = "quad",
             .background = "checker",
         },
-        .compatibility_projection_json = "{\"blend\":\"premultiplied-alpha\",\"postprocessScope\":\"world\",\"samplers\":{\"s_texColor\":{}},\"uniforms\":{\"u_useTexture\":{\"default\":1,\"label\":\"Use Texture\",\"type\":\"float\"}}}",
+        .compatibility_projection_json = "{\"blend\":\"premultiplied-alpha\",\"postprocessScope\":\"world\",\"samplers\":{},\"uniforms\":{}}",
     },
     {
         .id = "active-text",

@@ -268,10 +268,8 @@
         "background": "checker"
       },
       "compatibilityProjection": {
-        "uniforms": {
-          "u_useTexture": { "type": "float", "default": 1, "label": "Use Texture" }
-        },
-        "samplers": { "s_texColor": {} },
+        "uniforms": {},
+        "samplers": {},
         "blend": "premultiplied-alpha",
         "postprocessScope": "world"
       }
