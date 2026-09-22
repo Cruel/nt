@@ -204,7 +204,9 @@ export const shadersCompileCommand: CliCommandDefinition = {
       dryRun: false,
       mutation: false,
       async run(context) {
-        const shaderProject = await buildShaderMaterialProject(context.snapshot.project);
+        const shaderProject = await buildShaderMaterialProject(context.snapshot.project, [], {
+          certifyPresetPrograms: true,
+        });
         const schemaDiagnostics = shaderProject.diagnostics.map((item) =>
           cliDiagnostic('shader.material_project', item.path, item.message, item.severity),
         );
@@ -219,8 +221,21 @@ export const shadersCompileCommand: CliCommandDefinition = {
           forceRebuild,
           sourceOverlays: pinnedShaderSourceOverlays(context.pinnedProjectTextSources),
         });
+        const reflectedDiagnostics = response.success
+          ? (
+              await buildShaderMaterialProject(context.snapshot.project, response.outputs ?? [])
+            ).diagnostics.map((item) =>
+              cliDiagnostic('shader.material_project', item.path, item.message, item.severity),
+            )
+          : [];
         const result = nativeSuccess(response);
-        return { ...result, diagnostics: [...schemaDiagnostics, ...result.diagnostics] };
+        return {
+          ...result,
+          ok:
+            result.ok &&
+            !reflectedDiagnostics.some((diagnostic) => diagnostic.severity === 'error'),
+          diagnostics: [...schemaDiagnostics, ...result.diagnostics, ...reflectedDiagnostics],
+        };
       },
     };
   },

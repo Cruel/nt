@@ -1,5 +1,6 @@
 #include "noveltea/render/shader_compiler.hpp"
 #include "noveltea/core/player_bootstrap.hpp"
+#include "noveltea/render/material_contract.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -18,6 +19,7 @@ bool compileShader(const char* varying, const char* comment, char* shader, std::
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -56,6 +58,396 @@ constexpr std::uint64_t fnv_prime = 1099511628211ull;
 [[nodiscard]] bool starts_with(std::string_view value, std::string_view prefix) noexcept
 {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
+}
+
+[[nodiscard]] std::string_view trim(std::string_view value) noexcept
+{
+    const auto first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string_view::npos)
+        return {};
+    const auto last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
+
+[[nodiscard]] std::vector<std::string> directive_names(std::string_view source,
+                                                       std::string_view directive)
+{
+    std::vector<std::string> names;
+    std::istringstream lines{std::string(source)};
+    std::string line;
+    while (std::getline(lines, line)) {
+        auto value = trim(line);
+        if (!starts_with(value, directive))
+            continue;
+        value = trim(value.substr(directive.size()));
+        while (!value.empty()) {
+            const auto comma = value.find(',');
+            const auto name = trim(value.substr(0, comma));
+            if (!name.empty())
+                names.emplace_back(name);
+            if (comma == std::string_view::npos)
+                break;
+            value = trim(value.substr(comma + 1));
+        }
+    }
+    return names;
+}
+
+[[nodiscard]] std::vector<std::pair<std::string, std::uint16_t>>
+sampler_stage_declarations(std::string_view source)
+{
+    std::vector<std::pair<std::string, std::uint16_t>> declarations;
+    constexpr std::string_view prefix = "SAMPLER2D(";
+    std::size_t offset = 0;
+    while ((offset = source.find(prefix, offset)) != std::string_view::npos) {
+        const auto arguments_begin = offset + prefix.size();
+        const auto arguments_end = source.find(')', arguments_begin);
+        if (arguments_end == std::string_view::npos)
+            break;
+        const auto arguments = source.substr(arguments_begin, arguments_end - arguments_begin);
+        const auto comma = arguments.find(',');
+        if (comma != std::string_view::npos) {
+            const auto name = trim(arguments.substr(0, comma));
+            const auto stage_text = trim(arguments.substr(comma + 1));
+            unsigned int stage = 0;
+            const auto parsed = std::from_chars(stage_text.data(), stage_text.data() + stage_text.size(), stage);
+            if (parsed.ec == std::errc{} && parsed.ptr == stage_text.data() + stage_text.size() &&
+                stage <= UINT16_MAX && !name.empty())
+                declarations.emplace_back(std::string(name), static_cast<std::uint16_t>(stage));
+        }
+        offset = arguments_end + 1;
+    }
+    return declarations;
+}
+
+void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
+                    ShaderCompileSeverity severity, ShaderCompileDiagnosticCode code,
+                    const ShaderId& shader, ShaderStage stage, std::string variant,
+                    std::filesystem::path source_path, std::filesystem::path output_path,
+                    std::string command_line, int exit_code, std::string message);
+
+struct VaryingDeclaration {
+    std::string type;
+    std::string name;
+    std::string semantic;
+};
+
+[[nodiscard]] std::optional<std::vector<VaryingDeclaration>>
+parse_varying_declarations(std::string_view source)
+{
+    std::vector<VaryingDeclaration> declarations;
+    std::istringstream lines{std::string(source)};
+    std::string line;
+    while (std::getline(lines, line)) {
+        auto value = trim(line);
+        if (value.empty() || starts_with(value, "//") || starts_with(value, "#"))
+            continue;
+        const auto comment = value.find("//");
+        if (comment != std::string_view::npos)
+            value = trim(value.substr(0, comment));
+        if (value.empty())
+            continue;
+        if (!value.ends_with(';'))
+            return std::nullopt;
+        value.remove_suffix(1);
+        const auto colon = value.find(':');
+        if (colon == std::string_view::npos)
+            return std::nullopt;
+        const auto left = trim(value.substr(0, colon));
+        const auto semantic = trim(value.substr(colon + 1));
+        const auto space = left.find_first_of(" \t");
+        if (space == std::string_view::npos || semantic.empty())
+            return std::nullopt;
+        const auto type = trim(left.substr(0, space));
+        const auto name = trim(left.substr(space + 1));
+        if (type.empty() || name.empty())
+            return std::nullopt;
+        declarations.push_back(
+            {.type = std::string(type), .name = std::string(name), .semantic = std::string(semantic)});
+    }
+    return declarations;
+}
+
+[[nodiscard]] const MaterialPresetContract*
+material_contract_for_request(const ShaderSourceProgramRequest& request) noexcept
+{
+    for (const auto& preset : material_preset_contracts())
+        if (preset.contract_identity == request.interface_contract)
+            return &preset;
+    return nullptr;
+}
+
+[[nodiscard]] bool contains_name(std::span<const MaterialContractInterfaceSlot> slots,
+                                 std::string_view name) noexcept
+{
+    return std::any_of(slots.begin(), slots.end(),
+                       [name](const auto& slot) { return slot.name == name; });
+}
+
+[[nodiscard]] const MaterialContractSamplerSlot*
+find_sampler(std::span<const MaterialContractSamplerSlot> slots, std::string_view name) noexcept
+{
+    const auto found = std::find_if(slots.begin(), slots.end(),
+                                    [name](const auto& slot) { return slot.name == name; });
+    return found == slots.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] std::string_view sampler_capability(const MaterialPresetContract& preset,
+                                                  std::string_view name) noexcept
+{
+    for (const auto& capability : preset.sampler_capabilities)
+        if (capability.slot == name)
+            return capability.state;
+    return "disabled";
+}
+
+void add_contract_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics, ShaderStage stage,
+                             const std::filesystem::path& source_path, std::string message)
+{
+    add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                   ShaderCompileDiagnosticCode::ContractViolation, ShaderId{}, stage, {}, source_path,
+                   {}, {}, 0, std::move(message));
+}
+
+[[nodiscard]] bool validate_contract_source_interface(
+    const MaterialRoleContract& role, ShaderStage stage, std::string_view source,
+    std::span<const VaryingDeclaration> additional_varyings,
+    const std::filesystem::path& source_path, std::vector<ShaderCompileDiagnostic>& diagnostics)
+{
+    const auto inputs = directive_names(source, "$input");
+    const auto outputs = directive_names(source, "$output");
+    bool valid = true;
+    const auto has = [](const std::vector<std::string>& values, std::string_view name) {
+        return std::find(values.begin(), values.end(), name) != values.end();
+    };
+    if (stage == ShaderStage::Vertex) {
+        for (const auto& attribute : role.attributes)
+            if (!has(inputs, attribute.name)) {
+                add_contract_diagnostic(diagnostics, stage, source_path,
+                                        "Vertex shader is missing required renderer attribute '" +
+                                            std::string(attribute.name) + "'.");
+                valid = false;
+            }
+        for (const auto& input : inputs)
+            if (!contains_name(role.attributes, input)) {
+                add_contract_diagnostic(diagnostics, stage, source_path,
+                                        "Vertex shader input '" + input +
+                                            "' is not a renderer-owned attribute for this Material role.");
+                valid = false;
+            }
+        for (const auto& varying : role.varyings)
+            if (!has(outputs, varying.name)) {
+                add_contract_diagnostic(diagnostics, stage, source_path,
+                                        "Vertex shader is missing required varying output '" +
+                                            std::string(varying.name) + "'.");
+                valid = false;
+            }
+        for (const auto& varying : additional_varyings)
+            if (!has(outputs, varying.name)) {
+                add_contract_diagnostic(diagnostics, stage, source_path,
+                                        "Vertex shader is missing additional varying output '" +
+                                            varying.name + "'.");
+                valid = false;
+            }
+    } else {
+        for (const auto& varying : role.varyings)
+            if (!has(inputs, varying.name)) {
+                add_contract_diagnostic(diagnostics, stage, source_path,
+                                        "Fragment shader is missing required varying input '" +
+                                            std::string(varying.name) + "'.");
+                valid = false;
+            }
+        for (const auto& varying : additional_varyings)
+            if (!has(inputs, varying.name)) {
+                add_contract_diagnostic(diagnostics, stage, source_path,
+                                        "Fragment shader is missing additional varying input '" +
+                                            varying.name + "'.");
+                valid = false;
+            }
+        for (const auto& input : inputs) {
+            const bool base = contains_name(role.varyings, input);
+            const bool additional = std::any_of(
+                additional_varyings.begin(), additional_varyings.end(),
+                [&input](const auto& varying) { return varying.name == input; });
+            if (!base && !additional) {
+                add_contract_diagnostic(diagnostics, stage, source_path,
+                                        "Fragment shader input '" + input +
+                                            "' is not declared by the effective varying contract.");
+                valid = false;
+            }
+        }
+    }
+    return valid;
+}
+
+[[nodiscard]] bool validate_additional_varyings(
+    const MaterialRoleContract& role, std::span<const VaryingDeclaration> additional,
+    const std::filesystem::path& source_path, std::vector<ShaderCompileDiagnostic>& diagnostics)
+{
+    bool valid = true;
+    for (const auto& candidate : additional) {
+        const auto reserved_name =
+            contains_name(role.attributes, candidate.name) || contains_name(role.varyings, candidate.name) ||
+            contains_name(role.predefined_uniforms, candidate.name) ||
+            contains_name(role.renderer_uniforms, candidate.name) ||
+            find_sampler(role.samplers, candidate.name) != nullptr;
+        bool reserved_semantic = false;
+        for (const auto& slot : role.attributes)
+            reserved_semantic = reserved_semantic || slot.semantic == candidate.semantic;
+        for (const auto& slot : role.varyings)
+            reserved_semantic = reserved_semantic || slot.semantic == candidate.semantic;
+        if (reserved_name || reserved_semantic) {
+            add_contract_diagnostic(
+                diagnostics, ShaderStage::Vertex, source_path,
+                "Additional varying '" + candidate.name + "' with semantic '" + candidate.semantic +
+                    "' collides with the renderer-owned Material interface.");
+            valid = false;
+        }
+    }
+    for (std::size_t i = 0; i < additional.size(); ++i)
+        for (std::size_t j = i + 1; j < additional.size(); ++j)
+            if (additional[i].name == additional[j].name ||
+                additional[i].semantic == additional[j].semantic) {
+                add_contract_diagnostic(diagnostics, ShaderStage::Vertex, source_path,
+                                        "Additional varying declarations must have unique names and semantics.");
+                valid = false;
+            }
+    return valid;
+}
+
+[[nodiscard]] bool validate_reflected_contract(
+    const MaterialPresetContract& preset, const MaterialRoleContract& role, ShaderStage stage,
+    std::span<const ShaderReflectedInput> inputs, const std::filesystem::path& source_path,
+    std::vector<ShaderCompileDiagnostic>& diagnostics)
+{
+    bool valid = true;
+    const auto find_input = [&](std::string_view name) -> const ShaderReflectedInput* {
+        const auto found = std::find_if(inputs.begin(), inputs.end(),
+                                        [name](const auto& input) { return input.name == name; });
+        return found == inputs.end() ? nullptr : &*found;
+    };
+
+    for (const auto& input : inputs) {
+        const bool reserved_attribute = contains_name(role.attributes, input.name);
+        const bool reserved_varying = contains_name(role.varyings, input.name);
+        const bool reserved_predefined = contains_name(role.predefined_uniforms, input.name);
+        const bool reserved_renderer_uniform = contains_name(role.renderer_uniforms, input.name);
+        const bool reserved_sampler = find_sampler(role.samplers, input.name) != nullptr;
+        if (reserved_attribute || reserved_varying) {
+            add_contract_diagnostic(
+                diagnostics, stage, source_path,
+                "Shader resource name '" + input.name +
+                    "' collides with a renderer-owned attribute or varying.");
+            valid = false;
+            continue;
+        }
+        if (input.kind == ShaderReflectedInputKind::SampledImage) {
+            if (reserved_predefined || reserved_renderer_uniform) {
+                add_contract_diagnostic(
+                    diagnostics, stage, source_path,
+                    "Sampler '" + input.name +
+                        "' collides with a renderer-owned uniform name.");
+                valid = false;
+                continue;
+            }
+            if (input.array_size != 1 || input.register_count != 1) {
+                add_contract_diagnostic(diagnostics, stage, source_path,
+                                        "Sampler '" + input.name +
+                                            "' must be a single non-array sampled image.");
+                valid = false;
+            }
+            if (const auto* reserved = find_sampler(role.samplers, input.name)) {
+                const auto capability = sampler_capability(preset, input.name);
+                if (capability == "disabled") {
+                    add_contract_diagnostic(diagnostics, stage, source_path,
+                                            "Sampler '" + input.name +
+                                                "' is disabled by the selected Material preset.");
+                    valid = false;
+                }
+                if (input.register_index != reserved->stage) {
+                    add_contract_diagnostic(
+                        diagnostics, stage, source_path,
+                        "Sampler '" + input.name + "' must use reserved stage " +
+                            std::to_string(reserved->stage) + ", not stage " +
+                            std::to_string(input.register_index) + ".");
+                    valid = false;
+                }
+            } else {
+                for (const auto& reserved : role.samplers)
+                    if (input.register_index == reserved.stage) {
+                        add_contract_diagnostic(
+                            diagnostics, stage, source_path,
+                            "Sampler '" + input.name + "' uses renderer-reserved stage " +
+                                std::to_string(reserved.stage) + ".");
+                        valid = false;
+                    }
+            }
+            continue;
+        }
+
+        const auto reserved_uniform = [&](std::span<const MaterialContractInterfaceSlot> slots) {
+            const auto found = std::find_if(slots.begin(), slots.end(), [&](const auto& slot) {
+                return slot.name == input.name;
+            });
+            return found == slots.end() ? nullptr : &*found;
+        };
+        if (reserved_sampler) {
+            add_contract_diagnostic(diagnostics, stage, source_path,
+                                    "Uniform '" + input.name +
+                                        "' collides with a renderer-owned sampler name.");
+            valid = false;
+            continue;
+        }
+        const auto* renderer = reserved_uniform(role.renderer_uniforms);
+        const auto* predefined = reserved_uniform(role.predefined_uniforms);
+        const auto* reserved = renderer != nullptr ? renderer : predefined;
+        if (reserved != nullptr) {
+            if (input.type != reserved->physical_type || input.array_size != 1) {
+                add_contract_diagnostic(
+                    diagnostics, stage, source_path,
+                    "Renderer-owned uniform '" + input.name + "' must reflect as " +
+                        std::string(reserved->physical_type) + " with array size 1.");
+                valid = false;
+            }
+        } else if (input.type != "vec4" || input.array_size != 1) {
+            add_contract_diagnostic(
+                diagnostics, stage, source_path,
+                "Author Material uniform '" + input.name +
+                    "' must use the portable physical vec4 ABI with array size 1.");
+            valid = false;
+        }
+    }
+
+    if (stage == ShaderStage::Vertex) {
+        for (const auto& uniform : role.renderer_uniforms) {
+            const auto* input = find_input(uniform.name);
+            if (input == nullptr || input->kind != ShaderReflectedInputKind::Uniform) {
+                add_contract_diagnostic(diagnostics, stage, source_path,
+                                        "Vertex shader is missing renderer-owned uniform '" +
+                                            std::string(uniform.name) + "'.");
+                valid = false;
+            }
+        }
+    } else {
+        for (const auto& sampler : role.samplers) {
+            const auto capability = sampler_capability(preset, sampler.name);
+            const auto* input = find_input(sampler.name);
+            if (capability == "required" &&
+                (input == nullptr || input->kind != ShaderReflectedInputKind::SampledImage)) {
+                add_contract_diagnostic(diagnostics, stage, source_path,
+                                        "Fragment shader is missing required sampler '" +
+                                            std::string(sampler.name) + "'.");
+                valid = false;
+            }
+            if (capability == "disabled" && input != nullptr) {
+                add_contract_diagnostic(diagnostics, stage, source_path,
+                                        "Fragment shader declares disabled sampler '" +
+                                            std::string(sampler.name) + "'.");
+                valid = false;
+            }
+        }
+    }
+    return valid;
 }
 
 [[nodiscard]] std::string stage_suffix(ShaderStage stage)
@@ -784,8 +1176,6 @@ reflect_shader_binary(const std::filesystem::path& path)
         const auto texture_component = read_u8();
         const auto texture_dimension = read_u8();
         const auto texture_format = read_u16();
-        (void)register_index;
-        (void)register_count;
         (void)texture_component;
         (void)texture_dimension;
         (void)texture_format;
@@ -819,6 +1209,8 @@ reflect_shader_binary(const std::filesystem::path& path)
                             : ShaderReflectedInputKind::Uniform,
             .type = std::move(type_name),
             .array_size = *array_size,
+            .register_index = *register_index,
+            .register_count = *register_count,
         });
     }
 
@@ -1111,17 +1503,91 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
         return result;
     }
 
-    auto varying = resolve_source_identity(request.varying_definition, effective_options,
-                                           ShaderStage::Fragment, result.diagnostics);
-    if (!varying)
+    const auto* preset_contract = material_contract_for_request(request);
+    const MaterialRoleContract* role_contract = nullptr;
+    if (starts_with(request.interface_contract, "noveltea.material-preset:") &&
+        preset_contract == nullptr) {
+        add_contract_diagnostic(result.diagnostics, ShaderStage::Fragment, {},
+                                "Unknown Material interface contract '" +
+                                    request.interface_contract + "'.");
         return result;
-    const auto varying_text = read_text_file(varying->path);
-    if (!varying_text) {
+    }
+    if (preset_contract != nullptr) {
+        role_contract = material_role_contract(preset_contract->role);
+        if (role_contract == nullptr) {
+            add_contract_diagnostic(result.diagnostics, ShaderStage::Fragment, {},
+                                    "Material contract references an unknown renderer role.");
+            return result;
+        }
+        if (request.interface_fingerprint != preset_contract->contract_fingerprint) {
+            add_contract_diagnostic(
+                result.diagnostics, ShaderStage::Fragment, {},
+                "Material contract fingerprint does not match the compiled-in registry for '" +
+                    std::string(preset_contract->id) + "'.");
+            return result;
+        }
+    }
+
+    const auto base_varying_identity = preset_contract != nullptr
+                                           ? std::string(preset_contract->varying_definition)
+                                           : request.varying_definition;
+    auto base_varying = resolve_source_identity(base_varying_identity, effective_options,
+                                                ShaderStage::Fragment, result.diagnostics);
+    if (!base_varying)
+        return result;
+    const auto base_varying_text = read_text_file(base_varying->path);
+    if (!base_varying_text) {
         add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
                        ShaderCompileDiagnosticCode::SourceReadFailed, ShaderId{},
-                       ShaderStage::Fragment, {}, varying->path, {}, {}, 0,
-                       "Failed to read explicit varying/interface definition.");
+                       ShaderStage::Fragment, {}, base_varying->path, {}, {}, 0,
+                       "Failed to read base varying/interface definition.");
         return result;
+    }
+
+    std::vector<VaryingDeclaration> additional_varyings;
+    std::optional<ResolvedSourceFile> authored_varying;
+    std::optional<std::string> authored_varying_text;
+    if (preset_contract != nullptr && request.varying_definition != base_varying_identity) {
+        authored_varying = resolve_source_identity(request.varying_definition, effective_options,
+                                                   ShaderStage::Fragment, result.diagnostics);
+        if (!authored_varying)
+            return result;
+        authored_varying_text = read_text_file(authored_varying->path);
+        if (!authored_varying_text) {
+            add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                           ShaderCompileDiagnosticCode::SourceReadFailed, ShaderId{},
+                           ShaderStage::Fragment, {}, authored_varying->path, {}, {}, 0,
+                           "Failed to read additional varying definition.");
+            return result;
+        }
+        const auto parsed = parse_varying_declarations(*authored_varying_text);
+        if (!parsed) {
+            add_contract_diagnostic(result.diagnostics, ShaderStage::Vertex, authored_varying->path,
+                                    "Additional varying definition is malformed.");
+            return result;
+        }
+        additional_varyings = *parsed;
+        if (!validate_additional_varyings(*role_contract, additional_varyings,
+                                          authored_varying->path, result.diagnostics))
+            return result;
+    }
+
+    std::string effective_varying_text = *base_varying_text;
+    ResolvedSourceFile effective_varying = *base_varying;
+    if (authored_varying_text) {
+        effective_varying_text += "\n";
+        effective_varying_text += *authored_varying_text;
+        const auto generated_hash = hash_hex(effective_varying_text);
+        effective_varying.path = effective_options.cache_root / "shader-cache" / "varyings" /
+                                 (generated_hash + ".def.sc");
+        effective_varying.identity = "generated:/material-varying/" + generated_hash;
+        if (!write_text_file_if_changed(effective_varying.path, effective_varying_text)) {
+            add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                           ShaderCompileDiagnosticCode::SourceWriteFailed, ShaderId{},
+                           ShaderStage::Fragment, {}, effective_varying.path, {}, {}, 0,
+                           "Failed to materialize the effective Material varying definition.");
+            return result;
+        }
     }
 
     struct StageWork {
@@ -1148,6 +1614,22 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
         !prepare_stage(ShaderStage::Fragment, request.fragment_source)) {
         return result;
     }
+    if (role_contract != nullptr) {
+        for (const auto& stage : stages) {
+            const auto source_text = read_text_file(stage.source.path);
+            if (!source_text) {
+                add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                               ShaderCompileDiagnosticCode::SourceReadFailed, ShaderId{}, stage.stage,
+                               {}, stage.source.path, {}, {}, 0,
+                               "Failed to read shader root source for Material contract certification.");
+                return result;
+            }
+            if (!validate_contract_source_interface(*role_contract, stage.stage, *source_text,
+                                                    additional_varyings, stage.source.path,
+                                                    result.diagnostics))
+                return result;
+        }
+    }
 
     std::ostringstream identity_input;
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
@@ -1158,7 +1640,11 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
 #endif
     identity_input << "interface=" << request.interface_contract << '\n';
     identity_input << "interface_fingerprint=" << request.interface_fingerprint << '\n';
-    identity_input << "varying=" << varying->identity << '\n' << *varying_text << '\n';
+    identity_input << "varying=" << effective_varying.identity << '\n'
+                   << effective_varying_text << '\n';
+    identity_input << "varying-base=" << base_varying->identity << '\n';
+    if (authored_varying)
+        identity_input << "varying-extension=" << authored_varying->identity << '\n';
     for (const auto& stage : stages) {
         identity_input << "stage=" << to_string(stage.stage) << '\n';
         identity_input << source_dependency_fingerprint(stage.dependencies);
@@ -1168,6 +1654,12 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
     const auto manifest_path = effective_options.cache_root / "shader-cache" / "manifest.json";
     auto cache_manifest = read_cache_manifest(manifest_path, result.diagnostics);
     for (const auto& stage : stages) {
+        std::vector<std::pair<std::string, std::uint16_t>> sampler_stages;
+        for (const auto& [dependency_identity, dependency_text] : stage.dependencies) {
+            (void)dependency_identity;
+            const auto declarations = sampler_stage_declarations(dependency_text);
+            sampler_stages.insert(sampler_stages.end(), declarations.begin(), declarations.end());
+        }
         for (const auto& variant : effective_options.variants) {
             std::ostringstream key_input;
             key_input << result.program_identity << '\n' << variant.name << ':' << variant.platform
@@ -1181,7 +1673,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
 
             auto append_output = [&](bool cache_hit) -> bool {
                 const auto metadata = compiled_binary_metadata(output_path);
-                const auto reflected = reflect_shader_binary(output_path);
+                auto reflected = reflect_shader_binary(output_path);
                 if (!metadata || !reflected) {
                     if (!cache_hit) {
                         add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
@@ -1191,6 +1683,22 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                     }
                     return false;
                 }
+                for (auto& input : reflected->inputs) {
+                    if (input.kind != ShaderReflectedInputKind::SampledImage)
+                        continue;
+                    const auto declaration = std::find_if(
+                        sampler_stages.begin(), sampler_stages.end(),
+                        [&input](const auto& item) { return item.first == input.name; });
+                    if (declaration != sampler_stages.end()) {
+                        input.register_index = declaration->second;
+                        input.register_count = 1;
+                    }
+                }
+                if (preset_contract != nullptr && role_contract != nullptr &&
+                    !validate_reflected_contract(*preset_contract, *role_contract, stage.stage,
+                                                 reflected->inputs, stage.source.path,
+                                                 result.diagnostics))
+                    return false;
                 std::vector<std::string> dependencies;
                 std::vector<ShaderSourceDependencyRevision> dependency_revisions;
                 dependencies.reserve(stage.dependencies.size() + 1);
@@ -1200,9 +1708,15 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                     dependency_revisions.push_back(
                         {.identity = dependency.first, .content_hash = content_hash(dependency.second)});
                 }
-                dependencies.push_back(varying->identity);
-                dependency_revisions.push_back(
-                    {.identity = varying->identity, .content_hash = content_hash(*varying_text)});
+                dependencies.push_back(base_varying->identity);
+                dependency_revisions.push_back({.identity = base_varying->identity,
+                                                .content_hash = content_hash(*base_varying_text)});
+                if (authored_varying && authored_varying_text) {
+                    dependencies.push_back(authored_varying->identity);
+                    dependency_revisions.push_back(
+                        {.identity = authored_varying->identity,
+                         .content_hash = content_hash(*authored_varying_text)});
+                }
                 result.outputs.push_back(ShaderSourceCompileOutput{
                     .stage = stage.stage,
                     .variant = variant.name,
@@ -1255,7 +1769,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
             std::vector<std::string> args = {
                 "shaderc", "-f", path_utf8(stage.source.path), "-o", path_utf8(output_path),
                 "--type", shaderc_stage_type(stage.stage), "--platform", variant.platform,
-                "--profile", variant.profile, "--varyingdef", path_utf8(varying->path),
+                "--profile", variant.profile, "--varyingdef", path_utf8(effective_varying.path),
                 "-i", path_utf8(effective_options.project_root / "shaders"),
             };
             if (!effective_options.engine_shader_root.empty()) {
@@ -1274,7 +1788,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                 include_roots.push_back(effective_options.engine_shader_root);
             include_roots.push_back(*embedded_include_root);
             const auto process = run_embedded_shaderc(args, stage.stage, variant, stage.source.path,
-                                                      output_path, varying->path, include_roots);
+                                                      output_path, effective_varying.path, include_roots);
 #else
             const ProcessResult process{.exit_code = -1, .output = "embedded shaderc is unavailable"};
 #endif
@@ -1520,6 +2034,8 @@ std::string_view to_string(ShaderCompileDiagnosticCode code) noexcept
         return "source_write_failed";
     case ShaderCompileDiagnosticCode::CompilerFailed:
         return "compiler_failed";
+    case ShaderCompileDiagnosticCode::ContractViolation:
+        return "contract_violation";
     case ShaderCompileDiagnosticCode::ReflectionFailed:
         return "reflection_failed";
     case ShaderCompileDiagnosticCode::CacheReadFailed:

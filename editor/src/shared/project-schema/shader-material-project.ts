@@ -166,6 +166,9 @@ export interface ShaderMaterialProjectBuildResult {
   diagnostics: ShaderMaterialProjectDiagnostic[];
   activeTextSourcePrograms: ReadonlyMap<string, string>;
 }
+export interface ShaderMaterialProjectBuildOptions {
+  certifyPresetPrograms?: boolean;
+}
 type RuntimeShaderDefinition = z.infer<typeof runtimeShaderDefinitionSchema>;
 type RuntimeMaterialDefinition = z.infer<typeof runtimeMaterialDefinitionSchema>;
 export interface MaterialDerivedInterface {
@@ -263,6 +266,37 @@ function reflectedType(type: string): ShaderUniformType | null {
   )
     return type;
   return null;
+}
+
+function implicitUniformDefault(type: ShaderUniformType): ShaderUniformValue {
+  switch (type) {
+    case 'float':
+    case 'int':
+      return 0;
+    case 'bool':
+      return false;
+    case 'vec2':
+      return [0, 0];
+    case 'vec3':
+      return [0, 0, 0];
+    case 'vec4':
+    case 'color':
+      return [0, 0, 0, 0];
+  }
+}
+
+function canonicalStandardSemantic(binding: string): string {
+  switch (binding) {
+    case 'engine.context_logical_to_ui_raster_scale':
+    case 'rmlui.context_logical_to_ui_raster_scale':
+      return 'engine.context_logical_to_raster_scale';
+    case 'rmlui.paint_dimensions':
+      return 'engine.paint_dimensions';
+    case 'rmlui.viewport_pixel_dimensions':
+      return 'engine.viewport_pixel_dimensions';
+    default:
+      return binding;
+  }
 }
 
 function activeTextPairKey(vertexSource: string, fragmentSource: string): string {
@@ -389,6 +423,7 @@ function buildSourceProgramShaderDefinition(
 export async function buildShaderMaterialProject(
   project: AuthoringProject,
   compiledOutputs: readonly ShaderCompileOutput[] = [],
+  options: ShaderMaterialProjectBuildOptions = {},
 ): Promise<ShaderMaterialProjectBuildResult> {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const shaders: Record<string, RuntimeShaderDefinition> = {};
@@ -432,7 +467,8 @@ export async function buildShaderMaterialProject(
       textures: {},
     };
     const program = custom ? await programKey(resolved) : `preset-${resolved.preset.id}`;
-    if (custom) programs[program] = customProgramRequest(resolved);
+    if (custom || options.certifyPresetPrograms)
+      programs[program] ??= customProgramRequest(resolved);
     const shaderId = custom ? `${program}-material-${materialId}` : program;
     if (!shaders[shaderId]) {
       const built = buildRuntimeShader(
@@ -535,18 +571,30 @@ function buildRuntimeShader(
   }
   const reflected = new Map<
     string,
-    { kind: 'uniform' | 'sampled-image'; type: string; arraySize: number }
+    {
+      kind: 'uniform' | 'sampled-image';
+      type: string;
+      arraySize: number;
+      registerIndex?: number;
+      registerCount?: number;
+    }
   >();
   const reflectionConflicts = new Set<string>();
   for (const output of outputs)
     for (const input of output.reflectedInputs ?? []) {
       if (input.kind === 'uniform' && isBgfxPredefinedUniform(input.name)) continue;
       const existing = reflected.get(input.name);
+      const samplerRegisterConflict =
+        existing?.kind === 'sampled-image' &&
+        input.kind === 'sampled-image' &&
+        (existing.registerIndex !== input.registerIndex ||
+          existing.registerCount !== input.registerCount);
       if (
         existing &&
         (existing.kind !== input.kind ||
           existing.type !== input.type ||
-          existing.arraySize !== input.arraySize)
+          existing.arraySize !== input.arraySize ||
+          samplerRegisterConflict)
       ) {
         if (!reflectionConflicts.has(input.name))
           diagnostics.push(
@@ -562,12 +610,24 @@ function buildRuntimeShader(
         kind: input.kind,
         type: input.type,
         arraySize: input.arraySize,
+        registerIndex: input.registerIndex,
+        registerCount: input.registerCount,
       });
     }
 
   const uniforms: RuntimeShaderDefinition['uniforms'] = {};
   const samplers: RuntimeShaderDefinition['samplers'] = {};
   if (custom) {
+    const roleContract = materialContractRegistry.roles.find((role) => role.id === resolved.role);
+    const rendererUniformNames = new Set(
+      roleContract?.reservedInterface.rendererUniforms.map((uniform) => uniform.name) ?? [],
+    );
+    const standardSemanticTypes = new Map(
+      roleContract?.standardSemanticAvailability.map((entry) => [
+        entry.semantic,
+        entry.logicalType,
+      ]) ?? [],
+    );
     for (const [name, input] of reflected) {
       if (reflectionConflicts.has(name)) continue;
       if (input.arraySize !== 1) {
@@ -595,56 +655,73 @@ function buildRuntimeShader(
         samplers[name] = { type: 'texture2d', binding };
         continue;
       }
-      const reflected = reflectedType(input.type);
-      if (!reflected) {
+      if (rendererUniformNames.has(name)) continue;
+      if (input.type !== 'vec4') {
         diagnostics.push(
           diagnostic(
             `/materials/${materialId}/data/parameters/${name}`,
-            `Reflected uniform '${name}' has unsupported runtime type '${input.type}'.`,
+            `Author Material uniform '${name}' must use physical vec4, not '${input.type}'.`,
           ),
         );
         continue;
       }
-      const preset = resolved.preset.uniforms[name];
-      const presetCompatible =
-        preset !== undefined &&
-        (preset.type === reflected || (preset.type === 'color' && reflected === 'vec4'));
-      const type: ShaderUniformType = presetCompatible ? preset.type : reflected;
       const parameter = authoredOverrides.parameters[name];
-      const binding =
-        parameter?.binding !== undefined
-          ? parameter.binding
-          : presetCompatible
-            ? (preset?.binding ?? null)
-            : null;
-      if (parameter?.value !== undefined && !isUniformValueCompatible(type, parameter.value))
+      const effectiveParameter = resolved.parameters[name];
+      const binding = parameter?.binding ?? effectiveParameter?.binding ?? null;
+      const boundLogicalType = binding
+        ? standardSemanticTypes.get(canonicalStandardSemantic(binding))
+        : undefined;
+      if (binding && boundLogicalType === undefined)
+        diagnostics.push(
+          diagnostic(
+            `/materials/${materialId}/data/parameters/${name}/binding`,
+            `Standard semantic '${binding}' is not available to Material role '${resolved.role}'.`,
+          ),
+        );
+      const type = (boundLogicalType ??
+        effectiveParameter?.type ??
+        parameter?.type ??
+        'vec4') as ShaderUniformType;
+      if (
+        effectiveParameter?.type !== undefined &&
+        boundLogicalType !== undefined &&
+        effectiveParameter.type !== boundLogicalType
+      )
+        diagnostics.push(
+          diagnostic(
+            `/materials/${materialId}/data/parameters/${name}/type`,
+            `Logical type '${effectiveParameter.type}' does not match standard semantic '${binding}' type '${boundLogicalType}'.`,
+          ),
+        );
+      const value = effectiveParameter?.value;
+      if (value !== undefined && !isUniformValueCompatible(type, value))
         diagnostics.push(
           diagnostic(
             `/materials/${materialId}/data/parameters/${name}/value`,
-            `Material parameter '${name}' does not match reflected shader type '${type}'.`,
+            `Material parameter '${name}' does not match logical shader type '${type}'.`,
           ),
         );
-      if (parameter?.value !== undefined && binding !== null)
+      if (value !== undefined && binding !== null)
         diagnostics.push(
           diagnostic(
             `/materials/${materialId}/data/parameters/${name}/value`,
             `Renderer-bound reflected parameter '${name}' cannot have an authored value.`,
           ),
         );
+      const editor = effectiveParameter?.editor;
       uniforms[name] = {
         type,
-        ...(parameter?.value !== undefined && isUniformValueCompatible(type, parameter.value)
-          ? { default: parameter.value }
-          : presetCompatible && preset?.default !== undefined
-            ? { default: preset.default }
-            : {}),
-        ...(presetCompatible && preset?.range
-          ? { range: [...preset.range] as [number, number] }
+        ...(binding === null
+          ? {
+              default:
+                value !== undefined && isUniformValueCompatible(type, value)
+                  ? value
+                  : implicitUniformDefault(type),
+            }
           : {}),
+        ...(editor?.range ? { range: [...editor.range] as [number, number] } : {}),
         ...(binding !== null ? { binding } : {}),
-        ...(parameter?.editor?.label || (presetCompatible && preset?.label)
-          ? { editor: { label: parameter?.editor?.label ?? preset?.label ?? name } }
-          : {}),
+        ...(editor?.label ? { editor: { label: editor.label } } : {}),
       };
     }
     if (outputs.length > 0) {

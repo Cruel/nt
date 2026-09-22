@@ -1087,7 +1087,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     layouts: '4f6da266',
     localization: '3cedd4cb',
     maps: '9d711bea',
-    materials: '84df36d6',
+    materials: '4728e73c',
     prefetchHints: 'b985056c',
     project: 'da3be83d',
     rooms: 'de4ff2d7',

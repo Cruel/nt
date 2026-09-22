@@ -431,6 +431,8 @@ nlohmann::json reflected_inputs_to_json(
                          : "uniform"},
             {"type", input.type},
             {"arraySize", input.array_size},
+            {"registerIndex", input.register_index},
+            {"registerCount", input.register_count},
         });
     }
     return result;
