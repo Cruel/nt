@@ -298,6 +298,12 @@ export interface ScriptcInvocationContext {
     snapshotText: string;
     ownerMetadataText: string;
   }>;
+  readonly pinnedProjectSnapshot?: Readonly<{
+    projectRoot: string;
+    snapshotText: string;
+    ownerMetadataText: string;
+  }>;
+  readonly prepareResidentSnapshotOnly?: boolean;
 }
 
 export async function runNovelTeaScriptcIsland(
@@ -474,18 +480,23 @@ async function runNovelTeaScriptcIslandScoped(
         );
       };
       workspace = createWorkspace(fileSystem);
-      if (invocationContext.residentProjectSessions && !residentWorkspace) {
+      if (
+        (invocationContext.residentProjectSessions || invocationContext.pinnedProjectSnapshot) &&
+        !residentWorkspace
+      ) {
         const { ResidentProjectWorkspaceService } =
           await import('../src/shared/project-workspace/resident-project-workspace-service');
         residentWorkspace = new ResidentProjectWorkspaceService(
           fileSystem,
           createWorkspace,
-          residentProjectAuthority(),
+          invocationContext.residentProjectSessions ? residentProjectAuthority() : undefined,
           invocationContext.residentProjectSessionEpoch,
         );
       }
-      if (invocationContext.residentProjectSnapshot && residentWorkspace) {
-        const retained = invocationContext.residentProjectSnapshot;
+      const retainedProjectSnapshot =
+        invocationContext.residentProjectSnapshot ?? invocationContext.pinnedProjectSnapshot;
+      if (retainedProjectSnapshot && residentWorkspace) {
+        const retained = retainedProjectSnapshot;
         const rehydrated = await residentWorkspace.rehydratePortableSnapshot(
           retained.projectRoot,
           retained.snapshotText,
@@ -537,7 +548,9 @@ async function runNovelTeaScriptcIslandScoped(
         ...(workspace ? { workspace } : {}),
         ...(invocationContext.residentProjectSessions && residentWorkspace
           ? { residentWorkspace }
-          : {}),
+          : invocationContext.pinnedProjectSnapshot && residentWorkspace
+            ? { residentWorkspace, trustPinnedResidentSnapshot: true }
+            : {}),
         nativeTools,
         ...(platformTools ? { platformTools } : {}),
         ...(embeddedBuiltInFiles
@@ -560,6 +573,9 @@ async function runNovelTeaScriptcIslandScoped(
         // A native whole-result miss must not become a second whole-result hit inside the island,
         // but stale generations can still contribute individually proven source/validation work.
         skipAuthoringWholeResultCache: true,
+        ...(invocationContext.prepareResidentSnapshotOnly
+          ? { prepareResidentSnapshotOnly: true }
+          : {}),
         ...(precomputedAuthoringCacheInventory ? { precomputedAuthoringCacheInventory } : {}),
         onAuthoringValidationInstrumentation:
           environment.NOVELTEA_CLI_VALIDATION_PROFILE === '1'

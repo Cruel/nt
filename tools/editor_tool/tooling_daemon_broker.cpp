@@ -126,6 +126,7 @@ struct BrokerContext {
     std::uint64_t daemon_idle_ms = default_daemon_idle_ms;
     std::uint64_t project_session_idle_ms = default_project_session_idle_ms;
     std::optional<std::filesystem::path> runtime_root_override;
+    bool enable_disposable_workers = false;
 };
 
 struct Endpoint {
@@ -183,6 +184,13 @@ std::optional<BrokerContext> parse_context(const Json& request, std::string& err
         }
         context.runtime_root_override =
             std::filesystem::path(request["runtimeRoot"].get<std::string>());
+    }
+    if (request.contains("enableDisposableWorkers")) {
+        if (!request["enableDisposableWorkers"].is_boolean()) {
+            error = "enableDisposableWorkers must be a boolean";
+            return std::nullopt;
+        }
+        context.enable_disposable_workers = request["enableDisposableWorkers"].get<bool>();
     }
     if (context.daemon_idle_ms == 0 || context.project_session_idle_ms == 0) {
         error = "daemon idle intervals must be greater than zero";
@@ -631,13 +639,21 @@ struct QueuedRequest {
     std::string request_id;
     std::string method;
     Json payload = Json::object();
+    bool prepare_disposable = false;
 };
 
 struct ActiveRequest {
     std::weak_ptr<ClientConnection> client;
     std::string request_id;
     bool cancelled = false;
+    std::uint64_t cancellation_requested_millis = 0;
     std::optional<std::uint64_t> owner_worker_id;
+    std::optional<std::uint64_t> disposable_worker_id;
+    bool prepare_disposable = false;
+    std::string pinned_project_root;
+    std::optional<ProjectGenerationIdentity> pinned_generation;
+    std::string method;
+    Json payload = Json::object();
 };
 
 struct ChildProcess {
@@ -672,8 +688,31 @@ struct ProjectOwnerWorker {
     std::optional<PendingSnapshot> pending_snapshot;
 };
 
+enum class DisposableWorkerState {
+    starting,
+    idle,
+    busy,
+    retiring
+};
+
+struct PreparedDisposableRequest {
+    QueuedRequest request;
+    std::string canonical_root;
+    ProjectGenerationIdentity identity;
+};
+
+struct DisposableWorker {
+    std::uint64_t id = 0;
+    ChildProcess process;
+    DisposableWorkerState state = DisposableWorkerState::starting;
+    std::optional<PreparedDisposableRequest> assignment;
+    std::uint64_t last_activity_millis = 0;
+};
+
 [[nodiscard]] std::optional<ChildProcess>
 spawn_project_owner_process(const BrokerContext& context, std::uint64_t owner_worker_id);
+[[nodiscard]] std::optional<ChildProcess>
+spawn_disposable_worker_process(const BrokerContext& context, std::uint64_t worker_id);
 [[nodiscard]] bool child_process_alive(const ChildProcess& process);
 void terminate_child_process(ChildProcess& process);
 void release_child_process(ChildProcess& process);
@@ -708,8 +747,13 @@ public:
                 return error_json("daemon broker is not in starting state");
         }
         touch();
+        {
+            std::scoped_lock lock(queue_mutex_);
+            ensure_disposable_standby_locked();
+        }
         queue_cv_.notify_all();
         owner_cv_.notify_all();
+        disposable_cv_.notify_all();
         return status_json();
     }
 
@@ -734,8 +778,19 @@ public:
             const auto token = next_request_token_.fetch_add(1);
             {
                 std::scoped_lock lock(queue_mutex_);
-                active_.emplace(token,
-                                ActiveRequest{client, queued.request_id, false, std::nullopt});
+                active_.emplace(token, ActiveRequest{
+                                           .client = client,
+                                           .request_id = queued.request_id,
+                                           .cancelled = false,
+                                           .cancellation_requested_millis = 0,
+                                           .owner_worker_id = std::nullopt,
+                                           .disposable_worker_id = std::nullopt,
+                                           .prepare_disposable = false,
+                                           .pinned_project_root = {},
+                                           .pinned_generation = std::nullopt,
+                                           .method = queued.method,
+                                           .payload = queued.payload,
+                                       });
             }
             touch();
             return {{"ok", true},
@@ -769,8 +824,16 @@ public:
                     return {{"ok", true}, {"stopped", false}, {"idle", true}};
                 if (found->second.queued.empty())
                     continue;
-                queued = std::move(found->second.queued.front());
-                found->second.queued.erase(found->second.queued.begin());
+                // Foreground owner-bound reads/mutations outrank disposable-heavy preparation.
+                // Heavy jobs only need a short exact-generation preparation pass on the owner;
+                // their expensive execution occurs elsewhere.
+                auto selected = std::find_if(
+                    found->second.queued.begin(), found->second.queued.end(),
+                    [](const QueuedRequest& request) { return !request.prepare_disposable; });
+                if (selected == found->second.queued.end())
+                    selected = found->second.queued.begin();
+                queued = std::move(*selected);
+                found->second.queued.erase(selected);
                 found->second.last_activity_millis = now_millis();
             }
             const auto client = queued.client.lock();
@@ -782,8 +845,19 @@ public:
                 const auto owner = project_owners_.find(owner_worker_id);
                 if (owner == project_owners_.end() || owner->second.retiring)
                     continue;
-                active_.emplace(token, ActiveRequest{client, queued.request_id, false,
-                                                     std::optional(owner_worker_id)});
+                active_.emplace(token, ActiveRequest{
+                                           .client = client,
+                                           .request_id = queued.request_id,
+                                           .cancelled = false,
+                                           .cancellation_requested_millis = 0,
+                                           .owner_worker_id = owner_worker_id,
+                                           .disposable_worker_id = std::nullopt,
+                                           .prepare_disposable = queued.prepare_disposable,
+                                           .pinned_project_root = {},
+                                           .pinned_generation = std::nullopt,
+                                           .method = queued.method,
+                                           .payload = queued.payload,
+                                       });
                 owner->second.last_activity_millis = now_millis();
             }
             touch();
@@ -792,6 +866,7 @@ public:
                     {"token", token},
                     {"requestId", queued.request_id},
                     {"method", queued.method},
+                    {"prepareDisposable", queued.prepare_disposable},
                     {"payload", std::move(queued.payload)}};
         }
     }
@@ -799,12 +874,59 @@ public:
     Json complete_owner_request(std::uint64_t owner_worker_id, std::uint64_t token, bool ok,
                                 const Json& result, std::string_view error)
     {
+        ActiveRequest active;
+        std::string canonical_root;
+        std::optional<ProjectGenerationIdentity> active_generation;
         {
             std::scoped_lock lock(queue_mutex_);
             const auto found = active_.find(token);
             if (found == active_.end() || found->second.owner_worker_id != owner_worker_id)
                 return error_json(
                     "daemon Project-owner request token is not active for this worker");
+            active = found->second;
+            if (active.prepare_disposable) {
+                const auto owner = project_owners_.find(owner_worker_id);
+                if (owner != project_owners_.end() && !owner->second.retiring) {
+                    canonical_root = owner->second.canonical_root;
+                    active_generation = owner->second.active_generation;
+                }
+            }
+        }
+        if (active.prepare_disposable) {
+            if (active.cancelled)
+                return complete_request(token, false, Json(), "request cancelled");
+            if (!ok)
+                return complete_request(token, false, result, error);
+            if (canonical_root.empty() || !active_generation)
+                return complete_request(
+                    token, false, Json(),
+                    "Project owner did not publish a generation for disposable work");
+            if (!project_snapshots_.pin_current(canonical_root, *active_generation, now_millis()))
+                return complete_request(
+                    token, false, Json(),
+                    "Project owner did not publish the requested portable snapshot");
+            {
+                std::scoped_lock lock(queue_mutex_);
+                const auto found = active_.find(token);
+                if (found == active_.end()) {
+                    (void)project_snapshots_.unpin(canonical_root, *active_generation,
+                                                   now_millis());
+                    return error_json("daemon disposable preparation token is no longer active");
+                }
+                active_.erase(found);
+                prepared_disposable_.push_back(PreparedDisposableRequest{
+                    .request = QueuedRequest{active.client, active.request_id, active.method,
+                                             active.payload, false},
+                    .canonical_root = canonical_root,
+                    .identity = *active_generation,
+                });
+                assign_disposable_jobs_locked();
+            }
+            touch_owner(owner_worker_id);
+            touch();
+            active_cv_.notify_all();
+            disposable_cv_.notify_all();
+            return {{"ok", true}, {"delivered", false}, {"queuedDisposable", true}};
         }
         auto completed = complete_request(token, ok, result, error);
         if (completed.value("ok", false))
@@ -831,6 +953,152 @@ public:
         if (found == active_.end() || found->second.owner_worker_id != owner_worker_id)
             return {{"ok", true}, {"active", false}, {"cancelled", true}};
         return {{"ok", true}, {"active", true}, {"cancelled", found->second.cancelled}};
+    }
+
+    Json mark_disposable_ready(std::uint64_t worker_id)
+    {
+        std::scoped_lock lock(queue_mutex_);
+        const auto worker = disposable_workers_.find(worker_id);
+        if (worker == disposable_workers_.end() ||
+            worker->second.state == DisposableWorkerState::retiring)
+            return error_json("daemon disposable worker is unavailable");
+        if (worker->second.state == DisposableWorkerState::starting)
+            worker->second.state = DisposableWorkerState::idle;
+        worker->second.last_activity_millis = now_millis();
+        assign_disposable_jobs_locked();
+        ensure_disposable_standby_locked();
+        disposable_cv_.notify_all();
+        return {{"ok", true}};
+    }
+
+    Json take_disposable_request(std::uint64_t worker_id)
+    {
+        std::unique_lock lock(queue_mutex_);
+        disposable_cv_.wait(lock, [this, worker_id] {
+            const auto worker = disposable_workers_.find(worker_id);
+            return state_.load() == State::draining || state_.load() == State::stopped ||
+                   worker == disposable_workers_.end() ||
+                   worker->second.state == DisposableWorkerState::retiring ||
+                   worker->second.assignment.has_value();
+        });
+        const auto worker = disposable_workers_.find(worker_id);
+        if (state_.load() == State::draining || state_.load() == State::stopped ||
+            worker == disposable_workers_.end() ||
+            worker->second.state == DisposableWorkerState::retiring)
+            return {{"ok", true}, {"stopped", true}};
+        if (!worker->second.assignment)
+            return error_json("daemon disposable worker has no assignment");
+        auto assignment = std::move(*worker->second.assignment);
+        worker->second.assignment.reset();
+        const auto client = assignment.request.client.lock();
+        if (!client || client->current() == invalid_connection) {
+            (void)project_snapshots_.unpin(assignment.canonical_root, assignment.identity,
+                                           now_millis());
+            worker->second.state = DisposableWorkerState::retiring;
+            disposable_cv_.notify_all();
+            return {{"ok", true}, {"stopped", true}};
+        }
+        const auto snapshot =
+            project_snapshots_.find(assignment.canonical_root, assignment.identity, now_millis());
+        if (!snapshot) {
+            worker->second.state = DisposableWorkerState::retiring;
+            return error_json("pinned portable Project snapshot is unavailable");
+        }
+        const auto token = next_request_token_.fetch_add(1);
+        active_.emplace(token, ActiveRequest{
+                                   .client = client,
+                                   .request_id = assignment.request.request_id,
+                                   .cancelled = false,
+                                   .cancellation_requested_millis = 0,
+                                   .owner_worker_id = std::nullopt,
+                                   .disposable_worker_id = worker_id,
+                                   .prepare_disposable = false,
+                                   .pinned_project_root = assignment.canonical_root,
+                                   .pinned_generation = assignment.identity,
+                                   .method = assignment.request.method,
+                                   .payload = assignment.request.payload,
+                               });
+        worker->second.last_activity_millis = now_millis();
+        touch();
+        return {{"ok", true},
+                {"stopped", false},
+                {"token", token},
+                {"requestId", assignment.request.request_id},
+                {"method", assignment.request.method},
+                {"payload", std::move(assignment.request.payload)},
+                {"canonicalRoot", assignment.canonical_root},
+                {"sessionEpoch", assignment.identity.session_epoch},
+                {"generation", assignment.identity.generation},
+                {"chunkCount", snapshot->chunk_count},
+                {"ownerMetadata", snapshot->opaque_owner_metadata}};
+    }
+
+    Json read_disposable_snapshot_chunk(std::uint64_t worker_id, std::uint64_t token,
+                                        std::size_t index)
+    {
+        std::string root;
+        ProjectGenerationIdentity identity;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto active = active_.find(token);
+            if (active == active_.end() || active->second.disposable_worker_id != worker_id ||
+                !active->second.pinned_generation || active->second.pinned_project_root.empty())
+                return error_json("daemon disposable snapshot token is not active");
+            root = active->second.pinned_project_root;
+            identity = *active->second.pinned_generation;
+        }
+        const auto chunk = project_snapshots_.chunk(root, identity, index, now_millis());
+        if (!chunk)
+            return error_json("daemon disposable snapshot chunk is unavailable");
+        return {{"ok", true}, {"chunk", *chunk}};
+    }
+
+    Json disposable_cancellation_status(std::uint64_t worker_id, std::uint64_t token)
+    {
+        std::scoped_lock lock(queue_mutex_);
+        const auto active = active_.find(token);
+        if (active == active_.end() || active->second.disposable_worker_id != worker_id)
+            return {{"ok", true}, {"active", false}, {"cancelled", true}};
+        return {{"ok", true}, {"active", true}, {"cancelled", active->second.cancelled}};
+    }
+
+    Json emit_disposable_request_event(std::uint64_t worker_id, std::uint64_t token,
+                                       const Json& event)
+    {
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto active = active_.find(token);
+            if (active == active_.end() || active->second.disposable_worker_id != worker_id)
+                return error_json("daemon disposable event token is not active for this worker");
+        }
+        return emit_request_event(token, event);
+    }
+
+    Json complete_disposable_request(std::uint64_t worker_id, std::uint64_t token, bool ok,
+                                     const Json& result, std::string_view error)
+    {
+        std::string root;
+        std::optional<ProjectGenerationIdentity> identity;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto active = active_.find(token);
+            if (active == active_.end() || active->second.disposable_worker_id != worker_id)
+                return error_json("daemon disposable request token is not active for this worker");
+            root = active->second.pinned_project_root;
+            identity = active->second.pinned_generation;
+        }
+        auto completed = complete_request(token, ok, result, error);
+        if (identity)
+            (void)project_snapshots_.unpin(root, *identity, now_millis());
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto worker = disposable_workers_.find(worker_id);
+            if (worker != disposable_workers_.end())
+                worker->second.state = DisposableWorkerState::retiring;
+            ensure_disposable_standby_locked();
+        }
+        disposable_cv_.notify_all();
+        return completed;
     }
 
     Json owner_reconciliation_status(std::uint64_t owner_worker_id)
@@ -1231,6 +1499,7 @@ public:
         if (state == State::stopped)
             return;
         cancel_queued("daemon is stopping");
+        retire_all_disposable_workers("daemon is stopping");
         retire_all_project_owners("daemon is stopping");
         stop_accepting();
 #if !defined(_WIN32)
@@ -1265,6 +1534,17 @@ public:
             std::scoped_lock lock(queue_mutex_);
             result["projectOwnerWorkers"] = project_owners_.size();
             result["projectSessions"] = project_owners_.size() + generic_project_sessions_.load();
+            result["disposableWorkers"] = disposable_workers_.size();
+            result["disposableQueuedJobs"] = prepared_disposable_.size();
+            result["disposableStandbyWorkers"] = std::count_if(
+                disposable_workers_.begin(), disposable_workers_.end(), [](const auto& entry) {
+                    return entry.second.state == DisposableWorkerState::starting ||
+                           entry.second.state == DisposableWorkerState::idle;
+                });
+            result["disposableBusyWorkers"] = std::count_if(
+                disposable_workers_.begin(), disposable_workers_.end(), [](const auto& entry) {
+                    return entry.second.state == DisposableWorkerState::busy;
+                });
         }
         result["projectAuthorities"] = project_authority_.tracked_project_count();
         result["projectSnapshots"] = project_snapshots_.snapshot_count();
@@ -1323,6 +1603,75 @@ private:
         return true;
     }
 
+    static constexpr std::size_t disposable_worker_cap = 4;
+    static constexpr std::uint64_t disposable_extra_idle_ms = 30'000;
+    static constexpr std::uint64_t disposable_cancel_grace_ms = 100;
+
+    std::size_t live_disposable_workers_locked() const
+    {
+        // Retiring children still count until their process has actually exited. This keeps the
+        // cap a bound on physical ScriptC worker processes, not merely schedulable workers.
+        return disposable_workers_.size();
+    }
+
+    bool has_disposable_standby_locked() const
+    {
+        return std::any_of(disposable_workers_.begin(), disposable_workers_.end(),
+                           [](const auto& entry) {
+                               return entry.second.state == DisposableWorkerState::starting ||
+                                      entry.second.state == DisposableWorkerState::idle;
+                           });
+    }
+
+    bool start_disposable_worker_locked()
+    {
+        if (!context_.enable_disposable_workers)
+            return false;
+        if (live_disposable_workers_locked() >= disposable_worker_cap)
+            return false;
+        const auto worker_id = next_disposable_worker_id_.fetch_add(1);
+        auto process = spawn_disposable_worker_process(context_, worker_id);
+        if (!process)
+            return false;
+        disposable_workers_.emplace(worker_id, DisposableWorker{
+                                                   .id = worker_id,
+                                                   .process = *process,
+                                                   .state = DisposableWorkerState::starting,
+                                                   .assignment = std::nullopt,
+                                                   .last_activity_millis = now_millis(),
+                                               });
+        return true;
+    }
+
+    void ensure_disposable_standby_locked()
+    {
+        if (!context_.enable_disposable_workers)
+            return;
+        if (!has_disposable_standby_locked())
+            (void)start_disposable_worker_locked();
+    }
+
+    void assign_disposable_jobs_locked()
+    {
+        while (!prepared_disposable_.empty()) {
+            const auto idle = std::find_if(
+                disposable_workers_.begin(), disposable_workers_.end(), [](const auto& entry) {
+                    return entry.second.state == DisposableWorkerState::idle &&
+                           !entry.second.assignment;
+                });
+            if (idle == disposable_workers_.end()) {
+                ensure_disposable_standby_locked();
+                break;
+            }
+            idle->second.assignment = std::move(prepared_disposable_.front());
+            prepared_disposable_.erase(prepared_disposable_.begin());
+            idle->second.state = DisposableWorkerState::busy;
+            idle->second.last_activity_millis = now_millis();
+            ensure_disposable_standby_locked();
+            disposable_cv_.notify_all();
+        }
+    }
+
     bool request_id_pending_locked(const std::shared_ptr<ClientConnection>& client,
                                    std::string_view request_id) const
     {
@@ -1335,6 +1684,21 @@ private:
             (void)id;
             if (std::find_if(owner.queued.begin(), owner.queued.end(), matches) !=
                 owner.queued.end())
+                return true;
+        }
+        if (std::find_if(prepared_disposable_.begin(), prepared_disposable_.end(),
+                         [&](const PreparedDisposableRequest& prepared) {
+                             return matches(prepared.request);
+                         }) != prepared_disposable_.end())
+            return true;
+        for (const auto& [id, worker] : disposable_workers_) {
+            (void)id;
+            if (worker.assignment && matches(worker.assignment->request))
+                return true;
+        }
+        for (const auto& [token, active] : active_) {
+            (void)token;
+            if (active.request_id == request_id && active.client.lock() == client)
                 return true;
         }
         return false;
@@ -1426,7 +1790,14 @@ private:
                     if (!owner_worker_id)
                         return "failed to start daemon Project owner worker";
                     auto& owner = project_owners_.at(*owner_worker_id);
-                    owner.queued.push_back(QueuedRequest{client, request_id, method, payload});
+                    owner.queued.push_back(QueuedRequest{
+                        .client = client,
+                        .request_id = request_id,
+                        .method = method,
+                        .payload = payload,
+                        .prepare_disposable =
+                            payload.value("executionClass", std::string{}) == "disposable-heavy",
+                    });
                     owner.last_activity_millis = now_millis();
                     owner_cv_.notify_all();
                     touch();
@@ -1542,6 +1913,51 @@ private:
             retire_project_owner(id, reason);
     }
 
+    void retire_all_disposable_workers(std::string_view reason)
+    {
+        std::vector<ChildProcess> processes;
+        std::vector<PreparedDisposableRequest> pinned;
+        std::vector<ActiveRequest> active;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            processes.reserve(disposable_workers_.size());
+            for (auto& [id, worker] : disposable_workers_) {
+                (void)id;
+                processes.push_back(worker.process);
+                if (worker.assignment)
+                    pinned.push_back(std::move(*worker.assignment));
+            }
+            disposable_workers_.clear();
+            pinned.insert(pinned.end(), std::make_move_iterator(prepared_disposable_.begin()),
+                          std::make_move_iterator(prepared_disposable_.end()));
+            prepared_disposable_.clear();
+            for (auto iterator = active_.begin(); iterator != active_.end();) {
+                if (iterator->second.disposable_worker_id) {
+                    active.push_back(iterator->second);
+                    iterator = active_.erase(iterator);
+                } else {
+                    ++iterator;
+                }
+            }
+        }
+        for (auto& process : processes)
+            terminate_child_process(process);
+        for (const auto& request : pinned) {
+            (void)project_snapshots_.unpin(request.canonical_root, request.identity, now_millis());
+            if (const auto client = request.request.client.lock())
+                client->send(result_event_json(request.request.request_id, false, "null", reason));
+        }
+        for (const auto& request : active) {
+            if (request.pinned_generation)
+                (void)project_snapshots_.unpin(request.pinned_project_root,
+                                               *request.pinned_generation, now_millis());
+            if (const auto client = request.client.lock())
+                client->send(result_event_json(request.request_id, false, "null", reason));
+        }
+        disposable_cv_.notify_all();
+        active_cv_.notify_all();
+    }
+
     void maintain_project_owners()
     {
         constexpr std::size_t owner_soft_limit = 8;
@@ -1606,6 +2022,106 @@ private:
         }
         project_snapshots_.trim_dormant_to_budget(active_roots,
                                                   default_project_snapshot_budget_bytes);
+    }
+
+    void maintain_disposable_workers()
+    {
+        struct Retirement {
+            std::uint64_t id = 0;
+            ChildProcess process;
+            bool already_dead = false;
+            bool cancelled = false;
+            std::optional<PreparedDisposableRequest> assignment;
+            std::optional<ActiveRequest> active;
+        };
+        std::vector<Retirement> retirements;
+        const auto now = now_millis();
+        {
+            std::scoped_lock lock(queue_mutex_);
+            std::size_t standby_count = std::count_if(
+                disposable_workers_.begin(), disposable_workers_.end(), [](const auto& entry) {
+                    return entry.second.state == DisposableWorkerState::starting ||
+                           entry.second.state == DisposableWorkerState::idle;
+                });
+            for (auto& [id, worker] : disposable_workers_) {
+                const bool was_standby = worker.state == DisposableWorkerState::starting ||
+                                         worker.state == DisposableWorkerState::idle;
+                const bool alive = child_process_alive(worker.process);
+                auto active = std::find_if(active_.begin(), active_.end(), [&](const auto& entry) {
+                    return entry.second.disposable_worker_id == id;
+                });
+                const bool cancellation_expired =
+                    active != active_.end() && active->second.cancelled &&
+                    active->second.cancellation_requested_millis != 0 &&
+                    now - active->second.cancellation_requested_millis >=
+                        disposable_cancel_grace_ms;
+                const bool excess_idle_expired =
+                    worker.state == DisposableWorkerState::idle && standby_count > 1 &&
+                    now - worker.last_activity_millis >= disposable_extra_idle_ms;
+                if (alive && worker.state != DisposableWorkerState::retiring &&
+                    !cancellation_expired && !excess_idle_expired)
+                    continue;
+
+                Retirement retirement{
+                    .id = id,
+                    .process = worker.process,
+                    .already_dead = !alive,
+                    .cancelled = cancellation_expired,
+                    .assignment = std::move(worker.assignment),
+                    .active = std::nullopt,
+                };
+                worker.assignment.reset();
+                worker.state = DisposableWorkerState::retiring;
+                if (was_standby && standby_count > 0)
+                    --standby_count;
+                if (active != active_.end()) {
+                    retirement.active = active->second;
+                    active_.erase(active);
+                }
+                retirements.push_back(std::move(retirement));
+            }
+        }
+
+        for (auto& retirement : retirements) {
+            if (retirement.already_dead)
+                release_child_process(retirement.process);
+            else
+                terminate_child_process(retirement.process);
+            if (retirement.assignment)
+                (void)project_snapshots_.unpin(retirement.assignment->canonical_root,
+                                               retirement.assignment->identity, now_millis());
+            if (retirement.active && retirement.active->pinned_generation) {
+                (void)project_snapshots_.unpin(retirement.active->pinned_project_root,
+                                               *retirement.active->pinned_generation, now_millis());
+                if (const auto client = retirement.active->client.lock()) {
+                    Json event = Json::parse(result_event_json(
+                        retirement.active->request_id, false, "null",
+                        retirement.cancelled ? "request cancelled"
+                                             : "daemon disposable worker exited unexpectedly"));
+                    if (retirement.cancelled)
+                        event["cancelled"] = true;
+                    client->send(event.dump());
+                }
+            }
+            if (retirement.assignment) {
+                if (const auto client = retirement.assignment->request.client.lock())
+                    client->send(result_event_json(
+                        retirement.assignment->request.request_id, false, "null",
+                        retirement.cancelled ? "request cancelled"
+                                             : "daemon disposable worker exited unexpectedly"));
+            }
+        }
+        if (!retirements.empty()) {
+            std::scoped_lock lock(queue_mutex_);
+            for (const auto& retirement : retirements)
+                disposable_workers_.erase(retirement.id);
+            if (state_.load() == State::ready) {
+                assign_disposable_jobs_locked();
+                ensure_disposable_standby_locked();
+            }
+            disposable_cv_.notify_all();
+            active_cv_.notify_all();
+        }
     }
 
     static std::uint64_t now_millis()
@@ -2032,6 +2548,92 @@ private:
                                                result.value("error", std::string{})));
                 continue;
             }
+            if (method == "disposable-ready" || method == "disposable-next") {
+                if (!message_payload.contains("disposableWorkerId") ||
+                    !message_payload["disposableWorkerId"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "disposable worker request requires worker"));
+                    continue;
+                }
+                const auto worker_id = message_payload["disposableWorkerId"].get<std::uint64_t>();
+                const auto result = method == "disposable-ready"
+                                        ? mark_disposable_ready(worker_id)
+                                        : take_disposable_request(worker_id);
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "disposable-cancelled") {
+                if (!message_payload.contains("disposableWorkerId") ||
+                    !message_payload["disposableWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("token") ||
+                    !message_payload["token"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "disposable cancellation request is malformed"));
+                    continue;
+                }
+                const auto result = disposable_cancellation_status(
+                    message_payload["disposableWorkerId"].get<std::uint64_t>(),
+                    message_payload["token"].get<std::uint64_t>());
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "disposable-event") {
+                if (!message_payload.contains("disposableWorkerId") ||
+                    !message_payload["disposableWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("token") ||
+                    !message_payload["token"].is_number_unsigned() ||
+                    !message_payload.contains("event") || !message_payload["event"].is_object()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "disposable event request is malformed"));
+                    continue;
+                }
+                const auto result = emit_disposable_request_event(
+                    message_payload["disposableWorkerId"].get<std::uint64_t>(),
+                    message_payload["token"].get<std::uint64_t>(), message_payload["event"]);
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "disposable-snapshot-read") {
+                if (!message_payload.contains("disposableWorkerId") ||
+                    !message_payload["disposableWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("token") ||
+                    !message_payload["token"].is_number_unsigned() ||
+                    !message_payload.contains("index") ||
+                    !message_payload["index"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "disposable snapshot request is malformed"));
+                    continue;
+                }
+                const auto result = read_disposable_snapshot_chunk(
+                    message_payload["disposableWorkerId"].get<std::uint64_t>(),
+                    message_payload["token"].get<std::uint64_t>(),
+                    message_payload["index"].get<std::size_t>());
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "disposable-complete") {
+                if (!message_payload.contains("disposableWorkerId") ||
+                    !message_payload["disposableWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("token") ||
+                    !message_payload["token"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "disposable completion request is malformed"));
+                    continue;
+                }
+                const auto result = complete_disposable_request(
+                    message_payload["disposableWorkerId"].get<std::uint64_t>(),
+                    message_payload["token"].get<std::uint64_t>(),
+                    message_payload.value("requestOk", false),
+                    message_payload.value("result", Json()),
+                    message_payload.value("error", std::string{}));
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
             if (method == "invoke" && message_payload.is_object() &&
                 message_payload.contains("ownerProjectRoot") &&
                 !message_payload["ownerProjectRoot"].is_null()) {
@@ -2058,8 +2660,13 @@ private:
                     client->send(result_event_json(request_id, false, "null",
                                                    "duplicate pending daemon request id"));
                 } else {
-                    queued_.push_back(QueuedRequest{client, request_id, method,
-                                                    message.value("payload", Json::object())});
+                    queued_.push_back(QueuedRequest{
+                        .client = client,
+                        .request_id = request_id,
+                        .method = method,
+                        .payload = message.value("payload", Json::object()),
+                        .prepare_disposable = false,
+                    });
                     queue_cv_.notify_one();
                 }
                 continue;
@@ -2074,8 +2681,13 @@ private:
                     client->send(result_event_json(request_id, false, "null",
                                                    "duplicate pending daemon request id"));
                 } else {
-                    queued_.push_back(QueuedRequest{client, request_id, method,
-                                                    message.value("payload", Json::object())});
+                    queued_.push_back(QueuedRequest{
+                        .client = client,
+                        .request_id = request_id,
+                        .method = method,
+                        .payload = message.value("payload", Json::object()),
+                        .prepare_disposable = false,
+                    });
                     queue_cv_.notify_one();
                 }
             }
@@ -2113,6 +2725,35 @@ private:
                     break;
                 }
             }
+            if (!removed) {
+                const auto prepared =
+                    std::find_if(prepared_disposable_.begin(), prepared_disposable_.end(),
+                                 [&](const PreparedDisposableRequest& request) {
+                                     return request.request.request_id == request_id &&
+                                            request.request.client.lock() == client;
+                                 });
+                if (prepared != prepared_disposable_.end()) {
+                    (void)project_snapshots_.unpin(prepared->canonical_root, prepared->identity,
+                                                   now_millis());
+                    prepared_disposable_.erase(prepared);
+                    removed = true;
+                }
+            }
+            if (!removed) {
+                for (auto& [id, worker] : disposable_workers_) {
+                    (void)id;
+                    if (!worker.assignment || worker.assignment->request.request_id != request_id ||
+                        worker.assignment->request.client.lock() != client)
+                        continue;
+                    (void)project_snapshots_.unpin(worker.assignment->canonical_root,
+                                                   worker.assignment->identity, now_millis());
+                    worker.assignment.reset();
+                    worker.state = DisposableWorkerState::retiring;
+                    removed = true;
+                    disposable_cv_.notify_all();
+                    break;
+                }
+            }
         }
         if (removed) {
             Json event =
@@ -2126,6 +2767,8 @@ private:
             (void)token;
             if (active.request_id == request_id && active.client.lock() == client) {
                 active.cancelled = true;
+                if (active.cancellation_requested_millis == 0)
+                    active.cancellation_requested_millis = now_millis();
                 break;
             }
         }
@@ -2147,16 +2790,37 @@ private:
                                               }),
                                owner.queued.end());
         }
+        std::erase_if(prepared_disposable_, [&](const PreparedDisposableRequest& prepared) {
+            if (prepared.request.client.lock() != client)
+                return false;
+            (void)project_snapshots_.unpin(prepared.canonical_root, prepared.identity,
+                                           now_millis());
+            return true;
+        });
+        for (auto& [id, worker] : disposable_workers_) {
+            (void)id;
+            if (!worker.assignment || worker.assignment->request.client.lock() != client)
+                continue;
+            (void)project_snapshots_.unpin(worker.assignment->canonical_root,
+                                           worker.assignment->identity, now_millis());
+            worker.assignment.reset();
+            worker.state = DisposableWorkerState::retiring;
+        }
         for (auto& [token, active] : active_) {
             (void)token;
-            if (active.client.lock() == client)
+            if (active.client.lock() == client) {
                 active.cancelled = true;
+                if (active.cancellation_requested_millis == 0)
+                    active.cancellation_requested_millis = now_millis();
+            }
         }
+        disposable_cv_.notify_all();
     }
 
     void cancel_queued(std::string_view reason)
     {
         std::vector<QueuedRequest> queued;
+        std::vector<PreparedDisposableRequest> prepared;
         {
             std::scoped_lock lock(queue_mutex_);
             queued.swap(queued_);
@@ -2165,6 +2829,15 @@ private:
                 queued.insert(queued.end(), std::make_move_iterator(owner.queued.begin()),
                               std::make_move_iterator(owner.queued.end()));
                 owner.queued.clear();
+            }
+            prepared.swap(prepared_disposable_);
+            for (auto& [id, worker] : disposable_workers_) {
+                (void)id;
+                if (!worker.assignment)
+                    continue;
+                prepared.push_back(std::move(*worker.assignment));
+                worker.assignment.reset();
+                worker.state = DisposableWorkerState::retiring;
             }
         }
         for (const auto& request : queued) {
@@ -2175,15 +2848,27 @@ private:
                 client->send(event.dump());
             }
         }
+        for (const auto& request : prepared) {
+            (void)project_snapshots_.unpin(request.canonical_root, request.identity, now_millis());
+            if (const auto client = request.request.client.lock()) {
+                Json event = Json::parse(
+                    result_event_json(request.request.request_id, false, "null", reason));
+                event["cancelled"] = true;
+                client->send(event.dump());
+            }
+        }
         {
             std::scoped_lock lock(queue_mutex_);
             for (auto& [token, active] : active_) {
                 (void)token;
                 active.cancelled = true;
+                if (active.cancellation_requested_millis == 0)
+                    active.cancellation_requested_millis = now_millis();
             }
         }
         queue_cv_.notify_all();
         owner_cv_.notify_all();
+        disposable_cv_.notify_all();
     }
 
     void begin_drain()
@@ -2205,6 +2890,7 @@ private:
                 active_cv_.wait_for(lock, std::chrono::milliseconds(50));
             }
             maintain_project_owners();
+            maintain_disposable_workers();
         }
         for (;;) {
             {
@@ -2214,6 +2900,7 @@ private:
                 critical_cv_.wait_for(lock, std::chrono::milliseconds(50));
             }
             maintain_project_owners();
+            maintain_disposable_workers();
         }
     }
 
@@ -2239,6 +2926,7 @@ private:
         State expected = State::draining;
         if (!state_.compare_exchange_strong(expected, State::stopped))
             return;
+        retire_all_disposable_workers("daemon is stopping");
         retire_all_project_owners("daemon is stopping");
 #if !defined(_WIN32)
         std::error_code error;
@@ -2310,6 +2998,7 @@ private:
         while (state_.load() != State::stopped && state_.load() != State::draining) {
             std::this_thread::sleep_for(sleep_interval);
             maintain_project_owners();
+            maintain_disposable_workers();
             if (critical_sections_.load() != 0)
                 continue;
             {
@@ -2357,6 +3046,7 @@ private:
     mutable std::mutex queue_mutex_;
     std::condition_variable queue_cv_;
     std::condition_variable owner_cv_;
+    std::condition_variable disposable_cv_;
     std::condition_variable active_cv_;
     std::vector<QueuedRequest> queued_;
     std::unordered_map<std::uint64_t, ActiveRequest> active_;
@@ -2364,6 +3054,9 @@ private:
     std::unordered_map<std::uint64_t, ProjectOwnerWorker> project_owners_;
     std::unordered_map<std::string, std::uint64_t> project_owner_by_root_;
     std::atomic<std::uint64_t> next_owner_worker_id_{1};
+    std::unordered_map<std::uint64_t, DisposableWorker> disposable_workers_;
+    std::vector<PreparedDisposableRequest> prepared_disposable_;
+    std::atomic<std::uint64_t> next_disposable_worker_id_{1};
     std::atomic<std::uint64_t> next_project_session_epoch_{1};
     std::mutex clients_mutex_;
     std::unordered_set<std::shared_ptr<ClientConnection>> clients_;
@@ -2964,6 +3657,48 @@ std::optional<ChildProcess> spawn_project_owner_process(const BrokerContext& con
     return ChildProcess{.pid = child};
 }
 
+std::optional<ChildProcess> spawn_disposable_worker_process(const BrokerContext& context,
+                                                            std::uint64_t worker_id_value)
+{
+    const auto executable_path = current_executable_path();
+    if (!executable_path)
+        return std::nullopt;
+    const auto protocol = std::to_string(context.protocol);
+    const auto daemon_idle = std::to_string(context.daemon_idle_ms);
+    const auto project_idle = std::to_string(context.project_session_idle_ms);
+    const auto worker_id = std::to_string(worker_id_value);
+    const auto runtime_root =
+        context.runtime_root_override ? context.runtime_root_override->string() : std::string{};
+    const auto child = ::fork();
+    if (child < 0)
+        return std::nullopt;
+    if (child == 0) {
+        const int devnull = ::open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+            ::dup2(devnull, STDIN_FILENO);
+            ::dup2(devnull, STDOUT_FILENO);
+            ::dup2(devnull, STDERR_FILENO);
+            if (devnull > STDERR_FILENO)
+                ::close(devnull);
+        }
+        if (runtime_root.empty()) {
+            ::execl(executable_path->c_str(), executable_path->c_str(), "__daemon-disposable",
+                    "--daemon-build", context.build.c_str(), "--daemon-protocol", protocol.c_str(),
+                    "--daemon-idle-ms", daemon_idle.c_str(), "--project-session-idle-ms",
+                    project_idle.c_str(), "--disposable-worker-id", worker_id.c_str(),
+                    static_cast<char*>(nullptr));
+        } else {
+            ::execl(executable_path->c_str(), executable_path->c_str(), "__daemon-disposable",
+                    "--daemon-build", context.build.c_str(), "--daemon-protocol", protocol.c_str(),
+                    "--daemon-idle-ms", daemon_idle.c_str(), "--project-session-idle-ms",
+                    project_idle.c_str(), "--daemon-runtime-root", runtime_root.c_str(),
+                    "--disposable-worker-id", worker_id.c_str(), static_cast<char*>(nullptr));
+        }
+        _exit(127);
+    }
+    return ChildProcess{.pid = child};
+}
+
 bool child_process_alive(const ChildProcess& process)
 {
     if (process.pid <= 0)
@@ -3135,6 +3870,46 @@ std::optional<ChildProcess> spawn_project_owner_process(const BrokerContext& con
     }
     args.push_back(L"--owner-worker-id");
     args.push_back(std::to_wstring(owner_worker_id));
+    std::wstring command_line;
+    for (const auto& argument : args) {
+        if (!command_line.empty())
+            command_line.push_back(L' ');
+        command_line += quote_windows_argument(argument);
+    }
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    std::vector<wchar_t> mutable_command(command_line.begin(), command_line.end());
+    mutable_command.push_back(L'\0');
+    if (!CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, nullptr, &startup, &process))
+        return std::nullopt;
+    CloseHandle(process.hThread);
+    return ChildProcess{.handle = process.hProcess, .pid = process.dwProcessId};
+}
+
+std::optional<ChildProcess> spawn_disposable_worker_process(const BrokerContext& context,
+                                                            std::uint64_t worker_id)
+{
+    const auto executable_path = current_executable_path();
+    if (!executable_path)
+        return std::nullopt;
+    std::vector<std::wstring> args = {utf8_to_wide(*executable_path),
+                                      L"__daemon-disposable",
+                                      L"--daemon-build",
+                                      utf8_to_wide(context.build),
+                                      L"--daemon-protocol",
+                                      std::to_wstring(context.protocol),
+                                      L"--daemon-idle-ms",
+                                      std::to_wstring(context.daemon_idle_ms),
+                                      L"--project-session-idle-ms",
+                                      std::to_wstring(context.project_session_idle_ms)};
+    if (context.runtime_root_override) {
+        args.push_back(L"--daemon-runtime-root");
+        args.push_back(context.runtime_root_override->wstring());
+    }
+    args.push_back(L"--disposable-worker-id");
+    args.push_back(std::to_wstring(worker_id));
     std::wstring command_line;
     for (const auto& argument : args) {
         if (!command_line.empty())
@@ -3958,6 +4733,18 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = owner_client_request(*context, "owner-snapshot-describe", parsed);
     else if (action == "owner-snapshot-read")
         result = owner_client_request(*context, "owner-snapshot-read", parsed);
+    else if (action == "disposable-ready")
+        result = owner_client_request(*context, "disposable-ready", parsed);
+    else if (action == "disposable-next")
+        result = owner_client_request(*context, "disposable-next", parsed);
+    else if (action == "disposable-cancelled")
+        result = owner_client_request(*context, "disposable-cancelled", parsed);
+    else if (action == "disposable-event")
+        result = owner_client_request(*context, "disposable-event", parsed);
+    else if (action == "disposable-snapshot-read")
+        result = owner_client_request(*context, "disposable-snapshot-read", parsed);
+    else if (action == "disposable-complete")
+        result = owner_client_request(*context, "disposable-complete", parsed);
     else if (action == "local-cancel-start")
         result = start_local_interrupt_scope();
     else if (action == "local-cancelled")
