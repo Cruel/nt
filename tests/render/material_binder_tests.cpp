@@ -95,6 +95,8 @@ TEST_CASE("renderer system shader registry names both hotspot overlay programs")
     using noveltea::bgfx_backend::system_shader_name;
     using noveltea::bgfx_backend::SystemShader;
 
+    CHECK(std::string_view{system_shader_name(SystemShader::PremultipliedQuad)} ==
+          "premultiplied_quad");
     CHECK(std::string_view{system_shader_name(SystemShader::HotspotAlpha)} == "hotspot_alpha");
     CHECK(std::string_view{system_shader_name(SystemShader::HotspotCustom)} == "hotspot_custom");
 }

@@ -20,6 +20,7 @@ bool compileShader(const char* varying, const char* comment, char* shader, std::
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -93,31 +94,110 @@ constexpr std::uint64_t fnv_prime = 1099511628211ull;
     return names;
 }
 
-[[nodiscard]] std::vector<std::pair<std::string, std::uint16_t>>
-sampler_stage_declarations(std::string_view source)
+[[nodiscard]] std::string strip_shader_comments(std::string_view source)
 {
+    std::string result;
+    result.reserve(source.size());
+    bool block_comment = false;
+    bool line_comment = false;
+    char quote = '\0';
+    bool escaped = false;
+    for (std::size_t index = 0; index < source.size(); ++index) {
+        const char current = source[index];
+        const char next = index + 1 < source.size() ? source[index + 1] : '\0';
+        if (line_comment) {
+            if (current == '\n') {
+                line_comment = false;
+                result.push_back(current);
+            } else {
+                result.push_back(' ');
+            }
+            continue;
+        }
+        if (block_comment) {
+            if (current == '*' && next == '/') {
+                result.append("  ");
+                ++index;
+                block_comment = false;
+            } else {
+                result.push_back(current == '\n' ? '\n' : ' ');
+            }
+            continue;
+        }
+        if (quote != '\0') {
+            result.push_back(current);
+            if (escaped)
+                escaped = false;
+            else if (current == '\\')
+                escaped = true;
+            else if (current == quote)
+                quote = '\0';
+            continue;
+        }
+        if (current == '"' || current == '\'') {
+            quote = current;
+            result.push_back(current);
+            continue;
+        }
+        if (current == '/' && next == '/') {
+            result.append("  ");
+            ++index;
+            line_comment = true;
+            continue;
+        }
+        if (current == '/' && next == '*') {
+            result.append("  ");
+            ++index;
+            block_comment = true;
+            continue;
+        }
+        result.push_back(current);
+    }
+    return result;
+}
+
+[[nodiscard]] std::vector<std::pair<std::string, std::uint16_t>>
+sampler_stage_declarations(std::string_view source,
+                           std::string_view prefix = "SAMPLER2D(")
+{
+    const std::string uncommented = strip_shader_comments(source);
     std::vector<std::pair<std::string, std::uint16_t>> declarations;
-    constexpr std::string_view prefix = "SAMPLER2D(";
     std::size_t offset = 0;
-    while ((offset = source.find(prefix, offset)) != std::string_view::npos) {
+    while ((offset = uncommented.find(prefix, offset)) != std::string::npos) {
         const auto arguments_begin = offset + prefix.size();
-        const auto arguments_end = source.find(')', arguments_begin);
-        if (arguments_end == std::string_view::npos)
+        const auto arguments_end = uncommented.find(')', arguments_begin);
+        if (arguments_end == std::string::npos)
             break;
-        const auto arguments = source.substr(arguments_begin, arguments_end - arguments_begin);
+        const std::string_view arguments(uncommented.data() + arguments_begin,
+                                         arguments_end - arguments_begin);
         const auto comma = arguments.find(',');
         if (comma != std::string_view::npos) {
             const auto name = trim(arguments.substr(0, comma));
             const auto stage_text = trim(arguments.substr(comma + 1));
             unsigned int stage = 0;
-            const auto parsed = std::from_chars(stage_text.data(), stage_text.data() + stage_text.size(), stage);
+            const auto parsed =
+                std::from_chars(stage_text.data(), stage_text.data() + stage_text.size(), stage);
             if (parsed.ec == std::errc{} && parsed.ptr == stage_text.data() + stage_text.size() &&
-                stage <= UINT16_MAX && !name.empty())
+                stage <= UINT16_MAX && !name.empty()) {
                 declarations.emplace_back(std::string(name), static_cast<std::uint16_t>(stage));
+            }
         }
         offset = arguments_end + 1;
     }
     return declarations;
+}
+
+[[nodiscard]] std::string instrument_sampler_declarations(std::string_view source)
+{
+    constexpr std::string_view authored = "SAMPLER2D(";
+    constexpr std::string_view marker = "NOVELTEA_SAMPLER_STAGE(";
+    std::string instrumented(source);
+    std::size_t offset = 0;
+    while ((offset = instrumented.find(authored, offset)) != std::string::npos) {
+        instrumented.replace(offset, authored.size(), marker);
+        offset += marker.size();
+    }
+    return instrumented;
 }
 
 void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
@@ -570,6 +650,7 @@ void add_contract_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics, 
 struct ProcessResult {
     int exit_code = 0;
     std::string output;
+    std::string payload;
 };
 
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
@@ -654,6 +735,15 @@ materialize_embedded_bgfx_resources(const std::filesystem::path& cache_root)
     return root;
 }
 
+struct ScopedDirectoryCleanup {
+    std::filesystem::path path;
+    ~ScopedDirectoryCleanup()
+    {
+        std::error_code error;
+        std::filesystem::remove_all(path, error);
+    }
+};
+
 #if defined(_WIN32)
 [[nodiscard]] bool shader_include_candidate(const std::filesystem::path& path)
 {
@@ -698,15 +788,6 @@ materialize_embedded_bgfx_resources(const std::filesystem::path& cache_root)
     return !iteration_error;
 }
 
-struct ScopedDirectoryCleanup {
-    std::filesystem::path path;
-    ~ScopedDirectoryCleanup()
-    {
-        std::error_code error;
-        std::filesystem::remove_all(path, error);
-    }
-};
-
 [[nodiscard]] std::optional<std::filesystem::path>
 narrow_shaderc_stage_path(const std::filesystem::path& native_path)
 {
@@ -734,7 +815,7 @@ narrow_shaderc_stage_path(const std::filesystem::path& native_path)
     const std::vector<std::string>& args, ShaderStage stage, const ShaderCompileVariant& variant,
     const std::filesystem::path& source_path, const std::filesystem::path& output_path,
     const std::filesystem::path& varying_path,
-    const std::vector<std::filesystem::path>& include_roots)
+    const std::vector<std::filesystem::path>& include_roots, bool preprocess_only = false)
 {
     const auto source = read_text_file(source_path);
     const auto varying = read_text_file(varying_path);
@@ -758,6 +839,7 @@ narrow_shaderc_stage_path(const std::filesystem::path& native_path)
     native_options.shaderType = stage == ShaderStage::Vertex ? 'v' : 'f';
     native_options.platform = variant.platform;
     native_options.profile = variant.profile;
+    native_options.preprocessOnly = preprocess_only;
 #if defined(_WIN32)
     const auto stage_key = hash_hex(path_utf8(source_path) + ":" + variant.name + ":" +
                                     std::string(to_string(stage)));
@@ -819,6 +901,11 @@ narrow_shaderc_stage_path(const std::filesystem::path& native_path)
                                               &binary_writer, &message_writer);
     if (!compiled)
         return {.exit_code = 1, .output = std::move(message_writer.value)};
+    if (preprocess_only) {
+        return {.exit_code = 0,
+                .output = std::move(message_writer.value),
+                .payload = std::move(binary_writer.value)};
+    }
     if (!write_text_file_if_changed(output_path, binary_writer.value))
         return {.exit_code = -1, .output = "failed to write embedded shaderc output"};
     return {.exit_code = 0, .output = std::move(message_writer.value)};
@@ -1654,12 +1741,6 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
     const auto manifest_path = effective_options.cache_root / "shader-cache" / "manifest.json";
     auto cache_manifest = read_cache_manifest(manifest_path, result.diagnostics);
     for (const auto& stage : stages) {
-        std::vector<std::pair<std::string, std::uint16_t>> sampler_stages;
-        for (const auto& [dependency_identity, dependency_text] : stage.dependencies) {
-            (void)dependency_identity;
-            const auto declarations = sampler_stage_declarations(dependency_text);
-            sampler_stages.insert(sampler_stages.end(), declarations.begin(), declarations.end());
-        }
         for (const auto& variant : effective_options.variants) {
             std::ostringstream key_input;
             key_input << result.program_identity << '\n' << variant.name << ':' << variant.platform
@@ -1670,6 +1751,27 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                                       ".bin";
             const auto runtime_path = "project:/" + package_path;
             const auto output_path = effective_options.output_root / package_path;
+
+            std::vector<std::string> args = {
+                "shaderc", "-f", path_utf8(stage.source.path), "-o", path_utf8(output_path),
+                "--type", shaderc_stage_type(stage.stage), "--platform", variant.platform,
+                "--profile", variant.profile, "--varyingdef", path_utf8(effective_varying.path),
+                "-i", path_utf8(effective_options.project_root / "shaders"),
+            };
+            if (!effective_options.engine_shader_root.empty()) {
+                args.push_back("-i");
+                args.push_back(path_utf8(effective_options.engine_shader_root));
+            }
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+            args.push_back("-i");
+            args.push_back(path_utf8(*embedded_include_root));
+            std::vector<std::filesystem::path> include_roots = {
+                effective_options.project_root / "shaders"};
+            if (!effective_options.engine_shader_root.empty())
+                include_roots.push_back(effective_options.engine_shader_root);
+            include_roots.push_back(*embedded_include_root);
+#endif
+            const auto command_line = command_line_from_args(args);
 
             auto append_output = [&](bool cache_hit) -> bool {
                 const auto metadata = compiled_binary_metadata(output_path);
@@ -1683,6 +1785,68 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                     }
                     return false;
                 }
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+                const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+                const auto probe_root = std::filesystem::temp_directory_path() /
+                                        ("noveltea-sampler-probe-" + cache_key + "-" +
+                                         std::to_string(nonce));
+                ScopedDirectoryCleanup probe_cleanup{probe_root};
+                const auto probe_project_root = probe_root / "project";
+                const auto probe_engine_root = probe_root / "engine";
+                std::filesystem::path probe_source_path;
+                bool probe_ready = true;
+                for (const auto& [identity, dependency_text] : stage.dependencies) {
+                    std::filesystem::path dependency_path;
+                    if (starts_with(identity, "project:/shaders/")) {
+                        dependency_path = probe_project_root /
+                                          path_from_utf8(identity.substr(
+                                              std::string_view("project:/shaders/").size()));
+                    } else if (starts_with(identity, "engine:/")) {
+                        dependency_path = probe_engine_root /
+                                          path_from_utf8(identity.substr(
+                                              std::string_view("engine:/").size()));
+                    } else {
+                        probe_ready = false;
+                        break;
+                    }
+                    std::error_code probe_directory_error;
+                    std::filesystem::create_directories(dependency_path.parent_path(),
+                                                        probe_directory_error);
+                    if (probe_directory_error ||
+                        !write_text_file_if_changed(
+                            dependency_path, instrument_sampler_declarations(dependency_text))) {
+                        probe_ready = false;
+                        break;
+                    }
+                    if (identity == stage.source.identity)
+                        probe_source_path = dependency_path;
+                }
+                if (!probe_ready || probe_source_path.empty()) {
+                    add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                                   ShaderCompileDiagnosticCode::ReflectionFailed, ShaderId{},
+                                   stage.stage, variant.name, stage.source.path, output_path,
+                                   command_line, 0,
+                                   "Failed to prepare preprocessed sampler-stage reflection source.");
+                    return false;
+                }
+                std::vector<std::filesystem::path> probe_include_roots = {probe_project_root};
+                if (!effective_options.engine_shader_root.empty())
+                    probe_include_roots.push_back(probe_engine_root);
+                probe_include_roots.push_back(*embedded_include_root);
+                const auto preprocessed = run_embedded_shaderc(
+                    args, stage.stage, variant, probe_source_path, probe_root / "probe.out",
+                    effective_varying.path, probe_include_roots, true);
+                if (preprocessed.exit_code != 0) {
+                    add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                                   ShaderCompileDiagnosticCode::ReflectionFailed, ShaderId{},
+                                   stage.stage, variant.name, stage.source.path, output_path,
+                                   command_line, preprocessed.exit_code,
+                                   "shaderc preprocessing failed while reflecting sampler stages.\n" +
+                                       preprocessed.output);
+                    return false;
+                }
+                const auto sampler_stages = sampler_stage_declarations(
+                    preprocessed.payload, "NOVELTEA_SAMPLER_STAGE(");
                 for (auto& input : reflected->inputs) {
                     if (input.kind != ShaderReflectedInputKind::SampledImage)
                         continue;
@@ -1694,6 +1858,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                         input.register_count = 1;
                     }
                 }
+#endif
                 if (preset_contract != nullptr && role_contract != nullptr &&
                     !validate_reflected_contract(*preset_contract, *role_contract, stage.stage,
                                                  reflected->inputs, stage.source.path,
@@ -1766,27 +1931,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                 continue;
             }
 
-            std::vector<std::string> args = {
-                "shaderc", "-f", path_utf8(stage.source.path), "-o", path_utf8(output_path),
-                "--type", shaderc_stage_type(stage.stage), "--platform", variant.platform,
-                "--profile", variant.profile, "--varyingdef", path_utf8(effective_varying.path),
-                "-i", path_utf8(effective_options.project_root / "shaders"),
-            };
-            if (!effective_options.engine_shader_root.empty()) {
-                args.push_back("-i");
-                args.push_back(path_utf8(effective_options.engine_shader_root));
-            }
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
-            args.push_back("-i");
-            args.push_back(path_utf8(*embedded_include_root));
-#endif
-            const auto command_line = command_line_from_args(args);
-#if NOVELTEA_HAS_EMBEDDED_SHADERC
-            std::vector<std::filesystem::path> include_roots = {
-                effective_options.project_root / "shaders"};
-            if (!effective_options.engine_shader_root.empty())
-                include_roots.push_back(effective_options.engine_shader_root);
-            include_roots.push_back(*embedded_include_root);
             const auto process = run_embedded_shaderc(args, stage.stage, variant, stage.source.path,
                                                       output_path, effective_varying.path, include_roots);
 #else

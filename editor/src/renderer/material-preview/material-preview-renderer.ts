@@ -97,7 +97,8 @@ uniform vec4 u_tint;
 out vec4 fragColor;
 void main() {
   vec4 sampled = texture(s_texColor, v_texcoord0);
-  fragColor = vec4(sampled.rgb * u_tint.rgb, sampled.a * u_tint.a);
+  float alpha = sampled.a * u_tint.a;
+  fragColor = vec4(sampled.rgb * u_tint.rgb * u_tint.a, alpha);
 }`;
 
 function webGl2ShaderSource(source: string) {
@@ -337,10 +338,7 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
 
     const rendererSamplers =
       roleContract?.reservedInterface.samplers.filter(
-        (sampler) =>
-          sampler.sourceOwnership === 'renderer' &&
-          (sampler.semantic === 'engine.draw_texture' ||
-            sampler.semantic === 'rmlui.decorator_texture'),
+        (sampler) => sampler.sourceOwnership === 'renderer',
       ) ?? [];
     const rendererSamplerNames = new Set(rendererSamplers.map((sampler) => sampler.name));
     let textureUnit = rendererSamplers.reduce(
@@ -348,23 +346,13 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
       0,
     );
     for (const rendererSampler of rendererSamplers) {
-      const isDecoratorTexture = rendererSampler.semantic === 'rmlui.decorator_texture';
-      if (
-        isDecoratorTexture &&
-        (rendererSampler.addressPolicy.length !== 1 ||
-          rendererSampler.addressPolicy[0] !== 'clamp' ||
-          rendererSampler.filterPolicy.length !== 1 ||
-          rendererSampler.filterPolicy[0] !== 'linear')
-      )
-        throw new Error('RmlUi decorator Material contract has an unsupported sampler policy.');
-      const representativeTexture = this.textureFor(
-        isDecoratorTexture
-          ? '__rmlui_decorator_texture_fixture__'
-          : '__engine_draw_texture_fixture__',
-        null,
-        'clamp-linear',
-        isDecoratorTexture,
-      );
+      const filtering =
+        rendererSampler.filterPolicy.length === 1 && rendererSampler.filterPolicy[0] === 'nearest'
+          ? 'clamp-nearest'
+          : 'clamp-linear';
+      const fixtureKey = `__renderer_fixture_${rendererSampler.semantic}__`;
+      const premultiplyAlpha = rendererSampler.semantic !== 'engine.draw_texture';
+      const representativeTexture = this.textureFor(fixtureKey, null, filtering, premultiplyAlpha);
       if (!representativeTexture) continue;
       gl.activeTexture(gl.TEXTURE0 + rendererSampler.stage);
       gl.bindTexture(gl.TEXTURE_2D, representativeTexture);
@@ -384,14 +372,6 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
       if (sampler) gl.uniform1i(sampler, textureUnit);
       textureUnit += 1;
     }
-    if (textureUnit === 0 && resource.resolved.role !== 'rmlui-decorator') {
-      const representativeTexture = this.textureFor('__representative__', null, 'clamp-linear');
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, representativeTexture);
-      const sampler = gl.getUniformLocation(program, 's_texColor');
-      if (sampler) gl.uniform1i(sampler, 0);
-    }
-
     for (const [name, parameter] of Object.entries(resource.resolved.parameters)) {
       if (parameter.value !== undefined) setUniformValue(gl, program, name, parameter.value);
     }
@@ -409,15 +389,16 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
     setUniformValue(gl, program, 'u_hotspotImageDimensions', [width, height]);
     setUniformValue(gl, program, 'u_hotspotMaskDimensions', [width, height]);
 
-    if (resource.resolved.role === 'rmlui-decorator') {
-      if (
-        roleContract?.pipelineState.blend !== 'premultiplied-alpha' ||
-        roleContract.pipelineState.outputAlpha !== 'premultiplied'
-      )
-        throw new Error('RmlUi decorator Material contract has an unsupported pipeline state.');
+    if (!roleContract || roleContract.pipelineState.outputAlpha !== 'premultiplied')
+      throw new Error('Material contract has an unsupported output alpha convention.');
+    if (roleContract.pipelineState.blend === 'premultiplied-alpha') {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    } else if (roleContract.pipelineState.blend === 'replace') {
+      gl.disable(gl.BLEND);
+    } else {
+      throw new Error('Material contract has an unsupported pipeline state.');
     }
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, geometry.count);
 
     if (surface.canvas.width !== width) surface.canvas.width = width;

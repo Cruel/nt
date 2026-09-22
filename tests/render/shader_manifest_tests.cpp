@@ -14,6 +14,8 @@ noveltea::ShaderMaterialProject make_project()
       "schema":"noveltea.shader-materials",
       "shaders":{
         "engine_2d_default":{
+          "interface_contract":"noveltea.material-preset:engine-2d:1",
+          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
           "stages":{
             "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/engine_2d_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
@@ -21,6 +23,8 @@ noveltea::ShaderMaterialProject make_project()
           "role_bindings":{}
         },
         "rmlui_decorator_default":{
+          "interface_contract":"noveltea.material-preset:rmlui-decorator:1",
+          "interface_fingerprint":"sha256:4d6fa3ddc7c34a2d7ca9fa8102e0881305a1ea684693b47eff6ebebdddaf4a27",
           "stages":{
             "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/rmlui_decorator_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
@@ -28,11 +32,13 @@ noveltea::ShaderMaterialProject make_project()
           "role_bindings":{}
         },
         "soft_noise":{
+          "interface_contract":"noveltea.material-preset:engine-2d:1",
+          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
           "stages":{
             "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "uniforms":{"u_amount":{"type":"float","default":0.25}},
-          "samplers":{"s_noise":{"type":"texture2d","binding":null}},
+          "samplers":{"s_noise":{"type":"texture2d","stage":3,"binding":null}},
           "roles":["engine-2d","rmlui-decorator"],
           "role_bindings":{
             "engine-2d":{"vertex":"engine_2d_default","fragment":"soft_noise"},
@@ -40,6 +46,8 @@ noveltea::ShaderMaterialProject make_project()
           }
         },
         "active_text_wave_vs":{
+          "interface_contract":"noveltea.material-preset:active-text:1",
+          "interface_fingerprint":"sha256:c62ec9672871d25d0736f7b093016d8835ea372693b9dab9016ea56d145427e2",
           "stages":{
             "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/active_text_wave.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
@@ -47,6 +55,8 @@ noveltea::ShaderMaterialProject make_project()
           "role_bindings":{}
         },
         "active_text_wave_fs":{
+          "interface_contract":"noveltea.material-preset:active-text:1",
+          "interface_fingerprint":"sha256:c62ec9672871d25d0736f7b093016d8835ea372693b9dab9016ea56d145427e2",
           "stages":{
             "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/active_text_wave.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
@@ -55,6 +65,8 @@ noveltea::ShaderMaterialProject make_project()
           "role_bindings":{}
         },
         "active-text-program-abc":{
+          "interface_contract":"noveltea.material-preset:active-text:1",
+          "interface_fingerprint":"sha256:c62ec9672871d25d0736f7b093016d8835ea372693b9dab9016ea56d145427e2",
           "stages":{
             "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/derived/glsl-330/program-abc.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
             "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/derived/glsl-330/program-abc.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
@@ -240,6 +252,8 @@ TEST_CASE("material resolution does not guess vertex stages when role binding is
       "schema":"noveltea.shader-materials",
       "shaders":{
         "fragment_only":{
+          "interface_contract":"noveltea.material-preset:engine-2d:1",
+          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
           "stages":{"fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/fragment_only.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
           "roles":["engine-2d"],
           "role_bindings":{}

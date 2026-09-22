@@ -264,6 +264,7 @@ private:
     void submit_quad(const QuadCommand& command, std::uint16_t view, float opacity);
     void submit_default_quad(const QuadCommand& command);
     void submit_default_quad(const QuadCommand& command, std::uint16_t view);
+    void submit_premultiplied_quad(const QuadCommand& command, std::uint16_t view, bool blend);
     void submit_copy_quad(const QuadCommand& command, std::uint16_t view);
     [[nodiscard]] bool submit_material_quad(const QuadCommand& command);
     [[nodiscard]] bool submit_material_quad(const QuadCommand& command, std::uint16_t view);
@@ -293,6 +294,7 @@ private:
 
     // Backend resource handles (stored as uint16_t indices; UINT16_MAX = invalid).
     uint16_t m_quad_program = UINT16_MAX;
+    uint16_t m_premultiplied_quad_program = UINT16_MAX;
     uint16_t m_hotspot_alpha_program = UINT16_MAX;
     uint16_t m_hotspot_custom_program = UINT16_MAX;
     uint16_t m_checker_texture = UINT16_MAX;

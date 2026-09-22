@@ -363,7 +363,6 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
         bgfx::setUniform(uniform_handle(uniform.name), packed.value.data());
     }
 
-    uint8_t texture_stage = inputs.first_texture_stage;
     for (const auto& sampler : resolution.samplers) {
         if (const auto* slot = find_contract_sampler(inputs.role, sampler.name);
             slot != nullptr && slot->semantic == engine_draw_texture_semantic) {
@@ -377,7 +376,6 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
             }
             bgfx::setTexture(slot->stage, sampler_handle(sampler.name), draw.texture,
                              bgfx_sampler_flags(draw.sampler));
-            texture_stage = std::max<uint8_t>(texture_stage, static_cast<uint8_t>(slot->stage + 1));
             continue;
         }
         if (const auto* slot = find_contract_sampler(inputs.role, sampler.name);
@@ -390,7 +388,6 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
             }
             bgfx::setTexture(slot->stage, sampler_handle(sampler.name), inputs.postprocess_source,
                              bgfx_sampler_flags(MaterialTextureSampler::ClampLinear));
-            texture_stage = std::max<uint8_t>(texture_stage, static_cast<uint8_t>(slot->stage + 1));
             continue;
         }
         if (const auto* slot = find_contract_sampler(inputs.role, sampler.name);
@@ -412,7 +409,6 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
             bgfx::setTexture(
                 slot->stage, sampler_handle(sampler.name), inputs.hotspot_image,
                 bgfx_sampler_flags(clamp_with_source_filter(inputs.hotspot_image_sampler)));
-            texture_stage = std::max<uint8_t>(texture_stage, static_cast<uint8_t>(slot->stage + 1));
             continue;
         }
         if (const auto* slot = find_contract_sampler(inputs.role, sampler.name);
@@ -433,12 +429,11 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
             }
             bgfx::setTexture(slot->stage, sampler_handle(sampler.name), inputs.hotspot_mask,
                              bgfx_sampler_flags(MaterialTextureSampler::ClampNearest));
-            texture_stage = std::max<uint8_t>(texture_stage, static_cast<uint8_t>(slot->stage + 1));
             continue;
         }
         if (inputs.role == ShaderRole::ActiveText && is_glyph_atlas_sampler(sampler.name) &&
             bgfx::isValid(inputs.glyph_atlas)) {
-            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.glyph_atlas,
+            bgfx::setTexture(sampler.stage, sampler_handle(sampler.name), inputs.glyph_atlas,
                              BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
             continue;
         }
@@ -449,7 +444,7 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
                            material_context(material_id, inputs.role),
                            "material sampler '" + sampler.name + "' has no texture source");
             if (bgfx::isValid(m_fallback_texture)) {
-                bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), m_fallback_texture,
+                bgfx::setTexture(sampler.stage, sampler_handle(sampler.name), m_fallback_texture,
                                  bgfx_sampler_flags(MaterialTextureSampler::ClampLinear));
             }
             continue;
@@ -463,12 +458,12 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
             texture_for_source(assignment->source, inputs.quad_command, filtering, diagnostics);
         if (!bgfx::isValid(texture)) {
             if (bgfx::isValid(m_fallback_texture)) {
-                bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), m_fallback_texture,
+                bgfx::setTexture(sampler.stage, sampler_handle(sampler.name), m_fallback_texture,
                                  bgfx_sampler_flags(MaterialTextureSampler::ClampLinear));
             }
             continue;
         }
-        bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), texture,
+        bgfx::setTexture(sampler.stage, sampler_handle(sampler.name), texture,
                          bgfx_sampler_flags(filtering));
     }
 

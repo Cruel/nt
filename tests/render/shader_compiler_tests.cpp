@@ -53,6 +53,8 @@ noveltea::ShaderMaterialProject make_source_project(const std::filesystem::path&
       "schema":"noveltea.shader-materials",
       "shaders":{
         "sample_effect":{
+          "interface_contract":"noveltea.material-preset:engine-2d:1",
+          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
           "stages":{
             "vertex":{"source":"project:/shaders/sample.vs.sc"},
             "fragment":{"source":"project:/shaders/sample.fs.sc"}
@@ -206,6 +208,8 @@ TEST_CASE("shader compiler compiles source_text through generated temporary sour
       "schema":"noveltea.shader-materials",
       "shaders":{
         "inline_effect":{
+          "interface_contract":"noveltea.material-preset:engine-2d:1",
+          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
           "stages":{"fragment":{"source_text":"#include <bgfx_shader.sh>\nvoid main() { gl_FragColor = vec4(1.0); }\n"}},
           "roles":["engine-2d"],
           "role_bindings":{}
@@ -258,7 +262,7 @@ TEST_CASE("shader compiler reports missing source diagnostics without an externa
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials",
       "shaders":{
-        "missing_source":{"stages":{"fragment":{"source":"project:/shaders/missing.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}
+        "missing_source":{"interface_contract":"noveltea.material-preset:engine-2d:1","interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a","stages":{"fragment":{"source":"project:/shaders/missing.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}
       },
       "materials":{}
     })json");
@@ -466,6 +470,7 @@ TEST_CASE("Material source programs certify renderer ABI and reflected sampler s
     write_text(options.project_root / "shaders" / "effect.fs.sc",
                "$input v_texcoord0, v_color0\n"
                "#include <bgfx_shader.sh>\n"
+               "// SAMPLER2D(s_texColor, 0);\n"
                "SAMPLER2D(s_texColor, 1);\n"
                "void main() { gl_FragColor = texture2D(s_texColor, v_texcoord0) * v_color0; }\n");
     auto invalid_stage = request;
@@ -476,6 +481,24 @@ TEST_CASE("Material source programs certify renderer ABI and reflected sampler s
             return item.code == noveltea::ShaderCompileDiagnosticCode::ContractViolation &&
                    item.message.find("reserved stage 0") != std::string::npos;
         }));
+
+    write_text(options.project_root / "shaders" / "effect.fs.sc",
+               "$input v_texcoord0, v_color0\n"
+               "#include <bgfx_shader.sh>\n"
+               "#if 0\n"
+               "SAMPLER2D(s_texColor, 0);\n"
+               "#endif\n"
+               "SAMPLER2D(s_texColor, 2);\n"
+               "void main() { gl_FragColor = texture2D(s_texColor, v_texcoord0) * v_color0; }\n");
+    const auto inactive_stage = compiler.compile_source_program(request, options);
+    CHECK_FALSE(inactive_stage.success());
+    CHECK(std::any_of(inactive_stage.diagnostics.begin(), inactive_stage.diagnostics.end(),
+                      [](const auto& item) {
+                          return item.code ==
+                                     noveltea::ShaderCompileDiagnosticCode::ContractViolation &&
+                                 item.message.find("reserved stage 0") != std::string::npos &&
+                                 item.message.find("stage 2") != std::string::npos;
+                      }));
 
     auto stale_contract = request;
     stale_contract.interface_fingerprint =

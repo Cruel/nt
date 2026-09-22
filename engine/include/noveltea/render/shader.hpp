@@ -159,6 +159,7 @@ struct ShaderUniformDeclaration {
 struct ShaderSamplerDeclaration {
     std::string name;
     ShaderSamplerType type = ShaderSamplerType::Texture2D;
+    std::uint8_t stage = 0;
     std::optional<ShaderSamplerSemantic> binding;
 };
 
@@ -171,6 +172,8 @@ struct ShaderRoleBinding {
 struct ShaderDefinition {
     ShaderId id;
     std::string display_name;
+    std::string interface_contract;
+    std::string interface_fingerprint;
     std::vector<ShaderStageDefinition> stages;
     std::vector<ShaderUniformDeclaration> uniforms;
     std::vector<ShaderSamplerDeclaration> samplers;

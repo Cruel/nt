@@ -69,6 +69,8 @@ const runtimeShaderRoleBindingSchema = strict({
 });
 export const runtimeShaderDefinitionSchema = strict({
   display_name: z.string(),
+  interface_contract: z.string().min(1),
+  interface_fingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
   stages: strict({
     vertex: runtimeShaderStageSchema.optional(),
     fragment: runtimeShaderStageSchema.optional(),
@@ -78,6 +80,7 @@ export const runtimeShaderDefinitionSchema = strict({
     z.string().min(1),
     strict({
       type: z.literal('texture2d'),
+      stage: z.number().int().min(0).max(255),
       binding: z.enum(shaderSamplerBindingValues).nullable(),
     }),
   ),
@@ -366,23 +369,36 @@ function buildSourceProgramShaderDefinition(
       byteSize: output.byteSize,
     };
   }
-  const reflected = new Map<string, { kind: 'uniform' | 'sampled-image'; type: string }>();
+  const reflected = new Map<
+    string,
+    { kind: 'uniform' | 'sampled-image'; type: string; registerIndex?: number }
+  >();
   for (const output of outputs)
     for (const input of output.reflectedInputs) {
       if (input.kind === 'uniform' && isBgfxPredefinedUniform(input.name)) continue;
-      reflected.set(input.name, { kind: input.kind, type: input.type });
+      reflected.set(input.name, {
+        kind: input.kind,
+        type: input.type,
+        registerIndex: input.registerIndex,
+      });
     }
   const uniforms: RuntimeShaderDefinition['uniforms'] = {};
   const samplers: RuntimeShaderDefinition['samplers'] = {};
   for (const [name, input] of reflected) {
-    if (input.kind === 'sampled-image') samplers[name] = { type: 'texture2d', binding: null };
-    else {
+    if (input.kind === 'sampled-image') {
+      if (input.registerIndex === undefined)
+        throw new Error(`Reflected sampler '${name}' is missing its compiled sampler stage.`);
+      samplers[name] = { type: 'texture2d', stage: input.registerIndex, binding: null };
+    } else {
       const type = reflectedType(input.type);
       if (type) uniforms[name] = { type };
     }
   }
+  const preset = materialPresets['active-text'];
   return runtimeShaderDefinitionSchema.parse({
     display_name: 'Derived ActiveText source program',
+    interface_contract: preset.interfaceContract,
+    interface_fingerprint: preset.interfaceFingerprint,
     stages,
     uniforms,
     samplers,
@@ -634,7 +650,16 @@ function buildRuntimeShader(
               `Renderer-owned reflected texture '${name}' cannot have an authored source.`,
             ),
           );
-        samplers[name] = { type: 'texture2d', binding };
+        if (input.registerIndex === undefined) {
+          diagnostics.push(
+            diagnostic(
+              `/materials/${materialId}/data/textures/${name}`,
+              `Reflected sampler '${name}' is missing its compiled sampler stage.`,
+            ),
+          );
+          continue;
+        }
+        samplers[name] = { type: 'texture2d', stage: input.registerIndex, binding };
         continue;
       }
       if (rendererUniformNames.has(name)) continue;
@@ -733,20 +758,43 @@ function buildRuntimeShader(
         ...(value.binding !== undefined ? { binding: value.binding } : {}),
         ...(value.label ? { editor: { label: value.label } } : {}),
       };
-    for (const [name, value] of Object.entries(resolved.preset.samplers))
-      samplers[name] = { type: 'texture2d', binding: value.binding ?? null };
+    const roleContract = materialContractRegistry.roles.find((role) => role.id === resolved.role);
+    for (const [name, value] of Object.entries(resolved.preset.samplers)) {
+      const contractSampler = roleContract?.reservedInterface.samplers.find(
+        (sampler) => sampler.name === name,
+      );
+      if (!contractSampler) {
+        diagnostics.push(
+          diagnostic(
+            `/materials/${materialId}/data/textures/${name}`,
+            `Preset sampler '${name}' is missing from Material role '${resolved.role}' contract.`,
+          ),
+        );
+        continue;
+      }
+      samplers[name] = {
+        type: 'texture2d',
+        stage: contractSampler.stage,
+        binding: value.binding ?? null,
+      };
+    }
     if (resolved.role === 'engine-2d') {
-      const roleContract = materialContractRegistry.roles.find((role) => role.id === resolved.role);
       const drawTextureSampler = roleContract?.reservedInterface.samplers.find(
         (sampler) =>
           sampler.sourceOwnership === 'renderer' && sampler.semantic === 'engine.draw_texture',
       );
       if (drawTextureSampler)
-        samplers[drawTextureSampler.name] = { type: 'texture2d', binding: null };
+        samplers[drawTextureSampler.name] = {
+          type: 'texture2d',
+          stage: drawTextureSampler.stage,
+          binding: null,
+        };
     }
   }
   const candidate = {
     display_name: custom ? `Derived ${resolved.preset.label}` : resolved.preset.label,
+    interface_contract: resolved.preset.interfaceContract,
+    interface_fingerprint: resolved.preset.interfaceFingerprint,
     stages,
     uniforms,
     samplers,

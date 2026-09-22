@@ -87,6 +87,8 @@ TEST_CASE("project shader and material records parse")
       "shaders":{
         "soft_noise":{
           "display_name":"Soft Noise",
+          "interface_contract":"noveltea.material-preset:rmlui-decorator:1",
+          "interface_fingerprint":"sha256:4d6fa3ddc7c34a2d7ca9fa8102e0881305a1ea684693b47eff6ebebdddaf4a27",
           "stages":{
             "fragment":{
               "source":"project:/shaders/ui/soft_noise.fs.sc",
@@ -108,7 +110,7 @@ TEST_CASE("project shader and material records parse")
             "u_pointer":{"type":"vec2","binding":"engine.pointer_position"},
             "u_pointer_valid":{"type":"bool","binding":"engine.pointer_valid"}
           },
-          "samplers":{"s_noise":{"type":"texture2d","binding":null}},
+          "samplers":{"s_noise":{"type":"texture2d","stage":3,"binding":null}},
           "roles":["rmlui-decorator","engine-2d"],
           "role_bindings":{}
         }
@@ -235,6 +237,8 @@ TEST_CASE("role bindings parse")
       "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
+          "interface_contract":"noveltea.material-preset:rmlui-decorator:1",
+          "interface_fingerprint":"sha256:4d6fa3ddc7c34a2d7ca9fa8102e0881305a1ea684693b47eff6ebebdddaf4a27",
           "stages":{"fragment":{"source":"project:/shaders/ui/soft_noise.fs.sc"}},
           "roles":["rmlui-decorator","engine-2d"],
           "role_bindings":{
@@ -431,8 +435,10 @@ TEST_CASE("material validation reports refs values and roles")
       "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
+          "interface_contract":"noveltea.material-preset:engine-2d:1",
+          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
-          "samplers":{"s_noise":{"type":"texture2d","binding":null}},
+          "samplers":{"s_noise":{"type":"texture2d","stage":3,"binding":null}},
           "roles":["engine-2d"],
           "role_bindings":{}
         }
@@ -446,8 +452,10 @@ TEST_CASE("material validation reports refs values and roles")
       "schema":"noveltea.shader-materials",
       "shaders":{
         "soft_noise":{
+          "interface_contract":"noveltea.material-preset:engine-2d:1",
+          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
-          "samplers":{"s_noise":{"type":"texture2d","binding":null}},
+          "samplers":{"s_noise":{"type":"texture2d","stage":3,"binding":null}},
           "roles":["engine-2d"],
           "role_bindings":{}
         }
@@ -469,8 +477,10 @@ TEST_CASE("postprocess scope belongs to the effect occurrence and source texture
       "schema":"noveltea.shader-materials",
       "shaders":{
         "fx":{
+          "interface_contract":"noveltea.material-preset:postprocess-tint:1",
+          "interface_fingerprint":"sha256:07983cdd0065e8e8acf3aaf53c6e2c0bb443f8c557561403b0dd4917f4040b10",
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
-          "samplers":{"s_texColor":{"type":"texture2d","binding":null}},
+          "samplers":{"s_texColor":{"type":"texture2d","stage":0,"binding":null}},
           "roles":["postprocess"],
           "role_bindings":{}
         }
@@ -502,8 +512,10 @@ TEST_CASE("postprocess scope belongs to the effect occurrence and source texture
       "schema":"noveltea.shader-materials",
       "shaders":{
         "fx":{
+          "interface_contract":"noveltea.material-preset:postprocess-tint:1",
+          "interface_fingerprint":"sha256:07983cdd0065e8e8acf3aaf53c6e2c0bb443f8c557561403b0dd4917f4040b10",
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
-          "samplers":{"s_texColor":{"type":"texture2d","binding":null}},
+          "samplers":{"s_texColor":{"type":"texture2d","stage":0,"binding":null}},
           "roles":["postprocess"],
           "role_bindings":{}
         }
@@ -580,8 +592,10 @@ TEST_CASE("RmlUi decorator renderer texture cannot be authored")
       "schema":"noveltea.shader-materials",
       "shaders":{
         "ui/decorator":{
+          "interface_contract":"noveltea.material-preset:rmlui-decorator:1",
+          "interface_fingerprint":"sha256:4d6fa3ddc7c34a2d7ca9fa8102e0881305a1ea684693b47eff6ebebdddaf4a27",
           "stages":{"fragment":{"source":"project:/decorator.fs.sc"}},
-          "samplers":{"s_texColor":{"type":"texture2d","binding":null}},
+          "samplers":{"s_texColor":{"type":"texture2d","stage":0,"binding":null}},
           "roles":["rmlui-decorator"],
           "role_bindings":{}
         }
@@ -627,6 +641,54 @@ TEST_CASE("Material contract registry exposes stable V1 identities and renderer-
     CHECK(engine_role->pipeline_state.output_alpha == "premultiplied");
     CHECK(noveltea::material_contract_fingerprint_algorithm() == "sha256");
     CHECK(noveltea::material_contract_fingerprint_encoding() == "canonical-json-v1");
+}
+
+TEST_CASE("packaged shader contract fingerprints must match the runtime registry")
+{
+    auto document = nlohmann::json::parse(R"json({
+      "schema":"noveltea.shader-materials",
+      "shaders":{
+        "quad":{
+          "display_name":"Quad",
+          "interface_contract":"noveltea.material-preset:engine-2d:1",
+          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
+          "stages":{},
+          "uniforms":{},
+          "samplers":{},
+          "roles":["engine-2d"],
+          "role_bindings":{}
+        }
+      },
+      "materials":{}
+    })json");
+    REQUIRE_FALSE(document.is_discarded());
+    CHECK(noveltea::parse_shader_material_project_json(document.dump()).ok());
+
+    document["shaders"]["quad"]["interface_fingerprint"] =
+        "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+    const auto stale = noveltea::parse_shader_material_project_json(document.dump());
+    CHECK_FALSE(stale.ok());
+    CHECK(has_code(stale, MaterialDiagnosticCode::InvalidSchema));
+
+    document["shaders"]["quad"]["interface_fingerprint"] = "";
+    const auto empty_fingerprint = noveltea::parse_shader_material_project_json(document.dump());
+    CHECK_FALSE(empty_fingerprint.ok());
+    CHECK(has_code(empty_fingerprint, MaterialDiagnosticCode::MissingRequiredField));
+
+    document["shaders"]["quad"]["interface_fingerprint"] =
+        "sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a";
+    document["shaders"]["quad"]["interface_contract"] = "";
+    const auto empty_contract = noveltea::parse_shader_material_project_json(document.dump());
+    CHECK_FALSE(empty_contract.ok());
+    CHECK(has_code(empty_contract, MaterialDiagnosticCode::MissingRequiredField));
+
+    document["shaders"]["quad"]["interface_contract"] =
+        "noveltea.material-preset:engine-2d:1";
+    document["shaders"]["quad"]["interface_fingerprint"] = "sha256:ABC";
+    const auto malformed_fingerprint =
+        noveltea::parse_shader_material_project_json(document.dump());
+    CHECK_FALSE(malformed_fingerprint.ok());
+    CHECK(has_code(malformed_fingerprint, MaterialDiagnosticCode::InvalidSchema));
 }
 
 TEST_CASE("hotspot Materials use contract-owned samplers and premultiplied composition")
@@ -679,8 +741,10 @@ TEST_CASE("material documents reject authored sources for contract-owned hotspot
       "schema":"noveltea.shader-materials",
       "shaders":{
         "hotspot/test":{
+          "interface_contract":"noveltea.material-preset:hotspot-overlay-alpha:1",
+          "interface_fingerprint":"sha256:c6676b68043dcc07e21ad86c5552a11e55784bb294a2aecb2ce0bc531fef378e",
           "stages":{"fragment":{"source":"project:/hotspot.fs.sc"}},
-          "samplers":{"s_hotspotImage":{"type":"texture2d","binding":null}},
+          "samplers":{"s_hotspotImage":{"type":"texture2d","stage":0,"binding":null}},
           "roles":["hotspot-overlay"],
           "role_bindings":{}
         }
