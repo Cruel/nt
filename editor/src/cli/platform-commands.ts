@@ -24,6 +24,7 @@ import type {
   CliScopedCommandInvocation,
 } from './commands/types';
 import { cliDiagnostic, NOVELTEA_CLI_EXIT_CODES } from './contracts';
+import { verifyPinnedExternalAssets } from './pinned-external-assets';
 import { parsePlatformOptions, parsePlatformTemplateToken } from './platform-command-helpers';
 import { platformProfilesProjectPreparationIntent } from './project-preparation';
 
@@ -290,6 +291,16 @@ export const platformExportCommand: CliCommandDefinition = {
           },
           (event) => context.onPlatformProgress?.(event.stage, event.message),
           context.abortSignal,
+          context.pinnedExternalAssets
+            ? async () => {
+                const diagnostics = await verifyPinnedExternalAssets(
+                  context.fileSystem,
+                  context.snapshot.projectRoot,
+                  context.pinnedExternalAssets!,
+                );
+                return diagnostics[0]?.message ?? null;
+              }
+            : undefined,
         );
         const diagnostics = stageDiagnostics(result.diagnostics);
         if (!result.success)

@@ -144,6 +144,15 @@ The writer has no project import, legacy game parsing, entity editing, or `Proje
 overload. The editor native tool remains responsible for package writing, shader compilation, and
 typed playback/UI-test execution only.
 
+For the standalone daemon CLI, Runtime Package publication is disposable-heavy work. The Project
+owner reconciles and pins one portable resident generation, then the one-job worker prepares/writes
+the package to a sibling staging path. External Asset bytes remain file-backed; their expected native
+file identity, size, and exact mtime (or fallback hash where exact mtime is unavailable) travel with
+the pinned snapshot. Immediately before replacing the requested `.ntpkg`, the worker verifies those
+expectations again. Input drift, cancellation, package failure, or worker failure never publishes the
+staged file as the requested output; an existing output is replaced through backup/atomic rename only
+after those checks pass.
+
 ## Platform Export
 
 The public headless entrypoint is `noveltea platform export`. `noveltea package export` remains the
@@ -156,6 +165,14 @@ unless replacement is acknowledged, refuses symlink publication paths even when 
 acknowledged, and publishes through temporary/backup paths so failure or cancellation preserves the
 previous complete output. Template replacement and removal similarly require explicit force. A
 locally sourced template requires per-export acknowledgement in both the editor and CLI.
+
+Normal standalone `platform export` uses the same generation-pinned disposable-heavy scheduler as
+Runtime Package publication. Existing platform staging remains the publication boundary; after all
+package/platform artifacts are prepared and verified but before any staged artifact replaces its
+final destination, the CLI re-verifies the pinned external Asset identities/metadata. The live
+Project owner may advance while this work runs. `platform export --check` remains a write-free
+owner-short preflight. The successful-export identity written under `.noveltea/editor/state.json` is
+machine/editor-local execution metadata rather than authored Project state.
 
 `platform export` produces the normal packaged artifact by default. Reusable signing configurations
 are machine-level NovelTea user settings shared by the editor and CLI, not project-profile fields.

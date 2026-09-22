@@ -87,10 +87,28 @@ nlohmann::json inspect_path_metadata(std::string_view path)
     const bool reparse_point = (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
     const bool directory = (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
     const char* kind = reparse_point ? "symlink" : directory ? "directory" : "file";
-    return {{"ok", true},
-            {"kind", kind},
-            {"byteSize", byte_size},
-            {"mtimeNanoseconds", std::to_string(mtime_nanoseconds)}};
+    nlohmann::json result{{"ok", true},
+                          {"kind", kind},
+                          {"byteSize", byte_size},
+                          {"mtimeNanoseconds", std::to_string(mtime_nanoseconds)}};
+    if (!reparse_point && !directory) {
+        const auto handle = CreateFileW(wide.c_str(), FILE_READ_ATTRIBUTES,
+                                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle == INVALID_HANDLE_VALUE)
+            return {{"ok", false}, {"error", "Cannot inspect exact path identity."}};
+        BY_HANDLE_FILE_INFORMATION identity{};
+        const bool inspected = GetFileInformationByHandle(handle, &identity) != 0;
+        CloseHandle(handle);
+        if (!inspected)
+            return {{"ok", false}, {"error", "Cannot inspect exact path identity."}};
+        const auto file_index = (static_cast<std::uint64_t>(identity.nFileIndexHigh) << 32U) |
+                                static_cast<std::uint64_t>(identity.nFileIndexLow);
+        result["sourceIdentity"] =
+            "win:" + std::to_string(static_cast<std::uint64_t>(identity.dwVolumeSerialNumber)) +
+            ":" + std::to_string(file_index);
+    }
+    return result;
 }
 #else
 nlohmann::json inspect_path_metadata(std::string_view path)
@@ -130,10 +148,15 @@ nlohmann::json inspect_path_metadata(std::string_view path)
                        : S_ISDIR(info.st_mode) ? "directory"
                        : S_ISLNK(info.st_mode) ? "symlink"
                                                : "other";
-    return {{"ok", true},
-            {"kind", kind},
-            {"byteSize", static_cast<std::uint64_t>(info.st_size)},
-            {"mtimeNanoseconds", std::to_string(mtime_nanoseconds)}};
+    nlohmann::json result{{"ok", true},
+                          {"kind", kind},
+                          {"byteSize", static_cast<std::uint64_t>(info.st_size)},
+                          {"mtimeNanoseconds", std::to_string(mtime_nanoseconds)}};
+    if (S_ISREG(info.st_mode))
+        result["sourceIdentity"] =
+            "posix:" + std::to_string(static_cast<unsigned long long>(info.st_dev)) + ":" +
+            std::to_string(static_cast<unsigned long long>(info.st_ino));
+    return result;
 }
 #endif
 

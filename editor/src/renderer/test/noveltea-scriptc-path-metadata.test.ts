@@ -9,6 +9,7 @@ describe('ScriptC exact path metadata bridge', () => {
       return JSON.stringify({
         ok: true,
         kind: 'file',
+        sourceIdentity: 'posix:7:11',
         byteSize: 42,
         mtimeNanoseconds: '1789510382695187527',
       });
@@ -16,6 +17,7 @@ describe('ScriptC exact path metadata bridge', () => {
 
     await expect(reader('/project/project.json')).resolves.toEqual({
       kind: 'file',
+      sourceIdentity: 'posix:7:11',
       byteSize: 42,
       mtimeNanoseconds: '1789510382695187527',
     });

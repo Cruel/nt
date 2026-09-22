@@ -2160,12 +2160,191 @@ async function certifyDisposableTestScheduling(tempRoot) {
   }
 }
 
+async function certifyDisposableOutputScheduling(tempRoot) {
+  const source = path.join(repositoryRoot, 'tests', 'projects', 'feature-lab');
+  const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), 'nt-output-disposable-'));
+  const environment = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `disposable-output-${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '60000',
+  };
+  const traceEnvironment = { ...environment, NOVELTEA_CLI_TRACE: '1' };
+  const resetFeatureLab = async (name) => {
+    const root = path.join(tempRoot, name);
+    await rm(root, { recursive: true, force: true });
+    await cp(source, root, { recursive: true });
+    await rm(path.join(root, '.noveltea', 'cache'), { recursive: true, force: true });
+    return root;
+  };
+  const status = () => {
+    const result = requireSuccess(
+      'disposable output scheduler status',
+      runNative(['--json', 'daemon', 'status'], { env: environment }),
+    );
+    return JSON.parse(result.stdout).daemon;
+  };
+  const waitForStatus = async (label, predicate, timeoutMs = 5000) => {
+    const deadline = Date.now() + timeoutMs;
+    let latest = null;
+    while (Date.now() < deadline) {
+      latest = status();
+      if (predicate(latest)) return latest;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    fail(`${label} timed out; last daemon status: ${JSON.stringify(latest)}`);
+  };
+  const packageArguments = (root, output) => [
+    '--project',
+    root,
+    '--json',
+    'package',
+    'export',
+    '--output',
+    output,
+    '--allow-localization-warnings',
+  ];
+
+  runNative(['daemon', 'stop'], { env: environment });
+  try {
+    const generationRoot = await resetFeatureLab('disposable-output-generation');
+    const generationOutput = path.join(tempRoot, 'disposable-generation.ntpkg');
+    await rm(generationOutput, { force: true });
+    const delayedEnvironment = {
+      ...traceEnvironment,
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
+    };
+    const generationExport = await runAsync(
+      nativeCli,
+      packageArguments(generationRoot, generationOutput),
+      { cwd: generationRoot, env: delayedEnvironment },
+    );
+    await waitForStatus(
+      'Disposable output concurrent-owner admission',
+      (daemon) => daemon.disposableBusyWorkers >= 1 && daemon.disposableStandbyWorkers >= 1,
+    );
+    const roomPath = path.join(generationRoot, 'records', 'rooms', 'feature-lab-home.json');
+    const room = JSON.parse(await readFile(roomPath, 'utf8'));
+    room.label = `${room.label} output generation advance`;
+    await writeJson(roomPath, room);
+    requireSuccess(
+      'Disposable output concurrent foreground validation',
+      runNative(['--project', generationRoot, '--json', 'validate'], {
+        cwd: generationRoot,
+        env: traceEnvironment,
+      }),
+    );
+    requireSuccess(
+      'Disposable output generation-pinned package export',
+      await generationExport.result(),
+    );
+    if (!(await stat(generationOutput).catch(() => null)))
+      fail('Generation-pinned disposable package export did not publish its final output.');
+
+    const driftRoot = await resetFeatureLab('disposable-output-drift');
+    const driftOutput = path.join(tempRoot, 'disposable-drift.ntpkg');
+    await rm(driftOutput, { force: true });
+    const driftExport = await runAsync(nativeCli, packageArguments(driftRoot, driftOutput), {
+      cwd: driftRoot,
+      env: delayedEnvironment,
+    });
+    await waitForStatus(
+      'Disposable output Asset-drift admission',
+      (daemon) => daemon.disposableBusyWorkers >= 1,
+    );
+    const assetPath = path.join(driftRoot, 'assets', 'images', 'bedroom.webp');
+    const assetStat = await stat(assetPath);
+    const changedTime = new Date(assetStat.mtimeMs + 2000);
+    await utimes(assetPath, changedTime, changedTime);
+    const driftResult = await driftExport.result();
+    if (driftResult.status === 0)
+      fail('Disposable package export published successfully after pinned Asset drift.');
+    if (await stat(driftOutput).catch(() => null))
+      fail('Disposable package export published a final output after pinned Asset drift.');
+
+    const cancellationRoot = await resetFeatureLab('disposable-output-cancellation');
+    const cancellationOutput = path.join(tempRoot, 'disposable-cancellation.ntpkg');
+    await rm(cancellationOutput, { force: true });
+    const cancellationEnvironment = {
+      ...traceEnvironment,
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '5000',
+    };
+    const cancellationArgs = packageArguments(cancellationRoot, cancellationOutput);
+    const cancellation = isWindows
+      ? await runWindowsConsoleProcess(nativeCli, cancellationArgs, {
+          cwd: cancellationRoot,
+          env: cancellationEnvironment,
+        })
+      : {
+          invocation: await runAsync(nativeCli, cancellationArgs, {
+            cwd: cancellationRoot,
+            env: cancellationEnvironment,
+          }),
+          pid: null,
+        };
+    await waitForStatus(
+      'Disposable output cancellation admission',
+      (daemon) => daemon.disposableBusyWorkers >= 1,
+    );
+    if (isWindows) await sendWindowsConsoleCtrlC(cancellation.pid);
+    else cancellation.invocation.child.kill('SIGINT');
+    const cancellationResult = await cancellation.invocation.result();
+    if (cancellationResult.status !== 130)
+      fail(
+        `Disposable output cancellation exited ${cancellationResult.status}, expected 130.\n` +
+          `${cancellationResult.stdout}\n${cancellationResult.stderr}`,
+      );
+    if (await stat(cancellationOutput).catch(() => null))
+      fail('Cancelled disposable package export published a final output.');
+
+    const crashRoot = await resetFeatureLab('disposable-output-crash');
+    const crashOutput = path.join(tempRoot, 'disposable-crash.ntpkg');
+    await rm(crashOutput, { force: true });
+    const crashResult = runNative(packageArguments(crashRoot, crashOutput), {
+      cwd: crashRoot,
+      env: {
+        ...traceEnvironment,
+        NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH: '1',
+      },
+    });
+    if (crashResult.status === 0)
+      fail('Disposable package worker crash unexpectedly reported success.');
+    if (await stat(crashOutput).catch(() => null))
+      fail('Crashed disposable package export published a final output.');
+    await waitForStatus(
+      'Disposable output crash standby replenishment',
+      (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
+    );
+    requireSuccess(
+      'Disposable output crash isolation owner validation',
+      runNative(['--project', crashRoot, '--json', 'validate'], {
+        cwd: crashRoot,
+        env: traceEnvironment,
+      }),
+    );
+
+    return {
+      generationPinned: true,
+      foregroundOwnerProgress: true,
+      assetDriftBlocksPublication: true,
+      cancellationBlocksPublication: true,
+      crashBlocksPublication: true,
+    };
+  } finally {
+    runNative(['daemon', 'stop'], { env: environment });
+    await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function certifyResidentDaemon(tempRoot, pristine) {
   const root = path.join(tempRoot, 'resident-daemon');
   const runtimeRoot = path.join(tempRoot, 'resident-daemon-runtime');
   await resetCase(pristine, root);
   const projectOwners = await certifyProjectOwnerScheduling(tempRoot, pristine);
   const disposableTests = await certifyDisposableTestScheduling(tempRoot);
+  const disposableOutputs = await certifyDisposableOutputScheduling(tempRoot);
   const buildProtocolIsolation = await certifyDaemonBuildProtocolIsolation(tempRoot);
   const daemonEnvironment = {
     ...process.env,
@@ -2463,6 +2642,7 @@ async function certifyResidentDaemon(tempRoot, pristine) {
     secureEndpoint: true,
     buildProtocolIsolation,
     disposableTests,
+    disposableOutputs,
     projectOwners,
     midRequestReadReplay: true,
     midRequestUnsafeNoReplay: true,

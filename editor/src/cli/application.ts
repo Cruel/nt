@@ -121,6 +121,7 @@ export interface RunNovelTeaCliOptions {
   readonly prepareResidentSnapshotOnly?: boolean;
   /** Internal disposable-worker contract: native already pinned the supplied immutable generation. */
   readonly trustPinnedResidentSnapshot?: boolean;
+  readonly pinnedExternalAssets?: readonly import('./pinned-external-assets').PinnedExternalAssetExpectation[];
   /** Internal bounded retry counter for resident read authority races. */
   readonly residentReadAttempt?: number;
 }
@@ -480,6 +481,7 @@ export async function runNovelTeaCli(
         onPlatformProgress: options.onPlatformProgress,
         abortSignal: options.abortSignal,
         forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
+        pinnedExternalAssets: options.pinnedExternalAssets,
       });
       const diagnostics = [...prepared.diagnostics, ...semantic.diagnostics];
       if (!semantic.ok)
@@ -668,6 +670,7 @@ export async function runNovelTeaCli(
         onPlatformProgress: options.onPlatformProgress,
         abortSignal: options.abortSignal,
         forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
+        pinnedExternalAssets: options.pinnedExternalAssets,
       });
     } finally {
       if (routing.projectAccess === 'opaque-write' && options.residentWorkspace)

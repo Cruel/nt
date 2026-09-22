@@ -1,5 +1,7 @@
 export interface ProjectWorkspacePathMetadata {
   readonly kind: 'missing' | 'file' | 'directory' | 'symlink' | 'other';
+  /** Stable physical file identity when the host can provide one exactly. */
+  readonly sourceIdentity?: string;
   readonly byteSize?: number;
   /** Exact nanoseconds since Unix epoch, serialized as decimal text to avoid JS precision loss. */
   readonly mtimeNanoseconds?: string;

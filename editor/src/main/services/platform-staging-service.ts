@@ -960,6 +960,7 @@ ${serviceWorker ? `if('serviceWorker' in navigator) navigator.serviceWorker.regi
 
 export async function stagePlatformExport(
   request: PlatformStageRequest,
+  beforePublish?: () => Promise<string | null>,
 ): Promise<PlatformStageResult> {
   const diagnostics: PlatformStageDiagnostic[] = [];
   const temp = `${request.outputDirectory}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
@@ -1498,6 +1499,15 @@ export async function stagePlatformExport(
       await run(request.macosDmg.command, [...request.macosDmg.args, temp, dmgTemp]);
       checkPlatformExportCancelled(request.operationId);
     }
+    checkPlatformExportCancelled(request.operationId);
+    const publicationBlocker = await beforePublish?.();
+    if (publicationBlocker) {
+      diagnostics.push(
+        diagnostic('platform-export-input-drift', '/project/assets', publicationBlocker),
+      );
+      throw new Error('NOVELTEA_EXPORT_INPUT_DRIFT');
+    }
+    checkPlatformExportCancelled(request.operationId);
     if (existsSync(request.outputDirectory)) {
       await rename(request.outputDirectory, backup);
       backedUp = true;
@@ -1601,7 +1611,12 @@ export async function stagePlatformExport(
     };
   } catch (error) {
     const cancelled = error instanceof Error && error.message === 'NOVELTEA_EXPORT_CANCELLED';
-    if (!cancelled && !(error instanceof Error && error.message === 'NOVELTEA_EXPORT_DIAGNOSTIC'))
+    const inputDrift = error instanceof Error && error.message === 'NOVELTEA_EXPORT_INPUT_DRIFT';
+    if (
+      !cancelled &&
+      !inputDrift &&
+      !(error instanceof Error && error.message === 'NOVELTEA_EXPORT_DIAGNOSTIC')
+    )
       diagnostics.push(
         diagnostic(
           'staging-failed',

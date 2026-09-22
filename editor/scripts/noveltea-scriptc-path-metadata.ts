@@ -31,6 +31,9 @@ export function createScriptcPathMetadataReader(
       throw new Error('Native path metadata returned inexact metadata.');
     return {
       kind,
+      ...(typeof record.sourceIdentity === 'string'
+        ? { sourceIdentity: record.sourceIdentity }
+        : {}),
       byteSize: record.byteSize as number,
       mtimeNanoseconds: record.mtimeNanoseconds,
     };

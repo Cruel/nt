@@ -316,6 +316,7 @@ export async function exportAndroidPlatform(
   request: PlatformStageRequest,
   descriptor: TemplateDescriptor,
   templateRoot: string,
+  beforePublish?: () => Promise<string | null>,
 ): Promise<PlatformStageResult> {
   if (request.profile.target !== 'android' || !descriptor.android)
     throw new Error('Android export service requires an Android profile and descriptor.');
@@ -558,6 +559,20 @@ export async function exportAndroidPlatform(
       path: path.join(path.resolve(request.outputDirectory), reportName),
       size: (await stat(path.join(publish, reportName))).size,
     });
+    checkPlatformExportCancelled(request.operationId);
+    const publicationBlocker = await beforePublish?.();
+    if (publicationBlocker)
+      return {
+        ok: false,
+        success: false,
+        cancelled: false,
+        operationId: request.operationId,
+        diagnostics: [
+          errorDiagnostic('platform-export-input-drift', '/project/assets', publicationBlocker),
+        ],
+        deployment: built.model,
+      };
+    checkPlatformExportCancelled(request.operationId);
     await publishAndroidArtifactSet(publish, request.outputDirectory, request.operationId);
     return {
       ok: true,
