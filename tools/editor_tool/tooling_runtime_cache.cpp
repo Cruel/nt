@@ -225,7 +225,16 @@ std::optional<Json> current_metadata_entry(const std::filesystem::path& root, co
     const auto mtime = string_field(metadata, "mtimeNanoseconds");
     if (metadata.is_discarded() || !ok || !*ok || !kind || *kind != "file" || !byte_size || !mtime)
         return std::nullopt;
-    return Json{{"path", relative}, {"byteSize", *byte_size}, {"mtimeNanoseconds", *mtime}};
+    Json current = {{"path", relative}, {"byteSize", *byte_size}, {"mtimeNanoseconds", *mtime}};
+    if (entry.contains("sourceIdentity")) {
+        if (!entry["sourceIdentity"].is_string())
+            return std::nullopt;
+        const auto source_identity = string_field(metadata, "sourceIdentity");
+        if (!source_identity)
+            return std::nullopt;
+        current["sourceIdentity"] = *source_identity;
+    }
+    return current;
 }
 
 bool metadata_matches(const std::filesystem::path& root, const Json& entry)
@@ -693,8 +702,8 @@ bool validation_result_shape_valid(const Json& result)
 Json probe_authoring(const Json& request)
 {
     const auto root_text = string_field(request, "projectRoot");
-    const auto identity = string_field(request, "buildIdentity");
-    if (!root_text || !identity)
+    const auto semantic_key = string_field(request, "semanticKey");
+    if (!root_text || !semantic_key)
         return response("unusable", "probe-request-invalid");
     const auto root = filesystem_path_from_utf8(*root_text);
     std::error_code error;
@@ -702,52 +711,30 @@ Json probe_authoring(const Json& request)
     if (error || !std::filesystem::is_directory(root_status) || !authoring_workspace_settled(root))
         return response("unusable", "workspace-unsettled");
     const std::filesystem::path cache_root = ".noveltea/cache/authoring";
-    if (!regular_contained_cache_file(root, cache_root / "current"))
-        return response("miss", "current-generation-unavailable");
-    const auto pointer_text = read_text(root / cache_root / "current");
-    if (!pointer_text)
-        return response("unusable", "current-generation-unreadable");
-    const auto pointer = Json::parse(*pointer_text, nullptr, false);
-    const auto generation = string_field(pointer, "generation");
-    const auto digest = string_field(pointer, "manifestSha256");
-    if (!pointer.is_object() || pointer.size() != 2 || !generation || !is_uuid(*generation) ||
-        (*generation)[14] != '4' ||
-        std::string_view("89ab").find((*generation)[19]) == std::string_view::npos ||
-        generation->find_first_not_of("0123456789abcdef-") != std::string::npos || !digest)
-        return response("unusable", "current-generation-invalid");
-    const auto manifest_path = cache_root / "generations" / *generation / "manifest.json";
+    const auto manifest_path = cache_root / "current.json";
     if (!regular_contained_cache_file(root, manifest_path))
-        return response("unusable", "manifest-unavailable");
+        return response("miss", "current-result-unavailable");
     const auto text = read_text(root / manifest_path);
-    if (!text || sha256_prefixed(*text) != *digest)
-        return response("unusable", "manifest-digest-mismatch");
+    if (!text)
+        return response("unusable", "current-result-unreadable");
     const auto manifest = Json::parse(*text, nullptr, false);
-    if (!manifest.is_object() || manifest.size() != 8 ||
+    if (!manifest.is_object() || manifest.size() != 6 ||
         string_field(manifest, "projectRoot") != root_text ||
         string_field(manifest, "schema") != "noveltea.authoring-cache" ||
-        string_field(manifest, "buildIdentity") != identity ||
-        !manifest.contains("projectWorkspace") ||
-        manifest["projectWorkspace"] !=
-            Json{{"schema", kWorkspaceSchema}, {"formatVersion", kWorkspaceVersion}} ||
-        !manifest.contains("inputs") || !manifest["inputs"].is_array() ||
-        !manifest.contains("discoveryScopes") || !manifest.contains("contributions") ||
-        !manifest["contributions"].is_object() || manifest["contributions"].size() != 3 ||
-        string_field(manifest["contributions"], "schema") !=
-            "noveltea.authoring-cache.contributions" ||
-        string_field(manifest["contributions"], "validationInputs") != "source-revisions" ||
-        !string_field(manifest["contributions"], "sha256") || !manifest.contains("result") ||
-        !validation_result_shape_valid(manifest["result"]))
+        string_field(manifest, "semanticKey") != semantic_key || !manifest.contains("inputs") ||
+        !manifest["inputs"].is_array() || !manifest.contains("discoveryScopes") ||
+        !manifest.contains("result") || !validation_result_shape_valid(manifest["result"]))
         return response("unusable", "cache-contract-changed");
 
     const Json scopes =
-        Json::array({{{"root", "records"},
+        Json::array({{{"root", "i18n"},
+                      {"extensions", Json::array({".json"})},
+                      {"excludedPrefixes", Json::array()}},
+                     {{"root", "records"},
                       {"extensions", Json::array({".json", ".lua", ".rcss", ".rml"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "scripts"},
                       {"extensions", Json::array({".lua"})},
-                      {"excludedPrefixes", Json::array()}},
-                     {{"root", "i18n"},
-                      {"extensions", Json::array({".json"})},
                       {"excludedPrefixes", Json::array()}}});
     if (manifest["discoveryScopes"] != scopes)
         return response("stale", "discovery-contract-changed");
@@ -756,10 +743,11 @@ Json probe_authoring(const Json& request)
     bool metadata_changed = false;
     std::string previous;
     for (const auto& input : manifest["inputs"]) {
-        if (!input.is_object() || input.size() != 3 || !input.contains("path") ||
+        if (!input.is_object() || input.size() != 4 || !input.contains("path") ||
             !input["path"].is_string() || !input.contains("byteSize") ||
             !input["byteSize"].is_number_unsigned() || !input.contains("mtimeNanoseconds") ||
-            !input["mtimeNanoseconds"].is_string())
+            !input["mtimeNanoseconds"].is_string() || !input.contains("sourceIdentity") ||
+            !input["sourceIdentity"].is_string())
             return response("unusable", "manifest-input-invalid");
         const auto relative = input["path"].get<std::string>();
         if (!safe_relative(relative))
@@ -784,7 +772,7 @@ Json probe_authoring(const Json& request)
         result["currentInputs"] = std::move(current_inputs);
         return result;
     }
-    auto result = response("hit", "current-authoring-generation-valid");
+    auto result = response("hit", "current-authoring-validation-valid");
     result["result"] = Json{{"success", manifest["result"]["success"]},
                             {"exitCode", manifest["result"]["exitCode"]},
                             {"diagnostics", manifest["result"]["diagnostics"]}};

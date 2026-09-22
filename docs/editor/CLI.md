@@ -150,7 +150,7 @@ IPC uses bounded length-prefixed JSON frames shared by the Unix-socket and named
 
 Heavy authored-Test preparation and output-producing Runtime Package/platform publication are separate daemon execution classes. Complete native runtime/Test-cache hits still finish in the calling process before daemon dispatch. On a heavy miss/request, the Project owner performs only the short authoritative reconciliation/preparation pass and publishes the exact resident generation as an opaque portable snapshot. Native scheduling pins that `(session epoch, generation)` while the owner remains free to reconcile newer edits and service short reads or mutations. A warm unassigned ScriptC disposable worker receives only the pinned snapshot plus the small original command descriptor; its resident workspace is rehydrated from those bytes and does not reopen authored Project source files. Large external Asset payloads stay file-backed in that snapshot and carry their expected physical identity, byte size, and exact mtime (or fallback content hash). Output workers write to temporary/staging destinations, re-check those pinned Asset expectations immediately before publication, and only then atomically replace the requested final output. Asset drift, cancellation, command failure, or worker failure therefore cannot make a partial/stale result appear at the requested publication path. Disposable workers execute exactly one heavy job and retire. Consuming the warm standby starts a replacement up to an internal process cap; additional heavy jobs queue at that cap, while foreground owner work is selected ahead of pending heavy preparation. Extra idle standbys expire back toward one warm worker. Cooperative cancellation is attempted first, after which native scheduling may terminate only the disposable process; a disposable crash likewise fails only its request, releases the generation pin, and replenishes standby capacity without replacing the Project owner or daemon broker. `platform export --check` remains an owner-short, write-free preflight rather than disposable publication work. `daemon status` may expose additive disposable-worker diagnostics such as busy, queued, and standby counts in addition to its stable core fields.
 
-Read-only commands that need an existing authoring Project use a daemon-resident disk-authoritative Project session inside that Project's dedicated owner worker, keyed by the Project's canonical physical root. Logical aliases and symlinks therefore converge on one owner and one semantic authority while command-visible paths remain relative to the caller's logical Project root. A resident session retains the last coherent immutable Project generation together with parsed source contributions, validation contributions, dependency/source-analysis state, and indexes needed for change-scoped work. Resident generations have a process-local session epoch plus monotonic generation counter; the identity advances without deriving a new whole-Project token. Physical freshness comes from the broker's native Project-authority observation: native code owns conservative source discovery/watcher recovery and returns compact added/changed/removed paths, while the owning QuickJS runtime consumes only that delta for ordinary reconciliation instead of independently enumerating the Project. While an owner is otherwise idle, native watcher dirtiness causes the owner to reconcile its resident session; only a real semantic delta or invalid changed generation refreshes the owner activity clock, so watcher noise cannot keep an owner alive indefinitely. Existing-source edits build a separate candidate generation from the coherent base, reread and parse only changed sources, invalidate the affected semantic dependency closure, prove the physical generation again, and promote atomically. Unchanged record/source state is structurally shared rather than cloned or canonically reprojected; source-revision state advances from the changed source set instead of sorting/stringifying the complete source inventory. Structural source-set changes such as additions or deletions conservatively widen reconciliation. If disk changes race candidate construction, the final native proof discards the candidate and retries from the coherent base; if a post-command proof consumes a native delta, the resident owner retains that delta for the retry so the advanced native manifest cannot hide stale semantic state. Transactional mutations use the same owner boundary: the owner first proves that no new semantic delta appeared after mutation admission, constructs and semantically admits the exact projected generation before publication, commits through the normal Project transaction writer, then requires native authority plus exact changed-file revisions to prove that committed generation before promotion. A transaction failure or failed post-write proof never promotes the candidate or evicts the coherent owner; any committed-but-unproven disk delta remains pending for ordinary reconciliation, while a source race before commit returns an explicit revision conflict. Owner processes are evicted only while inactive, using an internal idle cutoff plus a bounded resident-worker pressure policy; eviction stops native Project authority/watcher state and the worker cleanly. An unexpected owner-process exit fails only that Project's in-flight request, leaves the broker and other Project owners alive, drops that owner's authority, and lets the next request establish a fresh owner through ordinary canonical admission. Malformed current disk state is retained as an invalid overlay over the last coherent generation, allowing a later correction to resume from that coherent base rather than reopening cold. Scoped read-only commands continue to validate only the domains they require. Resident validation does not synchronously republish the rich persistent semantic cache after every changed generation; cold/restart cache behavior remains a disposable acceleration path. Portable Project export consumes the resident Project snapshot, while its existing exact source-revision check remains the final publication authority for the archive.
+Read-only commands that need an existing authoring Project use a daemon-resident disk-authoritative Project session inside that Project's dedicated owner worker, keyed by the Project's canonical physical root. Logical aliases and symlinks therefore converge on one owner and one semantic authority while command-visible paths remain relative to the caller's logical Project root. A resident session retains the last coherent immutable Project generation together with the in-memory parsed source, validation, dependency/source-analysis state, and indexes needed for change-scoped work. Those semantic products are RAM-only owner state; they are not authoring-cache persistence artifacts. Resident generations have a process-local session epoch plus monotonic generation counter; the identity advances without deriving a new whole-Project token. Physical freshness comes from the broker's native Project-authority observation: native code owns conservative source discovery/watcher recovery and returns compact added/changed/removed paths, while the owning QuickJS runtime consumes only that delta for ordinary reconciliation instead of independently enumerating the Project. While an owner is otherwise idle, native watcher dirtiness causes the owner to reconcile its resident session; only a real semantic delta or invalid changed generation refreshes the owner activity clock, so watcher noise cannot keep an owner alive indefinitely. Existing-source edits build a separate candidate generation from the coherent base, reread and parse only changed sources, invalidate the affected semantic dependency closure, prove the physical generation again, and promote atomically. Unchanged record/source state is structurally shared rather than cloned or canonically reprojected; source-revision state advances from the changed source set instead of sorting/stringifying the complete source inventory. Structural source-set changes such as additions or deletions conservatively widen reconciliation. If disk changes race candidate construction, the final native proof discards the candidate and retries from the coherent base; if a post-command proof consumes a native delta, the resident owner retains that delta for the retry so the advanced native manifest cannot hide stale semantic state. Transactional mutations use the same owner boundary: the owner first proves that no new semantic delta appeared after mutation admission, constructs and semantically admits the exact projected generation before publication, commits through the normal Project transaction writer, then requires native authority plus exact changed-file revisions to prove that committed generation before promotion. A transaction failure or failed post-write proof never promotes the candidate or evicts the coherent owner; any committed-but-unproven disk delta remains pending for ordinary reconciliation, while a source race before commit returns an explicit revision conflict. Owner processes are evicted only while inactive, using an internal idle cutoff plus a bounded resident-worker pressure policy; eviction stops watcher coverage and the worker cleanly. The broker may retain the owner's latest portable snapshot and exact validation result under their independent RAM policies. An unexpected owner-process exit fails only that Project's in-flight request, leaves the broker and other Project owners alive, and lets the next request rehydrate or cold-admit that Project. Malformed current disk state is retained as an invalid overlay over the last coherent generation, allowing a later correction to resume from that coherent base rather than reopening cold. Scoped read-only commands continue to validate only the domains they require. Portable Project export consumes the resident Project snapshot, while its existing exact source-revision check remains the final publication authority for the archive.
 
 `noveltea daemon status` and `noveltea daemon stop` are static/native diagnostics and do not require QuickJS. There is intentionally no public `daemon start`; the native broker exposes private startup arbitration to the standalone dispatch layer instead of requiring user-managed service startup. `noveltea --json daemon status` guarantees the stable core `running`, `state`, `build`, `protocol`, and `pid`; additional diagnostics may evolve. `daemon stop` is idempotent and performs graceful drain when a compatible daemon is running. For ordinary standalone invocations, complete static/native answers still win first; otherwise the client forwards to the compatible resident daemon by default. `--no-daemon` and `NOVELTEA_NO_DAEMON=1` keep the same static/native fast paths but force any remaining work through the canonical local QuickJS path. Failure to establish daemon acceleration within the bounded startup window falls back locally. Both resident and local QuickJS execution receive cooperative Ctrl+C/termination cancellation so a correctness-preserving fallback can perform command-specific cleanup before returning the interrupted result. A mid-request daemon failure is replayed locally only for requests declared read-only/idempotent; side-effecting requests fail rather than risk duplicate effects.
 
@@ -225,60 +225,64 @@ Rename/delete use the shared dependency graph and source recognizers. Proven rew
 
 ## Persistent validation cache
 
-`validate` can reuse unchanged disk-authoritative validation from `.noveltea/cache/authoring/`.
-The shared TypeScript producer writes isolated immutable generations and atomically replaces a
-`current` pointer containing the generation ID and manifest digest. The strict same-build manifest
-binds the Project root, Workspace identity, exact source inventory, discovery contract, and structured
-validation result. It has no independent compatibility version or migration path.
+`validate` can reuse an unchanged exact disk-authoritative validation result from
+`.noveltea/cache/authoring/current.json`. This is deliberately a narrow restart accelerator, not a
+persisted semantic Project generation. The strict current contract contains only the Project root,
+the exact validation semantic key, the physical source/discovery manifest, and the structured
+validation result. It persists no parsed source, validation-check contribution, dependency graph,
+source-analysis product, portable Project snapshot, or resident generation identity. The cache has no
+independent compatibility version or migration path; an incompatible current shape is simply ignored.
+
+The semantic key explicitly binds every non-Project input that can affect validation: NovelTea/CLI
+build identity, Workspace and authoring schema identities, compiler/runtime identity, and the current
+validation profile/options/configuration contract. Project-controlled validation settings remain
+covered by the physical Project authority itself. A result is reusable only when both that semantic
+key and the exact physical authority match.
 
 Freshness uses the shared Project source-inventory mechanism also used by the runtime/Test cache:
-exact byte size and nanosecond mtime for canonical Workspace files (including Tests and editor state),
-declared Asset sources, and conservative candidates under `records/`, `scripts/`, and `i18n/`.
-Ordinary hits do not reread/hash authored source bytes. Unrelated README files do not invalidate.
-The producer brackets Workspace assembly with candidate discovery, proves loaded source revisions,
-and rechecks inventory after validation and payload writing before advancing `current`. Concurrent
-writers publish separate complete generations without acquiring a Project authoring lock just for
-cache population. Pending transaction state prevents admission/publication.
+native physical file identity, exact byte size, and nanosecond mtime for canonical Workspace files
+(including Tests and editor state), declared Asset sources, and conservative candidates under
+`records/`, `scripts/`, and `i18n/`. Ordinary hits do not reread/hash authored source bytes. Unrelated
+README files do not invalidate. Pending transaction state prevents admission/publication. A same-path
+replacement with restored size/mtime is still rejected because its physical file identity changed.
 
 Standalone root-level or explicit-Project hits run entirely in the static/native tier, before QuickJS.
 The native probe shares metadata/discovery machinery with runtime-cache admission, verifies the
-manifest digest and current contract, and returns diagnostics rather than implementing validation.
+current contract and semantic key, and returns diagnostics rather than implementing validation.
 Upward discovery, missing/stale/corrupt/incompatible state, unsafe paths, unavailable exact metadata,
 and other uncertainty use normal TypeScript validation. Publication is best-effort; unwritable cache
 state never changes freshly computed diagnostics. Native tooling failures are not memoized.
 
 Cached semantic errors, warnings, informational findings, locations, ordering, exit status, and human
-or JSON formatting retain ordinary validation semantics. When the whole-result static/native hit is
-not available but the prior generation is otherwise reusable, TypeScript validation reuses exact
-per-source assembly contributions, per-check semantic contributions, dependency-graph contributions,
-and source-analysis products whose recorded Project inputs still resolve to the same source revisions.
-For normal standalone daemon execution, a cold resident Project session may hydrate from those same
-reusable contributions. Once the Project is resident, that in-memory generation remains authoritative;
-the persistent cache is consulted again only when a new cold session needs admission. Changed resident
-validation does not synchronously publish another rich semantic cache generation in the foreground;
-optional persistence remains restart acceleration and must not delay the returned validation result.
-Only changed source fragments are reparsed/reprojected; dependency contributions are rederived only for
-invalidated owners while unaffected contributions are assembled from the previous generation. The
-validation-only compiler preflight consumes the already-admitted semantic result and deliberately skips
-whole-Project schema normalization, compiler link-graph construction, lowering, wire assembly, and
-serialization. Actual compile/export/package boundaries continue to use the canonical full compiler.
-Added, deleted, reclassified, or otherwise uncertain source inventory falls back to fresh validation
-rather than risking stale semantics. Stale-cache admission captures one candidate inventory before
-assembly and proves that same physical generation again before publication instead of performing
-independent duplicate pre-admission inventory sweeps. `NOVELTEA_CLI_TRACE=1` exposes standalone
-admission/fallback and island-import traces without adding routine cache fields to validation output;
-`NOVELTEA_CLI_VALIDATION_PROFILE=1` is an engineering/certification-only trace that emits phase timings
-and useful-work counts on stderr and does not alter normal validation output.
+or JSON formatting retain ordinary validation semantics. There is no stale-generation partial semantic
+reuse path: a persistent exact miss enters canonical cold admission, while a live Project owner uses
+its RAM-resident incremental state. The daemon separately retains the latest exact validation result in
+native memory together with the exact native authority checkpoint that produced it. An unchanged
+`validate` may therefore return from the broker without entering QuickJS even after the owner process
+has been evicted. Ownerless hits perform a fresh native authority proof and then suspend watcher
+coverage again; an active owner may use the native hit only while it has no queued/active/reconciling or
+transaction-critical work, so the fast path never overtakes owner serialization.
+
+After foreground validation is correct, optional exact-result publication is generation-tagged and
+best-effort. The TypeScript clean-editor/no-daemon producer starts publication without awaiting it; the
+resident daemon coalesces pending native publications and performs them only from its idle maintenance
+path. Foreground owner work never serializes or writes a semantic cache generation. Daemon shutdown
+does not require an optional cache flush. Corrupt, stale, incompatible, missing, unsafe, or unwritable
+persistent state changes only performance and falls back to canonical resident/cold semantics.
+`NOVELTEA_CLI_TRACE=1` exposes standalone admission/fallback and island-import traces without adding
+routine cache fields to validation output; `NOVELTEA_CLI_VALIDATION_PROFILE=1` is an
+engineering/certification-only trace that emits phase timings and useful-work counts on stderr and does
+not alter normal validation output.
 Clean saved editor validation uses this same disk-authoritative `validate` path, so an eligible editor
-validation may consume or publish the same generation used by later CLI validation. The renderer marks
+validation may consume or publish the same exact result used by later CLI validation. The renderer marks
 validation session-local whenever Project content, draft state, or pending field input is dirty. The
 main process independently requires a coherent active Workspace whose persisted Project content matches
 the submitted Project, then captures the exact physical source inventory represented by that Workspace.
-The shared CLI/cache path may consume or publish only that captured generation; a physical source change
+The shared CLI/cache path may consume or publish only that captured authority; a physical source change
 before admission falls back to session-local validation instead of displaying diagnostics for a newer
-disk generation. A mismatched or unreconciled save therefore validates in memory only; the previous
-clean generation continues to describe disk until the active Workspace has reconciled the saved physical
-generation. Cache generations also retain the rich editor diagnostic form, including owner/navigation
+disk state. A mismatched or unreconciled save therefore validates in memory only; the previous clean
+exact result continues to describe disk until the active Workspace has reconciled the saved physical
+state. The cache retains the rich editor diagnostic form, including owner/navigation
 metadata, while the public CLI JSON envelope continues to expose its stable CLI diagnostic projection.
 Unsaved editor drafts never publish to the persistent authoring cache. The cache is disposable and
 excluded from portable Project bundles.

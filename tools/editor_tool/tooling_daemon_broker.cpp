@@ -683,9 +683,20 @@ struct ProjectOwnerWorker {
     std::uint64_t last_activity_millis = 0;
     std::uint64_t critical_sections = 0;
     bool reconciling = false;
+    bool dispatching = false;
     bool retiring = false;
     bool retirement_started = false;
     std::optional<PendingSnapshot> pending_snapshot;
+};
+
+struct ExactValidationResult {
+    std::string canonical_root;
+    std::string semantic_key;
+    ProjectAuthorityCheckpoint authority;
+    Json structured_result = Json::object();
+    Json human_result = Json::array();
+    Json json_result = Json::array();
+    std::uint64_t revision = 0;
 };
 
 enum class DisposableWorkerState {
@@ -814,12 +825,18 @@ public:
                         return state_.load() == State::draining ||
                                state_.load() == State::stopped || found == project_owners_.end() ||
                                found->second.retiring ||
-                               (state_.load() == State::ready && !found->second.queued.empty());
+                               (state_.load() == State::ready &&
+                                !exact_validation_probe_roots_.contains(
+                                    found->second.canonical_root) &&
+                                !found->second.queued.empty());
                     });
                 const auto found = project_owners_.find(owner_worker_id);
                 if (state_.load() == State::draining || state_.load() == State::stopped ||
                     found == project_owners_.end() || found->second.retiring)
                     return {{"ok", true}, {"stopped", true}};
+                if (!awakened &&
+                    exact_validation_probe_roots_.contains(found->second.canonical_root))
+                    continue;
                 if (!awakened)
                     return {{"ok", true}, {"stopped", false}, {"idle", true}};
                 if (found->second.queued.empty())
@@ -834,11 +851,18 @@ public:
                     selected = found->second.queued.begin();
                 queued = std::move(*selected);
                 found->second.queued.erase(selected);
+                found->second.dispatching = true;
                 found->second.last_activity_millis = now_millis();
             }
             const auto client = queued.client.lock();
-            if (!client || client->current() == invalid_connection)
+            if (!client || client->current() == invalid_connection) {
+                std::scoped_lock lock(queue_mutex_);
+                const auto owner = project_owners_.find(owner_worker_id);
+                if (owner != project_owners_.end())
+                    owner->second.dispatching = false;
+                owner_cv_.notify_all();
                 continue;
+            }
             const auto token = next_request_token_.fetch_add(1);
             {
                 std::scoped_lock lock(queue_mutex_);
@@ -858,6 +882,7 @@ public:
                                            .method = queued.method,
                                            .payload = queued.payload,
                                        });
+                owner->second.dispatching = false;
                 owner->second.last_activity_millis = now_millis();
             }
             touch();
@@ -932,6 +957,65 @@ public:
         if (completed.value("ok", false))
             touch_owner(owner_worker_id);
         return completed;
+    }
+
+    Json retain_owner_validation_result(std::uint64_t owner_worker_id, std::uint64_t token,
+                                        std::string semantic_key, Json structured_result,
+                                        Json human_result, Json json_result)
+    {
+        std::string canonical_root;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto active = active_.find(token);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (active == active_.end() || active->second.owner_worker_id != owner_worker_id ||
+                owner == project_owners_.end() || owner->second.retiring)
+                return error_json(
+                    "exact validation result does not belong to an active owner request");
+            const auto& payload = active->second.payload;
+            if (!payload.is_object() ||
+                payload.value("authoringValidationSemanticKey", std::string{}) != semantic_key ||
+                !payload.contains("argv") || !payload["argv"].is_array() ||
+                std::find(payload["argv"].begin(), payload["argv"].end(), "validate") ==
+                    payload["argv"].end())
+                return error_json(
+                    "exact validation result does not match the active validate request");
+            canonical_root = owner->second.canonical_root;
+        }
+        if (!structured_result.is_object() || !structured_result.contains("success") ||
+            !structured_result["success"].is_boolean() || !structured_result.contains("exitCode") ||
+            !structured_result["exitCode"].is_number_integer() ||
+            !structured_result.contains("diagnostics") ||
+            !structured_result["diagnostics"].is_array() ||
+            !structured_result.contains("editorDiagnostics") ||
+            !structured_result["editorDiagnostics"].is_array() || !human_result.is_array() ||
+            human_result.size() != 3 || !json_result.is_array() || json_result.size() != 3)
+            return error_json("exact validation result payload is malformed");
+
+#if defined(_WIN32)
+        const std::filesystem::path root = utf8_to_wide(canonical_root);
+#else
+        const std::filesystem::path root = canonical_root;
+#endif
+        const auto checkpoint = project_authority_.checkpoint(root);
+        if (!checkpoint)
+            return error_json("exact validation result has no proven native Project authority");
+
+        ExactValidationResult retained{
+            .canonical_root = canonical_root,
+            .semantic_key = std::move(semantic_key),
+            .authority = *checkpoint,
+            .structured_result = std::move(structured_result),
+            .human_result = std::move(human_result),
+            .json_result = std::move(json_result),
+            .revision = next_validation_revision_.fetch_add(1),
+        };
+        {
+            std::scoped_lock lock(validation_mutex_);
+            exact_validation_results_[canonical_root] = retained;
+            pending_validation_publications_[canonical_root] = std::move(retained);
+        }
+        return {{"ok", true}};
     }
 
     Json emit_owner_request_event(std::uint64_t owner_worker_id, std::uint64_t token,
@@ -1717,7 +1801,16 @@ private:
 
         const auto owner_worker_id = next_owner_worker_id_.fetch_add(1);
         const auto cold_session_epoch = next_project_session_epoch_.fetch_add(1);
-        const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
+        auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
+        if (retained_snapshot) {
+            const auto checkpoint = project_snapshots_.authority_checkpoint(
+                canonical_root, retained_snapshot->identity, now_millis());
+            if (!checkpoint ||
+                !project_authority_.restore_checkpoint_for_rehydration(*checkpoint)) {
+                project_snapshots_.invalidate_current(canonical_root);
+                retained_snapshot.reset();
+            }
+        }
         auto process = spawn_project_owner_process(context_, owner_worker_id);
         if (!process)
             return std::nullopt;
@@ -1733,6 +1826,85 @@ private:
         project_owner_by_root_[canonical_root] = owner_worker_id;
         owner_cv_.notify_all();
         return owner_worker_id;
+    }
+
+    std::optional<Json> exact_validation_hit(const std::string& canonical_root, const Json& payload)
+    {
+        if (!payload.is_object() || !payload.contains("argv") || !payload["argv"].is_array() ||
+            std::find(payload["argv"].begin(), payload["argv"].end(), "validate") ==
+                payload["argv"].end())
+            return std::nullopt;
+        const auto semantic_key = payload.value("authoringValidationSemanticKey", std::string{});
+        if (semantic_key.empty())
+            return std::nullopt;
+
+        std::optional<ExactValidationResult> retained;
+        {
+            std::scoped_lock lock(validation_mutex_);
+            const auto found = exact_validation_results_.find(canonical_root);
+            if (found == exact_validation_results_.end() ||
+                found->second.semantic_key != semantic_key)
+                return std::nullopt;
+            retained = found->second;
+        }
+
+#if defined(_WIN32)
+        const std::filesystem::path root = utf8_to_wide(canonical_root);
+#else
+        const std::filesystem::path root = canonical_root;
+#endif
+        bool active_owner = false;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto mapped = project_owner_by_root_.find(canonical_root);
+            if (mapped != project_owner_by_root_.end()) {
+                const auto owner = project_owners_.find(mapped->second);
+                active_owner = owner != project_owners_.end() && !owner->second.retiring &&
+                               child_process_alive(owner->second.process);
+                if (active_owner) {
+                    const bool request_active =
+                        std::any_of(active_.begin(), active_.end(),
+                                    [owner_worker_id = owner->first](const auto& item) {
+                                        return item.second.owner_worker_id == owner_worker_id;
+                                    });
+                    if (!owner->second.queued.empty() || request_active ||
+                        owner->second.critical_sections != 0 || owner->second.reconciling)
+                        return std::nullopt;
+                }
+            }
+        }
+        if (active_owner) {
+            const auto current = project_authority_.checkpoint(root);
+            if (!current || *current != retained->authority)
+                return std::nullopt;
+        } else {
+            try {
+                const auto observation = project_authority_.observe(ProjectAuthorityRequest{
+                    .project_root = root,
+                    .authoritative_paths = retained->authority.authoritative_paths,
+                    .discovery_scopes = retained->authority.discovery_scopes,
+                });
+                if (observation.manifest != retained->authority.manifest) {
+                    std::scoped_lock lock(validation_mutex_);
+                    const auto found = exact_validation_results_.find(canonical_root);
+                    if (found != exact_validation_results_.end() &&
+                        found->second.revision == retained->revision)
+                        exact_validation_results_.erase(found);
+                    return std::nullopt;
+                }
+                const auto current = project_authority_.checkpoint(root);
+                if (!current || *current != retained->authority)
+                    return std::nullopt;
+                // Owner eviction stops watcher coverage. The exact result remains reusable in
+                // native memory, but every later ownerless hit must prove disk again rather than
+                // leaving a dormant Project watcher alive indefinitely.
+                (void)project_authority_.suspend(root);
+            } catch (...) {
+                return std::nullopt;
+            }
+        }
+        return payload.value("outputMode", std::string{}) == "json" ? retained->json_result
+                                                                    : retained->human_result;
     }
 
     std::optional<std::string>
@@ -1766,6 +1938,14 @@ private:
                     return "daemon is draining";
                 if (request_id_pending_locked(client, request_id))
                     return "duplicate pending daemon request id";
+                if (exact_validation_probe_roots_.contains(canonical_root)) {
+                    owner_cv_.wait(lock, [this, &canonical_root] {
+                        return state_.load() == State::draining ||
+                               state_.load() == State::stopped ||
+                               !exact_validation_probe_roots_.contains(canonical_root);
+                    });
+                    continue;
+                }
                 if (const auto mapped = project_owner_by_root_.find(canonical_root);
                     mapped != project_owner_by_root_.end()) {
                     const auto owner = project_owners_.find(mapped->second);
@@ -1786,22 +1966,83 @@ private:
                     }
                 }
                 if (!dead_owner) {
-                    const auto owner_worker_id = ensure_project_owner_locked(canonical_root);
-                    if (!owner_worker_id)
-                        return "failed to start daemon Project owner worker";
-                    auto& owner = project_owners_.at(*owner_worker_id);
-                    owner.queued.push_back(QueuedRequest{
-                        .client = client,
-                        .request_id = request_id,
-                        .method = method,
-                        .payload = payload,
-                        .prepare_disposable =
-                            payload.value("executionClass", std::string{}) == "disposable-heavy",
-                    });
-                    owner.last_activity_millis = now_millis();
-                    owner_cv_.notify_all();
-                    touch();
-                    return std::nullopt;
+                    bool exact_candidate = false;
+                    const auto semantic_key =
+                        payload.value("authoringValidationSemanticKey", std::string{});
+                    if (!semantic_key.empty()) {
+                        std::scoped_lock validation_lock(validation_mutex_);
+                        const auto retained = exact_validation_results_.find(canonical_root);
+                        exact_candidate = retained != exact_validation_results_.end() &&
+                                          retained->second.semantic_key == semantic_key;
+                    }
+                    if (exact_candidate) {
+                        bool owner_idle = true;
+                        if (const auto mapped = project_owner_by_root_.find(canonical_root);
+                            mapped != project_owner_by_root_.end()) {
+                            const auto owner = project_owners_.find(mapped->second);
+                            if (owner != project_owners_.end()) {
+                                const bool request_active = std::any_of(
+                                    active_.begin(), active_.end(),
+                                    [owner_worker_id = owner->first](const auto& item) {
+                                        return item.second.owner_worker_id == owner_worker_id;
+                                    });
+                                owner_idle = owner->second.queued.empty() && !request_active &&
+                                             !owner->second.dispatching &&
+                                             owner->second.critical_sections == 0 &&
+                                             !owner->second.reconciling;
+                            }
+                        }
+                        if (owner_idle) {
+                            exact_validation_probe_roots_.insert(canonical_root);
+                            exact_validation_probes_.fetch_add(1);
+                            lock.unlock();
+                            const auto exact = exact_validation_hit(canonical_root, payload);
+                            lock.lock();
+                            exact_validation_probe_roots_.erase(canonical_root);
+                            exact_validation_probes_.fetch_sub(1);
+                            owner_cv_.notify_all();
+                            active_cv_.notify_all();
+                            if (exact) {
+                                lock.unlock();
+                                client->send(result_event_json(request_id, true, exact->dump()));
+                                touch();
+                                return std::nullopt;
+                            }
+                        }
+                    }
+                    if (state_.load() == State::draining || state_.load() == State::stopped)
+                        return "daemon is draining";
+                    if (request_id_pending_locked(client, request_id))
+                        return "duplicate pending daemon request id";
+                    if (const auto mapped = project_owner_by_root_.find(canonical_root);
+                        mapped != project_owner_by_root_.end()) {
+                        const auto owner = project_owners_.find(mapped->second);
+                        if (owner == project_owners_.end()) {
+                            project_owner_by_root_.erase(mapped);
+                        } else if (owner->second.retiring) {
+                            continue;
+                        } else if (!child_process_alive(owner->second.process)) {
+                            dead_owner = owner->first;
+                        }
+                    }
+                    if (!dead_owner) {
+                        const auto owner_worker_id = ensure_project_owner_locked(canonical_root);
+                        if (!owner_worker_id)
+                            return "failed to start daemon Project owner worker";
+                        auto& owner = project_owners_.at(*owner_worker_id);
+                        owner.queued.push_back(QueuedRequest{
+                            .client = client,
+                            .request_id = request_id,
+                            .method = method,
+                            .payload = payload,
+                            .prepare_disposable = payload.value("executionClass", std::string{}) ==
+                                                  "disposable-heavy",
+                        });
+                        owner.last_activity_millis = now_millis();
+                        owner_cv_.notify_all();
+                        touch();
+                        return std::nullopt;
+                    }
                 }
             }
             retire_project_owner(*dead_owner, "daemon Project owner exited unexpectedly", true);
@@ -1861,8 +2102,22 @@ private:
         else
             terminate_child_process(process);
         const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
+        std::optional<ProjectAuthorityCheckpoint> exact_validation_checkpoint;
+        {
+            std::scoped_lock lock(validation_mutex_);
+            const auto found = exact_validation_results_.find(canonical_root);
+            if (found != exact_validation_results_.end())
+                exact_validation_checkpoint = found->second.authority;
+        }
         bool retained_for_rehydration = false;
-        if (retained_snapshot) {
+        if (exact_validation_checkpoint) {
+            // Exact validation survives owner eviction independently of portable semantic bytes.
+            // Install its native physical baseline dormant so the next validation can prove disk
+            // equality without starting QuickJS. A later owner admission restores its own retained
+            // snapshot checkpoint before rehydration.
+            retained_for_rehydration =
+                project_authority_.restore_checkpoint_for_rehydration(*exact_validation_checkpoint);
+        } else if (retained_snapshot) {
             // Snapshot serialization is allowed to lag the live owner. Always restore the exact
             // native baseline captured with the retained bytes before making the Project dormant;
             // otherwise a replacement could rehydrate generation N-1 against generation N's
@@ -1980,8 +2235,9 @@ private:
                     retire.emplace_back(id, true);
                     continue;
                 }
-                if (!owner.queued.empty() || owner_is_active(id) || owner.critical_sections != 0 ||
-                    owner.reconciling)
+                if (!owner.queued.empty() || owner.dispatching || owner_is_active(id) ||
+                    owner.critical_sections != 0 || owner.reconciling ||
+                    exact_validation_probe_roots_.contains(owner.canonical_root))
                     continue;
                 const bool idle_expired =
                     now - owner.last_activity_millis >= context_.project_session_idle_ms;
@@ -2129,6 +2385,120 @@ private:
         return static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch())
                 .count());
+    }
+
+    static std::optional<std::filesystem::path>
+    authoring_cache_directory(const std::filesystem::path& root)
+    {
+        auto directory = root;
+        for (const auto* segment : {".noveltea", "cache", "authoring"}) {
+            directory /= segment;
+            std::error_code error;
+            auto status = std::filesystem::symlink_status(directory, error);
+            if (error)
+                return std::nullopt;
+            if (status.type() == std::filesystem::file_type::not_found) {
+                if (!std::filesystem::create_directory(directory, error) || error)
+                    return std::nullopt;
+                status = std::filesystem::symlink_status(directory, error);
+            }
+            if (error || std::filesystem::is_symlink(status) ||
+                !std::filesystem::is_directory(status))
+                return std::nullopt;
+        }
+        return directory;
+    }
+
+    static bool write_text_atomic(const std::filesystem::path& destination, std::string_view text,
+                                  std::uint64_t revision)
+    {
+        auto temporary = destination;
+        temporary += ".tmp-" + std::to_string(revision);
+        {
+            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+            if (!output) {
+                std::error_code cleanup_error;
+                std::filesystem::remove(temporary, cleanup_error);
+                return false;
+            }
+            output.write(text.data(), static_cast<std::streamsize>(text.size()));
+            output.flush();
+            if (!output) {
+                output.close();
+                std::error_code cleanup_error;
+                std::filesystem::remove(temporary, cleanup_error);
+                return false;
+            }
+        }
+        bool replaced = false;
+#if defined(_WIN32)
+        replaced = MoveFileExW(temporary.c_str(), destination.c_str(),
+                               MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+        std::error_code error;
+        std::filesystem::rename(temporary, destination, error);
+        replaced = !error;
+#endif
+        if (!replaced) {
+            std::error_code cleanup_error;
+            std::filesystem::remove(temporary, cleanup_error);
+        }
+        return replaced;
+    }
+
+    void publish_pending_validation_cache()
+    {
+        std::optional<ExactValidationResult> pending;
+        {
+            std::scoped_lock lock(validation_mutex_);
+            if (pending_validation_publications_.empty())
+                return;
+            pending = pending_validation_publications_.begin()->second;
+        }
+
+#if defined(_WIN32)
+        const std::filesystem::path root = utf8_to_wide(pending->canonical_root);
+#else
+        const std::filesystem::path root = pending->canonical_root;
+#endif
+        Json inputs = Json::array();
+        bool persistable = true;
+        for (const auto& entry : pending->authority.manifest.entries) {
+            if (!entry.mtime_nanoseconds || entry.source_identity.empty()) {
+                persistable = false;
+                break;
+            }
+            inputs.push_back({{"path", entry.path},
+                              {"sourceIdentity", entry.source_identity},
+                              {"byteSize", entry.byte_size},
+                              {"mtimeNanoseconds", std::to_string(*entry.mtime_nanoseconds)}});
+        }
+        Json scopes = Json::array();
+        for (const auto& scope : pending->authority.discovery_scopes)
+            scopes.push_back({{"root", scope.root},
+                              {"extensions", scope.extensions},
+                              {"excludedPrefixes", scope.excluded_prefixes}});
+        if (persistable) {
+            const Json manifest = {{"schema", "noveltea.authoring-cache"},
+                                   {"semanticKey", pending->semantic_key},
+                                   {"projectRoot", pending->canonical_root},
+                                   {"discoveryScopes", std::move(scopes)},
+                                   {"inputs", std::move(inputs)},
+                                   {"result", pending->structured_result}};
+            if (const auto directory = authoring_cache_directory(root))
+                (void)write_text_atomic(*directory / "current.json", manifest.dump() + "\n",
+                                        pending->revision);
+        }
+
+        // Persistence is disposable acceleration. A failed write is dropped rather than retried on
+        // the foreground path; a newer exact result will enqueue a fresh best-effort publication.
+        {
+            std::scoped_lock lock(validation_mutex_);
+            const auto found = pending_validation_publications_.find(pending->canonical_root);
+            if (found != pending_validation_publications_.end() &&
+                found->second.revision == pending->revision)
+                pending_validation_publications_.erase(found);
+        }
     }
 
     void create_listener()
@@ -2325,6 +2695,31 @@ private:
                                            message_payload.value("requestOk", false),
                                            message_payload.value("result", Json(nullptr)),
                                            message_payload.value("error", std::string{}));
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "owner-validation-result") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("token") ||
+                    !message_payload["token"].is_number_unsigned() ||
+                    !message_payload.contains("semanticKey") ||
+                    !message_payload["semanticKey"].is_string() ||
+                    !message_payload.contains("validationResult") ||
+                    !message_payload.contains("humanResult") ||
+                    !message_payload.contains("jsonResult")) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "owner-validation-result requires worker, "
+                                                   "token, semantic key, and result"));
+                    continue;
+                }
+                const auto result = retain_owner_validation_result(
+                    message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                    message_payload["token"].get<std::uint64_t>(),
+                    message_payload["semanticKey"].get<std::string>(),
+                    message_payload["validationResult"], message_payload["humanResult"],
+                    message_payload["jsonResult"]);
                 client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
                                                result.value("error", std::string{})));
                 continue;
@@ -2885,7 +3280,7 @@ private:
         for (;;) {
             {
                 std::unique_lock lock(queue_mutex_);
-                if (active_.empty())
+                if (active_.empty() && exact_validation_probes_.load() == 0)
                     break;
                 active_cv_.wait_for(lock, std::chrono::milliseconds(50));
             }
@@ -2916,7 +3311,8 @@ private:
 
     void finish_if_safe()
     {
-        if (state_.load() != State::draining || critical_sections_.load() != 0)
+        if (state_.load() != State::draining || critical_sections_.load() != 0 ||
+            exact_validation_probes_.load() != 0)
             return;
         {
             std::scoped_lock lock(queue_mutex_);
@@ -2999,13 +3395,19 @@ private:
             std::this_thread::sleep_for(sleep_interval);
             maintain_project_owners();
             maintain_disposable_workers();
-            if (critical_sections_.load() != 0)
+            if (critical_sections_.load() != 0 || exact_validation_probes_.load() != 0)
                 continue;
             {
                 std::scoped_lock lock(queue_mutex_);
-                if (!queued_.empty() || !active_.empty())
+                const bool owner_work_pending = std::any_of(
+                    project_owners_.begin(), project_owners_.end(), [](const auto& item) {
+                        const auto& owner = item.second;
+                        return !owner.queued.empty() || owner.dispatching || owner.reconciling;
+                    });
+                if (!queued_.empty() || !active_.empty() || owner_work_pending)
                     continue;
             }
+            publish_pending_validation_cache();
             const auto elapsed = now_millis() - last_activity_millis_.load();
             if (elapsed >= context_.daemon_idle_ms) {
                 request_stop();
@@ -3036,9 +3438,14 @@ private:
     std::atomic<State> state_{State::stopped};
     std::atomic<std::uint64_t> last_activity_millis_{0};
     std::atomic<std::uint64_t> critical_sections_{0};
+    std::atomic<std::uint64_t> exact_validation_probes_{0};
     std::atomic<std::uint64_t> generic_project_sessions_{0};
     ProjectAuthorityManager project_authority_;
     ProjectSnapshotStore project_snapshots_;
+    std::mutex validation_mutex_;
+    std::unordered_map<std::string, ExactValidationResult> exact_validation_results_;
+    std::unordered_map<std::string, ExactValidationResult> pending_validation_publications_;
+    std::atomic<std::uint64_t> next_validation_revision_{1};
     std::mutex critical_mutex_;
     std::condition_variable critical_cv_;
     mutable std::mutex state_mutex_;
@@ -3053,6 +3460,7 @@ private:
     std::atomic<std::uint64_t> next_request_token_{1};
     std::unordered_map<std::uint64_t, ProjectOwnerWorker> project_owners_;
     std::unordered_map<std::string, std::uint64_t> project_owner_by_root_;
+    std::unordered_set<std::string> exact_validation_probe_roots_;
     std::atomic<std::uint64_t> next_owner_worker_id_{1};
     std::unordered_map<std::uint64_t, DisposableWorker> disposable_workers_;
     std::vector<PreparedDisposableRequest> prepared_disposable_;
@@ -4703,6 +5111,8 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = owner_client_request(*context, "owner-next", parsed);
     else if (action == "owner-complete")
         result = owner_client_request(*context, "owner-complete", parsed);
+    else if (action == "owner-validation-result")
+        result = owner_client_request(*context, "owner-validation-result", parsed);
     else if (action == "owner-event")
         result = owner_client_request(*context, "owner-event", parsed);
     else if (action == "owner-cancelled")

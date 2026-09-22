@@ -1,10 +1,38 @@
 import { NOVELTEA_BUILD_IDENTITY, NOVELTEA_VERSION } from '../shared/product-version';
+import {
+  AUTHORING_PROJECT_SCHEMA,
+  PROJECT_WORKSPACE_SCHEMA,
+  PROJECT_WORKSPACE_SCHEMA_VERSION,
+} from '../shared/schema-static-contracts';
 
 export const NOVELTEA_CLI_VERSION = NOVELTEA_VERSION;
 export const NOVELTEA_CLI_BUILD_IDENTITY = NOVELTEA_BUILD_IDENTITY;
 export const NOVELTEA_CLI_JSON_PROTOCOL_VERSION = 1 as const;
 /** Private resident-daemon transport identity; independent from the public CLI JSON protocol. */
 export const NOVELTEA_DAEMON_PROTOCOL_VERSION = 1 as const;
+
+/**
+ * Exact semantic identity for persisted/native whole-Project validation reuse.
+ *
+ * Keep this contract in the static tier: the standalone host and native daemon must be able to
+ * reject a result before importing the authoring island. The build identity intentionally appears
+ * separately as CLI/compiler/runtime identity even though they currently advance together; that
+ * makes each semantic dependency explicit instead of relying on an incidental aggregate string.
+ */
+export const NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY = JSON.stringify({
+  contract: 'noveltea.authoring-validation.exact',
+  projectWorkspace: {
+    schema: PROJECT_WORKSPACE_SCHEMA,
+    formatVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
+  },
+  authoringProjectSchema: AUTHORING_PROJECT_SCHEMA,
+  cliBuildIdentity: `${NOVELTEA_CLI_VERSION}:${NOVELTEA_CLI_BUILD_IDENTITY}`,
+  compilerIdentity: `${NOVELTEA_CLI_VERSION}:${NOVELTEA_CLI_BUILD_IDENTITY}`,
+  runtimeIdentity: `${NOVELTEA_CLI_VERSION}:${NOVELTEA_CLI_BUILD_IDENTITY}`,
+  validationProfile: 'authoring',
+  validationOptions: 'default',
+  validationConfiguration: 'project-settings+native-font-coverage',
+});
 
 export const NOVELTEA_CLI_HELP = `NovelTea headless CLI
 

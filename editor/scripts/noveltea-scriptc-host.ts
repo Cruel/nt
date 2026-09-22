@@ -8,6 +8,7 @@ import {
   NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
   NOVELTEA_CLI_VERSION,
   NOVELTEA_DAEMON_PROTOCOL_VERSION,
+  NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY,
 } from '../src/cli/static-contracts';
 import { classifyNovelTeaCliCommand, type CliCommandRouting } from '../src/cli/command-routing';
 import { runNovelTeaScriptcProcess } from './noveltea-scriptc-process';
@@ -41,7 +42,6 @@ let nativeCallSequence = 0;
 let nativeResponseRoot: string | null = null;
 let cachedStdin: string | null = null;
 let forceRuntimeCacheRebuild = false;
-let authoringCacheInventoryHint = '';
 let daemonRequestSequence = 0;
 const residentProjectAuthorityRequests = new Map<string, DaemonProjectAuthorityConfiguration>();
 
@@ -313,20 +313,10 @@ function staticValidationPath(argv: readonly string[]): HostResult | null {
   try {
     const probe: any = parseNativeResponse('authoring-cache-probe', {
       projectRoot: parsed.root,
-      buildIdentity: `${NOVELTEA_CLI_VERSION}:${NOVELTEA_CLI_BUILD_IDENTITY}`,
+      semanticKey: NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY,
     });
     trace(`authoring cache ${probe?.status ?? 'unusable'}: ${probe?.reason ?? 'probe-failed'}`);
-    if (!probe || probe.ok !== true || probe.status !== 'hit') {
-      if (
-        probe?.status === 'stale' &&
-        probe.currentInputs &&
-        typeof probe.currentInputs.length === 'number'
-      ) {
-        const currentInputs: any = probe.currentInputs;
-        authoringCacheInventoryHint = JSON.stringify(currentInputs);
-      }
-      return null;
-    }
+    if (!probe || probe.ok !== true || probe.status !== 'hit') return null;
     const result: any = probe.result;
     const diagnostics: StaticDiagnostic[] = [];
     for (const item of result.diagnostics) {
@@ -623,7 +613,7 @@ type DaemonRequestContext = Readonly<{
   replaySafe: boolean;
   streamedEvents: boolean;
   forceRuntimeCacheRebuild: boolean;
-  authoringCacheInventoryHint: string;
+  authoringValidationSemanticKey: string;
 }>;
 
 type DaemonNativeResponse = Readonly<{
@@ -1102,6 +1092,10 @@ function hiddenDaemonPayloadNativeRequest(
     ownerMetadata?: string;
     chunk?: string;
     index?: number;
+    semanticKey?: string;
+    validationResult?: Readonly<Record<string, unknown>>;
+    humanResult?: HostResult;
+    jsonResult?: HostResult;
   }>,
 ): DaemonNativeResponse {
   return JSON.parse(
@@ -1129,6 +1123,10 @@ function hiddenDaemonPayloadNativeRequest(
         ownerMetadata: payload.ownerMetadata,
         chunk: payload.chunk,
         index: payload.index,
+        semanticKey: payload.semanticKey,
+        validationResult: payload.validationResult,
+        humanResult: payload.humanResult,
+        jsonResult: payload.jsonResult,
       }),
     ),
   ) as DaemonNativeResponse;
@@ -1281,7 +1279,10 @@ function daemonRequestContext(
     replaySafe: routing?.replaySafe === true,
     streamedEvents: routing?.streamedEvents === true,
     forceRuntimeCacheRebuild,
-    authoringCacheInventoryHint,
+    authoringValidationSemanticKey:
+      routing?.staticCompletion === 'authoring-cache'
+        ? NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY
+        : '',
   };
 }
 
@@ -1453,6 +1454,35 @@ function requestInvokeHost(
         throw new Error(response.error ?? 'Resident Project generation announcement failed.');
       return JSON.stringify(response);
     }
+    if (operation === 'daemon-authoring-validation-result') {
+      if (!ownerWorkerId)
+        throw new Error('Exact authoring validation results require a dedicated Project owner.');
+      const parsed = requestText === '' ? {} : (JSON.parse(requestText) as unknown);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw new Error('Exact authoring validation result is malformed.');
+      const request = parsed as Readonly<Record<string, unknown>>;
+      if (
+        request.semanticKey !== NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY ||
+        request.result === null ||
+        typeof request.result !== 'object' ||
+        !Array.isArray(request.humanResult) ||
+        request.humanResult.length !== 3 ||
+        !Array.isArray(request.jsonResult) ||
+        request.jsonResult.length !== 3
+      )
+        throw new Error('Exact authoring validation result contract is malformed.');
+      const response = hiddenDaemonPayloadNativeRequest('owner-validation-result', invocation, {
+        ownerWorkerId,
+        token,
+        semanticKey: request.semanticKey,
+        validationResult: request.result as Readonly<Record<string, unknown>>,
+        humanResult: request.humanResult as unknown as HostResult,
+        jsonResult: request.jsonResult as unknown as HostResult,
+      });
+      if (response.ok !== true)
+        throw new Error(response.error ?? 'Exact authoring validation result retention failed.');
+      return JSON.stringify(response);
+    }
     if (
       operation === 'daemon-project-snapshot-begin' ||
       operation === 'daemon-project-snapshot-chunk' ||
@@ -1573,7 +1603,6 @@ async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): 
           JSON.stringify(payload.argv),
           requestInvokeHost(payload, output, invocation, token),
           payload.forceRuntimeCacheRebuild,
-          payload.authoringCacheInventoryHint,
           {
             cwd: payload.cwd,
             environment: payload.environment,
@@ -1748,7 +1777,6 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
         JSON.stringify(payload.argv),
         requestInvokeHost(payload, output, invocation, token, invocation.ownerWorkerId),
         payload.forceRuntimeCacheRebuild,
-        payload.authoringCacheInventoryHint,
         {
           cwd: payload.cwd,
           environment: payload.environment,
@@ -1878,7 +1906,6 @@ async function runHiddenDaemonDisposable(
         invocation.disposableWorkerId,
       ),
       payload.forceRuntimeCacheRebuild,
-      payload.authoringCacheInventoryHint,
       {
         cwd: payload.cwd,
         environment: payload.environment,
@@ -2080,7 +2107,6 @@ async function runLocalIsland(argv: readonly string[]): Promise<HostResult> {
       JSON.stringify(argv),
       invokeHost,
       forceRuntimeCacheRebuild,
-      authoringCacheInventoryHint,
       {
         terminal: currentTerminalContext(),
         cancellationProbe: () => daemonNativeRequest('local-cancelled').cancelled === true,
