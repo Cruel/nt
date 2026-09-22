@@ -92,6 +92,15 @@ describe('CLI semantic command routing', () => {
   });
 
   it('classifies daemon execution semantics independently from static completion', () => {
+    expect(classifyNovelTeaCliCommand(['project', 'create', 'new'])).toMatchObject({
+      executionClass: 'disposable-heavy',
+    });
+    expect(classifyNovelTeaCliCommand(['comfyui', 'status'])).toMatchObject({
+      executionClass: 'disposable-heavy',
+    });
+    expect(classifyNovelTeaCliCommand(['platform', 'template', 'list'])).toMatchObject({
+      executionClass: 'disposable-heavy',
+    });
     expect(classifyNovelTeaCliCommand(['validate'])).toMatchObject({
       executionClass: 'owner-short',
     });

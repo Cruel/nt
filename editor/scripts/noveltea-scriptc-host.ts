@@ -667,6 +667,7 @@ type DaemonNativeResponse = Readonly<{
   coldSessionEpoch?: number;
   sessionEpoch?: number;
   generation?: number;
+  hasProjectSnapshot?: boolean;
   chunkCount?: number;
   ownerMetadata?: string;
   chunk?: string;
@@ -1108,7 +1109,6 @@ function hiddenDaemonPayloadNativeRequest(
         daemonIdleMs: invocation.daemonIdleMs,
         projectSessionIdleMs: invocation.projectSessionIdleMs,
         runtimeRoot: invocation.runtimeRoot,
-        enableDisposableWorkers: true,
         token: payload.token,
         requestOk: payload.requestOk,
         result: payload.result,
@@ -1268,7 +1268,7 @@ function daemonRequestContext(
 ): DaemonRequestContext {
   return {
     argv,
-    executionClass: routing?.executionClass ?? 'direct',
+    executionClass: routing?.executionClass ?? 'disposable-heavy',
     cwd: process.cwd(),
     ownerProjectRoot: daemonOwnerProjectRoot(argv, routing),
     ownerProjectRootExplicit: daemonOwnerProjectRootExplicit(argv, routing),
@@ -1560,78 +1560,11 @@ async function runHiddenDaemonBroker(invocation: HiddenDaemonBrokerInvocation): 
   }
   trace('daemon broker reachable in starting state');
   try {
-    trace('daemon QuickJS initialization starting');
-    // @ts-expect-error The private island package is materialized only during release staging.
-    const { runNovelTeaScriptcIsland } = await import('noveltea-scriptc-island');
-    trace('daemon QuickJS initialization completed');
     const ready = hiddenDaemonNativeRequest('serve-ready', invocation);
     if (ready.ok !== true) {
       const message =
         typeof ready.error === 'string' ? ready.error : 'Failed to mark NovelTea daemon ready.';
       throw new Error(message);
-    }
-    for (;;) {
-      const next = hiddenDaemonNativeRequest('serve-next', invocation);
-      if (next.ok !== true) {
-        const message =
-          typeof next.error === 'string' ? next.error : 'NovelTea daemon broker failed.';
-        throw new Error(message);
-      }
-      if (next.stopped === true) break;
-      const token = next.token;
-      const payload = next.payload as DaemonRequestContext;
-      if (
-        typeof token !== 'number' ||
-        !Number.isSafeInteger(token) ||
-        next.method !== 'invoke' ||
-        !payload ||
-        !Array.isArray(payload.argv)
-      ) {
-        hiddenDaemonNativeRequest(
-          'serve-complete',
-          invocation,
-          typeof token === 'number' ? token : 0,
-          false,
-          null,
-          'invalid daemon invocation request',
-        );
-        continue;
-      }
-      try {
-        const output: RequestOutputCapture = { stdout: '', stderr: '' };
-        const responseText = await runNovelTeaScriptcIsland(
-          JSON.stringify(payload.argv),
-          requestInvokeHost(payload, output, invocation, token),
-          payload.forceRuntimeCacheRebuild,
-          {
-            cwd: payload.cwd,
-            environment: payload.environment,
-            terminal: payload.terminal,
-            residentProjectSessions: true,
-            projectSessionIdleMs: invocation.projectSessionIdleMs,
-            cancellationProbe: () => {
-              const status = hiddenDaemonNativeRequest('serve-cancelled', invocation, token);
-              return status.cancelled === true;
-            },
-          },
-        );
-        const response = JSON.parse(responseText) as HostResult;
-        const completed: HostResult = [
-          response[0],
-          `${output.stdout}${response[1]}`,
-          `${output.stderr}${response[2]}`,
-        ];
-        hiddenDaemonNativeRequest('serve-complete', invocation, token, true, completed);
-      } catch (error) {
-        hiddenDaemonNativeRequest(
-          'serve-complete',
-          invocation,
-          token,
-          false,
-          null,
-          error instanceof Error ? error.message : String(error),
-        );
-      }
     }
     const waited = hiddenDaemonNativeRequest('serve-wait', invocation);
     if (waited.ok !== true) {
@@ -1857,24 +1790,30 @@ async function runHiddenDaemonDisposable(
     next.method !== 'invoke' ||
     !payload ||
     !Array.isArray(payload.argv) ||
-    typeof next.canonicalRoot !== 'string' ||
-    next.canonicalRoot.length === 0 ||
-    !Number.isSafeInteger(next.chunkCount) ||
-    (next.chunkCount as number) <= 0 ||
-    typeof next.ownerMetadata !== 'string'
+    typeof next.hasProjectSnapshot !== 'boolean'
   )
     throw new Error('NovelTea disposable worker received a malformed assignment.');
 
   const chunks: string[] = [];
-  for (let index = 0; index < (next.chunkCount as number); index += 1) {
-    const chunk = hiddenDaemonPayloadNativeRequest('disposable-snapshot-read', invocation, {
-      disposableWorkerId: invocation.disposableWorkerId,
-      token,
-      index,
-    });
-    if (chunk.ok !== true || typeof chunk.chunk !== 'string')
-      throw new Error(chunk.error ?? 'Failed to read pinned portable Project snapshot.');
-    chunks.push(chunk.chunk);
+  if (next.hasProjectSnapshot === true) {
+    if (
+      typeof next.canonicalRoot !== 'string' ||
+      next.canonicalRoot.length === 0 ||
+      !Number.isSafeInteger(next.chunkCount) ||
+      (next.chunkCount as number) <= 0 ||
+      typeof next.ownerMetadata !== 'string'
+    )
+      throw new Error('NovelTea disposable worker received malformed Project snapshot metadata.');
+    for (let index = 0; index < (next.chunkCount as number); index += 1) {
+      const chunk = hiddenDaemonPayloadNativeRequest('disposable-snapshot-read', invocation, {
+        disposableWorkerId: invocation.disposableWorkerId,
+        token,
+        index,
+      });
+      if (chunk.ok !== true || typeof chunk.chunk !== 'string')
+        throw new Error(chunk.error ?? 'Failed to read pinned portable Project snapshot.');
+      chunks.push(chunk.chunk);
+    }
   }
 
   try {
@@ -1895,6 +1834,14 @@ async function runHiddenDaemonDisposable(
       if (payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH === '1') process.exit(97);
     }
     const output: RequestOutputCapture = { stdout: '', stderr: '' };
+    const pinnedProjectSnapshot =
+      next.hasProjectSnapshot === true
+        ? {
+            projectRoot: next.canonicalRoot as string,
+            snapshotText: chunks.join(''),
+            ownerMetadataText: next.ownerMetadata as string,
+          }
+        : undefined;
     const responseText = await runNovelTeaScriptcIsland(
       JSON.stringify(payload.argv),
       requestInvokeHost(
@@ -1910,11 +1857,7 @@ async function runHiddenDaemonDisposable(
         cwd: payload.cwd,
         environment: payload.environment,
         terminal: payload.terminal,
-        pinnedProjectSnapshot: {
-          projectRoot: next.canonicalRoot,
-          snapshotText: chunks.join(''),
-          ownerMetadataText: next.ownerMetadata,
-        },
+        pinnedProjectSnapshot,
         cancellationProbe: () => {
           const status = hiddenDaemonPayloadNativeRequest('disposable-cancelled', invocation, {
             disposableWorkerId: invocation.disposableWorkerId,

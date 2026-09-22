@@ -126,7 +126,7 @@ struct BrokerContext {
     std::uint64_t daemon_idle_ms = default_daemon_idle_ms;
     std::uint64_t project_session_idle_ms = default_project_session_idle_ms;
     std::optional<std::filesystem::path> runtime_root_override;
-    bool enable_disposable_workers = false;
+    bool disposable_worker_processes_enabled = true;
 };
 
 struct Endpoint {
@@ -185,12 +185,13 @@ std::optional<BrokerContext> parse_context(const Json& request, std::string& err
         context.runtime_root_override =
             std::filesystem::path(request["runtimeRoot"].get<std::string>());
     }
-    if (request.contains("enableDisposableWorkers")) {
-        if (!request["enableDisposableWorkers"].is_boolean()) {
-            error = "enableDisposableWorkers must be a boolean";
+    if (request.contains("disableDisposableWorkerProcessesForTests")) {
+        if (!request["disableDisposableWorkerProcessesForTests"].is_boolean()) {
+            error = "disableDisposableWorkerProcessesForTests must be a boolean";
             return std::nullopt;
         }
-        context.enable_disposable_workers = request["enableDisposableWorkers"].get<bool>();
+        context.disposable_worker_processes_enabled =
+            !request["disableDisposableWorkerProcessesForTests"].get<bool>();
     }
     if (context.daemon_idle_ms == 0 || context.project_session_idle_ms == 0) {
         error = "daemon idle intervals must be greater than zero";
@@ -709,7 +710,7 @@ enum class DisposableWorkerState {
 struct PreparedDisposableRequest {
     QueuedRequest request;
     std::string canonical_root;
-    ProjectGenerationIdentity identity;
+    std::optional<ProjectGenerationIdentity> identity;
 };
 
 struct DisposableWorker {
@@ -1076,17 +1077,12 @@ public:
         worker->second.assignment.reset();
         const auto client = assignment.request.client.lock();
         if (!client || client->current() == invalid_connection) {
-            (void)project_snapshots_.unpin(assignment.canonical_root, assignment.identity,
-                                           now_millis());
+            if (assignment.identity)
+                (void)project_snapshots_.unpin(assignment.canonical_root, *assignment.identity,
+                                               now_millis());
             worker->second.state = DisposableWorkerState::retiring;
             disposable_cv_.notify_all();
             return {{"ok", true}, {"stopped", true}};
-        }
-        const auto snapshot =
-            project_snapshots_.find(assignment.canonical_root, assignment.identity, now_millis());
-        if (!snapshot) {
-            worker->second.state = DisposableWorkerState::retiring;
-            return error_json("pinned portable Project snapshot is unavailable");
         }
         const auto token = next_request_token_.fetch_add(1);
         active_.emplace(token, ActiveRequest{
@@ -1104,17 +1100,30 @@ public:
                                });
         worker->second.last_activity_millis = now_millis();
         touch();
-        return {{"ok", true},
-                {"stopped", false},
-                {"token", token},
-                {"requestId", assignment.request.request_id},
-                {"method", assignment.request.method},
-                {"payload", std::move(assignment.request.payload)},
-                {"canonicalRoot", assignment.canonical_root},
-                {"sessionEpoch", assignment.identity.session_epoch},
-                {"generation", assignment.identity.generation},
-                {"chunkCount", snapshot->chunk_count},
-                {"ownerMetadata", snapshot->opaque_owner_metadata}};
+        Json result{{"ok", true},
+                    {"stopped", false},
+                    {"token", token},
+                    {"requestId", assignment.request.request_id},
+                    {"method", assignment.request.method},
+                    {"payload", std::move(assignment.request.payload)},
+                    {"hasProjectSnapshot", assignment.identity.has_value()}};
+        if (!assignment.identity)
+            return result;
+        const auto snapshot =
+            project_snapshots_.find(assignment.canonical_root, *assignment.identity, now_millis());
+        if (!snapshot) {
+            active_.erase(token);
+            (void)project_snapshots_.unpin(assignment.canonical_root, *assignment.identity,
+                                           now_millis());
+            worker->second.state = DisposableWorkerState::retiring;
+            return error_json("pinned portable Project snapshot is unavailable");
+        }
+        result["canonicalRoot"] = assignment.canonical_root;
+        result["sessionEpoch"] = assignment.identity->session_epoch;
+        result["generation"] = assignment.identity->generation;
+        result["chunkCount"] = snapshot->chunk_count;
+        result["ownerMetadata"] = snapshot->opaque_owner_metadata;
+        return result;
     }
 
     Json read_disposable_snapshot_chunk(std::uint64_t worker_id, std::uint64_t token,
@@ -1709,7 +1718,7 @@ private:
 
     bool start_disposable_worker_locked()
     {
-        if (!context_.enable_disposable_workers)
+        if (!context_.disposable_worker_processes_enabled)
             return false;
         if (live_disposable_workers_locked() >= disposable_worker_cap)
             return false;
@@ -1729,7 +1738,7 @@ private:
 
     void ensure_disposable_standby_locked()
     {
-        if (!context_.enable_disposable_workers)
+        if (!context_.disposable_worker_processes_enabled)
             return;
         if (!has_disposable_standby_locked())
             (void)start_disposable_worker_locked();
@@ -1905,6 +1914,37 @@ private:
         }
         return payload.value("outputMode", std::string{}) == "json" ? retained->json_result
                                                                     : retained->human_result;
+    }
+
+    std::optional<std::string>
+    queue_disposable_request(const std::shared_ptr<ClientConnection>& client,
+                             const std::string& request_id, const std::string& method,
+                             const Json& payload)
+    {
+        std::scoped_lock lock(queue_mutex_);
+        if (state_.load() == State::draining || state_.load() == State::stopped)
+            return "daemon is draining";
+        if (request_id_pending_locked(client, request_id))
+            return "duplicate pending daemon request id";
+        if (!context_.disposable_worker_processes_enabled)
+            return "daemon disposable workers are unavailable";
+        prepared_disposable_.push_back(PreparedDisposableRequest{
+            .request =
+                QueuedRequest{
+                    .client = client,
+                    .request_id = request_id,
+                    .method = method,
+                    .payload = payload,
+                    .prepare_disposable = false,
+                },
+            .canonical_root = {},
+            .identity = std::nullopt,
+        });
+        assign_disposable_jobs_locked();
+        ensure_disposable_standby_locked();
+        touch();
+        disposable_cv_.notify_all();
+        return std::nullopt;
     }
 
     std::optional<std::string>
@@ -2198,7 +2238,9 @@ private:
         for (auto& process : processes)
             terminate_child_process(process);
         for (const auto& request : pinned) {
-            (void)project_snapshots_.unpin(request.canonical_root, request.identity, now_millis());
+            if (request.identity)
+                (void)project_snapshots_.unpin(request.canonical_root, *request.identity,
+                                               now_millis());
             if (const auto client = request.request.client.lock())
                 client->send(result_event_json(request.request.request_id, false, "null", reason));
         }
@@ -2343,9 +2385,9 @@ private:
                 release_child_process(retirement.process);
             else
                 terminate_child_process(retirement.process);
-            if (retirement.assignment)
+            if (retirement.assignment && retirement.assignment->identity)
                 (void)project_snapshots_.unpin(retirement.assignment->canonical_root,
-                                               retirement.assignment->identity, now_millis());
+                                               *retirement.assignment->identity, now_millis());
             if (retirement.active && retirement.active->pinned_generation) {
                 (void)project_snapshots_.unpin(retirement.active->pinned_project_root,
                                                *retirement.active->pinned_generation, now_millis());
@@ -3029,6 +3071,22 @@ private:
                                                result.value("error", std::string{})));
                 continue;
             }
+            if (method == "invoke") {
+                if (!message_payload.is_object() || !message_payload.contains("executionClass") ||
+                    !message_payload["executionClass"].is_string()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "daemon execution class is malformed"));
+                    continue;
+                }
+                const auto execution_class =
+                    message_payload["executionClass"].get_ref<const std::string&>();
+                if (execution_class != "owner-short" && execution_class != "owner-mutation" &&
+                    execution_class != "disposable-heavy") {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "daemon execution class is unsupported"));
+                    continue;
+                }
+            }
             if (method == "invoke" && message_payload.is_object() &&
                 message_payload.contains("ownerProjectRoot") &&
                 !message_payload["ownerProjectRoot"].is_null()) {
@@ -3040,6 +3098,14 @@ private:
                     client->send(result_event_json(request_id, false, "null", *routed));
                     continue;
                 }
+            }
+            if (method == "invoke") {
+                const auto routed =
+                    queue_disposable_request(client, request_id, method, message_payload);
+                if (!routed)
+                    continue;
+                client->send(result_event_json(request_id, false, "null", *routed));
+                continue;
             }
             if (state_.load() == State::draining || state_.load() == State::stopped) {
                 client->send(result_event_json(request_id, false, "null", "daemon is draining"));
@@ -3128,8 +3194,9 @@ private:
                                             request.request.client.lock() == client;
                                  });
                 if (prepared != prepared_disposable_.end()) {
-                    (void)project_snapshots_.unpin(prepared->canonical_root, prepared->identity,
-                                                   now_millis());
+                    if (prepared->identity)
+                        (void)project_snapshots_.unpin(prepared->canonical_root,
+                                                       *prepared->identity, now_millis());
                     prepared_disposable_.erase(prepared);
                     removed = true;
                 }
@@ -3140,8 +3207,9 @@ private:
                     if (!worker.assignment || worker.assignment->request.request_id != request_id ||
                         worker.assignment->request.client.lock() != client)
                         continue;
-                    (void)project_snapshots_.unpin(worker.assignment->canonical_root,
-                                                   worker.assignment->identity, now_millis());
+                    if (worker.assignment->identity)
+                        (void)project_snapshots_.unpin(worker.assignment->canonical_root,
+                                                       *worker.assignment->identity, now_millis());
                     worker.assignment.reset();
                     worker.state = DisposableWorkerState::retiring;
                     removed = true;
@@ -3188,16 +3256,18 @@ private:
         std::erase_if(prepared_disposable_, [&](const PreparedDisposableRequest& prepared) {
             if (prepared.request.client.lock() != client)
                 return false;
-            (void)project_snapshots_.unpin(prepared.canonical_root, prepared.identity,
-                                           now_millis());
+            if (prepared.identity)
+                (void)project_snapshots_.unpin(prepared.canonical_root, *prepared.identity,
+                                               now_millis());
             return true;
         });
         for (auto& [id, worker] : disposable_workers_) {
             (void)id;
             if (!worker.assignment || worker.assignment->request.client.lock() != client)
                 continue;
-            (void)project_snapshots_.unpin(worker.assignment->canonical_root,
-                                           worker.assignment->identity, now_millis());
+            if (worker.assignment->identity)
+                (void)project_snapshots_.unpin(worker.assignment->canonical_root,
+                                               *worker.assignment->identity, now_millis());
             worker.assignment.reset();
             worker.state = DisposableWorkerState::retiring;
         }
@@ -3244,7 +3314,9 @@ private:
             }
         }
         for (const auto& request : prepared) {
-            (void)project_snapshots_.unpin(request.canonical_root, request.identity, now_millis());
+            if (request.identity)
+                (void)project_snapshots_.unpin(request.canonical_root, *request.identity,
+                                               now_millis());
             if (const auto client = request.request.client.lock()) {
                 Json event = Json::parse(
                     result_event_json(request.request.request_id, false, "null", reason));

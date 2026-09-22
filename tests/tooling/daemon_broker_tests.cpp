@@ -78,7 +78,8 @@ Json context(std::string build)
     return {{"build", std::move(build)},
             {"protocol", noveltea::tooling::daemon::protocol_version},
             {"daemonIdleMs", 5000},
-            {"projectSessionIdleMs", 2500}};
+            {"projectSessionIdleMs", 2500},
+            {"disableDisposableWorkerProcessesForTests", true}};
 }
 
 struct TempRuntimeRoot {
@@ -916,6 +917,43 @@ TEST_CASE("queued daemon request can be cancelled before worker readiness")
     REQUIRE(invoke_daemon(request)["ok"] == true);
 }
 
+TEST_CASE("daemon rejects the superseded direct execution class")
+{
+    auto request = context(unique_build("direct-cutover"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    auto work_request = request;
+    work_request["action"] = "request";
+    work_request["requestId"] = "direct-cutover";
+    work_request["method"] = "invoke";
+    work_request["payload"] = Json{{"argv", Json::array({"project", "create", "new"})},
+                                   {"executionClass", "direct"},
+                                   {"ownerProjectRoot", nullptr}};
+    const auto rejected = invoke_daemon(work_request);
+    CHECK(rejected["ok"] == false);
+    CHECK(rejected["error"] == "daemon execution class is unsupported");
+
+    work_request["requestId"] = "direct-owner-cutover";
+    work_request["payload"]["ownerProjectRoot"] = "/tmp/retired-direct-owner";
+    const auto owner_rejected = invoke_daemon(work_request);
+    CHECK(owner_rejected["ok"] == false);
+    CHECK(owner_rejected["error"] == "daemon execution class is unsupported");
+
+    work_request["requestId"] = "missing-class-cutover";
+    work_request["payload"].erase("executionClass");
+    const auto missing_class = invoke_daemon(work_request);
+    CHECK(missing_class["ok"] == false);
+    CHECK(missing_class["error"] == "daemon execution class is malformed");
+
+    request["action"] = "stop";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-wait";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+
 TEST_CASE("queued daemon request IDs are scoped to each client connection")
 {
     auto request = context(unique_build("request-id-scope"));
@@ -973,7 +1011,7 @@ TEST_CASE("active daemon request observes client cancellation")
     auto work_request = request;
     work_request["action"] = "request";
     work_request["requestId"] = "active-cancel";
-    work_request["method"] = "invoke";
+    work_request["method"] = "work";
     work_request["payload"] = Json{{"argv", Json::array({"validate"})}};
     work_request["cancelAfterMs"] = 20;
     auto pending =
@@ -985,56 +1023,6 @@ TEST_CASE("active daemon request observes client cancellation")
     REQUIRE(next["stopped"] == false);
     CHECK(next["payload"] == work_request["payload"]);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(40));
-    request["action"] = "serve-cancelled";
-    request["token"] = next["token"];
-    const auto cancelled = invoke_daemon(request);
-    REQUIRE(cancelled["ok"] == true);
-    CHECK(cancelled["active"] == true);
-    CHECK(cancelled["cancelled"] == true);
-
-    request["action"] = "serve-complete";
-    request["requestOk"] = false;
-    request["result"] = nullptr;
-    request["error"] = "request cancelled";
-    REQUIRE(invoke_daemon(request)["ok"] == true);
-    REQUIRE(pending.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
-    const auto result = pending.get();
-    CHECK(result["ok"] == false);
-    CHECK(result["error"] == "request cancelled");
-
-    request.erase("token");
-    request.erase("requestOk");
-    request.erase("result");
-    request.erase("error");
-    request["action"] = "stop";
-    REQUIRE(invoke_daemon(request)["ok"] == true);
-    request["action"] = "serve-wait";
-    REQUIRE(invoke_daemon(request)["ok"] == true);
-}
-
-TEST_CASE("active daemon request turns process interrupt into cooperative cancellation")
-{
-    auto request = context(unique_build("active-signal-cancel"));
-    request["action"] = "serve-start";
-    REQUIRE(invoke_daemon(request)["ok"] == true);
-    request["action"] = "serve-ready";
-    REQUIRE(invoke_daemon(request)["ok"] == true);
-
-    auto work_request = request;
-    work_request["action"] = "request";
-    work_request["requestId"] = "active-signal-cancel";
-    work_request["method"] = "invoke";
-    work_request["payload"] = Json{{"argv", Json::array({"validate"})}};
-    auto pending =
-        std::async(std::launch::async, [work_request]() { return invoke_daemon(work_request); });
-
-    request["action"] = "serve-next";
-    const auto next = invoke_daemon(request);
-    REQUIRE(next["ok"] == true);
-    REQUIRE(next["stopped"] == false);
-
-    std::raise(SIGINT);
     std::this_thread::sleep_for(std::chrono::milliseconds(40));
     request["action"] = "serve-cancelled";
     request["token"] = next["token"];
@@ -1101,7 +1089,7 @@ TEST_CASE("daemon client accepts streamed events before the final result")
     auto work_request = request;
     work_request["action"] = "request";
     work_request["requestId"] = "stream-events";
-    work_request["method"] = "invoke";
+    work_request["method"] = "work";
     auto pending =
         std::async(std::launch::async, [work_request]() { return invoke_daemon(work_request); });
 
@@ -1148,7 +1136,7 @@ TEST_CASE("daemon graceful stop waits for active requests to settle")
     auto work_request = request;
     work_request["action"] = "request";
     work_request["requestId"] = "active-drain";
-    work_request["method"] = "invoke";
+    work_request["method"] = "work";
     work_request["payload"] = Json{{"argv", Json::array({"validate"})}};
     auto pending =
         std::async(std::launch::async, [work_request]() { return invoke_daemon(work_request); });
@@ -1199,7 +1187,7 @@ TEST_CASE("daemon idle timeout ignores active and queued work")
     auto work_request = request;
     work_request["action"] = "request";
     work_request["requestId"] = "active-idle";
-    work_request["method"] = "invoke";
+    work_request["method"] = "work";
     auto pending =
         std::async(std::launch::async, [work_request]() { return invoke_daemon(work_request); });
 
