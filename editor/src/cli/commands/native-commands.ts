@@ -632,6 +632,7 @@ export const packageExportCommand: CliCommandDefinition = {
         const outputPath = path.resolve(context.cwd, output);
         const stagedPath = `${outputPath}.tmp-${process.pid}-${randomUUID()}`;
         try {
+          await context.nativeTools.registerStagedOutput?.(stagedPath);
           const response = await context.nativeTools.exportPackage({
             project: prepared.artifact.compiledProject,
             outputPath: stagedPath,

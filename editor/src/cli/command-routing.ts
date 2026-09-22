@@ -102,7 +102,7 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
       return {
         ...noProjectRead,
         projectAccess: 'opaque-write',
-        executionClass: 'owner-mutation',
+        executionClass: 'disposable-heavy',
         replaySafe: false,
         streamedEvents: true,
         cancellation: true,

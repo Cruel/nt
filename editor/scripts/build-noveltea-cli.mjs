@@ -31,6 +31,7 @@ const releaseTriplet = isWindows
   : isMac
     ? 'arm64-osx-noveltea'
     : 'x64-linux-noveltea';
+const buildRoot = path.join(repositoryRoot, 'build', releasePreset);
 const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
 const uiTestRunnerName = isWindows ? 'noveltea-ui-test-runner.exe' : 'noveltea-ui-test-runner';
 const scriptcEntrypoint = path.join(editorRoot, 'node_modules', 'scriptc', 'dist', 'main.js');
@@ -106,6 +107,15 @@ function run(command, args, options = {}) {
     throw new Error(
       `${command} ${args.join(' ')} failed with exit code ${result.status ?? 'unknown'}.`,
     );
+}
+
+async function resolveCmakeCommand() {
+  const cachePath = path.join(buildRoot, 'CMakeCache.txt');
+  if (!existsSync(cachePath)) return 'cmake';
+  const cache = await readFile(cachePath, 'utf8');
+  const match = /^CMAKE_COMMAND:INTERNAL=(.+)$/mu.exec(cache);
+  const cachedCommand = match?.[1]?.trim();
+  return cachedCommand && existsSync(cachedCommand) ? cachedCommand : 'cmake';
 }
 
 if (process.versions.node !== '24.18.0')
@@ -198,6 +208,7 @@ const prebuiltShadercRoot = process.env.NOVELTEA_PREBUILT_SHADERC_ROOT;
 const shadercProviderArguments = prebuiltShadercRoot
   ? [`-DNOVELTEA_PREBUILT_SHADERC_ROOT=${prebuiltShadercRoot}`]
   : [];
+const cmakeCommand = await resolveCmakeCommand();
 
 async function stagePrebuiltShadercLinkClosure() {
   if (!prebuiltShadercRoot) return;
@@ -234,7 +245,7 @@ async function stagePrebuiltShadercLinkClosure() {
 }
 
 run(
-  'cmake',
+  cmakeCommand,
   [
     '--preset',
     releasePreset,
@@ -248,7 +259,7 @@ run(
   ],
   { env: buildEnv },
 );
-run('cmake', ['--build', '--preset', releasePreset, '--target', 'noveltea_tooling_native'], {
+run(cmakeCommand, ['--build', '--preset', releasePreset, '--target', 'noveltea_tooling_native'], {
   env: buildEnv,
 });
 await stagePrebuiltShadercLinkClosure();
@@ -257,7 +268,6 @@ run(process.execPath, [vitePlusEntrypoint, 'pack'], { cwd: editorRoot, env: buil
 if (!existsSync(islandBundle))
   throw new Error(`Scriptc island bundle was not produced: ${islandBundle}`);
 
-const buildRoot = path.join(repositoryRoot, 'build', releasePreset);
 const editorToolRoot = path.join(buildRoot, 'tools', 'editor_tool');
 const engineRoot = path.join(buildRoot, 'engine');
 const vcpkgLibRoot = path.join(buildRoot, 'vcpkg_installed', releaseTriplet, 'lib');

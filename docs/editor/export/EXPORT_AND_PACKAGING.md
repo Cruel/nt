@@ -151,7 +151,10 @@ file identity, size, and exact mtime (or fallback hash where exact mtime is unav
 the pinned snapshot. Immediately before replacing the requested `.ntpkg`, the worker verifies those
 expectations again. Input drift, cancellation, package failure, or worker failure never publishes the
 staged file as the requested output; an existing output is replaced through backup/atomic rename only
-after those checks pass.
+after those checks pass. Before creating a Runtime Package staging file, a disposable worker registers
+its new absolute path with the native broker. The broker removes registered staging files only after
+the worker has exited or been terminated, including cancellation, crash, and daemon shutdown; cleanup
+does not depend on the worker reaching a JavaScript `finally`. Published final paths are not registered.
 
 ## Platform Export
 

@@ -98,6 +98,10 @@ describe('CLI semantic command routing', () => {
     expect(classifyNovelTeaCliCommand(['comfyui', 'status'])).toMatchObject({
       executionClass: 'disposable-heavy',
     });
+    expect(classifyNovelTeaCliCommand(['comfyui', 'run', 'image.generate'])).toMatchObject({
+      executionClass: 'disposable-heavy',
+      projectAccess: 'opaque-write',
+    });
     expect(classifyNovelTeaCliCommand(['platform', 'template', 'list'])).toMatchObject({
       executionClass: 'disposable-heavy',
     });

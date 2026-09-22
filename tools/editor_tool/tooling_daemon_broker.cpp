@@ -126,6 +126,7 @@ struct BrokerContext {
     std::uint64_t daemon_idle_ms = default_daemon_idle_ms;
     std::uint64_t project_session_idle_ms = default_project_session_idle_ms;
     std::uint64_t disposable_extra_idle_ms = 30'000;
+    std::size_t project_snapshot_budget_bytes = default_project_snapshot_budget_bytes;
     std::optional<std::filesystem::path> runtime_root_override;
     bool disposable_worker_processes_enabled = true;
 };
@@ -183,6 +184,18 @@ std::optional<BrokerContext> parse_context(const Json& request, std::string& err
             return std::nullopt;
         }
         context.disposable_extra_idle_ms = request["disposableExtraIdleMs"].get<std::uint64_t>();
+    }
+    if (request.contains("projectSnapshotBudgetBytes")) {
+        if (!request["projectSnapshotBudgetBytes"].is_number_unsigned()) {
+            error = "projectSnapshotBudgetBytes must be an unsigned integer";
+            return std::nullopt;
+        }
+        const auto budget = request["projectSnapshotBudgetBytes"].get<std::uint64_t>();
+        if (budget > std::numeric_limits<std::size_t>::max()) {
+            error = "projectSnapshotBudgetBytes is out of range";
+            return std::nullopt;
+        }
+        context.project_snapshot_budget_bytes = static_cast<std::size_t>(budget);
     }
     if (request.contains("runtimeRoot")) {
         if (!request["runtimeRoot"].is_string() ||
@@ -726,8 +739,17 @@ struct DisposableWorker {
     ChildProcess process;
     DisposableWorkerState state = DisposableWorkerState::starting;
     std::optional<PreparedDisposableRequest> assignment;
+    std::vector<std::filesystem::path> staged_outputs;
     std::uint64_t last_activity_millis = 0;
 };
+
+void cleanup_staged_outputs(const std::vector<std::filesystem::path>& paths)
+{
+    for (const auto& path : paths) {
+        std::error_code error;
+        std::filesystem::remove(path, error);
+    }
+}
 
 [[nodiscard]] std::optional<ChildProcess>
 spawn_project_owner_process(const BrokerContext& context, std::uint64_t owner_worker_id);
@@ -1132,7 +1154,6 @@ public:
         result["sessionEpoch"] = assignment.identity->session_epoch;
         result["generation"] = assignment.identity->generation;
         result["chunkCount"] = snapshot->chunk_count;
-        result["ownerMetadata"] = snapshot->opaque_owner_metadata;
         return result;
     }
 
@@ -1163,6 +1184,30 @@ public:
         if (active == active_.end() || active->second.disposable_worker_id != worker_id)
             return {{"ok", true}, {"active", false}, {"cancelled", true}};
         return {{"ok", true}, {"active", true}, {"cancelled", active->second.cancelled}};
+    }
+
+    Json register_disposable_staged_output(std::uint64_t worker_id, std::uint64_t token,
+                                           const std::string& path)
+    {
+        std::scoped_lock lock(queue_mutex_);
+        const auto active = active_.find(token);
+        const auto worker = disposable_workers_.find(worker_id);
+        if (active == active_.end() || active->second.disposable_worker_id != worker_id ||
+            active->second.cancelled || worker == disposable_workers_.end() ||
+            worker->second.state == DisposableWorkerState::retiring)
+            return error_json("staged output requires an active disposable request");
+#if defined(_WIN32)
+        const std::filesystem::path staged = utf8_to_wide(path);
+#else
+        const std::filesystem::path staged = path;
+#endif
+        std::error_code error;
+        const auto status = std::filesystem::symlink_status(staged, error);
+        if (!staged.is_absolute() || (error && error != std::errc::no_such_file_or_directory) ||
+            status.type() != std::filesystem::file_type::not_found)
+            return error_json("staged output must name a new absolute file path");
+        worker->second.staged_outputs.push_back(staged);
+        return {{"ok", true}};
     }
 
     Json emit_disposable_request_event(std::uint64_t worker_id, std::uint64_t token,
@@ -1654,12 +1699,18 @@ public:
                     return entry.second.state == DisposableWorkerState::busy;
                 });
             result["engineeringOwnerPids"] = Json::array();
+            result["engineeringOwners"] = Json::array();
             for (const auto& [id, owner] : project_owners_) {
                 (void)id;
 #if defined(_WIN32)
                 result["engineeringOwnerPids"].push_back(owner.process.pid);
+                result["engineeringOwners"].push_back({{"canonicalRoot", owner.canonical_root},
+                                                       { "pid",
+                                                         owner.process.pid }});
 #else
                 result["engineeringOwnerPids"].push_back(owner.process.pid);
+                result["engineeringOwners"].push_back(
+                    {{"canonicalRoot", owner.canonical_root}, {"pid", owner.process.pid}});
 #endif
             }
             result["engineeringDisposablePids"] = Json::array();
@@ -1677,6 +1728,7 @@ public:
         result["projectSnapshotBytes"] = project_snapshots_.retained_bytes();
         result["engineeringCounters"] = {
             {"authorityObservations", authority_observations_.load()},
+            {"authorityFullRescans", authority_full_rescans_.load()},
             {"filesObserved", files_observed_.load()},
             {"changedPaths", changed_paths_.load()},
             {"nativeBoundaryCalls", native_boundary_calls_.load()},
@@ -1739,6 +1791,8 @@ private:
     void record_authority_observation(const ProjectObservation& observation)
     {
         authority_observations_.fetch_add(1);
+        if (observation.full_rescan)
+            authority_full_rescans_.fetch_add(1);
         files_observed_.fetch_add(observation.manifest.entries.size());
         changed_paths_.fetch_add(observation.delta.added.size() + observation.delta.changed.size() +
                                  observation.delta.removed.size());
@@ -1789,6 +1843,7 @@ private:
                                                    .process = *process,
                                                    .state = DisposableWorkerState::starting,
                                                    .assignment = std::nullopt,
+                                                   .staged_outputs = {},
                                                    .last_activity_millis = now_millis(),
                                                });
         return true;
@@ -2035,6 +2090,12 @@ private:
             return error.what();
         }
 
+        if (context_.build.find(":cert:") != std::string::npos && payload.contains("environment") &&
+            payload["environment"].is_object() &&
+            payload["environment"].value("NOVELTEA_CLI_CERTIFICATION_FORCE_AUTHORITY_UNKNOWN",
+                                         std::string{}) == "1")
+            project_authority_.notify_watcher_unknown(canonical_root);
+
         for (;;) {
             std::optional<std::uint64_t> dead_owner;
             {
@@ -2278,6 +2339,7 @@ private:
     void retire_all_disposable_workers(std::string_view reason)
     {
         std::vector<ChildProcess> processes;
+        std::vector<std::filesystem::path> staged_outputs;
         std::vector<PreparedDisposableRequest> pinned;
         std::vector<ActiveRequest> active;
         {
@@ -2286,6 +2348,8 @@ private:
             for (auto& [id, worker] : disposable_workers_) {
                 (void)id;
                 processes.push_back(worker.process);
+                staged_outputs.insert(staged_outputs.end(), worker.staged_outputs.begin(),
+                                      worker.staged_outputs.end());
                 if (worker.assignment)
                     pinned.push_back(std::move(*worker.assignment));
             }
@@ -2304,6 +2368,7 @@ private:
         }
         for (auto& process : processes)
             terminate_child_process(process);
+        cleanup_staged_outputs(staged_outputs);
         for (const auto& request : pinned) {
             if (request.identity)
                 (void)project_snapshots_.unpin(request.canonical_root, *request.identity,
@@ -2386,7 +2451,7 @@ private:
             }
         }
         project_snapshots_.trim_dormant_to_budget(active_roots,
-                                                  default_project_snapshot_budget_bytes);
+                                                  context_.project_snapshot_budget_bytes);
     }
 
     void maintain_disposable_workers()
@@ -2398,6 +2463,7 @@ private:
             bool cancelled = false;
             std::optional<PreparedDisposableRequest> assignment;
             std::optional<ActiveRequest> active;
+            std::vector<std::filesystem::path> staged_outputs;
         };
         std::vector<Retirement> retirements;
         const auto now = now_millis();
@@ -2434,6 +2500,7 @@ private:
                     .cancelled = cancellation_expired,
                     .assignment = std::move(worker.assignment),
                     .active = std::nullopt,
+                    .staged_outputs = std::move(worker.staged_outputs),
                 };
                 worker.assignment.reset();
                 worker.state = DisposableWorkerState::retiring;
@@ -2452,12 +2519,15 @@ private:
                 release_child_process(retirement.process);
             else
                 terminate_child_process(retirement.process);
+            cleanup_staged_outputs(retirement.staged_outputs);
             if (retirement.assignment && retirement.assignment->identity)
                 (void)project_snapshots_.unpin(retirement.assignment->canonical_root,
                                                *retirement.assignment->identity, now_millis());
-            if (retirement.active && retirement.active->pinned_generation) {
-                (void)project_snapshots_.unpin(retirement.active->pinned_project_root,
-                                               *retirement.active->pinned_generation, now_millis());
+            if (retirement.active) {
+                if (retirement.active->pinned_generation)
+                    (void)project_snapshots_.unpin(retirement.active->pinned_project_root,
+                                                   *retirement.active->pinned_generation,
+                                                   now_millis());
                 if (const auto client = retirement.active->client.lock()) {
                     Json event = Json::parse(result_event_json(
                         retirement.active->request_id, false, "null",
@@ -3086,6 +3156,119 @@ private:
                                                result.value("error", std::string{})));
                 continue;
             }
+            if (method == "disposable-register-staged-output") {
+                if (!message_payload.contains("disposableWorkerId") ||
+                    !message_payload["disposableWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("token") ||
+                    !message_payload["token"].is_number_unsigned() ||
+                    !message_payload.contains("stagedOutputPath") ||
+                    !message_payload["stagedOutputPath"].is_string()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "staged output registration is malformed"));
+                    continue;
+                }
+                const auto result = register_disposable_staged_output(
+                    message_payload["disposableWorkerId"].get<std::uint64_t>(),
+                    message_payload["token"].get<std::uint64_t>(),
+                    message_payload["stagedOutputPath"].get<std::string>());
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "disposable-owner-mutation") {
+                if (!message_payload.contains("disposableWorkerId") ||
+                    !message_payload["disposableWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("token") ||
+                    !message_payload["token"].is_number_unsigned() ||
+                    message_payload.value("operation", std::string{}) !=
+                        "comfyui-asset-publication" ||
+                    !message_payload.contains("requestText") ||
+                    !message_payload["requestText"].is_string()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "disposable owner mutation is malformed"));
+                    continue;
+                }
+                std::string canonical_root;
+                Json original_payload = Json::object();
+                const auto owner_request = Json::parse(
+                    message_payload["requestText"].get_ref<const std::string&>(), nullptr, false);
+                if (owner_request.is_discarded() || !owner_request.is_object()) {
+                    client->send(
+                        result_event_json(request_id, false, "null",
+                                          "disposable owner mutation request is malformed"));
+                    continue;
+                }
+                {
+                    std::scoped_lock lock(queue_mutex_);
+                    const auto token = message_payload["token"].get<std::uint64_t>();
+                    const auto worker_id =
+                        message_payload["disposableWorkerId"].get<std::uint64_t>();
+                    const auto active = active_.find(token);
+                    if (active == active_.end() ||
+                        active->second.disposable_worker_id != worker_id ||
+                        active->second.cancelled || active->second.pinned_project_root.empty()) {
+                        client->send(result_event_json(
+                            request_id, false, "null",
+                            "disposable owner mutation requires an active Project-bound request"));
+                        continue;
+                    }
+                    canonical_root = active->second.pinned_project_root;
+                    original_payload = active->second.payload;
+                }
+                Json owner_payload = {
+                    {"argv", Json::array({"comfyui", "__owner-asset-publication"})},
+                    {"executionClass", "owner-mutation"},
+                    {"ownerProjectRoot", canonical_root},
+                    {"ownerProjectRootExplicit", true},
+                    {"cwd", original_payload.value("cwd", canonical_root)},
+                    {"environment", original_payload.value("environment", Json::object())},
+                    {"outputMode", original_payload.value("outputMode", std::string("json"))},
+                    {"replaySafe", false},
+                    {"streamedEvents", false},
+                    {"forceRuntimeCacheRebuild", false},
+                    {"authoringValidationSemanticKey", ""},
+                    {"internalOperation", "comfyui-asset-publication"},
+                    {"internalRequestText", owner_request.dump()},
+                };
+                const auto routed =
+                    queue_project_owner_request(client, request_id, "invoke", owner_payload);
+                if (!routed)
+                    continue;
+                if (!routed->empty())
+                    client->send(result_event_json(request_id, false, "null", *routed));
+                else
+                    client->send(result_event_json(
+                        request_id, false, "null",
+                        "disposable owner mutation could not resolve a Project owner"));
+                continue;
+            }
+            if (method == "owner-internal-complete") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("token") ||
+                    !message_payload["token"].is_number_unsigned() ||
+                    !message_payload.contains("resultText") ||
+                    !message_payload["resultText"].is_string()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "internal owner completion is malformed"));
+                    continue;
+                }
+                const auto result_text = message_payload["resultText"].get<std::string>();
+                const auto mutation_result = Json::parse(result_text, nullptr, false);
+                if (mutation_result.is_discarded() || !mutation_result.is_object()) {
+                    client->send(
+                        result_event_json(request_id, false, "null",
+                                          "internal owner completion result is malformed"));
+                    continue;
+                }
+                const auto result =
+                    complete_owner_request(message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                                           message_payload["token"].get<std::uint64_t>(), true,
+                                           Json{{"ok", true}, {"result", mutation_result}}, "");
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
             if (method == "disposable-event") {
                 if (!message_payload.contains("disposableWorkerId") ||
                     !message_payload["disposableWorkerId"].is_number_unsigned() ||
@@ -3583,6 +3766,7 @@ private:
     std::atomic<std::uint64_t> exact_validation_probes_{0};
     std::atomic<std::uint64_t> generic_project_sessions_{0};
     std::atomic<std::uint64_t> authority_observations_{0};
+    std::atomic<std::uint64_t> authority_full_rescans_{0};
     std::atomic<std::uint64_t> files_observed_{0};
     std::atomic<std::uint64_t> changed_paths_{0};
     std::atomic<std::uint64_t> native_boundary_calls_{0};
@@ -5268,6 +5452,8 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = owner_client_request(*context, "owner-next", parsed);
     else if (action == "owner-complete")
         result = owner_client_request(*context, "owner-complete", parsed);
+    else if (action == "owner-internal-complete")
+        result = owner_client_request(*context, "owner-internal-complete", parsed);
     else if (action == "owner-validation-result")
         result = owner_client_request(*context, "owner-validation-result", parsed);
     else if (action == "owner-event")
@@ -5306,6 +5492,10 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = owner_client_request(*context, "disposable-next", parsed);
     else if (action == "disposable-cancelled")
         result = owner_client_request(*context, "disposable-cancelled", parsed);
+    else if (action == "disposable-register-staged-output")
+        result = owner_client_request(*context, "disposable-register-staged-output", parsed);
+    else if (action == "disposable-owner-mutation")
+        result = owner_client_request(*context, "disposable-owner-mutation", parsed);
     else if (action == "disposable-event")
         result = owner_client_request(*context, "disposable-event", parsed);
     else if (action == "disposable-snapshot-read")

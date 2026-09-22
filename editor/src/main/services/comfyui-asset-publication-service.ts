@@ -1,5 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   PROJECT_WORKSPACE_ABSENT_REVISION,
@@ -194,7 +195,7 @@ async function planAssets(options: {
   projectRoot: string;
   workspace: ProjectWorkspaceService;
   fileSystem: ProjectWorkspaceFileSystem;
-  workflow: ComfyUiRunnableWorkflowEntry;
+  workflow: Pick<ComfyUiRunnableWorkflowEntry, 'id' | 'label'>;
   promptId: string;
   plan: ComfyUiRunPlan;
   outputs: Record<string, ComfyUiGeneratedImage[]>;
@@ -260,6 +261,117 @@ async function planAssets(options: {
   return { opened, candidate, planned };
 }
 
+async function commitAssetPlan(options: {
+  projectRoot: string;
+  workspace: ProjectWorkspaceService;
+  workflowId: string;
+  assetPlan: NonNullable<Awaited<ReturnType<typeof planAssets>>>;
+}) {
+  const expectedFileRevisions = Object.fromEntries(
+    options.assetPlan.planned.map((asset) => [asset.recordPath, PROJECT_WORKSPACE_ABSENT_REVISION]),
+  );
+  try {
+    await options.workspace.write(
+      options.projectRoot,
+      options.assetPlan.opened.snapshot.workspaceRevision,
+      options.assetPlan.candidate,
+      options.assetPlan.candidate.editor,
+      options.assetPlan.opened.snapshot.scriptSourcePaths,
+      {
+        operationLabel: `comfyui publish ${options.workflowId}`,
+        targetFiles: options.assetPlan.planned.map((asset) => asset.recordPath),
+        expectedFileRevisions,
+        extraTargets: options.assetPlan.planned.map((asset) => ({
+          path: asset.projectRelativePath,
+          operation: 'write' as const,
+          expectedRevision: PROJECT_WORKSPACE_ABSENT_REVISION,
+          bytes: asset.output.bytes,
+        })),
+      },
+    );
+  } catch (error) {
+    if (
+      !(await assetPlanWasCommitted(
+        options.projectRoot,
+        options.workspace,
+        options.assetPlan.planned,
+      ))
+    ) {
+      const conflict =
+        error instanceof ProjectWorkspaceMutationError &&
+        (error.code === 'WORKSPACE_BUSY' || error.code === 'WORKSPACE_REVISION_CONFLICT');
+      throw new ComfyUiRunError(
+        conflict ? 'COMFYUI_ASSET_PUBLICATION_CONFLICT' : 'COMFYUI_ASSET_PUBLICATION_FAILED',
+        '/outputs',
+        `ComfyUI generation succeeded, but Project Asset publication ${conflict ? 'conflicted' : 'failed'}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+}
+
+export interface ComfyUiStagedAssetPublicationRequest {
+  projectRoot: string;
+  workflow: { id: string; label: string };
+  promptId: string;
+  assets: Array<{
+    outputId: string;
+    stagedPath: string;
+    output: Omit<ComfyUiGeneratedImage, 'bytes'>;
+  }>;
+}
+
+export async function publishStagedComfyUiAssets(options: {
+  request: ComfyUiStagedAssetPublicationRequest;
+  workspace: ProjectWorkspaceService;
+  fileSystem: ProjectWorkspaceFileSystem;
+}): Promise<Record<string, ComfyUiPublishedAssetOutput[]>> {
+  const outputs: Record<string, ComfyUiGeneratedImage[]> = {};
+  const routes: ComfyUiRunPlan['routes'] = {};
+  for (const asset of options.request.assets) {
+    const bytes = await fs.readFile(asset.stagedPath);
+    const contentHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+    if (bytes.byteLength !== asset.output.byteSize || contentHash !== asset.output.contentHash)
+      throw new ComfyUiRunError(
+        'COMFYUI_ASSET_STAGED_INPUT_CHANGED',
+        `/outputs/${asset.outputId}`,
+        'Staged ComfyUI Asset bytes changed before Project publication.',
+      );
+    (outputs[asset.outputId] ??= []).push({ ...asset.output, bytes });
+    routes[asset.outputId] = {
+      outputId: asset.outputId,
+      target: 'asset',
+      cardinality: 'many',
+    };
+  }
+  const assetPlan = await planAssets({
+    projectRoot: options.request.projectRoot,
+    workspace: options.workspace,
+    fileSystem: options.fileSystem,
+    workflow: options.request.workflow,
+    promptId: options.request.promptId,
+    plan: { routes },
+    outputs,
+  });
+  if (!assetPlan) return {};
+  await commitAssetPlan({
+    projectRoot: options.request.projectRoot,
+    workspace: options.workspace,
+    workflowId: options.request.workflow.id,
+    assetPlan,
+  });
+  const published: Record<string, ComfyUiPublishedAssetOutput[]> = {};
+  for (const asset of assetPlan.planned) {
+    const { bytes: _bytes, ...metadata } = asset.output;
+    (published[asset.outputId] ??= []).push({
+      ...metadata,
+      target: 'asset',
+      assetId: asset.assetId,
+      projectRelativePath: asset.projectRelativePath,
+    });
+  }
+  return published;
+}
+
 async function assetPlanWasCommitted(
   projectRoot: string,
   workspace: ProjectWorkspaceService,
@@ -286,12 +398,16 @@ export async function publishComfyUiOutputs(options: {
   plan: ComfyUiRunPlan;
   outputs: Record<string, ComfyUiGeneratedImage[]>;
   force: boolean;
+  registerStagedOutput?: (path: string) => Promise<void>;
+  commitStagedProjectAssets?: (
+    request: ComfyUiStagedAssetPublicationRequest,
+  ) => Promise<Record<string, ComfyUiPublishedAssetOutput[]>>;
 }): Promise<Record<string, ComfyUiPublishedOutput[]>> {
   const hasAssetRoutes = Object.values(options.plan.routes).some(
     (route) => route.target === 'asset',
   );
   const assetPlan =
-    options.projectRoot && hasAssetRoutes
+    options.projectRoot && hasAssetRoutes && !options.commitStagedProjectAssets
       ? await planAssets({
           projectRoot: options.projectRoot,
           workspace: options.workspace,
@@ -317,50 +433,54 @@ export async function publishComfyUiOutputs(options: {
     outputs: options.outputs,
     force: options.force,
   });
+  let delegatedAssets: Record<string, ComfyUiPublishedAssetOutput[]> = {};
+  const delegatedAssetPaths: string[] = [];
   try {
     await commitFilesystem(staged);
-    if (assetPlan && options.projectRoot) {
-      const expectedFileRevisions = Object.fromEntries(
-        assetPlan.planned.map((asset) => [asset.recordPath, PROJECT_WORKSPACE_ABSENT_REVISION]),
-      );
-      try {
-        await options.workspace.write(
-          options.projectRoot,
-          assetPlan.opened.snapshot.workspaceRevision,
-          assetPlan.candidate,
-          assetPlan.candidate.editor,
-          assetPlan.opened.snapshot.scriptSourcePaths,
-          {
-            operationLabel: `comfyui publish ${options.workflow.id}`,
-            targetFiles: assetPlan.planned.map((asset) => asset.recordPath),
-            expectedFileRevisions,
-            extraTargets: assetPlan.planned.map((asset) => ({
-              path: asset.projectRelativePath,
-              operation: 'write' as const,
-              expectedRevision: PROJECT_WORKSPACE_ABSENT_REVISION,
-              bytes: asset.output.bytes,
-            })),
-          },
+    if (options.projectRoot && hasAssetRoutes && options.commitStagedProjectAssets) {
+      if (!options.registerStagedOutput)
+        throw new ComfyUiRunError(
+          'COMFYUI_ASSET_PUBLICATION_FAILED',
+          '/outputs',
+          'ComfyUI Project Asset publication requires staged-output registration.',
         );
-      } catch (error) {
-        if (
-          !(await assetPlanWasCommitted(options.projectRoot, options.workspace, assetPlan.planned))
-        ) {
-          const conflict =
-            error instanceof ProjectWorkspaceMutationError &&
-            (error.code === 'WORKSPACE_BUSY' || error.code === 'WORKSPACE_REVISION_CONFLICT');
-          throw new ComfyUiRunError(
-            conflict ? 'COMFYUI_ASSET_PUBLICATION_CONFLICT' : 'COMFYUI_ASSET_PUBLICATION_FAILED',
-            '/outputs',
-            `ComfyUI generation succeeded, but Project Asset publication ${conflict ? 'conflicted' : 'failed'}: ${error instanceof Error ? error.message : String(error)}`,
+      const assets: ComfyUiStagedAssetPublicationRequest['assets'] = [];
+      for (const [outputId, route] of Object.entries(options.plan.routes)) {
+        if (route.target !== 'asset') continue;
+        for (const output of options.outputs[outputId] ?? []) {
+          const stagedPath = path.join(
+            os.tmpdir(),
+            `noveltea-comfyui-${randomUUID()}${extensionForFormat(output.format)}`,
           );
+          await options.registerStagedOutput(stagedPath);
+          await fs.writeFile(stagedPath, output.bytes, { flag: 'wx' });
+          delegatedAssetPaths.push(stagedPath);
+          const { bytes: _bytes, ...metadata } = output;
+          assets.push({ outputId, stagedPath, output: metadata });
         }
       }
+      delegatedAssets = await options.commitStagedProjectAssets({
+        projectRoot: options.projectRoot,
+        workflow: { id: options.workflow.id, label: options.workflow.label },
+        promptId: options.promptId,
+        assets,
+      });
+    }
+    if (assetPlan && options.projectRoot) {
+      await commitAssetPlan({
+        projectRoot: options.projectRoot,
+        workspace: options.workspace,
+        workflowId: options.workflow.id,
+        assetPlan,
+      });
     }
     await finalizeFilesystem(staged);
   } catch (error) {
     await rollbackFilesystem(staged);
     throw error;
+  } finally {
+    for (const stagedPath of delegatedAssetPaths)
+      await fs.rm(stagedPath, { force: true }).catch(() => undefined);
   }
 
   const published: Record<string, ComfyUiPublishedOutput[]> = {};
@@ -378,5 +498,7 @@ export async function publishComfyUiOutputs(options: {
       projectRelativePath: asset.projectRelativePath,
     });
   }
+  for (const [outputId, assets] of Object.entries(delegatedAssets))
+    published[outputId]!.push(...assets);
   return published;
 }

@@ -77,6 +77,7 @@ function run(command, args, options = {}) {
     cwd: options.cwd ?? repositoryRoot,
     env: options.env ?? process.env,
     input: options.stdin,
+    timeout: options.timeout,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
   });
@@ -208,6 +209,17 @@ function runNativeNoDaemon(args, options = {}) {
   });
 }
 
+function runNodeAsync(args, options = {}) {
+  return runAsync(process.execPath, [nodeCli, ...args], {
+    ...options,
+    env: { ...process.env, ...options.env, NOVELTEA_CLI: nativeCli },
+  }).then((process) => process.result());
+}
+
+function runNativeAsync(args, options = {}) {
+  return runAsync(nativeCli, args, options).then((process) => process.result());
+}
+
 async function startComfyUiCertificationServer(tempRoot, mode = 'success') {
   const logPath = path.join(
     tempRoot,
@@ -263,7 +275,7 @@ async function runAsync(command, args, options = {}) {
   const child = spawn(command, args, {
     cwd: options.cwd ?? repositoryRoot,
     env: options.env ?? process.env,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     detached: options.detached ?? false,
     windowsHide: options.windowsHide ?? false,
   });
@@ -281,6 +293,7 @@ async function runAsync(command, args, options = {}) {
     child.once('error', reject);
     child.once('close', (code, signal) => resolve(code ?? (signal === 'SIGINT' ? 130 : 1)));
   });
+  if (options.stdin !== undefined) child.stdin.end(options.stdin);
   return {
     child,
     async result() {
@@ -479,6 +492,19 @@ async function waitForComfyUiRequestPrefix(logPath, expectedPrefix, timeoutMs = 
   fail(`Timed out waiting for fake ComfyUI request prefix '${expectedPrefix}'.`);
 }
 
+async function waitForFile(filePath, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      if ((await stat(filePath)).isFile()) return;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  fail(`Timed out waiting for file: ${filePath}`);
+}
+
 async function readComfyUiRequests(logPath) {
   try {
     return (await readFile(logPath, 'utf8'))
@@ -554,15 +580,25 @@ function assertIslandBoundaryTrace(label, result, marker, expected) {
 function certifyBootstrapOnlyIslandFailures() {
   const env = { ...process.env, NOVELTEA_CLI_TRACE: '1', NOVELTEA_NO_DAEMON: '1' };
   for (const test of [
-    { label: 'repeated global help', args: ['--help', '--help'], expectedStatus: 0 },
-    { label: 'unknown global option', args: ['--not-a-global-option'], expectedStatus: 2 },
+    {
+      label: 'repeated global help',
+      args: ['--help', '--help'],
+      expectedStatus: 0,
+      expectedIsland: false,
+    },
+    {
+      label: 'unknown global option',
+      args: ['--not-a-global-option'],
+      expectedStatus: 2,
+      expectedIsland: true,
+    },
   ]) {
     const result = runNative(test.args, { env });
     if (result.status !== test.expectedStatus)
       fail(
         `${test.label} returned ${result.status ?? 'no status'} instead of ${test.expectedStatus}.`,
       );
-    assertIslandTrace(test.label, result, true);
+    assertIslandTrace(test.label, result, test.expectedIsland);
     assertIslandBoundaryTrace(test.label, result, 'platform host configuration starting', false);
     assertIslandBoundaryTrace(test.label, result, 'workspace services import starting', false);
   }
@@ -1076,35 +1112,93 @@ async function runDifferential(tempRoot) {
   const pristine = path.join(tempRoot, 'pristine');
   await materializeFixture(pristine);
   await makeShaderFree(pristine);
-  const caseRoot = path.join(tempRoot, 'case');
+  const daemonEnvironment = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `differential-${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(tempRoot, 'differential-daemon'),
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '60000',
+  };
+  runNative(['daemon', 'stop'], { env: daemonEnvironment });
+  const roots = Object.freeze({
+    node: path.join(tempRoot, 'case-node'),
+    daemon: path.join(tempRoot, 'case-daemon'),
+    noDaemon: path.join(tempRoot, 'case-no-daemon'),
+  });
+  const canonicalizeLaneText = (value, root) => {
+    const escapedRoot = JSON.stringify(root).slice(1, -1);
+    return value.split(escapedRoot).join('<project-root>').split(root).join('<project-root>');
+  };
+  const replaceBuffer = (input, needle, replacement) => {
+    const parts = [];
+    let offset = 0;
+    let index = input.indexOf(needle, offset);
+    if (index === -1) return input;
+    while (index !== -1) {
+      parts.push(input.subarray(offset, index), replacement);
+      offset = index + needle.length;
+      index = input.indexOf(needle, offset);
+    }
+    parts.push(input.subarray(offset));
+    return Buffer.concat(parts);
+  };
+  const canonicalizeLaneBytes = (bytes, root) => {
+    const replacement = Buffer.from('<project-root>');
+    const escapedRoot = JSON.stringify(root).slice(1, -1);
+    let result = Buffer.from(bytes);
+    result = replaceBuffer(result, Buffer.from(escapedRoot), replacement);
+    return replaceBuffer(result, Buffer.from(root), replacement);
+  };
 
   for (const test of differentialCases) {
-    await resetCase(pristine, caseRoot);
-    await test.prepare?.(caseRoot);
-    const args = test.args(caseRoot);
-    const cwd = test.cwd?.(caseRoot) ?? (test.project === false ? repositoryRoot : caseRoot);
-    const nodeResult = runNode(args, { cwd, stdin: test.stdin });
-    const nodeTree =
-      test.project === false
-        ? ''
-        : await treeSnapshot(
-            caseRoot,
-            test.normalizeTree ? (...input) => test.normalizeTree(...input) : null,
-          );
-
-    await resetCase(pristine, caseRoot);
-    await test.prepare?.(caseRoot);
-    const scriptcResult = runNative(args, {
-      cwd: test.cwd?.(caseRoot) ?? cwd,
-      stdin: test.stdin,
+    runNative(['daemon', 'stop'], { env: daemonEnvironment });
+    await Promise.all(
+      Object.values(roots).map(async (root) => {
+        await resetCase(pristine, root);
+        await test.prepare?.(root);
+      }),
+    );
+    const lane = (root) => ({
+      root,
+      args: test.args(root),
+      cwd: test.cwd?.(root) ?? (test.project === false ? repositoryRoot : root),
     });
-    const scriptcTree =
-      test.project === false
-        ? ''
-        : await treeSnapshot(
-            caseRoot,
-            test.normalizeTree ? (...input) => test.normalizeTree(...input) : null,
-          );
+    const nodeLane = lane(roots.node);
+    const daemonLane = lane(roots.daemon);
+    const noDaemonLane = lane(roots.noDaemon);
+    const [nodeResultRaw, scriptcResultRaw, noDaemonResultRaw] = await Promise.all([
+      runNodeAsync(nodeLane.args, { cwd: nodeLane.cwd, stdin: test.stdin }),
+      runNativeAsync(daemonLane.args, {
+        cwd: daemonLane.cwd,
+        env: daemonEnvironment,
+        stdin: test.stdin,
+      }),
+      runNativeAsync(noDaemonLane.args, {
+        cwd: noDaemonLane.cwd,
+        env: { ...daemonEnvironment, NOVELTEA_NO_DAEMON: '1' },
+        stdin: test.stdin,
+      }),
+    ]);
+    const normalizeResult = (result, root) => ({
+      ...result,
+      stdout: canonicalizeLaneText(result.stdout, root),
+      stderr: canonicalizeLaneText(result.stderr, root),
+    });
+    const nodeResult = normalizeResult(nodeResultRaw, roots.node);
+    const scriptcResult = normalizeResult(scriptcResultRaw, roots.daemon);
+    const noDaemonResult = normalizeResult(noDaemonResultRaw, roots.noDaemon);
+    const [nodeTree, scriptcTree, noDaemonTree] = [roots.node, roots.daemon, roots.noDaemon].map(
+      (root) =>
+        test.project === false
+          ? ''
+          : treeSnapshot(root, (relativePath, bytes) =>
+              canonicalizeLaneBytes(
+                test.normalizeTree ? test.normalizeTree(relativePath, bytes) : bytes,
+                root,
+              ),
+            ),
+    );
 
     const canonicalStdout = test.canonicalStdout ?? ((value) => value);
     if (
@@ -1112,13 +1206,14 @@ async function runDifferential(tempRoot) {
       canonicalStdout(scriptcResult.stdout) !== canonicalStdout(nodeResult.stdout) ||
       scriptcResult.stderr !== nodeResult.stderr
     ) {
-      await resetCase(pristine, caseRoot);
-      await test.prepare?.(caseRoot);
-      const traced = runNative(args, {
-        cwd: test.cwd?.(caseRoot) ?? cwd,
-        env: { ...process.env, NOVELTEA_CLI_TRACE: '1' },
+      await resetCase(pristine, roots.daemon);
+      await test.prepare?.(roots.daemon);
+      const tracedRaw = runNative(test.args(roots.daemon), {
+        cwd: test.cwd?.(roots.daemon) ?? (test.project === false ? repositoryRoot : roots.daemon),
+        env: { ...daemonEnvironment, NOVELTEA_CLI_TRACE: '1' },
         stdin: test.stdin,
       });
+      const traced = normalizeResult(tracedRaw, roots.daemon);
       fail(
         `Node/scriptc differential '${test.name}' differs.\n` +
           `Node: status=${nodeResult.status}\nstdout:\n${nodeResult.stdout}\nstderr:\n${nodeResult.stderr}\n` +
@@ -1130,21 +1225,6 @@ async function runDifferential(tempRoot) {
       fail(
         `Node/scriptc differential '${test.name}' produced different filesystem state: ${describeTreeDifference(nodeTree, scriptcTree)}.`,
       );
-
-    await resetCase(pristine, caseRoot);
-    await test.prepare?.(caseRoot);
-    const noDaemonResult = runNative(args, {
-      cwd: test.cwd?.(caseRoot) ?? cwd,
-      env: { ...process.env, NOVELTEA_NO_DAEMON: '1' },
-      stdin: test.stdin,
-    });
-    const noDaemonTree =
-      test.project === false
-        ? ''
-        : await treeSnapshot(
-            caseRoot,
-            test.normalizeTree ? (...input) => test.normalizeTree(...input) : null,
-          );
     if (
       noDaemonResult.status !== nodeResult.status ||
       canonicalStdout(noDaemonResult.stdout) !== canonicalStdout(nodeResult.stdout) ||
@@ -1157,6 +1237,7 @@ async function runDifferential(tempRoot) {
       );
     process.stdout.write(`[differential] ${test.name}: PASS\n`);
   }
+  runNative(['daemon', 'stop'], { env: daemonEnvironment });
   return { pristine };
 }
 
@@ -1364,7 +1445,8 @@ async function certifyAuthoringCache(tempRoot, pristine) {
   await writeFile(candidate, '-- new candidate\n');
   invoke('authoring added candidate', true);
   await rm(candidate);
-  invoke('authoring removed candidate', true);
+  // Removing the unadmitted candidate restores the exact previously cached generation.
+  invoke('authoring removed candidate', false);
   const manifestPath = path.join(root, 'project.json');
   await writeFile(manifestPath, `${await readFile(manifestPath, 'utf8')}\n`);
   invoke('authoring changed metadata', true);
@@ -1802,6 +1884,7 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
     if (
       !processInventory ||
       processInventory.resident?.ownerPids?.length !== 2 ||
+      processInventory.resident?.owners?.length !== 2 ||
       processInventory.resident?.disposablePids?.length < 1
     )
       fail(`Project-owner process inventory was incomplete: ${processInventoryResult.stderr}`);
@@ -1809,7 +1892,15 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
     const standbyMemory = await rssForProcesses(processInventory.resident.disposablePids);
     const brokerMemory = await daemonRssBytes(initialDaemon.pid);
 
-    const killedOwnerPid = processInventory.resident.ownerPids[0];
+    const ownerFor = (profile, root) =>
+      profile?.resident?.owners?.find((owner) => owner.canonicalRoot === root) ?? null;
+    const firstOwnerBeforeCrash = ownerFor(processInventory, firstRoot);
+    const secondOwnerBeforeCrash = ownerFor(processInventory, secondRoot);
+    if (!firstOwnerBeforeCrash || !secondOwnerBeforeCrash)
+      fail(
+        `Project-owner process inventory did not map owners to Projects: ${processInventoryResult.stderr}`,
+      );
+    const killedOwnerPid = firstOwnerBeforeCrash.pid;
     process.kill(killedOwnerPid, 'SIGKILL');
     for (let attempt = 0; attempt < 100 && processExists(killedOwnerPid); attempt += 1)
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -1841,6 +1932,18 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
     const recoveryProfiles = [schedulerProfile(recoveredFirst), schedulerProfile(recoveredSecond)];
     if (!recoveryProfiles.some((profile) => (profile?.workerSpawns?.owner ?? 0) === 1))
       fail('Owner-process death did not produce exactly one replacement owner admission.');
+    const recoveredInventory = recoveryProfiles[1];
+    const firstOwnerAfterCrash = ownerFor(recoveredInventory, firstRoot);
+    const secondOwnerAfterCrash = ownerFor(recoveredInventory, secondRoot);
+    if (
+      !firstOwnerAfterCrash ||
+      !secondOwnerAfterCrash ||
+      firstOwnerAfterCrash.pid === firstOwnerBeforeCrash.pid ||
+      secondOwnerAfterCrash.pid !== secondOwnerBeforeCrash.pid
+    )
+      fail(
+        `Owner-process crash did not replace only the affected Project owner: ${recoveredSecond.stderr}`,
+      );
     const recoveredStatus = requireSuccess(
       'Project-owner crash recovery status',
       runNative(['--json', 'daemon', 'status'], { env: environment }),
@@ -1867,6 +1970,42 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
         env: activityTraceEnvironment,
       }),
     );
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const beforeHandoff = requireSuccess(
+      'Project-owner idle snapshot status',
+      runNative(['--project', firstRoot, '--json', 'usages', 'rooms', 'gallery'], {
+        cwd: firstRoot,
+        env: { ...activityTraceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
+      }),
+    );
+    if (schedulerProfile(beforeHandoff)?.resident?.snapshots !== 0)
+      fail('Short owner work triggered unsolicited whole-Project snapshot serialization.');
+    requireSuccess(
+      'Project-owner on-demand snapshot preparation',
+      runNative(
+        [
+          '--project',
+          firstRoot,
+          '--json',
+          'package',
+          'export',
+          '--output',
+          path.join(tempRoot, 'owner-rehydration.ntpkg'),
+          '--allow-localization-warnings',
+        ],
+        {
+          cwd: firstRoot,
+          env: activityTraceEnvironment,
+        },
+      ),
+    );
+    requireSuccess(
+      'Project-owner activity after snapshot handoff',
+      runNative(['--project', firstRoot, '--json', 'usages', 'rooms', 'gallery'], {
+        cwd: firstRoot,
+        env: activityTraceEnvironment,
+      }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 450));
     const foyerPath = path.join(firstRoot, 'records', 'rooms', 'foyer.json');
     const foyer = JSON.parse(await readFile(foyerPath, 'utf8'));
@@ -1883,7 +2022,7 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
       );
 
     await writeFile(
-      path.join(firstRoot, 'records', 'watcher-noise.txt'),
+      path.join(firstRoot, 'scripts', 'watcher-noise.txt'),
       'ignored watcher noise\n',
     );
     await new Promise((resolve) => setTimeout(resolve, 850));
@@ -1906,6 +2045,57 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
     requireSuccess(
       'Project-owner activity daemon stop',
       runNative(['--json', 'daemon', 'stop'], { env: activityEnvironment }),
+    );
+
+    const coldFallbackEnvironment = {
+      ...environment,
+      NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${environment.NOVELTEA_CLI_CERTIFICATION_DAEMON_ID}-cold-fallback`,
+      NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '400',
+      NOVELTEA_CLI_CERTIFICATION_PROJECT_SNAPSHOT_BUDGET_BYTES: '1',
+    };
+    const coldFallbackTraceEnvironment = {
+      ...coldFallbackEnvironment,
+      NOVELTEA_CLI_TRACE: '1',
+    };
+    requireSuccess(
+      'Project-owner cold-fallback snapshot preparation',
+      runNative(
+        [
+          '--project',
+          firstRoot,
+          '--json',
+          'package',
+          'export',
+          '--output',
+          path.join(tempRoot, 'owner-cold-fallback.ntpkg'),
+          '--allow-localization-warnings',
+        ],
+        { cwd: firstRoot, env: coldFallbackTraceEnvironment },
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    const coldFallbackStatus = requireSuccess(
+      'Project-owner cold-fallback pressure status',
+      runNative(['--json', 'daemon', 'status'], { env: coldFallbackEnvironment }),
+    );
+    const coldFallbackDaemon = JSON.parse(coldFallbackStatus.stdout).daemon;
+    if (coldFallbackDaemon.projectSessions !== 0)
+      fail(
+        `Dormant snapshot pressure did not evict the Project owner: ${coldFallbackStatus.stdout}`,
+      );
+    const coldFallback = requireSuccess(
+      'Project-owner true cold fallback after snapshot pressure',
+      runNative(['--project', firstRoot, '--json', 'usages', 'rooms', 'gallery'], {
+        cwd: firstRoot,
+        env: { ...coldFallbackTraceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
+      }),
+    );
+    const coldFallbackProfile = schedulerProfile(coldFallback);
+    if (!coldFallbackProfile?.ownerColdAdmission || coldFallbackProfile.ownerRehydration)
+      fail(`Snapshot pressure did not force a true cold owner admission: ${coldFallback.stderr}`);
+    requireSuccess(
+      'Project-owner cold-fallback daemon stop',
+      runNative(['--json', 'daemon', 'stop'], { env: coldFallbackEnvironment }),
     );
 
     const pressureEnvironment = {
@@ -1944,6 +2134,7 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
       distinctProjectOwners: true,
       ownerCrashRecovery: crashRecovery,
       dormantSnapshotRehydration: true,
+      coldFallbackAfterSnapshotPressure: true,
       activityAwareEviction: true,
       pressureEviction: true,
       memory: {
@@ -2102,8 +2293,23 @@ async function certifyDisposableTestScheduling(tempRoot) {
         env: traceEnvironment,
       }),
     );
+    const structuralRacePath = path.join(
+      generationRoot,
+      'records',
+      'rooms',
+      'disposable-pinned-generation-race.json',
+    );
+    await writeFile(structuralRacePath, '{ invalid live-only source');
     const longResult = await longTest.result();
     requireSuccess('Disposable Test generation-pinned execution', longResult);
+    await rm(structuralRacePath, { force: true });
+    requireSuccess(
+      'Disposable Test structural-race repair',
+      runNative(['--project', generationRoot, '--json', 'validate'], {
+        cwd: generationRoot,
+        env: traceEnvironment,
+      }),
+    );
     if (!longResult.stderr.includes('[scriptc-host] daemon invocation forwarding'))
       fail('Generation-pinned Test did not exercise the resident daemon route.');
     const longSchedulerProfile = schedulerProfile(longResult);
@@ -2199,7 +2405,38 @@ async function certifyDisposableTestScheduling(tempRoot) {
       (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
     );
 
+    const snapshotlessCrash = runNative(['--json', 'platform', 'template', 'list'], {
+      timeout: 15000,
+      env: { ...traceEnvironment, NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH: '1' },
+    });
+    if (
+      snapshotlessCrash.status === 0 ||
+      !`${snapshotlessCrash.stdout}${snapshotlessCrash.stderr}`.includes(
+        'daemon disposable worker exited unexpectedly',
+      )
+    )
+      fail('Snapshotless disposable crash did not promptly report the failed job.');
+    await waitForStatus(
+      'Snapshotless disposable crash standby replenishment',
+      (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
+    );
+
     const crashRoot = await resetFeatureLab('disposable-test-crash');
+    const crashOwnerAdmission = requireSuccess(
+      'Disposable Test crash owner baseline',
+      runNative(['--project', crashRoot, '--json', 'validate'], {
+        cwd: crashRoot,
+        env: { ...traceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
+      }),
+    );
+    const crashOwnerProfile = schedulerProfile(crashOwnerAdmission);
+    const crashOwnerBefore = crashOwnerProfile?.resident?.owners?.find(
+      (owner) => owner.canonicalRoot === crashRoot,
+    );
+    if (!crashOwnerBefore)
+      fail(
+        `Disposable Test crash baseline did not expose its Project owner: ${crashOwnerAdmission.stderr}`,
+      );
     const crashResult = runNative(
       ['--project', crashRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
       {
@@ -2218,13 +2455,25 @@ async function certifyDisposableTestScheduling(tempRoot) {
     );
     if (recovered.pid !== daemonPid)
       fail('Disposable Test worker crash replaced or terminated the daemon broker.');
-    requireSuccess(
+    const ownerAfterDisposableCrash = requireSuccess(
       'Disposable Test crash isolation owner validation',
       runNative(['--project', crashRoot, '--json', 'validate'], {
         cwd: crashRoot,
-        env: traceEnvironment,
+        env: { ...traceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
       }),
     );
+    const ownerAfterDisposableCrashProfile = schedulerProfile(ownerAfterDisposableCrash);
+    const crashOwnerAfter = ownerAfterDisposableCrashProfile?.resident?.owners?.find(
+      (owner) => owner.canonicalRoot === crashRoot,
+    );
+    if (
+      !crashOwnerAfter ||
+      crashOwnerAfter.pid !== crashOwnerBefore.pid ||
+      (ownerAfterDisposableCrashProfile?.workerSpawns?.owner ?? 0) !== 0
+    )
+      fail(
+        `Disposable worker crash replaced or disturbed the live Project owner: ${ownerAfterDisposableCrash.stderr}`,
+      );
 
     return {
       generationPinned: true,
@@ -2295,8 +2544,18 @@ async function certifyDisposableOutputScheduling(tempRoot) {
   runNative(['daemon', 'stop'], { env: environment });
   try {
     const generationRoot = await resetFeatureLab('disposable-output-generation');
+    const generationBaselineOutput = path.join(tempRoot, 'disposable-generation-baseline.ntpkg');
     const generationOutput = path.join(tempRoot, 'disposable-generation.ntpkg');
+    await rm(generationBaselineOutput, { force: true });
     await rm(generationOutput, { force: true });
+    requireSuccess(
+      'Disposable output generation baseline',
+      runNative(packageArguments(generationRoot, generationBaselineOutput), {
+        cwd: generationRoot,
+        env: traceEnvironment,
+      }),
+    );
+    const generationBaselineBytes = await readFile(generationBaselineOutput);
     const delayedEnvironment = {
       ...traceEnvironment,
       NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
@@ -2314,6 +2573,17 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     const room = JSON.parse(await readFile(roomPath, 'utf8'));
     room.label = `${room.label} output generation advance`;
     await writeJson(roomPath, room);
+    const addedRoomPath = path.join(
+      generationRoot,
+      'records',
+      'rooms',
+      'disposable-generation-live-only.json',
+    );
+    await writeJson(addedRoomPath, {
+      ...room,
+      id: 'disposable-generation-live-only',
+      label: 'Disposable Generation Live Only',
+    });
     requireSuccess(
       'Disposable output concurrent foreground validation',
       runNative(['--project', generationRoot, '--json', 'validate'], {
@@ -2327,6 +2597,11 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     );
     if (!(await stat(generationOutput).catch(() => null)))
       fail('Generation-pinned disposable package export did not publish its final output.');
+    const generationBytes = await readFile(generationOutput);
+    if (!generationBytes.equals(generationBaselineBytes))
+      fail(
+        'Generation-pinned disposable package export observed the newer live Project generation.',
+      );
 
     const driftRoot = await resetFeatureLab('disposable-output-drift');
     const driftOutput = path.join(tempRoot, 'disposable-drift.ntpkg');
@@ -2352,9 +2627,13 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     const cancellationRoot = await resetFeatureLab('disposable-output-cancellation');
     const cancellationOutput = path.join(tempRoot, 'disposable-cancellation.ntpkg');
     await rm(cancellationOutput, { force: true });
+    const stagedOutputs = async (output) =>
+      (await readdir(path.dirname(output))).filter((name) =>
+        name.startsWith(`${path.basename(output)}.tmp-`),
+      );
     const cancellationEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '5000',
+      NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS: '10000',
     };
     const cancellationArgs = packageArguments(cancellationRoot, cancellationOutput);
     const cancellation = isWindows
@@ -2369,10 +2648,12 @@ async function certifyDisposableOutputScheduling(tempRoot) {
           }),
           pid: null,
         };
-    await waitForStatus(
-      'Disposable output cancellation admission',
-      (daemon) => daemon.disposableBusyWorkers >= 1,
-    );
+    const stagedDeadline = Date.now() + 30000;
+    while ((await stagedOutputs(cancellationOutput)).length === 0) {
+      if (Date.now() >= stagedDeadline)
+        fail('Disposable cancellation never created a staged package.');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     if (isWindows) sendWindowsConsoleCtrlC(cancellation.pid);
     else cancellation.invocation.child.kill('SIGINT');
     const cancellationResult = await cancellation.invocation.result();
@@ -2381,8 +2662,18 @@ async function certifyDisposableOutputScheduling(tempRoot) {
         `Disposable output cancellation exited ${cancellationResult.status}, expected 130.\n` +
           `${cancellationResult.stdout}\n${cancellationResult.stderr}`,
       );
+    await waitForStatus(
+      'Disposable output cancellation cleanup',
+      (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
+    );
     if (await stat(cancellationOutput).catch(() => null))
       fail('Cancelled disposable package export published a final output.');
+    const cleanupDeadline = Date.now() + 5000;
+    while ((await stagedOutputs(cancellationOutput)).length !== 0) {
+      if (Date.now() >= cleanupDeadline)
+        fail('Cancelled disposable package export leaked staging files.');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
 
     const crashRoot = await resetFeatureLab('disposable-output-crash');
     const crashOutput = path.join(tempRoot, 'disposable-crash.ntpkg');
@@ -2391,7 +2682,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       cwd: crashRoot,
       env: {
         ...traceEnvironment,
-        NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH: '1',
+        NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_CRASH: '1',
       },
     });
     if (crashResult.status === 0)
@@ -2402,6 +2693,8 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       'Disposable output crash standby replenishment',
       (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
     );
+    if ((await stagedOutputs(crashOutput)).length !== 0)
+      fail('Crashed disposable package export leaked staging files.');
     requireSuccess(
       'Disposable output crash isolation owner validation',
       runNative(['--project', crashRoot, '--json', 'validate'], {
@@ -2423,6 +2716,335 @@ async function certifyDisposableOutputScheduling(tempRoot) {
   }
 }
 
+async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine) {
+  const root = path.join(tempRoot, 'authority-mutation-certification');
+  const runtimeRoot = path.join(tempRoot, 'authority-mutation-runtime');
+  await resetCase(pristine, root);
+  const environment = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `authority-mutation-${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '500',
+  };
+  const traceEnvironment = { ...environment, NOVELTEA_CLI_TRACE: '1' };
+  const galleryPath = path.join(root, 'records', 'rooms', 'gallery.json');
+  const originalGallery = JSON.parse(await readFile(galleryPath, 'utf8'));
+  runNative(['daemon', 'stop'], { env: environment });
+  try {
+    requireSuccess(
+      'authority certification owner admission',
+      runNative(['--project', root, '--json', 'asset', 'audit'], {
+        cwd: root,
+        env: traceEnvironment,
+      }),
+    );
+
+    const overflowGallery = structuredClone(originalGallery);
+    overflowGallery.label = `${overflowGallery.label} overflow recovery`;
+    await writeJson(galleryPath, overflowGallery);
+    const overflow = requireSuccess(
+      'watcher overflow/unknown bulk-rescan recovery',
+      runNative(['--project', root, '--json', 'usages', 'rooms', 'gallery'], {
+        cwd: root,
+        env: {
+          ...traceEnvironment,
+          NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
+          NOVELTEA_CLI_CERTIFICATION_FORCE_AUTHORITY_UNKNOWN: '1',
+        },
+      }),
+    );
+    const overflowProfile = schedulerProfile(overflow);
+    if (
+      !overflowProfile ||
+      overflowProfile.authorityFullRescans < 1 ||
+      overflowProfile.changedPathCount < 1 ||
+      overflowProfile.generationPromotions < 1
+    )
+      fail(
+        `Watcher-unknown recovery did not bulk-rescan and promote the disk change: ${overflow.stderr}`,
+      );
+
+    requireSuccess(
+      'stale snapshot baseline preparation',
+      runNative(
+        [
+          '--project',
+          root,
+          '--json',
+          'package',
+          'export',
+          '--output',
+          path.join(tempRoot, 'stale-snapshot-baseline.ntpkg'),
+          '--allow-localization-warnings',
+        ],
+        { cwd: root, env: traceEnvironment },
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 850));
+    const dormantStatus = requireSuccess(
+      'stale snapshot dormant status',
+      runNative(['--json', 'daemon', 'status'], { env: environment }),
+    );
+    const dormantDaemon = JSON.parse(dormantStatus.stdout).daemon;
+    if (dormantDaemon.projectSessions !== 0)
+      fail(`Stale-snapshot certification did not evict the Project owner: ${dormantStatus.stdout}`);
+    const staleGallery = JSON.parse(await readFile(galleryPath, 'utf8'));
+    staleGallery.label = `${staleGallery.label} changed while dormant`;
+    await writeJson(galleryPath, staleGallery);
+    const staleDispatch = requireSuccess(
+      'stale snapshot rejection before heavy dispatch',
+      runNative(
+        [
+          '--project',
+          root,
+          '--json',
+          'package',
+          'export',
+          '--output',
+          path.join(tempRoot, 'stale-snapshot-reconciled.ntpkg'),
+          '--allow-localization-warnings',
+        ],
+        {
+          cwd: root,
+          env: { ...traceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
+        },
+      ),
+    );
+    const staleProfile = schedulerProfile(staleDispatch);
+    if (
+      !staleProfile?.ownerRehydration ||
+      staleProfile.changedPathCount < 1 ||
+      staleProfile.generationPromotions < 1 ||
+      !staleProfile.snapshotHandoff
+    )
+      fail(
+        `Stale retained snapshot was not reconciled before heavy handoff: ${staleDispatch.stderr}`,
+      );
+
+    const raceInvocation = await runAsync(
+      nativeCli,
+      ['--project', root, '--json', 'asset', 'audit'],
+      {
+        cwd: root,
+        env: {
+          ...traceEnvironment,
+          NOVELTEA_CLI_CERTIFICATION_BEFORE_READ_PROOF_DELAY_MS: '500',
+        },
+      },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const racePath = path.join(root, 'records', 'assets', 'authority-race.json');
+    await mkdir(path.dirname(racePath), { recursive: true });
+    await writeFile(racePath, '{"id":');
+    const raceResult = await raceInvocation.result();
+    if (raceResult.status === 0 || !raceResult.stdout.includes('authority-race'))
+      fail(
+        `Authority race returned a stale pre-edit result: ${raceResult.stdout}${raceResult.stderr}`,
+      );
+    await rm(racePath, { force: true });
+    requireSuccess(
+      'authority race repair',
+      runNative(['--project', root, '--json', 'asset', 'audit'], {
+        cwd: root,
+        env: traceEnvironment,
+      }),
+    );
+
+    let churn = true;
+    let churnIndex = 0;
+    const churnTask = (async () => {
+      while (churn) {
+        const current = JSON.parse(await readFile(galleryPath, 'utf8'));
+        current.label = `authority churn ${churnIndex++}`;
+        await writeJson(galleryPath, current);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    })();
+    const churnStarted = Date.now();
+    const churnInvocation = await runAsync(
+      nativeCli,
+      ['--project', root, '--json', 'asset', 'audit'],
+      {
+        cwd: root,
+        env: {
+          ...traceEnvironment,
+          NOVELTEA_CLI_CERTIFICATION_BEFORE_READ_PROOF_DELAY_MS: '250',
+        },
+      },
+    );
+    const churnResult = await churnInvocation.result();
+    churn = false;
+    await churnTask;
+    const churnMs = Date.now() - churnStarted;
+    if (churnResult.status === 0 || churnMs > 5_000)
+      fail(
+        `Continuous authority churn did not fail through bounded retries: status=${churnResult.status} elapsed=${churnMs}ms.`,
+      );
+    await writeJson(galleryPath, originalGallery);
+    requireSuccess(
+      'authority churn repair',
+      runNative(['--project', root, '--json', 'asset', 'audit'], {
+        cwd: root,
+        env: traceEnvironment,
+      }),
+    );
+
+    const mutationSource = path.join(root, 'assets', 'text', 'mutation-proof.txt');
+    await mkdir(path.dirname(mutationSource), { recursive: true });
+    await writeFile(mutationSource, 'mutation proof\n');
+    const mutation = requireSuccess(
+      'owner mutation transaction/proof/promotion',
+      runNative(['--project', root, '--json', 'asset', 'import', mutationSource], {
+        cwd: root,
+        env: { ...traceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
+      }),
+    );
+    const mutationProfile = schedulerProfile(mutation);
+    const mutationRecord = path.join(root, 'records', 'assets', 'mutation-proof.json');
+    if (
+      !mutationProfile ||
+      mutationProfile.generationPromotions < 1 ||
+      !(await stat(mutationRecord)).isFile()
+    )
+      fail(`Successful owner mutation was not proven/promoted: ${mutation.stderr}`);
+
+    const raceMutationSource = path.join(root, 'assets', 'text', 'mutation-race-proof.txt');
+    await writeFile(raceMutationSource, 'mutation race proof\n');
+    const mutationRaceStarted = await runAsync(
+      nativeCli,
+      ['--project', root, '--json', 'asset', 'import', raceMutationSource],
+      {
+        cwd: root,
+        env: {
+          ...traceEnvironment,
+          NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
+          NOVELTEA_CLI_CERTIFICATION_BEFORE_MUTATION_PROOF_DELAY_MS: '700',
+        },
+      },
+    );
+    await waitForFile(path.join(root, 'records', 'assets', 'mutation-race-proof.json'));
+    const externalGallery = JSON.parse(await readFile(galleryPath, 'utf8'));
+    externalGallery.label = 'external mutation race edit';
+    await writeJson(galleryPath, externalGallery);
+    const mutationRace = await mutationRaceStarted.result();
+    if (mutationRace.status === 0)
+      fail(`External edit race incorrectly promoted the mutation: ${mutationRace.stdout}`);
+    const mutationRaceProfile = schedulerProfile(mutationRace);
+    if ((mutationRaceProfile?.generationPromotions ?? 0) !== 0)
+      fail(`Failed mutation race promoted a resident generation: ${mutationRace.stderr}`);
+    const preservedExternalGallery = JSON.parse(await readFile(galleryPath, 'utf8'));
+    if (preservedExternalGallery.label !== 'external mutation race edit')
+      fail('Owner mutation race overwrote the concurrent external Project edit.');
+    requireSuccess(
+      'mutation race reconciliation',
+      runNative(['--project', root, '--json', 'asset', 'audit'], {
+        cwd: root,
+        env: traceEnvironment,
+      }),
+    );
+
+    return {
+      watcherOverflowRecovery: true,
+      staleSnapshotRejection: true,
+      authorityRaceRetry: true,
+      boundedChurnFailure: true,
+      mutationProofAndPromotion: true,
+      mutationExternalEditRace: true,
+    };
+  } finally {
+    runNative(['daemon', 'stop'], { env: environment });
+    await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+async function certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine) {
+  const root = path.join(tempRoot, 'comfyui-owner-isolation');
+  const runtimeRoot = path.join(tempRoot, 'comfyui-owner-isolation-runtime');
+  const configRoot = path.join(tempRoot, 'comfyui-owner-isolation-config');
+  await resetCase(pristine, root);
+  await rm(configRoot, { recursive: true, force: true });
+  const server = await startComfyUiCertificationServer(tempRoot, 'success');
+  const environment = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `comfyui-owner-isolation-${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '60000',
+    NOVELTEA_USER_CONFIG_ROOT: configRoot,
+  };
+  const traceEnvironment = { ...environment, NOVELTEA_CLI_TRACE: '1' };
+  runNative(['daemon', 'stop'], { env: environment });
+  try {
+    requireSuccess(
+      'ComfyUI owner-isolation owner admission',
+      runNative(['--project', root, '--json', 'asset', 'audit'], {
+        cwd: root,
+        env: traceEnvironment,
+      }),
+    );
+    await writeFile(server.logPath, '');
+    const invocation = await runAsync(
+      nativeCli,
+      [
+        '--project',
+        root,
+        '--json',
+        'comfyui',
+        'run',
+        'flux2-klein-text-to-image',
+        '--server',
+        server.url,
+        '--input',
+        'prompt=owner isolation certification',
+      ],
+      {
+        cwd: root,
+        env: { ...traceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
+      },
+    );
+    const resultPromise = invocation.result();
+    await waitForComfyUiRequestPrefix(server.logPath, '/history/');
+    const shortRead = requireSuccess(
+      'ComfyUI concurrent short Project read',
+      runNative(['--project', root, '--json', 'usages', 'rooms', 'gallery'], {
+        cwd: root,
+        env: { ...traceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
+      }),
+    );
+    if (invocation.child.exitCode !== null)
+      fail(
+        'Project-backed ComfyUI generation completed before the concurrent owner read was served.',
+      );
+    const shortProfile = schedulerProfile(shortRead);
+    if (!shortProfile?.ownerHit)
+      fail(
+        `ComfyUI generation prevented the existing Project owner from serving short work: ${shortRead.stderr}`,
+      );
+    const result = requireSuccess('ComfyUI disposable Project run', await resultPromise);
+    const profile = schedulerProfile(result);
+    if (profile?.routingClass !== 'disposable-heavy' || !profile.snapshotHandoff)
+      fail(
+        `Project-backed ComfyUI did not execute as generation-pinned disposable work: ${result.stderr}`,
+      );
+    const payload = JSON.parse(result.stdout);
+    const publishedAssets = Object.values(payload.outputs ?? {})
+      .flat()
+      .filter((output) => output?.target === 'asset');
+    if (publishedAssets.length < 1)
+      fail(
+        `Project-backed ComfyUI did not commit its generated Asset through the owner: ${result.stdout}`,
+      );
+    return { disposableHeavy: true, concurrentOwnerRead: true, ownerCommit: true };
+  } finally {
+    runNative(['daemon', 'stop'], { env: environment });
+    await server.stop();
+    await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function certifyResidentDaemon(tempRoot, pristine) {
   const root = path.join(tempRoot, 'resident-daemon');
   const runtimeRoot = path.join(tempRoot, 'resident-daemon-runtime');
@@ -2431,6 +3053,11 @@ async function certifyResidentDaemon(tempRoot, pristine) {
   const disposableTests = await certifyDisposableTestScheduling(tempRoot);
   const disposableOutputs = await certifyDisposableOutputScheduling(tempRoot);
   const buildProtocolIsolation = await certifyDaemonBuildProtocolIsolation(tempRoot);
+  const authorityAndMutation = await certifyStandaloneAuthorityAndMutationHandling(
+    tempRoot,
+    pristine,
+  );
+  const comfyUiOwnerIsolation = await certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine);
   const daemonEnvironment = {
     ...process.env,
     NOVELTEA_CLI_CERTIFICATION: '1',
@@ -2726,6 +3353,8 @@ async function certifyResidentDaemon(tempRoot, pristine) {
     startupElection: true,
     secureEndpoint: true,
     buildProtocolIsolation,
+    authorityAndMutation,
+    comfyUiOwnerIsolation,
     disposableTests,
     disposableOutputs,
     projectOwners,
@@ -4558,6 +5187,12 @@ async function main() {
   );
 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-cli-certification-'));
+  Object.assign(process.env, {
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `certification-${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(tempRoot, 'default-daemon'),
+  });
+  runNative(['daemon', 'stop']);
   let primaryError = null;
   let cleanupError = null;
   try {
@@ -4620,6 +5255,7 @@ async function main() {
     primaryError = error;
   } finally {
     try {
+      runNative(['daemon', 'stop']);
       await rm(tempRoot, {
         recursive: true,
         force: true,
