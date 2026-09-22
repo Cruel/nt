@@ -2,8 +2,15 @@
 
 #include "noveltea/render/material_contract.hpp"
 
+#include "noveltea/core/rich_text.hpp"
+
 #include <algorithm>
+#include <array>
+#include <charconv>
+#include <cmath>
 #include <cctype>
+#include <cstdlib>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -51,6 +58,197 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
         start = slash + 1;
     }
     return true;
+}
+
+[[nodiscard]] const ShaderRoleBinding* find_role_binding(const ShaderDefinition& shader,
+                                                         ShaderRole role) noexcept
+{
+    const auto found = std::find_if(shader.role_bindings.begin(), shader.role_bindings.end(),
+                                    [&](const auto& value) { return value.role == role; });
+    return found == shader.role_bindings.end() ? nullptr : &*found;
+}
+
+void append_unique_uniforms(std::vector<const ShaderUniformDeclaration*>& out,
+                            const ShaderDefinition& shader)
+{
+    for (const auto& uniform : shader.uniforms) {
+        const auto found = std::find_if(
+            out.begin(), out.end(), [&](const auto* value) { return value->name == uniform.name; });
+        if (found == out.end())
+            out.push_back(&uniform);
+    }
+}
+
+void append_unique_samplers(std::vector<const ShaderSamplerDeclaration*>& out,
+                            const ShaderDefinition& shader)
+{
+    for (const auto& sampler : shader.samplers) {
+        const auto found = std::find_if(
+            out.begin(), out.end(), [&](const auto* value) { return value->name == sampler.name; });
+        if (found == out.end())
+            out.push_back(&sampler);
+    }
+}
+
+[[nodiscard]] bool
+collect_effective_interface(const ShaderMaterialProject& project,
+                            const MaterialDefinition& material,
+                            std::vector<const ShaderUniformDeclaration*>& uniforms,
+                            std::vector<const ShaderSamplerDeclaration*>& samplers,
+                            std::vector<MaterialDiagnostic>& diagnostics, std::string_view path)
+{
+    const auto* shader = find_shader(project, material.shader);
+    if (shader == nullptr) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRef, std::string(path),
+                       "ActiveText material '" + material.id.string() +
+                           "' references unknown shader '" + material.shader.string() + "'");
+        return false;
+    }
+    if (std::find(shader->roles.begin(), shader->roles.end(), ShaderRole::ActiveText) ==
+        shader->roles.end()) {
+        add_diagnostic(
+            diagnostics, MaterialDiagnosticCode::IncompatibleShaderRole, std::string(path),
+            "material '" + material.id.string() + "' shader does not declare the active-text role");
+        return false;
+    }
+
+    if (const auto* binding = find_role_binding(*shader, ShaderRole::ActiveText)) {
+        if (!binding->vertex_shader || !binding->fragment_shader) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::IncompatibleShaderRole,
+                           std::string(path),
+                           "material '" + material.id.string() +
+                               "' has an incomplete active-text role binding");
+            return false;
+        }
+        const auto* vertex = find_shader(project, *binding->vertex_shader);
+        const auto* fragment = find_shader(project, *binding->fragment_shader);
+        if (vertex == nullptr || fragment == nullptr) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRef, std::string(path),
+                           "material '" + material.id.string() +
+                               "' active-text role binding references an unknown shader");
+            return false;
+        }
+        append_unique_uniforms(uniforms, *vertex);
+        append_unique_uniforms(uniforms, *fragment);
+        append_unique_samplers(samplers, *vertex);
+        append_unique_samplers(samplers, *fragment);
+    } else {
+        append_unique_uniforms(uniforms, *shader);
+        append_unique_samplers(samplers, *shader);
+    }
+    return true;
+}
+
+[[nodiscard]] std::optional<float> parse_float_literal(std::string_view value)
+{
+    std::string owned(value);
+    char* end = nullptr;
+    const float parsed = std::strtof(owned.c_str(), &end);
+    if (end == owned.c_str() || end != owned.c_str() + owned.size() || !std::isfinite(parsed))
+        return std::nullopt;
+    return parsed;
+}
+
+[[nodiscard]] std::vector<std::string_view> split_tuple(std::string_view value)
+{
+    std::vector<std::string_view> parts;
+    std::size_t start = 0;
+    while (start <= value.size()) {
+        const auto end = value.find(',', start);
+        parts.push_back(value.substr(start, end == std::string_view::npos ? value.size() - start
+                                                                          : end - start));
+        if (end == std::string_view::npos)
+            break;
+        start = end + 1;
+    }
+    return parts;
+}
+
+template<std::size_t N>
+[[nodiscard]] std::optional<std::array<float, N>> parse_float_tuple(std::string_view value)
+{
+    const auto parts = split_tuple(value);
+    if (parts.size() != N)
+        return std::nullopt;
+    std::array<float, N> result{};
+    for (std::size_t index = 0; index < N; ++index) {
+        const auto parsed = parse_float_literal(parts[index]);
+        if (!parsed)
+            return std::nullopt;
+        result[index] = *parsed;
+    }
+    return result;
+}
+
+[[nodiscard]] std::optional<core::RichTextMaterialColor> parse_color_literal(std::string_view value)
+{
+    if (value.size() == 9 && value.front() == '#') {
+        const auto hex = [](char c) -> int {
+            if (c >= '0' && c <= '9')
+                return c - '0';
+            if (c >= 'a' && c <= 'f')
+                return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F')
+                return c - 'A' + 10;
+            return -1;
+        };
+        std::array<float, 4> channels{};
+        for (std::size_t index = 0; index < channels.size(); ++index) {
+            const int high = hex(value[1 + index * 2]);
+            const int low = hex(value[2 + index * 2]);
+            if (high < 0 || low < 0)
+                return std::nullopt;
+            channels[index] = static_cast<float>(high * 16 + low) / 255.0f;
+        }
+        return core::RichTextMaterialColor{channels[0], channels[1], channels[2], channels[3]};
+    }
+    const auto tuple = parse_float_tuple<4>(value);
+    if (!tuple)
+        return std::nullopt;
+    return core::RichTextMaterialColor{(*tuple)[0], (*tuple)[1], (*tuple)[2], (*tuple)[3]};
+}
+
+[[nodiscard]] std::optional<core::RichTextMaterialValue>
+parse_material_override_value(ShaderUniformType type, std::string_view value)
+{
+    switch (type) {
+    case ShaderUniformType::Float:
+        if (const auto parsed = parse_float_literal(value))
+            return core::RichTextMaterialValue{*parsed};
+        break;
+    case ShaderUniformType::Vec2:
+        if (const auto parsed = parse_float_tuple<2>(value))
+            return core::RichTextMaterialValue{*parsed};
+        break;
+    case ShaderUniformType::Vec3:
+        if (const auto parsed = parse_float_tuple<3>(value))
+            return core::RichTextMaterialValue{*parsed};
+        break;
+    case ShaderUniformType::Vec4:
+        if (const auto parsed = parse_float_tuple<4>(value))
+            return core::RichTextMaterialValue{*parsed};
+        break;
+    case ShaderUniformType::Color:
+        if (const auto parsed = parse_color_literal(value))
+            return core::RichTextMaterialValue{*parsed};
+        break;
+    case ShaderUniformType::Int: {
+        int parsed = 0;
+        const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+        if (result.ec == std::errc{} && result.ptr == value.data() + value.size() &&
+            parsed >= -16777216 && parsed <= 16777216) {
+            return core::RichTextMaterialValue{parsed};
+        }
+        break;
+    }
+    case ShaderUniformType::Bool:
+        if (value == "true")
+            return core::RichTextMaterialValue{true};
+        if (value == "false")
+            return core::RichTextMaterialValue{false};
+        break;
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -106,6 +304,93 @@ const MaterialDefinition* find_material(const ShaderMaterialProject& project,
             return &material;
     }
     return nullptr;
+}
+
+std::vector<MaterialDiagnostic>
+resolve_active_text_material_occurrences(const ShaderMaterialProject& project,
+                                         core::RichTextDocument& document)
+{
+    std::vector<MaterialDiagnostic> diagnostics;
+    for (std::size_t run_index = 0; run_index < document.runs.size(); ++run_index) {
+        auto& style = document.runs[run_index].style;
+        style.material_overrides.clear();
+        if (style.material_id.empty())
+            continue;
+
+        const std::string run_path = "/runs/" + std::to_string(run_index) + "/style/material";
+        const auto parsed_id = parse_material_id(style.material_id);
+        if (!parsed_id.id) {
+            for (const auto& item : parsed_id.diagnostics) {
+                add_diagnostic(diagnostics, item.code, run_path + "/id", item.message);
+            }
+            continue;
+        }
+        const auto* material = find_material(project, *parsed_id.id);
+        if (material == nullptr) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownMaterialRef,
+                           run_path + "/id",
+                           "unknown ActiveText material '" + style.material_id + "'");
+            continue;
+        }
+        if (material->role != ShaderRole::ActiveText) {
+            add_diagnostic(
+                diagnostics, MaterialDiagnosticCode::IncompatibleShaderRole, run_path + "/id",
+                "material '" + style.material_id + "' has role '" +
+                    std::string(to_string(material->role)) + "', expected 'active-text'");
+            continue;
+        }
+
+        std::vector<const ShaderUniformDeclaration*> uniforms;
+        std::vector<const ShaderSamplerDeclaration*> samplers;
+        if (!collect_effective_interface(project, *material, uniforms, samplers, diagnostics,
+                                         run_path + "/id")) {
+            continue;
+        }
+
+        for (const auto& attribute : style.material_attributes) {
+            const std::string attribute_path = run_path + "/" + attribute.name;
+            const auto uniform =
+                std::find_if(uniforms.begin(), uniforms.end(),
+                             [&](const auto* item) { return item->name == attribute.name; });
+            if (uniform == uniforms.end()) {
+                const auto sampler =
+                    std::find_if(samplers.begin(), samplers.end(),
+                                 [&](const auto* item) { return item->name == attribute.name; });
+                if (sampler != samplers.end()) {
+                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidMaterialOverride,
+                                   attribute_path,
+                                   "ActiveText material occurrence cannot override sampler '" +
+                                       attribute.name + "'");
+                } else {
+                    add_diagnostic(
+                        diagnostics, MaterialDiagnosticCode::UndeclaredUniform, attribute_path,
+                        "material '" + style.material_id + "' has no ordinary parameter named '" +
+                            attribute.name + "'");
+                }
+                continue;
+            }
+            if ((*uniform)->binding) {
+                add_diagnostic(
+                    diagnostics, MaterialDiagnosticCode::RendererOwnedOverride, attribute_path,
+                    "ActiveText material occurrence cannot override renderer or semantic input '" +
+                        attribute.name + "'");
+                continue;
+            }
+            const auto parsed = parse_material_override_value((*uniform)->type, attribute.value);
+            if (!parsed) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidMaterialOverride,
+                               attribute_path,
+                               "invalid " + std::string(to_string((*uniform)->type)) + " value '" +
+                                   attribute.value + "' for parameter '" + attribute.name + "'");
+                continue;
+            }
+            style.material_overrides.push_back(
+                core::RichTextMaterialOverride{attribute.name, *parsed});
+        }
+        std::sort(style.material_overrides.begin(), style.material_overrides.end(),
+                  [](const auto& lhs, const auto& rhs) { return lhs.name < rhs.name; });
+    }
+    return diagnostics;
 }
 
 MaterialDefinition make_engine_2d_fallback_material()
@@ -305,10 +590,16 @@ std::string_view to_string(MaterialDiagnosticCode code) noexcept
         return "invalid_postprocess_scope";
     case MaterialDiagnosticCode::UnknownShaderRef:
         return "unknown_shader_ref";
+    case MaterialDiagnosticCode::UnknownMaterialRef:
+        return "unknown_material_ref";
     case MaterialDiagnosticCode::UndeclaredUniform:
         return "undeclared_uniform";
     case MaterialDiagnosticCode::UndeclaredSampler:
         return "undeclared_sampler";
+    case MaterialDiagnosticCode::RendererOwnedOverride:
+        return "renderer_owned_override";
+    case MaterialDiagnosticCode::InvalidMaterialOverride:
+        return "invalid_material_override";
     case MaterialDiagnosticCode::IncompatibleShaderRole:
         return "incompatible_shader_role";
     }

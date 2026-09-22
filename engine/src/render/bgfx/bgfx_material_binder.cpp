@@ -339,7 +339,12 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
             continue;
         }
         const MaterialUniformOverride* occurrence_override = nullptr;
-        if (inputs.quad_command != nullptr) {
+        const auto explicit_override = std::find_if(
+            inputs.occurrence_uniform_overrides.begin(), inputs.occurrence_uniform_overrides.end(),
+            [&](const MaterialUniformOverride& value) { return value.name == uniform.name; });
+        if (explicit_override != inputs.occurrence_uniform_overrides.end()) {
+            occurrence_override = &*explicit_override;
+        } else if (inputs.quad_command != nullptr) {
             const auto found = std::find_if(
                 inputs.quad_command->material_uniform_overrides.begin(),
                 inputs.quad_command->material_uniform_overrides.end(),
@@ -586,13 +591,15 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_engine_2d_material(
     const ShaderMaterialProject& project, const MaterialId& material_id, const QuadCommand& command,
     std::vector<ShaderProgramDiagnostic>* diagnostics)
 {
-    return bind_material(project, material_id,
-                         BgfxMaterialBindInputs{.role = ShaderRole::Engine2D,
-                                                .quad_command = &command,
-                                                .glyph_atlas = BGFX_INVALID_HANDLE,
-                                                .standard_inputs = {},
-                                                .first_texture_stage = 0},
-                         diagnostics);
+    return bind_material(
+        project, material_id,
+        BgfxMaterialBindInputs{.role = ShaderRole::Engine2D,
+                               .quad_command = &command,
+                               .occurrence_uniform_overrides = command.material_uniform_overrides,
+                               .glyph_atlas = BGFX_INVALID_HANDLE,
+                               .standard_inputs = {},
+                               .first_texture_stage = 0},
+        diagnostics);
 }
 
 } // namespace noveltea::bgfx_backend

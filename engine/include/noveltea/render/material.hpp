@@ -10,6 +10,10 @@
 
 namespace noveltea {
 
+namespace core {
+struct RichTextDocument;
+}
+
 inline constexpr std::string_view shader_material_schema = "noveltea.shader-materials";
 inline constexpr std::string_view builtin_hotspot_alpha_material_id =
     "system/fallback/hotspot_alpha";
@@ -58,8 +62,11 @@ enum class MaterialDiagnosticCode {
     UnsupportedBlendPolicy,
     InvalidPostprocessScope,
     UnknownShaderRef,
+    UnknownMaterialRef,
     UndeclaredUniform,
     UndeclaredSampler,
+    RendererOwnedOverride,
+    InvalidMaterialOverride,
     IncompatibleShaderRole,
 };
 
@@ -149,6 +156,10 @@ using MaterialParseResult = ShaderMaterialProjectParseResult;
 [[nodiscard]] MaterialDefinition make_rmlui_decorator_fallback_material();
 [[nodiscard]] ShaderMaterialProject make_builtin_hotspot_material_project();
 [[nodiscard]] ShaderMaterialProject make_builtin_active_text_material_project();
+
+[[nodiscard]] std::vector<MaterialDiagnostic>
+resolve_active_text_material_occurrences(const ShaderMaterialProject& project,
+                                         core::RichTextDocument& document);
 
 [[nodiscard]] std::string_view to_string(MaterialDiagnosticCode code) noexcept;
 [[nodiscard]] std::string_view to_string(MaterialDiagnosticSeverity severity) noexcept;

@@ -152,6 +152,7 @@ ActiveTextGlyphVisual make_visual(const ActiveTextGlyph& glyph,
     visual.glow = glyph.glow;
     visual.object_id = glyph.style.object_id;
     visual.material_id = glyph.style.material_id;
+    visual.material_overrides = glyph.style.material_overrides;
     visual.diff = glyph.style.diff;
     visual.animation = glyph.animation;
     return visual;

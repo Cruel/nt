@@ -4,8 +4,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include <array>
 #include <cstdint>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace noveltea::core {
@@ -33,11 +35,43 @@ nlohmann::json encode_animation(const RichTextAnimation& animation)
     };
 }
 
+nlohmann::json encode_material_value(const RichTextMaterialValue& value)
+{
+    return std::visit(
+        [](const auto& item) -> nlohmann::json {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, RichTextMaterialColor>)
+                return nlohmann::json{{"kind", "color"},
+                                      {"value", {item.r, item.g, item.b, item.a}}};
+            else if constexpr (std::is_same_v<T, std::array<float, 2>> ||
+                               std::is_same_v<T, std::array<float, 3>> ||
+                               std::is_same_v<T, std::array<float, 4>>)
+                return nlohmann::json{{"kind", "vector"}, {"value", item}};
+            else if constexpr (std::is_same_v<T, bool>)
+                return nlohmann::json{{"kind", "bool"}, {"value", item}};
+            else if constexpr (std::is_same_v<T, int>)
+                return nlohmann::json{{"kind", "int"}, {"value", item}};
+            else
+                return nlohmann::json{{"kind", "float"}, {"value", item}};
+        },
+        value);
+}
+
 nlohmann::json encode_style(const RichTextStyle& style)
 {
+    nlohmann::json attributes = nlohmann::json::array();
+    for (const auto& attribute : style.material_attributes)
+        attributes.push_back({{"name", attribute.name}, {"value", attribute.value}});
+    nlohmann::json overrides = nlohmann::json::array();
+    for (const auto& override_value : style.material_overrides) {
+        overrides.push_back({{"name", override_value.name},
+                             {"value", encode_material_value(override_value.value)}});
+    }
     return {
         {"font_alias", style.font_alias},
         {"material_id", style.material_id},
+        {"material_attributes", std::move(attributes)},
+        {"material_overrides", std::move(overrides)},
         {"object_id", style.object_id},
         {"x_offset", style.x_offset},
         {"y_offset", style.y_offset},
@@ -59,6 +93,58 @@ nlohmann::json encode_run(const RichTextRun& run)
         {"new_group", run.new_group},
         {"start_on_new_line", run.start_on_new_line},
     };
+}
+
+std::optional<RichTextMaterialValue> decode_material_value(const nlohmann::json& value)
+{
+    if (!value.is_object())
+        return std::nullopt;
+    const std::string kind = json_access::value_or(value, "kind", std::string());
+    const auto* payload = json_access::member(value, "value");
+    if (payload == nullptr)
+        return std::nullopt;
+    if (kind == "float") {
+        if (const auto parsed = json_access::get<float>(*payload))
+            return RichTextMaterialValue{*parsed};
+        return std::nullopt;
+    }
+    if (kind == "int") {
+        if (const auto parsed = json_access::get<int>(*payload))
+            return RichTextMaterialValue{*parsed};
+        return std::nullopt;
+    }
+    if (kind == "bool") {
+        if (const auto parsed = json_access::get<bool>(*payload))
+            return RichTextMaterialValue{*parsed};
+        return std::nullopt;
+    }
+    if ((kind == "vector" || kind == "color") && payload->is_array()) {
+        const auto component = [&](std::size_t index) -> std::optional<float> {
+            const auto* element = json_access::element(*payload, index);
+            return element == nullptr ? std::nullopt : json_access::get<float>(*element);
+        };
+        if (payload->size() < 2 || payload->size() > 4)
+            return std::nullopt;
+        const auto x = component(0);
+        const auto y = component(1);
+        if (!x || !y)
+            return std::nullopt;
+        if (payload->size() == 2 && kind == "vector")
+            return RichTextMaterialValue{std::array<float, 2>{*x, *y}};
+        const auto z = component(2);
+        if (!z)
+            return std::nullopt;
+        if (payload->size() == 3 && kind == "vector")
+            return RichTextMaterialValue{std::array<float, 3>{*x, *y, *z}};
+        const auto w = component(3);
+        if (!w)
+            return std::nullopt;
+        if (payload->size() == 4 && kind == "color")
+            return RichTextMaterialValue{RichTextMaterialColor{*x, *y, *z, *w}};
+        if (payload->size() == 4 && kind == "vector")
+            return RichTextMaterialValue{std::array<float, 4>{*x, *y, *z, *w}};
+    }
+    return std::nullopt;
 }
 
 void decode_color(const nlohmann::json& value, RichTextColor& color)
@@ -128,6 +214,28 @@ bool decode_rich_text_document(const nlohmann::json& value, RichTextDocument& ou
             if (style_value != run_value.end() && style_value->is_object()) {
                 run.style.font_alias = style_value->value("font_alias", "");
                 run.style.material_id = style_value->value("material_id", "");
+                if (const auto attributes = style_value->find("material_attributes");
+                    attributes != style_value->end() && attributes->is_array()) {
+                    for (const auto& attribute : *attributes) {
+                        if (!attribute.is_object())
+                            return false;
+                        run.style.material_attributes.push_back(RichTextMaterialAttribute{
+                            attribute.value("name", ""), attribute.value("value", "")});
+                    }
+                }
+                if (const auto overrides = style_value->find("material_overrides");
+                    overrides != style_value->end() && overrides->is_array()) {
+                    for (const auto& override_value : *overrides) {
+                        if (!override_value.is_object())
+                            return false;
+                        const auto decoded =
+                            decode_material_value(override_value.value("value", nlohmann::json{}));
+                        if (!decoded)
+                            return false;
+                        run.style.material_overrides.push_back(
+                            RichTextMaterialOverride{override_value.value("name", ""), *decoded});
+                    }
+                }
                 run.style.object_id = style_value->value("object_id", "");
                 run.style.x_offset = style_value->value("x_offset", 0);
                 run.style.y_offset = style_value->value("y_offset", 0);

@@ -110,7 +110,11 @@ Derived shader outputs never write into Material records and do not dirty canoni
 
 ## ActiveText Materials
 
-ActiveText uses only the `active-text` Material role. Rich-text `[mat id=...]` spans carry Material identity; direct `[shader ...]` authoring is invalid and is not lowered into runtime shader-program metadata. The role reserves `s_textAtlas` at sampler stage 0 for the renderer-owned `engine.glyph_atlas` input. The built-in/default text Material and explicit ActiveText Materials both use this same contract, binder, certification metadata, and premultiplied-alpha pipeline state.
+ActiveText uses only the `active-text` Material role. Rich-text `[mat ...]` requires an explicit `id`; direct `[shader ...]` authoring is invalid and is not lowered into runtime shader-program metadata. Every other `[mat]` attribute names an ordinary authorable uniform on the effective certified ActiveText Material interface. Values are parsed by logical type (`float`, `vec2`, `vec3`, `vec4`, `color`, `int`, or `bool`) and normalized into typed occurrence overrides before rendering. Unknown parameters, duplicate attributes, malformed values, renderer/semantic-owned inputs, sampler names, and wrong-role Materials are hard errors.
+
+Nested `[mat]` spans completely replace the outer Material occurrence rather than merging with it: the nested span starts from its own explicit Material ID and its own inline override set. Canonicalized override sets are part of ActiveText batch identity, so semantically identical values coalesce while differing values split. The typed override state is stored in the semantic rich-text representation and therefore survives pagination, re-realization, preview, codec round-trips, checkpoint/save/restore paths that persist semantic text, and resumed rendering. Every shipped localization catalog entry is validated through the same Material-aware resolver during package assembly.
+
+The role reserves `s_textAtlas` at sampler stage 0 for the renderer-owned `engine.glyph_atlas` input. The built-in/default text Material and explicit ActiveText Materials both use this same contract, binder, certification metadata, and premultiplied-alpha pipeline state. The Material binder accepts occurrence uniform overrides independently of quad geometry, allowing ActiveText to use the same ordinary-uniform precedence seam as other Material hosts.
 
 The `noveltea.shader-source-programs` compiler envelope remains an internal compilation seam for custom-source Materials. It is not an ActiveText authoring escape hatch.
 

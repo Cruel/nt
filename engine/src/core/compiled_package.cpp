@@ -1,6 +1,7 @@
 #include "noveltea/core/compiled_package.hpp"
 
 #include "noveltea/core/package_export.hpp"
+#include "noveltea/core/rich_text.hpp"
 #include "noveltea/render/shader_manifest.hpp"
 
 #include <algorithm>
@@ -74,6 +75,58 @@ void collect_material_ids(const CompiledProject& project, std::unordered_set<std
             if (const auto* background =
                     std::get_if<compiled::SetBackgroundInstruction>(&instruction))
                 add(background->background.material);
+        }
+    }
+}
+
+void validate_active_text_value(std::string_view value, std::string path,
+                                const ShaderMaterialProject& shader_materials,
+                                Diagnostics& diagnostics)
+{
+    auto document = parse_rich_text(value);
+    for (const auto& diagnostic : document.diagnostics) {
+        if (diagnostic.severity != ErrorSeverity::Error)
+            continue;
+        add_assembly_error(diagnostics, diagnostic.code,
+                           "Invalid ActiveText markup: " + diagnostic.message,
+                           path + diagnostic.json_pointer);
+    }
+    for (const auto& diagnostic :
+         resolve_active_text_material_occurrences(shader_materials, document)) {
+        if (diagnostic.severity != MaterialDiagnosticSeverity::Error)
+            continue;
+        add_assembly_error(diagnostics,
+                           "runtime_package.active_text_" + std::string(to_string(diagnostic.code)),
+                           diagnostic.message, path + diagnostic.path);
+    }
+}
+
+void validate_localized_active_text(const CompiledProject& project,
+                                    const ShaderMaterialProject& shader_materials,
+                                    Diagnostics& diagnostics)
+{
+    for (std::size_t catalog_index = 0; catalog_index < project.localization().catalogs.size();
+         ++catalog_index) {
+        const auto& catalog = project.localization().catalogs[catalog_index];
+        for (std::size_t entry_index = 0; entry_index < catalog.entries.size(); ++entry_index) {
+            const auto& entry = catalog.entries[entry_index];
+            const std::string entry_path = "/localization/catalogs/" +
+                                           std::to_string(catalog_index) + "/entries/" +
+                                           std::to_string(entry_index);
+            validate_active_text_value(entry.value, entry_path + "/value", shader_materials,
+                                       diagnostics);
+            if (!entry.pattern)
+                continue;
+            for (std::size_t node_index = 0; node_index < entry.pattern->nodes.size();
+                 ++node_index) {
+                const auto& node = entry.pattern->nodes[node_index];
+                if (node.kind != compiled::MessagePatternNodeKind::Text)
+                    continue;
+                validate_active_text_value(node.text,
+                                           entry_path + "/pattern/nodes/" +
+                                               std::to_string(node_index) + "/text",
+                                           shader_materials, diagnostics);
+            }
         }
     }
 }
@@ -415,6 +468,9 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
             }
         }
     }
+    const ShaderMaterialProject empty_shader_materials;
+    validate_localized_active_text(
+        project, shader_materials ? *shader_materials : empty_shader_materials, diagnostics);
 
     std::unordered_set<std::string> required_materials;
     collect_material_ids(project, required_materials);

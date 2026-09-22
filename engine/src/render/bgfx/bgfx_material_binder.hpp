@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -44,6 +45,7 @@ pack_shader_standard_input(ShaderInputSemantic semantic, const ShaderStandardInp
 struct BgfxMaterialBindInputs {
     ShaderRole role = ShaderRole::Engine2D;
     const QuadCommand* quad_command = nullptr;
+    std::span<const MaterialUniformOverride> occurrence_uniform_overrides{};
     bgfx::TextureHandle glyph_atlas = BGFX_INVALID_HANDLE;
     ShaderStandardInputs standard_inputs{};
     bgfx::TextureHandle hotspot_image = BGFX_INVALID_HANDLE;

@@ -1635,7 +1635,8 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     if (!m_state->active_text_presenter) {
         m_state->active_text_presenter =
             std::make_unique<ui::rmlui::ActiveTextPresenter>(m_state->typed_diagnostics);
-        m_state->active_text_presenter->initialize(*assets, std::move(active_text_shaper));
+        m_state->active_text_presenter->initialize(*assets, std::move(active_text_shaper),
+                                                   shader_materials);
     }
     m_state->template_resolver = new ui::rmlui::RuntimeUiTemplateResolver(*assets);
 

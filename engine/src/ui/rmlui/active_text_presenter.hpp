@@ -39,7 +39,8 @@ public:
     ActiveTextPresenter(const ActiveTextPresenter&) = delete;
     ActiveTextPresenter& operator=(const ActiveTextPresenter&) = delete;
 
-    void initialize(assets::AssetManager& assets, ActiveTextPresenterShaper shape_text);
+    void initialize(assets::AssetManager& assets, ActiveTextPresenterShaper shape_text,
+                    const ShaderMaterialProject* shader_materials = nullptr);
     [[nodiscard]] std::optional<core::RuntimeInputMessage>
     advance(const core::TypedRuntimeUIViewState* view, float delta_seconds);
     void refresh_layout(const core::TypedRuntimeUIViewState* view,
@@ -66,6 +67,7 @@ private:
 
     core::Diagnostics& m_diagnostics;
     assets::AssetManager* m_assets = nullptr;
+    const ShaderMaterialProject* m_shader_materials = nullptr;
     ActiveTextPlaybackState m_playback;
     ActiveTextPlaybackConfig m_playback_config{};
     std::size_t m_page_index = 0;

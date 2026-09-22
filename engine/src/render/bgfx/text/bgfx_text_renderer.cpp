@@ -19,6 +19,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -73,10 +74,24 @@ enum class ActiveTextBindingKind {
     Material,
 };
 
+ShaderUniformValue to_shader_uniform_value(const core::RichTextMaterialValue& value)
+{
+    return std::visit(
+        [](const auto& item) -> ShaderUniformValue {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, core::RichTextMaterialColor>)
+                return ShaderColor{item.r, item.g, item.b, item.a};
+            else
+                return item;
+        },
+        value);
+}
+
 struct ActiveTextBatchKey {
     ActiveTextBindingKind kind = ActiveTextBindingKind::Default;
     uint16_t page = 0;
     std::string material_id;
+    std::vector<MaterialUniformOverride> material_overrides;
 
     [[nodiscard]] friend bool operator==(const ActiveTextBatchKey&,
                                          const ActiveTextBatchKey&) = default;
@@ -464,6 +479,11 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
         if (!glyph.material_id.empty()) {
             key.kind = ActiveTextBindingKind::Material;
             key.material_id = glyph.material_id;
+            key.material_overrides.reserve(glyph.material_overrides.size());
+            for (const auto& override_value : glyph.material_overrides) {
+                key.material_overrides.push_back(MaterialUniformOverride{
+                    override_value.name, to_shader_uniform_value(override_value.value)});
+            }
         }
         return key;
     };
@@ -687,6 +707,7 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
         const auto bind_inputs = bgfx_backend::BgfxMaterialBindInputs{
             .role = ShaderRole::ActiveText,
             .quad_command = nullptr,
+            .occurrence_uniform_overrides = batch.key.material_overrides,
             .glyph_atlas = atlas,
             .standard_inputs = m_standard_inputs,
             .first_texture_stage = 0,
