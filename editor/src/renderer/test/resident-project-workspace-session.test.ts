@@ -238,6 +238,7 @@ describe('ResidentProjectWorkspaceSession', () => {
       fullProjectTraversals: 0,
       fullProjectProjections: 0,
       foregroundSerializations: 0,
+      localizationCoverageInputsChanged: false,
     });
     expect(probe.observations.some((delta) => delta.changed.includes(relativePath))).toBe(true);
     const cloned = cloneAuthoringProject(second.snapshot.project);
@@ -251,6 +252,18 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(dependency.work.reusedContributions).toBeGreaterThan(300);
     expect(dependency.work.fullProjectTraversals).toBe(0);
     expect(byteReads).toBe(1);
+
+    const localizable = cloneAuthoringProject(second.snapshot.project);
+    localizable.rooms['room-137']!.data.displayName = 'Changed Localizable Room';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${relativePath}`,
+      projectWorkspaceFiles(localizable, localizable.editor)[relativePath]!,
+    );
+    probe.change(relativePath);
+    const third = await workspace.open(ROOT);
+    expect(third.ok).toBe(true);
+    if (!third.ok) throw new Error('Localizable Project reopen failed.');
+    expect(third.sourceWork.localizationCoverageInputsChanged).toBe(true);
   }, 15_000);
 
   it('does not enumerate the Asset registry for an unrelated native freshness check', async () => {

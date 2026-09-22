@@ -673,6 +673,13 @@ type DaemonNativeResponse = Readonly<{
   chunk?: string;
   snapshotCount?: number;
   snapshotBytes?: number;
+  projectOwnerWorkers?: number;
+  projectAuthorities?: number;
+  projectSnapshots?: number;
+  projectSnapshotBytes?: number;
+  engineeringOwnerPids?: readonly number[];
+  engineeringDisposablePids?: readonly number[];
+  engineeringCounters?: Readonly<Record<string, number>>;
 }>;
 
 type DaemonStatusCore = Readonly<{
@@ -688,11 +695,22 @@ type DaemonStatusCore = Readonly<{
   disposableBusyWorkers: number;
 }>;
 
+type DaemonEngineeringSnapshot = Readonly<{
+  projectOwnerWorkers: number;
+  projectAuthorities: number;
+  projectSnapshots: number;
+  projectSnapshotBytes: number;
+  ownerPids: readonly number[];
+  disposablePids: readonly number[];
+  counters: Readonly<Record<string, number>>;
+}>;
+
 type DaemonBrokerContext = Readonly<{
   build: string;
   protocol: number;
   daemonIdleMs?: number;
   projectSessionIdleMs?: number;
+  disposableExtraIdleMs?: number;
   runtimeRoot?: string;
 }>;
 
@@ -740,6 +758,9 @@ function daemonBrokerContext(): DaemonBrokerContext {
     daemonIdleMs: certificationPositiveInteger('NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS'),
     projectSessionIdleMs: certificationPositiveInteger(
       'NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS',
+    ),
+    disposableExtraIdleMs: certificationPositiveInteger(
+      'NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_IDLE_MS',
     ),
     runtimeRoot: runtimeRoot || undefined,
   };
@@ -821,6 +842,37 @@ function daemonStatusCore(result: DaemonNativeResponse): DaemonStatusCore {
         ? result.disposableBusyWorkers
         : 0,
   };
+}
+
+function daemonEngineeringSnapshot(result: DaemonNativeResponse): DaemonEngineeringSnapshot {
+  const integer = (value: unknown): number =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  const counters: Record<string, number> = {};
+  for (const [key, value] of Object.entries(result.engineeringCounters ?? {}))
+    counters[key] = integer(value);
+  return {
+    projectOwnerWorkers: integer(result.projectOwnerWorkers),
+    projectAuthorities: integer(result.projectAuthorities),
+    projectSnapshots: integer(result.projectSnapshots),
+    projectSnapshotBytes: integer(result.projectSnapshotBytes),
+    ownerPids: (result.engineeringOwnerPids ?? []).filter(
+      (value) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
+    ),
+    disposablePids: (result.engineeringDisposablePids ?? []).filter(
+      (value) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
+    ),
+    counters,
+  };
+}
+
+function daemonEngineeringDelta(
+  before: DaemonEngineeringSnapshot,
+  after: DaemonEngineeringSnapshot,
+): Readonly<Record<string, number>> {
+  const result: Record<string, number> = {};
+  for (const key of new Set([...Object.keys(before.counters), ...Object.keys(after.counters)]))
+    result[key] = Math.max(0, (after.counters[key] ?? 0) - (before.counters[key] ?? 0));
+  return result;
 }
 
 function staticDaemonPath(argv: readonly string[]): HostResult | null {
@@ -1534,7 +1586,11 @@ function requestInvokeHost(
       emitEvent({ type: 'progress', message: `[${event.stage}] ${event.message}` });
       return '';
     }
-    if (operation === 'process-alive' || operation === 'run-process')
+    if (
+      operation === 'process-alive' ||
+      operation === 'run-process' ||
+      operation === 'font-coverage'
+    )
       return invokeHost(operation, requestText);
     const envelope = JSON.parse(
       invokeHost(`capture:${operation}`, requestText),
@@ -1795,6 +1851,7 @@ async function runHiddenDaemonDisposable(
     throw new Error('NovelTea disposable worker received a malformed assignment.');
 
   const chunks: string[] = [];
+  const snapshotReadStarted = Date.now();
   if (next.hasProjectSnapshot === true) {
     if (
       typeof next.canonicalRoot !== 'string' ||
@@ -1834,6 +1891,13 @@ async function runHiddenDaemonDisposable(
       if (payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH === '1') process.exit(97);
     }
     const output: RequestOutputCapture = { stdout: '', stderr: '' };
+    if (payload.environment.NOVELTEA_CLI_SCHEDULER_PROFILE === '1')
+      output.stderr += `[worker-profile] ${JSON.stringify({
+        workerKind: 'disposable',
+        hasProjectSnapshot: next.hasProjectSnapshot,
+        snapshotBytes: chunks.reduce((total, chunk) => total + chunk.length, 0),
+        snapshotReadMs: Date.now() - snapshotReadStarted,
+      })}\n`;
     const pinnedProjectSnapshot =
       next.hasProjectSnapshot === true
         ? {
@@ -2151,7 +2215,54 @@ async function main(): Promise<void> {
       let response: HostResult | null = null;
       if (ensured.ok !== false) {
         trace('daemon invocation forwarding');
+        const schedulerProfileEnabled = process.env.NOVELTEA_CLI_SCHEDULER_PROFILE === '1';
+        const engineeringBefore = schedulerProfileEnabled
+          ? daemonEngineeringSnapshot(daemonNativeRequest('status'))
+          : null;
+        const requestStarted = schedulerProfileEnabled ? Date.now() : 0;
         const daemonResponse = daemonRequestNative(request);
+        if (schedulerProfileEnabled && engineeringBefore) {
+          const engineeringAfter = daemonEngineeringSnapshot(daemonNativeRequest('status'));
+          const delta = daemonEngineeringDelta(engineeringBefore, engineeringAfter);
+          process.stderr.write(
+            `[scheduler-profile] ${JSON.stringify({
+              routingClass: request.executionClass,
+              projectBound: request.ownerProjectRoot !== null,
+              requestMs: Date.now() - requestStarted,
+              ownerHit:
+                request.ownerProjectRoot !== null &&
+                (delta.ownerSpawns ?? 0) === 0 &&
+                (delta.exactResultHits ?? 0) === 0,
+              ownerColdAdmission: (delta.ownerColdAdmissions ?? 0) > 0,
+              ownerRehydration: (delta.ownerRehydrations ?? 0) > 0,
+              exactResultHit: (delta.exactResultHits ?? 0) > 0,
+              snapshotHandoff: (delta.snapshotHandoffs ?? 0) > 0,
+              changedPathCount: delta.changedPaths ?? 0,
+              generationPromotions: delta.generationPromotions ?? 0,
+              workerSpawns: {
+                owner: delta.ownerSpawns ?? 0,
+                disposable: delta.disposableSpawns ?? 0,
+              },
+              queuedDisposableJobs: delta.disposableQueues ?? 0,
+              workerRetirements: {
+                owner: delta.ownerRetirements ?? 0,
+                disposable: delta.disposableRetirements ?? 0,
+              },
+              nativeBoundaryCalls: delta.nativeBoundaryCalls ?? 0,
+              physicalFilesObserved: delta.filesObserved ?? 0,
+              authorityObservations: delta.authorityObservations ?? 0,
+              snapshotPublications: delta.snapshotPublications ?? 0,
+              resident: {
+                projectOwners: engineeringAfter.projectOwnerWorkers,
+                projectAuthorities: engineeringAfter.projectAuthorities,
+                snapshots: engineeringAfter.projectSnapshots,
+                snapshotBytes: engineeringAfter.projectSnapshotBytes,
+                ownerPids: engineeringAfter.ownerPids,
+                disposablePids: engineeringAfter.disposablePids,
+              },
+            })}\n`,
+          );
+        }
         if (
           daemonResponse.ok === true &&
           daemonResponse.result !== undefined &&

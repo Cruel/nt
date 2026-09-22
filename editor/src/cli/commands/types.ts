@@ -12,6 +12,7 @@ import {
 import type {
   LoadedProjectWorkspaceSnapshot,
   ProjectWorkspaceFileSystem,
+  ProjectWorkspaceSourceWork,
   ProjectWorkspaceService,
 } from '../../shared/project-workspace';
 import { CliCommandUsageError } from './errors';
@@ -43,6 +44,7 @@ interface CliCommandContextBase {
 export interface CliCommandContext extends CliCommandContextBase {
   readonly workspace: ProjectWorkspaceService;
   readonly snapshot: LoadedProjectWorkspaceSnapshot;
+  readonly sourceWork: ProjectWorkspaceSourceWork;
 }
 
 export interface CliScopedCommandContext extends CliCommandContextBase {

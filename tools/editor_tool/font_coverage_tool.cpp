@@ -7,10 +7,14 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <mutex>
+#include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -21,6 +25,9 @@
 #include <windows.h>
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
+#include <sys/stat.h>
+#else
+#include <sys/stat.h>
 #endif
 
 namespace {
@@ -49,6 +56,26 @@ struct FontCoverageFileSource {
     std::filesystem::path project_root;
     std::filesystem::path system_root;
 };
+
+struct FontCoverageFingerprint {
+    std::string logical_path;
+    std::string source_identity;
+    std::uint64_t byte_size = 0;
+    std::uint64_t mtime_nanoseconds = 0;
+    std::string error;
+
+    bool operator==(const FontCoverageFingerprint&) const = default;
+};
+
+struct FontCoverageCacheEntry {
+    std::string request;
+    std::vector<FontCoverageFingerprint> fingerprints;
+    int exit_code = 1;
+    std::string response_json;
+};
+
+std::mutex font_coverage_cache_mutex;
+std::optional<FontCoverageCacheEntry> font_coverage_cache;
 
 std::filesystem::path executable_path()
 {
@@ -93,6 +120,38 @@ bool path_is_within(const std::filesystem::path& root, const std::filesystem::pa
     return true;
 }
 
+std::optional<std::filesystem::path> resolve_font_asset_path(const FontCoverageFileSource& source,
+                                                             std::string_view logical_path,
+                                                             std::string& error_message)
+{
+    constexpr std::string_view project_prefix = "project:/";
+    constexpr std::string_view system_prefix = "system:/";
+    const std::filesystem::path* root = nullptr;
+    std::string_view relative;
+    if (logical_path.starts_with(project_prefix)) {
+        root = &source.project_root;
+        relative = logical_path.substr(project_prefix.size());
+    } else if (logical_path.starts_with(system_prefix)) {
+        root = &source.system_root;
+        relative = logical_path.substr(system_prefix.size());
+    } else {
+        error_message = "font path must use project:/ or system:/";
+        return std::nullopt;
+    }
+    std::error_code error;
+    const auto canonical_root = std::filesystem::weakly_canonical(*root, error);
+    if (error) {
+        error_message = "font root could not be resolved";
+        return std::nullopt;
+    }
+    const auto candidate = std::filesystem::weakly_canonical(canonical_root / relative, error);
+    if (error || !path_is_within(canonical_root, candidate)) {
+        error_message = "font path escapes its mounted root";
+        return std::nullopt;
+    }
+    return candidate;
+}
+
 noveltea::text::FontAssetReadResult read_font_asset(const void* context,
                                                     std::string_view logical_path)
 {
@@ -100,35 +159,118 @@ noveltea::text::FontAssetReadResult read_font_asset(const void* context,
     if (!source)
         return {.bytes = {}, .error = "font coverage has no file source"};
 
-    constexpr std::string_view project_prefix = "project:/";
-    constexpr std::string_view system_prefix = "system:/";
-    const std::filesystem::path* root = nullptr;
-    std::string_view relative;
-    if (logical_path.starts_with(project_prefix)) {
-        root = &source->project_root;
-        relative = logical_path.substr(project_prefix.size());
-    } else if (logical_path.starts_with(system_prefix)) {
-        root = &source->system_root;
-        relative = logical_path.substr(system_prefix.size());
-    } else {
-        return {.bytes = {}, .error = "font path must use project:/ or system:/"};
-    }
+    std::string error_message;
+    const auto candidate = resolve_font_asset_path(*source, logical_path, error_message);
+    if (!candidate)
+        return {.bytes = {}, .error = std::move(error_message)};
 
-    std::error_code error;
-    const auto canonical_root = std::filesystem::weakly_canonical(*root, error);
-    if (error)
-        return {.bytes = {}, .error = "font root could not be resolved"};
-    const auto candidate = std::filesystem::weakly_canonical(canonical_root / relative, error);
-    if (error || !path_is_within(canonical_root, candidate))
-        return {.bytes = {}, .error = "font path escapes its mounted root"};
-
-    std::ifstream input(candidate, std::ios::binary);
+    std::ifstream input(*candidate, std::ios::binary);
     if (!input)
         return {.bytes = {}, .error = "font file could not be opened"};
     std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(input)), {});
     if (bytes.empty())
         return {.bytes = {}, .error = "font file is empty"};
     return {.bytes = std::move(bytes), .error = {}};
+}
+
+FontCoverageFingerprint font_coverage_fingerprint(const FontCoverageFileSource& source,
+                                                  std::string logical_path)
+{
+    FontCoverageFingerprint fingerprint{
+        .logical_path = std::move(logical_path),
+        .source_identity = {},
+        .byte_size = 0,
+        .mtime_nanoseconds = 0,
+        .error = {},
+    };
+    std::string error_message;
+    const auto candidate = resolve_font_asset_path(source, fingerprint.logical_path, error_message);
+    if (!candidate) {
+        fingerprint.error = std::move(error_message);
+        return fingerprint;
+    }
+#if defined(_WIN32)
+    const auto handle = CreateFileW(candidate->c_str(), FILE_READ_ATTRIBUTES,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        fingerprint.error = "font file metadata could not be inspected";
+        return fingerprint;
+    }
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (GetFileInformationByHandle(handle, &info) == 0) {
+        CloseHandle(handle);
+        fingerprint.error = "font file metadata could not be inspected";
+        return fingerprint;
+    }
+    CloseHandle(handle);
+    fingerprint.byte_size = (static_cast<std::uint64_t>(info.nFileSizeHigh) << 32U) |
+                            static_cast<std::uint64_t>(info.nFileSizeLow);
+    ULARGE_INTEGER file_time{};
+    file_time.LowPart = info.ftLastWriteTime.dwLowDateTime;
+    file_time.HighPart = info.ftLastWriteTime.dwHighDateTime;
+    constexpr std::uint64_t unix_epoch_ticks = 116444736000000000ULL;
+    if (file_time.QuadPart < unix_epoch_ticks) {
+        fingerprint.error = "font file modification time is invalid";
+        return fingerprint;
+    }
+    fingerprint.mtime_nanoseconds = (file_time.QuadPart - unix_epoch_ticks) * 100ULL;
+    const auto file_index = (static_cast<std::uint64_t>(info.nFileIndexHigh) << 32U) |
+                            static_cast<std::uint64_t>(info.nFileIndexLow);
+    fingerprint.source_identity =
+        "win:" + std::to_string(static_cast<std::uint64_t>(info.dwVolumeSerialNumber)) + ":" +
+        std::to_string(file_index);
+#else
+    struct stat info {};
+    if (::stat(candidate->c_str(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_size < 0) {
+        fingerprint.error = "font file metadata could not be inspected";
+        return fingerprint;
+    }
+    fingerprint.byte_size = static_cast<std::uint64_t>(info.st_size);
+#if defined(__APPLE__)
+    const auto seconds = info.st_mtimespec.tv_sec;
+    const auto nanoseconds = info.st_mtimespec.tv_nsec;
+#else
+    const auto seconds = info.st_mtim.tv_sec;
+    const auto nanoseconds = info.st_mtim.tv_nsec;
+#endif
+    if (seconds < 0 || nanoseconds < 0 || nanoseconds >= 1'000'000'000L) {
+        fingerprint.error = "font file modification time is invalid";
+        return fingerprint;
+    }
+    fingerprint.mtime_nanoseconds = static_cast<std::uint64_t>(seconds) * 1'000'000'000ULL +
+                                     static_cast<std::uint64_t>(nanoseconds);
+    fingerprint.source_identity =
+        "posix:" + std::to_string(static_cast<unsigned long long>(info.st_dev)) + ":" +
+        std::to_string(static_cast<unsigned long long>(info.st_ino));
+#endif
+    return fingerprint;
+}
+
+std::vector<FontCoverageFingerprint> font_coverage_fingerprints(const nlohmann::json& request)
+{
+    const auto project_root = string_value(request, "projectRoot");
+    const auto configured_system_root = string_value(request, "systemRoot");
+    const auto system_root = configured_system_root.empty()
+                                 ? default_system_root()
+                                 : std::filesystem::path(configured_system_root);
+    FontCoverageFileSource source{.project_root = project_root, .system_root = system_root};
+    std::set<std::string> logical_paths{std::string(noveltea::kSystemFontAsset)};
+    if (const auto locales = request.find("locales"); locales != request.end() && locales->is_array()) {
+        for (const auto& locale : *locales) {
+            if (!locale.is_object())
+                continue;
+            if (const auto fonts = locale.find("fonts"); fonts != locale.end() && fonts->is_array())
+                for (const auto& font : *fonts)
+                    if (font.is_string())
+                        logical_paths.insert(font.get<std::string>());
+        }
+    }
+    std::vector<FontCoverageFingerprint> fingerprints;
+    fingerprints.reserve(logical_paths.size());
+    for (const auto& logical_path : logical_paths)
+        fingerprints.push_back(font_coverage_fingerprint(source, logical_path));
+    return fingerprints;
 }
 
 nlohmann::json validate_font_coverage_request(const nlohmann::json& request)
@@ -245,8 +387,33 @@ NativeOperationResult validate_font_coverage(std::string_view request_json)
     if (request.is_discarded() || !request.is_object())
         return {.exit_code = 1,
                 .response_json = failure("Malformed font coverage request JSON.").dump()};
+    const auto canonical_request = request.dump();
+    auto fingerprints = font_coverage_fingerprints(request);
+    const bool exact_fingerprints = std::all_of(
+        fingerprints.begin(), fingerprints.end(), [](const auto& fingerprint) {
+            return fingerprint.error.empty() && !fingerprint.source_identity.empty();
+        });
+    if (exact_fingerprints) {
+        std::scoped_lock lock(font_coverage_cache_mutex);
+        if (font_coverage_cache && font_coverage_cache->request == canonical_request &&
+            font_coverage_cache->fingerprints == fingerprints)
+            return {.exit_code = font_coverage_cache->exit_code,
+                    .response_json = font_coverage_cache->response_json};
+    }
+
     auto response = validate_font_coverage_request(request);
-    return {.exit_code = response.value("ok", false) ? 0 : 1, .response_json = response.dump()};
+    NativeOperationResult result{.exit_code = response.value("ok", false) ? 0 : 1,
+                                 .response_json = response.dump()};
+    if (exact_fingerprints) {
+        std::scoped_lock lock(font_coverage_cache_mutex);
+        font_coverage_cache = FontCoverageCacheEntry{
+            .request = canonical_request,
+            .fingerprints = std::move(fingerprints),
+            .exit_code = result.exit_code,
+            .response_json = result.response_json,
+        };
+    }
+    return result;
 }
 
 } // namespace noveltea::tooling

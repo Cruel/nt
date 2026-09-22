@@ -48,3 +48,10 @@ Standalone release certification copies this Project to an isolated temporary wo
 bare suite from a cold cache, verifies the aggregate result, then runs a targeted Test from the shared
 cache. Manual Feature Lab inspection remains complementary for visual/audio quality; it is not needed
 to infer whether the authored automation suite passed.
+
+The same release certification also uses this Project as the resident-authoring performance reference.
+After resident admission it changes one existing Room record seven times and validates after each edit;
+the final scheduler architecture must stay at or below 75 ms median and 100 ms p95 on the documented
+development benchmark path. The gate also verifies useful-work counters so the timing cannot hide a
+whole-Project semantic rebuild. Larger scaling coverage is generated from a temporary synthetic Project
+rather than adding benchmark-only gameplay content to Feature Lab.

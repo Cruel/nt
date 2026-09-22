@@ -272,7 +272,14 @@ persistent state changes only performance and falls back to canonical resident/c
 `NOVELTEA_CLI_TRACE=1` exposes standalone admission/fallback and island-import traces without adding
 routine cache fields to validation output; `NOVELTEA_CLI_VALIDATION_PROFILE=1` is an
 engineering/certification-only trace that emits phase timings and useful-work counts on stderr and does
-not alter normal validation output.
+not alter normal validation output. `NOVELTEA_CLI_SCHEDULER_PROFILE=1` is the corresponding opt-in
+resident-scheduler diagnostic surface. It emits one machine-readable `[scheduler-profile]` record for
+daemon-routed commands, including the routing class, owner/exact-result/snapshot reuse, changed-path
+and native physical-observation counts, generation promotion, worker spawn/queue/retirement deltas,
+native boundary calls, retained snapshot bytes, and engineering-only owner/disposable process IDs.
+Disposable workers additionally emit `[worker-profile]` with pinned-snapshot read bytes and elapsed
+time. These records are stderr diagnostics only when explicitly enabled; normal public human/JSON
+output and `daemon status` remain unchanged.
 Clean saved editor validation uses this same disk-authoritative `validate` path, so an eligible editor
 validation may consume or publish the same exact result used by later CLI validation. The renderer marks
 validation session-local whenever Project content, draft state, or pending field input is dirty. The
