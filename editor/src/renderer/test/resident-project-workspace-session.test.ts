@@ -1904,7 +1904,10 @@ describe('ResidentProjectWorkspaceSession', () => {
       const relative = fileSystem
         .relativePath(ROOT, fileSystem.resolvePath(value))
         .replaceAll('\\', '/');
-      if (relative === 'records/rooms/live-only.json' || opened.snapshot.canonicalSourceFiles.includes(relative))
+      if (
+        relative === 'records/rooms/live-only.json' ||
+        opened.snapshot.canonicalSourceFiles.includes(relative)
+      )
         throw new Error(`Authored source '${relative}' was read during pinned snapshot hydration.`);
       return originalReadText(value);
     };
@@ -2074,6 +2077,56 @@ describe('ResidentProjectWorkspaceSession', () => {
     if (!latest.ok) throw new Error('Asset authority generation did not remain resident.');
     expect(latest.snapshot).not.toBe(first.snapshot);
     expect(await workspace.verifyReadAuthority(latest.snapshot)).toBe(true);
+  });
+
+  it('retains an external Asset change consumed by final read proof until generation advances', async () => {
+    const { first, probe, workspace } = await createNativeAssetWorkspace();
+    probe.setManifestEntries([
+      {
+        path: 'assets/original.png',
+        sourceIdentity: 'dev:1:ino:2',
+        byteSize: 1,
+        mtimeNanoseconds: '100',
+        contentHash: null,
+      },
+    ]);
+    const before = await workspace.preparePortableSnapshot(ROOT);
+    if (!before) throw new Error('Initial portable Project snapshot was not prepared.');
+
+    probe.change('assets/original.png');
+    probe.setManifestEntries([
+      {
+        path: 'assets/original.png',
+        sourceIdentity: 'dev:1:ino:2',
+        byteSize: 2,
+        mtimeNanoseconds: '200',
+        contentHash: null,
+      },
+    ]);
+
+    // This is the post-command proof path: it consumes the native delta before the retry opens the
+    // resident Project again.
+    expect(await workspace.verifyReadAuthority(first.snapshot)).toBe(false);
+    const reopened = await workspace.open(ROOT);
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('Resident Project retry failed.');
+    const after = await workspace.preparePortableSnapshot(ROOT);
+    if (!after) throw new Error('Portable Project snapshot was not refreshed after Asset drift.');
+
+    expect(after.identity.sessionEpoch).toBe(before.identity.sessionEpoch);
+    expect(after.identity.generation).toBe(before.identity.generation + 1);
+    const portable = JSON.parse(after.snapshotText) as {
+      externalAssets: readonly Readonly<Record<string, unknown>>[];
+    };
+    expect(portable.externalAssets).toEqual([
+      {
+        path: 'assets/original.png',
+        sourceIdentity: 'dev:1:ino:2',
+        byteSize: 2,
+        mtimeNanoseconds: '200',
+        contentHash: null,
+      },
+    ]);
   });
 
   it('reconciles an authored delta consumed by snapshot maintenance before serialization', async () => {

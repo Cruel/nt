@@ -173,21 +173,6 @@ async function retainExactResidentValidation(
     diagnostics.some((item) => item.severity === 'error' && item.code.startsWith('native.'))
   )
     return;
-  const { formatCliResult } = await import('../src/cli/contracts');
-  const envelope = {
-    success: commandResult.envelope.success,
-    exitCode: commandResult.exitCode,
-    diagnostics,
-    projectRoot,
-  };
-  const human = formatCliResult(envelope, false, {
-    success: 'NovelTea validate succeeded.',
-    failure: diagnostics[0]?.message ?? 'Command failed.',
-  });
-  const json = formatCliResult(envelope, true, {
-    success: 'NovelTea validate succeeded.',
-    failure: diagnostics[0]?.message ?? 'Command failed.',
-  });
   invokeHost(
     'daemon-authoring-validation-result',
     JSON.stringify({
@@ -198,8 +183,6 @@ async function retainExactResidentValidation(
         diagnostics,
         editorDiagnostics: commandResult.editorDiagnostics ?? [],
       },
-      humanResult: [human.exitCode, human.stdout, human.stderr],
-      jsonResult: [json.exitCode, json.stdout, json.stderr],
     }),
   );
 }

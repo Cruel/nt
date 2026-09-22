@@ -618,6 +618,12 @@ type DaemonRequestContext = Readonly<{
   internalRequestText?: string;
 }>;
 
+type DaemonRetainedValidationResult = Readonly<{
+  success: boolean;
+  exitCode: number;
+  diagnostics: readonly StaticDiagnostic[];
+}>;
+
 type DaemonNativeResponse = Readonly<{
   ok?: boolean;
   running?: boolean;
@@ -636,6 +642,7 @@ type DaemonNativeResponse = Readonly<{
   method?: string;
   payload?: DaemonRequestContext;
   result?: HostResult | null;
+  retainedValidationResult?: DaemonRetainedValidationResult | null;
   active?: boolean;
   cancelled?: boolean;
   delivered?: boolean;
@@ -679,6 +686,8 @@ type DaemonNativeResponse = Readonly<{
   projectAuthorities?: number;
   projectSnapshots?: number;
   projectSnapshotBytes?: number;
+  exactValidationResults?: number;
+  exactValidationBytes?: number;
   engineeringOwnerPids?: readonly number[];
   engineeringOwners?: readonly Readonly<{ canonicalRoot?: string; pid?: number }>[];
   engineeringDisposablePids?: readonly number[];
@@ -703,6 +712,8 @@ type DaemonEngineeringSnapshot = Readonly<{
   projectAuthorities: number;
   projectSnapshots: number;
   projectSnapshotBytes: number;
+  exactValidationResults: number;
+  exactValidationBytes: number;
   ownerPids: readonly number[];
   owners: readonly Readonly<{ canonicalRoot: string; pid: number }>[];
   disposablePids: readonly number[];
@@ -716,6 +727,7 @@ type DaemonBrokerContext = Readonly<{
   projectSessionIdleMs?: number;
   disposableExtraIdleMs?: number;
   projectSnapshotBudgetBytes?: number;
+  exactValidationBudgetBytes?: number;
   runtimeRoot?: string;
 }>;
 
@@ -770,6 +782,9 @@ function daemonBrokerContext(): DaemonBrokerContext {
     projectSnapshotBudgetBytes: certificationPositiveInteger(
       'NOVELTEA_CLI_CERTIFICATION_PROJECT_SNAPSHOT_BUDGET_BYTES',
     ),
+    exactValidationBudgetBytes: certificationPositiveInteger(
+      'NOVELTEA_CLI_CERTIFICATION_EXACT_VALIDATION_BUDGET_BYTES',
+    ),
     runtimeRoot: runtimeRoot || undefined,
   };
 }
@@ -818,6 +833,55 @@ function daemonRequestNative(request: DaemonRequestContext): DaemonNativeRespons
   ) as DaemonNativeResponse;
 }
 
+function daemonLogicalProjectRoot(request: DaemonRequestContext): string {
+  let candidate = resolve(request.ownerProjectRoot ?? request.cwd);
+  if (request.ownerProjectRootExplicit) return candidate;
+  for (;;) {
+    try {
+      const metadata = JSON.parse(
+        invokeHost('path-metadata', JSON.stringify({ path: join(candidate, 'project.json') })),
+      ) as { ok?: boolean; kind?: string };
+      if (metadata.ok === true && metadata.kind !== 'missing') return candidate;
+    } catch {
+      // The broker already completed canonical discovery. A metadata failure here only prevents
+      // caller-side reformatting from walking farther upward; use the current logical nomination.
+      return candidate;
+    }
+    const parent = resolve(candidate, '..');
+    if (parent === candidate) return resolve(request.ownerProjectRoot ?? request.cwd);
+    candidate = parent;
+  }
+}
+
+function retainedAuthoringValidationResult(
+  value: DaemonRetainedValidationResult,
+  request: DaemonRequestContext,
+): HostResult {
+  const diagnostics: StaticDiagnostic[] = [];
+  for (const item of value.diagnostics) {
+    const diagnostic: StaticDiagnostic = {
+      code: item.code,
+      severity: item.severity === 'warning' || item.severity === 'info' ? item.severity : 'error',
+      path: item.path,
+      message: item.message,
+      sourceUrl: item.sourceUrl,
+      line: item.line,
+      column: item.column,
+    };
+    diagnostics.push(diagnostic);
+  }
+  return formatStaticCommand(
+    request.outputMode === 'json',
+    value.success,
+    value.exitCode,
+    daemonLogicalProjectRoot(request),
+    diagnostics,
+    {},
+    'NovelTea validate succeeded.',
+    diagnostics[0]?.message ?? 'Command failed.',
+  );
+}
+
 function daemonStatusCore(result: DaemonNativeResponse): DaemonStatusCore {
   return {
     running: result.running === true,
@@ -863,6 +927,8 @@ function daemonEngineeringSnapshot(result: DaemonNativeResponse): DaemonEngineer
     projectAuthorities: integer(result.projectAuthorities),
     projectSnapshots: integer(result.projectSnapshots),
     projectSnapshotBytes: integer(result.projectSnapshotBytes),
+    exactValidationResults: integer(result.exactValidationResults),
+    exactValidationBytes: integer(result.exactValidationBytes),
     ownerPids: (result.engineeringOwnerPids ?? []).filter(
       (value) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
     ),
@@ -972,20 +1038,28 @@ function staticDaemonPath(argv: readonly string[]): HostResult | null {
   ];
 }
 
-type HiddenDaemonBrokerInvocation = Readonly<{
+type HiddenDaemonBaseInvocation = Readonly<{
   build: string;
   protocol: number;
   daemonIdleMs: number;
   projectSessionIdleMs: number;
+  projectSnapshotBudgetBytes?: number;
+  exactValidationBudgetBytes?: number;
   runtimeRoot?: string;
 }>;
 
-type HiddenDaemonOwnerInvocation = HiddenDaemonBrokerInvocation &
+type HiddenDaemonBrokerInvocation = HiddenDaemonBaseInvocation &
+  Readonly<{
+    projectSnapshotBudgetBytes: number;
+    exactValidationBudgetBytes: number;
+  }>;
+
+type HiddenDaemonOwnerInvocation = HiddenDaemonBaseInvocation &
   Readonly<{
     ownerWorkerId: number;
   }>;
 
-type HiddenDaemonDisposableInvocation = HiddenDaemonBrokerInvocation &
+type HiddenDaemonDisposableInvocation = HiddenDaemonBaseInvocation &
   Readonly<{
     disposableWorkerId: number;
   }>;
@@ -998,6 +1072,8 @@ function hiddenDaemonBrokerInvocation(
   let protocolText = '';
   let daemonIdleText = '';
   let projectSessionIdleText = '';
+  let projectSnapshotBudgetText = '';
+  let exactValidationBudgetText = '';
   let runtimeRoot = '';
   for (let index = 1; index < argv.length; index += 2) {
     const key = argv[index];
@@ -1008,19 +1084,29 @@ function hiddenDaemonBrokerInvocation(
     else if (key === '--daemon-idle-ms' && daemonIdleText === '') daemonIdleText = value;
     else if (key === '--project-session-idle-ms' && projectSessionIdleText === '')
       projectSessionIdleText = value;
+    else if (key === '--project-snapshot-budget-bytes' && projectSnapshotBudgetText === '')
+      projectSnapshotBudgetText = value;
+    else if (key === '--exact-validation-budget-bytes' && exactValidationBudgetText === '')
+      exactValidationBudgetText = value;
     else if (key === '--daemon-runtime-root' && runtimeRoot === '') runtimeRoot = value;
     else return null;
   }
   const protocol = Number(protocolText);
   const daemonIdleMs = Number(daemonIdleText);
   const projectSessionIdleMs = Number(projectSessionIdleText);
+  const projectSnapshotBudgetBytes = Number(projectSnapshotBudgetText);
+  const exactValidationBudgetBytes = Number(exactValidationBudgetText);
   if (
     build !== daemonBrokerContext().build ||
     protocol !== daemonBrokerContext().protocol ||
     !Number.isSafeInteger(daemonIdleMs) ||
     daemonIdleMs <= 0 ||
     !Number.isSafeInteger(projectSessionIdleMs) ||
-    projectSessionIdleMs <= 0
+    projectSessionIdleMs <= 0 ||
+    !Number.isSafeInteger(projectSnapshotBudgetBytes) ||
+    projectSnapshotBudgetBytes <= 0 ||
+    !Number.isSafeInteger(exactValidationBudgetBytes) ||
+    exactValidationBudgetBytes <= 0
   )
     return null;
   return {
@@ -1028,6 +1114,8 @@ function hiddenDaemonBrokerInvocation(
     protocol,
     daemonIdleMs,
     projectSessionIdleMs,
+    projectSnapshotBudgetBytes,
+    exactValidationBudgetBytes,
     runtimeRoot: runtimeRoot || undefined,
   };
 }
@@ -1128,7 +1216,7 @@ function hiddenDaemonDisposableInvocation(
 
 function hiddenDaemonNativeRequest(
   action: string,
-  invocation: HiddenDaemonBrokerInvocation,
+  invocation: HiddenDaemonBaseInvocation,
   token = 0,
   requestOk = false,
   result: HostResult | null = null,
@@ -1146,7 +1234,7 @@ function hiddenDaemonNativeRequest(
 
 function hiddenDaemonPayloadNativeRequest(
   action: string,
-  invocation: HiddenDaemonBrokerInvocation,
+  invocation: HiddenDaemonBaseInvocation,
   payload: Readonly<{
     token?: number;
     requestOk?: boolean;
@@ -1165,8 +1253,6 @@ function hiddenDaemonPayloadNativeRequest(
     index?: number;
     semanticKey?: string;
     validationResult?: Readonly<Record<string, unknown>>;
-    humanResult?: HostResult;
-    jsonResult?: HostResult;
   }>,
 ): DaemonNativeResponse {
   return JSON.parse(
@@ -1178,6 +1264,8 @@ function hiddenDaemonPayloadNativeRequest(
         protocol: invocation.protocol,
         daemonIdleMs: invocation.daemonIdleMs,
         projectSessionIdleMs: invocation.projectSessionIdleMs,
+        projectSnapshotBudgetBytes: invocation.projectSnapshotBudgetBytes,
+        exactValidationBudgetBytes: invocation.exactValidationBudgetBytes,
         runtimeRoot: invocation.runtimeRoot,
         token: payload.token,
         requestOk: payload.requestOk,
@@ -1196,15 +1284,13 @@ function hiddenDaemonPayloadNativeRequest(
         index: payload.index,
         semanticKey: payload.semanticKey,
         validationResult: payload.validationResult,
-        humanResult: payload.humanResult,
-        jsonResult: payload.jsonResult,
       }),
     ),
   ) as DaemonNativeResponse;
 }
 
 function hiddenDaemonDisposableOwnerMutationRequest(
-  invocation: HiddenDaemonBrokerInvocation,
+  invocation: HiddenDaemonBaseInvocation,
   disposableWorkerId: number,
   token: number,
   requestText: string,
@@ -1227,7 +1313,7 @@ function hiddenDaemonDisposableOwnerMutationRequest(
 }
 
 function hiddenDaemonOwnerInternalComplete(
-  invocation: HiddenDaemonBrokerInvocation,
+  invocation: HiddenDaemonBaseInvocation,
   ownerWorkerId: number,
   token: number,
   resultText: string,
@@ -1254,7 +1340,7 @@ function hiddenDaemonOwnerInternalComplete(
 
 function hiddenDaemonProjectAuthorityNativeRequest(
   action: string,
-  invocation: HiddenDaemonBrokerInvocation,
+  invocation: HiddenDaemonBaseInvocation,
   ownerWorkerId: number | undefined,
   projectRoot: string,
   authoritativePaths: readonly string[] | undefined,
@@ -1280,7 +1366,7 @@ function hiddenDaemonProjectAuthorityNativeRequest(
 }
 
 function hiddenDaemonEventNativeRequest(
-  invocation: HiddenDaemonBrokerInvocation,
+  invocation: HiddenDaemonBaseInvocation,
   token: number,
   event: Readonly<Record<string, unknown>>,
 ): DaemonNativeResponse {
@@ -1424,7 +1510,7 @@ function daemonRequestContext(
 function requestInvokeHost(
   context: DaemonRequestContext,
   output: RequestOutputCapture,
-  invocation: HiddenDaemonBrokerInvocation,
+  invocation: HiddenDaemonBaseInvocation,
   token: number,
   ownerWorkerId?: number,
   disposableWorkerId?: number,
@@ -1627,11 +1713,7 @@ function requestInvokeHost(
       if (
         request.semanticKey !== NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY ||
         request.result === null ||
-        typeof request.result !== 'object' ||
-        !Array.isArray(request.humanResult) ||
-        request.humanResult.length !== 3 ||
-        !Array.isArray(request.jsonResult) ||
-        request.jsonResult.length !== 3
+        typeof request.result !== 'object'
       )
         throw new Error('Exact authoring validation result contract is malformed.');
       const response = hiddenDaemonPayloadNativeRequest('owner-validation-result', invocation, {
@@ -1639,8 +1721,6 @@ function requestInvokeHost(
         token,
         semanticKey: request.semanticKey,
         validationResult: request.result as Readonly<Record<string, unknown>>,
-        humanResult: request.humanResult as unknown as HostResult,
-        jsonResult: request.jsonResult as unknown as HostResult,
       });
       if (response.ok !== true)
         throw new Error(response.error ?? 'Exact authoring validation result retention failed.');
@@ -2403,6 +2483,8 @@ async function main(): Promise<void> {
                 projectAuthorities: engineeringAfter.projectAuthorities,
                 snapshots: engineeringAfter.projectSnapshots,
                 snapshotBytes: engineeringAfter.projectSnapshotBytes,
+                exactValidationResults: engineeringAfter.exactValidationResults,
+                exactValidationBytes: engineeringAfter.exactValidationBytes,
                 ownerPids: engineeringAfter.ownerPids,
                 owners: engineeringAfter.owners,
                 disposablePids: engineeringAfter.disposablePids,
@@ -2411,6 +2493,15 @@ async function main(): Promise<void> {
           );
         }
         if (
+          daemonResponse.ok === true &&
+          daemonResponse.retainedValidationResult !== undefined &&
+          daemonResponse.retainedValidationResult !== null
+        ) {
+          response = retainedAuthoringValidationResult(
+            daemonResponse.retainedValidationResult,
+            request,
+          );
+        } else if (
           daemonResponse.ok === true &&
           daemonResponse.result !== undefined &&
           daemonResponse.result !== null

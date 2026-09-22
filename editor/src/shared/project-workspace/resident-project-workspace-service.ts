@@ -239,6 +239,7 @@ type ResidentEntry = {
   authority: ProjectSourceInventory | null;
   readonly pendingNativeSemanticPaths: Set<string>;
   pendingNativeStructuralChange: boolean;
+  pendingNativeExternalAssetChange: boolean;
   nativeAssetSourcePaths: readonly string[];
   lastUsedAtMilliseconds: number;
   portableSnapshot: PreparedPortableResidentProjectSnapshot | null;
@@ -385,22 +386,13 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       ...observation.delta.changed,
       ...observation.delta.removed,
     ].some((path) => assetPaths.has(path));
-    if (externalAssetChanged) entry.portableSnapshot = null;
+    if (externalAssetChanged) {
+      entry.portableSnapshot = null;
+      entry.pendingNativeExternalAssetChange = true;
+    }
     delta.paths.forEach((path) => entry.pendingNativeSemanticPaths.add(path));
     entry.pendingNativeStructuralChange ||= delta.structural;
     return delta;
-  }
-
-  private nativeObservationChangesExternalAsset(
-    entry: ResidentEntry,
-    observation: ResidentProjectAuthorityObservation,
-  ): boolean {
-    const assetPaths = new Set(entry.nativeAssetSourcePaths);
-    return [
-      ...observation.delta.added,
-      ...observation.delta.changed,
-      ...observation.delta.removed,
-    ].some((path) => assetPaths.has(path));
   }
 
   private bindSnapshot(entry: ResidentEntry, snapshot: LoadedProjectWorkspaceSnapshot): void {
@@ -494,6 +486,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           authority: null,
           pendingNativeSemanticPaths: new Set(),
           pendingNativeStructuralChange: false,
+          pendingNativeExternalAssetChange: false,
           nativeAssetSourcePaths,
           lastUsedAtMilliseconds: Date.now(),
           portableSnapshot: null,
@@ -526,6 +519,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         authority,
         pendingNativeSemanticPaths: new Set(),
         pendingNativeStructuralChange: false,
+        pendingNativeExternalAssetChange: false,
         nativeAssetSourcePaths: Object.freeze([]),
         lastUsedAtMilliseconds: Date.now(),
         portableSnapshot: null,
@@ -582,17 +576,17 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     );
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const externalAssetChanged = this.nativeObservationChangesExternalAsset(entry, observation);
       const delta = this.recordNativeObservation(entry, observation);
       delta.paths.forEach((path) => pendingPaths.add(path));
       structural ||= delta.structural;
       if (pendingPaths.size === 0 && !structural) {
-        if (externalAssetChanged) {
+        if (entry.pendingNativeExternalAssetChange) {
           const advanced = entry.session.advanceAuthorityGeneration();
           if (!advanced)
             throw new Error(
               'Resident Project generation disappeared during Asset authority advance.',
             );
+          entry.pendingNativeExternalAssetChange = false;
           this.bindSnapshot(entry, advanced.snapshot);
           return advanced;
         }
@@ -667,6 +661,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       entry.authority = null;
       entry.pendingNativeSemanticPaths.clear();
       entry.pendingNativeStructuralChange = false;
+      entry.pendingNativeExternalAssetChange = false;
       entry.nativeAssetSourcePaths = candidateAssetSourcePaths;
       this.bindSnapshot(entry, candidate.snapshot);
       return candidate;
@@ -995,6 +990,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     if (this.nativeAuthority) {
       entry.pendingNativeSemanticPaths.clear();
       entry.pendingNativeStructuralChange = false;
+      entry.pendingNativeExternalAssetChange = false;
       entry.authority = null;
     } else if (!fallbackProof) {
       entry.authority = prewriteAuthority;
@@ -1196,12 +1192,12 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           entry.nativeAssetSourcePaths,
           true,
         );
-        let externalAssetChanged = this.nativeObservationChangesExternalAsset(entry, proof);
         const delta = this.recordNativeObservation(entry, proof);
         if (
           delta.paths.length > 0 ||
           entry.pendingNativeSemanticPaths.size > 0 ||
-          entry.pendingNativeStructuralChange
+          entry.pendingNativeStructuralChange ||
+          entry.pendingNativeExternalAssetChange
         ) {
           const reconciled = await this.reconcileNative(entry, opened, {});
           if (!reconciled.ok || entry.session.coherenceState() !== 'coherent') return null;
@@ -1215,7 +1211,6 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
             entry.nativeAssetSourcePaths,
             true,
           );
-          externalAssetChanged = this.nativeObservationChangesExternalAsset(entry, proof);
           const postReconcileDelta = this.recordNativeObservation(entry, proof);
           if (
             postReconcileDelta.paths.length > 0 ||
@@ -1224,9 +1219,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           )
             return null;
         }
-        if (externalAssetChanged) {
+        if (entry.pendingNativeExternalAssetChange) {
           const advanced = entry.session.advanceAuthorityGeneration();
           if (!advanced) return null;
+          entry.pendingNativeExternalAssetChange = false;
+          this.bindSnapshot(entry, advanced.snapshot);
           opened = advanced;
         }
         const assetPaths = new Set(entry.nativeAssetSourcePaths);
@@ -1387,6 +1384,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         authority: null,
         pendingNativeSemanticPaths: new Set(),
         pendingNativeStructuralChange: false,
+        pendingNativeExternalAssetChange: false,
         nativeAssetSourcePaths: Object.freeze([]),
         lastUsedAtMilliseconds: Date.now(),
         portableSnapshot: null,

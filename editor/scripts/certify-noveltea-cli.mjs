@@ -1545,6 +1545,32 @@ async function certifyDaemonAuthoringCacheResidency(tempRoot, pristine) {
     )
       fail(`Exact validation did not return from daemon-native memory: ${memoryHit.stderr}`);
 
+    if (!isWindows) {
+      const aliasRoot = path.join(tempRoot, 'daemon-authoring-exact-alias');
+      await rm(aliasRoot, { recursive: true, force: true });
+      await symlink(root, aliasRoot, 'dir');
+      const aliasHit = requireSuccess(
+        'daemon authoring exact logical-alias hit',
+        runNative(['--project', aliasRoot, '--json', 'validate'], {
+          cwd: aliasRoot,
+          env: traced,
+        }),
+      );
+      if (
+        !aliasHit.stderr.includes('[scriptc-host] daemon invocation forwarding') ||
+        validationProfile(aliasHit)
+      )
+        fail(`Logical alias did not use the retained native exact result: ${aliasHit.stderr}`);
+      const aliasEnvelope = JSON.parse(aliasHit.stdout);
+      if (aliasEnvelope.projectRoot !== aliasRoot)
+        fail(
+          `Retained exact validation leaked the first caller's Project root: ${aliasHit.stdout}`,
+        );
+      const aliasNode = runNode(['--project', aliasRoot, '--json', 'validate'], { cwd: aliasRoot });
+      if (aliasNode.status !== aliasHit.status || aliasNode.stdout !== aliasHit.stdout)
+        fail('Node/scriptc logical-alias public output differs.');
+    }
+
     let evictedStatus = null;
     for (let attempt = 0; attempt < 30; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -1643,8 +1669,97 @@ async function certifyDaemonAuthoringCacheResidency(tempRoot, pristine) {
         `Unusable persistent exact state did not fall back to canonical cold admission: ${fallback.stderr}`,
       );
 
+    const freshDirectoryRoot = path.join(tempRoot, 'daemon-authoring-cache-fresh-directory');
+    await resetCase(pristine, freshDirectoryRoot);
+    await rm(path.join(freshDirectoryRoot, '.noveltea/cache/authoring'), {
+      recursive: true,
+      force: true,
+    });
+    requireSuccess(
+      'daemon authoring fresh cache-directory publication',
+      runNative(['--project', freshDirectoryRoot, '--json', 'validate'], {
+        cwd: freshDirectoryRoot,
+        env: traced,
+      }),
+    );
+    const freshCurrentPath = path.join(
+      freshDirectoryRoot,
+      '.noveltea/cache/authoring/current.json',
+    );
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        await readFile(freshCurrentPath, 'utf8');
+        break;
+      } catch {
+        if (attempt === 99)
+          fail('Daemon did not create and publish the fresh authoring-cache directory hierarchy.');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+
     process.stdout.write(
-      '[daemon-authoring-cache] native exact hit, eviction, restart persistence, recovery: PASS\n',
+      '[daemon-authoring-cache] native proof, alias formatting, eviction, fresh publication, restart persistence, recovery: PASS\n',
+    );
+  } finally {
+    runNative(['daemon', 'stop'], { env: environment });
+    await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+async function certifyDaemonAuthoringCachePressure(tempRoot, pristine) {
+  const root = path.join(tempRoot, 'daemon-authoring-exact-pressure');
+  const runtimeRoot = path.join(os.tmpdir(), `nt-authoring-pressure-${process.pid}-${Date.now()}`);
+  await resetCase(pristine, root);
+  const environment = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `authoring-pressure-${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '250',
+    NOVELTEA_CLI_CERTIFICATION_EXACT_VALIDATION_BUDGET_BYTES: '1',
+    NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
+  };
+  runNative(['daemon', 'stop'], { env: environment });
+  try {
+    const cold = requireSuccess(
+      'daemon authoring exact pressure cold admission',
+      runNative(['--project', root, '--json', 'validate'], { cwd: root, env: environment }),
+    );
+    const coldProfile = schedulerProfile(cold);
+    if (!coldProfile || coldProfile.resident.exactValidationResults < 1)
+      fail(
+        `Cold validation did not retain an exact result under active-owner protection: ${cold.stderr}`,
+      );
+
+    let evicted = false;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const status = requireSuccess(
+        'daemon authoring exact pressure owner status',
+        runNative(['--json', 'daemon', 'status'], { env: environment }),
+      );
+      if (JSON.parse(status.stdout).daemon.projectSessions !== 0) continue;
+      const engineering = requireSuccess(
+        'daemon authoring exact pressure engineering probe',
+        runNative(['--json', 'platform', 'template', 'list'], { env: environment }),
+      );
+      const profile = schedulerProfile(engineering);
+      if (
+        profile &&
+        profile.resident.exactValidationResults === 0 &&
+        profile.resident.projectAuthorities === 0
+      ) {
+        evicted = true;
+        break;
+      }
+    }
+    if (!evicted)
+      fail(
+        'Dormant exact-validation pressure did not evict its retained result and native authority.',
+      );
+    process.stdout.write(
+      '[daemon-authoring-cache-pressure] dormant exact result and authority eviction: PASS\n',
     );
   } finally {
     runNative(['daemon', 'stop'], { env: environment });
@@ -5202,6 +5317,7 @@ async function main() {
     await certifyRawShaderc(tempRoot);
     await certifyAuthoringCache(tempRoot, pristine);
     await certifyDaemonAuthoringCacheResidency(tempRoot, pristine);
+    await certifyDaemonAuthoringCachePressure(tempRoot, pristine);
     const residentDaemon = await certifyResidentDaemon(tempRoot, pristine);
     certifyEditorAuthoringCacheSharing();
     const performance = await certifyPerformanceEnvelope(tempRoot, pristine);
