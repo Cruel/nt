@@ -127,6 +127,7 @@ struct BrokerContext {
     std::uint64_t project_session_idle_ms = default_project_session_idle_ms;
     std::uint64_t disposable_extra_idle_ms = 30'000;
     std::size_t project_snapshot_budget_bytes = default_project_snapshot_budget_bytes;
+    std::size_t exact_validation_budget_bytes = default_exact_validation_budget_bytes;
     std::optional<std::filesystem::path> runtime_root_override;
     bool disposable_worker_processes_enabled = true;
 };
@@ -196,6 +197,18 @@ std::optional<BrokerContext> parse_context(const Json& request, std::string& err
             return std::nullopt;
         }
         context.project_snapshot_budget_bytes = static_cast<std::size_t>(budget);
+    }
+    if (request.contains("exactValidationBudgetBytes")) {
+        if (!request["exactValidationBudgetBytes"].is_number_unsigned()) {
+            error = "exactValidationBudgetBytes must be an unsigned integer";
+            return std::nullopt;
+        }
+        const auto budget = request["exactValidationBudgetBytes"].get<std::uint64_t>();
+        if (budget > std::numeric_limits<std::size_t>::max()) {
+            error = "exactValidationBudgetBytes is out of range";
+            return std::nullopt;
+        }
+        context.exact_validation_budget_bytes = static_cast<std::size_t>(budget);
     }
     if (request.contains("runtimeRoot")) {
         if (!request["runtimeRoot"].is_string() ||
@@ -711,16 +724,6 @@ struct ProjectOwnerWorker {
     std::optional<PendingSnapshot> pending_snapshot;
 };
 
-struct ExactValidationResult {
-    std::string canonical_root;
-    std::string semantic_key;
-    ProjectAuthorityCheckpoint authority;
-    Json structured_result = Json::object();
-    Json human_result = Json::array();
-    Json json_result = Json::array();
-    std::uint64_t revision = 0;
-};
-
 enum class DisposableWorkerState {
     starting,
     idle,
@@ -993,8 +996,7 @@ public:
     }
 
     Json retain_owner_validation_result(std::uint64_t owner_worker_id, std::uint64_t token,
-                                        std::string semantic_key, Json structured_result,
-                                        Json human_result, Json json_result)
+                                        std::string semantic_key, Json structured_result)
     {
         std::string canonical_root;
         {
@@ -1021,8 +1023,7 @@ public:
             !structured_result.contains("diagnostics") ||
             !structured_result["diagnostics"].is_array() ||
             !structured_result.contains("editorDiagnostics") ||
-            !structured_result["editorDiagnostics"].is_array() || !human_result.is_array() ||
-            human_result.size() != 3 || !json_result.is_array() || json_result.size() != 3)
+            !structured_result["editorDiagnostics"].is_array())
             return error_json("exact validation result payload is malformed");
 
 #if defined(_WIN32)
@@ -1034,18 +1035,16 @@ public:
         if (!checkpoint)
             return error_json("exact validation result has no proven native Project authority");
 
-        ExactValidationResult retained{
+        RetainedExactValidationResult retained{
             .canonical_root = canonical_root,
             .semantic_key = std::move(semantic_key),
             .authority = *checkpoint,
-            .structured_result = std::move(structured_result),
-            .human_result = std::move(human_result),
-            .json_result = std::move(json_result),
+            .semantic_result_json = structured_result.dump(),
             .revision = next_validation_revision_.fetch_add(1),
         };
+        exact_validation_results_.retain(retained, now_millis());
         {
             std::scoped_lock lock(validation_mutex_);
-            exact_validation_results_[canonical_root] = retained;
             pending_validation_publications_[canonical_root] = std::move(retained);
         }
         return {{"ok", true}};
@@ -1726,6 +1725,8 @@ public:
         result["projectAuthorities"] = project_authority_.tracked_project_count();
         result["projectSnapshots"] = project_snapshots_.snapshot_count();
         result["projectSnapshotBytes"] = project_snapshots_.retained_bytes();
+        result["exactValidationResults"] = exact_validation_results_.result_count();
+        result["exactValidationBytes"] = exact_validation_results_.retained_bytes();
         result["engineeringCounters"] = {
             {"authorityObservations", authority_observations_.load()},
             {"authorityFullRescans", authority_full_rescans_.load()},
@@ -1965,16 +1966,6 @@ private:
         if (semantic_key.empty())
             return std::nullopt;
 
-        std::optional<ExactValidationResult> retained;
-        {
-            std::scoped_lock lock(validation_mutex_);
-            const auto found = exact_validation_results_.find(canonical_root);
-            if (found == exact_validation_results_.end() ||
-                found->second.semantic_key != semantic_key)
-                return std::nullopt;
-            retained = found->second;
-        }
-
 #if defined(_WIN32)
         const std::filesystem::path root = utf8_to_wide(canonical_root);
 #else
@@ -2000,39 +1991,20 @@ private:
                 }
             }
         }
-        if (active_owner) {
-            const auto current = project_authority_.checkpoint(root);
-            if (!current || *current != retained->authority)
-                return std::nullopt;
-        } else {
-            try {
-                const auto observation = project_authority_.observe(ProjectAuthorityRequest{
-                    .project_root = root,
-                    .authoritative_paths = retained->authority.authoritative_paths,
-                    .discovery_scopes = retained->authority.discovery_scopes,
-                });
-                record_authority_observation(observation);
-                if (observation.manifest != retained->authority.manifest) {
-                    std::scoped_lock lock(validation_mutex_);
-                    const auto found = exact_validation_results_.find(canonical_root);
-                    if (found != exact_validation_results_.end() &&
-                        found->second.revision == retained->revision)
-                        exact_validation_results_.erase(found);
-                    return std::nullopt;
-                }
-                const auto current = project_authority_.checkpoint(root);
-                if (!current || *current != retained->authority)
-                    return std::nullopt;
-                // Owner eviction stops watcher coverage. The exact result remains reusable in
-                // native memory, but every later ownerless hit must prove disk again rather than
-                // leaving a dormant Project watcher alive indefinitely.
-                (void)project_authority_.suspend(root);
-            } catch (...) {
-                return std::nullopt;
-            }
-        }
-        return payload.value("outputMode", std::string{}) == "json" ? retained->json_result
-                                                                    : retained->human_result;
+        const auto proof =
+            prove_exact_validation_result(project_authority_, exact_validation_results_,
+                                          canonical_root, semantic_key, now_millis());
+        if (proof.observation)
+            record_authority_observation(*proof.observation);
+        if (!proof.result)
+            return std::nullopt;
+        // Owner eviction stops watcher coverage. The exact result remains reusable in native
+        // memory, but every ownerless hit proves disk first and then returns authority to its
+        // dormant state instead of leaving watcher coverage alive indefinitely.
+        if (!active_owner)
+            (void)project_authority_.suspend(root);
+        return Json{{"kind", "authoring-validation-exact-result"},
+                    {"result", Json::parse(proof.result->semantic_result_json)}};
     }
 
     std::optional<std::string>
@@ -2132,15 +2104,11 @@ private:
                     }
                 }
                 if (!dead_owner) {
-                    bool exact_candidate = false;
                     const auto semantic_key =
                         payload.value("authoringValidationSemanticKey", std::string{});
-                    if (!semantic_key.empty()) {
-                        std::scoped_lock validation_lock(validation_mutex_);
-                        const auto retained = exact_validation_results_.find(canonical_root);
-                        exact_candidate = retained != exact_validation_results_.end() &&
-                                          retained->second.semantic_key == semantic_key;
-                    }
+                    const bool exact_candidate =
+                        !semantic_key.empty() &&
+                        exact_validation_results_.contains(canonical_root, semantic_key);
                     if (exact_candidate) {
                         bool owner_idle = true;
                         if (const auto mapped = project_owner_by_root_.find(canonical_root);
@@ -2270,13 +2238,11 @@ private:
         else
             terminate_child_process(process);
         const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
-        std::optional<ProjectAuthorityCheckpoint> exact_validation_checkpoint;
-        {
-            std::scoped_lock lock(validation_mutex_);
-            const auto found = exact_validation_results_.find(canonical_root);
-            if (found != exact_validation_results_.end())
-                exact_validation_checkpoint = found->second.authority;
-        }
+        const auto exact_validation = exact_validation_results_.find(canonical_root, now_millis());
+        const auto exact_validation_checkpoint =
+            exact_validation
+                ? std::optional<ProjectAuthorityCheckpoint>(exact_validation->authority)
+                : std::nullopt;
         bool retained_for_rehydration = false;
         if (exact_validation_checkpoint) {
             // Exact validation survives owner eviction independently of portable semantic bytes.
@@ -2452,6 +2418,41 @@ private:
         }
         project_snapshots_.trim_dormant_to_budget(active_roots,
                                                   context_.project_snapshot_budget_bytes);
+        const auto exact_evictions = exact_validation_results_.trim_dormant_to_budget(
+            active_roots, context_.exact_validation_budget_bytes);
+        for (const auto& canonical_root : exact_evictions) {
+            {
+                std::scoped_lock lock(validation_mutex_);
+                pending_validation_publications_.erase(canonical_root);
+            }
+            bool owner_active = false;
+            {
+                std::scoped_lock lock(queue_mutex_);
+                const auto mapped = project_owner_by_root_.find(canonical_root);
+                owner_active = mapped != project_owner_by_root_.end() &&
+                               project_owners_.contains(mapped->second);
+            }
+            if (owner_active)
+                continue;
+
+            const auto snapshot = project_snapshots_.latest(canonical_root, now);
+            bool retained_for_snapshot = false;
+            if (snapshot) {
+                const auto checkpoint = project_snapshots_.authority_checkpoint(
+                    canonical_root, snapshot->identity, now);
+                retained_for_snapshot =
+                    checkpoint &&
+                    project_authority_.restore_checkpoint_for_rehydration(*checkpoint);
+            }
+            if (!retained_for_snapshot) {
+#if defined(_WIN32)
+                const std::filesystem::path root = utf8_to_wide(canonical_root);
+#else
+                const std::filesystem::path root = canonical_root;
+#endif
+                (void)project_authority_.release(root);
+            }
+        }
     }
 
     void maintain_disposable_workers()
@@ -2570,23 +2571,7 @@ private:
     static std::optional<std::filesystem::path>
     authoring_cache_directory(const std::filesystem::path& root)
     {
-        auto directory = root;
-        for (const auto* segment : {".noveltea", "cache", "authoring"}) {
-            directory /= segment;
-            std::error_code error;
-            auto status = std::filesystem::symlink_status(directory, error);
-            if (error)
-                return std::nullopt;
-            if (status.type() == std::filesystem::file_type::not_found) {
-                if (!std::filesystem::create_directory(directory, error) || error)
-                    return std::nullopt;
-                status = std::filesystem::symlink_status(directory, error);
-            }
-            if (error || std::filesystem::is_symlink(status) ||
-                !std::filesystem::is_directory(status))
-                return std::nullopt;
-        }
-        return directory;
+        return ensure_authoring_cache_directory(root);
     }
 
     static bool write_text_atomic(const std::filesystem::path& destination, std::string_view text,
@@ -2628,7 +2613,7 @@ private:
 
     void publish_pending_validation_cache()
     {
-        std::optional<ExactValidationResult> pending;
+        std::optional<RetainedExactValidationResult> pending;
         {
             std::scoped_lock lock(validation_mutex_);
             if (pending_validation_publications_.empty())
@@ -2664,7 +2649,7 @@ private:
                                    {"projectRoot", pending->canonical_root},
                                    {"discoveryScopes", std::move(scopes)},
                                    {"inputs", std::move(inputs)},
-                                   {"result", pending->structured_result}};
+                                   {"result", Json::parse(pending->semantic_result_json)}};
             if (const auto directory = authoring_cache_directory(root))
                 (void)write_text_atomic(*directory / "current.json", manifest.dump() + "\n",
                                         pending->revision);
@@ -2888,9 +2873,7 @@ private:
                     !message_payload["token"].is_number_unsigned() ||
                     !message_payload.contains("semanticKey") ||
                     !message_payload["semanticKey"].is_string() ||
-                    !message_payload.contains("validationResult") ||
-                    !message_payload.contains("humanResult") ||
-                    !message_payload.contains("jsonResult")) {
+                    !message_payload.contains("validationResult")) {
                     client->send(result_event_json(request_id, false, "null",
                                                    "owner-validation-result requires worker, "
                                                    "token, semantic key, and result"));
@@ -2900,8 +2883,7 @@ private:
                     message_payload["ownerWorkerId"].get<std::uint64_t>(),
                     message_payload["token"].get<std::uint64_t>(),
                     message_payload["semanticKey"].get<std::string>(),
-                    message_payload["validationResult"], message_payload["humanResult"],
-                    message_payload["jsonResult"]);
+                    message_payload["validationResult"]);
                 client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
                                                result.value("error", std::string{})));
                 continue;
@@ -3783,9 +3765,9 @@ private:
     std::atomic<std::uint64_t> disposable_retirements_{0};
     ProjectAuthorityManager project_authority_;
     ProjectSnapshotStore project_snapshots_;
+    ExactValidationStore exact_validation_results_;
     std::mutex validation_mutex_;
-    std::unordered_map<std::string, ExactValidationResult> exact_validation_results_;
-    std::unordered_map<std::string, ExactValidationResult> pending_validation_publications_;
+    std::unordered_map<std::string, RetainedExactValidationResult> pending_validation_publications_;
     std::atomic<std::uint64_t> next_validation_revision_{1};
     std::mutex critical_mutex_;
     std::condition_variable critical_cv_;
@@ -4499,6 +4481,8 @@ bool spawn_daemon_process(const std::string& executable_path, const BrokerContex
     const auto protocol = std::to_string(context.protocol);
     const auto daemon_idle = std::to_string(context.daemon_idle_ms);
     const auto project_idle = std::to_string(context.project_session_idle_ms);
+    const auto snapshot_budget = std::to_string(context.project_snapshot_budget_bytes);
+    const auto exact_validation_budget = std::to_string(context.exact_validation_budget_bytes);
     const auto runtime_root =
         context.runtime_root_override ? context.runtime_root_override->string() : std::string{};
     const auto child = ::fork();
@@ -4518,12 +4502,16 @@ bool spawn_daemon_process(const std::string& executable_path, const BrokerContex
             ::execl(executable_path.c_str(), executable_path.c_str(), "__daemon-broker",
                     "--daemon-build", context.build.c_str(), "--daemon-protocol", protocol.c_str(),
                     "--daemon-idle-ms", daemon_idle.c_str(), "--project-session-idle-ms",
-                    project_idle.c_str(), static_cast<char*>(nullptr));
+                    project_idle.c_str(), "--project-snapshot-budget-bytes",
+                    snapshot_budget.c_str(), "--exact-validation-budget-bytes",
+                    exact_validation_budget.c_str(), static_cast<char*>(nullptr));
         } else {
             ::execl(executable_path.c_str(), executable_path.c_str(), "__daemon-broker",
                     "--daemon-build", context.build.c_str(), "--daemon-protocol", protocol.c_str(),
                     "--daemon-idle-ms", daemon_idle.c_str(), "--project-session-idle-ms",
-                    project_idle.c_str(), "--daemon-runtime-root", runtime_root.c_str(),
+                    project_idle.c_str(), "--project-snapshot-budget-bytes",
+                    snapshot_budget.c_str(), "--exact-validation-budget-bytes",
+                    exact_validation_budget.c_str(), "--daemon-runtime-root", runtime_root.c_str(),
                     static_cast<char*>(nullptr));
         }
         _exit(127);
@@ -4717,7 +4705,11 @@ bool spawn_daemon_process(const std::string& executable_path, const BrokerContex
                                       L"--daemon-idle-ms",
                                       std::to_wstring(context.daemon_idle_ms),
                                       L"--project-session-idle-ms",
-                                      std::to_wstring(context.project_session_idle_ms)};
+                                      std::to_wstring(context.project_session_idle_ms),
+                                      L"--project-snapshot-budget-bytes",
+                                      std::to_wstring(context.project_snapshot_budget_bytes),
+                                      L"--exact-validation-budget-bytes",
+                                      std::to_wstring(context.exact_validation_budget_bytes)};
     if (context.runtime_root_override) {
         args.push_back(L"--daemon-runtime-root");
         args.push_back(context.runtime_root_override->wstring());
@@ -5263,6 +5255,230 @@ std::size_t ProjectSnapshotStore::snapshot_count() const
     return count;
 }
 
+struct ExactValidationStore::Impl {
+    mutable std::mutex mutex;
+    std::unordered_map<std::string, RetainedExactValidationResult> results;
+
+    static std::size_t authority_checkpoint_bytes(const ProjectAuthorityCheckpoint& checkpoint)
+    {
+        std::size_t total = sizeof(ProjectAuthorityCheckpoint);
+        total +=
+            checkpoint.canonical_root.native().size() * sizeof(std::filesystem::path::value_type);
+        total += checkpoint.authoritative_paths.size() * sizeof(std::string);
+        for (const auto& path : checkpoint.authoritative_paths)
+            total += path.size();
+        total += checkpoint.discovery_scopes.size() * sizeof(ProjectSourceDiscoveryScope);
+        for (const auto& scope : checkpoint.discovery_scopes) {
+            total += scope.root.size();
+            total += scope.extensions.size() * sizeof(std::string);
+            for (const auto& extension : scope.extensions)
+                total += extension.size();
+            total += scope.excluded_prefixes.size() * sizeof(std::string);
+            for (const auto& prefix : scope.excluded_prefixes)
+                total += prefix.size();
+        }
+        total += sizeof(ProjectSourceManifest) + checkpoint.manifest.canonical_root.size();
+        total += checkpoint.manifest.entries.size() * sizeof(ProjectSourceManifestEntry);
+        for (const auto& entry : checkpoint.manifest.entries) {
+            total += entry.path.size() + entry.source_identity.size();
+            if (entry.content_hash)
+                total += entry.content_hash->size();
+        }
+        return total;
+    }
+
+    static std::size_t bytes(const RetainedExactValidationResult& result)
+    {
+        return sizeof(RetainedExactValidationResult) + result.canonical_root.size() +
+               result.semantic_key.size() + result.semantic_result_json.size() +
+               authority_checkpoint_bytes(result.authority);
+    }
+};
+
+ExactValidationStore::ExactValidationStore() : impl_(std::make_shared<Impl>()) {}
+
+void ExactValidationStore::retain(RetainedExactValidationResult result, std::uint64_t now_millis)
+{
+    if (!impl_ || result.canonical_root.empty() || result.semantic_key.empty() ||
+        result.semantic_result_json.empty() || result.revision == 0)
+        return;
+    result.last_used_millis = now_millis;
+    result.byte_size = Impl::bytes(result);
+    std::scoped_lock lock(impl_->mutex);
+    impl_->results[result.canonical_root] = std::move(result);
+}
+
+std::optional<RetainedExactValidationResult>
+ExactValidationStore::find(std::string_view canonical_root, std::string_view semantic_key,
+                           std::uint64_t now_millis)
+{
+    if (!impl_)
+        return std::nullopt;
+    std::scoped_lock lock(impl_->mutex);
+    const auto found = impl_->results.find(std::string(canonical_root));
+    if (found == impl_->results.end() || found->second.semantic_key != semantic_key)
+        return std::nullopt;
+    found->second.last_used_millis = now_millis;
+    return found->second;
+}
+
+std::optional<RetainedExactValidationResult>
+ExactValidationStore::find(std::string_view canonical_root, std::uint64_t now_millis)
+{
+    if (!impl_)
+        return std::nullopt;
+    std::scoped_lock lock(impl_->mutex);
+    const auto found = impl_->results.find(std::string(canonical_root));
+    if (found == impl_->results.end())
+        return std::nullopt;
+    found->second.last_used_millis = now_millis;
+    return found->second;
+}
+
+bool ExactValidationStore::contains(std::string_view canonical_root,
+                                    std::string_view semantic_key) const
+{
+    if (!impl_)
+        return false;
+    std::scoped_lock lock(impl_->mutex);
+    const auto found = impl_->results.find(std::string(canonical_root));
+    return found != impl_->results.end() && found->second.semantic_key == semantic_key;
+}
+
+bool ExactValidationStore::erase_if_revision(std::string_view canonical_root,
+                                             std::uint64_t revision)
+{
+    if (!impl_)
+        return false;
+    std::scoped_lock lock(impl_->mutex);
+    const auto found = impl_->results.find(std::string(canonical_root));
+    if (found == impl_->results.end() || found->second.revision != revision)
+        return false;
+    impl_->results.erase(found);
+    return true;
+}
+
+std::vector<std::string>
+ExactValidationStore::trim_dormant_to_budget(const std::vector<std::string>& active_roots,
+                                             std::size_t byte_budget)
+{
+    std::vector<std::string> evicted;
+    if (!impl_)
+        return evicted;
+    std::scoped_lock lock(impl_->mutex);
+    const std::unordered_set<std::string> active(active_roots.begin(), active_roots.end());
+    std::size_t total = 0;
+    for (const auto& [root, result] : impl_->results) {
+        (void)root;
+        total += result.byte_size;
+    }
+    while (total > byte_budget) {
+        auto candidate = impl_->results.end();
+        for (auto current = impl_->results.begin(); current != impl_->results.end(); ++current) {
+            if (active.contains(current->first))
+                continue;
+            if (candidate == impl_->results.end() ||
+                current->second.last_used_millis < candidate->second.last_used_millis ||
+                (current->second.last_used_millis == candidate->second.last_used_millis &&
+                 current->first < candidate->first))
+                candidate = current;
+        }
+        if (candidate == impl_->results.end())
+            break;
+        total -= candidate->second.byte_size;
+        evicted.push_back(candidate->first);
+        impl_->results.erase(candidate);
+    }
+    return evicted;
+}
+
+std::size_t ExactValidationStore::retained_bytes() const
+{
+    if (!impl_)
+        return 0;
+    std::scoped_lock lock(impl_->mutex);
+    std::size_t total = 0;
+    for (const auto& [root, result] : impl_->results) {
+        (void)root;
+        total += result.byte_size;
+    }
+    return total;
+}
+
+std::size_t ExactValidationStore::result_count() const
+{
+    if (!impl_)
+        return 0;
+    std::scoped_lock lock(impl_->mutex);
+    return impl_->results.size();
+}
+
+ExactValidationProof prove_exact_validation_result(ProjectAuthorityManager& authority,
+                                                   ExactValidationStore& store,
+                                                   std::string_view canonical_root,
+                                                   std::string_view semantic_key,
+                                                   std::uint64_t now_millis)
+{
+    ExactValidationProof proof;
+    const auto retained = store.find(canonical_root, semantic_key, now_millis);
+    if (!retained)
+        return proof;
+#if defined(_WIN32)
+    const std::filesystem::path root = utf8_to_wide(canonical_root);
+#else
+    const std::filesystem::path root = std::string(canonical_root);
+#endif
+    try {
+        proof.observation = authority.observe(ProjectAuthorityRequest{
+            .project_root = root,
+            .authoritative_paths = retained->authority.authoritative_paths,
+            .discovery_scopes = retained->authority.discovery_scopes,
+        });
+        if (proof.observation->manifest != retained->authority.manifest) {
+            (void)store.erase_if_revision(canonical_root, retained->revision);
+            if (!authority.restore_checkpoint_for_rehydration(retained->authority))
+                (void)authority.release(root);
+            return proof;
+        }
+        const auto current = authority.checkpoint(root);
+        if (!current || *current != retained->authority) {
+            (void)store.erase_if_revision(canonical_root, retained->revision);
+            if (!authority.restore_checkpoint_for_rehydration(retained->authority))
+                (void)authority.release(root);
+            return proof;
+        }
+        proof.result = retained;
+        return proof;
+    } catch (...) {
+        return proof;
+    }
+}
+
+std::optional<std::filesystem::path>
+ensure_authoring_cache_directory(const std::filesystem::path& project_root)
+{
+    auto directory = project_root;
+    for (const auto* segment : {".noveltea", "cache", "authoring"}) {
+        directory /= segment;
+        std::error_code error;
+        auto status = std::filesystem::symlink_status(directory, error);
+        if (error && error != std::errc::no_such_file_or_directory)
+            return std::nullopt;
+        if (error == std::errc::no_such_file_or_directory) {
+            error.clear();
+            status = std::filesystem::file_status(std::filesystem::file_type::not_found);
+        }
+        if (status.type() == std::filesystem::file_type::not_found) {
+            if (!std::filesystem::create_directory(directory, error) || error)
+                return std::nullopt;
+            status = std::filesystem::symlink_status(directory, error);
+        }
+        if (error || std::filesystem::is_symlink(status) || !std::filesystem::is_directory(status))
+            return std::nullopt;
+    }
+    return directory;
+}
+
 std::string canonical_project_owner_root(std::string_view project_root, bool search_upwards)
 {
 #if defined(_WIN32)
@@ -5540,6 +5756,23 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
                 cancel_after = parsed["cancelAfterMs"].get<std::uint64_t>();
             result = client_request(*context, method, request_id,
                                     parsed.value("payload", Json::object()), cancel_after);
+            if (method == "invoke" && result.value("ok", false) && result.contains("result") &&
+                result["result"].is_object() &&
+                result["result"].value("kind", std::string{}) ==
+                    "authoring-validation-exact-result" &&
+                result["result"].contains("result") && result["result"]["result"].is_object()) {
+                const auto& exact = result["result"]["result"];
+                if (exact.contains("success") && exact["success"].is_boolean() &&
+                    exact.contains("exitCode") && exact["exitCode"].is_number_integer() &&
+                    exact.contains("diagnostics") && exact["diagnostics"].is_array()) {
+                    result["retainedValidationResult"] = {
+                        {"success", exact["success"]},
+                        {"exitCode", exact["exitCode"]},
+                        {"diagnostics", exact["diagnostics"]},
+                    };
+                    result["result"] = nullptr;
+                }
+            }
         }
     } else if (action == "ensure")
         result = ensure_daemon(parsed, *context);

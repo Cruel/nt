@@ -718,6 +718,125 @@ TEST_CASE("portable Project snapshot pressure discards dormant unpinned state on
     CHECK_FALSE(snapshots.find("/pinned", identity, 5));
 }
 
+TEST_CASE("exact validation pressure evicts dormant least-recently-used Projects only")
+{
+    using noveltea::tooling::daemon::ExactValidationStore;
+    using noveltea::tooling::daemon::RetainedExactValidationResult;
+
+    ExactValidationStore results;
+    results.retain(
+        RetainedExactValidationResult{
+            .canonical_root = "/active",
+            .semantic_key = "semantic",
+            .authority = snapshot_authority_checkpoint("/active"),
+            .semantic_result_json = std::string(256, 'a'),
+            .revision = 1,
+        },
+        10);
+    results.retain(
+        RetainedExactValidationResult{
+            .canonical_root = "/older",
+            .semantic_key = "semantic",
+            .authority = snapshot_authority_checkpoint("/older"),
+            .semantic_result_json = std::string(256, 'b'),
+            .revision = 2,
+        },
+        20);
+    results.retain(
+        RetainedExactValidationResult{
+            .canonical_root = "/newer",
+            .semantic_key = "semantic",
+            .authority = snapshot_authority_checkpoint("/newer"),
+            .semantic_result_json = std::string(256, 'c'),
+            .revision = 3,
+        },
+        30);
+
+    const auto active = results.find("/active", "semantic", 40);
+    REQUIRE(active);
+    const auto one_result_budget = active->byte_size;
+    const auto evicted = results.trim_dormant_to_budget({"/active"}, one_result_budget);
+
+    CHECK(evicted == std::vector<std::string>{"/older", "/newer"});
+    CHECK(results.find("/active", "semantic", 50));
+    CHECK_FALSE(results.find("/older", "semantic", 50));
+    CHECK_FALSE(results.find("/newer", "semantic", 50));
+    CHECK(results.result_count() == 1);
+    CHECK(results.retained_bytes() == one_result_budget);
+}
+
+TEST_CASE("exact validation proof detects disk changes without watcher delivery")
+{
+    using noveltea::tooling::daemon::ExactValidationStore;
+    using noveltea::tooling::daemon::ProjectAuthorityManager;
+    using noveltea::tooling::daemon::ProjectAuthorityOptions;
+    using noveltea::tooling::daemon::prove_exact_validation_result;
+    using noveltea::tooling::daemon::RetainedExactValidationResult;
+
+    auto root = temp_project_root("exact-validation-no-watcher");
+    ProjectAuthorityOptions options;
+    options.enable_native_watcher = false;
+    ProjectAuthorityManager authority(std::move(options));
+    const auto request = project_authority_request(root.path);
+    const auto initial = authority.observe(request);
+    REQUIRE_FALSE(initial.manifest.entries.empty());
+    const auto checkpoint = authority.checkpoint(root.path);
+    REQUIRE(checkpoint.has_value());
+
+    ExactValidationStore store;
+    store.retain(
+        RetainedExactValidationResult{
+            .canonical_root = initial.manifest.canonical_root,
+            .semantic_key = "validation-v1",
+            .authority = *checkpoint,
+            .semantic_result_json =
+                R"({"success":true,"exitCode":0,"diagnostics":[],"editorDiagnostics":[]})",
+            .revision = 1,
+        },
+        10);
+
+    const auto unchanged = prove_exact_validation_result(
+        authority, store, initial.manifest.canonical_root, "validation-v1", 20);
+    REQUIRE(unchanged.observation.has_value());
+    REQUIRE(unchanged.result.has_value());
+
+    write_project_file(root.path / "records/room.json", "{\"id\":\"room-changed\"}\n");
+    const auto stale = prove_exact_validation_result(
+        authority, store, initial.manifest.canonical_root, "validation-v1", 30);
+    REQUIRE(stale.observation.has_value());
+    CHECK_FALSE(stale.result.has_value());
+    CHECK_FALSE(store.find(initial.manifest.canonical_root, "validation-v1", 40).has_value());
+
+    const auto owner_observation = authority.observe(request);
+    CHECK(owner_observation.full_rescan);
+    CHECK(owner_observation.delta.changed == std::vector<std::string>{"records/room.json"});
+}
+
+TEST_CASE("authoring cache directory is created safely for a fresh Project")
+{
+    using noveltea::tooling::daemon::ensure_authoring_cache_directory;
+
+    auto root = temp_project_root("authoring-cache-directory");
+    const auto cache_root = root.path / ".noveltea";
+    std::error_code error;
+    std::filesystem::remove_all(cache_root, error);
+    REQUIRE_FALSE(error);
+
+    const auto directory = ensure_authoring_cache_directory(root.path);
+    REQUIRE(directory.has_value());
+    CHECK(*directory == root.path / ".noveltea" / "cache" / "authoring");
+    CHECK(std::filesystem::is_directory(*directory));
+
+#if !defined(_WIN32)
+    std::filesystem::remove_all(cache_root, error);
+    REQUIRE_FALSE(error);
+    const auto outside = temp_runtime_root("authoring-cache-directory-outside");
+    std::filesystem::create_directory(cache_root);
+    std::filesystem::create_directory_symlink(outside.path, cache_root / "cache");
+    CHECK_FALSE(ensure_authoring_cache_directory(root.path).has_value());
+#endif
+}
+
 TEST_CASE("portable Project snapshot invalidation removes crash-stale current bytes but keeps pins")
 {
     using namespace noveltea::tooling::daemon;
