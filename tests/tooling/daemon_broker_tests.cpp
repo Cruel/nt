@@ -163,6 +163,16 @@ manifest_paths(const noveltea::tooling::daemon::ProjectSourceManifest& manifest)
     return paths;
 }
 
+noveltea::tooling::daemon::ProjectAuthorityCheckpoint
+snapshot_authority_checkpoint(std::string_view canonical_root)
+{
+    using noveltea::tooling::daemon::ProjectAuthorityCheckpoint;
+    return ProjectAuthorityCheckpoint{
+        .canonical_root = std::filesystem::path(canonical_root),
+        .manifest = {.canonical_root = std::string(canonical_root)},
+    };
+}
+
 } // namespace
 
 TEST_CASE("Project authority batches unchanged and add-change-remove observation")
@@ -401,6 +411,50 @@ TEST_CASE("Project authority release stops native watcher before dropping Projec
     CHECK_FALSE(authority.status(root.path).has_value());
 }
 
+TEST_CASE("Project authority suspension retains its manifest but forces proof on resume")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("watcher-suspend");
+    ProjectAuthorityManager authority;
+    REQUIRE(authority.observe(project_authority_request(root.path)).manifest.entries.size() == 6);
+
+    REQUIRE(authority.suspend(root.path));
+    const auto dormant = authority.status(root.path);
+    REQUIRE(dormant);
+    CHECK(dormant->state == ProjectAuthorityState::unknown);
+    CHECK(dormant->has_manifest);
+
+    write_project_file(root.path / "records/room.json", "{\"id\":\"dormant-change\"}\n");
+    const auto resumed = authority.observe(project_authority_request(root.path));
+    CHECK(resumed.previous_state == ProjectAuthorityState::unknown);
+    CHECK(resumed.full_rescan);
+    CHECK(resumed.delta.changed == std::vector<std::string>{"records/room.json"});
+    REQUIRE(authority.status(root.path));
+    CHECK(authority.status(root.path)->state == ProjectAuthorityState::proven);
+}
+
+TEST_CASE("Project authority checkpoint restores deltas consumed after a retained snapshot")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("checkpoint-restore");
+    ProjectAuthorityManager authority({.enable_native_watcher = false});
+    REQUIRE(authority.observe(project_authority_request(root.path)).manifest.entries.size() == 6);
+
+    const auto retained = authority.checkpoint(root.path);
+    REQUIRE(retained);
+
+    write_project_file(root.path / "records/room.json", "{\"id\":\"after-snapshot\"}\n");
+    const auto consumed = authority.observe(project_authority_request(root.path));
+    CHECK(consumed.delta.changed == std::vector<std::string>{"records/room.json"});
+    CHECK(authority.observe(project_authority_request(root.path)).unchanged);
+
+    REQUIRE(authority.restore_checkpoint_for_rehydration(*retained));
+    const auto recovered = authority.observe(project_authority_request(root.path));
+    CHECK(recovered.previous_state == ProjectAuthorityState::unknown);
+    CHECK(recovered.full_rescan);
+    CHECK(recovered.delta.changed == std::vector<std::string>{"records/room.json"});
+}
+
 #if defined(_WIN32)
 TEST_CASE("Project authority Windows watcher stops when shutdown wins before overlapped read")
 {
@@ -576,6 +630,113 @@ TEST_CASE("daemon endpoint identity separates build and protocol")
     CHECK(first == endpoint_identity("build-a", 1));
     CHECK(first != endpoint_identity("build-b", 1));
     CHECK(first != endpoint_identity("build-a", 2));
+}
+
+TEST_CASE("portable Project snapshots retain current and pinned historical generations")
+{
+    using namespace noveltea::tooling::daemon;
+    ProjectSnapshotStore snapshots;
+    const ProjectGenerationIdentity first{.session_epoch = 7, .generation = 1};
+    const ProjectGenerationIdentity second{.session_epoch = 7, .generation = 2};
+
+    REQUIRE(snapshots.declare_current("/project", first, 9));
+    REQUIRE(snapshots.publish("/project", first, {"{\"first\":", "true}"}, "owner-1",
+                              snapshot_authority_checkpoint("/project"), 10));
+    REQUIRE(snapshots.pin_current("/project", first, 11));
+    REQUIRE(snapshots.declare_current("/project", second, 12));
+    REQUIRE(snapshots.publish("/project", second, {"{\"second\":true}"}, "owner-2",
+                              snapshot_authority_checkpoint("/project"), 12));
+    CHECK_FALSE(snapshots.publish("/project", first, {"stale"}, "owner-stale",
+                                  snapshot_authority_checkpoint("/project"), 12));
+
+    REQUIRE(snapshots.latest("/project", 13));
+    CHECK(snapshots.latest("/project", 13)->identity == second);
+    CHECK_FALSE(snapshots.pin_current("/project", first, 14));
+    REQUIRE(snapshots.find("/project", first, 15));
+    CHECK(snapshots.find("/project", first, 15)->pin_count == 1);
+    REQUIRE(snapshots.authority_checkpoint("/project", first, 15));
+    CHECK(snapshots.authority_checkpoint("/project", first, 15)->manifest.canonical_root ==
+          "/project");
+    CHECK(snapshots.snapshot_count() == 2);
+
+    REQUIRE(snapshots.unpin("/project", first, 16));
+    CHECK_FALSE(snapshots.find("/project", first, 17));
+    CHECK(snapshots.snapshot_count() == 1);
+}
+
+TEST_CASE("portable Project snapshots retain the latest serialized fallback while preparation lags")
+{
+    using namespace noveltea::tooling::daemon;
+    ProjectSnapshotStore snapshots;
+    const ProjectGenerationIdentity first{.session_epoch = 11, .generation = 1};
+    const ProjectGenerationIdentity second{.session_epoch = 11, .generation = 2};
+
+    REQUIRE(snapshots.declare_current("/project", first, 1));
+    REQUIRE(snapshots.publish("/project", first, {"first"}, "owner-1",
+                              snapshot_authority_checkpoint("/project"), 2));
+    REQUIRE(snapshots.declare_current("/project", second, 3));
+    REQUIRE(snapshots.latest("/project", 4));
+    CHECK(snapshots.latest("/project", 4)->identity == first);
+    CHECK(snapshots.snapshot_count() == 1);
+
+    REQUIRE(snapshots.publish("/project", second, {"second"}, "owner-2",
+                              snapshot_authority_checkpoint("/project"), 5));
+    REQUIRE(snapshots.latest("/project", 6));
+    CHECK(snapshots.latest("/project", 6)->identity == second);
+    CHECK_FALSE(snapshots.find("/project", first, 6));
+    CHECK(snapshots.snapshot_count() == 1);
+}
+
+TEST_CASE("portable Project snapshot pressure discards dormant unpinned state only")
+{
+    using namespace noveltea::tooling::daemon;
+    ProjectSnapshotStore snapshots;
+    const ProjectGenerationIdentity identity{.session_epoch = 1, .generation = 1};
+    REQUIRE(snapshots.declare_current("/active", identity, 9));
+    REQUIRE(snapshots.publish("/active", identity, {"active"}, "owner",
+                              snapshot_authority_checkpoint("/active"), 10));
+    REQUIRE(snapshots.declare_current("/dormant", identity, 4));
+    REQUIRE(snapshots.publish("/dormant", identity, {"dormant"}, "owner",
+                              snapshot_authority_checkpoint("/dormant"), 5));
+    const auto active_bytes = snapshots.latest("/active", 11)->byte_size;
+    CHECK(active_bytes > std::string_view("active").size() + std::string_view("owner").size());
+
+    snapshots.trim_dormant_to_budget({"/active"}, active_bytes);
+    CHECK(snapshots.latest("/active", 12));
+    CHECK_FALSE(snapshots.latest("/dormant", 12));
+    CHECK(snapshots.retained_bytes() == active_bytes);
+
+    REQUIRE(snapshots.declare_current("/pinned", identity, 1));
+    REQUIRE(snapshots.publish("/pinned", identity, {"pinned"}, "owner",
+                              snapshot_authority_checkpoint("/pinned"), 1));
+    REQUIRE(snapshots.pin_current("/pinned", identity, 2));
+    snapshots.trim_dormant_to_budget({}, 0);
+    CHECK(snapshots.find("/pinned", identity, 3));
+    REQUIRE(snapshots.unpin("/pinned", identity, 4));
+    snapshots.trim_dormant_to_budget({}, 0);
+    CHECK_FALSE(snapshots.find("/pinned", identity, 5));
+}
+
+TEST_CASE("portable Project snapshot invalidation removes crash-stale current bytes but keeps pins")
+{
+    using namespace noveltea::tooling::daemon;
+    ProjectSnapshotStore snapshots;
+    const ProjectGenerationIdentity first{.session_epoch = 3, .generation = 1};
+    const ProjectGenerationIdentity second{.session_epoch = 3, .generation = 2};
+    REQUIRE(snapshots.declare_current("/project", first, 1));
+    REQUIRE(snapshots.publish("/project", first, {"first"}, "owner",
+                              snapshot_authority_checkpoint("/project"), 2));
+    REQUIRE(snapshots.pin_current("/project", first, 3));
+    REQUIRE(snapshots.declare_current("/project", second, 4));
+    REQUIRE(snapshots.publish("/project", second, {"second"}, "owner",
+                              snapshot_authority_checkpoint("/project"), 5));
+
+    snapshots.invalidate_current("/project");
+    CHECK_FALSE(snapshots.latest("/project", 6));
+    CHECK_FALSE(snapshots.find("/project", second, 6));
+    CHECK(snapshots.find("/project", first, 6));
+    REQUIRE(snapshots.unpin("/project", first, 7));
+    CHECK(snapshots.snapshot_count() == 0);
 }
 
 TEST_CASE("daemon Project-owner nomination preserves explicit roots and discovers implicit roots")

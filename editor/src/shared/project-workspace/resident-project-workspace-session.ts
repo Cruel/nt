@@ -322,8 +322,8 @@ function sameAuthoringFileStamp(
 export class ResidentProjectWorkspaceSession {
   private readonly fileSystem: ResidentProjectWorkspaceFileSystem;
   private readonly workspace: ProjectWorkspaceService;
-  private readonly sessionEpochValue = nextResidentProjectSessionEpoch++;
-  private generationValue = 1;
+  private readonly sessionEpochValue: number;
+  private generationValue: number;
   private snapshotValue: LoadedProjectWorkspaceSnapshot;
   private editorStateValue: EditorProjectState;
   private openedValue: Extract<ProjectWorkspaceOpenResult, { ok: true }> | null;
@@ -337,7 +337,15 @@ export class ResidentProjectWorkspaceSession {
     editorState: EditorProjectState,
     host: ResidentProjectWorkspaceSessionHost,
     opened: Extract<ProjectWorkspaceOpenResult, { ok: true }> | null = null,
+    identity?: ResidentProjectGenerationIdentity,
   ) {
+    this.sessionEpochValue = identity?.sessionEpoch ?? nextResidentProjectSessionEpoch++;
+    this.generationValue = identity?.generation ?? 1;
+    if (identity)
+      nextResidentProjectSessionEpoch = Math.max(
+        nextResidentProjectSessionEpoch,
+        identity.sessionEpoch + 1,
+      );
     this.snapshotValue = snapshot;
     this.editorStateValue = editorState;
     this.openedValue = opened;
@@ -351,16 +359,24 @@ export class ResidentProjectWorkspaceSession {
   static fromOpenedWithHost(
     opened: Extract<ProjectWorkspaceOpenResult, { ok: true }>,
     host: ResidentProjectWorkspaceSessionHost,
+    identity?: ResidentProjectGenerationIdentity,
   ): ResidentProjectWorkspaceSession {
-    return new ResidentProjectWorkspaceSession(opened.snapshot, opened.editorState, host, opened);
+    return new ResidentProjectWorkspaceSession(
+      opened.snapshot,
+      opened.editorState,
+      host,
+      opened,
+      identity,
+    );
   }
 
   static fromSnapshotWithHost(
     snapshot: LoadedProjectWorkspaceSnapshot,
     editorState: EditorProjectState,
     host: ResidentProjectWorkspaceSessionHost,
+    identity?: ResidentProjectGenerationIdentity,
   ): ResidentProjectWorkspaceSession {
-    return new ResidentProjectWorkspaceSession(snapshot, editorState, host);
+    return new ResidentProjectWorkspaceSession(snapshot, editorState, host, null, identity);
   }
 
   projectRoot(): string {
@@ -384,6 +400,17 @@ export class ResidentProjectWorkspaceSession {
       sessionEpoch: this.sessionEpochValue,
       generation: this.generationValue,
     });
+  }
+
+  advanceAuthorityGeneration(): Extract<ProjectWorkspaceOpenResult, { ok: true }> | null {
+    this.generationValue += 1;
+    if (!this.openedValue) return null;
+    const snapshot = Object.freeze({
+      ...this.openedValue.snapshot,
+    }) as LoadedProjectWorkspaceSnapshot;
+    this.snapshotValue = snapshot;
+    this.openedValue = { ...this.openedValue, snapshot };
+    return this.openedValue;
   }
 
   isGeneration(identity: ResidentProjectGenerationIdentity): boolean {
@@ -532,6 +559,23 @@ export class ResidentProjectWorkspaceSession {
       this.invalidAuthoringSourcePaths.add(relativePath),
     );
     this.coherenceValue = invalidAuthoringSourcePaths.length > 0 ? 'invalid' : 'coherent';
+  }
+
+  rehydrateOpened(opened: Extract<ProjectWorkspaceOpenResult, { ok: true }>): void {
+    if (
+      opened.snapshot.projectRoot !== this.snapshotValue.projectRoot ||
+      opened.snapshot.workspaceRevision !== this.snapshotValue.workspaceRevision ||
+      opened.snapshot.sourceRevision !== this.snapshotValue.sourceRevision
+    )
+      throw new Error(
+        'Rehydrated Project generation does not match the portable snapshot identity.',
+      );
+    this.snapshotValue = opened.snapshot;
+    this.editorStateValue = opened.editorState;
+    this.openedValue = opened;
+    this.fileSystem.seed(opened.snapshot);
+    this.invalidAuthoringSourcePaths.clear();
+    this.coherenceValue = 'coherent';
   }
 
   private async fileStamp(relativePath: string): Promise<AuthoringFileStamp | null> {

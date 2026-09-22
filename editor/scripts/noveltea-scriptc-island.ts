@@ -14,13 +14,78 @@ let residentFileSystem:
 let residentWorkspace:
   | import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectWorkspaceService
   | undefined;
+const publishedResidentProjectSnapshots = new Map<string, string>();
 const invokeResidentHost: ScriptcHostInvoke = (operation, request) => {
   if (!residentInvokeHost) throw new Error('Resident ScriptC host is unavailable.');
   return residentInvokeHost(operation, request);
 };
 
+function announceResidentProjectGenerations(): void {
+  if (!residentWorkspace || !residentInvokeHost) return;
+  for (const resident of residentWorkspace.residentGenerationIdentities())
+    invokeResidentHost(
+      'daemon-project-generation',
+      JSON.stringify({
+        sessionEpoch: resident.identity.sessionEpoch,
+        generation: resident.identity.generation,
+      }),
+    );
+}
+
 export async function reconcileNovelTeaResidentProjects(): Promise<number> {
-  return residentWorkspace ? residentWorkspace.reconcileResidentSessions() : 0;
+  if (!residentWorkspace) return 0;
+  const advanced = await residentWorkspace.reconcileResidentSessions();
+  announceResidentProjectGenerations();
+  return advanced;
+}
+
+function portableSnapshotChunks(text: string): string[] {
+  const chunks: string[] = [];
+  const maxCodeUnits = 24 * 1024;
+  for (let offset = 0; offset < text.length;) {
+    let end = Math.min(text.length, offset + maxCodeUnits);
+    if (
+      end < text.length &&
+      end > offset &&
+      text.charCodeAt(end - 1) >= 0xd800 &&
+      text.charCodeAt(end - 1) <= 0xdbff
+    )
+      end -= 1;
+    chunks.push(text.slice(offset, end));
+    offset = end;
+  }
+  return chunks;
+}
+
+export async function prepareNovelTeaResidentProjectSnapshots(): Promise<number> {
+  if (!residentWorkspace || !residentInvokeHost) return 0;
+  announceResidentProjectGenerations();
+  let published = 0;
+  for (const prepared of await residentWorkspace.preparePortableSnapshots()) {
+    // Snapshot preparation itself may advance an authority-only generation (for example an Asset
+    // payload changed without authored JSON changing), so declare again immediately before upload.
+    announceResidentProjectGenerations();
+    const key = `${String(prepared.identity.sessionEpoch)}:${String(prepared.identity.generation)}`;
+    if (publishedResidentProjectSnapshots.get(prepared.projectRoot) === key) continue;
+    invokeResidentHost(
+      'daemon-project-snapshot-begin',
+      JSON.stringify({
+        sessionEpoch: prepared.identity.sessionEpoch,
+        generation: prepared.identity.generation,
+        ownerMetadata: prepared.ownerMetadataText,
+      }),
+    );
+    for (const chunk of portableSnapshotChunks(prepared.snapshotText))
+      invokeResidentHost('daemon-project-snapshot-chunk', JSON.stringify({ chunk }));
+    invokeResidentHost('daemon-project-snapshot-commit', '');
+    publishedResidentProjectSnapshots.set(prepared.projectRoot, key);
+    published += 1;
+  }
+  return published;
+}
+
+export function novelTeaResidentProjectSessionCount(): number {
+  return residentWorkspace?.residentSessionCount() ?? 0;
 }
 
 function residentProjectAuthority(): import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectAuthority {
@@ -227,6 +292,12 @@ export interface ScriptcInvocationContext {
   readonly cancellationProbe?: () => boolean;
   readonly residentProjectSessions?: boolean;
   readonly projectSessionIdleMs?: number;
+  readonly residentProjectSessionEpoch?: number;
+  readonly residentProjectSnapshot?: Readonly<{
+    projectRoot: string;
+    snapshotText: string;
+    ownerMetadataText: string;
+  }>;
 }
 
 export async function runNovelTeaScriptcIsland(
@@ -410,7 +481,17 @@ async function runNovelTeaScriptcIslandScoped(
           fileSystem,
           createWorkspace,
           residentProjectAuthority(),
+          invocationContext.residentProjectSessionEpoch,
         );
+      }
+      if (invocationContext.residentProjectSnapshot && residentWorkspace) {
+        const retained = invocationContext.residentProjectSnapshot;
+        const rehydrated = await residentWorkspace.rehydratePortableSnapshot(
+          retained.projectRoot,
+          retained.snapshotText,
+          retained.ownerMetadataText,
+        );
+        if (rehydrated) trace(`resident Project snapshot rehydrated: ${retained.projectRoot}`);
       }
     }
   }
@@ -447,42 +528,50 @@ async function runNovelTeaScriptcIslandScoped(
     const { runNovelTeaCli } = await import('../src/cli/application');
     trace('application import completed');
     trace('application invocation starting');
-    const commandResult = await runNovelTeaCli(effectiveArgv, {
-      ...(invocationContext.cwd ? { cwd: invocationContext.cwd } : {}),
-      ...(invocationContext.terminal ? { terminal: invocationContext.terminal } : {}),
-      ...(fileSystem ? { fileSystem } : {}),
-      ...(workspace ? { workspace } : {}),
-      ...(invocationContext.residentProjectSessions && residentWorkspace
-        ? { residentWorkspace }
-        : {}),
-      nativeTools,
-      ...(platformTools ? { platformTools } : {}),
-      ...(embeddedBuiltInFiles ? { comfyUiWorkflowLibraryOptions: { embeddedBuiltInFiles } } : {}),
-      ...(cancellationController ? { abortSignal: cancellationController.signal } : {}),
-      ...(invocationContext.residentProjectSessions && !bootstrap.globals.json
-        ? {
-            onPlatformProgress: (stage: string, message: string) => {
-              invokeHost('emit-progress', JSON.stringify({ stage, message }));
-            },
-            onComfyUiProgress: (stage: string, message: string) => {
-              invokeHost('emit-progress', JSON.stringify({ stage, message }));
-            },
-          }
-        : {}),
-      ...(agentKitPayload ? { agentKitPayload } : {}),
-      readStdinText: () => invokeHost('read-stdin', ''),
-      forceRuntimeCacheRebuild,
-      // A native whole-result miss must not become a second whole-result hit inside the island,
-      // but stale generations can still contribute individually proven source/validation work.
-      skipAuthoringWholeResultCache: true,
-      ...(precomputedAuthoringCacheInventory ? { precomputedAuthoringCacheInventory } : {}),
-      onAuthoringValidationInstrumentation:
-        environment.NOVELTEA_CLI_VALIDATION_PROFILE === '1'
-          ? (instrumentation) => {
-              validationProfileText = `[validation-profile] ${JSON.stringify(instrumentation)}\n`;
+    let commandResult: Awaited<ReturnType<typeof runNovelTeaCli>>;
+    try {
+      commandResult = await runNovelTeaCli(effectiveArgv, {
+        ...(invocationContext.cwd ? { cwd: invocationContext.cwd } : {}),
+        ...(invocationContext.terminal ? { terminal: invocationContext.terminal } : {}),
+        ...(fileSystem ? { fileSystem } : {}),
+        ...(workspace ? { workspace } : {}),
+        ...(invocationContext.residentProjectSessions && residentWorkspace
+          ? { residentWorkspace }
+          : {}),
+        nativeTools,
+        ...(platformTools ? { platformTools } : {}),
+        ...(embeddedBuiltInFiles
+          ? { comfyUiWorkflowLibraryOptions: { embeddedBuiltInFiles } }
+          : {}),
+        ...(cancellationController ? { abortSignal: cancellationController.signal } : {}),
+        ...(invocationContext.residentProjectSessions && !bootstrap.globals.json
+          ? {
+              onPlatformProgress: (stage: string, message: string) => {
+                invokeHost('emit-progress', JSON.stringify({ stage, message }));
+              },
+              onComfyUiProgress: (stage: string, message: string) => {
+                invokeHost('emit-progress', JSON.stringify({ stage, message }));
+              },
             }
-          : undefined,
-    });
+          : {}),
+        ...(agentKitPayload ? { agentKitPayload } : {}),
+        readStdinText: () => invokeHost('read-stdin', ''),
+        forceRuntimeCacheRebuild,
+        // A native whole-result miss must not become a second whole-result hit inside the island,
+        // but stale generations can still contribute individually proven source/validation work.
+        skipAuthoringWholeResultCache: true,
+        ...(precomputedAuthoringCacheInventory ? { precomputedAuthoringCacheInventory } : {}),
+        onAuthoringValidationInstrumentation:
+          environment.NOVELTEA_CLI_VALIDATION_PROFILE === '1'
+            ? (instrumentation) => {
+                validationProfileText = `[validation-profile] ${JSON.stringify(instrumentation)}\n`;
+              }
+            : undefined,
+      });
+    } finally {
+      if (invocationContext.residentProjectSessionEpoch !== undefined)
+        announceResidentProjectGenerations();
+    }
     trace('application invocation completed');
     const residentSessionCountAfter = residentWorkspace?.residentSessionCount() ?? 0;
     if (residentSessionCountAfter > residentSessionCountBefore)

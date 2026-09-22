@@ -650,8 +650,18 @@ struct ChildProcess {
 };
 
 struct ProjectOwnerWorker {
+    struct PendingSnapshot {
+        ProjectGenerationIdentity identity;
+        std::string owner_metadata;
+        std::vector<std::string> chunks;
+    };
+
     std::uint64_t id = 0;
     std::string canonical_root;
+    std::uint64_t cold_session_epoch = 0;
+    std::optional<std::uint64_t> retained_session_epoch;
+    std::optional<std::uint64_t> active_session_epoch;
+    std::optional<ProjectGenerationIdentity> active_generation;
     ChildProcess process;
     std::vector<QueuedRequest> queued;
     std::uint64_t last_activity_millis = 0;
@@ -659,6 +669,7 @@ struct ProjectOwnerWorker {
     bool reconciling = false;
     bool retiring = false;
     bool retirement_started = false;
+    std::optional<PendingSnapshot> pending_snapshot;
 };
 
 [[nodiscard]] std::optional<ChildProcess>
@@ -723,7 +734,8 @@ public:
             const auto token = next_request_token_.fetch_add(1);
             {
                 std::scoped_lock lock(queue_mutex_);
-                active_.emplace(token, ActiveRequest{client, queued.request_id, false, std::nullopt});
+                active_.emplace(token,
+                                ActiveRequest{client, queued.request_id, false, std::nullopt});
             }
             touch();
             return {{"ok", true},
@@ -741,13 +753,14 @@ public:
             QueuedRequest queued;
             {
                 std::unique_lock lock(queue_mutex_);
-                const bool awakened = owner_cv_.wait_for(lock, std::chrono::milliseconds(200),
-                                                         [this, owner_worker_id] {
-                    const auto found = project_owners_.find(owner_worker_id);
-                    return state_.load() == State::draining || state_.load() == State::stopped ||
-                           found == project_owners_.end() || found->second.retiring ||
-                           (state_.load() == State::ready && !found->second.queued.empty());
-                });
+                const bool awakened = owner_cv_.wait_for(
+                    lock, std::chrono::milliseconds(200), [this, owner_worker_id] {
+                        const auto found = project_owners_.find(owner_worker_id);
+                        return state_.load() == State::draining ||
+                               state_.load() == State::stopped || found == project_owners_.end() ||
+                               found->second.retiring ||
+                               (state_.load() == State::ready && !found->second.queued.empty());
+                    });
                 const auto found = project_owners_.find(owner_worker_id);
                 if (state_.load() == State::draining || state_.load() == State::stopped ||
                     found == project_owners_.end() || found->second.retiring)
@@ -769,9 +782,8 @@ public:
                 const auto owner = project_owners_.find(owner_worker_id);
                 if (owner == project_owners_.end() || owner->second.retiring)
                     continue;
-                active_.emplace(
-                    token,
-                    ActiveRequest{client, queued.request_id, false, std::optional(owner_worker_id)});
+                active_.emplace(token, ActiveRequest{client, queued.request_id, false,
+                                                     std::optional(owner_worker_id)});
                 owner->second.last_activity_millis = now_millis();
             }
             touch();
@@ -791,7 +803,8 @@ public:
             std::scoped_lock lock(queue_mutex_);
             const auto found = active_.find(token);
             if (found == active_.end() || found->second.owner_worker_id != owner_worker_id)
-                return error_json("daemon Project-owner request token is not active for this worker");
+                return error_json(
+                    "daemon Project-owner request token is not active for this worker");
         }
         auto completed = complete_request(token, ok, result, error);
         if (completed.value("ok", false))
@@ -1024,7 +1037,8 @@ public:
             const auto owner = project_owners_.find(owner_worker_id);
             if (owner == project_owners_.end() || owner->second.retiring ||
                 owner->second.canonical_root != requested_root)
-                throw std::runtime_error("Project authority request does not belong to this owner worker");
+                throw std::runtime_error(
+                    "Project authority request does not belong to this owner worker");
         }
         auto observation = project_authority_.observe(request);
         if (!observation.delta.added.empty() || !observation.delta.changed.empty() ||
@@ -1054,6 +1068,151 @@ public:
                 return false;
         }
         return project_authority_.release(project_root);
+    }
+
+    Json declare_owner_generation(std::uint64_t owner_worker_id, ProjectGenerationIdentity identity)
+    {
+        if (identity.session_epoch == 0 || identity.generation == 0)
+            return error_json("resident Project generation identity is invalid");
+        std::scoped_lock lock(queue_mutex_);
+        const auto owner = project_owners_.find(owner_worker_id);
+        if (owner == project_owners_.end() || owner->second.retiring)
+            return error_json("resident Project generation owner is unavailable");
+        if (owner->second.active_generation) {
+            const auto active = *owner->second.active_generation;
+            if (active.session_epoch != identity.session_epoch ||
+                active.generation > identity.generation)
+                return error_json("resident Project generation regressed or changed session epoch");
+        } else if (identity.session_epoch != owner->second.cold_session_epoch &&
+                   (!owner->second.retained_session_epoch ||
+                    identity.session_epoch != *owner->second.retained_session_epoch)) {
+            return error_json("resident Project generation session epoch does not belong to owner");
+        }
+        if (!project_snapshots_.declare_current(owner->second.canonical_root, identity,
+                                                now_millis()))
+            return error_json("resident Project generation could not be declared current");
+        owner->second.active_session_epoch = identity.session_epoch;
+        owner->second.active_generation = identity;
+        return {{"ok", true}};
+    }
+
+    Json begin_owner_snapshot(std::uint64_t owner_worker_id, ProjectGenerationIdentity identity,
+                              std::string owner_metadata)
+    {
+        if (identity.session_epoch == 0 || identity.generation == 0)
+            return error_json("portable Project snapshot identity is invalid");
+        if (owner_metadata.size() > 256 * 1024)
+            return error_json("portable Project owner metadata is too large");
+        std::scoped_lock lock(queue_mutex_);
+        const auto owner = project_owners_.find(owner_worker_id);
+        if (owner == project_owners_.end() || owner->second.retiring)
+            return error_json("portable Project snapshot owner is unavailable");
+        if (!owner->second.active_generation || *owner->second.active_generation != identity)
+            return error_json("portable Project snapshot is not the owner's current generation");
+        owner->second.pending_snapshot = ProjectOwnerWorker::PendingSnapshot{
+            .identity = identity,
+            .owner_metadata = std::move(owner_metadata),
+            .chunks = {},
+        };
+        return {{"ok", true}};
+    }
+
+    Json append_owner_snapshot_chunk(std::uint64_t owner_worker_id, std::string chunk)
+    {
+        if (chunk.empty() || chunk.size() > 192 * 1024)
+            return error_json("portable Project snapshot chunk is invalid");
+        std::scoped_lock lock(queue_mutex_);
+        const auto owner = project_owners_.find(owner_worker_id);
+        if (owner == project_owners_.end() || owner->second.retiring ||
+            !owner->second.pending_snapshot)
+            return error_json("portable Project snapshot upload is not active");
+        owner->second.pending_snapshot->chunks.push_back(std::move(chunk));
+        return {{"ok", true}, {"chunkCount", owner->second.pending_snapshot->chunks.size()}};
+    }
+
+    Json commit_owner_snapshot(std::uint64_t owner_worker_id)
+    {
+        std::string canonical_root;
+        ProjectOwnerWorker::PendingSnapshot pending;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner == project_owners_.end() || owner->second.retiring ||
+                !owner->second.pending_snapshot)
+                return error_json("portable Project snapshot upload is not active");
+            canonical_root = owner->second.canonical_root;
+            pending = std::move(*owner->second.pending_snapshot);
+            owner->second.pending_snapshot.reset();
+        }
+        if (pending.chunks.empty())
+            return error_json("portable Project snapshot upload is empty");
+#if defined(_WIN32)
+        const std::filesystem::path project_root = utf8_to_wide(canonical_root);
+#else
+        const std::filesystem::path project_root = canonical_root;
+#endif
+        const auto authority_checkpoint = project_authority_.checkpoint(project_root);
+        if (!authority_checkpoint)
+            return error_json(
+                "portable Project snapshot has no proven native authority checkpoint");
+        if (!project_snapshots_.publish(
+                std::move(canonical_root), pending.identity, std::move(pending.chunks),
+                std::move(pending.owner_metadata), *authority_checkpoint, now_millis()))
+            return error_json("portable Project snapshot was rejected as stale");
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner != project_owners_.end() && !owner->second.retiring)
+                owner->second.active_session_epoch = pending.identity.session_epoch;
+        }
+        return {{"ok", true},
+                {"snapshotCount", project_snapshots_.snapshot_count()},
+                {"snapshotBytes", project_snapshots_.retained_bytes()}};
+    }
+
+    Json describe_owner_snapshot(std::uint64_t owner_worker_id)
+    {
+        std::string canonical_root;
+        std::uint64_t cold_session_epoch = 0;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner == project_owners_.end() || owner->second.retiring)
+                return error_json("portable Project snapshot owner is unavailable");
+            canonical_root = owner->second.canonical_root;
+            cold_session_epoch = owner->second.cold_session_epoch;
+        }
+        const auto snapshot = project_snapshots_.latest(canonical_root, now_millis());
+        if (!snapshot)
+            return {{"ok", true},
+                    {"found", false},
+                    {"canonicalRoot", canonical_root},
+                    {"coldSessionEpoch", cold_session_epoch}};
+        return {{"ok", true},
+                {"found", true},
+                {"canonicalRoot", canonical_root},
+                {"coldSessionEpoch", cold_session_epoch},
+                {"sessionEpoch", snapshot->identity.session_epoch},
+                {"generation", snapshot->identity.generation},
+                {"chunkCount", snapshot->chunk_count},
+                {"ownerMetadata", snapshot->opaque_owner_metadata}};
+    }
+
+    Json read_owner_snapshot_chunk(std::uint64_t owner_worker_id,
+                                   ProjectGenerationIdentity identity, std::size_t index)
+    {
+        std::string canonical_root;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto owner = project_owners_.find(owner_worker_id);
+            if (owner == project_owners_.end() || owner->second.retiring)
+                return error_json("portable Project snapshot owner is unavailable");
+            canonical_root = owner->second.canonical_root;
+        }
+        const auto chunk = project_snapshots_.chunk(canonical_root, identity, index, now_millis());
+        if (!chunk)
+            return error_json("portable Project snapshot chunk is unavailable");
+        return {{"ok", true}, {"chunk", *chunk}};
     }
 
     Json wait()
@@ -1108,6 +1267,8 @@ public:
             result["projectSessions"] = project_owners_.size() + generic_project_sessions_.load();
         }
         result["projectAuthorities"] = project_authority_.tracked_project_count();
+        result["projectSnapshots"] = project_snapshots_.snapshot_count();
+        result["projectSnapshotBytes"] = project_snapshots_.retained_bytes();
         return result;
     }
 
@@ -1172,7 +1333,8 @@ private:
             return true;
         for (const auto& [id, owner] : project_owners_) {
             (void)id;
-            if (std::find_if(owner.queued.begin(), owner.queued.end(), matches) != owner.queued.end())
+            if (std::find_if(owner.queued.begin(), owner.queued.end(), matches) !=
+                owner.queued.end())
                 return true;
         }
         return false;
@@ -1190,12 +1352,17 @@ private:
         }
 
         const auto owner_worker_id = next_owner_worker_id_.fetch_add(1);
+        const auto cold_session_epoch = next_project_session_epoch_.fetch_add(1);
+        const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
         auto process = spawn_project_owner_process(context_, owner_worker_id);
         if (!process)
             return std::nullopt;
         ProjectOwnerWorker owner;
         owner.id = owner_worker_id;
         owner.canonical_root = canonical_root;
+        owner.cold_session_epoch = cold_session_epoch;
+        if (retained_snapshot)
+            owner.retained_session_epoch = retained_snapshot->identity.session_epoch;
         owner.process = *process;
         owner.last_activity_millis = now_millis();
         project_owners_.emplace(owner_worker_id, std::move(owner));
@@ -1241,7 +1408,8 @@ private:
                     if (owner == project_owners_.end()) {
                         project_owner_by_root_.erase(mapped);
                     } else if (owner->second.retiring) {
-                        owner_cv_.wait(lock, [this, &canonical_root, owner_worker_id = owner->first] {
+                        owner_cv_.wait(lock, [this, &canonical_root,
+                                              owner_worker_id = owner->first] {
                             if (state_.load() == State::draining || state_.load() == State::stopped)
                                 return true;
                             const auto mapped = project_owner_by_root_.find(canonical_root);
@@ -1305,9 +1473,8 @@ private:
             {
                 std::scoped_lock lock(critical_mutex_);
                 const auto current = critical_sections_.load();
-                critical_sections_.store(current >= owner_critical_sections
-                                             ? current - owner_critical_sections
-                                             : 0);
+                critical_sections_.store(
+                    current >= owner_critical_sections ? current - owner_critical_sections : 0);
             }
             critical_cv_.notify_all();
         }
@@ -1322,7 +1489,24 @@ private:
             release_child_process(process);
         else
             terminate_child_process(process);
-        (void)project_authority_.release(root);
+        const auto retained_snapshot = project_snapshots_.latest(canonical_root, now_millis());
+        bool retained_for_rehydration = false;
+        if (retained_snapshot) {
+            // Snapshot serialization is allowed to lag the live owner. Always restore the exact
+            // native baseline captured with the retained bytes before making the Project dormant;
+            // otherwise a replacement could rehydrate generation N-1 against generation N's
+            // already-advanced manifest and incorrectly observe no delta. The same rule recovers
+            // changes a crashed owner consumed after its last snapshot.
+            const auto checkpoint = project_snapshots_.authority_checkpoint(
+                canonical_root, retained_snapshot->identity, now_millis());
+            retained_for_rehydration =
+                checkpoint && project_authority_.restore_checkpoint_for_rehydration(*checkpoint);
+        }
+        if (!retained_for_rehydration) {
+            if (retained_snapshot)
+                project_snapshots_.invalidate_current(canonical_root);
+            (void)project_authority_.release(root);
+        }
         {
             std::scoped_lock lock(queue_mutex_);
             const auto found = project_owners_.find(owner_worker_id);
@@ -1410,6 +1594,18 @@ private:
                                  already_dead ? "daemon Project owner exited unexpectedly"
                                               : "daemon Project owner was evicted",
                                  already_dead);
+        std::vector<std::string> active_roots;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            active_roots.reserve(project_owners_.size());
+            for (const auto& [id, owner] : project_owners_) {
+                (void)id;
+                if (!owner.retiring)
+                    active_roots.push_back(owner.canonical_root);
+            }
+        }
+        project_snapshots_.trim_dormant_to_budget(active_roots,
+                                                  default_project_snapshot_budget_bytes);
     }
 
     static std::uint64_t now_millis()
@@ -1607,12 +1803,12 @@ private:
                                                    "owner-complete requires worker and token"));
                     continue;
                 }
-                const auto result = complete_owner_request(
-                    message_payload["ownerWorkerId"].get<std::uint64_t>(),
-                    message_payload["token"].get<std::uint64_t>(),
-                    message_payload.value("requestOk", false),
-                    message_payload.value("result", Json(nullptr)),
-                    message_payload.value("error", std::string{}));
+                const auto result =
+                    complete_owner_request(message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                                           message_payload["token"].get<std::uint64_t>(),
+                                           message_payload.value("requestOk", false),
+                                           message_payload.value("result", Json(nullptr)),
+                                           message_payload.value("error", std::string{}));
                 client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
                                                result.value("error", std::string{})));
                 continue;
@@ -1626,9 +1822,9 @@ private:
                                                    "owner-cancelled requires worker and token"));
                     continue;
                 }
-                const auto result = owner_cancellation_status(
-                    message_payload["ownerWorkerId"].get<std::uint64_t>(),
-                    message_payload["token"].get<std::uint64_t>());
+                const auto result =
+                    owner_cancellation_status(message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                                              message_payload["token"].get<std::uint64_t>());
                 client->send(result_event_json(request_id, true, result.dump()));
                 continue;
             }
@@ -1639,8 +1835,7 @@ private:
                                                    "Project-owner maintenance requires worker"));
                     continue;
                 }
-                const auto owner_worker_id =
-                    message_payload["ownerWorkerId"].get<std::uint64_t>();
+                const auto owner_worker_id = message_payload["ownerWorkerId"].get<std::uint64_t>();
                 Json result;
                 if (method == "owner-needs-reconcile") {
                     result = owner_reconciliation_status(owner_worker_id);
@@ -1658,8 +1853,9 @@ private:
                     !message_payload.contains("token") ||
                     !message_payload["token"].is_number_unsigned() ||
                     !message_payload.contains("event") || !message_payload["event"].is_object()) {
-                    client->send(result_event_json(request_id, false, "null",
-                                                   "owner-event requires worker, token, and event"));
+                    client->send(
+                        result_event_json(request_id, false, "null",
+                                          "owner-event requires worker, token, and event"));
                     continue;
                 }
                 const auto result = emit_owner_request_event(
@@ -1672,12 +1868,12 @@ private:
             if (method == "owner-enter-critical" || method == "owner-leave-critical") {
                 if (!message_payload.contains("ownerWorkerId") ||
                     !message_payload["ownerWorkerId"].is_number_unsigned()) {
-                    client->send(result_event_json(request_id, false, "null",
-                                                   "Project-owner critical request requires worker"));
+                    client->send(
+                        result_event_json(request_id, false, "null",
+                                          "Project-owner critical request requires worker"));
                     continue;
                 }
-                const auto owner_worker_id =
-                    message_payload["ownerWorkerId"].get<std::uint64_t>();
+                const auto owner_worker_id = message_payload["ownerWorkerId"].get<std::uint64_t>();
                 const auto result = method == "owner-enter-critical"
                                         ? enter_owner_critical_section(owner_worker_id)
                                         : leave_owner_critical_section(owner_worker_id);
@@ -1718,20 +1914,122 @@ private:
                     !message_payload["ownerWorkerId"].is_number_unsigned() ||
                     !message_payload.contains("projectRoot") ||
                     !message_payload["projectRoot"].is_string()) {
-                    client->send(result_event_json(request_id, false, "null",
-                                                   "Project-owner release requires worker and root"));
+                    client->send(
+                        result_event_json(request_id, false, "null",
+                                          "Project-owner release requires worker and root"));
                     continue;
                 }
 #if defined(_WIN32)
                 const std::filesystem::path root =
                     utf8_to_wide(message_payload["projectRoot"].get_ref<const std::string&>());
 #else
-                const std::filesystem::path root = message_payload["projectRoot"].get<std::string>();
+                const std::filesystem::path root =
+                    message_payload["projectRoot"].get<std::string>();
 #endif
                 const auto released = release_owner_project(
                     message_payload["ownerWorkerId"].get<std::uint64_t>(), root);
                 const Json result = {{"ok", true}, {"released", released}};
                 client->send(result_event_json(request_id, true, result.dump()));
+                continue;
+            }
+            if (method == "owner-project-generation") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("sessionEpoch") ||
+                    !message_payload["sessionEpoch"].is_number_unsigned() ||
+                    !message_payload.contains("generation") ||
+                    !message_payload["generation"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "resident Project generation is malformed"));
+                    continue;
+                }
+                const auto result = declare_owner_generation(
+                    message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                    ProjectGenerationIdentity{
+                        .session_epoch = message_payload["sessionEpoch"].get<std::uint64_t>(),
+                        .generation = message_payload["generation"].get<std::uint64_t>(),
+                    });
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "owner-snapshot-begin") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("sessionEpoch") ||
+                    !message_payload["sessionEpoch"].is_number_unsigned() ||
+                    !message_payload.contains("generation") ||
+                    !message_payload["generation"].is_number_unsigned() ||
+                    !message_payload.contains("ownerMetadata") ||
+                    !message_payload["ownerMetadata"].is_string()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "portable Project snapshot begin is malformed"));
+                    continue;
+                }
+                const auto result = begin_owner_snapshot(
+                    message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                    ProjectGenerationIdentity{
+                        .session_epoch = message_payload["sessionEpoch"].get<std::uint64_t>(),
+                        .generation = message_payload["generation"].get<std::uint64_t>(),
+                    },
+                    message_payload["ownerMetadata"].get<std::string>());
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "owner-snapshot-chunk") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("chunk") || !message_payload["chunk"].is_string()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "portable Project snapshot chunk is malformed"));
+                    continue;
+                }
+                const auto result = append_owner_snapshot_chunk(
+                    message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                    message_payload["chunk"].get<std::string>());
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "owner-snapshot-commit" || method == "owner-snapshot-describe") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned()) {
+                    client->send(
+                        result_event_json(request_id, false, "null",
+                                          "portable Project snapshot request requires worker"));
+                    continue;
+                }
+                const auto owner_worker_id = message_payload["ownerWorkerId"].get<std::uint64_t>();
+                const auto result = method == "owner-snapshot-commit"
+                                        ? commit_owner_snapshot(owner_worker_id)
+                                        : describe_owner_snapshot(owner_worker_id);
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
+                continue;
+            }
+            if (method == "owner-snapshot-read") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned() ||
+                    !message_payload.contains("sessionEpoch") ||
+                    !message_payload["sessionEpoch"].is_number_unsigned() ||
+                    !message_payload.contains("generation") ||
+                    !message_payload["generation"].is_number_unsigned() ||
+                    !message_payload.contains("index") ||
+                    !message_payload["index"].is_number_unsigned()) {
+                    client->send(result_event_json(request_id, false, "null",
+                                                   "portable Project snapshot read is malformed"));
+                    continue;
+                }
+                const auto result = read_owner_snapshot_chunk(
+                    message_payload["ownerWorkerId"].get<std::uint64_t>(),
+                    ProjectGenerationIdentity{
+                        .session_epoch = message_payload["sessionEpoch"].get<std::uint64_t>(),
+                        .generation = message_payload["generation"].get<std::uint64_t>(),
+                    },
+                    message_payload["index"].get<std::size_t>());
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
                 continue;
             }
             if (method == "invoke" && message_payload.is_object() &&
@@ -1805,7 +2103,8 @@ private:
                     (void)id;
                     const auto owner_found = std::find_if(
                         owner.queued.begin(), owner.queued.end(), [&](const QueuedRequest& queued) {
-                            return queued.request_id == request_id && queued.client.lock() == client;
+                            return queued.request_id == request_id &&
+                                   queued.client.lock() == client;
                         });
                     if (owner_found == owner.queued.end())
                         continue;
@@ -2050,6 +2349,7 @@ private:
     std::atomic<std::uint64_t> critical_sections_{0};
     std::atomic<std::uint64_t> generic_project_sessions_{0};
     ProjectAuthorityManager project_authority_;
+    ProjectSnapshotStore project_snapshots_;
     std::mutex critical_mutex_;
     std::condition_variable critical_cv_;
     mutable std::mutex state_mutex_;
@@ -2064,6 +2364,7 @@ private:
     std::unordered_map<std::uint64_t, ProjectOwnerWorker> project_owners_;
     std::unordered_map<std::string, std::uint64_t> project_owner_by_root_;
     std::atomic<std::uint64_t> next_owner_worker_id_{1};
+    std::atomic<std::uint64_t> next_project_session_epoch_{1};
     std::mutex clients_mutex_;
     std::unordered_set<std::shared_ptr<ClientConnection>> clients_;
     std::vector<std::thread> client_threads_;
@@ -3062,7 +3363,8 @@ private:
     std::string endpoint_key_;
 };
 
-Json owner_client_request(const BrokerContext& context, std::string_view method, const Json& payload)
+Json owner_client_request(const BrokerContext& context, std::string_view method,
+                          const Json& payload)
 {
     static std::atomic<std::uint64_t> sequence{1};
     static OwnerControlChannel channel;
@@ -3090,6 +3392,352 @@ std::uint64_t write_response(const Json& result, std::uint8_t* response,
 }
 
 } // namespace
+
+struct ProjectSnapshotStore::Impl {
+    struct StoredSnapshot {
+        std::string canonical_root;
+        ProjectGenerationIdentity identity;
+        std::vector<std::string> opaque_chunks;
+        std::string opaque_owner_metadata;
+        ProjectAuthorityCheckpoint authority_checkpoint;
+        std::size_t byte_size = 0;
+        std::size_t pin_count = 0;
+        std::uint64_t last_used_millis = 0;
+    };
+
+    struct RootState {
+        std::optional<ProjectGenerationIdentity> current;
+        std::optional<ProjectGenerationIdentity> rehydration_candidate;
+        std::vector<StoredSnapshot> snapshots;
+    };
+
+    mutable std::mutex mutex;
+    std::unordered_map<std::string, RootState> roots;
+
+    static std::size_t authority_checkpoint_bytes(const ProjectAuthorityCheckpoint& checkpoint)
+    {
+        std::size_t total = sizeof(ProjectAuthorityCheckpoint);
+        total +=
+            checkpoint.canonical_root.native().size() * sizeof(std::filesystem::path::value_type);
+        total += checkpoint.authoritative_paths.size() * sizeof(std::string);
+        for (const auto& path : checkpoint.authoritative_paths)
+            total += path.size();
+        total += checkpoint.discovery_scopes.size() * sizeof(ProjectSourceDiscoveryScope);
+        for (const auto& scope : checkpoint.discovery_scopes) {
+            total += scope.root.size();
+            total += scope.extensions.size() * sizeof(std::string);
+            for (const auto& extension : scope.extensions)
+                total += extension.size();
+            total += scope.excluded_prefixes.size() * sizeof(std::string);
+            for (const auto& prefix : scope.excluded_prefixes)
+                total += prefix.size();
+        }
+        total += sizeof(ProjectSourceManifest) + checkpoint.manifest.canonical_root.size();
+        total += checkpoint.manifest.entries.size() * sizeof(ProjectSourceManifestEntry);
+        for (const auto& entry : checkpoint.manifest.entries) {
+            total += entry.path.size() + entry.source_identity.size();
+            if (entry.content_hash)
+                total += entry.content_hash->size();
+        }
+        return total;
+    }
+
+    static std::size_t bytes(const std::vector<std::string>& chunks, std::string_view metadata,
+                             const ProjectAuthorityCheckpoint& authority_checkpoint)
+    {
+        std::size_t total = metadata.size() + authority_checkpoint_bytes(authority_checkpoint);
+        for (const auto& chunk : chunks)
+            total += chunk.size();
+        return total;
+    }
+
+    static auto find(RootState& root, ProjectGenerationIdentity identity)
+    {
+        return std::find_if(root.snapshots.begin(), root.snapshots.end(),
+                            [&](const auto& snapshot) { return snapshot.identity == identity; });
+    }
+
+    static auto find(const RootState& root, ProjectGenerationIdentity identity)
+    {
+        return std::find_if(root.snapshots.begin(), root.snapshots.end(),
+                            [&](const auto& snapshot) { return snapshot.identity == identity; });
+    }
+
+    static RetainedProjectSnapshot describe(const StoredSnapshot& snapshot)
+    {
+        return RetainedProjectSnapshot{
+            .canonical_root = snapshot.canonical_root,
+            .identity = snapshot.identity,
+            .opaque_owner_metadata = snapshot.opaque_owner_metadata,
+            .chunk_count = snapshot.opaque_chunks.size(),
+            .byte_size = snapshot.byte_size,
+            .pin_count = snapshot.pin_count,
+            .last_used_millis = snapshot.last_used_millis,
+        };
+    }
+
+    static void prune_obsolete(RootState& root)
+    {
+        std::erase_if(root.snapshots, [&](const auto& snapshot) {
+            return snapshot.pin_count == 0 && (!root.rehydration_candidate.has_value() ||
+                                               snapshot.identity != *root.rehydration_candidate);
+        });
+    }
+};
+
+ProjectSnapshotStore::ProjectSnapshotStore() : impl_(std::make_shared<Impl>()) {}
+
+bool ProjectSnapshotStore::declare_current(std::string canonical_root,
+                                           ProjectGenerationIdentity identity,
+                                           std::uint64_t now_millis)
+{
+    if (canonical_root.empty() || identity.session_epoch == 0 || identity.generation == 0)
+        return false;
+    std::scoped_lock lock(impl_->mutex);
+    auto& root = impl_->roots[canonical_root];
+    root.current = identity;
+    const auto current = Impl::find(root, identity);
+    if (current != root.snapshots.end())
+        current->last_used_millis = now_millis;
+    Impl::prune_obsolete(root);
+    return true;
+}
+
+bool ProjectSnapshotStore::publish(std::string canonical_root, ProjectGenerationIdentity identity,
+                                   std::vector<std::string> opaque_chunks,
+                                   std::string opaque_owner_metadata,
+                                   ProjectAuthorityCheckpoint authority_checkpoint,
+                                   std::uint64_t now_millis)
+{
+    if (canonical_root.empty() || identity.session_epoch == 0 || identity.generation == 0 ||
+        opaque_chunks.empty())
+        return false;
+    std::scoped_lock lock(impl_->mutex);
+    auto& root = impl_->roots[canonical_root];
+    if (!root.current || *root.current != identity)
+        return false;
+
+    auto existing = Impl::find(root, identity);
+    if (existing != root.snapshots.end()) {
+        if (existing->pin_count != 0 && (existing->opaque_chunks != opaque_chunks ||
+                                         existing->opaque_owner_metadata != opaque_owner_metadata))
+            return false;
+        existing->opaque_chunks = std::move(opaque_chunks);
+        existing->opaque_owner_metadata = std::move(opaque_owner_metadata);
+        existing->authority_checkpoint = std::move(authority_checkpoint);
+        existing->byte_size = Impl::bytes(existing->opaque_chunks, existing->opaque_owner_metadata,
+                                          existing->authority_checkpoint);
+        existing->last_used_millis = now_millis;
+    } else {
+        root.snapshots.push_back(Impl::StoredSnapshot{
+            .canonical_root = canonical_root,
+            .identity = identity,
+            .opaque_chunks = std::move(opaque_chunks),
+            .opaque_owner_metadata = std::move(opaque_owner_metadata),
+            .authority_checkpoint = std::move(authority_checkpoint),
+            .byte_size = 0,
+            .pin_count = 0,
+            .last_used_millis = now_millis,
+        });
+        auto& inserted = root.snapshots.back();
+        inserted.byte_size = Impl::bytes(inserted.opaque_chunks, inserted.opaque_owner_metadata,
+                                         inserted.authority_checkpoint);
+    }
+    root.rehydration_candidate = identity;
+    Impl::prune_obsolete(root);
+    return true;
+}
+
+std::optional<RetainedProjectSnapshot> ProjectSnapshotStore::latest(std::string_view canonical_root,
+                                                                    std::uint64_t now_millis)
+{
+    if (!impl_)
+        return std::nullopt;
+    std::scoped_lock lock(impl_->mutex);
+    const auto root = impl_->roots.find(std::string(canonical_root));
+    if (root == impl_->roots.end() || !root->second.rehydration_candidate)
+        return std::nullopt;
+    auto snapshot = Impl::find(root->second, *root->second.rehydration_candidate);
+    if (snapshot == root->second.snapshots.end())
+        return std::nullopt;
+    snapshot->last_used_millis = now_millis;
+    return Impl::describe(*snapshot);
+}
+
+std::optional<RetainedProjectSnapshot>
+ProjectSnapshotStore::find(std::string_view canonical_root, ProjectGenerationIdentity identity,
+                           std::uint64_t now_millis)
+{
+    if (!impl_)
+        return std::nullopt;
+    std::scoped_lock lock(impl_->mutex);
+    const auto root = impl_->roots.find(std::string(canonical_root));
+    if (root == impl_->roots.end())
+        return std::nullopt;
+    auto snapshot = Impl::find(root->second, identity);
+    if (snapshot == root->second.snapshots.end())
+        return std::nullopt;
+    snapshot->last_used_millis = now_millis;
+    return Impl::describe(*snapshot);
+}
+
+std::optional<std::string> ProjectSnapshotStore::chunk(std::string_view canonical_root,
+                                                       ProjectGenerationIdentity identity,
+                                                       std::size_t index, std::uint64_t now_millis)
+{
+    if (!impl_)
+        return std::nullopt;
+    std::scoped_lock lock(impl_->mutex);
+    const auto root = impl_->roots.find(std::string(canonical_root));
+    if (root == impl_->roots.end())
+        return std::nullopt;
+    auto snapshot = Impl::find(root->second, identity);
+    if (snapshot == root->second.snapshots.end() || index >= snapshot->opaque_chunks.size())
+        return std::nullopt;
+    snapshot->last_used_millis = now_millis;
+    return snapshot->opaque_chunks[index];
+}
+
+std::optional<ProjectAuthorityCheckpoint> ProjectSnapshotStore::authority_checkpoint(
+    std::string_view canonical_root, ProjectGenerationIdentity identity, std::uint64_t now_millis)
+{
+    if (!impl_)
+        return std::nullopt;
+    std::scoped_lock lock(impl_->mutex);
+    const auto root = impl_->roots.find(std::string(canonical_root));
+    if (root == impl_->roots.end())
+        return std::nullopt;
+    auto snapshot = Impl::find(root->second, identity);
+    if (snapshot == root->second.snapshots.end())
+        return std::nullopt;
+    snapshot->last_used_millis = now_millis;
+    return snapshot->authority_checkpoint;
+}
+
+bool ProjectSnapshotStore::pin_current(std::string_view canonical_root,
+                                       ProjectGenerationIdentity identity, std::uint64_t now_millis)
+{
+    if (!impl_)
+        return false;
+    std::scoped_lock lock(impl_->mutex);
+    const auto root = impl_->roots.find(std::string(canonical_root));
+    if (root == impl_->roots.end() || !root->second.current || *root->second.current != identity)
+        return false;
+    auto snapshot = Impl::find(root->second, identity);
+    if (snapshot == root->second.snapshots.end())
+        return false;
+    ++snapshot->pin_count;
+    snapshot->last_used_millis = now_millis;
+    return true;
+}
+
+bool ProjectSnapshotStore::unpin(std::string_view canonical_root,
+                                 ProjectGenerationIdentity identity, std::uint64_t now_millis)
+{
+    if (!impl_)
+        return false;
+    std::scoped_lock lock(impl_->mutex);
+    const auto root = impl_->roots.find(std::string(canonical_root));
+    if (root == impl_->roots.end())
+        return false;
+    auto snapshot = Impl::find(root->second, identity);
+    if (snapshot == root->second.snapshots.end() || snapshot->pin_count == 0)
+        return false;
+    --snapshot->pin_count;
+    snapshot->last_used_millis = now_millis;
+    Impl::prune_obsolete(root->second);
+    if (root->second.snapshots.empty())
+        impl_->roots.erase(root);
+    return true;
+}
+
+void ProjectSnapshotStore::invalidate_current(std::string_view canonical_root)
+{
+    if (!impl_)
+        return;
+    std::scoped_lock lock(impl_->mutex);
+    const auto root = impl_->roots.find(std::string(canonical_root));
+    if (root == impl_->roots.end())
+        return;
+    root->second.current.reset();
+    root->second.rehydration_candidate.reset();
+    Impl::prune_obsolete(root->second);
+    if (root->second.snapshots.empty())
+        impl_->roots.erase(root);
+}
+
+void ProjectSnapshotStore::trim_dormant_to_budget(const std::vector<std::string>& active_roots,
+                                                  std::size_t byte_budget)
+{
+    if (!impl_)
+        return;
+    std::scoped_lock lock(impl_->mutex);
+    const std::unordered_set<std::string> active(active_roots.begin(), active_roots.end());
+    std::size_t total = 0;
+    for (const auto& [root_name, root] : impl_->roots) {
+        (void)root_name;
+        for (const auto& snapshot : root.snapshots)
+            total += snapshot.byte_size;
+    }
+    while (total > byte_budget) {
+        std::string candidate_root;
+        ProjectGenerationIdentity candidate_identity{};
+        std::uint64_t candidate_used = UINT64_MAX;
+        bool found = false;
+        for (const auto& [root_name, root] : impl_->roots) {
+            if (active.contains(root_name))
+                continue;
+            for (const auto& snapshot : root.snapshots) {
+                if (snapshot.pin_count != 0)
+                    continue;
+                if (!found || snapshot.last_used_millis < candidate_used) {
+                    candidate_root = root_name;
+                    candidate_identity = snapshot.identity;
+                    candidate_used = snapshot.last_used_millis;
+                    found = true;
+                }
+            }
+        }
+        if (!found)
+            break;
+        auto root = impl_->roots.find(candidate_root);
+        auto snapshot = Impl::find(root->second, candidate_identity);
+        total -= snapshot->byte_size;
+        if (root->second.rehydration_candidate &&
+            *root->second.rehydration_candidate == candidate_identity)
+            root->second.rehydration_candidate.reset();
+        root->second.snapshots.erase(snapshot);
+        if (root->second.snapshots.empty())
+            impl_->roots.erase(root);
+    }
+}
+
+std::size_t ProjectSnapshotStore::retained_bytes() const
+{
+    if (!impl_)
+        return 0;
+    std::scoped_lock lock(impl_->mutex);
+    std::size_t total = 0;
+    for (const auto& [root_name, root] : impl_->roots) {
+        (void)root_name;
+        for (const auto& snapshot : root.snapshots)
+            total += snapshot.byte_size;
+    }
+    return total;
+}
+
+std::size_t ProjectSnapshotStore::snapshot_count() const
+{
+    if (!impl_)
+        return 0;
+    std::scoped_lock lock(impl_->mutex);
+    std::size_t count = 0;
+    for (const auto& [root_name, root] : impl_->roots) {
+        (void)root_name;
+        count += root.snapshots.size();
+    }
+    return count;
+}
 
 std::string canonical_project_owner_root(std::string_view project_root, bool search_upwards)
 {
@@ -3298,6 +3946,18 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = owner_client_request(*context, "owner-project-observe", parsed);
     else if (action == "owner-project-release")
         result = owner_client_request(*context, "owner-project-release", parsed);
+    else if (action == "owner-project-generation")
+        result = owner_client_request(*context, "owner-project-generation", parsed);
+    else if (action == "owner-snapshot-begin")
+        result = owner_client_request(*context, "owner-snapshot-begin", parsed);
+    else if (action == "owner-snapshot-chunk")
+        result = owner_client_request(*context, "owner-snapshot-chunk", parsed);
+    else if (action == "owner-snapshot-commit")
+        result = owner_client_request(*context, "owner-snapshot-commit", parsed);
+    else if (action == "owner-snapshot-describe")
+        result = owner_client_request(*context, "owner-snapshot-describe", parsed);
+    else if (action == "owner-snapshot-read")
+        result = owner_client_request(*context, "owner-snapshot-read", parsed);
     else if (action == "local-cancel-start")
         result = start_local_interrupt_scope();
     else if (action == "local-cancelled")

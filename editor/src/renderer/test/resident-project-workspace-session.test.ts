@@ -18,6 +18,7 @@ import { ResidentProjectWorkspaceSession } from '../../shared/project-workspace/
 import {
   ResidentProjectWorkspaceService,
   type ResidentProjectAuthority,
+  type ResidentProjectAuthorityObservation,
 } from '../../shared/project-workspace/resident-project-workspace-service';
 
 const ROOT = '/projects/resident-session';
@@ -31,6 +32,7 @@ function createProjectAuthorityProbe() {
     [];
   const requests: Array<readonly string[] | null> = [];
   let configuredPaths: readonly string[] | null = null;
+  let manifestEntries: ResidentProjectAuthorityObservation['manifest']['entries'] = [];
   const authority: ResidentProjectAuthority = {
     async observe(request) {
       observationCount += 1;
@@ -56,7 +58,7 @@ function createProjectAuthorityProbe() {
         fullRescan: previousAuthority === 'untracked',
         watcherPaths: [...new Set([...delta.added, ...delta.changed, ...delta.removed])].sort(),
         delta,
-        manifest: { canonicalRoot: request.projectRoot, entries: [] },
+        manifest: { canonicalRoot: request.projectRoot, entries: manifestEntries },
       };
     },
     async release() {},
@@ -76,6 +78,9 @@ function createProjectAuthorityProbe() {
     },
     beforeObserve(callback: ((count: number) => void | Promise<void>) | null) {
       beforeObserve = callback;
+    },
+    setManifestEntries(entries: ResidentProjectAuthorityObservation['manifest']['entries']) {
+      manifestEntries = entries;
     },
   };
 }
@@ -1709,6 +1714,326 @@ describe('ResidentProjectWorkspaceSession', () => {
     if (!resident.ok) throw new Error('Reconciled Project open failed.');
     expect(resident.snapshot.project.rooms.foyer.label).toBe('Watcher Reconciled');
     expect(await workspace.reconcileResidentSessions()).toBe(0);
+  });
+
+  it('round-trips a portable resident generation without reopening authored Project sources', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.rml.sourceText = '<rml><body>Portable Layout</body></rml>';
+    layout.lua.sourceText = 'local portable_layout = true\n';
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'local portable_script = true\n',
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const opened = await workspace.open(ROOT);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error('Initial Project open failed.');
+
+    const prepared = await workspace.preparePortableSnapshot(ROOT);
+    expect(prepared).not.toBeNull();
+    if (!prepared) throw new Error('Portable Project snapshot was not prepared.');
+    expect(prepared.identity).toEqual(await workspace.residentGenerationIdentity(ROOT));
+
+    const originalReadText = fileSystem.readText.bind(fileSystem);
+    fileSystem.readText = async (value) => {
+      const relative = fileSystem
+        .relativePath(ROOT, fileSystem.resolvePath(value))
+        .replaceAll('\\', '/');
+      if (opened.snapshot.canonicalSourceFiles.includes(relative))
+        throw new Error(`Authored source '${relative}' was reopened during snapshot rehydration.`);
+      return originalReadText(value);
+    };
+
+    const replacement = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    expect(
+      await replacement.rehydratePortableSnapshot(
+        ROOT,
+        prepared.snapshotText,
+        prepared.ownerMetadataText,
+      ),
+    ).toBe(true);
+    expect(await replacement.residentGenerationIdentity(ROOT)).toEqual(prepared.identity);
+
+    const rehydrated = await replacement.open(ROOT);
+    expect(rehydrated.ok).toBe(true);
+    if (!rehydrated.ok) throw new Error('Rehydrated Project open failed.');
+    expect(rehydrated.snapshot.project).toEqual(opened.snapshot.project);
+    expect(rehydrated.snapshot.scriptSourcePaths).toEqual(opened.snapshot.scriptSourcePaths);
+    expect(rehydrated.snapshot.saveUnitFileOwnership).toEqual(
+      opened.snapshot.saveUnitFileOwnership,
+    );
+    expect(rehydrated.snapshot.project.layouts.hud.data.rml.sourceText).toBe(
+      '<rml><body>Portable Layout</body></rml>',
+    );
+    expect(
+      rehydrated.snapshot.externalSourceDescriptors.find(
+        (descriptor) => descriptor.sourceUrl === 'project:/scripts/bootstrap.lua',
+      )?.inlineText,
+    ).toBe('local portable_script = true\n');
+  });
+
+  it('rehydrates the retained generation after the original resident session is evicted', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const opened = await workspace.open(ROOT);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error('Initial Project open failed.');
+    const prepared = await workspace.preparePortableSnapshot(ROOT);
+    if (!prepared) throw new Error('Portable Project snapshot was not prepared.');
+
+    expect(workspace.evictIdleSessions(1, Date.now() + 60_000)).toBe(1);
+    expect(await workspace.hasResidentSession(ROOT)).toBe(false);
+
+    const replacement = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    expect(
+      await replacement.rehydratePortableSnapshot(
+        ROOT,
+        prepared.snapshotText,
+        prepared.ownerMetadataText,
+      ),
+    ).toBe(true);
+    expect(await replacement.residentGenerationIdentity(ROOT)).toEqual(prepared.identity);
+    const resumed = await replacement.open(ROOT);
+    expect(resumed.ok).toBe(true);
+    if (!resumed.ok) throw new Error('Evicted Project snapshot did not resume.');
+    expect(resumed.snapshot.project.rooms.foyer.label).toBe('Foyer');
+  });
+
+  it('falls back to a cold Project admission when no retained snapshot is available', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    let authoredReads = 0;
+    const originalReadText = fileSystem.readText.bind(fileSystem);
+    fileSystem.readText = async (value) => {
+      const relative = fileSystem
+        .relativePath(ROOT, fileSystem.resolvePath(value))
+        .replaceAll('\\', '/');
+      if (
+        relative === 'project.json' ||
+        relative === 'traits.json' ||
+        relative.startsWith('records/')
+      )
+        authoredReads += 1;
+      return originalReadText(value);
+    };
+
+    const replacement = new ResidentProjectWorkspaceService(
+      fileSystem,
+      undefined,
+      probe.authority,
+      97,
+    );
+    const opened = await replacement.open(ROOT);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error('Cold Project fallback failed.');
+    expect(await replacement.residentGenerationIdentity(ROOT)).toEqual({
+      sessionEpoch: 97,
+      generation: 1,
+    });
+    expect(authoredReads).toBeGreaterThan(0);
+  });
+
+  it('records external Asset identity metadata without embedding Asset payload bytes', async () => {
+    const { probe, workspace } = await createNativeAssetWorkspace();
+    probe.setManifestEntries([
+      {
+        path: 'assets/original.png',
+        sourceIdentity: 'dev:1:ino:2',
+        byteSize: 1,
+        mtimeNanoseconds: '123456789',
+        contentHash: null,
+      },
+    ]);
+
+    const prepared = await workspace.preparePortableSnapshot(ROOT);
+    expect(prepared).not.toBeNull();
+    if (!prepared) throw new Error('Portable Project snapshot was not prepared.');
+    const portable = JSON.parse(prepared.snapshotText) as {
+      externalAssets: readonly Readonly<Record<string, unknown>>[];
+    };
+    expect(portable.externalAssets).toEqual([
+      {
+        path: 'assets/original.png',
+        sourceIdentity: 'dev:1:ino:2',
+        byteSize: 1,
+        mtimeNanoseconds: '123456789',
+        contentHash: null,
+      },
+    ]);
+    expect(prepared.snapshotText).not.toContain('PNG payload bytes');
+  });
+
+  it('advances the portable Project generation when an external Asset payload changes', async () => {
+    const { first, probe, workspace } = await createNativeAssetWorkspace();
+    probe.setManifestEntries([
+      {
+        path: 'assets/original.png',
+        sourceIdentity: 'dev:1:ino:2',
+        byteSize: 1,
+        mtimeNanoseconds: '100',
+        contentHash: null,
+      },
+    ]);
+    const before = await workspace.preparePortableSnapshot(ROOT);
+    if (!before) throw new Error('Initial portable Project snapshot was not prepared.');
+
+    probe.change('assets/original.png');
+    probe.setManifestEntries([
+      {
+        path: 'assets/original.png',
+        sourceIdentity: 'dev:1:ino:2',
+        byteSize: 2,
+        mtimeNanoseconds: '200',
+        contentHash: null,
+      },
+    ]);
+    const after = await workspace.preparePortableSnapshot(ROOT);
+    if (!after) throw new Error('Changed portable Project snapshot was not prepared.');
+
+    expect(after.identity.sessionEpoch).toBe(before.identity.sessionEpoch);
+    expect(after.identity.generation).toBe(before.identity.generation + 1);
+    expect(after.snapshotText).not.toBe(before.snapshotText);
+    expect(await workspace.verifyReadAuthority(first.snapshot)).toBe(false);
+    const latest = await workspace.open(ROOT);
+    expect(latest.ok).toBe(true);
+    if (!latest.ok) throw new Error('Asset authority generation did not remain resident.');
+    expect(latest.snapshot).not.toBe(first.snapshot);
+    expect(await workspace.verifyReadAuthority(latest.snapshot)).toBe(true);
+  });
+
+  it('reconciles an authored delta consumed by snapshot maintenance before serialization', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('Initial Project open failed.');
+
+    const changed = structuredClone(project);
+    changed.rooms.foyer.label = 'Changed During Snapshot Maintenance';
+    const relativePath = 'records/rooms/foyer.json';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${relativePath}`,
+      projectWorkspaceFiles(changed, changed.editor)[relativePath]!,
+    );
+    probe.change(relativePath);
+
+    const prepared = await workspace.preparePortableSnapshot(ROOT);
+    expect(prepared).not.toBeNull();
+    if (!prepared) throw new Error('Snapshot maintenance did not reconcile the consumed delta.');
+    const portable = JSON.parse(prepared.snapshotText) as {
+      snapshot: { project: { rooms: Record<string, { label: string }> } };
+      sourceContributions: Record<string, unknown>;
+    };
+    expect(portable.snapshot.project.rooms.foyer?.label).toBe(
+      'Changed During Snapshot Maintenance',
+    );
+    expect(Object.hasOwn(portable.sourceContributions, relativePath)).toBe(true);
+    expect(prepared.identity.generation).toBeGreaterThan(1);
+  });
+
+  it('rehydrates a retained generation and reconciles only a changed authored source before promotion', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    project.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      data: defaultRoomData('Hall'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('Initial Project open failed.');
+    const prepared = await workspace.preparePortableSnapshot(ROOT);
+    if (!prepared) throw new Error('Portable Project snapshot was not prepared.');
+
+    const changed = structuredClone(project);
+    changed.rooms.foyer.label = 'Changed While Dormant';
+    const relativePath = 'records/rooms/foyer.json';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${relativePath}`,
+      projectWorkspaceFiles(changed, changed.editor)[relativePath]!,
+    );
+    probe.change(relativePath);
+
+    const replacement = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    expect(
+      await replacement.rehydratePortableSnapshot(
+        ROOT,
+        prepared.snapshotText,
+        prepared.ownerMetadataText,
+      ),
+    ).toBe(true);
+    const reconciled = await replacement.open(ROOT);
+    expect(reconciled.ok).toBe(true);
+    if (!reconciled.ok) throw new Error('Rehydrated Project reconciliation failed.');
+    expect(reconciled.snapshot.project.rooms.foyer.label).toBe('Changed While Dormant');
+    expect(reconciled.snapshot.project.rooms.hall).toEqual(first.snapshot.project.rooms.hall);
+    expect(reconciled.sourceWork.authoredFilesReread).toBe(1);
   });
 
   it('retains the coherent generation across an invalid overlay and repairs incrementally', async () => {
