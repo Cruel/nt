@@ -3953,10 +3953,6 @@ private:
                                         error("compiled_project.postprocess_role_mismatch",
                                               "Postprocess Effect requires a postprocess Material.",
                                               instruction_path + "/material");
-                                    if (material->postprocess_scope != instruction.scope)
-                                        error("compiled_project.postprocess_scope_mismatch",
-                                              "Postprocess Effect scope must match its Material.",
-                                              instruction_path + "/scope");
                                     for (std::size_t parameter_index = 0;
                                          parameter_index < instruction.parameters.size();
                                          ++parameter_index) {

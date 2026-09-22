@@ -1585,7 +1585,6 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     materialInterfaces.push({
       id,
       role: resolved.data.role,
-      postprocessScope: resolved.data.postprocessScope,
       parameters: Object.entries(resolved.data.preset.uniforms)
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([name, uniform]) => ({

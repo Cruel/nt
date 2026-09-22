@@ -8,6 +8,7 @@ import {
   type MaterialPresetDefinition,
   type MaterialPresetId,
 } from './authoring-material-presets';
+import { materialContractRegistry } from './material-contract-registry.generated';
 import {
   isUniformValueCompatible,
   shaderInputBindingValues,
@@ -30,10 +31,8 @@ export const materialTextureFilteringValues = [
 ] as const;
 export const materialPreviewGeometryValues = ['quad', 'rounded-rect', 'sprite', 'glyphs'] as const;
 export const materialPreviewBackgroundValues = ['transparent', 'checker', 'dark', 'light'] as const;
-export const postprocessScopeValues = ['world', 'full-game-viewport'] as const;
 export type MaterialBlend = (typeof materialBlendValues)[number];
 export type MaterialTextureFiltering = (typeof materialTextureFilteringValues)[number];
-export type PostprocessScope = (typeof postprocessScopeValues)[number];
 
 export const assetTextureRefSchema = z
   .object({ $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict() })
@@ -122,7 +121,6 @@ export const materialDataSchema = z
     displayName: z.string().optional(),
     shader: materialShaderOverrideSchema.optional(),
     blend: z.enum(materialBlendValues).optional(),
-    postprocessScope: z.enum(postprocessScopeValues).optional(),
     parameters: z.record(z.string().min(1), materialParameterOverrideSchema).default({}),
     textures: z.record(z.string().min(1), materialTextureDataSchema).default({}),
     preview: z
@@ -167,7 +165,6 @@ export interface ResolvedMaterialData {
   interfaceContract: string;
   interfaceFingerprint: string;
   blend: MaterialBlend;
-  postprocessScope: PostprocessScope;
   parameters: Record<string, EffectiveMaterialParameter>;
   textures: Record<string, EffectiveMaterialTexture>;
   preview: {
@@ -262,7 +259,6 @@ function resolvedFromPreset(preset: MaterialPresetDefinition): ResolvedMaterialD
     'shader.fragment',
     'shader.varying',
     'blend',
-    'postprocessScope',
     'preview.geometry',
     'preview.background',
   ])
@@ -276,7 +272,6 @@ function resolvedFromPreset(preset: MaterialPresetDefinition): ResolvedMaterialD
     interfaceContract: preset.interfaceContract,
     interfaceFingerprint: preset.interfaceFingerprint,
     blend: preset.blend,
-    postprocessScope: preset.postprocessScope,
     parameters,
     textures,
     preview: { ...preset.preview },
@@ -321,8 +316,6 @@ function applyMaterialOverrides(
   }
   const blend = data.blend ?? base.blend;
   if (data.blend) provenance.blend = source;
-  const postprocessScope = data.postprocessScope ?? base.postprocessScope;
-  if (data.postprocessScope) provenance.postprocessScope = source;
   const preview = {
     geometry: data.preview?.geometry ?? base.preview.geometry,
     background: data.preview?.background ?? base.preview.background,
@@ -335,7 +328,6 @@ function applyMaterialOverrides(
     fragmentSource,
     varyingDefinition,
     blend,
-    postprocessScope,
     parameters,
     textures,
     preview,
@@ -584,7 +576,11 @@ export function validateMaterialData(
         ),
       );
     else {
-      if (texture.source !== undefined && declaration.binding !== undefined)
+      const roleContract = materialContractRegistry.roles.find((role) => role.id === preset.role);
+      const rendererOwned = roleContract?.reservedInterface.samplers.some(
+        (sampler) => sampler.name === name && sampler.sourceOwnership === 'renderer',
+      );
+      if (texture.source !== undefined && (declaration.binding !== undefined || rendererOwned))
         diagnostics.push(
           diagnostic(
             `${base}/textures/${name}/source`,

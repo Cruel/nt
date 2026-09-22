@@ -6341,19 +6341,16 @@
             "type": "float"
           }
         ],
-        "postprocessScope": "world",
         "role": "hotspot-overlay"
       },
       {
         "id": "layout-decorator-material",
         "parameters": [],
-        "postprocessScope": "world",
         "role": "rmlui-decorator"
       },
       {
         "id": "sprite-material",
         "parameters": [],
-        "postprocessScope": "world",
         "role": "engine-2d"
       }
     ],
@@ -6381,7 +6378,7 @@
       }
     ]
   },
-  "saveContract": "sc1:d810effbd39c64895e425b4be392537d",
+  "saveContract": "sc1:018bfc86b2b862a8b0f5e7f6c153697c",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

@@ -170,7 +170,8 @@ public:
     void draw_2d(const QuadBatch& batch);
     void draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity = 1.0f);
     void composite_ordinary_world_surface();
-    void set_postprocess_material(std::optional<MaterialId> material);
+    void set_postprocess_material(std::optional<MaterialId> material,
+                                  PostprocessScope scope = PostprocessScope::World);
     void set_runtime_postprocess_stack(std::vector<RuntimePostprocessPass> passes);
     void set_runtime_material_times(float gameplay_seconds, float unscaled_seconds,
                                     float camera_zoom) noexcept;
@@ -327,6 +328,7 @@ private:
     uint16_t m_postprocess_scene_width = 0;
     uint16_t m_postprocess_scene_height = 0;
     std::optional<MaterialId> m_postprocess_material;
+    PostprocessScope m_postprocess_material_scope = PostprocessScope::World;
     std::optional<PostprocessScope> m_active_postprocess_scope;
     std::vector<RuntimePostprocessPass> m_runtime_postprocess_stack;
     float m_runtime_gameplay_seconds = 0.0f;

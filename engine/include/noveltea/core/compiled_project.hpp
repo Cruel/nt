@@ -315,7 +315,6 @@ struct MaterialParameterDeclaration {
 struct MaterialInterfaceResource {
     MaterialId id;
     MaterialRole role = MaterialRole::Engine2D;
-    MaterialPostprocessScope postprocess_scope = MaterialPostprocessScope::World;
     std::vector<MaterialParameterDeclaration> parameters;
     bool operator==(const MaterialInterfaceResource&) const = default;
 };

@@ -3,6 +3,7 @@
 #include "noveltea/audio/audio_backend.hpp"
 #include "noveltea/core/asset_telemetry.hpp"
 #include "noveltea/engine.hpp"
+#include "noveltea/render/material.hpp"
 
 #include <cstdint>
 #include <string>
@@ -65,7 +66,9 @@ public:
     [[nodiscard]] static assets::ResidencyEvictionResult
     set_asset_memory_policy(Engine& engine, assets::ResolvedAssetMemoryPolicy policy);
     [[nodiscard]] static bool set_runtime_ui_scale(Engine& engine, double scale);
-    [[nodiscard]] static bool set_postprocess_material(Engine& engine, std::string material_id);
+    [[nodiscard]] static bool
+    set_postprocess_material(Engine& engine, std::string material_id,
+                             PostprocessScope scope = PostprocessScope::World);
     [[nodiscard]] static RuntimePreviewController& preview(Engine& engine) noexcept;
     [[nodiscard]] static const RuntimePreviewController& preview(const Engine& engine) noexcept;
     [[nodiscard]] static bool preview_running(const Engine& engine) noexcept;

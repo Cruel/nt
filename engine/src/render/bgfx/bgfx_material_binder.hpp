@@ -36,6 +36,7 @@ struct ResolvedDrawTexture {
 resolve_renderer_draw_texture(const QuadCommand* command,
                               bgfx::TextureHandle neutral_texture) noexcept;
 [[nodiscard]] PackedMaterialUniform pack_material_uniform(const ShaderUniformValue& value) noexcept;
+[[nodiscard]] std::optional<uint64_t> material_pipeline_state(ShaderRole role) noexcept;
 [[nodiscard]] std::array<float, 4>
 pack_shader_standard_input(ShaderInputSemantic semantic, const ShaderStandardInputs& inputs,
                            const QuadCommand* quad_command = nullptr) noexcept;
@@ -48,6 +49,7 @@ struct BgfxMaterialBindInputs {
     bgfx::TextureHandle hotspot_image = BGFX_INVALID_HANDLE;
     MaterialTextureSampler hotspot_image_sampler = MaterialTextureSampler::ClampLinear;
     bgfx::TextureHandle hotspot_mask = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle postprocess_source = BGFX_INVALID_HANDLE;
     uint8_t first_texture_stage = 0;
 };
 

@@ -1663,11 +1663,10 @@ Result<void, Diagnostics> SessionState::upsert_postprocess_effect(const Compiled
         return owner;
     const auto* material = project.find_material_interface(value.material);
     if (material == nullptr || material->role != compiled::MaterialRole::Postprocess ||
-        material->postprocess_scope != value.scope ||
         value.clock > MaterialClockPolicy::UnscaledPresentation)
-        return Result<void, Diagnostics>::failure(feature_error(
-            "runtime.invalid_postprocess_effect", "Postprocess Effect requires a postprocess "
-                                                  "Material with matching scope and valid clock"));
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.invalid_postprocess_effect",
+                          "Postprocess Effect requires a postprocess Material and valid clock"));
     const auto existing =
         std::ranges::find_if(m_postprocess_effects, [&](const DesiredPostprocessEffect& item) {
             return item.instance == value.instance && item.owner == value.owner;

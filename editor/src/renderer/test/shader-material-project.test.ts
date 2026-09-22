@@ -82,6 +82,44 @@ describe('canonical Material shader lowering', () => {
     });
   });
 
+  it('keeps postprocess source renderer-owned and does not publish Material-level scope', async () => {
+    const project = createAuthoringProject();
+    project.materials.grade = {
+      id: 'grade',
+      label: 'Grade',
+      data: {
+        ...defaultMaterialData('Grade', 'postprocess-tint'),
+        textures: { s_texColor: { source: { uri: 'project:/assets/images/source.png' } } },
+      },
+    };
+
+    const diagnostics = validateMaterialData(project, 'grade', project.materials.grade);
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/materials/grade/data/textures/s_texColor/source',
+          message: expect.stringContaining("Renderer-bound texture 's_texColor'"),
+        }),
+      ]),
+    );
+
+    project.materials.grade.data = defaultMaterialData('Grade', 'postprocess-tint');
+    const built = await buildShaderMaterialProject(project);
+    expect(built.diagnostics).toEqual([]);
+    expect(built.project.materials.grade).toMatchObject({
+      display_name: 'Grade',
+      role: 'postprocess',
+      shader: 'preset-postprocess-tint',
+      textures: {},
+    });
+    expect(built.project.materials.grade).not.toHaveProperty('postprocess_scope');
+    expect(built.project.shaders['preset-postprocess-tint']).toMatchObject({
+      samplers: {
+        s_texColor: { type: 'texture2d', binding: null },
+      },
+    });
+  });
+
   it('resolves single-parent sparse overrides with provenance and rejects cycles', () => {
     const project = createAuthoringProject();
     project.materials.base = {

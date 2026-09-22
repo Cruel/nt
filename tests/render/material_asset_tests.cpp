@@ -463,7 +463,7 @@ TEST_CASE("material validation reports refs values and roles")
                    MaterialDiagnosticCode::UndeclaredSampler));
 }
 
-TEST_CASE("postprocess scopes are closed and default to world")
+TEST_CASE("postprocess scope belongs to the effect occurrence and source texture is renderer-owned")
 {
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials",
@@ -476,27 +476,16 @@ TEST_CASE("postprocess scopes are closed and default to world")
         }
       },
       "materials":{
-        "world":{"role":"postprocess","shader":"fx","textures":{"s_texColor":"$draw.texture"}},
-        "viewport":{
-          "role":"postprocess",
-          "postprocess_scope":"full-game-viewport",
-          "shader":"fx",
-          "textures":{"s_texColor":"$draw.texture"}
-        }
+        "grade":{"role":"postprocess","shader":"fx"}
       }
     })json");
     REQUIRE(parsed.ok());
     REQUIRE(parsed.project);
-    const auto world_id = noveltea::parse_material_id("world");
-    const auto viewport_id = noveltea::parse_material_id("viewport");
-    REQUIRE(world_id.id);
-    REQUIRE(viewport_id.id);
-    const auto* world = noveltea::find_material(*parsed.project, *world_id.id);
-    const auto* viewport = noveltea::find_material(*parsed.project, *viewport_id.id);
-    REQUIRE(world != nullptr);
-    REQUIRE(viewport != nullptr);
-    CHECK(world->postprocess_scope == noveltea::PostprocessScope::World);
-    CHECK(viewport->postprocess_scope == noveltea::PostprocessScope::FullGameViewport);
+    const auto grade_id = noveltea::parse_material_id("grade");
+    REQUIRE(grade_id.id);
+    const auto* grade = noveltea::find_material(*parsed.project, *grade_id.id);
+    REQUIRE(grade != nullptr);
+    CHECK(grade->textures.empty());
 
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials",
@@ -504,10 +493,40 @@ TEST_CASE("postprocess scopes are closed and default to world")
         "fx":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["postprocess"],"role_bindings":{}}
       },
       "materials":{
-        "bad":{"role":"postprocess","postprocess_scope":"screen","shader":"fx"}
+        "bad":{"role":"postprocess","postprocess_scope":"world","shader":"fx"}
       }
     })json"),
                    MaterialDiagnosticCode::InvalidPostprocessScope));
+
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials",
+      "shaders":{
+        "fx":{
+          "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
+          "samplers":{"s_texColor":{"type":"texture2d","binding":null}},
+          "roles":["postprocess"],
+          "role_bindings":{}
+        }
+      },
+      "materials":{
+        "bad":{
+          "role":"postprocess",
+          "shader":"fx",
+          "textures":{"s_texColor":"project:/textures/source.png"}
+        }
+      }
+    })json"),
+                   MaterialDiagnosticCode::InvalidTextureSource));
+
+    const auto* role = noveltea::material_role_contract("postprocess");
+    REQUIRE(role != nullptr);
+    REQUIRE(role->samplers.size() == 1);
+    CHECK(role->samplers[0].name == "s_texColor");
+    CHECK(role->samplers[0].semantic == "engine.postprocess_source");
+    CHECK(role->samplers[0].stage == 0);
+    CHECK(role->samplers[0].source_ownership == "renderer");
+    CHECK(role->pipeline_state.blend == "replace");
+    CHECK(role->pipeline_state.output_alpha == "premultiplied");
 }
 
 TEST_CASE("remaining deferred roles and fallback records are explicit")

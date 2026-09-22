@@ -829,6 +829,9 @@ const legacySchemaLeafPaths = [
     '/layouts/*/data/dependencies/scripts/*/$ref/collection',
     '/layouts/*/data/dependencies/scripts/*/$ref/id',
   ] as JsonPointer[]),
+  // #338 moves postprocess scope from Material definition state to each Postprocess Effect
+  // occurrence. Preserve the retired Material leaf only for reviewed graph-effect alignment.
+  '/materials/*/data/postprocessScope' as JsonPointer,
   // #197 replaces the old detached locale catalog and fallback selector at the preserved authoring
   // schema version. Keep their reviewed slots solely to retain graph-effect alignment.
   '/localization/catalogs/*/*' as JsonPointer,
@@ -1087,7 +1090,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     layouts: '4f6da266',
     localization: '3cedd4cb',
     maps: '9d711bea',
-    materials: '4728e73c',
+    materials: 'f3aa8039',
     prefetchHints: 'b985056c',
     project: 'da3be83d',
     rooms: 'de4ff2d7',

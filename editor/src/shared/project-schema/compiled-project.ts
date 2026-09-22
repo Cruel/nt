@@ -98,7 +98,6 @@ const compiledMaterialParameterSchema = strict({
 const compiledMaterialInterfaceSchema = strict({
   id,
   role: compiledMaterialRoleSchema,
-  postprocessScope: z.enum(['world', 'full-game-viewport']),
   parameters: z.array(compiledMaterialParameterSchema),
 });
 const roomReferenceSchema = typedReference('room');

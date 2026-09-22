@@ -1640,13 +1640,6 @@ export function validateSceneData(
             diagnostics.push(
               diagnostic(`${path}/material`, 'Postprocess Effects require postprocess Materials.'),
             );
-          if (resolved.data.postprocessScope !== step.scope)
-            diagnostics.push(
-              diagnostic(
-                `${path}/scope`,
-                `Effect scope must match Material scope '${resolved.data.postprocessScope}'.`,
-              ),
-            );
         }
         const names = new Set<string>();
         step.parameters.forEach((parameter, parameterIndex) => {

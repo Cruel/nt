@@ -254,11 +254,12 @@ void Renderer::composite_ordinary_world_surface()
     submit_default_quad(command, ViewWorldOrdinaryComposite);
 }
 
-void Renderer::set_postprocess_material(std::optional<MaterialId> material)
+void Renderer::set_postprocess_material(std::optional<MaterialId> material, PostprocessScope scope)
 {
-    if (m_postprocess_material == material)
+    if (m_postprocess_material == material && m_postprocess_material_scope == scope)
         return;
     m_postprocess_material = std::move(material);
+    m_postprocess_material_scope = scope;
     m_active_postprocess_scope.reset();
     if (!m_postprocess_material)
         destroy_postprocess_surface();
@@ -312,7 +313,7 @@ bool Renderer::prepare_postprocess_surface(bool full_world_transition)
             return false;
         }
         tooling_pass.push_back(RuntimePostprocessPass{
-            "tooling", *m_postprocess_material, material->postprocess_scope, {}});
+            "tooling", *m_postprocess_material, m_postprocess_material_scope, {}});
         passes = &tooling_pass;
     }
 
@@ -320,11 +321,10 @@ bool Renderer::prepare_postprocess_surface(bool full_world_transition)
     std::size_t full_count = 0;
     for (const auto& pass : *passes) {
         const MaterialDefinition* material = find_material(*m_shader_materials, pass.material);
-        if (material == nullptr || material->role != ShaderRole::Postprocess ||
-            material->postprocess_scope != pass.scope) {
+        if (material == nullptr || material->role != ShaderRole::Postprocess) {
             SDL_LogError(
                 SDL_LOG_CATEGORY_APPLICATION,
-                "[renderer] runtime postprocess material '%s' is missing or has incompatible scope",
+                "[renderer] runtime postprocess material '%s' is missing or not postprocess",
                 pass.material.string().c_str());
             destroy_postprocess_surface();
             return false;
@@ -435,7 +435,7 @@ void Renderer::composite_postprocess_surface(PostprocessScope scope)
         if (!material)
             return;
         tooling_pass.push_back(RuntimePostprocessPass{
-            "tooling", *m_postprocess_material, material->postprocess_scope, {}});
+            "tooling", *m_postprocess_material, m_postprocess_material_scope, {}});
         all_passes = &tooling_pass;
     }
     std::vector<const RuntimePostprocessPass*> passes;
@@ -528,7 +528,7 @@ void Renderer::composite_postprocess_surface(PostprocessScope scope)
         if (local_output)
             bgfx::setViewRect(view, 0, 0, m_postprocess_scene_width, m_postprocess_scene_height);
         if (!submit_postprocess_quad(command, view))
-            submit_default_quad(command, view);
+            submit_copy_quad(command, view);
         if (!last)
             input_texture = output_texture;
     }
@@ -767,7 +767,7 @@ std::uint16_t Renderer::postprocess_framebuffer(PostprocessScope scope) const no
         m_shader_materials) {
         const auto* material = find_material(*m_shader_materials, *m_postprocess_material);
         active = material != nullptr && material->role == ShaderRole::Postprocess &&
-                 material->postprocess_scope == scope;
+                 m_postprocess_material_scope == scope;
     }
     const std::size_t index = scope == PostprocessScope::World ? 0u : 1u;
     return active ? m_postprocess_scene_targets[index].framebuffer : UINT16_MAX;
@@ -1251,21 +1251,24 @@ bool Renderer::submit_postprocess_quad(const QuadCommand& command, std::uint16_t
     std::vector<ShaderProgramDiagnostic> diagnostics;
     auto inputs = m_shader_standard_inputs;
     inputs.paint_dimensions = {command.rect.width, command.rect.height};
-    const auto bound = m_material_binder->bind_material(*m_shader_materials, command.material,
-                                                        BgfxMaterialBindInputs{
-                                                            .role = ShaderRole::Postprocess,
-                                                            .quad_command = &command,
-                                                            .standard_inputs = inputs,
-                                                        },
-                                                        &diagnostics);
+    const auto bound = m_material_binder->bind_material(
+        *m_shader_materials, command.material,
+        BgfxMaterialBindInputs{
+            .role = ShaderRole::Postprocess,
+            .quad_command = &command,
+            .standard_inputs = inputs,
+            .postprocess_source = bgfx::TextureHandle{command.texture.handle},
+        },
+        &diagnostics);
     for (const auto& diagnostic : diagnostics) {
         SDL_Log("[renderer] postprocess material diagnostic: %s: %s", diagnostic.context.c_str(),
                 diagnostic.message.c_str());
     }
-    if (!bound.ok || !bgfx::isValid(bound.program) || !set_quad_buffers(command))
+    const auto pipeline_state = bgfx_backend::material_pipeline_state(ShaderRole::Postprocess);
+    if (!bound.ok || !bgfx::isValid(bound.program) || !pipeline_state || !set_quad_buffers(command))
         return false;
 
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+    bgfx::setState(*pipeline_state);
     bgfx::setScissor(UINT16_MAX);
     bgfx::submit(view, bound.program);
     return true;

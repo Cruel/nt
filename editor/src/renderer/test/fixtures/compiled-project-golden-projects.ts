@@ -1098,7 +1098,6 @@ export function sceneProgramGoldenProject(): AuthoringProject {
   addAsset(project, 'image-arrival-dialogue', 'image', 'assets/images/arrival-dialogue.png');
 
   const postprocessMaterial = defaultMaterialData('Scene Postprocess Material', 'postprocess-tint');
-  postprocessMaterial.postprocessScope = 'world';
   project.materials['scene-postprocess-material'] = {
     id: 'scene-postprocess-material',
     label: 'Scene Postprocess Material',

@@ -1358,12 +1358,10 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                 *material_interfaces_value, "/resources/materialInterfaces",
                 [&](const nlohmann::json& item,
                     const std::string& pointer) -> std::optional<MaterialInterfaceResource> {
-                    if (!decoder.object(item, pointer,
-                                        {"id", "parameters", "postprocessScope", "role"}))
+                    if (!decoder.object(item, pointer, {"id", "parameters", "role"}))
                         return std::nullopt;
                     const auto* id_value = decoder.member(item, "id", pointer);
                     const auto* role_value = decoder.member(item, "role", pointer);
-                    const auto* scope_value = decoder.member(item, "postprocessScope", pointer);
                     const auto* parameters_value = decoder.member(item, "parameters", pointer);
                     auto id = id_value
                                   ? decoder.id<MaterialId>(*id_value, pointer_child(pointer, "id"))
@@ -1378,13 +1376,6 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                            {"postprocess", MaterialRole::Postprocess},
                                            {"hotspot-overlay", MaterialRole::HotspotOverlay}})
                                     : std::nullopt;
-                    auto scope = scope_value
-                                     ? decoder.enumeration<MaterialPostprocessScope>(
-                                           *scope_value, pointer_child(pointer, "postprocessScope"),
-                                           {{"world", MaterialPostprocessScope::World},
-                                            {"full-game-viewport",
-                                             MaterialPostprocessScope::FullGameViewport}})
-                                     : std::nullopt;
                     auto parameters =
                         parameters_value
                             ? decoder.array<MaterialParameterDeclaration>(
@@ -1445,9 +1436,9 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                                   "/name");
                         }
                     }
-                    return id && role && scope && parameters
+                    return id && role && parameters
                                ? std::optional<MaterialInterfaceResource>(MaterialInterfaceResource{
-                                     std::move(*id), *role, *scope, std::move(*parameters)})
+                                     std::move(*id), *role, std::move(*parameters)})
                                : std::nullopt;
                 });
         if (scripts_value)

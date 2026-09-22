@@ -191,6 +191,18 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             if (!value)
                 return false;
             options.postprocess_material = value;
+        } else if (std::strcmp(arg, "--postprocess-scope") == 0) {
+            const char* value = require_value(arg);
+            if (!value)
+                return false;
+            if (std::strcmp(value, "world") == 0)
+                options.postprocess_scope = PostprocessScope::World;
+            else if (std::strcmp(value, "full-game-viewport") == 0)
+                options.postprocess_scope = PostprocessScope::FullGameViewport;
+            else {
+                std::fprintf(stderr, "[app] invalid postprocess scope: %s\n", value);
+                return false;
+            }
         } else if (std::strcmp(arg, "--skip-title-screen") == 0) {
             options.skip_title_screen = true;
         } else if (std::strcmp(arg, "--run-runtime") == 0) {
@@ -378,7 +390,8 @@ bool App::initialize(int argc, char* argv[])
         return false;
     }
     if (!options.postprocess_material.empty() &&
-        !EngineTooling::set_postprocess_material(m_engine, options.postprocess_material)) {
+        !EngineTooling::set_postprocess_material(m_engine, options.postprocess_material,
+                                                 options.postprocess_scope)) {
         std::fprintf(stderr, "[app] postprocess material request was rejected: %s\n",
                      options.postprocess_material.c_str());
         m_engine.shutdown();

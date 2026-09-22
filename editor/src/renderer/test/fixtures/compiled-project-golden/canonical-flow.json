@@ -3029,7 +3029,6 @@
       {
         "id": "sprite-material",
         "parameters": [],
-        "postprocessScope": "world",
         "role": "engine-2d"
       }
     ],
@@ -3057,7 +3056,7 @@
       }
     ]
   },
-  "saveContract": "sc1:a5f276df991c00f5a5716c4f55c105f1",
+  "saveContract": "sc1:da7af08a3291db14efaabe1ad26502d0",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {
