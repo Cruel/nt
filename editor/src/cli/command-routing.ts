@@ -7,7 +7,7 @@ export type CliStaticCompletion =
 
 export type CliProjectAccess = 'none' | 'read' | 'transactional-write' | 'opaque-write';
 export type CliStdinRequirement = 'none' | 'json';
-export type CliExecutionClass = 'direct' | 'owner-short' | 'owner-mutation' | 'disposable-heavy';
+export type CliExecutionClass = 'owner-short' | 'owner-mutation' | 'disposable-heavy';
 
 export interface CliCommandRouting {
   readonly staticCompletion: CliStaticCompletion;
@@ -23,7 +23,7 @@ export interface CliCommandRouting {
 
 const noProjectRead: CliCommandRouting = {
   staticCompletion: 'none',
-  executionClass: 'direct',
+  executionClass: 'disposable-heavy',
   quickJsRequiredAfterStaticMiss: true,
   requiresExistingProject: false,
   projectAccess: 'none',
