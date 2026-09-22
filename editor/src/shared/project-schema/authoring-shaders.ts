@@ -136,7 +136,12 @@ export function isUniformValueCompatible(type: ShaderUniformType, value: unknown
     case 'float':
       return typeof value === 'number' && Number.isFinite(value);
     case 'int':
-      return typeof value === 'number' && Number.isInteger(value);
+      return (
+        typeof value === 'number' &&
+        Number.isInteger(value) &&
+        value >= -16_777_216 &&
+        value <= 16_777_216
+      );
     case 'bool':
       return typeof value === 'boolean';
     case 'vec2':

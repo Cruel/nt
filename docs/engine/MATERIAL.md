@@ -75,19 +75,24 @@ A representative parameter override is:
 ```ts
 parameters: {
   u_tint: {
+    type: 'color',
     value: [1, 0.5, 0.5, 1],
     editor: { label: 'Tint' }
   }
 }
 ```
 
+For custom shader inputs, `type` is the logical authoring/runtime type layered over NovelTea's portable physical `vec4` shader ABI. Supported logical types are `float`, `vec2`, `vec3`, `vec4`, `color`, `int`, and `bool`. Once a logical type or renderer binding has been introduced by a preset/base Material, descendants may override the value or editor metadata but may not reinterpret that inherited type/binding. Unbound inputs without an authored value receive deterministic zero/false defaults; `int` values are restricted to `[-16777216, 16777216]` so they remain exact through the physical float representation.
+
 Texture overrides may contain a source, filtering policy, binding metadata, and editor metadata. A missing `source` means the current Material does not override the inherited source; an empty URI is not a valid way to clear a texture.
 
 ## Shader Interface and Reflection
 
-For custom-source Materials, shader compiler reflection is the structural source of truth for uniforms and sampled images. Material authoring data stores values, bindings, editor metadata, inheritance, and preview configuration; it does not redundantly declare the GPU interface.
+For custom-source Materials, shader compiler reflection is the structural source of truth for uniforms and sampled images. Material authoring data stores logical types, values, bindings, editor metadata, inheritance, and preview configuration; it does not redundantly declare the physical GPU interface.
 
-Preset metadata decorates reflected inputs when semantic names match. Engine-bound reflected inputs remain runtime-owned and are not author-settable occurrence parameters. Reflected author-settable inputs are published into the compiled Material interface used by Scene/Lua/save-state validation.
+The native compiler certifies each source program against the terminal preset's canonical contract identity/fingerprint. Renderer-owned attributes/varyings/uniforms/samplers retain their reserved names, physical types, and sampler stages. A Material varying source extends the preset's base varying definition and may not redefine renderer-owned names or semantics. Ordinary author uniforms must reflect as scalar physical `vec4` slots; author matrices and uniform arrays are rejected, while engine-owned matrix uniforms remain legal.
+
+Preset metadata and role-standard semantics decorate compatible reflected inputs. Engine-bound reflected inputs remain runtime-owned and are not author-settable occurrence parameters. Reflected author-settable inputs are published into the compiled Material interface used by Scene/Lua/save-state validation.
 
 If authored parameter or texture configuration no longer exists in the reflected interface, NovelTea retains that configuration and reports it as orphaned. It is not destructively removed during shader edits.
 

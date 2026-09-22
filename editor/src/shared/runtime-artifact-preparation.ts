@@ -1137,7 +1137,9 @@ export async function prepareRuntimeArtifact(
     } else {
       if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
       options.onStage?.('compiling-shaders');
-      const shaderProject = await buildShaderMaterialProject(options.project);
+      const shaderProject = await buildShaderMaterialProject(options.project, [], {
+        certifyPresetPrograms: true,
+      });
       const response = await options.shaderCompiler.compile(shaderProject.compilation, {
         projectRoot: options.projectRoot ?? '',
         outputRoot: options.projectRoot ? `${options.projectRoot}/.noveltea/build` : '',

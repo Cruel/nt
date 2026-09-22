@@ -81,6 +81,7 @@ async function addCustomShaderMaterial(project: ReturnType<typeof roomProject>) 
   material.shader = {
     fragment: { kind: 'project', path: 'shaders/basic.fs.sc' },
   };
+  material.parameters.u_custom = { type: 'float' };
   project.materials.basic = { id: 'basic', label: 'Basic', data: material };
   const built = await buildShaderMaterialProject(project);
   const [program, request] = Object.entries(built.compilation.programs)[0] ?? [];
@@ -1191,9 +1192,7 @@ describe('Prepared Runtime Artifact module', () => {
           contentHash: `sha256:${'2'.repeat(64)}` as const,
         },
       ],
-      reflectedInputs: [
-        { name: 'u_custom', kind: 'uniform' as const, type: 'float', arraySize: 1 },
-      ],
+      reflectedInputs: [{ name: 'u_custom', kind: 'uniform' as const, type: 'vec4', arraySize: 1 }],
     };
     const profile: ExportProfileData = {
       ...defaultExportProfile(project),
@@ -1270,9 +1269,7 @@ describe('Prepared Runtime Artifact module', () => {
     project.scenes.custom = { id: 'custom', label: 'Custom Material Scene', data: scene };
     const fragment = {
       ...compiledShaderOutput(program, request.fragmentSource, 'fragment', 'a'),
-      reflectedInputs: [
-        { name: 'u_custom', kind: 'uniform' as const, type: 'float', arraySize: 1 },
-      ],
+      reflectedInputs: [{ name: 'u_custom', kind: 'uniform' as const, type: 'vec4', arraySize: 1 }],
     };
     const result = await prepareRuntimeArtifactForTest(project, {
       projectRoot: '/project',

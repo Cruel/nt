@@ -266,7 +266,7 @@ describe('canonical Material shader lowering', () => {
       byteSize: 32,
       reflectedInputs:
         stage === 'fragment'
-          ? [{ name: 'u_time', kind: 'uniform', type: 'float', arraySize: 1 }]
+          ? [{ name: 'u_time', kind: 'uniform', type: 'vec4', arraySize: 1 }]
           : [{ name: 'u_modelViewProj', kind: 'uniform', type: 'mat4', arraySize: 1 }],
       cacheHit: false,
     });
@@ -297,7 +297,11 @@ describe('canonical Material shader lowering', () => {
     project.materials.first = {
       id: 'first',
       label: 'First',
-      data: { ...custom, displayName: 'First', parameters: { u_amount: { value: 0.25 } } },
+      data: {
+        ...custom,
+        displayName: 'First',
+        parameters: { u_amount: { type: 'float', value: 0.25 } },
+      },
     };
     project.materials.second = {
       id: 'second',
@@ -305,7 +309,10 @@ describe('canonical Material shader lowering', () => {
       data: {
         ...custom,
         displayName: 'Second',
-        parameters: { u_amount: { binding: 'engine.time' }, old_uniform: { value: 1 } },
+        parameters: {
+          u_amount: { type: 'float', binding: 'engine.time' },
+          old_uniform: { value: 1 },
+        },
       },
     };
 
@@ -327,7 +334,7 @@ describe('canonical Material shader lowering', () => {
       byteSize: 32,
       reflectedInputs:
         stage === 'fragment'
-          ? [{ name: 'u_amount', kind: 'uniform', type: 'float', arraySize: 1 }]
+          ? [{ name: 'u_amount', kind: 'uniform', type: 'vec4', arraySize: 1 }]
           : [],
       cacheHit: false,
     });
@@ -359,6 +366,137 @@ describe('canonical Material shader lowering', () => {
     );
   });
 
+  it('maps physical vec4 inputs to stable logical types and deterministic defaults', async () => {
+    const project = createAuthoringProject();
+    project.materials.base = {
+      id: 'base',
+      label: 'Base',
+      data: {
+        ...defaultMaterialData('Base', 'engine-2d'),
+        shader: { fragment: { kind: 'project', path: 'shaders/logical.fs.sc' } },
+        parameters: {
+          u_float: { type: 'float' },
+          u_vec2: { type: 'vec2' },
+          u_vec3: { type: 'vec3' },
+          u_color: { type: 'color' },
+          u_int: { type: 'int' },
+          u_bool: { type: 'bool' },
+          u_time: { binding: 'engine.time' },
+        },
+      },
+    };
+    project.materials.child = {
+      id: 'child',
+      label: 'Child',
+      data: {
+        kind: 'material',
+        base: { kind: 'material', material: { $ref: { collection: 'materials', id: 'base' } } },
+        parameters: { u_float: { type: 'vec2' } },
+        textures: {},
+      },
+    };
+
+    expect(validateMaterialData(project, 'child', project.materials.child)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/materials/child/data/parameters/u_float/type',
+          message: expect.stringContaining("cannot reinterpret inherited logical type 'float'"),
+        }),
+      ]),
+    );
+
+    const source = await buildShaderMaterialProject(project);
+    const [program] = Object.keys(source.compilation.programs);
+    expect(program).toBeDefined();
+    const output = (stage: 'vertex' | 'fragment'): ShaderCompileOutput => ({
+      program: program!,
+      programIdentity: 'logical-program',
+      stage,
+      variant: 'glsl-330',
+      sourceIdentity: stage === 'vertex' ? 'engine:/vs_quad.sc' : 'project:/shaders/logical.fs.sc',
+      dependencies: [],
+      dependencyRevisions: [],
+      outputPath: `/tmp/logical.${stage}.bin`,
+      runtimePath: `project:/shaders/derived/glsl-330/logical-program.${stage === 'vertex' ? 'vs' : 'fs'}.bin`,
+      cacheKey: `${stage}-cache`,
+      byteHash: `sha256:${stage === 'vertex' ? 'a'.repeat(64) : 'b'.repeat(64)}`,
+      byteSize: 32,
+      reflectedInputs:
+        stage === 'fragment'
+          ? ['u_float', 'u_vec2', 'u_vec3', 'u_vec4', 'u_color', 'u_int', 'u_bool', 'u_time'].map(
+              (name) => ({ name, kind: 'uniform' as const, type: 'vec4', arraySize: 1 }),
+            )
+          : [],
+      cacheHit: false,
+    });
+    const metalFragment = {
+      ...output('fragment'),
+      variant: 'metal',
+      reflectedInputs: output('fragment').reflectedInputs.map((input, index) => ({
+        ...input,
+        registerIndex: index * 16,
+        registerCount: 1,
+      })),
+    };
+    const built = await buildShaderMaterialProject(project, [
+      output('vertex'),
+      output('fragment'),
+      metalFragment,
+    ]);
+    expect(built.diagnostics).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining('inconsistent declarations') }),
+      ]),
+    );
+    const shaderId = built.project.materials.base?.shader;
+    expect(built.project.shaders[shaderId!]?.uniforms).toMatchObject({
+      u_float: { type: 'float', default: 0 },
+      u_vec2: { type: 'vec2', default: [0, 0] },
+      u_vec3: { type: 'vec3', default: [0, 0, 0] },
+      u_vec4: { type: 'vec4', default: [0, 0, 0, 0] },
+      u_color: { type: 'color', default: [0, 0, 0, 0] },
+      u_int: { type: 'int', default: 0 },
+      u_bool: { type: 'bool', default: false },
+      u_time: { type: 'float', binding: 'engine.time' },
+    });
+    expect(built.project.shaders[shaderId!]?.uniforms.u_time).not.toHaveProperty('default');
+
+    project.materials.base.data.parameters.u_int = { type: 'int', value: 16_777_217 };
+    const invalidInt = await buildShaderMaterialProject(project, [
+      output('vertex'),
+      output('fragment'),
+    ]);
+    expect(invalidInt.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/materials/base/data/parameters/u_int/value',
+          message: expect.stringContaining("logical shader type 'int'"),
+        }),
+      ]),
+    );
+  });
+
+  it('adds built-in preset programs to certification requests only at certification boundaries', async () => {
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    const ordinary = await buildShaderMaterialProject(project);
+    expect(ordinary.compilation.programs).toEqual({});
+    const certified = await buildShaderMaterialProject(project, [], {
+      certifyPresetPrograms: true,
+    });
+    expect(certified.compilation.programs['preset-engine-2d']).toMatchObject({
+      vertexSource: 'engine:/vs_quad.sc',
+      fragmentSource: 'engine:/fs_quad.sc',
+      varyingDefinition: 'engine:/varying.def.sc',
+      interfaceContract: 'noveltea.material-preset:engine-2d:1',
+      interfaceFingerprint: materialPresets['engine-2d'].interfaceFingerprint,
+    });
+  });
+
   it('compiles custom source-backed Materials through derived program outputs and reflection', async () => {
     const project = createAuthoringProject();
     project.assets['noise-texture'] = imageAsset();
@@ -371,7 +509,7 @@ describe('canonical Material shader lowering', () => {
           fragment: { kind: 'project', path: 'shaders/noise.fs.sc' },
         },
         parameters: {
-          u_amount: { value: 0.75, editor: { label: 'Amount' } },
+          u_amount: { type: 'float', value: 0.75, editor: { label: 'Amount' } },
         },
         textures: {
           s_noise: {
@@ -424,7 +562,7 @@ describe('canonical Material shader lowering', () => {
     const built = await buildShaderMaterialProject(project, [
       output('vertex', []),
       output('fragment', [
-        { name: 'u_amount', kind: 'uniform', type: 'float', arraySize: 1 },
+        { name: 'u_amount', kind: 'uniform', type: 'vec4', arraySize: 1 },
         { name: 's_texColor', kind: 'sampled-image', type: 'sampler2D', arraySize: 1 },
         { name: 's_noise', kind: 'sampled-image', type: 'sampler2D', arraySize: 1 },
       ]),
@@ -463,15 +601,18 @@ describe('canonical Material shader lowering', () => {
     );
     expect(project.materials.panel.data).not.toHaveProperty('compiled');
 
-    project.materials.panel.data.parameters.u_amount = { value: [1, 1, 1, 1] };
+    project.materials.panel.data.parameters.u_amount = {
+      type: 'float',
+      value: [1, 1, 1, 1],
+    };
     const incompatible = await buildShaderMaterialProject(project, [
       output('vertex', []),
-      output('fragment', [{ name: 'u_amount', kind: 'uniform', type: 'float', arraySize: 1 }]),
+      output('fragment', [{ name: 'u_amount', kind: 'uniform', type: 'vec4', arraySize: 1 }]),
     ]);
     expect(incompatible.diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          message: expect.stringContaining("does not match reflected shader type 'float'"),
+          message: expect.stringContaining("does not match logical shader type 'float'"),
         }),
       ]),
     );

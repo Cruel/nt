@@ -12,10 +12,12 @@ import {
   isUniformValueCompatible,
   shaderInputBindingValues,
   shaderSamplerBindingValues,
+  shaderUniformTypeValues,
   shaderUniformValueSchema,
   type ShaderInputBinding,
   type ShaderRole,
   type ShaderSamplerBinding,
+  type ShaderUniformType,
   type ShaderUniformValue,
 } from './authoring-shaders';
 
@@ -76,6 +78,7 @@ export const materialBaseSchema = z.discriminatedUnion('kind', [
 ]);
 export const materialParameterOverrideSchema = z
   .object({
+    type: z.enum(shaderUniformTypeValues).optional(),
     value: shaderUniformValueSchema.optional(),
     binding: z.enum(shaderInputBindingValues).nullable().optional(),
     editor: z
@@ -90,7 +93,10 @@ export const materialParameterOverrideSchema = z
   .strict()
   .refine(
     (value) =>
-      value.value !== undefined || value.binding !== undefined || value.editor !== undefined,
+      value.type !== undefined ||
+      value.value !== undefined ||
+      value.binding !== undefined ||
+      value.editor !== undefined,
     { message: 'Material parameter override cannot be empty.' },
   );
 export const materialTextureDataSchema = z
@@ -138,6 +144,7 @@ export type MaterialParameterOverride = z.infer<typeof materialParameterOverride
 export type MaterialTextureData = z.infer<typeof materialTextureDataSchema>;
 export type MaterialData = z.infer<typeof materialDataSchema>;
 export interface EffectiveMaterialParameter {
+  type?: ShaderUniformType;
   value?: ShaderUniformValue;
   binding?: ShaderInputBinding | null;
   editor?: MaterialParameterOverride['editor'];
@@ -228,6 +235,7 @@ function resolvedFromPreset(preset: MaterialPresetDefinition): ResolvedMaterialD
   for (const [name, value] of Object.entries(preset.uniforms)) {
     provenance[`parameters.${name}`] = { kind: 'preset', id: preset.id };
     parameters[name] = {
+      type: value.type,
       ...(value.default !== undefined ? { value: value.default } : {}),
       ...(value.binding !== undefined ? { binding: value.binding } : {}),
       ...(value.label || value.range
@@ -458,8 +466,50 @@ export function validateMaterialData(
   const resolved = resolution.data;
   if (!resolved) return diagnostics;
   const preset = resolved.preset;
+  if (data.base.kind === 'material') {
+    const parent = resolveMaterialData(project, data.base.material.$ref.id).data;
+    if (parent) {
+      for (const [name, parameter] of Object.entries(data.parameters)) {
+        const inherited = parent.parameters[name];
+        if (
+          parameter.type !== undefined &&
+          inherited?.type !== undefined &&
+          parameter.type !== inherited.type
+        )
+          diagnostics.push(
+            diagnostic(
+              `${base}/parameters/${name}/type`,
+              `Material parameter '${name}' cannot reinterpret inherited logical type '${inherited.type}' as '${parameter.type}'.`,
+            ),
+          );
+        if (
+          parameter.binding !== undefined &&
+          inherited?.binding !== undefined &&
+          parameter.binding !== inherited.binding
+        )
+          diagnostics.push(
+            diagnostic(
+              `${base}/parameters/${name}/binding`,
+              `Material parameter '${name}' cannot reinterpret its inherited renderer binding.`,
+            ),
+          );
+      }
+    }
+  }
   if (resolvedMaterialUsesCustomShader(resolved)) {
-    for (const [name, parameter] of Object.entries(data.parameters))
+    for (const [name, parameter] of Object.entries(data.parameters)) {
+      const logicalType = resolved.parameters[name]?.type;
+      if (
+        parameter.value !== undefined &&
+        logicalType !== undefined &&
+        !isUniformValueCompatible(logicalType, parameter.value)
+      )
+        diagnostics.push(
+          diagnostic(
+            `${base}/parameters/${name}/value`,
+            `Material parameter value does not match logical type ${logicalType}.`,
+          ),
+        );
       if (parameter.binding != null && parameter.value !== undefined)
         diagnostics.push(
           diagnostic(
@@ -467,6 +517,7 @@ export function validateMaterialData(
             `Renderer-bound parameter '${name}' cannot have an authored value.`,
           ),
         );
+    }
     for (const [name, texture] of Object.entries(data.textures)) {
       if (texture.binding != null && texture.source !== undefined)
         diagnostics.push(

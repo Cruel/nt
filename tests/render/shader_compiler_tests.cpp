@@ -2,6 +2,7 @@
 
 #include "noveltea/render/shader_compiler.hpp"
 #include "noveltea/render/material_codec.hpp"
+#include "noveltea/render/material_contract.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -358,6 +359,189 @@ TEST_CASE(
     std::filesystem::remove_all(temp);
 }
 
+TEST_CASE("shipped Material preset programs pass canonical contract certification")
+{
+    const auto temp = unique_temp_dir("builtin-material-contracts");
+    auto options = make_options(temp);
+    options.engine_shader_root = std::filesystem::path(NOVELTEA_SOURCE_DIR) / "engine/shaders/bgfx";
+    options.variants =
+        noveltea::shader_compile_variants_from_names({"glsl-330", "essl-300", "metal"});
+    const noveltea::ShaderCompilerService compiler;
+
+    for (const auto& preset : noveltea::material_preset_contracts()) {
+        INFO("preset=" << preset.id);
+        const noveltea::ShaderSourceProgramRequest request{
+            .vertex_source = std::string(preset.vertex_source),
+            .fragment_source = std::string(preset.fragment_source),
+            .varying_definition = std::string(preset.varying_definition),
+            .interface_contract = std::string(preset.contract_identity),
+            .interface_fingerprint = std::string(preset.contract_fingerprint),
+        };
+        const auto result = compiler.compile_source_program(request, options);
+        for (const auto& diagnostic : result.diagnostics)
+            INFO(diagnostic.message);
+        CHECK(result.success());
+    }
+
+    std::filesystem::remove_all(temp);
+}
+
+TEST_CASE("Material source programs certify renderer ABI and reflected sampler stages")
+{
+    const auto temp = unique_temp_dir("material-contract");
+    auto options = make_options(temp);
+    options.variants = noveltea::shader_compile_variants_from_names({"glsl-330"});
+    write_text(options.engine_shader_root / "varying.def.sc", "vec2 a_position : POSITION;\n"
+                                                              "vec2 a_texcoord0 : TEXCOORD0;\n"
+                                                              "vec4 a_color0 : COLOR0;\n"
+                                                              "vec2 v_texcoord0 : TEXCOORD0;\n"
+                                                              "vec4 v_color0 : COLOR0;\n");
+    write_text(options.engine_shader_root / "vs_quad.sc",
+               "$input a_position, a_texcoord0, a_color0\n"
+               "$output v_texcoord0, v_color0\n"
+               "#include <bgfx_shader.sh>\n"
+               "void main() { v_texcoord0 = a_texcoord0; v_color0 = a_color0; "
+               "gl_Position = mul(u_modelViewProj, vec4(a_position, 0.0, 1.0)); }\n");
+    write_text(options.project_root / "shaders" / "effect.fs.sc",
+               "$input v_texcoord0, v_color0\n"
+               "#include <bgfx_shader.sh>\n"
+               "uniform vec4 u_amount;\n"
+               "SAMPLER2D(s_texColor, 0);\n"
+               "void main() { gl_FragColor = texture2D(s_texColor, v_texcoord0) * "
+               "v_color0 * u_amount; }\n");
+
+    const auto* preset = noveltea::material_preset_contract("engine-2d");
+    REQUIRE(preset != nullptr);
+    const noveltea::ShaderSourceProgramRequest request{
+        .vertex_source = "engine:/vs_quad.sc",
+        .fragment_source = "project:/shaders/effect.fs.sc",
+        .varying_definition = "engine:/varying.def.sc",
+        .interface_contract = std::string(preset->contract_identity),
+        .interface_fingerprint = std::string(preset->contract_fingerprint),
+    };
+    const noveltea::ShaderCompilerService compiler;
+    const auto result = compiler.compile_source_program(request, options);
+    REQUIRE(result.success());
+    const auto fragment =
+        std::find_if(result.outputs.begin(), result.outputs.end(), [](const auto& output) {
+            return output.stage == noveltea::ShaderStage::Fragment;
+        });
+    REQUIRE(fragment != result.outputs.end());
+    const auto sampler =
+        std::find_if(fragment->reflected_inputs.begin(), fragment->reflected_inputs.end(),
+                     [](const auto& input) { return input.name == "s_texColor"; });
+    REQUIRE(sampler != fragment->reflected_inputs.end());
+    CHECK(sampler->register_index == 0);
+    CHECK(sampler->register_count == 1);
+
+    write_text(options.project_root / "shaders" / "effect.fs.sc",
+               "$input v_texcoord0, v_color0\n"
+               "#include <bgfx_shader.sh>\n"
+               "uniform mat4 u_authorMatrix;\n"
+               "SAMPLER2D(s_texColor, 0);\n"
+               "void main() { gl_FragColor = u_authorMatrix[0] + "
+               "texture2D(s_texColor, v_texcoord0) * v_color0; }\n");
+    const auto matrix = compiler.compile_source_program(request, options);
+    CHECK_FALSE(matrix.success());
+    CHECK(std::any_of(matrix.diagnostics.begin(), matrix.diagnostics.end(), [](const auto& item) {
+        return item.code == noveltea::ShaderCompileDiagnosticCode::ContractViolation &&
+               item.message.find("physical vec4") != std::string::npos;
+    }));
+
+    write_text(options.project_root / "shaders" / "effect.fs.sc",
+               "$input v_texcoord0, v_color0\n"
+               "#include <bgfx_shader.sh>\n"
+               "uniform vec4 u_authorArray[2];\n"
+               "SAMPLER2D(s_texColor, 0);\n"
+               "void main() { gl_FragColor = u_authorArray[0] + "
+               "texture2D(s_texColor, v_texcoord0) * v_color0; }\n");
+    const auto array = compiler.compile_source_program(request, options);
+    CHECK_FALSE(array.success());
+    CHECK(std::any_of(array.diagnostics.begin(), array.diagnostics.end(), [](const auto& item) {
+        return item.code == noveltea::ShaderCompileDiagnosticCode::ContractViolation &&
+               item.message.find("array size 1") != std::string::npos;
+    }));
+
+    write_text(options.project_root / "shaders" / "effect.fs.sc",
+               "$input v_texcoord0, v_color0\n"
+               "#include <bgfx_shader.sh>\n"
+               "SAMPLER2D(s_texColor, 1);\n"
+               "void main() { gl_FragColor = texture2D(s_texColor, v_texcoord0) * v_color0; }\n");
+    auto invalid_stage = request;
+    const auto rejected = compiler.compile_source_program(invalid_stage, options);
+    CHECK_FALSE(rejected.success());
+    CHECK(
+        std::any_of(rejected.diagnostics.begin(), rejected.diagnostics.end(), [](const auto& item) {
+            return item.code == noveltea::ShaderCompileDiagnosticCode::ContractViolation &&
+                   item.message.find("reserved stage 0") != std::string::npos;
+        }));
+
+    auto stale_contract = request;
+    stale_contract.interface_fingerprint =
+        "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+    const auto stale = compiler.compile_source_program(stale_contract, options);
+    CHECK_FALSE(stale.success());
+    CHECK(std::any_of(stale.diagnostics.begin(), stale.diagnostics.end(), [](const auto& item) {
+        return item.code == noveltea::ShaderCompileDiagnosticCode::ContractViolation &&
+               item.message.find("fingerprint") != std::string::npos;
+    }));
+
+    std::filesystem::remove_all(temp);
+}
+
+TEST_CASE("Material additional varyings extend but cannot collide with the renderer contract")
+{
+    const auto temp = unique_temp_dir("material-varying-extension");
+    auto options = make_options(temp);
+    options.variants = noveltea::shader_compile_variants_from_names({"glsl-330"});
+    write_text(options.engine_shader_root / "varying.def.sc", "vec2 a_position : POSITION;\n"
+                                                              "vec2 a_texcoord0 : TEXCOORD0;\n"
+                                                              "vec4 a_color0 : COLOR0;\n"
+                                                              "vec2 v_texcoord0 : TEXCOORD0;\n"
+                                                              "vec4 v_color0 : COLOR0;\n");
+    write_text(options.project_root / "shaders" / "extra.def.sc", "vec2 v_extra : TEXCOORD1;\n");
+    write_text(options.project_root / "shaders" / "effect.vs.sc",
+               "$input a_position, a_texcoord0, a_color0\n"
+               "$output v_texcoord0, v_color0, v_extra\n"
+               "#include <bgfx_shader.sh>\n"
+               "void main() { v_texcoord0 = a_texcoord0; v_color0 = a_color0; "
+               "v_extra = a_texcoord0; gl_Position = mul(u_modelViewProj, "
+               "vec4(a_position, 0.0, 1.0)); }\n");
+    write_text(options.project_root / "shaders" / "effect.fs.sc",
+               "$input v_texcoord0, v_color0, v_extra\n"
+               "#include <bgfx_shader.sh>\nSAMPLER2D(s_texColor, 0);\n"
+               "void main() { gl_FragColor = texture2D(s_texColor, v_extra) * v_color0; }\n");
+    const auto* preset = noveltea::material_preset_contract("engine-2d");
+    REQUIRE(preset != nullptr);
+    noveltea::ShaderSourceProgramRequest request{
+        .vertex_source = "project:/shaders/effect.vs.sc",
+        .fragment_source = "project:/shaders/effect.fs.sc",
+        .varying_definition = "project:/shaders/extra.def.sc",
+        .interface_contract = std::string(preset->contract_identity),
+        .interface_fingerprint = std::string(preset->contract_fingerprint),
+    };
+    const noveltea::ShaderCompilerService compiler;
+    const auto valid = compiler.compile_source_program(request, options);
+    REQUIRE(valid.success());
+    CHECK(std::any_of(
+        valid.outputs.front().dependencies.begin(), valid.outputs.front().dependencies.end(),
+        [](const auto& dependency) { return dependency == "engine:/varying.def.sc"; }));
+    CHECK(std::any_of(
+        valid.outputs.front().dependencies.begin(), valid.outputs.front().dependencies.end(),
+        [](const auto& dependency) { return dependency == "project:/shaders/extra.def.sc"; }));
+
+    write_text(options.project_root / "shaders" / "extra.def.sc", "vec2 v_extra : TEXCOORD0;\n");
+    const auto collision = compiler.compile_source_program(request, options);
+    CHECK_FALSE(collision.success());
+    CHECK(std::any_of(
+        collision.diagnostics.begin(), collision.diagnostics.end(), [](const auto& item) {
+            return item.code == noveltea::ShaderCompileDiagnosticCode::ContractViolation &&
+                   item.message.find("collides") != std::string::npos;
+        }));
+
+    std::filesystem::remove_all(temp);
+}
+
 TEST_CASE("source program reflection normalizes Metal sampler bindings to logical inputs")
 {
     const auto temp = unique_temp_dir("metal-sampler-reflection");
@@ -392,9 +576,9 @@ TEST_CASE("source program reflection normalizes Metal sampler bindings to logica
                        metal_fragment->reflected_inputs.end(), [](const auto& input) {
                            return input.name == "s_texSampler" || input.name == "s_texTexture";
                        }));
-    const auto sampler = std::find_if(
-        metal_fragment->reflected_inputs.begin(), metal_fragment->reflected_inputs.end(),
-        [](const auto& input) { return input.name == "s_tex"; });
+    const auto sampler = std::find_if(metal_fragment->reflected_inputs.begin(),
+                                      metal_fragment->reflected_inputs.end(),
+                                      [](const auto& input) { return input.name == "s_tex"; });
     REQUIRE(sampler != metal_fragment->reflected_inputs.end());
     CHECK(sampler->kind == noveltea::ShaderReflectedInputKind::SampledImage);
     CHECK(sampler->array_size == 1);

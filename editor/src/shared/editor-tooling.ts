@@ -160,6 +160,8 @@ export interface ShaderReflectedInput {
   kind: 'uniform' | 'sampled-image';
   type: string;
   arraySize: number;
+  registerIndex?: number;
+  registerCount?: number;
 }
 
 export interface ShaderCompileOutput {

@@ -26,6 +26,7 @@ enum class ShaderCompileDiagnosticCode {
     SourceReadFailed,
     SourceWriteFailed,
     CompilerFailed,
+    ContractViolation,
     ReflectionFailed,
     CacheReadFailed,
     CacheWriteFailed,
@@ -77,6 +78,8 @@ struct ShaderReflectedInput {
     ShaderReflectedInputKind kind = ShaderReflectedInputKind::Uniform;
     std::string type;
     std::uint16_t array_size = 1;
+    std::uint16_t register_index = 0;
+    std::uint16_t register_count = 0;
 };
 
 struct ShaderSourceDependencyRevision {

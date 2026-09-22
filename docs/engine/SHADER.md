@@ -46,13 +46,17 @@ Project shader paths are contained project-relative files beneath `shaders/`. En
 
 ## Interface ownership
 
-The shader compiler's reflected interface is the structural source of truth for custom-source programs. Reflection reports uniforms and sampled images from compiled stage output. Runtime shader metadata is generated from that reflected interface rather than from an authored Shader declaration.
+The shader compiler's reflected interface is the structural source of truth for custom-source programs. Reflection reports uniforms and sampled images from compiled stage output, including normalized sampler stage/register metadata. Runtime shader metadata is generated from that reflected interface rather than from an authored Shader declaration.
 
-Material and preset metadata may decorate compatible reflected inputs with authoring semantics such as defaults, labels, ranges, and engine bindings. Engine-bound inputs are runtime-owned and cannot be occurrence-authored. Ordinary reflected inputs may receive authored Material values or texture assignments.
+Every Material source program is certified against the canonical preset contract identity and fingerprint. A custom vertex root must declare exactly the renderer-owned attribute inputs required by its role and must output the role's base varyings. A custom fragment root must consume the effective varying interface. A Material `shader.varying` file is an extension to the preset's base varying definition, not a replacement; extension names and semantics may not collide with renderer-owned attributes, varyings, uniforms, or samplers.
 
-If an authored Material parameter or texture key no longer exists in reflection, NovelTea preserves it as orphaned configuration and emits a diagnostic. It is not deleted automatically. Unsupported reflected uniform types are also diagnosed.
+Reserved samplers retain their contract-assigned stages and preset capability state (`required`, `optional`, or `disabled`). Reflected sampler arrays and author samplers occupying renderer-reserved stages are rejected. Renderer/predefined uniforms keep their engine-owned physical types. Ordinary author Material parameters use the portable physical `vec4` ABI; author matrices and uniform arrays are rejected.
 
-Built-in preset programs use the preset's engine-owned interface contract. Custom programs use reflection from the compiled outputs. This keeps ordinary engine rendering stable while ensuring project shader structure cannot drift from the compiler-visible program.
+Material parameter metadata supplies the logical type layered over that physical `vec4`: `float`, `vec2`, `vec3`, `vec4`, `color`, `int`, or `bool`. Logical type and renderer binding become stable once introduced in a Material inheritance chain and cannot be reinterpreted by descendants. Unbound parameters with no authored value receive deterministic zero defaults (`0`, `false`, zero vectors, or transparent black). Integer values are limited to the exact portable float range `[-16777216, 16777216]`. Standard semantic bindings are accepted only when the selected role exposes the semantic and its logical type matches.
+
+If an authored Material parameter or texture key no longer exists in reflection, NovelTea preserves it as orphaned configuration and emits a diagnostic. It is not deleted automatically. Physical ABI mismatches are diagnosed rather than coerced.
+
+Built-in preset programs and custom programs use the same contract-certification machinery at validation/runtime compilation boundaries. This keeps ordinary engine rendering stable while ensuring both shipped and project shader structure cannot drift from the canonical contract.
 
 ## Source compilation
 
@@ -66,7 +70,7 @@ Each requested program identifies vertex source, fragment source, varying defini
 
 The standalone native tooling embeds the NovelTea engine shader source bundle required to resolve `engine:/...` stages. A source checkout is therefore not required merely to compile a Material program.
 
-Compiler output includes the target variant, derived runtime path/hash/size, dependency fingerprint information, reflected inputs, and browser payload where applicable. Compiled outputs and compiler fingerprints are derived build/runtime artifacts only; they are never written into canonical Material records.
+Compiler output includes the target variant, derived runtime path/hash/size, dependency fingerprint information, reflected inputs (including sampler register/stage and register count), and browser payload where applicable. Compiled outputs and compiler fingerprints are derived build/runtime artifacts only; they are never written into canonical Material records.
 
 Program/cache identity is derived from effective source inputs, dependencies, interface contract and fingerprint, compiler identity, and target variant. Authored Shader IDs do not participate in runtime identity or deduplication.
 
@@ -76,13 +80,13 @@ The runtime continues to use internal shader/program structures and the `novelte
 
 `buildShaderMaterialProject()` resolves effective Materials and emits:
 
-- engine preset programs for preset-backed Materials;
+- shipped system-program metadata for ordinary preset-backed Materials;
 - custom derived programs for source-overridden Materials;
 - reflected uniforms/samplers for compiled custom programs;
 - Material values, textures, blend state, role, and postprocess scope;
 - diagnostics for unresolved inheritance, invalid bindings, unsupported reflection, and orphaned configuration.
 
-Preset programs resolve to shipped system shader binaries. Custom source programs must have the required compiled target variants before runtime package export succeeds.
+At certification boundaries the builder can additionally request the built-in preset source programs, allowing shipped presets to pass through the same native contract verifier without forcing ordinary editor previews to recompile system shaders. Preset programs otherwise resolve to shipped system shader binaries. Custom source programs must have the required compiled target variants before runtime package export succeeds.
 
 ## Material roles and standard bindings
 
@@ -112,7 +116,7 @@ Lua follows the same source-code boundary: Lua source is not a script Asset. Scr
 
 ## Export/package behavior
 
-Runtime artifact preparation performs exhaustive compilation for the requested platform variants, validates reflection/interface ownership, and publishes the derived shader/material document plus binary paths. Runtime package export may strip project shader source while retaining the compiled outputs required by the package.
+Ordinary Project validation compiles/certifies Material programs and reconciles canonical reflection with logical Material metadata. Play certifies the active profile's shader variants, while runtime/platform export certifies every requested target variant. The contract fingerprint participates in program/cache identity, so a contract change invalidates stale certification. Runtime artifact preparation validates reflection/interface ownership and publishes the derived shader/material document plus binary paths. Runtime package export may strip project shader source while retaining the compiled outputs required by the package.
 
 `--include-shader-sources` is a developer export override that preserves project shader source files; it does not reintroduce shader-source Assets or authored Shader records.
 

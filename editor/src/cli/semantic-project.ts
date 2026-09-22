@@ -369,7 +369,9 @@ export async function validateCliProject(
   }
   const hasShaders = Object.keys(snapshot.project.materials).length > 0;
   if (hasShaders && !diagnostics.some((item) => item.severity === 'error')) {
-    const shaderProject = await buildShaderMaterialProject(snapshot.project);
+    const shaderProject = await buildShaderMaterialProject(snapshot.project, [], {
+      certifyPresetPrograms: true,
+    });
     diagnostics.push(
       ...shaderProject.diagnostics.map((item) =>
         cliDiagnostic('shader.material_project', item.path, item.message, item.severity),
@@ -393,7 +395,17 @@ export async function validateCliProject(
             ),
           ),
         );
-        if (!response.success && !response.diagnostics?.some((item) => item.severity === 'error'))
+        if (response.success) {
+          const reflectedProject = await buildShaderMaterialProject(
+            snapshot.project,
+            response.outputs ?? [],
+          );
+          diagnostics.push(
+            ...reflectedProject.diagnostics.map((item) =>
+              cliDiagnostic('shader.material_project', item.path, item.message, item.severity),
+            ),
+          );
+        } else if (!response.diagnostics?.some((item) => item.severity === 'error'))
           diagnostics.push(
             cliDiagnostic(
               'native.shader.compile',
