@@ -63,6 +63,8 @@ A preset defines:
 
 Role is therefore derived from the terminal preset and is not an independently editable Material field. A preset-backed Material requires no project shader source files.
 
+Hotspot overlay presets use the same strict contract machinery as the other Material roles. The `hotspot-overlay-alpha` preset requires the renderer-owned `s_hotspotImage` sampler at stage 0 and disables `s_hotspotMask`; `hotspot-overlay-custom` requires both `s_hotspotImage` at stage 0 and the renderer-owned `s_hotspotMask` at stage 1. The image sampler is fixed to clamp addressing while inheriting the source image's nearest/linear filtering, and the mask is fixed to clamp-nearest. Neither renderer-owned source may be assigned by Material authoring. Hotspot state such as bounds, hover/press state, and image/mask dimensions remains available through standard semantic bindings, but custom hotspot shaders need not declare those optional inputs. Both presets use premultiplied-alpha output and blending.
+
 ## Inheritance and Overrides
 
 Material inheritance is single-parent. A Material's immediate base may be a preset or another Material, but every valid chain must terminate at a built-in preset. Cycles and missing bases are errors.

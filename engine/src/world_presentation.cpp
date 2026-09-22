@@ -457,14 +457,6 @@ AssetWorldPresentationResourceResolver::resolve_hotspot(
         result.material = MaterialId(authored->material.text());
         result.material_lease = *lease;
     } else {
-        const auto interface =
-            custom ? HotspotMaterialInterface::Custom : HotspotMaterialInterface::Alpha;
-        if (!m_builtin_program_validator || !m_builtin_program_validator(interface)) {
-            return core::Result<WorldPreparedHotspotResources, core::Diagnostics>::failure(
-                {diagnostic("presentation.hotspot_builtin_program_missing",
-                            "Required renderer-owned hotspot overlay program is unavailable",
-                            context)});
-        }
         result.material = MaterialId(std::string(custom ? builtin_hotspot_custom_material_id
                                                         : builtin_hotspot_alpha_material_id));
     }

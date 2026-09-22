@@ -99,7 +99,8 @@ bool has_compiled_ref(const noveltea::ShaderStageDefinition& stage, std::string_
     return false;
 }
 
-bool diagnostic_mentions(const noveltea::ShaderCompileResult& result, std::string_view text)
+template<typename CompileResult>
+bool diagnostic_mentions(const CompileResult& result, std::string_view text)
 {
     for (const auto& diagnostic : result.diagnostics) {
         if (diagnostic.message.find(text) != std::string::npos ||
@@ -485,6 +486,93 @@ TEST_CASE("Material source programs certify renderer ABI and reflected sampler s
         return item.code == noveltea::ShaderCompileDiagnosticCode::ContractViolation &&
                item.message.find("fingerprint") != std::string::npos;
     }));
+
+    std::filesystem::remove_all(temp);
+}
+
+TEST_CASE(
+    "hotspot Material presets enforce renderer samplers while standard semantics stay optional")
+{
+    const auto temp = unique_temp_dir("hotspot-material-contract");
+    auto options = make_options(temp);
+    options.variants = noveltea::shader_compile_variants_from_names({"glsl-330"});
+    write_text(options.engine_shader_root / "varying.def.sc", "vec2 a_position : POSITION;\n"
+                                                              "vec2 a_texcoord0 : TEXCOORD0;\n"
+                                                              "vec4 a_color0 : COLOR0;\n"
+                                                              "vec2 v_texcoord0 : TEXCOORD0;\n"
+                                                              "vec4 v_color0 : COLOR0;\n");
+    write_text(options.engine_shader_root / "vs_quad.sc",
+               "$input a_position, a_texcoord0, a_color0\n"
+               "$output v_texcoord0, v_color0\n"
+               "#include <bgfx_shader.sh>\n"
+               "void main() { v_texcoord0 = a_texcoord0; v_color0 = a_color0; "
+               "gl_Position = mul(u_modelViewProj, vec4(a_position, 0.0, 1.0)); }\n");
+
+    const auto* alpha = noveltea::material_preset_contract("hotspot-overlay-alpha");
+    const auto* custom = noveltea::material_preset_contract("hotspot-overlay-custom");
+    REQUIRE(alpha != nullptr);
+    REQUIRE(custom != nullptr);
+    const noveltea::ShaderCompilerService compiler;
+
+    noveltea::ShaderSourceProgramRequest request{
+        .vertex_source = "engine:/vs_quad.sc",
+        .fragment_source = "project:/shaders/hotspot.fs.sc",
+        .varying_definition = "engine:/varying.def.sc",
+        .interface_contract = std::string(alpha->contract_identity),
+        .interface_fingerprint = std::string(alpha->contract_fingerprint),
+    };
+    write_text(
+        options.project_root / "shaders" / "hotspot.fs.sc",
+        "$input v_texcoord0, v_color0\n"
+        "#include <bgfx_shader.sh>\n"
+        "SAMPLER2D(s_hotspotImage, 0);\n"
+        "void main() { gl_FragColor = texture2D(s_hotspotImage, v_texcoord0) * v_color0; }\n");
+    const auto alpha_without_optional_semantics = compiler.compile_source_program(request, options);
+    CHECK(alpha_without_optional_semantics.success());
+
+    write_text(options.project_root / "shaders" / "hotspot.fs.sc",
+               "$input v_texcoord0, v_color0\n"
+               "#include <bgfx_shader.sh>\n"
+               "SAMPLER2D(s_hotspotImage, 0);\n"
+               "SAMPLER2D(s_hotspotMask, 1);\n"
+               "void main() { gl_FragColor = texture2D(s_hotspotImage, v_texcoord0) * "
+               "texture2D(s_hotspotMask, v_texcoord0).r * v_color0; }\n");
+    const auto alpha_with_mask = compiler.compile_source_program(request, options);
+    CHECK_FALSE(alpha_with_mask.success());
+    CHECK(diagnostic_mentions(alpha_with_mask, "disabled sampler 's_hotspotMask'"));
+
+    request.interface_contract = std::string(custom->contract_identity);
+    request.interface_fingerprint = std::string(custom->contract_fingerprint);
+    write_text(
+        options.project_root / "shaders" / "hotspot.fs.sc",
+        "$input v_texcoord0, v_color0\n"
+        "#include <bgfx_shader.sh>\n"
+        "SAMPLER2D(s_hotspotImage, 0);\n"
+        "void main() { gl_FragColor = texture2D(s_hotspotImage, v_texcoord0) * v_color0; }\n");
+    const auto custom_without_mask = compiler.compile_source_program(request, options);
+    CHECK_FALSE(custom_without_mask.success());
+    CHECK(diagnostic_mentions(custom_without_mask, "missing required sampler 's_hotspotMask'"));
+
+    write_text(options.project_root / "shaders" / "hotspot.fs.sc",
+               "$input v_texcoord0, v_color0\n"
+               "#include <bgfx_shader.sh>\n"
+               "SAMPLER2D(s_hotspotImage, 0);\n"
+               "SAMPLER2D(s_hotspotMask, 1);\n"
+               "void main() { gl_FragColor = texture2D(s_hotspotImage, v_texcoord0) * "
+               "texture2D(s_hotspotMask, v_texcoord0).r * v_color0; }\n");
+    const auto custom_valid = compiler.compile_source_program(request, options);
+    CHECK(custom_valid.success());
+
+    write_text(options.project_root / "shaders" / "hotspot.fs.sc",
+               "$input v_texcoord0, v_color0\n"
+               "#include <bgfx_shader.sh>\n"
+               "SAMPLER2D(s_hotspotImage, 0);\n"
+               "SAMPLER2D(s_hotspotMask, 2);\n"
+               "void main() { gl_FragColor = texture2D(s_hotspotImage, v_texcoord0) * "
+               "texture2D(s_hotspotMask, v_texcoord0).r * v_color0; }\n");
+    const auto custom_wrong_stage = compiler.compile_source_program(request, options);
+    CHECK_FALSE(custom_wrong_stage.success());
+    CHECK(diagnostic_mentions(custom_wrong_stage, "reserved stage 1"));
 
     std::filesystem::remove_all(temp);
 }

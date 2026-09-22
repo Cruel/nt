@@ -219,12 +219,6 @@ public:
     {
         return m_builtin_hotspot_materials;
     }
-    [[nodiscard]] std::uint16_t
-    builtin_hotspot_program(HotspotMaterialInterface interface) const noexcept
-    {
-        return interface == HotspotMaterialInterface::Alpha ? m_hotspot_alpha_program
-                                                            : m_hotspot_custom_program;
-    }
     const char* texture_status() const { return m_texture_status.c_str(); }
     bool is_initialized() const { return m_initialized; }
     IntegerSize backbuffer_size() const { return m_backbuffer_size; }

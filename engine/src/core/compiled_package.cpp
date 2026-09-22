@@ -101,38 +101,6 @@ void collect_hotspot_material_ids(const CompiledProject& project,
             interactable.presentation.hotspots);
 }
 
-struct HotspotMaterialUsage {
-    bool alpha = false;
-    bool custom = false;
-};
-
-std::unordered_map<std::string, HotspotMaterialUsage>
-collect_hotspot_material_usage(const CompiledProject& project)
-{
-    std::unordered_map<std::string, HotspotMaterialUsage> usage;
-    const auto add = [&](const compiled::HotspotHighlight& highlight, bool alpha) {
-        if (const auto* material = std::get_if<compiled::MaterialHotspotHighlight>(&highlight)) {
-            auto& entry = usage[material->material.text()];
-            (alpha ? entry.alpha : entry.custom) = true;
-        }
-    };
-    for (const auto& room : project.rooms())
-        for (const auto& hotspot : room.hotspots)
-            add(hotspot.highlight, false);
-    for (const auto& interactable : project.interactables())
-        std::visit(
-            [&](const auto& definitions) {
-                using T = std::decay_t<decltype(definitions)>;
-                if constexpr (std::is_same_v<T, compiled::SpriteAlphaHotspots>)
-                    add(definitions.hotspot.highlight, true);
-                else if constexpr (std::is_same_v<T, compiled::CustomInteractableHotspots>)
-                    for (const auto& hotspot : definitions.hotspots)
-                        add(hotspot.highlight, false);
-            },
-            interactable.presentation.hotspots);
-    return usage;
-}
-
 } // namespace
 
 const compiled::AssetResource*
@@ -460,7 +428,6 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
                                "/materials");
     }
     if (shader_materials) {
-        const auto hotspot_usage = collect_hotspot_material_usage(project);
         for (const auto& material : hotspot_materials) {
             const auto found = registries.material_indexes.find(material);
             if (found == registries.material_indexes.end())
@@ -473,22 +440,6 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
                                    "/materials");
                 continue;
             }
-            const auto* shader = find_shader(*shader_materials, definition.shader);
-            const auto usage = hotspot_usage.find(material);
-            if (shader == nullptr || usage == hotspot_usage.end())
-                continue;
-            if (usage->second.alpha &&
-                !hotspot_material_interface_compatible(*shader, HotspotMaterialInterface::Alpha))
-                add_assembly_error(diagnostics, "runtime_package.invalid_alpha_hotspot_material",
-                                   "Hotspot highlight material '" + material +
-                                       "' is not alpha-hotspot compatible.",
-                                   "/materials");
-            if (usage->second.custom &&
-                !hotspot_material_interface_compatible(*shader, HotspotMaterialInterface::Custom))
-                add_assembly_error(diagnostics, "runtime_package.invalid_custom_hotspot_material",
-                                   "Hotspot highlight material '" + material +
-                                       "' is not custom-hotspot compatible.",
-                                   "/materials");
         }
     }
 

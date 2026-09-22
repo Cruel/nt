@@ -67,11 +67,6 @@ public:
 
     void bind_project(const core::CompiledProject& project, std::string_view active_locale = {});
     void bind_catalog(WorldPresentationResourceCatalog catalog);
-    void
-    bind_builtin_program_validator(std::function<bool(HotspotMaterialInterface)> validator) noexcept
-    {
-        m_builtin_program_validator = std::move(validator);
-    }
     void clear();
 
     [[nodiscard]] core::Result<WorldPreparedVisual, core::Diagnostics>
@@ -86,7 +81,6 @@ private:
     const assets::AssetManager& m_assets;
     assets::AssetLeaseLookupScope m_lookup_scope = assets::AssetLeaseLookupScope::Runtime;
     std::unordered_map<std::string, WorldPresentationImageResource> m_images;
-    std::function<bool(HotspotMaterialInterface)> m_builtin_program_validator;
 };
 
 struct WorldFittedRect {

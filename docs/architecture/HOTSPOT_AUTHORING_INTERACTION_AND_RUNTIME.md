@@ -87,9 +87,14 @@ normal request coalescing, cancellation, reservation, residency, eviction, telem
 prefetch, and mandatory publication gates.
 
 World presentation resolves immutable Hotspot projections in authored reference coordinates. Default
-and custom highlights bind through the Material system using engine-owned image/mask samplers and
-hover/press uniforms. `none` highlights remain semantically selectable and allocate no overlay
-resources. Overlay ordering does not change semantic target identity.
+and custom highlights bind through the strict `hotspot-overlay` Material contract. The alpha preset
+requires only the renderer-owned source image at reserved stage 0; the custom-mask preset requires
+that image plus the renderer-owned mask at reserved stage 1. Their clamp/filter policies and
+premultiplied-alpha composition are contract-owned and cannot be replaced with authored texture
+sources. Bounds, hover/press state, and source dimensions remain optional standard semantic bindings
+that a custom shader may consume without being required to declare them. `none` highlights remain
+semantically selectable and allocate no overlay resources. Overlay ordering does not change semantic
+target identity.
 
 Hotspot IDs remain an internal presentation/hit-test identity so hover, press, capture, draw ordering,
 and generation replacement are deterministic. That identity terminates at the hit-test boundary and

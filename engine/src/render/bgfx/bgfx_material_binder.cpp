@@ -17,6 +17,8 @@ namespace {
 
 constexpr std::string_view engine_draw_texture_semantic = "engine.draw_texture";
 constexpr std::string_view engine_postprocess_source_semantic = "engine.postprocess_source";
+constexpr std::string_view engine_hotspot_image_semantic = "engine.hotspot_image";
+constexpr std::string_view engine_hotspot_mask_semantic = "engine.hotspot_mask";
 constexpr std::string_view legacy_draw_texture_source = "$draw.texture";
 constexpr std::string_view glyph_atlas_sampler = "s_textAtlas";
 constexpr std::string_view legacy_glyph_atlas_sampler = "s_glyphAtlas";
@@ -72,6 +74,26 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
         contract->samplers.begin(), contract->samplers.end(),
         [sampler](const MaterialContractSamplerSlot& slot) { return slot.name == sampler; });
     return found == contract->samplers.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] bool has_single_policy(const MaterialContractPolicyValues& policy,
+                                     std::string_view expected) noexcept
+{
+    return policy.count == 1 && policy.values[0] == expected;
+}
+
+[[nodiscard]] MaterialTextureSampler
+clamp_with_source_filter(MaterialTextureSampler sampler) noexcept
+{
+    switch (sampler) {
+    case MaterialTextureSampler::ClampNearest:
+    case MaterialTextureSampler::RepeatNearest:
+        return MaterialTextureSampler::ClampNearest;
+    case MaterialTextureSampler::ClampLinear:
+    case MaterialTextureSampler::RepeatLinear:
+        return MaterialTextureSampler::ClampLinear;
+    }
+    return MaterialTextureSampler::ClampLinear;
 }
 
 } // namespace
@@ -371,26 +393,47 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
             texture_stage = std::max<uint8_t>(texture_stage, static_cast<uint8_t>(slot->stage + 1));
             continue;
         }
-        if (sampler.binding == ShaderSamplerSemantic::EngineHotspotImage) {
+        if (const auto* slot = find_contract_sampler(inputs.role, sampler.name);
+            slot != nullptr && slot->source_ownership == "renderer" &&
+            slot->semantic == engine_hotspot_image_semantic) {
+            if (!has_single_policy(slot->address_policy, "clamp") ||
+                !has_single_policy(slot->filter_policy, "inherit")) {
+                add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::IncompatibleShaderRole,
+                               material_context(material_id, inputs.role),
+                               "hotspot image sampler contract has unsupported policy");
+                return {};
+            }
             if (!bgfx::isValid(inputs.hotspot_image)) {
                 add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
                                material_context(material_id, inputs.role),
                                "hotspot image binding is not resident");
                 return {};
             }
-            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.hotspot_image,
-                             bgfx_sampler_flags(inputs.hotspot_image_sampler));
+            bgfx::setTexture(
+                slot->stage, sampler_handle(sampler.name), inputs.hotspot_image,
+                bgfx_sampler_flags(clamp_with_source_filter(inputs.hotspot_image_sampler)));
+            texture_stage = std::max<uint8_t>(texture_stage, static_cast<uint8_t>(slot->stage + 1));
             continue;
         }
-        if (sampler.binding == ShaderSamplerSemantic::EngineHotspotMask) {
+        if (const auto* slot = find_contract_sampler(inputs.role, sampler.name);
+            slot != nullptr && slot->source_ownership == "renderer" &&
+            slot->semantic == engine_hotspot_mask_semantic) {
+            if (!has_single_policy(slot->address_policy, "clamp") ||
+                !has_single_policy(slot->filter_policy, "nearest")) {
+                add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::IncompatibleShaderRole,
+                               material_context(material_id, inputs.role),
+                               "hotspot mask sampler contract has unsupported policy");
+                return {};
+            }
             if (!bgfx::isValid(inputs.hotspot_mask)) {
                 add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
                                material_context(material_id, inputs.role),
                                "hotspot mask binding is not resident");
                 return {};
             }
-            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.hotspot_mask,
+            bgfx::setTexture(slot->stage, sampler_handle(sampler.name), inputs.hotspot_mask,
                              bgfx_sampler_flags(MaterialTextureSampler::ClampNearest));
+            texture_stage = std::max<uint8_t>(texture_stage, static_cast<uint8_t>(slot->stage + 1));
             continue;
         }
         if (inputs.role == ShaderRole::ActiveText && is_glyph_atlas_sampler(sampler.name) &&

@@ -1199,15 +1199,13 @@ bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t vi
     };
 
     BgfxMaterialBindResult bound;
-    const auto& material_id = command.material.string();
-    if (material_id == builtin_hotspot_alpha_material_id ||
-        material_id == builtin_hotspot_custom_material_id) {
-        const auto interface = material_id == builtin_hotspot_alpha_material_id
-                                   ? HotspotMaterialInterface::Alpha
-                                   : HotspotMaterialInterface::Custom;
+    const auto* builtin_hotspot =
+        hotspot_overlay ? find_material(m_builtin_hotspot_materials, command.material) : nullptr;
+    if (builtin_hotspot != nullptr) {
+        const auto program = bgfx::ProgramHandle{
+            bgfx::isValid(hotspot_mask) ? m_hotspot_custom_program : m_hotspot_alpha_program};
         bound = m_material_binder->bind_system_material(
-            m_builtin_hotspot_materials, command.material,
-            bgfx::ProgramHandle{builtin_hotspot_program(interface)}, bind_inputs, &diagnostics);
+            m_builtin_hotspot_materials, command.material, program, bind_inputs, &diagnostics);
     } else {
         if (!m_shader_materials)
             return false;

@@ -1003,7 +1003,8 @@ void parse_material_textures(const nlohmann::json& material_json, const ShaderDe
             continue;
         }
         if (material.role == ShaderRole::Engine2D || material.role == ShaderRole::RmlUiDecorator ||
-            material.role == ShaderRole::Postprocess) {
+            material.role == ShaderRole::Postprocess ||
+            material.role == ShaderRole::HotspotOverlay) {
             if (const auto* role_contract = material_role_contract(to_string(material.role));
                 role_contract != nullptr) {
                 const auto contract_sampler = std::find_if(
