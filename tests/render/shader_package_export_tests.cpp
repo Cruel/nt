@@ -74,7 +74,7 @@ nlohmann::json make_material_metadata()
             }
           },
           "uniforms":{
-            "u_dimensions":{"type":"vec2","binding":"rmlui.paint_dimensions"}
+            "u_dimensions":{"type":"vec2","binding":"engine.paint_dimensions"}
           }
         }
       },
@@ -212,7 +212,8 @@ TEST_CASE("ProjectPackageWriter exports required derived source-program shader b
         {"glsl-330",
          nlohmann::json::object({
              {"runtimePath", "project:/shaders/derived/glsl-330/program-abc.vs.bin"},
-             {"byteHash", "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+             {"byteHash",
+              "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
              {"byteSize", std::uint64_t{1}},
          })},
     });
@@ -220,7 +221,8 @@ TEST_CASE("ProjectPackageWriter exports required derived source-program shader b
         {"glsl-330",
          nlohmann::json::object({
              {"runtimePath", "project:/shaders/derived/glsl-330/program-abc.fs.bin"},
-             {"byteHash", "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+             {"byteHash",
+              "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
              {"byteSize", std::uint64_t{1}},
          })},
     });

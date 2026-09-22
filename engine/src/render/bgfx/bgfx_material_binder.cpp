@@ -159,8 +159,7 @@ std::array<float, 4> pack_shader_standard_input(ShaderInputSemantic semantic,
     switch (semantic) {
     case ShaderInputSemantic::EngineTime:
         return {inputs.time_seconds, 0.0f, 0.0f, 0.0f};
-    case ShaderInputSemantic::EnginePaintDimensions:
-    case ShaderInputSemantic::RmlUiPaintDimensions: {
+    case ShaderInputSemantic::EnginePaintDimensions: {
         Vec2 dimensions = inputs.paint_dimensions;
         if ((dimensions.x <= 0.0f || dimensions.y <= 0.0f) && quad_command != nullptr) {
             dimensions = {quad_command->rect.width, quad_command->rect.height};
@@ -170,15 +169,12 @@ std::array<float, 4> pack_shader_standard_input(ShaderInputSemantic semantic,
     case ShaderInputSemantic::EngineReferenceToWorldRasterScale:
         return {inputs.reference_to_world_raster_scale.x, inputs.reference_to_world_raster_scale.y,
                 0.0f, 0.0f};
-    case ShaderInputSemantic::EngineContextLogicalToUiRasterScale:
-    case ShaderInputSemantic::RmlUiContextLogicalToUiRasterScale:
-        return {inputs.context_logical_to_ui_raster_scale.x,
-                inputs.context_logical_to_ui_raster_scale.y, 0.0f, 0.0f};
-    case ShaderInputSemantic::EngineUiMediaQueryResolution:
+    case ShaderInputSemantic::EngineContextLogicalToRasterScale:
+        return {inputs.context_logical_to_raster_scale.x, inputs.context_logical_to_raster_scale.y,
+                0.0f, 0.0f};
     case ShaderInputSemantic::RmlUiMediaQueryResolution:
-        return {inputs.ui_media_query_resolution, 0.0f, 0.0f, 0.0f};
+        return {inputs.rmlui_media_query_resolution, 0.0f, 0.0f, 0.0f};
     case ShaderInputSemantic::EngineViewportPixelDimensions:
-    case ShaderInputSemantic::RmlUiViewportPixelDimensions:
         return {inputs.viewport_pixel_dimensions.x, inputs.viewport_pixel_dimensions.y, 0.0f, 0.0f};
     case ShaderInputSemantic::EnginePointerPosition:
         return {inputs.pointer_position.x, inputs.pointer_position.y, 0.0f, 0.0f};

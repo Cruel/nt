@@ -79,9 +79,7 @@ generic RML/data binding is insufficient.
 
 ## Rendering and Assets
 
-The RmlUi bgfx adapter owns texture/material/render submission details. The asset-backed file
-interface resolves logical paths through `AssetManager`. Runtime layouts and their referenced
-assets/materials are collected by the compiled resource/package path.
+The RmlUi bgfx adapter owns texture/material/render submission details. RmlUi `shader()` decorator Materials are submitted through the generated `rmlui-decorator` Material contract: projection, transform, translation, and the decorator texture are renderer-owned; the texture occupies its reserved stage with fixed clamp/linear sampling and cannot be supplied by authored Material texture data. The adapter and Material preview both use the contract's premultiplied-alpha composition convention. The asset-backed file interface resolves logical paths through `AssetManager`. Runtime layouts and their referenced assets/materials are collected by the compiled resource/package path.
 
 Each rendered context has one explicit logical/raster contract. `RmlUiHost` owns the authoritative
 `ResolvedContextMetrics` and passes the active context record's exact metrics to its plane adapter

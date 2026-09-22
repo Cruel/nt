@@ -69,7 +69,7 @@ Custom source-backed Materials use the compiler's `essl-300` browser payload whe
 Built-in/common 2D Materials use the lightweight WebGL harness with the canonical sampler, uniform, blend, texture, and effective-value semantics. Context-heavy roles deliberately use representative fixtures:
 
 - ActiveText uses the glyphs harness; it does not reproduce shaping, dialogue state, or the full text renderer.
-- RmlUi decorator Materials use a rounded-rectangle fixture rather than an RmlUi document/layout pass.
+- RmlUi decorator Materials use a rounded-rectangle fixture rather than an RmlUi document/layout pass. The fixture still follows the generated `rmlui-decorator` contract: it supplies the contract-owned projection/transform/translation uniforms and renderer-owned decorator texture at the reserved stage with clamp/linear sampling, then composites with premultiplied-alpha blending.
 - hotspot Materials use the sprite fixture and per-surface pointer state for hover/press inputs.
 - postprocess Materials use a representative quad rather than the complete composed game viewport and postprocess chain.
 

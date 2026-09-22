@@ -483,6 +483,11 @@ describe('canonical Material shader lowering', () => {
       label: 'Panel',
       data: defaultMaterialData('Panel', 'engine-2d'),
     };
+    project.materials.decorator = {
+      id: 'decorator',
+      label: 'Decorator',
+      data: defaultMaterialData('Decorator', 'rmlui-decorator'),
+    };
     const ordinary = await buildShaderMaterialProject(project);
     expect(ordinary.compilation.programs).toEqual({});
     const certified = await buildShaderMaterialProject(project, [], {
@@ -494,6 +499,30 @@ describe('canonical Material shader lowering', () => {
       varyingDefinition: 'engine:/varying.def.sc',
       interfaceContract: 'noveltea.material-preset:engine-2d:1',
       interfaceFingerprint: materialPresets['engine-2d'].interfaceFingerprint,
+    });
+    expect(certified.compilation.programs['preset-rmlui-decorator']).toMatchObject({
+      interfaceContract: 'noveltea.material-preset:rmlui-decorator:1',
+      interfaceFingerprint: materialPresets['rmlui-decorator'].interfaceFingerprint,
+    });
+  });
+
+  it('uses the RmlUi decorator ABI for custom decorator compilation', async () => {
+    const project = createAuthoringProject();
+    project.materials.decorator = {
+      id: 'decorator',
+      label: 'Decorator',
+      data: {
+        ...defaultMaterialData('Decorator', 'rmlui-decorator'),
+        shader: { fragment: { kind: 'project', path: 'shaders/decorator.fs.sc' } },
+      },
+    };
+
+    const request = await buildShaderMaterialProject(project);
+    const programs = Object.values(request.compilation.programs);
+    expect(programs).toHaveLength(1);
+    expect(programs[0]).toMatchObject({
+      interfaceContract: 'noveltea.material-preset:rmlui-decorator:1',
+      interfaceFingerprint: materialPresets['rmlui-decorator'].interfaceFingerprint,
     });
   });
 

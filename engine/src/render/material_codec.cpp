@@ -1,5 +1,6 @@
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/material_codec.hpp"
+#include "noveltea/render/material_contract.hpp"
 #include "noveltea/core/json_access.hpp"
 
 #include <nlohmann/json.hpp>
@@ -226,24 +227,16 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
         return ShaderInputSemantic::EnginePaintDimensions;
     if (semantic == "engine.reference_to_world_raster_scale")
         return ShaderInputSemantic::EngineReferenceToWorldRasterScale;
-    if (semantic == "engine.context_logical_to_ui_raster_scale")
-        return ShaderInputSemantic::EngineContextLogicalToUiRasterScale;
-    if (semantic == "engine.ui_media_query_resolution")
-        return ShaderInputSemantic::EngineUiMediaQueryResolution;
+    if (semantic == "engine.context_logical_to_raster_scale")
+        return ShaderInputSemantic::EngineContextLogicalToRasterScale;
     if (semantic == "engine.viewport_pixel_dimensions")
         return ShaderInputSemantic::EngineViewportPixelDimensions;
     if (semantic == "engine.pointer_position")
         return ShaderInputSemantic::EnginePointerPosition;
     if (semantic == "engine.pointer_valid")
         return ShaderInputSemantic::EnginePointerValid;
-    if (semantic == "rmlui.paint_dimensions")
-        return ShaderInputSemantic::RmlUiPaintDimensions;
-    if (semantic == "rmlui.context_logical_to_ui_raster_scale")
-        return ShaderInputSemantic::RmlUiContextLogicalToUiRasterScale;
     if (semantic == "rmlui.media_query_resolution")
         return ShaderInputSemantic::RmlUiMediaQueryResolution;
-    if (semantic == "rmlui.viewport_pixel_dimensions")
-        return ShaderInputSemantic::RmlUiViewportPixelDimensions;
     if (semantic == "engine.hotspot_bounds")
         return ShaderInputSemantic::EngineHotspotBounds;
     if (semantic == "engine.hotspot_hovered")
@@ -1017,6 +1010,21 @@ void parse_material_textures(const nlohmann::json& material_json, const ShaderDe
             add_diagnostic(diagnostics, MaterialDiagnosticCode::UndeclaredSampler, path,
                            "material assigns undeclared shader sampler: " + name);
             continue;
+        }
+        if (material.role == ShaderRole::Engine2D || material.role == ShaderRole::RmlUiDecorator) {
+            if (const auto* role_contract = material_role_contract(to_string(material.role));
+                role_contract != nullptr) {
+                const auto contract_sampler = std::find_if(
+                    role_contract->samplers.begin(), role_contract->samplers.end(),
+                    [&](const MaterialContractSamplerSlot& slot) { return slot.name == name; });
+                if (contract_sampler != role_contract->samplers.end() &&
+                    contract_sampler->source_ownership == "renderer") {
+                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource, path,
+                                   "material cannot assign a texture to renderer-owned sampler: " +
+                                       name);
+                    continue;
+                }
+            }
         }
         if (declaration->binding) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource, path,

@@ -392,24 +392,16 @@ std::string_view to_string(ShaderInputSemantic semantic) noexcept
         return "engine.paint_dimensions";
     case ShaderInputSemantic::EngineReferenceToWorldRasterScale:
         return "engine.reference_to_world_raster_scale";
-    case ShaderInputSemantic::EngineContextLogicalToUiRasterScale:
-        return "engine.context_logical_to_ui_raster_scale";
-    case ShaderInputSemantic::EngineUiMediaQueryResolution:
-        return "engine.ui_media_query_resolution";
+    case ShaderInputSemantic::EngineContextLogicalToRasterScale:
+        return "engine.context_logical_to_raster_scale";
     case ShaderInputSemantic::EngineViewportPixelDimensions:
         return "engine.viewport_pixel_dimensions";
     case ShaderInputSemantic::EnginePointerPosition:
         return "engine.pointer_position";
     case ShaderInputSemantic::EnginePointerValid:
         return "engine.pointer_valid";
-    case ShaderInputSemantic::RmlUiPaintDimensions:
-        return "rmlui.paint_dimensions";
-    case ShaderInputSemantic::RmlUiContextLogicalToUiRasterScale:
-        return "rmlui.context_logical_to_ui_raster_scale";
     case ShaderInputSemantic::RmlUiMediaQueryResolution:
         return "rmlui.media_query_resolution";
-    case ShaderInputSemantic::RmlUiViewportPixelDimensions:
-        return "rmlui.viewport_pixel_dimensions";
     case ShaderInputSemantic::EngineHotspotBounds:
         return "engine.hotspot_bounds";
     case ShaderInputSemantic::EngineHotspotHovered:

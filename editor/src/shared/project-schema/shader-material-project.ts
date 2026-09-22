@@ -285,20 +285,6 @@ function implicitUniformDefault(type: ShaderUniformType): ShaderUniformValue {
   }
 }
 
-function canonicalStandardSemantic(binding: string): string {
-  switch (binding) {
-    case 'engine.context_logical_to_ui_raster_scale':
-    case 'rmlui.context_logical_to_ui_raster_scale':
-      return 'engine.context_logical_to_raster_scale';
-    case 'rmlui.paint_dimensions':
-      return 'engine.paint_dimensions';
-    case 'rmlui.viewport_pixel_dimensions':
-      return 'engine.viewport_pixel_dimensions';
-    default:
-      return binding;
-  }
-}
-
 function activeTextPairKey(vertexSource: string, fragmentSource: string): string {
   return `${vertexSource}\u0000${fragmentSource}`;
 }
@@ -622,6 +608,15 @@ function buildRuntimeShader(
     const rendererUniformNames = new Set(
       roleContract?.reservedInterface.rendererUniforms.map((uniform) => uniform.name) ?? [],
     );
+    const migratedRendererSamplerContract =
+      resolved.role === 'engine-2d' || resolved.role === 'rmlui-decorator';
+    const rendererSamplerNames = new Set(
+      migratedRendererSamplerContract
+        ? (roleContract?.reservedInterface.samplers
+            .filter((sampler) => sampler.sourceOwnership === 'renderer')
+            .map((sampler) => sampler.name) ?? [])
+        : [],
+    );
     const standardSemanticTypes = new Map(
       roleContract?.standardSemanticAvailability.map((entry) => [
         entry.semantic,
@@ -645,11 +640,11 @@ function buildRuntimeShader(
           texture?.binding !== undefined
             ? texture.binding
             : (resolved.preset.samplers[name]?.binding ?? null);
-        if (texture?.source !== undefined && binding !== null)
+        if (texture?.source !== undefined && (binding !== null || rendererSamplerNames.has(name)))
           diagnostics.push(
             diagnostic(
               `/materials/${materialId}/data/textures/${name}/source`,
-              `Renderer-bound reflected texture '${name}' cannot have an authored source.`,
+              `Renderer-owned reflected texture '${name}' cannot have an authored source.`,
             ),
           );
         samplers[name] = { type: 'texture2d', binding };
@@ -668,9 +663,7 @@ function buildRuntimeShader(
       const parameter = authoredOverrides.parameters[name];
       const effectiveParameter = resolved.parameters[name];
       const binding = parameter?.binding ?? effectiveParameter?.binding ?? null;
-      const boundLogicalType = binding
-        ? standardSemanticTypes.get(canonicalStandardSemantic(binding))
-        : undefined;
+      const boundLogicalType = binding ? standardSemanticTypes.get(binding) : undefined;
       if (binding && boundLogicalType === undefined)
         diagnostics.push(
           diagnostic(
