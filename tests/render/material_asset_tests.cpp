@@ -3,6 +3,7 @@
 
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/material_codec.hpp"
+#include "noveltea/render/material_contract.hpp"
 
 #include <string_view>
 #include <variant>
@@ -512,6 +513,30 @@ TEST_CASE("remaining deferred roles and fallback records are explicit")
     CHECK(rmlui_fallback.fallback);
     CHECK(rmlui_fallback.id.value() == "system/fallback/rmlui_decorator_error");
     CHECK(rmlui_fallback.role == noveltea::ShaderRole::RmlUiDecorator);
+}
+
+TEST_CASE("Material contract registry exposes stable V1 identities and renderer-owned inputs")
+{
+    const auto roles = noveltea::material_role_contracts();
+    const auto presets = noveltea::material_preset_contracts();
+    REQUIRE(roles.size() == 5);
+    REQUIRE(presets.size() == 6);
+
+    const auto* engine_role = noveltea::material_role_contract("engine-2d");
+    REQUIRE(engine_role != nullptr);
+    REQUIRE(engine_role->samplers.size() == 1);
+    CHECK(engine_role->samplers[0].name == "s_texColor");
+    CHECK(engine_role->samplers[0].semantic == "engine.draw_texture");
+    CHECK(engine_role->samplers[0].stage == 0);
+    CHECK(engine_role->samplers[0].source_ownership == "renderer");
+
+    const auto* engine_preset = noveltea::material_preset_contract("engine-2d");
+    REQUIRE(engine_preset != nullptr);
+    CHECK(engine_preset->contract_identity == "noveltea.material-preset:engine-2d:1");
+    CHECK(engine_preset->contract_fingerprint.starts_with("sha256:"));
+    CHECK(engine_preset->contract_fingerprint.size() == 71);
+    CHECK(noveltea::material_contract_fingerprint_algorithm() == "sha256");
+    CHECK(noveltea::material_contract_fingerprint_encoding() == "canonical-json-v1");
 }
 
 TEST_CASE("built-in hotspot materials expose distinct alpha and custom interfaces")

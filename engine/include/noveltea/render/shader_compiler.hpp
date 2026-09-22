@@ -64,6 +64,7 @@ struct ShaderSourceProgramRequest {
     std::string fragment_source;
     std::string varying_definition;
     std::string interface_contract;
+    std::string interface_fingerprint;
 };
 
 enum class ShaderReflectedInputKind {

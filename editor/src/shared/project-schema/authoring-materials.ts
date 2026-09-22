@@ -158,6 +158,7 @@ export interface ResolvedMaterialData {
   fragmentSource: string;
   varyingDefinition: string;
   interfaceContract: string;
+  interfaceFingerprint: string;
   blend: MaterialBlend;
   postprocessScope: PostprocessScope;
   parameters: Record<string, EffectiveMaterialParameter>;
@@ -265,6 +266,7 @@ function resolvedFromPreset(preset: MaterialPresetDefinition): ResolvedMaterialD
     fragmentSource: preset.fragmentSource,
     varyingDefinition: preset.varyingDefinition,
     interfaceContract: preset.interfaceContract,
+    interfaceFingerprint: preset.interfaceFingerprint,
     blend: preset.blend,
     postprocessScope: preset.postprocessScope,
     parameters,

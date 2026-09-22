@@ -1,0 +1,444 @@
+{
+  "schema": "noveltea.material-contract-registry",
+  "version": 1,
+  "fingerprint": {
+    "algorithm": "sha256",
+    "encoding": "canonical-json-v1",
+    "includes": [
+      "contractIdentity",
+      "role.id",
+      "role.reservedInterface",
+      "role.standardSemanticAvailability",
+      "role.pipelineState",
+      "preset.capabilities",
+      "preset.defaultParameters",
+      "preset.shader",
+      "preset.preview.fixture"
+    ]
+  },
+  "roles": [
+    {
+      "id": "engine-2d",
+      "reservedInterface": {
+        "attributes": [
+          { "name": "a_position", "physicalType": "vec2", "semantic": "POSITION" },
+          { "name": "a_texcoord0", "physicalType": "vec2", "semantic": "TEXCOORD0" },
+          { "name": "a_color0", "physicalType": "vec4", "semantic": "COLOR0" }
+        ],
+        "varyings": [
+          { "name": "v_texcoord0", "physicalType": "vec2", "semantic": "TEXCOORD0" },
+          { "name": "v_color0", "physicalType": "vec4", "semantic": "COLOR0" }
+        ],
+        "predefinedUniforms": [
+          { "name": "u_modelViewProj", "physicalType": "mat4", "semantic": "bgfx.model_view_projection" }
+        ],
+        "rendererUniforms": [],
+        "samplers": [
+          {
+            "name": "s_texColor",
+            "semantic": "engine.draw_texture",
+            "physicalType": "texture2d",
+            "stage": 0,
+            "sourceOwnership": "renderer",
+            "addressPolicy": ["clamp", "repeat"],
+            "filterPolicy": ["inherit", "nearest", "linear"],
+            "observation": "rgba-color"
+          }
+        ]
+      },
+      "standardSemanticAvailability": [
+        { "semantic": "engine.time", "logicalType": "float" },
+        { "semantic": "engine.paint_dimensions", "logicalType": "vec2" },
+        { "semantic": "engine.reference_to_world_raster_scale", "logicalType": "vec2" },
+        { "semantic": "engine.context_logical_to_raster_scale", "logicalType": "vec2" },
+        { "semantic": "engine.viewport_pixel_dimensions", "logicalType": "vec2" },
+        { "semantic": "engine.pointer_position", "logicalType": "vec2" },
+        { "semantic": "engine.pointer_valid", "logicalType": "bool" }
+      ],
+      "pipelineState": {
+        "blend": "premultiplied-alpha",
+        "outputAlpha": "premultiplied"
+      }
+    },
+    {
+      "id": "active-text",
+      "reservedInterface": {
+        "attributes": [
+          { "name": "a_position", "physicalType": "vec2", "semantic": "POSITION" },
+          { "name": "a_texcoord0", "physicalType": "vec2", "semantic": "TEXCOORD0" },
+          { "name": "a_color0", "physicalType": "vec4", "semantic": "COLOR0" }
+        ],
+        "varyings": [
+          { "name": "v_texcoord0", "physicalType": "vec2", "semantic": "TEXCOORD0" },
+          { "name": "v_color0", "physicalType": "vec4", "semantic": "COLOR0" }
+        ],
+        "predefinedUniforms": [
+          { "name": "u_modelViewProj", "physicalType": "mat4", "semantic": "bgfx.model_view_projection" }
+        ],
+        "rendererUniforms": [],
+        "samplers": [
+          {
+            "name": "s_textAtlas",
+            "semantic": "engine.glyph_atlas",
+            "physicalType": "texture2d",
+            "stage": 0,
+            "sourceOwnership": "renderer",
+            "addressPolicy": ["clamp"],
+            "filterPolicy": ["linear"],
+            "observation": "alpha-coverage"
+          }
+        ]
+      },
+      "standardSemanticAvailability": [
+        { "semantic": "engine.time", "logicalType": "float" },
+        { "semantic": "engine.paint_dimensions", "logicalType": "vec2" },
+        { "semantic": "engine.reference_to_world_raster_scale", "logicalType": "vec2" },
+        { "semantic": "engine.context_logical_to_raster_scale", "logicalType": "vec2" },
+        { "semantic": "engine.viewport_pixel_dimensions", "logicalType": "vec2" },
+        { "semantic": "engine.pointer_position", "logicalType": "vec2" },
+        { "semantic": "engine.pointer_valid", "logicalType": "bool" }
+      ],
+      "pipelineState": {
+        "blend": "premultiplied-alpha",
+        "outputAlpha": "premultiplied"
+      }
+    },
+    {
+      "id": "rmlui-decorator",
+      "reservedInterface": {
+        "attributes": [
+          { "name": "a_position", "physicalType": "vec2", "semantic": "POSITION" },
+          { "name": "a_texcoord0", "physicalType": "vec2", "semantic": "TEXCOORD0" },
+          { "name": "a_color0", "physicalType": "vec4", "semantic": "COLOR0" }
+        ],
+        "varyings": [
+          { "name": "v_texcoord0", "physicalType": "vec2", "semantic": "TEXCOORD0" },
+          { "name": "v_color0", "physicalType": "vec4", "semantic": "COLOR0" }
+        ],
+        "predefinedUniforms": [],
+        "rendererUniforms": [
+          { "name": "u_projection", "physicalType": "mat4", "semantic": "rmlui.projection" },
+          { "name": "u_transform", "physicalType": "mat4", "semantic": "rmlui.transform" },
+          { "name": "u_translate", "physicalType": "vec4", "semantic": "rmlui.translation" }
+        ],
+        "samplers": [
+          {
+            "name": "s_texColor",
+            "semantic": "rmlui.decorator_texture",
+            "physicalType": "texture2d",
+            "stage": 0,
+            "sourceOwnership": "renderer",
+            "addressPolicy": ["clamp"],
+            "filterPolicy": ["linear"],
+            "observation": "rgba-color"
+          }
+        ]
+      },
+      "standardSemanticAvailability": [
+        { "semantic": "engine.time", "logicalType": "float" },
+        { "semantic": "engine.paint_dimensions", "logicalType": "vec2" },
+        { "semantic": "engine.context_logical_to_raster_scale", "logicalType": "vec2" },
+        { "semantic": "engine.viewport_pixel_dimensions", "logicalType": "vec2" },
+        { "semantic": "engine.pointer_position", "logicalType": "vec2" },
+        { "semantic": "engine.pointer_valid", "logicalType": "bool" },
+        { "semantic": "rmlui.media_query_resolution", "logicalType": "float" }
+      ],
+      "pipelineState": {
+        "blend": "premultiplied-alpha",
+        "outputAlpha": "premultiplied"
+      }
+    },
+    {
+      "id": "postprocess",
+      "reservedInterface": {
+        "attributes": [
+          { "name": "a_position", "physicalType": "vec2", "semantic": "POSITION" },
+          { "name": "a_texcoord0", "physicalType": "vec2", "semantic": "TEXCOORD0" }
+        ],
+        "varyings": [
+          { "name": "v_texcoord0", "physicalType": "vec2", "semantic": "TEXCOORD0" }
+        ],
+        "predefinedUniforms": [
+          { "name": "u_modelViewProj", "physicalType": "mat4", "semantic": "bgfx.model_view_projection" }
+        ],
+        "rendererUniforms": [],
+        "samplers": [
+          {
+            "name": "s_texColor",
+            "semantic": "engine.postprocess_source",
+            "physicalType": "texture2d",
+            "stage": 0,
+            "sourceOwnership": "renderer",
+            "addressPolicy": ["clamp"],
+            "filterPolicy": ["linear"],
+            "observation": "premultiplied-rgba"
+          }
+        ]
+      },
+      "standardSemanticAvailability": [
+        { "semantic": "engine.time", "logicalType": "float" },
+        { "semantic": "engine.paint_dimensions", "logicalType": "vec2" },
+        { "semantic": "engine.viewport_pixel_dimensions", "logicalType": "vec2" },
+        { "semantic": "engine.pointer_position", "logicalType": "vec2" },
+        { "semantic": "engine.pointer_valid", "logicalType": "bool" }
+      ],
+      "pipelineState": {
+        "blend": "replace",
+        "outputAlpha": "premultiplied"
+      }
+    },
+    {
+      "id": "hotspot-overlay",
+      "reservedInterface": {
+        "attributes": [
+          { "name": "a_position", "physicalType": "vec2", "semantic": "POSITION" },
+          { "name": "a_texcoord0", "physicalType": "vec2", "semantic": "TEXCOORD0" },
+          { "name": "a_color0", "physicalType": "vec4", "semantic": "COLOR0" }
+        ],
+        "varyings": [
+          { "name": "v_texcoord0", "physicalType": "vec2", "semantic": "TEXCOORD0" },
+          { "name": "v_color0", "physicalType": "vec4", "semantic": "COLOR0" }
+        ],
+        "predefinedUniforms": [
+          { "name": "u_modelViewProj", "physicalType": "mat4", "semantic": "bgfx.model_view_projection" }
+        ],
+        "rendererUniforms": [],
+        "samplers": [
+          {
+            "name": "s_hotspotImage",
+            "semantic": "engine.hotspot_image",
+            "physicalType": "texture2d",
+            "stage": 0,
+            "sourceOwnership": "renderer",
+            "addressPolicy": ["clamp"],
+            "filterPolicy": ["inherit"],
+            "observation": "rgba-image-alpha-coverage"
+          },
+          {
+            "name": "s_hotspotMask",
+            "semantic": "engine.hotspot_mask",
+            "physicalType": "texture2d",
+            "stage": 1,
+            "sourceOwnership": "renderer",
+            "addressPolicy": ["clamp"],
+            "filterPolicy": ["nearest"],
+            "observation": "red-normalized-coverage"
+          }
+        ]
+      },
+      "standardSemanticAvailability": [
+        { "semantic": "engine.time", "logicalType": "float" },
+        { "semantic": "engine.paint_dimensions", "logicalType": "vec2" },
+        { "semantic": "engine.reference_to_world_raster_scale", "logicalType": "vec2" },
+        { "semantic": "engine.context_logical_to_raster_scale", "logicalType": "vec2" },
+        { "semantic": "engine.viewport_pixel_dimensions", "logicalType": "vec2" },
+        { "semantic": "engine.pointer_position", "logicalType": "vec2" },
+        { "semantic": "engine.pointer_valid", "logicalType": "bool" },
+        { "semantic": "engine.hotspot_bounds", "logicalType": "vec4" },
+        { "semantic": "engine.hotspot_hovered", "logicalType": "bool" },
+        { "semantic": "engine.hotspot_pressed", "logicalType": "bool" },
+        { "semantic": "engine.hotspot_image_dimensions", "logicalType": "vec2" },
+        { "semantic": "engine.hotspot_mask_dimensions", "logicalType": "vec2" }
+      ],
+      "pipelineState": {
+        "blend": "premultiplied-alpha",
+        "outputAlpha": "premultiplied"
+      }
+    }
+  ],
+  "presets": [
+    {
+      "id": "engine-2d",
+      "label": "Engine 2D",
+      "role": "engine-2d",
+      "contractIdentity": "noveltea.material-preset:engine-2d:1",
+      "shader": {
+        "vertexSource": "engine:/vs_quad.sc",
+        "fragmentSource": "engine:/fs_quad.sc",
+        "varyingDefinition": "engine:/varying.def.sc",
+        "programName": "quad"
+      },
+      "capabilities": {
+        "samplers": { "s_texColor": "required" }
+      },
+      "defaultParameters": {},
+      "preview": {
+        "fixture": "engine-2d-sprite-checker",
+        "geometry": "quad",
+        "background": "checker"
+      },
+      "compatibilityProjection": {
+        "uniforms": {
+          "u_useTexture": { "type": "float", "default": 1, "label": "Use Texture" }
+        },
+        "samplers": { "s_texColor": {} },
+        "blend": "premultiplied-alpha",
+        "postprocessScope": "world"
+      }
+    },
+    {
+      "id": "active-text",
+      "label": "ActiveText",
+      "role": "active-text",
+      "contractIdentity": "noveltea.material-preset:active-text:1",
+      "shader": {
+        "vertexSource": "engine:/vs_text.sc",
+        "fragmentSource": "engine:/fs_text.sc",
+        "varyingDefinition": "engine:/varying.def.sc",
+        "programName": "text"
+      },
+      "capabilities": {
+        "samplers": { "s_textAtlas": "required" }
+      },
+      "defaultParameters": {},
+      "preview": {
+        "fixture": "active-text-glyph-atlas",
+        "geometry": "glyphs",
+        "background": "dark"
+      },
+      "compatibilityProjection": {
+        "uniforms": {},
+        "samplers": { "s_textAtlas": {} },
+        "blend": "premultiplied-alpha",
+        "postprocessScope": "world"
+      }
+    },
+    {
+      "id": "rmlui-decorator",
+      "label": "RmlUi Decorator",
+      "role": "rmlui-decorator",
+      "contractIdentity": "noveltea.material-preset:rmlui-decorator:1",
+      "shader": {
+        "vertexSource": "engine:/vs_rmlui.sc",
+        "fragmentSource": "engine:/fs_rmlui.sc",
+        "varyingDefinition": "engine:/varying.def.sc",
+        "programName": "rmlui"
+      },
+      "capabilities": {
+        "samplers": { "s_texColor": "required" }
+      },
+      "defaultParameters": {},
+      "preview": {
+        "fixture": "rmlui-decorator-texture",
+        "geometry": "rounded-rect",
+        "background": "checker"
+      },
+      "compatibilityProjection": {
+        "uniforms": {},
+        "samplers": { "s_texColor": {} },
+        "blend": "premultiplied-alpha",
+        "postprocessScope": "world"
+      }
+    },
+    {
+      "id": "postprocess-tint",
+      "label": "Postprocess Tint",
+      "role": "postprocess",
+      "contractIdentity": "noveltea.material-preset:postprocess-tint:1",
+      "shader": {
+        "vertexSource": "engine:/vs_postprocess_tint.sc",
+        "fragmentSource": "engine:/fs_postprocess_tint.sc",
+        "varyingDefinition": "engine:/varying.def.sc",
+        "programName": "postprocess_tint"
+      },
+      "capabilities": {
+        "samplers": { "s_texColor": "required" }
+      },
+      "defaultParameters": {
+        "u_tint": { "type": "color", "default": [1, 1, 1, 1], "label": "Tint" }
+      },
+      "preview": {
+        "fixture": "postprocess-composed-scene",
+        "geometry": "quad",
+        "background": "checker"
+      },
+      "compatibilityProjection": {
+        "uniforms": {
+          "u_tint": { "type": "color", "default": [1, 1, 1, 1], "label": "Tint" }
+        },
+        "samplers": { "s_texColor": {} },
+        "blend": "premultiplied-alpha",
+        "postprocessScope": "world"
+      }
+    },
+    {
+      "id": "hotspot-overlay-alpha",
+      "label": "Hotspot Overlay (Alpha)",
+      "role": "hotspot-overlay",
+      "contractIdentity": "noveltea.material-preset:hotspot-overlay-alpha:1",
+      "shader": {
+        "vertexSource": "engine:/vs_quad.sc",
+        "fragmentSource": "engine:/fs_hotspot_alpha.sc",
+        "varyingDefinition": "engine:/varying.def.sc",
+        "programName": "hotspot_alpha"
+      },
+      "capabilities": {
+        "samplers": {
+          "s_hotspotImage": "required",
+          "s_hotspotMask": "disabled"
+        }
+      },
+      "defaultParameters": {},
+      "preview": {
+        "fixture": "hotspot-image",
+        "geometry": "sprite",
+        "background": "checker"
+      },
+      "compatibilityProjection": {
+        "uniforms": {
+          "u_time": { "type": "float", "binding": "engine.time", "label": "Time" },
+          "u_hotspotBounds": { "type": "vec4", "binding": "engine.hotspot_bounds" },
+          "u_hotspotHovered": { "type": "bool", "binding": "engine.hotspot_hovered" },
+          "u_hotspotPressed": { "type": "bool", "binding": "engine.hotspot_pressed" },
+          "u_hotspotImageDimensions": { "type": "vec2", "binding": "engine.hotspot_image_dimensions" },
+          "u_hotspotMaskDimensions": { "type": "vec2", "binding": "engine.hotspot_mask_dimensions" }
+        },
+        "samplers": {
+          "s_hotspotImage": { "binding": "engine.hotspot_image" }
+        },
+        "blend": "premultiplied-alpha",
+        "postprocessScope": "world"
+      }
+    },
+    {
+      "id": "hotspot-overlay-custom",
+      "label": "Hotspot Overlay (Custom Mask)",
+      "role": "hotspot-overlay",
+      "contractIdentity": "noveltea.material-preset:hotspot-overlay-custom:1",
+      "shader": {
+        "vertexSource": "engine:/vs_quad.sc",
+        "fragmentSource": "engine:/fs_hotspot_custom.sc",
+        "varyingDefinition": "engine:/varying.def.sc",
+        "programName": "hotspot_custom"
+      },
+      "capabilities": {
+        "samplers": {
+          "s_hotspotImage": "required",
+          "s_hotspotMask": "required"
+        }
+      },
+      "defaultParameters": {},
+      "preview": {
+        "fixture": "hotspot-image-mask",
+        "geometry": "sprite",
+        "background": "checker"
+      },
+      "compatibilityProjection": {
+        "uniforms": {
+          "u_time": { "type": "float", "binding": "engine.time", "label": "Time" },
+          "u_hotspotBounds": { "type": "vec4", "binding": "engine.hotspot_bounds" },
+          "u_hotspotHovered": { "type": "bool", "binding": "engine.hotspot_hovered" },
+          "u_hotspotPressed": { "type": "bool", "binding": "engine.hotspot_pressed" },
+          "u_hotspotImageDimensions": { "type": "vec2", "binding": "engine.hotspot_image_dimensions" },
+          "u_hotspotMaskDimensions": { "type": "vec2", "binding": "engine.hotspot_mask_dimensions" }
+        },
+        "samplers": {
+          "s_hotspotImage": { "binding": "engine.hotspot_image" },
+          "s_hotspotMask": { "binding": "engine.hotspot_mask" }
+        },
+        "blend": "premultiplied-alpha",
+        "postprocessScope": "world"
+      }
+    }
+  ]
+}

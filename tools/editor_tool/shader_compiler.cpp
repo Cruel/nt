@@ -1157,6 +1157,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
     identity_input << "shaderc=unavailable\n";
 #endif
     identity_input << "interface=" << request.interface_contract << '\n';
+    identity_input << "interface_fingerprint=" << request.interface_fingerprint << '\n';
     identity_input << "varying=" << varying->identity << '\n' << *varying_text << '\n';
     for (const auto& stage : stages) {
         identity_input << "stage=" << to_string(stage.stage) << '\n';

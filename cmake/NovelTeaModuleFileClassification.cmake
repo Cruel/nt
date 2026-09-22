@@ -53,6 +53,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/include/noveltea/core/wait.hpp
     engine/include/noveltea/math/geometry.hpp
     engine/include/noveltea/render/material.hpp
+    engine/include/noveltea/render/material_contract.hpp
     engine/include/noveltea/render/shader.hpp
     engine/src/core/compiled_project.cpp
     engine/src/core/contextual_presentation.cpp
@@ -67,6 +68,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/src/core/save_state.cpp
     engine/src/core/session_state.cpp
     engine/src/render/material.cpp
+    engine/src/render/material_contract.cpp
+    engine/src/render/material_contract_registry.generated.hpp
 )
 
 set(NOVELTEA_MODULE_FILES_noveltea_content

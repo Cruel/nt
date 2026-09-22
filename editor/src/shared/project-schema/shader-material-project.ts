@@ -145,6 +145,7 @@ export const shaderSourceProgramRequestSchema = strict({
   fragmentSource: z.string().min(1),
   varyingDefinition: z.string().min(1),
   interfaceContract: z.string().min(1),
+  interfaceFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
 });
 export const shaderSourceProgramsSchema = strict({
   schema: z.literal(SHADER_SOURCE_PROGRAMS_SCHEMA),
@@ -206,6 +207,7 @@ function customProgramRequest(resolved: ResolvedMaterialData) {
     fragmentSource: resolved.fragmentSource,
     varyingDefinition: resolved.varyingDefinition,
     interfaceContract: resolved.interfaceContract,
+    interfaceFingerprint: resolved.interfaceFingerprint,
   };
 }
 async function programKey(resolved: ResolvedMaterialData): Promise<string> {
@@ -406,6 +408,7 @@ export async function buildShaderMaterialProject(
       fragmentSource: pair.fragmentSource,
       varyingDefinition: preset.varyingDefinition,
       interfaceContract: preset.interfaceContract,
+      interfaceFingerprint: preset.interfaceFingerprint,
     };
     const key = `active-text-${(await sha256HexUtf8(JSON.stringify(request))).slice(0, 24)}`;
     programs[key] = request;
