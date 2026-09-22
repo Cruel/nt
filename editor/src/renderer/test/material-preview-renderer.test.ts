@@ -15,12 +15,12 @@ import {
   type MaterialPreviewSurfaceState,
 } from '@/material-preview/material-preview-renderer';
 
-function materialProject() {
+function materialProject(preset: Parameters<typeof defaultMaterialData>[1] = 'engine-2d') {
   const project = createAuthoringProject();
   project.materials.panel = {
     id: 'panel',
     label: 'Panel',
-    data: defaultMaterialData('Panel'),
+    data: defaultMaterialData('Panel', preset),
   };
   return project;
 }
@@ -495,6 +495,53 @@ describe('Material preview workbench-group renderer', () => {
     expect(gl.getUniformLocation).toHaveBeenCalledWith(expect.anything(), 's_texColor');
     expect(gl.uniform1i).toHaveBeenCalledWith(expect.objectContaining({ name: 's_texColor' }), 0);
     expect(gl.pixelStorei).toHaveBeenCalledWith(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  });
+
+  it('binds RmlUi decorator renderer inputs from the generated contract', async () => {
+    const gl = fakeWebGlContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlMaterialPreviewBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    expect(backend).not.toBeNull();
+    const resources = createResources();
+    resources.updateProject(materialProject('rmlui-decorator'));
+    const base = await resources.getMaterial('panel');
+    expect(base).not.toBeNull();
+    const resource = {
+      ...base!,
+      vertexShaderSource: '#version 300 es\nvoid main() {}',
+      fragmentShaderSource: '#version 300 es\nvoid main() {}',
+    };
+
+    backend!.render(surface('panel'), resource, 2.5);
+
+    expect(gl.uniformMatrix4fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_projection' }),
+      false,
+      expect.any(Float32Array),
+    );
+    expect(gl.uniformMatrix4fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_transform' }),
+      false,
+      expect.any(Float32Array),
+    );
+    expect(gl.uniform4fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_translate' }),
+      [0, 0, 0, 0],
+    );
+    expect(gl.uniform1i).toHaveBeenCalledWith(expect.objectContaining({ name: 's_texColor' }), 0);
+    expect(gl.pixelStorei).toHaveBeenCalledWith(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    expect(gl.texParameteri).toHaveBeenCalledWith(
+      gl.TEXTURE_2D,
+      gl.TEXTURE_WRAP_S,
+      gl.CLAMP_TO_EDGE,
+    );
+    expect(gl.texParameteri).toHaveBeenCalledWith(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    expect(gl.blendFunc).toHaveBeenCalledWith(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   });
 
   it('normalizes native essl-300 browser payloads into valid WebGL2 shader sources', async () => {

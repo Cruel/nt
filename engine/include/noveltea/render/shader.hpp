@@ -72,15 +72,11 @@ enum class ShaderInputSemantic {
     EngineTime,
     EnginePaintDimensions,
     EngineReferenceToWorldRasterScale,
-    EngineContextLogicalToUiRasterScale,
-    EngineUiMediaQueryResolution,
+    EngineContextLogicalToRasterScale,
     EngineViewportPixelDimensions,
     EnginePointerPosition,
     EnginePointerValid,
-    RmlUiPaintDimensions,
-    RmlUiContextLogicalToUiRasterScale,
     RmlUiMediaQueryResolution,
-    RmlUiViewportPixelDimensions,
     EngineHotspotBounds,
     EngineHotspotHovered,
     EngineHotspotPressed,
@@ -97,8 +93,8 @@ struct ShaderStandardInputs {
     float time_seconds = 0.0f;
     Vec2 paint_dimensions{};
     Vec2 reference_to_world_raster_scale{1.0f, 1.0f};
-    Vec2 context_logical_to_ui_raster_scale{1.0f, 1.0f};
-    float ui_media_query_resolution = 1.0f;
+    Vec2 context_logical_to_raster_scale{1.0f, 1.0f};
+    float rmlui_media_query_resolution = 1.0f;
     Vec2 viewport_pixel_dimensions{};
     Vec2 pointer_position{};
     bool pointer_valid = false;

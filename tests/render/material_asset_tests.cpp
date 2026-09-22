@@ -5,7 +5,9 @@
 #include "noveltea/render/material_codec.hpp"
 #include "noveltea/render/material_contract.hpp"
 
+#include <array>
 #include <string_view>
+#include <utility>
 #include <variant>
 
 namespace {
@@ -100,12 +102,9 @@ TEST_CASE("project shader and material records parse")
             "u_time":{"type":"float","binding":"engine.time"},
             "u_dims":{"type":"vec2","binding":"engine.paint_dimensions"},
             "u_world_scale":{"type":"vec2","binding":"engine.reference_to_world_raster_scale"},
-            "u_ui_scale":{"type":"vec2","binding":"engine.context_logical_to_ui_raster_scale"},
-            "u_media_resolution":{"type":"float","binding":"engine.ui_media_query_resolution"},
+            "u_raster_scale":{"type":"vec2","binding":"engine.context_logical_to_raster_scale"},
             "u_viewport_pixels":{"type":"vec2","binding":"engine.viewport_pixel_dimensions"},
-            "u_rmlui_scale":{"type":"vec2","binding":"rmlui.context_logical_to_ui_raster_scale"},
             "u_rmlui_resolution":{"type":"float","binding":"rmlui.media_query_resolution"},
-            "u_rmlui_viewport":{"type":"vec2","binding":"rmlui.viewport_pixel_dimensions"},
             "u_pointer":{"type":"vec2","binding":"engine.pointer_position"},
             "u_pointer_valid":{"type":"bool","binding":"engine.pointer_valid"}
           },
@@ -151,24 +150,15 @@ TEST_CASE("project shader and material records parse")
     REQUIRE(find_uniform(*shader, "u_world_scale")->binding);
     CHECK(*find_uniform(*shader, "u_world_scale")->binding ==
           noveltea::ShaderInputSemantic::EngineReferenceToWorldRasterScale);
-    REQUIRE(find_uniform(*shader, "u_ui_scale")->binding);
-    CHECK(*find_uniform(*shader, "u_ui_scale")->binding ==
-          noveltea::ShaderInputSemantic::EngineContextLogicalToUiRasterScale);
-    REQUIRE(find_uniform(*shader, "u_media_resolution")->binding);
-    CHECK(*find_uniform(*shader, "u_media_resolution")->binding ==
-          noveltea::ShaderInputSemantic::EngineUiMediaQueryResolution);
+    REQUIRE(find_uniform(*shader, "u_raster_scale")->binding);
+    CHECK(*find_uniform(*shader, "u_raster_scale")->binding ==
+          noveltea::ShaderInputSemantic::EngineContextLogicalToRasterScale);
     REQUIRE(find_uniform(*shader, "u_viewport_pixels")->binding);
     CHECK(*find_uniform(*shader, "u_viewport_pixels")->binding ==
           noveltea::ShaderInputSemantic::EngineViewportPixelDimensions);
-    REQUIRE(find_uniform(*shader, "u_rmlui_scale")->binding);
-    CHECK(*find_uniform(*shader, "u_rmlui_scale")->binding ==
-          noveltea::ShaderInputSemantic::RmlUiContextLogicalToUiRasterScale);
     REQUIRE(find_uniform(*shader, "u_rmlui_resolution")->binding);
     CHECK(*find_uniform(*shader, "u_rmlui_resolution")->binding ==
           noveltea::ShaderInputSemantic::RmlUiMediaQueryResolution);
-    REQUIRE(find_uniform(*shader, "u_rmlui_viewport")->binding);
-    CHECK(*find_uniform(*shader, "u_rmlui_viewport")->binding ==
-          noveltea::ShaderInputSemantic::RmlUiViewportPixelDimensions);
     REQUIRE(find_uniform(*shader, "u_pointer")->binding);
     CHECK(*find_uniform(*shader, "u_pointer")->binding ==
           noveltea::ShaderInputSemantic::EnginePointerPosition);
@@ -189,6 +179,32 @@ TEST_CASE("project shader and material records parse")
     REQUIRE(world_material != nullptr);
     REQUIRE(world_material->textures.size() == 1);
     CHECK(world_material->textures[0].source == "$draw.texture");
+}
+
+TEST_CASE("duplicate RmlUi standard semantic aliases are rejected")
+{
+    const std::array<std::pair<std::string_view, std::string_view>, 5> aliases{{
+        {"engine.context_logical_to_ui_raster_scale", "vec2"},
+        {"engine.ui_media_query_resolution", "float"},
+        {"rmlui.paint_dimensions", "vec2"},
+        {"rmlui.context_logical_to_ui_raster_scale", "vec2"},
+        {"rmlui.viewport_pixel_dimensions", "vec2"},
+    }};
+
+    for (const auto& [binding, type] : aliases) {
+        const nlohmann::json document = {
+            {"schema", "noveltea.shader-materials"},
+            {"shaders",
+             {{"legacy_alias",
+               {{"stages", {{"fragment", {{"source", "project:/ok.fs.sc"}}}}},
+                {"uniforms", {{"u_value", {{"type", type}, {"binding", binding}}}}},
+                {"roles", {"rmlui-decorator"}},
+                {"role_bindings", nlohmann::json::object()}}}}},
+            {"materials", nlohmann::json::object()},
+        };
+        CHECK(has_code(noveltea::parse_shader_material_project_json(document.dump()),
+                       MaterialDiagnosticCode::UnknownInputBinding));
+    }
 }
 
 TEST_CASE("ambiguous shader dpi bindings are rejected")
@@ -513,6 +529,55 @@ TEST_CASE("remaining deferred roles and fallback records are explicit")
     CHECK(rmlui_fallback.fallback);
     CHECK(rmlui_fallback.id.value() == "system/fallback/rmlui_decorator_error");
     CHECK(rmlui_fallback.role == noveltea::ShaderRole::RmlUiDecorator);
+}
+
+TEST_CASE("RmlUi decorator contract owns transforms texture sampling and premultiplied composition")
+{
+    const auto* role = noveltea::material_role_contract("rmlui-decorator");
+    REQUIRE(role != nullptr);
+    REQUIRE(role->renderer_uniforms.size() == 3);
+    CHECK(role->renderer_uniforms[0].name == "u_projection");
+    CHECK(role->renderer_uniforms[0].semantic == "rmlui.projection");
+    CHECK(role->renderer_uniforms[1].name == "u_transform");
+    CHECK(role->renderer_uniforms[1].semantic == "rmlui.transform");
+    CHECK(role->renderer_uniforms[2].name == "u_translate");
+    CHECK(role->renderer_uniforms[2].semantic == "rmlui.translation");
+    REQUIRE(role->samplers.size() == 1);
+    CHECK(role->samplers[0].name == "s_texColor");
+    CHECK(role->samplers[0].semantic == "rmlui.decorator_texture");
+    CHECK(role->samplers[0].stage == 0);
+    CHECK(role->samplers[0].source_ownership == "renderer");
+    REQUIRE(role->samplers[0].address_policy.count == 1);
+    CHECK(role->samplers[0].address_policy.values[0] == "clamp");
+    REQUIRE(role->samplers[0].filter_policy.count == 1);
+    CHECK(role->samplers[0].filter_policy.values[0] == "linear");
+    CHECK(role->pipeline_state.blend == "premultiplied-alpha");
+    CHECK(role->pipeline_state.output_alpha == "premultiplied");
+}
+
+TEST_CASE("RmlUi decorator renderer texture cannot be authored")
+{
+    const auto parsed = noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials",
+      "shaders":{
+        "ui/decorator":{
+          "stages":{"fragment":{"source":"project:/decorator.fs.sc"}},
+          "samplers":{"s_texColor":{"type":"texture2d","binding":null}},
+          "roles":["rmlui-decorator"],
+          "role_bindings":{}
+        }
+      },
+      "materials":{
+        "ui/panel":{
+          "role":"rmlui-decorator",
+          "shader":"ui/decorator",
+          "textures":{"s_texColor":"project:/textures/panel.png"}
+        }
+      }
+    })json");
+
+    CHECK_FALSE(parsed.ok());
+    CHECK(has_code(parsed, MaterialDiagnosticCode::InvalidTextureSource));
 }
 
 TEST_CASE("Material contract registry exposes stable V1 identities and renderer-owned inputs")

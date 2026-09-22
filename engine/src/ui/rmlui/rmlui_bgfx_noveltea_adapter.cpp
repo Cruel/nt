@@ -1,6 +1,7 @@
 #include "ui/rmlui/rmlui_render_interface_bgfx.hpp"
 
 #include "noveltea/render/material.hpp"
+#include "noveltea/render/material_contract.hpp"
 #include "noveltea/render/rasterization_policy.hpp"
 #include "noveltea/render/shader_manifest.hpp"
 #include "render/bgfx/bgfx_material_binder.hpp"
@@ -34,8 +35,6 @@
 namespace noveltea::ui::rmlui {
 
 namespace {
-
-constexpr std::string_view kDrawTextureSource = "$draw.texture";
 
 [[nodiscard]] bgfx_backend::SystemShader to_noveltea_shader(rmlui_bgfx::SystemProgram program)
 {
@@ -80,6 +79,20 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
         material.textures.begin(), material.textures.end(),
         [name](const MaterialTextureAssignment& assignment) { return assignment.sampler == name; });
     return found == material.textures.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] const MaterialRoleContract* rmlui_decorator_contract() noexcept
+{
+    return material_role_contract("rmlui-decorator");
+}
+
+[[nodiscard]] const MaterialContractSamplerSlot*
+find_contract_sampler(const MaterialRoleContract& contract, std::string_view name) noexcept
+{
+    const auto found =
+        std::find_if(contract.samplers.begin(), contract.samplers.end(),
+                     [name](const MaterialContractSamplerSlot& slot) { return slot.name == name; });
+    return found == contract.samplers.end() ? nullptr : &*found;
 }
 
 [[nodiscard]] bool env_flag_enabled(const char* name)
@@ -133,7 +146,7 @@ void log_program_diagnostic(std::string_view prefix, const ShaderProgramDiagnost
 
 struct RmlUiDecoratorStandardInputs {
     AxisScale reference_to_world_raster_scale{1.0f, 1.0f};
-    AxisScale context_logical_to_ui_raster_scale{1.0f, 1.0f};
+    AxisScale context_logical_to_raster_scale{1.0f, 1.0f};
     float media_query_resolution = 1.0f;
     Vec2 viewport_pixel_dimensions{};
 };
@@ -153,10 +166,10 @@ bound_uniform_value(const ShaderUniformDeclaration& uniform,
         inputs.reference_to_world_raster_scale = {
             standard_inputs.reference_to_world_raster_scale.x,
             standard_inputs.reference_to_world_raster_scale.y};
-        inputs.context_logical_to_ui_raster_scale = {
-            standard_inputs.context_logical_to_ui_raster_scale.x,
-            standard_inputs.context_logical_to_ui_raster_scale.y};
-        inputs.ui_media_query_resolution = standard_inputs.media_query_resolution;
+        inputs.context_logical_to_raster_scale = {
+            standard_inputs.context_logical_to_raster_scale.x,
+            standard_inputs.context_logical_to_raster_scale.y};
+        inputs.rmlui_media_query_resolution = standard_inputs.media_query_resolution;
         inputs.viewport_pixel_dimensions = standard_inputs.viewport_pixel_dimensions;
         return bgfx_backend::pack_shader_standard_input(*uniform.binding, inputs);
     }
@@ -376,10 +389,34 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
 
         bgfx::setVertexBuffer(0, context.vertex_buffer);
         bgfx::setIndexBuffer(context.index_buffer, 0, context.index_count);
-        bgfx::setUniform(context.projection_uniform, context.projection);
-        bgfx::setUniform(context.transform_uniform, context.transform);
-        const float translate[4] = {context.translation.x, context.translation.y, 0.0f, 0.0f};
-        bgfx::setUniform(context.translate_uniform, translate);
+
+        const MaterialRoleContract* contract = rmlui_decorator_contract();
+        if (contract == nullptr || contract->pipeline_state.blend != "premultiplied-alpha" ||
+            contract->pipeline_state.output_alpha != "premultiplied") {
+            error("RmlUi decorator Material contract is unavailable or has unsupported pipeline "
+                  "state");
+            return false;
+        }
+        for (const MaterialContractInterfaceSlot& uniform : contract->renderer_uniforms) {
+            const bgfx::UniformHandle handle = renderer_uniform_handle(uniform, context);
+            if (!bgfx::isValid(handle)) {
+                error("RmlUi decorator Material contract contains an unsupported renderer uniform");
+                return false;
+            }
+            if (uniform.semantic == "rmlui.projection") {
+                bgfx::setUniform(handle, context.projection);
+            } else if (uniform.semantic == "rmlui.transform") {
+                bgfx::setUniform(handle, context.transform);
+            } else if (uniform.semantic == "rmlui.translation") {
+                const float translate[4] = {context.translation.x, context.translation.y, 0.0f,
+                                            0.0f};
+                bgfx::setUniform(handle, translate);
+            } else {
+                error("RmlUi decorator Material contract contains an unknown renderer uniform "
+                      "semantic");
+                return false;
+            }
+        }
 
         for (const auto& uniform : resolved.program->uniforms) {
             const MaterialUniformAssignment* assignment =
@@ -433,7 +470,32 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
         }
 
         uint8_t stage = 0;
+        for (const MaterialContractSamplerSlot& slot : contract->samplers)
+            stage = std::max<uint8_t>(stage, static_cast<uint8_t>(slot.stage + 1));
+
         for (const auto& sampler : resolved.program->samplers) {
+            if (const MaterialContractSamplerSlot* slot =
+                    find_contract_sampler(*contract, sampler.name);
+                slot != nullptr && slot->source_ownership == "renderer") {
+                if (slot->semantic != "rmlui.decorator_texture" ||
+                    slot->address_policy.count != 1 || slot->address_policy.values[0] != "clamp" ||
+                    slot->filter_policy.count != 1 || slot->filter_policy.values[0] != "linear") {
+                    error(
+                        "RmlUi decorator Material contract contains an unsupported sampler policy");
+                    return false;
+                }
+                const bgfx::TextureHandle texture =
+                    bgfx::isValid(context.texture) ? context.texture : context.white_texture;
+                if (!bgfx::isValid(texture)) {
+                    error("RmlUi decorator texture is unavailable");
+                    return false;
+                }
+                bgfx::setTexture(
+                    slot->stage, sampler_handle(sampler.name), texture,
+                    bgfx_backend::bgfx_sampler_flags(MaterialTextureSampler::ClampLinear));
+                continue;
+            }
+
             const MaterialTextureAssignment* assignment =
                 find_texture_assignment(*material, sampler.name);
             if (!assignment)
@@ -463,6 +525,19 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
         return handle;
     }
 
+    bgfx::UniformHandle renderer_uniform_handle(
+        const MaterialContractInterfaceSlot& slot,
+        const rmlui_bgfx::RmlUiMaterialShaderDrawContext& context) const noexcept
+    {
+        if (slot.semantic == "rmlui.projection" && slot.physical_type == "mat4")
+            return context.projection_uniform;
+        if (slot.semantic == "rmlui.transform" && slot.physical_type == "mat4")
+            return context.transform_uniform;
+        if (slot.semantic == "rmlui.translation" && slot.physical_type == "vec4")
+            return context.translate_uniform;
+        return BGFX_INVALID_HANDLE;
+    }
+
     bgfx::UniformHandle sampler_handle(std::string_view name)
     {
         const std::string key(name);
@@ -478,9 +553,6 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
     texture_for_assignment(const MaterialTextureAssignment& assignment,
                            const rmlui_bgfx::RmlUiMaterialShaderDrawContext& context)
     {
-        if (assignment.source == kDrawTextureSource) {
-            return bgfx::isValid(context.texture) ? context.texture : context.white_texture;
-        }
         if (!starts_with(assignment.source, "project:/") &&
             !starts_with(assignment.source, "system:/")) {
             std::fprintf(stderr, "[rmlui] unsupported material texture source '%s'\n",
@@ -537,7 +609,7 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
         const PresentationTransform transform(presentation);
         standard_inputs.reference_to_world_raster_scale =
             transform.reference_to_world_raster_scale();
-        standard_inputs.context_logical_to_ui_raster_scale = context.ui_raster_scale;
+        standard_inputs.context_logical_to_raster_scale = context.ui_raster_scale;
         standard_inputs.media_query_resolution = context.ui_raster_scale.x;
         standard_inputs.viewport_pixel_dimensions = {
             static_cast<float>(presentation.ui_raster.size.width),

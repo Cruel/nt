@@ -531,7 +531,7 @@ ShaderMaterialProject make_demo_shader_materials()
     dimensions.name = "u_dimensions";
     dimensions.type = ShaderUniformType::Vec2;
     dimensions.default_value = std::array<float, 2>{1.0f, 1.0f};
-    dimensions.binding = ShaderInputSemantic::RmlUiPaintDimensions;
+    dimensions.binding = ShaderInputSemantic::EnginePaintDimensions;
     rmlui_noise_shader.uniforms.push_back(std::move(dimensions));
 
     MaterialDefinition rmlui_material;
@@ -2784,8 +2784,8 @@ void Engine::Impl::render()
     const AxisScale world_scale = transform.reference_to_world_raster_scale();
     shader_inputs.reference_to_world_raster_scale = {world_scale.x, world_scale.y};
     const AxisScale ui_scale = transform.reference_to_native_ui_raster_scale();
-    shader_inputs.context_logical_to_ui_raster_scale = {ui_scale.x, ui_scale.y};
-    shader_inputs.ui_media_query_resolution = shader_inputs.context_logical_to_ui_raster_scale.x;
+    shader_inputs.context_logical_to_raster_scale = {ui_scale.x, ui_scale.y};
+    shader_inputs.rmlui_media_query_resolution = shader_inputs.context_logical_to_raster_scale.x;
     shader_inputs.viewport_pixel_dimensions = {
         static_cast<float>(m_presentation.ui_raster.size.width),
         static_cast<float>(m_presentation.ui_raster.size.height)};

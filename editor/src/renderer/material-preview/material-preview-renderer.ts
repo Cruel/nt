@@ -205,14 +205,32 @@ function setUniformValue(
   else if (type === gl.FLOAT || type === null) gl.uniform1f(location, component(0));
 }
 
+const identityMatrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+
 function setIdentityTransform(gl: WebGL2RenderingContext, program: WebGLProgram) {
   const location = gl.getUniformLocation(program, 'u_modelViewProj');
   if (location === null) return;
-  gl.uniformMatrix4fv(
-    location,
-    false,
-    new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
-  );
+  gl.uniformMatrix4fv(location, false, identityMatrix);
+}
+
+function setContractRendererUniforms(
+  gl: WebGL2RenderingContext,
+  program: WebGLProgram,
+  roleContract: (typeof materialContractRegistry.roles)[number] | undefined,
+) {
+  for (const uniform of roleContract?.reservedInterface.rendererUniforms ?? []) {
+    const location = gl.getUniformLocation(program, uniform.name);
+    if (location === null) continue;
+    switch (uniform.semantic) {
+      case 'rmlui.projection':
+      case 'rmlui.transform':
+        gl.uniformMatrix4fv(location, false, identityMatrix);
+        break;
+      case 'rmlui.translation':
+        gl.uniform4fv(location, [0, 0, 0, 0]);
+        break;
+    }
+  }
 }
 
 export class MaterialPreviewShaderProgramError extends Error {
@@ -315,32 +333,46 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
     const roleContract = materialContractRegistry.roles.find(
       (role) => role.id === resource.resolved.role,
     );
-    const drawSampler =
-      resource.resolved.role === 'engine-2d'
-        ? roleContract?.reservedInterface.samplers.find(
-            (sampler) =>
-              sampler.sourceOwnership === 'renderer' && sampler.semantic === 'engine.draw_texture',
-          )
-        : undefined;
-    let textureUnit = 0;
-    if (drawSampler) {
+    setContractRendererUniforms(gl, program, roleContract);
+
+    const rendererSamplers =
+      roleContract?.reservedInterface.samplers.filter(
+        (sampler) =>
+          sampler.sourceOwnership === 'renderer' &&
+          (sampler.semantic === 'engine.draw_texture' ||
+            sampler.semantic === 'rmlui.decorator_texture'),
+      ) ?? [];
+    const rendererSamplerNames = new Set(rendererSamplers.map((sampler) => sampler.name));
+    let textureUnit = rendererSamplers.reduce(
+      (next, sampler) => Math.max(next, sampler.stage + 1),
+      0,
+    );
+    for (const rendererSampler of rendererSamplers) {
+      const isDecoratorTexture = rendererSampler.semantic === 'rmlui.decorator_texture';
+      if (
+        isDecoratorTexture &&
+        (rendererSampler.addressPolicy.length !== 1 ||
+          rendererSampler.addressPolicy[0] !== 'clamp' ||
+          rendererSampler.filterPolicy.length !== 1 ||
+          rendererSampler.filterPolicy[0] !== 'linear')
+      )
+        throw new Error('RmlUi decorator Material contract has an unsupported sampler policy.');
       const representativeTexture = this.textureFor(
-        '__engine_draw_texture_fixture__',
+        isDecoratorTexture
+          ? '__rmlui_decorator_texture_fixture__'
+          : '__engine_draw_texture_fixture__',
         null,
         'clamp-linear',
-        false,
+        isDecoratorTexture,
       );
-      if (representativeTexture) {
-        textureUnit = drawSampler.stage;
-        gl.activeTexture(gl.TEXTURE0 + textureUnit);
-        gl.bindTexture(gl.TEXTURE_2D, representativeTexture);
-        const sampler = gl.getUniformLocation(program, drawSampler.name);
-        if (sampler) gl.uniform1i(sampler, textureUnit);
-        textureUnit += 1;
-      }
+      if (!representativeTexture) continue;
+      gl.activeTexture(gl.TEXTURE0 + rendererSampler.stage);
+      gl.bindTexture(gl.TEXTURE_2D, representativeTexture);
+      const sampler = gl.getUniformLocation(program, rendererSampler.name);
+      if (sampler) gl.uniform1i(sampler, rendererSampler.stage);
     }
     const textureEntries = Object.entries(resource.textures).filter(
-      ([name]) => name !== drawSampler?.name,
+      ([name]) => !rendererSamplerNames.has(name),
     );
     for (const [name, textureResource] of textureEntries) {
       const filtering = resource.resolved.textures[name]?.filtering ?? 'clamp-linear';
@@ -352,7 +384,7 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
       if (sampler) gl.uniform1i(sampler, textureUnit);
       textureUnit += 1;
     }
-    if (textureUnit === 0) {
+    if (textureUnit === 0 && resource.resolved.role !== 'rmlui-decorator') {
       const representativeTexture = this.textureFor('__representative__', null, 'clamp-linear');
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, representativeTexture);
@@ -377,6 +409,13 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
     setUniformValue(gl, program, 'u_hotspotImageDimensions', [width, height]);
     setUniformValue(gl, program, 'u_hotspotMaskDimensions', [width, height]);
 
+    if (resource.resolved.role === 'rmlui-decorator') {
+      if (
+        roleContract?.pipelineState.blend !== 'premultiplied-alpha' ||
+        roleContract.pipelineState.outputAlpha !== 'premultiplied'
+      )
+        throw new Error('RmlUi decorator Material contract has an unsupported pipeline state.');
+    }
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, geometry.count);
