@@ -16,6 +16,8 @@ const char* system_shader_name(SystemShader shader)
         return "triangle";
     case SystemShader::Quad:
         return "quad";
+    case SystemShader::PremultipliedQuad:
+        return "premultiplied_quad";
     case SystemShader::HotspotAlpha:
         return "hotspot_alpha";
     case SystemShader::HotspotCustom:

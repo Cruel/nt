@@ -630,8 +630,22 @@ describe('canonical Material shader lowering', () => {
       output('vertex', []),
       output('fragment', [
         { name: 'u_amount', kind: 'uniform', type: 'vec4', arraySize: 1 },
-        { name: 's_texColor', kind: 'sampled-image', type: 'sampler2D', arraySize: 1 },
-        { name: 's_noise', kind: 'sampled-image', type: 'sampler2D', arraySize: 1 },
+        {
+          name: 's_texColor',
+          kind: 'sampled-image',
+          type: 'sampler2D',
+          arraySize: 1,
+          registerIndex: 0,
+          registerCount: 1,
+        },
+        {
+          name: 's_noise',
+          kind: 'sampled-image',
+          type: 'sampler2D',
+          arraySize: 1,
+          registerIndex: 3,
+          registerCount: 1,
+        },
       ]),
     ]);
 
@@ -645,10 +659,12 @@ describe('canonical Material shader lowering', () => {
       },
     });
     expect(built.project.shaders[shaderId!]).toMatchObject({
+      interface_contract: materialPresets['engine-2d'].interfaceContract,
+      interface_fingerprint: materialPresets['engine-2d'].interfaceFingerprint,
       uniforms: { u_amount: { type: 'float' } },
       samplers: {
-        s_texColor: { type: 'texture2d' },
-        s_noise: { type: 'texture2d' },
+        s_texColor: { type: 'texture2d', stage: 0 },
+        s_noise: { type: 'texture2d', stage: 3 },
       },
       stages: {
         fragment: {

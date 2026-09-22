@@ -36,5 +36,7 @@ void main()
     float alpha = coverage * interaction * intensity;
     vec3 color = mix(vec3(0.08, 0.58, 0.92), vec3(0.48, 0.94, 1.0),
                      clamp(border + sweep * 0.35, 0.0, 1.0));
-    gl_FragColor = vec4(color * alpha, alpha) * v_color0;
+    vec4 premultiplied = vec4(color * alpha, alpha);
+    gl_FragColor = vec4(premultiplied.rgb * v_color0.rgb * v_color0.a,
+                        premultiplied.a * v_color0.a);
 }

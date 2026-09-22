@@ -180,11 +180,15 @@ ShaderMaterialProject make_builtin_hotspot_material_project()
             uniform("u_hotspotMaskDimensions", ShaderUniformType::Vec2,
                     ShaderInputSemantic::EngineHotspotMaskDimensions),
         };
-        shader.samplers.push_back(ShaderSamplerDeclaration{
-            .name = "s_hotspotImage", .binding = ShaderSamplerSemantic::EngineHotspotImage});
+        shader.samplers.push_back(
+            ShaderSamplerDeclaration{.name = "s_hotspotImage",
+                                     .stage = 0,
+                                     .binding = ShaderSamplerSemantic::EngineHotspotImage});
         if (custom)
-            shader.samplers.push_back(ShaderSamplerDeclaration{
-                .name = "s_hotspotMask", .binding = ShaderSamplerSemantic::EngineHotspotMask});
+            shader.samplers.push_back(
+                ShaderSamplerDeclaration{.name = "s_hotspotMask",
+                                         .stage = 1,
+                                         .binding = ShaderSamplerSemantic::EngineHotspotMask});
         return shader;
     };
 

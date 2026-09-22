@@ -227,6 +227,9 @@ TEST_CASE("native package export admits semantic shaders sharing compiled binari
     const auto shader = [](std::string_view label) {
         return nlohmann::json{
             {"display_name", label},
+            {"interface_contract", "noveltea.material-preset:engine-2d:1"},
+            {"interface_fingerprint",
+             "sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a"},
             {"roles", nlohmann::json::array({"engine-2d"})},
             {"role_bindings", nlohmann::json::object()},
             {"stages",
@@ -414,7 +417,10 @@ return {}
 
     const auto shader_materials = nlohmann::json::parse(R"json({
       "schema":"noveltea.shader-materials",
-      "shaders":{"sprite-shader":{"display_name":"Sprite","roles":["engine-2d"],"role_bindings":{},
+      "shaders":{"sprite-shader":{"display_name":"Sprite",
+        "interface_contract":"noveltea.material-preset:engine-2d:1",
+        "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
+        "roles":["engine-2d"],"role_bindings":{},
         "stages":{"vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
                   "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
         "uniforms":{},"samplers":{}}},

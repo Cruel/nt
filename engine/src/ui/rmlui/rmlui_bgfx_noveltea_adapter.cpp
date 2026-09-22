@@ -469,10 +469,6 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
             bgfx::setUniform(uniform_handle(uniform.name), value.data());
         }
 
-        uint8_t stage = 0;
-        for (const MaterialContractSamplerSlot& slot : contract->samplers)
-            stage = std::max<uint8_t>(stage, static_cast<uint8_t>(slot.stage + 1));
-
         for (const auto& sampler : resolved.program->samplers) {
             if (const MaterialContractSamplerSlot* slot =
                     find_contract_sampler(*contract, sampler.name);
@@ -498,12 +494,18 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
 
             const MaterialTextureAssignment* assignment =
                 find_texture_assignment(*material, sampler.name);
-            if (!assignment)
-                continue;
+            if (!assignment) {
+                error("RmlUi decorator Material sampler '" + sampler.name +
+                      "' has no texture source");
+                return false;
+            }
             const bgfx::TextureHandle texture = texture_for_assignment(*assignment, context);
-            if (!bgfx::isValid(texture))
-                continue;
-            bgfx::setTexture(stage++, sampler_handle(sampler.name), texture,
+            if (!bgfx::isValid(texture)) {
+                error("RmlUi decorator Material sampler '" + sampler.name +
+                      "' texture is unavailable");
+                return false;
+            }
+            bgfx::setTexture(sampler.stage, sampler_handle(sampler.name), texture,
                              bgfx_backend::bgfx_sampler_flags(assignment->filtering));
         }
 

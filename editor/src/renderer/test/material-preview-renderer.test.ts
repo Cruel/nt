@@ -153,6 +153,7 @@ function fakeWebGlContext() {
     clear: vi.fn(),
     useProgram: vi.fn(),
     enable: vi.fn(),
+    disable: vi.fn(),
     blendFunc: vi.fn(),
     drawArrays: vi.fn(),
     deleteBuffer: vi.fn(),
@@ -542,6 +543,67 @@ describe('Material preview workbench-group renderer', () => {
     );
     expect(gl.texParameteri).toHaveBeenCalledWith(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     expect(gl.blendFunc).toHaveBeenCalledWith(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  });
+
+  it('binds postprocess source from the renderer contract and uses replacement composition', async () => {
+    const gl = fakeWebGlContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlMaterialPreviewBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    const resources = createResources();
+    resources.updateProject(materialProject('postprocess-tint'));
+    const base = await resources.getMaterial('panel');
+    expect(base).not.toBeNull();
+
+    backend!.render(surface('panel'), base!, 0);
+
+    expect(vi.mocked(gl.shaderSource).mock.calls.map(([, source]) => source)).toContainEqual(
+      expect.stringContaining('sampled.rgb * u_tint.rgb * u_tint.a'),
+    );
+    expect(gl.uniform1i).toHaveBeenCalledWith(expect.objectContaining({ name: 's_texColor' }), 0);
+    expect(gl.activeTexture).toHaveBeenCalledWith(gl.TEXTURE0);
+    expect(gl.disable).toHaveBeenCalledWith(gl.BLEND);
+    expect(gl.blendFunc).not.toHaveBeenCalled();
+  });
+
+  it('binds hotspot image and mask preview fixtures at their reserved stages', async () => {
+    const gl = fakeWebGlContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlMaterialPreviewBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    const resources = createResources();
+    resources.updateProject(materialProject('hotspot-overlay-custom'));
+    const base = await resources.getMaterial('panel');
+    expect(base).not.toBeNull();
+
+    backend!.render(
+      surface('panel'),
+      {
+        ...base!,
+        vertexShaderSource: '#version 300 es\nvoid main() {}',
+        fragmentShaderSource: '#version 300 es\nvoid main() {}',
+      },
+      0,
+    );
+
+    expect(gl.uniform1i).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 's_hotspotImage' }),
+      0,
+    );
+    expect(gl.uniform1i).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 's_hotspotMask' }),
+      1,
+    );
+    expect(gl.activeTexture).toHaveBeenCalledWith(gl.TEXTURE0);
+    expect(gl.activeTexture).toHaveBeenCalledWith(gl.TEXTURE0 + 1);
   });
 
   it('normalizes native essl-300 browser payloads into valid WebGL2 shader sources', async () => {

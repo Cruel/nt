@@ -251,7 +251,7 @@ void Renderer::composite_ordinary_world_surface()
     if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
         command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
     command.color = {1.0f, 1.0f, 1.0f, 1.0f};
-    submit_default_quad(command, ViewWorldOrdinaryComposite);
+    submit_premultiplied_quad(command, ViewWorldOrdinaryComposite, true);
 }
 
 void Renderer::set_postprocess_material(std::optional<MaterialId> material, PostprocessScope scope)
@@ -944,7 +944,7 @@ void Renderer::composite_world_surface_to_transition_scene(WorldCompositionPass 
     if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
         command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
     command.color = {1.0f, 1.0f, 1.0f, 1.0f};
-    submit_default_quad(command, transition_scene_composite_view(pass));
+    submit_premultiplied_quad(command, transition_scene_composite_view(pass), true);
 }
 
 void Renderer::composite_world_transition_scene(WorldCompositionPass pass, float opacity)
@@ -963,9 +963,11 @@ void Renderer::composite_world_transition_scene(WorldCompositionPass pass, float
     if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
         command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
     command.color = {1.0f, 1.0f, 1.0f, std::clamp(opacity, 0.0f, 1.0f)};
-    submit_default_quad(command, pass == WorldCompositionPass::Source
-                                     ? ViewWorldTransitionSourceComposite
-                                     : ViewWorldTransitionTargetComposite);
+    submit_premultiplied_quad(command,
+                              pass == WorldCompositionPass::Source
+                                  ? ViewWorldTransitionSourceComposite
+                                  : ViewWorldTransitionTargetComposite,
+                              true);
 }
 
 std::uint16_t Renderer::world_transition_framebuffer(WorldCompositionPass pass) const
@@ -1009,6 +1011,7 @@ void Renderer::create_2d()
 
     const BgfxShaderLoader shader_loader(*m_assets);
     m_quad_program = shader_loader.load_program(SystemShader::Quad).idx;
+    m_premultiplied_quad_program = shader_loader.load_program(SystemShader::PremultipliedQuad).idx;
     m_hotspot_alpha_program = shader_loader.load_program(SystemShader::HotspotAlpha).idx;
     m_hotspot_custom_program = shader_loader.load_program(SystemShader::HotspotCustom).idx;
     if (!bgfx::isValid(bgfx::ProgramHandle{m_hotspot_alpha_program}) ||
@@ -1016,7 +1019,10 @@ void Renderer::create_2d()
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "[renderer] built-in hotspot overlay programs are unavailable");
     }
-    if (!bgfx::isValid(bgfx::ProgramHandle{m_quad_program})) {
+    if (!bgfx::isValid(bgfx::ProgramHandle{m_quad_program}) ||
+        !bgfx::isValid(bgfx::ProgramHandle{m_premultiplied_quad_program})) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "[renderer] built-in quad composition programs are unavailable");
         return;
     }
     m_sampler = bgfx::createUniform("s_texColor", bgfx::UniformType::Sampler).idx;
@@ -1073,6 +1079,8 @@ void Renderer::destroy_2d()
         bgfx::destroy(bgfx::UniformHandle{m_sampler});
     if (bgfx::isValid(bgfx::ProgramHandle{m_quad_program}))
         bgfx::destroy(bgfx::ProgramHandle{m_quad_program});
+    if (bgfx::isValid(bgfx::ProgramHandle{m_premultiplied_quad_program}))
+        bgfx::destroy(bgfx::ProgramHandle{m_premultiplied_quad_program});
     if (bgfx::isValid(bgfx::ProgramHandle{m_hotspot_alpha_program}))
         bgfx::destroy(bgfx::ProgramHandle{m_hotspot_alpha_program});
     if (bgfx::isValid(bgfx::ProgramHandle{m_hotspot_custom_program}))
@@ -1081,6 +1089,7 @@ void Renderer::destroy_2d()
     m_white_texture = UINT16_MAX;
     m_sampler = UINT16_MAX;
     m_quad_program = UINT16_MAX;
+    m_premultiplied_quad_program = UINT16_MAX;
     m_hotspot_alpha_program = UINT16_MAX;
     m_hotspot_custom_program = UINT16_MAX;
 }
@@ -1309,21 +1318,29 @@ void Renderer::submit_default_quad(const QuadCommand& command, std::uint16_t vie
     bgfx::submit(view, bgfx::ProgramHandle{m_quad_program});
 }
 
-void Renderer::submit_copy_quad(const QuadCommand& command, std::uint16_t view)
+void Renderer::submit_premultiplied_quad(const QuadCommand& command, std::uint16_t view, bool blend)
 {
     if (!set_quad_buffers(command))
         return;
 
     const uint16_t texture = command.texture.handle;
     const bool use_texture = texture != UINT16_MAX && bgfx::isValid(bgfx::TextureHandle{texture});
-    if (!use_texture)
+    if (!use_texture || !bgfx::isValid(bgfx::ProgramHandle{m_premultiplied_quad_program}))
         return;
 
     bgfx::setTexture(0, bgfx::UniformHandle{m_sampler}, bgfx::TextureHandle{texture},
                      bgfx_backend::bgfx_sampler_flags(command.texture_sampler));
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+    uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A;
+    if (blend)
+        state |= BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA);
+    bgfx::setState(state);
     bgfx::setScissor(UINT16_MAX);
-    bgfx::submit(view, bgfx::ProgramHandle{m_quad_program});
+    bgfx::submit(view, bgfx::ProgramHandle{m_premultiplied_quad_program});
+}
+
+void Renderer::submit_copy_quad(const QuadCommand& command, std::uint16_t view)
+{
+    submit_premultiplied_quad(command, view, false);
 }
 
 RasterScissor Renderer::current_ui_raster_scissor() const

@@ -311,6 +311,8 @@ nlohmann::json shader_material_manifest()
       "shaders":{
         "sprite-shader":{
           "display_name":"Sprite",
+          "interface_contract":"noveltea.material-preset:engine-2d:1",
+          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
           "roles":["engine-2d","postprocess"],
           "role_bindings":{},
           "stages":{
@@ -319,8 +321,8 @@ nlohmann::json shader_material_manifest()
           },
           "uniforms":{},
           "samplers":{
-            "s_static":{"type":"texture2d","binding":null},
-            "s_draw":{"type":"texture2d","binding":null}
+            "s_static":{"type":"texture2d","stage":3,"binding":null},
+            "s_draw":{"type":"texture2d","stage":4,"binding":null}
           }
         }
       },

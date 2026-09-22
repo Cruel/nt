@@ -1,6 +1,7 @@
 set(NOVELTEA_SHADER_PROGRAMS
     triangle vs_triangle.sc fs_triangle.sc
     quad     vs_quad.sc     fs_quad.sc
+    premultiplied_quad vs_quad.sc fs_premultiplied_quad.sc
     hotspot_alpha vs_quad.sc fs_hotspot_alpha.sc
     hotspot_custom vs_quad.sc fs_hotspot_custom.sc
     postprocess_tint vs_postprocess_tint.sc fs_postprocess_tint.sc

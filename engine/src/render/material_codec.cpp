@@ -726,6 +726,20 @@ void parse_shader_samplers(const nlohmann::json& shader_json, ShaderDefinition& 
             continue;
         }
         sampler.type = *type;
+        const auto stage_it = sampler_json.find("stage");
+        if (stage_it == sampler_json.end()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+                           field_path(path, "stage"), "shader sampler stage is required");
+            continue;
+        }
+        if (!stage_it->is_number_unsigned() ||
+            stage_it->get<std::uint64_t>() > std::numeric_limits<std::uint8_t>::max()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidSamplerDeclaration,
+                           field_path(path, "stage"),
+                           "shader sampler stage must be an unsigned 8-bit integer");
+            continue;
+        }
+        sampler.stage = static_cast<std::uint8_t>(stage_it->get<std::uint64_t>());
         const auto binding_it = sampler_json.find("binding");
         if (binding_it == sampler_json.end()) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
@@ -892,6 +906,60 @@ void parse_shader_definition(std::string_view id, const nlohmann::json& shader_j
 
     ShaderDefinition shader;
     shader.id = *parsed_id.id;
+
+    const std::string shader_path = "/shaders/" + shader.id.string();
+    bool contract_metadata_valid = true;
+    const auto contract_it = shader_json.find("interface_contract");
+    if (contract_it == shader_json.end() || !contract_it->is_string() ||
+        contract_it->get_ref<const std::string&>().empty()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+                       shader_path + "/interface_contract",
+                       "shader interface_contract is required and must be a non-empty string");
+        contract_metadata_valid = false;
+    } else {
+        shader.interface_contract = contract_it->get<std::string>();
+    }
+    const auto fingerprint_it = shader_json.find("interface_fingerprint");
+    if (fingerprint_it == shader_json.end() || !fingerprint_it->is_string() ||
+        fingerprint_it->get_ref<const std::string&>().empty()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+                       shader_path + "/interface_fingerprint",
+                       "shader interface_fingerprint is required and must be a non-empty string");
+        contract_metadata_valid = false;
+    } else {
+        shader.interface_fingerprint = fingerprint_it->get<std::string>();
+        const bool valid_fingerprint =
+            shader.interface_fingerprint.size() == 71 &&
+            shader.interface_fingerprint.starts_with("sha256:") &&
+            std::all_of(shader.interface_fingerprint.begin() + 7,
+                        shader.interface_fingerprint.end(), [](unsigned char ch) {
+                            return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
+                        });
+        if (!valid_fingerprint) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidSchema,
+                           shader_path + "/interface_fingerprint",
+                           "shader interface_fingerprint must be sha256 followed by 64 lowercase hexadecimal digits");
+            contract_metadata_valid = false;
+        }
+    }
+    if (contract_metadata_valid) {
+        const auto presets = material_preset_contracts();
+        const auto preset = std::find_if(
+            presets.begin(), presets.end(), [&](const MaterialPresetContract& candidate) {
+                return candidate.contract_identity == shader.interface_contract;
+            });
+        if (preset == presets.end()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidSchema,
+                           shader_path + "/interface_contract",
+                           "shader references an unknown Material interface contract: " +
+                               shader.interface_contract);
+        } else if (preset->contract_fingerprint != shader.interface_fingerprint) {
+            add_diagnostic(
+                diagnostics, MaterialDiagnosticCode::InvalidSchema,
+                shader_path + "/interface_fingerprint",
+                "shader Material contract fingerprint does not match the runtime registry");
+        }
+    }
 
     const auto display_it = shader_json.find("display_name");
     if (display_it != shader_json.end()) {

@@ -325,9 +325,9 @@ void validate_shader_manifest_shape(Decoder& decoder, const nlohmann::json& root
     if (shaders && shaders->is_object()) {
         for (auto shader = shaders->begin(); shader != shaders->end(); ++shader) {
             const auto base = Decoder::child("/shaders", shader.key());
-            if (!decoder.object(
-                    *shader, base,
-                    {"display_name", "stages", "uniforms", "samplers", "roles", "role_bindings"}))
+            if (!decoder.object(*shader, base,
+                                {"display_name", "interface_contract", "interface_fingerprint",
+                                 "stages", "uniforms", "samplers", "roles", "role_bindings"}))
                 continue;
             if (const auto* stages = json_access::member(*shader, "stages");
                 stages && stages->is_object()) {
@@ -350,7 +350,7 @@ void validate_shader_manifest_shape(Decoder& decoder, const nlohmann::json& root
                 samplers && samplers->is_object()) {
                 for (auto sampler = samplers->begin(); sampler != samplers->end(); ++sampler)
                     decoder.object(*sampler, Decoder::child(base + "/samplers", sampler.key()),
-                                   {"type", "binding"});
+                                   {"type", "stage", "binding"});
             }
             if (const auto* bindings = json_access::member(*shader, "role_bindings");
                 bindings && bindings->is_object()) {

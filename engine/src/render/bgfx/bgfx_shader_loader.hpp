@@ -17,6 +17,7 @@ enum class ShaderStage {
 enum class SystemShader {
     Triangle,
     Quad,
+    PremultipliedQuad,
     HotspotAlpha,
     HotspotCustom,
     Text,
