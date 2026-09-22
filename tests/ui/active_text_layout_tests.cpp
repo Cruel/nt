@@ -283,10 +283,9 @@ TEST_CASE("ActiveTextLayout object hit rectangles survive styled span boundaries
     CHECK(found_hit);
 }
 
-TEST_CASE("ActiveTextLayout preserves run style object material and shader metadata")
+TEST_CASE("ActiveTextLayout preserves run style object and material metadata")
 {
-    const auto doc =
-        parse_rich_text("[mat id=ui_glow][sh f=frag v=vert][[Key|key-object]][/sh][/mat]");
+    const auto doc = parse_rich_text("[mat id=ui_glow][[Key|key-object]][/mat]");
 
     const auto layout = build_active_text_layout(
         doc, ActiveTextLayoutOptions{.bounds = {10.0f, 20.0f, 400.0f, 100.0f}});
@@ -297,8 +296,6 @@ TEST_CASE("ActiveTextLayout preserves run style object material and shader metad
     CHECK(glyph.glyph_index == 0);
     CHECK(glyph.object_id == "key-object");
     CHECK(glyph.material_id == "ui_glow");
-    CHECK(glyph.vertex_shader_id == "vert");
-    CHECK(glyph.fragment_shader_id == "frag");
 }
 
 TEST_CASE("ActiveTextLayout preserves font alias size and style metadata")

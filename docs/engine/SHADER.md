@@ -98,7 +98,9 @@ Postprocess scope is occurrence state rather than Material state: each Postproce
 
 ## ActiveText
 
-ActiveText retains its advanced direct shader-pair path without authored Shader records. Direct vertex/fragment programs reference project shader files and/or engine stages, with varying/interface source handled through the same source-program compiler seam. ActiveText direct pairs remain lower-level than Material inheritance and do not introduce authored Shader IDs.
+ActiveText has no direct shader-pair authoring path. Shader behavior is selected only through an `active-text` Material, including the built-in/default text Material. The role owns the renderer-provided `s_textAtlas` sampler at stage 0, and direct `[shader ...]` rich-text markup is rejected rather than compiled or rewritten into derived runtime programs.
+
+The source-program compiler seam remains available internally for custom-source Materials; it no longer creates a parallel ActiveText runtime program identity.
 
 ## Editor behavior
 

@@ -294,12 +294,10 @@ std::optional<StyleTag> parse_style_tag(std::string tag_full, bool& closing, std
         parse_single_arg(tag, tag_full, "delay");
     } else if (c == 's') {
         if (tag_lower.size() > 1 && tag_lower[1] == 'h') {
-            tag.type = TextStyleType::Shader;
-            if (!parse_key_values(tag, tag_full, false) || (tag.params.empty() && !closing)) {
-                error = "invalid shader tag";
-                return std::nullopt;
-            }
-        } else if (tag_lower == "strike" || tag_lower == "strikethrough") {
+            error = "unknown tag";
+            return std::nullopt;
+        }
+        if (tag_lower == "strike" || tag_lower == "strikethrough") {
             tag.type = TextStyleType::Strike;
         } else {
             tag.type = TextStyleType::Size;
@@ -377,12 +375,6 @@ void apply_tag(RichTextStyle& style, RichTextAnimation& anim, const StyleTag& ta
     case TextStyleType::Material:
         if (auto it = tag.params.find("id"); it != tag.params.end())
             style.material_id = it->second;
-        break;
-    case TextStyleType::Shader:
-        if (auto it = tag.params.find("f"); it != tag.params.end())
-            style.fragment_shader_id = it->second;
-        if (auto it = tag.params.find("v"); it != tag.params.end())
-            style.vertex_shader_id = it->second;
         break;
     case TextStyleType::PageBreak:
         if (auto it = tag.params.find("delay"); it != tag.params.end()) {
@@ -537,8 +529,7 @@ RichTextDocument parse_rich_text(std::string_view input, const RichTextParseOpti
 
             push_run();
             if (tag.type == TextStyleType::Animation || tag.type == TextStyleType::XOffset ||
-                tag.type == TextStyleType::YOffset || tag.type == TextStyleType::Material ||
-                tag.type == TextStyleType::Shader) {
+                tag.type == TextStyleType::YOffset || tag.type == TextStyleType::Material) {
                 new_group = true;
             }
             if (closing) {

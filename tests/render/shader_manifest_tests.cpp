@@ -44,36 +44,6 @@ noveltea::ShaderMaterialProject make_project()
             "engine-2d":{"vertex":"engine_2d_default","fragment":"soft_noise"},
             "rmlui-decorator":{"vertex":"rmlui_decorator_default","fragment":"soft_noise"}
           }
-        },
-        "active_text_wave_vs":{
-          "interface_contract":"noveltea.material-preset:active-text:1",
-          "interface_fingerprint":"sha256:c62ec9672871d25d0736f7b093016d8835ea372693b9dab9016ea56d145427e2",
-          "stages":{
-            "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/active_text_wave.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
-          },
-          "roles":["active-text"],
-          "role_bindings":{}
-        },
-        "active_text_wave_fs":{
-          "interface_contract":"noveltea.material-preset:active-text:1",
-          "interface_fingerprint":"sha256:c62ec9672871d25d0736f7b093016d8835ea372693b9dab9016ea56d145427e2",
-          "stages":{
-            "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/active_text_wave.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
-          },
-          "uniforms":{"u_time":{"type":"float","binding":"engine.time"}},
-          "roles":["active-text"],
-          "role_bindings":{}
-        },
-        "active-text-program-abc":{
-          "interface_contract":"noveltea.material-preset:active-text:1",
-          "interface_fingerprint":"sha256:c62ec9672871d25d0736f7b093016d8835ea372693b9dab9016ea56d145427e2",
-          "stages":{
-            "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/derived/glsl-330/program-abc.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
-            "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/derived/glsl-330/program-abc.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
-          },
-          "uniforms":{"u_time":{"type":"float","binding":"engine.time"}},
-          "roles":["active-text"],
-          "role_bindings":{}
         }
       },
       "materials":{
@@ -165,58 +135,6 @@ TEST_CASE("one fragment shader can resolve different material roles with differe
     CHECK(ui.program->vertex.shader.value() == "rmlui_decorator_default");
 }
 
-TEST_CASE("direct ActiveText shader pairs resolve without material records")
-{
-    const auto project = make_project();
-    const auto result = noveltea::resolve_direct_shader_pair_program(
-        project, *noveltea::parse_shader_id("active_text_wave_vs").id,
-        *noveltea::parse_shader_id("active_text_wave_fs").id, "glsl-330");
-
-    REQUIRE(result.ok());
-    REQUIRE(result.program);
-    CHECK(result.program->key.kind == noveltea::ShaderProgramRequestKind::DirectShaderPair);
-    CHECK(result.program->key.material_id.empty());
-    CHECK(result.program->key.role == noveltea::ShaderRole::ActiveText);
-    CHECK(result.program->vertex.path == "project:/shaders/bgfx/glsl-330/active_text_wave.vs.bin");
-    CHECK(result.program->fragment.path ==
-          "project:/shaders/bgfx/glsl-330/active_text_wave.fs.bin");
-    REQUIRE(find_uniform(*result.program, "u_time") != nullptr);
-}
-
-TEST_CASE("derived ActiveText source programs resolve from runtime metadata")
-{
-    const auto project = make_project();
-    const auto result = noveltea::resolve_source_shader_program(
-        project, "active-text-program-abc", noveltea::ShaderRole::ActiveText, "glsl-330");
-
-    REQUIRE(result.ok());
-    REQUIRE(result.program);
-    CHECK(result.program->key.kind == noveltea::ShaderProgramRequestKind::SourceProgram);
-    CHECK(result.program->key.program_identity == "active-text-program-abc");
-    CHECK(result.program->vertex.path == "project:/shaders/derived/glsl-330/program-abc.vs.bin");
-    CHECK(result.program->fragment.path == "project:/shaders/derived/glsl-330/program-abc.fs.bin");
-    REQUIRE(find_uniform(*result.program, "u_time") != nullptr);
-}
-
-TEST_CASE("source-backed ActiveText programs resolve without authored Shader ids")
-{
-    const auto program = noveltea::resolve_source_shader_pair_program(
-        "program-abc", noveltea::ShaderRole::ActiveText, "glsl-330",
-        "project:/shaders/derived/glsl-330/program-abc.vs.bin",
-        "project:/shaders/derived/glsl-330/program-abc.fs.bin");
-
-    CHECK(program.key.kind == noveltea::ShaderProgramRequestKind::SourceProgram);
-    CHECK(program.key.program_identity == "program-abc");
-    CHECK(program.key.role == noveltea::ShaderRole::ActiveText);
-    CHECK(program.key.vertex_shader.string().empty());
-    CHECK(program.key.fragment_shader.string().empty());
-    CHECK(program.vertex.path == "project:/shaders/derived/glsl-330/program-abc.vs.bin");
-    CHECK(program.fragment.path == "project:/shaders/derived/glsl-330/program-abc.fs.bin");
-
-    const auto cache_key = noveltea::shader_program_cache_key(program.key);
-    CHECK(cache_key.find("source_program|program-abc|active-text|") != std::string::npos);
-}
-
 TEST_CASE("missing material variants report material context and expected binary paths")
 {
     const auto project = make_project();
@@ -229,21 +147,6 @@ TEST_CASE("missing material variants report material context and expected binary
     CHECK(diagnostic_mentions(result, "engine-2d"));
     CHECK(diagnostic_mentions(result, "metal"));
     CHECK(diagnostic_mentions(result, "shaders/bgfx/metal/engine_2d_default.vs.bin"));
-}
-
-TEST_CASE("missing direct shader-pair variants report ActiveText shader ids")
-{
-    const auto project = make_project();
-    const auto result = noveltea::resolve_direct_shader_pair_program(
-        project, *noveltea::parse_shader_id("active_text_wave_vs").id,
-        *noveltea::parse_shader_id("active_text_wave_fs").id, "metal");
-
-    REQUIRE_FALSE(result.ok());
-    CHECK(has_code(result, noveltea::ShaderProgramDiagnosticCode::MissingCompiledVariant));
-    CHECK(diagnostic_mentions(result, "active_text_wave_vs"));
-    CHECK(diagnostic_mentions(result, "active_text_wave_fs"));
-    CHECK(diagnostic_mentions(result, "metal"));
-    CHECK(diagnostic_mentions(result, "shaders/bgfx/metal/active_text_wave_vs.vs.bin"));
 }
 
 TEST_CASE("material resolution does not guess vertex stages when role binding is required")
@@ -272,22 +175,15 @@ TEST_CASE("material resolution does not guess vertex stages when role binding is
     CHECK(diagnostic_mentions(result, "fragment_only"));
 }
 
-TEST_CASE("program cache keys distinguish material programs from direct shader pairs")
+TEST_CASE("program cache keys keep Material metadata distinct while sharing binary cache entries")
 {
     const auto project = make_project();
     const auto material = noveltea::resolve_material_shader_program(
         project, *noveltea::parse_material_id("world/water").id, "glsl-330");
-    const auto direct = noveltea::resolve_direct_shader_pair_program(
-        project, *noveltea::parse_shader_id("engine_2d_default").id,
-        *noveltea::parse_shader_id("soft_noise").id, "glsl-330");
 
     REQUIRE(material.ok());
-    REQUIRE(direct.ok());
     const std::string material_key = noveltea::shader_program_cache_key(material.program->key);
-    const std::string direct_key = noveltea::shader_program_cache_key(direct.program->key);
-    CHECK(material_key != direct_key);
     CHECK(material_key.find("material|world/water") != std::string::npos);
-    CHECK(direct_key.find("direct_shader_pair|") != std::string::npos);
 
     auto same_binaries = *material.program;
     same_binaries.key.material_id = "world/ice";

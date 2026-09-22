@@ -47,10 +47,16 @@ TEST_CASE("ActiveTextFrame reveals grapheme clusters without splitting combining
     CHECK(frame.runs[0].glyphs[0].text == "e\xCC\x81");
 }
 
-TEST_CASE("ActiveTextFrame preserves object shader and offset metadata")
+TEST_CASE("ActiveText direct shader markup is rejected")
 {
-    const auto doc =
-        parse_rich_text("[sh f=frag v=vert][x=4][y=-2][[Key|key-object]][/y][/x][/sh]");
+    const auto doc = parse_rich_text("[shader f=frag v=vert]Wave[/shader]");
+
+    CHECK_FALSE(doc.diagnostics.empty());
+}
+
+TEST_CASE("ActiveTextFrame preserves object and offset metadata")
+{
+    const auto doc = parse_rich_text("[x=4][y=-2][[Key|key-object]][/y][/x]");
 
     const auto frame = build_active_text_frame(doc);
 
@@ -58,8 +64,6 @@ TEST_CASE("ActiveTextFrame preserves object shader and offset metadata")
     REQUIRE(frame.runs[0].glyphs.size() == 3);
     const auto& glyph = frame.runs[0].glyphs[0];
     CHECK(glyph.style.object_id == "key-object");
-    CHECK(glyph.style.fragment_shader_id == "frag");
-    CHECK(glyph.style.vertex_shader_id == "vert");
     CHECK(glyph.offset.x == Catch::Approx(4.0f));
     CHECK(glyph.offset.y == Catch::Approx(-2.0f));
 }

@@ -23,7 +23,6 @@ enum class TextStyleType : int {
     Material,
     Object,
     PageBreak,
-    Shader,
     Size,
     Strike,
     Underline,
@@ -76,8 +75,6 @@ struct RichTextStyle {
     std::string font_alias;
     std::string material_id;
     std::string object_id;
-    std::string vertex_shader_id;
-    std::string fragment_shader_id;
     int x_offset = 0;
     int y_offset = 0;
     unsigned int font_size = 12;

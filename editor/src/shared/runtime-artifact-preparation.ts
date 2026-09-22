@@ -34,10 +34,7 @@ import {
   canonicalProjectContentJson,
   emptyEditorProjectState,
 } from './project-schema/editor-project-state';
-import {
-  buildShaderMaterialProject,
-  rewriteActiveTextSourcePrograms,
-} from './project-schema/shader-material-project';
+import { buildShaderMaterialProject } from './project-schema/shader-material-project';
 import {
   PREPARED_RUNTIME_ARTIFACT_SCHEMA,
   preparedRuntimeArtifactSchema,
@@ -605,23 +602,6 @@ function reconcileCompiledMaterialParameters<T>(
   return { value: visit(value, '') as T, diagnostics };
 }
 
-function rewriteCompiledActiveTextSourcePrograms<T>(
-  value: T,
-  programs: ReadonlyMap<string, string>,
-): T {
-  if (typeof value === 'string') return rewriteActiveTextSourcePrograms(value, programs) as T;
-  if (Array.isArray(value))
-    return value.map((item) => rewriteCompiledActiveTextSourcePrograms(item, programs)) as T;
-  if (value && typeof value === 'object')
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
-        key,
-        rewriteCompiledActiveTextSourcePrograms(item, programs),
-      ]),
-    ) as T;
-  return value;
-}
-
 async function assembleRuntimeArtifact(
   project: AuthoringProject,
   options: RuntimeArtifactAssemblyOptions,
@@ -755,11 +735,6 @@ async function assembleRuntimeArtifact(
   }
 
   const shaderBuild = await buildShaderMaterialProject(project, options.shaderOutputs ?? []);
-  if (compiledProject && shaderBuild.activeTextSourcePrograms.size > 0)
-    compiledProject = rewriteCompiledActiveTextSourcePrograms(
-      compiledProject,
-      shaderBuild.activeTextSourcePrograms,
-    );
   if (!options.profile.stripShaderSources) {
     const shaderSourcePaths = new Set<string>();
     const addShaderIdentity = (identity: string) => {

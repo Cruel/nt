@@ -66,6 +66,6 @@ navigation exists only when runtime projection publishes exactly one actionable 
 
 Direct ActiveText rendering remains engine-side. RmlUi owns layout hosting and input event routing;
 RuntimeUI snapshots the resolved element bounds after `Rml::Context::Update()`; NovelTea's text stack
-owns shaping; and NovelTea's renderer owns glyph submission, material/direct-shader binding, effect
-projection, and deduped diagnostics. Missing ActiveText material or direct shader-pair programs fall
-back to default text rendering.
+owns shaping; and NovelTea's renderer owns glyph submission, ActiveText Material binding, effect
+projection, and deduped diagnostics. Missing or invalid explicit ActiveText Materials fall back to the
+built-in ActiveText Material; direct shader-pair metadata is not carried by the glyph model.

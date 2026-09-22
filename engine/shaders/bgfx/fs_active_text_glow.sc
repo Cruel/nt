@@ -14,5 +14,6 @@ void main()
     vec3 fill_color = mix(v_color0.rgb, glow_color, 0.65);
     vec3 color = fill_color * (1.0 + pulse * 0.35);
 
-    gl_FragColor = vec4(color, alpha * v_color0.a);
+    float output_alpha = alpha * v_color0.a;
+    gl_FragColor = vec4(color * output_alpha, output_alpha);
 }

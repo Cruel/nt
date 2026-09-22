@@ -1,5 +1,7 @@
 #include "noveltea/render/material.hpp"
 
+#include "noveltea/render/material_contract.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <string>
@@ -130,6 +132,50 @@ MaterialDefinition make_rmlui_decorator_fallback_material()
     material.uniforms.push_back(
         MaterialUniformAssignment{"u_tint", ShaderColor{1.0f, 0.0f, 1.0f, 1.0f}});
     return material;
+}
+
+ShaderMaterialProject make_builtin_active_text_material_project()
+{
+    const auto system_binary = [](std::string variant, std::string path) {
+        return ShaderCompiledBinaryRef::trusted_system(std::move(variant), std::move(path));
+    };
+    const auto stage = [&](ShaderStage shader_stage, std::string_view suffix) {
+        ShaderStageDefinition result;
+        result.stage = shader_stage;
+        result.compiled = {
+            system_binary("glsl-330",
+                          "system:/shaders/bgfx/glsl-330/text." + std::string(suffix) + ".bin"),
+            system_binary("essl-300",
+                          "system:/shaders/bgfx/essl-300/text." + std::string(suffix) + ".bin"),
+            system_binary("metal",
+                          "system:/shaders/bgfx/metal/text." + std::string(suffix) + ".bin"),
+        };
+        return result;
+    };
+
+    ShaderDefinition shader;
+    shader.id = ShaderId(std::string(builtin_active_text_material_id));
+    shader.display_name = "Built-in ActiveText";
+    shader.roles = {ShaderRole::ActiveText};
+    shader.stages = {stage(ShaderStage::Vertex, "vs"), stage(ShaderStage::Fragment, "fs")};
+    shader.samplers.push_back(
+        ShaderSamplerDeclaration{.name = "s_textAtlas", .stage = 0, .binding = std::nullopt});
+    if (const auto* preset = material_preset_contract("active-text")) {
+        shader.interface_contract = std::string(preset->contract_identity);
+        shader.interface_fingerprint = std::string(preset->contract_fingerprint);
+    }
+
+    MaterialDefinition material;
+    material.id = MaterialId(std::string(builtin_active_text_material_id));
+    material.role = ShaderRole::ActiveText;
+    material.shader = shader.id;
+    material.display_name = "Built-in ActiveText";
+    material.fallback = true;
+
+    ShaderMaterialProject project;
+    project.shaders.push_back(std::move(shader));
+    project.materials.push_back(std::move(material));
+    return project;
 }
 
 ShaderMaterialProject make_builtin_hotspot_material_project()

@@ -108,9 +108,11 @@ Program identity derives from effective source inputs, interface/preset contract
 
 Derived shader outputs never write into Material records and do not dirty canonical Project data.
 
-## ActiveText Direct Programs
+## ActiveText Materials
 
-ActiveText retains its advanced low-level direct stage-pair path. Authored ActiveText shader markup names project shader files and/or engine stages rather than Shader records. Runtime preparation compiles those pairs through the same source-program seam and rewrites only the derived compiled artifact to an internal source-program token. The renderer resolves that token through the source-program resolver and program cache. No authored Shader ID is introduced.
+ActiveText uses only the `active-text` Material role. Rich-text `[mat id=...]` spans carry Material identity; direct `[shader ...]` authoring is invalid and is not lowered into runtime shader-program metadata. The role reserves `s_textAtlas` at sampler stage 0 for the renderer-owned `engine.glyph_atlas` input. The built-in/default text Material and explicit ActiveText Materials both use this same contract, binder, certification metadata, and premultiplied-alpha pipeline state.
+
+The `noveltea.shader-source-programs` compiler envelope remains an internal compilation seam for custom-source Materials. It is not an ActiveText authoring escape hatch.
 
 ## Texture Sources
 

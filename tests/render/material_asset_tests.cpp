@@ -628,6 +628,18 @@ TEST_CASE("Material contract registry exposes stable V1 identities and renderer-
     CHECK(engine_role->samplers[0].stage == 0);
     CHECK(engine_role->samplers[0].source_ownership == "renderer");
 
+    const auto* active_text_role = noveltea::material_role_contract("active-text");
+    REQUIRE(active_text_role != nullptr);
+    REQUIRE(active_text_role->samplers.size() == 1);
+    CHECK(active_text_role->samplers[0].name == "s_textAtlas");
+    CHECK(active_text_role->samplers[0].semantic == "engine.glyph_atlas");
+    CHECK(active_text_role->samplers[0].stage == 0);
+    CHECK(active_text_role->samplers[0].source_ownership == "renderer");
+    REQUIRE(active_text_role->samplers[0].address_policy.count == 1);
+    CHECK(active_text_role->samplers[0].address_policy.values[0] == "clamp");
+    REQUIRE(active_text_role->samplers[0].filter_policy.count == 1);
+    CHECK(active_text_role->samplers[0].filter_policy.values[0] == "linear");
+
     const auto* engine_preset = noveltea::material_preset_contract("engine-2d");
     REQUIRE(engine_preset != nullptr);
     CHECK(engine_preset->contract_identity == "noveltea.material-preset:engine-2d:1");
@@ -682,8 +694,7 @@ TEST_CASE("packaged shader contract fingerprints must match the runtime registry
     CHECK_FALSE(empty_contract.ok());
     CHECK(has_code(empty_contract, MaterialDiagnosticCode::MissingRequiredField));
 
-    document["shaders"]["quad"]["interface_contract"] =
-        "noveltea.material-preset:engine-2d:1";
+    document["shaders"]["quad"]["interface_contract"] = "noveltea.material-preset:engine-2d:1";
     document["shaders"]["quad"]["interface_fingerprint"] = "sha256:ABC";
     const auto malformed_fingerprint =
         noveltea::parse_shader_material_project_json(document.dump());

@@ -17,18 +17,9 @@ void add_program_diagnostic(std::vector<ShaderProgramDiagnostic>* diagnostics,
 
 [[nodiscard]] std::string program_context(const ShaderProgramResolution& resolution)
 {
-    if (resolution.key.kind == ShaderProgramRequestKind::Material) {
-        return "material '" + resolution.key.material_id + "' role '" +
-               std::string(to_string(resolution.key.role)) + "' variant '" +
-               resolution.key.variant + "'";
-    }
-    if (resolution.key.kind == ShaderProgramRequestKind::SourceProgram) {
-        return "source program '" + resolution.key.program_identity + "' role '" +
-               std::string(to_string(resolution.key.role)) + "' variant '" +
-               resolution.key.variant + "'";
-    }
-    return "direct shader pair vertex '" + resolution.key.vertex_shader.string() + "' fragment '" +
-           resolution.key.fragment_shader.string() + "' variant '" + resolution.key.variant + "'";
+    return "material '" + resolution.key.material_id + "' role '" +
+           std::string(to_string(resolution.key.role)) + "' variant '" + resolution.key.variant +
+           "'";
 }
 
 } // namespace

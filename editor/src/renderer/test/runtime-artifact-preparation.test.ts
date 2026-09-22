@@ -1333,7 +1333,7 @@ describe('Prepared Runtime Artifact module', () => {
     );
   });
 
-  it('lowers ActiveText source shader pairs to derived source-program identities', async () => {
+  it('does not synthesize runtime shader programs from ActiveText direct shader markup', async () => {
     const project = roomProject();
     project.rooms.foyer!.data.description = {
       source: {
@@ -1342,26 +1342,15 @@ describe('Prepared Runtime Artifact module', () => {
       },
       markup: 'active-text',
     };
-    const sourceProject = await buildShaderMaterialProject(project);
-    const [program, request] =
-      Object.entries(sourceProject.compilation.programs).find(([id]) =>
-        id.startsWith('active-text-'),
-      ) ?? [];
-    expect(program).toBeTruthy();
-    expect(request).toBeTruthy();
-    if (!program || !request) return;
-    const prepared = await prepareRuntimeAssessmentForTest(project, {
-      projectRoot: '/project',
-      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
-      shaderOutputs: [
-        compiledShaderOutput(program, request.vertexSource, 'vertex', 'a'),
-        compiledShaderOutput(program, request.fragmentSource, 'fragment', 'b'),
-      ],
-    });
 
-    expect(JSON.stringify(prepared.compiledProject)).toContain(`source-program:${program}`);
-    expect(JSON.stringify(prepared.compiledProject)).not.toContain('project:/shaders/wave.vs.sc');
-    expect(prepared.shaderMaterialMetadata?.shaders[program]).toBeDefined();
+    const sourceProject = await buildShaderMaterialProject(project);
+
+    expect(Object.keys(sourceProject.compilation.programs)).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^active-text-/u)]),
+    );
+    expect(Object.keys(sourceProject.project.shaders)).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^active-text-/u)]),
+    );
   });
 
   it('publishes and verifies project-file Lua sources in the prepared inventory', async () => {

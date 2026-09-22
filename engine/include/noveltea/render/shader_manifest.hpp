@@ -11,8 +11,6 @@ namespace noveltea {
 
 enum class ShaderProgramRequestKind {
     Material,
-    DirectShaderPair,
-    SourceProgram,
 };
 
 enum class ShaderProgramDiagnosticCode {
@@ -42,7 +40,6 @@ struct ShaderStageBinaryRef {
 struct ShaderProgramKey {
     ShaderProgramRequestKind kind = ShaderProgramRequestKind::Material;
     std::string material_id;
-    std::string program_identity;
     ShaderRole role = ShaderRole::Engine2D;
     ShaderId material_shader;
     ShaderId vertex_shader;
@@ -73,24 +70,9 @@ struct ShaderProgramResolutionResult {
 resolve_material_shader_program(const ShaderMaterialProject& project, const MaterialId& material_id,
                                 std::string_view active_variant);
 
-[[nodiscard]] ShaderProgramResolutionResult resolve_direct_shader_pair_program(
-    const ShaderMaterialProject& project, const ShaderId& vertex_shader_id,
-    const ShaderId& fragment_shader_id, std::string_view active_variant);
-
-[[nodiscard]] ShaderProgramResolution
-resolve_source_shader_pair_program(std::string program_identity, ShaderRole role,
-                                   std::string_view active_variant, std::string vertex_runtime_path,
-                                   std::string fragment_runtime_path,
-                                   std::vector<ShaderUniformDeclaration> uniforms = {},
-                                   std::vector<ShaderSamplerDeclaration> samplers = {});
-
-[[nodiscard]] ShaderProgramResolutionResult
-resolve_source_shader_program(const ShaderMaterialProject& project,
-                              std::string_view program_identity, ShaderRole role,
-                              std::string_view active_variant);
-
 [[nodiscard]] std::string shader_program_cache_key(const ShaderProgramKey& key);
-[[nodiscard]] std::string shader_program_binary_cache_key(const ShaderProgramResolution& resolution);
+[[nodiscard]] std::string
+shader_program_binary_cache_key(const ShaderProgramResolution& resolution);
 [[nodiscard]] std::string expected_shader_binary_path(const ShaderId& shader_id, ShaderStage stage,
                                                       std::string_view variant);
 

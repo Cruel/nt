@@ -71,15 +71,12 @@ struct AtlasPage {
 enum class ActiveTextBindingKind {
     Default,
     Material,
-    DirectShaderPair,
 };
 
 struct ActiveTextBatchKey {
     ActiveTextBindingKind kind = ActiveTextBindingKind::Default;
     uint16_t page = 0;
     std::string material_id;
-    std::string vertex_shader_id;
-    std::string fragment_shader_id;
 
     [[nodiscard]] friend bool operator==(const ActiveTextBatchKey&,
                                          const ActiveTextBatchKey&) = default;
@@ -90,15 +87,6 @@ struct ActiveTextDrawBatch {
     std::vector<TextVertex> vertices;
     std::vector<uint16_t> indices;
 };
-
-std::optional<std::string_view> active_text_source_program(std::string_view vertex,
-                                                           std::string_view fragment)
-{
-    constexpr std::string_view prefix = "source-program:";
-    if (!vertex.starts_with(prefix) || vertex != fragment)
-        return std::nullopt;
-    return vertex.substr(prefix.size());
-}
 
 Color active_text_glow_color(Color base, float glow)
 {
@@ -179,7 +167,6 @@ public:
     void draw_text(const TextLayout& layout, bool viewport_local_target);
     void draw_active_text(const ActiveTextLayout& layout, FontHandle font,
                           const ShaderMaterialProject* materials,
-                          bgfx_backend::BgfxShaderProgramCache* programs,
                           bgfx_backend::BgfxMaterialBinder* material_binder,
                           bool viewport_local_target);
 
@@ -222,6 +209,8 @@ private:
     std::unordered_map<GlyphCacheKey, CachedGlyph, GlyphCacheKeyHash> m_glyphs;
     bgfx::ProgramHandle m_program = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle m_sampler = BGFX_INVALID_HANDLE;
+    ShaderMaterialProject m_builtin_active_text_materials =
+        make_builtin_active_text_material_project();
     std::unordered_set<std::string> m_active_text_diagnostics;
     static constexpr uint16_t kGlyphPadding = 1;
 };
@@ -343,6 +332,9 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout, bool viewport_local_t
     if (!bgfx::isValid(m_program) || layout.lines.empty()) {
         return;
     }
+    const auto pipeline_state = bgfx_backend::material_pipeline_state(ShaderRole::ActiveText);
+    if (!pipeline_state)
+        return;
 
     std::vector<std::vector<TextVertex>> page_vertices(m_pages.size() + 1);
     std::vector<std::vector<uint16_t>> page_indices(m_pages.size() + 1);
@@ -447,20 +439,22 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout, bool viewport_local_t
         bgfx::setTexture(0, m_sampler, m_pages[page_index].texture);
         bgfx::setVertexBuffer(0, &tvb);
         bgfx::setIndexBuffer(&tib);
-        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
+        bgfx::setState(*pipeline_state);
         bgfx::submit(bgfx_backend::ViewTextLab, m_program);
     }
 }
 
 void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHandle font,
                                         const ShaderMaterialProject* materials,
-                                        bgfx_backend::BgfxShaderProgramCache* programs,
                                         bgfx_backend::BgfxMaterialBinder* material_binder,
                                         bool viewport_local_target)
 {
-    if (!bgfx::isValid(m_program) || layout.glyphs.empty()) {
+    if (!bgfx::isValid(m_program) || layout.glyphs.empty() || material_binder == nullptr) {
         return;
     }
+    const auto pipeline_state = bgfx_backend::material_pipeline_state(ShaderRole::ActiveText);
+    if (!pipeline_state)
+        return;
 
     std::vector<ActiveTextDrawBatch> batches;
 
@@ -470,12 +464,6 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
         if (!glyph.material_id.empty()) {
             key.kind = ActiveTextBindingKind::Material;
             key.material_id = glyph.material_id;
-            return key;
-        }
-        if (!glyph.vertex_shader_id.empty() || !glyph.fragment_shader_id.empty()) {
-            key.kind = ActiveTextBindingKind::DirectShaderPair;
-            key.vertex_shader_id = glyph.vertex_shader_id;
-            key.fragment_shader_id = glyph.fragment_shader_id;
         }
         return key;
     };
@@ -490,73 +478,6 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
         batch.key = key;
         batches.push_back(std::move(batch));
         return batches.back();
-    };
-
-    const auto diagnose_shader_metadata = [&](const ActiveTextGlyphVisual& glyph) {
-        if (!glyph.material_id.empty() && materials) {
-            const auto parsed = parse_material_id(glyph.material_id);
-            if (parsed.ok()) {
-                const auto* material = find_material(*materials, *parsed.id);
-                if (!material || material->role != ShaderRole::ActiveText) {
-                    const std::string key = "mat:" + glyph.material_id;
-                    if (m_active_text_diagnostics.insert(key).second) {
-                        std::fprintf(stderr,
-                                     "[active_text] material '%s' role 'active-text' fell back to "
-                                     "default text rendering: %s\n",
-                                     glyph.material_id.c_str(),
-                                     material ? "material role is not active-text"
-                                              : "unknown material id");
-                    }
-                } else {
-                    const auto result = resolve_material_shader_program(
-                        *materials, *parsed.id, programs ? programs->active_variant() : "");
-                    if (!result.ok()) {
-                        const std::string key = "mat:" + glyph.material_id;
-                        if (m_active_text_diagnostics.insert(key).second) {
-                            for (const auto& diagnostic : result.diagnostics) {
-                                std::fprintf(stderr,
-                                             "[active_text] material '%s' role 'active-text' fell "
-                                             "back to default text rendering: %s\n",
-                                             glyph.material_id.c_str(), diagnostic.message.c_str());
-                            }
-                        }
-                    }
-                }
-            } else {
-                const std::string key = "mat:" + glyph.material_id;
-                if (m_active_text_diagnostics.insert(key).second) {
-                    std::fprintf(stderr,
-                                 "[active_text] material '%s' role 'active-text' fell back to "
-                                 "default text rendering: invalid material id\n",
-                                 glyph.material_id.c_str());
-                }
-            }
-        }
-        if ((!glyph.vertex_shader_id.empty() || !glyph.fragment_shader_id.empty()) && materials) {
-            const auto source_program =
-                active_text_source_program(glyph.vertex_shader_id, glyph.fragment_shader_id);
-            const auto result = source_program
-                                    ? resolve_source_shader_program(
-                                          *materials, *source_program, ShaderRole::ActiveText,
-                                          programs ? programs->active_variant() : "")
-                                    : resolve_direct_shader_pair_program(
-                                          *materials, ShaderId(glyph.vertex_shader_id),
-                                          ShaderId(glyph.fragment_shader_id),
-                                          programs ? programs->active_variant() : "");
-            if (!result.ok()) {
-                const std::string key =
-                    "shader:" + glyph.vertex_shader_id + "|" + glyph.fragment_shader_id;
-                if (m_active_text_diagnostics.insert(key).second) {
-                    for (const auto& diagnostic : result.diagnostics) {
-                        std::fprintf(stderr,
-                                     "[active_text] direct shader pair vertex='%s' fragment='%s' "
-                                     "fell back to default text rendering: %s\n",
-                                     glyph.vertex_shader_id.c_str(),
-                                     glyph.fragment_shader_id.c_str(), diagnostic.message.c_str());
-                    }
-                }
-            }
-        }
     };
 
     const auto append_positioned_glyph = [&](const ActiveTextGlyphVisual& visual,
@@ -675,7 +596,6 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
     };
 
     for (const auto& glyph : layout.glyphs) {
-        diagnose_shader_metadata(glyph);
         if (glyph.has_shaped_glyph) {
             append_positioned_glyph(glyph, glyph.shaped_glyph);
             append_decorations(glyph, glyph.shaped_glyph);
@@ -754,71 +674,47 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
             const std::string key =
                 key_prefix + ":" + diagnostic.context + ":" + diagnostic.message;
             if (m_active_text_diagnostics.insert(key).second) {
-                std::fprintf(
-                    stderr,
-                    "[active_text] custom shader path fell back to default text rendering: "
-                    "%s: %s\n",
-                    diagnostic.context.c_str(), diagnostic.message.c_str());
+                std::fprintf(stderr,
+                             "[active_text] Material path fell back to default ActiveText "
+                             "Material: %s: %s\n",
+                             diagnostic.context.c_str(), diagnostic.message.c_str());
             }
         }
     };
 
     const auto resolve_batch_program = [&](const ActiveTextDrawBatch& batch,
                                            bgfx::TextureHandle atlas) {
-        if (batch.key.kind == ActiveTextBindingKind::Material && materials && material_binder) {
+        const auto bind_inputs = bgfx_backend::BgfxMaterialBindInputs{
+            .role = ShaderRole::ActiveText,
+            .quad_command = nullptr,
+            .glyph_atlas = atlas,
+            .standard_inputs = m_standard_inputs,
+            .first_texture_stage = 0,
+        };
+        if (batch.key.kind == ActiveTextBindingKind::Material && materials) {
             const auto parsed = parse_material_id(batch.key.material_id);
             if (parsed.ok()) {
                 std::vector<ShaderProgramDiagnostic> diagnostics;
-                const auto bound = material_binder->bind_material(
-                    *materials, *parsed.id,
-                    bgfx_backend::BgfxMaterialBindInputs{.role = ShaderRole::ActiveText,
-                                                         .quad_command = nullptr,
-                                                         .glyph_atlas = atlas,
-                                                         .standard_inputs = m_standard_inputs,
-                                                         .first_texture_stage = 0},
-                    &diagnostics);
+                const auto bound = material_binder->bind_material(*materials, *parsed.id,
+                                                                  bind_inputs, &diagnostics);
                 log_diagnostics("mat:" + batch.key.material_id, diagnostics);
-                if (bound.ok && bgfx::isValid(bound.program)) {
+                if (bound.ok && bgfx::isValid(bound.program))
                     return bound.program;
-                }
+            } else if (m_active_text_diagnostics.insert("mat:" + batch.key.material_id).second) {
+                std::fprintf(stderr,
+                             "[active_text] invalid Material id '%s'; using default ActiveText "
+                             "Material\n",
+                             batch.key.material_id.c_str());
             }
         }
 
-        if (batch.key.kind == ActiveTextBindingKind::DirectShaderPair && materials && programs) {
-            std::vector<ShaderProgramDiagnostic> diagnostics;
-            const auto source_program = active_text_source_program(batch.key.vertex_shader_id,
-                                                                   batch.key.fragment_shader_id);
-            const auto resolved =
-                source_program
-                    ? resolve_source_shader_program(*materials, *source_program,
-                                                    ShaderRole::ActiveText,
-                                                    programs->active_variant())
-                    : resolve_direct_shader_pair_program(
-                          *materials, ShaderId(batch.key.vertex_shader_id),
-                          ShaderId(batch.key.fragment_shader_id), programs->active_variant());
-            if (resolved.program) {
-                const auto program = programs->load_program(*resolved.program, &diagnostics);
-                log_diagnostics("shader:" + batch.key.vertex_shader_id + "|" +
-                                    batch.key.fragment_shader_id,
-                                diagnostics);
-                if (bgfx::isValid(program)) {
-                    if (material_binder) {
-                        material_binder->bind_standard_uniforms(*resolved.program,
-                                                                m_standard_inputs);
-                    }
-                    bgfx::setTexture(0, m_sampler, atlas,
-                                     BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
-                    return program;
-                }
-            } else {
-                log_diagnostics("shader:" + batch.key.vertex_shader_id + "|" +
-                                    batch.key.fragment_shader_id,
-                                resolved.diagnostics);
-            }
-        }
-
-        bgfx::setTexture(0, m_sampler, atlas);
-        return m_program;
+        std::vector<ShaderProgramDiagnostic> diagnostics;
+        const auto fallback = material_binder->bind_system_material(
+            m_builtin_active_text_materials,
+            MaterialId(std::string(builtin_active_text_material_id)), m_program, bind_inputs,
+            &diagnostics);
+        log_diagnostics("default", diagnostics);
+        return fallback.ok ? fallback.program : bgfx::ProgramHandle{bgfx::kInvalidHandle};
     };
 
     for (const auto& batch : batches) {
@@ -848,9 +744,11 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
         bgfx::setTransform(identity);
         const bgfx::TextureHandle atlas = m_pages[page_index].texture;
         const bgfx::ProgramHandle program = resolve_batch_program(batch, atlas);
+        if (!bgfx::isValid(program))
+            continue;
         bgfx::setVertexBuffer(0, &tvb);
         bgfx::setIndexBuffer(&tib);
-        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
+        bgfx::setState(*pipeline_state);
         bgfx::submit(bgfx_backend::ViewActiveText, program);
     }
 }
@@ -969,7 +867,7 @@ void Renderer::draw_active_text(const ActiveTextLayout& layout)
         inputs.paint_dimensions = {layout.bounds.width, layout.bounds.height};
         text->set_standard_inputs(inputs);
         text->draw_active_text(layout, FontHandle{m_default_text_font}, m_shader_materials,
-                               m_shader_program_cache.get(), m_material_binder.get(),
+                               m_material_binder.get(),
                                m_active_postprocess_scope == PostprocessScope::FullGameViewport);
     }
 }

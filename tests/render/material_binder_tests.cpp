@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "noveltea/render/material_contract.hpp"
 #include "noveltea/render/quad_batch.hpp"
 #include "render/bgfx/bgfx_material_binder.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
@@ -201,6 +202,37 @@ TEST_CASE("material binder reports unknown materials without bgfx program loadin
     CHECK_FALSE(result.ok);
     CHECK(has_program_diagnostic(diagnostics,
                                  noveltea::ShaderProgramDiagnosticCode::UnknownMaterial));
+}
+
+TEST_CASE("built-in ActiveText Material uses the canonical glyph-atlas contract")
+{
+    const auto project = noveltea::make_builtin_active_text_material_project();
+    REQUIRE(project.materials.size() == 1);
+    REQUIRE(project.shaders.size() == 1);
+
+    const auto& material = project.materials.front();
+    const auto& shader = project.shaders.front();
+    const auto* preset = noveltea::material_preset_contract("active-text");
+    REQUIRE(preset != nullptr);
+
+    CHECK(material.id.string() == noveltea::builtin_active_text_material_id);
+    CHECK(material.role == noveltea::ShaderRole::ActiveText);
+    CHECK(material.shader == shader.id);
+    CHECK(shader.interface_contract == preset->contract_identity);
+    CHECK(shader.interface_fingerprint == preset->contract_fingerprint);
+    REQUIRE(shader.samplers.size() == 1);
+    CHECK(shader.samplers.front().name == "s_textAtlas");
+    CHECK(shader.samplers.front().stage == 0);
+    CHECK_FALSE(shader.samplers.front().binding.has_value());
+}
+
+TEST_CASE("ActiveText pipeline state is contract-owned premultiplied alpha")
+{
+    const auto state =
+        noveltea::bgfx_backend::material_pipeline_state(noveltea::ShaderRole::ActiveText);
+    REQUIRE(state.has_value());
+    CHECK(*state == (BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
+                     BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA)));
 }
 
 TEST_CASE("postprocess pipeline state is contract-owned replacement over premultiplied output")
