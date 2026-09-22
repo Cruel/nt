@@ -1,5 +1,7 @@
 #include "render/bgfx/bgfx_material_binder.hpp"
 
+#include "noveltea/render/material_contract.hpp"
+
 #include <SDL3/SDL_log.h>
 
 #include <algorithm>
@@ -13,7 +15,8 @@
 namespace noveltea::bgfx_backend {
 namespace {
 
-constexpr std::string_view draw_texture_source = "$draw.texture";
+constexpr std::string_view engine_draw_texture_semantic = "engine.draw_texture";
+constexpr std::string_view legacy_draw_texture_source = "$draw.texture";
 constexpr std::string_view glyph_atlas_sampler = "s_textAtlas";
 constexpr std::string_view legacy_glyph_atlas_sampler = "s_glyphAtlas";
 
@@ -58,10 +61,16 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
     return name == glyph_atlas_sampler || name == legacy_glyph_atlas_sampler;
 }
 
-[[nodiscard]] bool has_texture_assignment_for_sampler(const MaterialDefinition& material,
-                                                      std::string_view sampler)
+[[nodiscard]] const MaterialContractSamplerSlot* find_contract_sampler(ShaderRole role,
+                                                                       std::string_view sampler)
 {
-    return find_texture_assignment(material, sampler) != nullptr;
+    const auto* contract = material_role_contract(to_string(role));
+    if (contract == nullptr)
+        return nullptr;
+    const auto found = std::find_if(
+        contract->samplers.begin(), contract->samplers.end(),
+        [sampler](const MaterialContractSamplerSlot& slot) { return slot.name == sampler; });
+    return found == contract->samplers.end() ? nullptr : &*found;
 }
 
 } // namespace
@@ -98,6 +107,21 @@ MaterialTextureSampler resolve_draw_texture_sampler(MaterialTextureSampler mater
         return nearest ? MaterialTextureSampler::RepeatNearest
                        : MaterialTextureSampler::RepeatLinear;
     return nearest ? MaterialTextureSampler::ClampNearest : MaterialTextureSampler::ClampLinear;
+}
+
+ResolvedDrawTexture resolve_renderer_draw_texture(const QuadCommand* command,
+                                                  bgfx::TextureHandle neutral_texture) noexcept
+{
+    ResolvedDrawTexture resolved{.texture = neutral_texture};
+    if (command == nullptr)
+        return resolved;
+
+    resolved.sampler =
+        resolve_draw_texture_sampler(MaterialTextureSampler::ClampLinear, command->texture_sampler);
+    const auto draw_texture = bgfx::TextureHandle{command->texture.handle};
+    if (command->texture.valid() && bgfx::isValid(draw_texture))
+        resolved.texture = draw_texture;
+    return resolved;
 }
 
 PackedMaterialUniform pack_material_uniform(const ShaderUniformValue& value) noexcept
@@ -176,8 +200,10 @@ std::array<float, 4> pack_shader_standard_input(ShaderInputSemantic semantic,
 
 BgfxMaterialBinder::BgfxMaterialBinder(const assets::AssetManager& assets,
                                        BgfxShaderProgramCache& programs,
-                                       bgfx::TextureHandle fallback_texture)
-    : m_assets(assets), m_programs(programs), m_fallback_texture(fallback_texture)
+                                       bgfx::TextureHandle fallback_texture,
+                                       bgfx::TextureHandle neutral_draw_texture)
+    : m_assets(assets), m_programs(programs), m_fallback_texture(fallback_texture),
+      m_neutral_draw_texture(neutral_draw_texture)
 {
 }
 
@@ -223,7 +249,7 @@ BgfxMaterialBinder::texture_for_source(std::string_view source, const QuadComman
                                        MaterialTextureSampler sampler,
                                        std::vector<ShaderProgramDiagnostic>* diagnostics)
 {
-    if (source == draw_texture_source) {
+    if (source == legacy_draw_texture_source) {
         if (command != nullptr) {
             const auto draw_texture = bgfx::TextureHandle{command->texture.handle};
             if (command->texture.valid() && bgfx::isValid(draw_texture))
@@ -297,17 +323,6 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
             occurrence_override != nullptr
                 ? &occurrence_override->value
                 : (assignment != nullptr ? &assignment->value : &uniform.default_value);
-        if (inputs.role == ShaderRole::Engine2D && uniform.name == "u_useTexture" &&
-            std::holds_alternative<std::monostate>(*value) &&
-            has_texture_assignment_for_sampler(material, "s_texColor")) {
-            const bool use_texture =
-                (inputs.quad_command != nullptr &&
-                 bgfx::isValid(bgfx::TextureHandle{inputs.quad_command->texture.handle})) ||
-                bgfx::isValid(m_fallback_texture);
-            const std::array<float, 4> packed = {use_texture ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
-            bgfx::setUniform(uniform_handle(uniform.name), packed.data());
-            continue;
-        }
         const auto packed = pack_material_uniform(*value);
         if (!packed.supported)
             continue;
@@ -316,6 +331,21 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
 
     uint8_t texture_stage = inputs.first_texture_stage;
     for (const auto& sampler : resolution.samplers) {
+        if (const auto* slot = find_contract_sampler(inputs.role, sampler.name);
+            slot != nullptr && slot->semantic == engine_draw_texture_semantic) {
+            const auto draw =
+                resolve_renderer_draw_texture(inputs.quad_command, m_neutral_draw_texture);
+            if (!bgfx::isValid(draw.texture)) {
+                add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
+                               material_context(material_id, inputs.role),
+                               "renderer-owned draw texture is unavailable");
+                return {};
+            }
+            bgfx::setTexture(slot->stage, sampler_handle(sampler.name), draw.texture,
+                             bgfx_sampler_flags(draw.sampler));
+            texture_stage = std::max<uint8_t>(texture_stage, static_cast<uint8_t>(slot->stage + 1));
+            continue;
+        }
         if (sampler.binding == ShaderSamplerSemantic::EngineHotspotImage) {
             if (!bgfx::isValid(inputs.hotspot_image)) {
                 add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
@@ -346,17 +376,30 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
         }
 
         const auto* assignment = find_texture_assignment(material, sampler.name);
-        if (assignment == nullptr)
+        if (assignment == nullptr) {
+            add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
+                           material_context(material_id, inputs.role),
+                           "material sampler '" + sampler.name + "' has no texture source");
+            if (bgfx::isValid(m_fallback_texture)) {
+                bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), m_fallback_texture,
+                                 bgfx_sampler_flags(MaterialTextureSampler::ClampLinear));
+            }
             continue;
+        }
         const MaterialTextureSampler filtering =
-            assignment->source == draw_texture_source && inputs.quad_command != nullptr
+            assignment->source == legacy_draw_texture_source && inputs.quad_command != nullptr
                 ? resolve_draw_texture_sampler(assignment->filtering,
                                                inputs.quad_command->texture_sampler)
                 : assignment->filtering;
         const auto texture =
             texture_for_source(assignment->source, inputs.quad_command, filtering, diagnostics);
-        if (!bgfx::isValid(texture))
+        if (!bgfx::isValid(texture)) {
+            if (bgfx::isValid(m_fallback_texture)) {
+                bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), m_fallback_texture,
+                                 bgfx_sampler_flags(MaterialTextureSampler::ClampLinear));
+            }
             continue;
+        }
         bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), texture,
                          bgfx_sampler_flags(filtering));
     }

@@ -108,7 +108,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:00e98cec3cc3de8a674754fcbd00417e");
+    CHECK(project.save_contract == "sc1:69d02662fb404360ca074e92b256826c");
     CHECK(project.properties.size() == 14);
     CHECK(project.assets.size() == 7);
     CHECK(project.layouts.size() == 2);
@@ -462,11 +462,12 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(postprocess_add.order == 2);
         CHECK(postprocess_add.parameters.size() == 1);
         const auto& background_material =
-            std::get<MaterialParameterInstruction>(opening.program.instructions[15]);
-        CHECK(background_material.parameter == "u_useTexture");
-        CHECK(background_material.transition == MaterialParameterTransition::None);
+            std::get<SetBackgroundInstruction>(opening.program.instructions[15]);
+        REQUIRE(background_material.background.material.has_value());
+        CHECK(background_material.background.material->text() == "sprite-material");
+        CHECK(background_material.transition == BackgroundTransition::None);
         CHECK(background_material.duration_ms == 0);
-        CHECK(background_material.clock == MaterialClock::Gameplay);
+        CHECK(std::holds_alternative<ImmediateWait>(background_material.wait));
         const auto& postprocess_material =
             std::get<MaterialParameterInstruction>(opening.program.instructions[16]);
         CHECK(postprocess_material.parameter == "u_tint");

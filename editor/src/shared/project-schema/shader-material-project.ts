@@ -3,6 +3,7 @@ import type { ShaderCompileOutput } from '../editor-tooling';
 import { sha256HexUtf8 } from '../web-crypto';
 import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject } from './authoring-project';
+import { materialContractRegistry } from './material-contract-registry.generated';
 import { materialPresets } from './authoring-material-presets';
 import {
   materialBlendValues,
@@ -677,6 +678,15 @@ function buildRuntimeShader(
       };
     for (const [name, value] of Object.entries(resolved.preset.samplers))
       samplers[name] = { type: 'texture2d', binding: value.binding ?? null };
+    if (resolved.role === 'engine-2d') {
+      const roleContract = materialContractRegistry.roles.find((role) => role.id === resolved.role);
+      const drawTextureSampler = roleContract?.reservedInterface.samplers.find(
+        (sampler) =>
+          sampler.sourceOwnership === 'renderer' && sampler.semantic === 'engine.draw_texture',
+      );
+      if (drawTextureSampler)
+        samplers[drawTextureSampler.name] = { type: 'texture2d', binding: null };
+    }
   }
   const candidate = {
     display_name: custom ? `Derived ${resolved.preset.label}` : resolved.preset.label,

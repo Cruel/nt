@@ -581,7 +581,7 @@ TEST_CASE(
 
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
-    REQUIRE(kernel->state().material_parameters().size() == 2);
+    REQUIRE(kernel->state().material_parameters().size() == 1);
     CHECK(std::ranges::any_of(kernel->state().material_parameters(), [](const auto& parameter) {
         return parameter.parameter == "u_tint" && parameter.value.has_value();
     }));

@@ -4294,9 +4294,6 @@ TEST_CASE("runtime Lua Material Parameters and postprocess effects stay semantic
         fixture,
         "local ok, err = noveltea.presentation.set_background({owner='session', "
         "material='sprite-material', color='#ffffff'}); assert(ok and err == nil)\n"
-        "ok, err = noveltea.presentation.set_material_parameter({kind='background'}, "
-        "'sprite-material', 'u_useTexture', 0.2, "
-        "{owner='session', clock='gameplay'}); assert(ok and err == nil)\n"
         "ok, err = noveltea.presentation.set_postprocess('lua-grade', "
         "'scene-postprocess-material', {owner='session', scope='world', order=7, "
         "clock='unscaled-presentation'}); assert(ok and err == nil)\n"
@@ -4309,14 +4306,15 @@ TEST_CASE("runtime Lua Material Parameters and postprocess effects stay semantic
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
     REQUIRE(flushed.diagnostics.empty());
     REQUIRE(flushed.publication);
-    REQUIRE(flushed.publication->presentation.material_parameters.size() == 2);
+    REQUIRE(flushed.publication->presentation.material_parameters.size() == 1);
     REQUIRE(flushed.publication->presentation.postprocess_effects.size() == 1);
 
     REQUIRE(execute_session_lua(
         fixture,
-        "local parameter, err = noveltea.presentation.material_parameter({kind='background'}, "
-        "'sprite-material', 'u_useTexture', {owner='session'}); assert(parameter ~= nil and "
-        "err == nil and parameter.clock == 'gameplay' and parameter.value == 0.2)\n"
+        "local parameter, err = noveltea.presentation.material_parameter({kind='postprocess', "
+        "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_tint', "
+        "{owner='session'}); assert(parameter ~= nil and err == nil and "
+        "parameter.clock == 'unscaled-presentation' and parameter.value.r == 0.75)\n"
         "local effect; effect, err = noveltea.presentation.postprocess('lua-grade', "
         "{owner='session'}); assert(effect ~= nil and err == nil and "
         "effect.material == 'scene-postprocess-material' and effect.scope == 'world' and "
@@ -4326,30 +4324,7 @@ TEST_CASE("runtime Lua Material Parameters and postprocess effects stay semantic
 
     REQUIRE(execute_session_lua(
         fixture,
-        "local ok, err = noveltea.presentation.clear_material_parameter({kind='background'}, "
-        "'sprite-material', 'u_useTexture', {owner='session'}); assert(ok and err == nil)\n"
-        "ok, err = noveltea.presentation.bind_material_parameter({kind='background'}, "
-        "'sprite-material', 'u_useTexture', "
-        "{kind='standard-facet', facet='occurrence-time'}, "
-        "{owner='session', clock='unscaled-presentation'}); assert(ok and err == nil)",
-        "typed-material-presentation-bind"));
-    auto bound = fixture.session->dispatch(
-        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
-    REQUIRE(bound.diagnostics.empty());
-    REQUIRE(execute_session_lua(
-        fixture,
-        "local parameter, err = noveltea.presentation.material_parameter({kind='background'}, "
-        "'sprite-material', 'u_useTexture', {owner='session'}); "
-        "assert(parameter ~= nil and err == nil and parameter.value == nil "
-        "and parameter.binding.kind == 'standard-facet' and "
-        "parameter.binding.facet == 'occurrence-time')",
-        "typed-material-presentation-binding-query"));
-
-    REQUIRE(execute_session_lua(
-        fixture,
-        "local ok, err = noveltea.presentation.clear_material_parameter({kind='background'}, "
-        "'sprite-material', 'u_useTexture', {owner='session'}); assert(ok and err == nil)\n"
-        "ok, err = noveltea.presentation.clear_material_parameter({kind='postprocess', "
+        "local ok, err = noveltea.presentation.clear_material_parameter({kind='postprocess', "
         "instance_id='lua-grade'}, 'scene-postprocess-material', 'u_tint', "
         "{owner='session'}); assert(ok and err == nil)\n"
         "ok, err = noveltea.presentation.clear_postprocess('lua-grade', {owner='session'}); "

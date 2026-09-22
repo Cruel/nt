@@ -2752,28 +2752,19 @@
               "completionDependencies": [],
               "id": "actor-material",
               "instruction": {
-                "clock": "gameplay",
+                "asset": null,
+                "color": null,
                 "durationMs": 0,
-                "easing": "linear",
+                "fit": "cover",
                 "id": "actor-material",
-                "kind": "material-parameter",
+                "kind": "set-background",
                 "material": {
                   "id": "sprite-material",
                   "kind": "material"
                 },
                 "owner": "invocation",
-                "parameter": "u_useTexture",
                 "skippable": true,
-                "target": {
-                  "kind": "actor",
-                  "layerId": "body",
-                  "slotId": "hero-stage"
-                },
                 "transition": "none",
-                "value": {
-                  "type": "float",
-                  "value": 1
-                },
                 "waitForCompletion": false
               },
               "timeline": {
@@ -2786,28 +2777,19 @@
               "completionDependencies": [],
               "id": "layout-material",
               "instruction": {
-                "clock": "gameplay",
+                "asset": null,
+                "color": null,
                 "durationMs": 0,
-                "easing": "linear",
+                "fit": "cover",
                 "id": "layout-material",
-                "kind": "material-parameter",
+                "kind": "set-background",
                 "material": {
                   "id": "sprite-material",
                   "kind": "material"
                 },
                 "owner": "invocation",
-                "parameter": "u_useTexture",
                 "skippable": true,
-                "target": {
-                  "kind": "actor",
-                  "layerId": "body",
-                  "slotId": "hero-stage"
-                },
                 "transition": "none",
-                "value": {
-                  "type": "float",
-                  "value": 0
-                },
                 "waitForCompletion": false
               },
               "timeline": {
@@ -6370,13 +6352,7 @@
       },
       {
         "id": "sprite-material",
-        "parameters": [
-          {
-            "name": "u_useTexture",
-            "rendererBinding": null,
-            "type": "float"
-          }
-        ],
+        "parameters": [],
         "postprocessScope": "world",
         "role": "engine-2d"
       }
@@ -6405,7 +6381,7 @@
       }
     ]
   },
-  "saveContract": "sc1:fbdfa75a02044410acf3c08ab7d6512c",
+  "saveContract": "sc1:d810effbd39c64895e425b4be392537d",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

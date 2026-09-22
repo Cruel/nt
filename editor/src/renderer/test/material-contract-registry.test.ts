@@ -37,7 +37,7 @@ describe('Material contract registry projection', () => {
     }
   });
 
-  it('projects the canonical renderer-owned Engine2D draw texture contract without changing the current authoring preset shape', () => {
+  it('projects the canonical renderer-owned Engine2D draw texture contract without exposing it as author configuration', () => {
     const role = materialContractRegistry.roles.find((candidate) => candidate.id === 'engine-2d');
     expect(role?.reservedInterface.samplers).toContainEqual({
       name: 's_texColor',
@@ -50,10 +50,8 @@ describe('Material contract registry projection', () => {
       observation: 'rgba-color',
     });
 
-    expect(materialPresets['engine-2d'].uniforms).toEqual({
-      u_useTexture: { type: 'float', default: 1, label: 'Use Texture' },
-    });
-    expect(materialPresets['engine-2d'].samplers).toEqual({ s_texColor: {} });
+    expect(materialPresets['engine-2d'].uniforms).toEqual({});
+    expect(materialPresets['engine-2d'].samplers).toEqual({});
   });
 
   it('describes strict hotspot sampler capability differences in the generated contract', () => {

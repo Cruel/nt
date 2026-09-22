@@ -1147,14 +1147,11 @@ TEST_CASE("occurrence Material Parameters enforce binding authority and bounded 
                                              compiled::BackgroundFit::Cover, sprite_material}}));
 
     const MaterialOccurrence background = BackgroundMaterialOccurrence{};
-    REQUIRE(state.upsert_material_parameter(
+    CHECK_FALSE(state.upsert_material_parameter(
         compiled_project,
         DesiredMaterialParameter{owner, background, sprite_material, "u_useTexture", 0.5,
                                  std::nullopt, MaterialClockPolicy::Gameplay}));
-    REQUIRE(state.material_parameter(background, owner, sprite_material, "u_useTexture") !=
-            nullptr);
-
-    REQUIRE(state.remove_material_parameter(background, owner, sprite_material, "u_useTexture"));
+    CHECK(state.material_parameter(background, owner, sprite_material, "u_useTexture") == nullptr);
 
     for (std::size_t index = 0; index < max_postprocess_effects_per_scope; ++index) {
         const auto instance = id<PostprocessEffectInstanceId>("fx-" + std::to_string(index));

@@ -1,3 +1,4 @@
+import { materialContractRegistry } from '../../shared/project-schema/material-contract-registry.generated';
 import type { ShaderUniformValue } from '../../shared/project-schema/authoring-shaders';
 import type {
   MaterialPreviewProjectResources,
@@ -68,21 +69,24 @@ const FALLBACK_VERTEX_SOURCE = `#version 300 es
 precision mediump float;
 in vec2 a_position;
 in vec2 a_texcoord0;
+in vec4 a_color0;
 out vec2 v_texcoord0;
+out vec4 v_color0;
 void main() {
   v_texcoord0 = a_texcoord0;
+  v_color0 = a_color0;
   gl_Position = vec4(a_position, 0.0, 1.0);
 }`;
 
 const FALLBACK_FRAGMENT_SOURCE = `#version 300 es
 precision mediump float;
 in vec2 v_texcoord0;
+in vec4 v_color0;
 uniform sampler2D s_texColor;
-uniform float u_useTexture;
 out vec4 fragColor;
 void main() {
-  vec4 sampled = texture(s_texColor, v_texcoord0);
-  fragColor = mix(vec4(1.0), sampled, clamp(u_useTexture, 0.0, 1.0));
+  vec4 color = v_color0 * texture(s_texColor, v_texcoord0);
+  fragColor = vec4(color.rgb * color.a, color.a);
 }`;
 
 const POSTPROCESS_TINT_FRAGMENT_SOURCE = `#version 300 es
@@ -308,8 +312,36 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
     const geometry = this.bindGeometry(program, resource.resolved.preview.geometry);
     setIdentityTransform(gl, program);
 
-    const textureEntries = Object.entries(resource.textures);
+    const roleContract = materialContractRegistry.roles.find(
+      (role) => role.id === resource.resolved.role,
+    );
+    const drawSampler =
+      resource.resolved.role === 'engine-2d'
+        ? roleContract?.reservedInterface.samplers.find(
+            (sampler) =>
+              sampler.sourceOwnership === 'renderer' && sampler.semantic === 'engine.draw_texture',
+          )
+        : undefined;
     let textureUnit = 0;
+    if (drawSampler) {
+      const representativeTexture = this.textureFor(
+        '__engine_draw_texture_fixture__',
+        null,
+        'clamp-linear',
+        false,
+      );
+      if (representativeTexture) {
+        textureUnit = drawSampler.stage;
+        gl.activeTexture(gl.TEXTURE0 + textureUnit);
+        gl.bindTexture(gl.TEXTURE_2D, representativeTexture);
+        const sampler = gl.getUniformLocation(program, drawSampler.name);
+        if (sampler) gl.uniform1i(sampler, textureUnit);
+        textureUnit += 1;
+      }
+    }
+    const textureEntries = Object.entries(resource.textures).filter(
+      ([name]) => name !== drawSampler?.name,
+    );
     for (const [name, textureResource] of textureEntries) {
       const filtering = resource.resolved.textures[name]?.filtering ?? 'clamp-linear';
       const texture = this.textureFor(textureResource.key, textureResource.image, filtering);
@@ -320,7 +352,7 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
       if (sampler) gl.uniform1i(sampler, textureUnit);
       textureUnit += 1;
     }
-    if (textureEntries.length === 0) {
+    if (textureUnit === 0) {
       const representativeTexture = this.textureFor('__representative__', null, 'clamp-linear');
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, representativeTexture);
@@ -334,7 +366,6 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
     for (const [name, value] of Object.entries(surface.parameterOverrides ?? {}))
       setUniformValue(gl, program, name, value);
     setUniformValue(gl, program, 'u_time', timeSeconds);
-    setUniformValue(gl, program, 'u_useTexture', textureEntries.length > 0 ? 1 : 0);
     setUniformValue(
       gl,
       program,
@@ -447,8 +478,9 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
     key: string,
     image: TexImageSource | null,
     filtering: MaterialPreviewResource['resolved']['textures'][string]['filtering'],
+    premultiplyAlpha = true,
   ) {
-    const cacheKey = `${key}:${filtering}`;
+    const cacheKey = `${key}:${filtering}:${premultiplyAlpha ? 'premultiplied' : 'straight'}`;
     const existing = this.textureCache.get(cacheKey);
     if (existing) return existing;
     const gl = this.gl;
@@ -461,7 +493,7 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, premultiplyAlpha);
     if (image) {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
     } else {

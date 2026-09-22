@@ -118,6 +118,8 @@ Author-settable texture slots may use:
 
 Asset references participate in Project reference validation. Engine-bound sampler slots cannot be overridden by Material authoring.
 
+For the `engine-2d` role, `s_texColor` is the renderer-owned `engine.draw_texture` input. A Material does not author a texture source for that sampler: each draw binds the current sprite/draw texture, or a neutral opaque-white texture when the draw has no visual texture. The same contract-owned fixture behavior is used by Material preview, so preview data does not synthesize an authored `s_texColor` assignment. Engine2D output is premultiplied RGBA and uses the role's premultiplied-alpha pipeline state.
+
 ## Validation
 
 Material validation and resolution cover:

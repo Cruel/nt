@@ -70,6 +70,7 @@ describe('canonical Material shader lowering', () => {
       role: 'engine-2d',
       shader: 'preset-engine-2d',
       blend: 'premultiplied-alpha',
+      textures: {},
     });
     expect(built.project.shaders['preset-engine-2d']).toMatchObject({
       stages: {
@@ -77,6 +78,7 @@ describe('canonical Material shader lowering', () => {
         fragment: { compiled: expect.any(Object) },
       },
       roles: ['engine-2d'],
+      samplers: { s_texColor: { type: 'texture2d', binding: null } },
     });
   });
 
@@ -423,6 +425,7 @@ describe('canonical Material shader lowering', () => {
       output('vertex', []),
       output('fragment', [
         { name: 'u_amount', kind: 'uniform', type: 'float', arraySize: 1 },
+        { name: 's_texColor', kind: 'sampled-image', type: 'sampler2D', arraySize: 1 },
         { name: 's_noise', kind: 'sampled-image', type: 'sampler2D', arraySize: 1 },
       ]),
     ]);
@@ -438,7 +441,10 @@ describe('canonical Material shader lowering', () => {
     });
     expect(built.project.shaders[shaderId!]).toMatchObject({
       uniforms: { u_amount: { type: 'float' } },
-      samplers: { s_noise: { type: 'texture2d' } },
+      samplers: {
+        s_texColor: { type: 'texture2d' },
+        s_noise: { type: 'texture2d' },
+      },
       stages: {
         fragment: {
           compiled: {

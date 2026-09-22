@@ -467,13 +467,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   addAsset(project, 'binary-blob', 'binary', 'assets/binary/blob.bin');
 
   const material = defaultMaterialData('Sprite Material', 'engine-2d');
-  material.parameters = { u_useTexture: { value: 1 } };
-  material.textures = {
-    s_texColor: {
-      source: assetReference('image-main'),
-      filtering: 'repeat-linear',
-    },
-  };
   project.materials['sprite-material'] = {
     id: 'sprite-material',
     label: 'Sprite Material',
@@ -1308,18 +1301,9 @@ export function sceneProgramGoldenProject(): AuthoringProject {
       parameters: [{ name: 'u_tint', value: { r: 0.4, g: 0.4, b: 0.4, a: 1 } }],
     },
     {
-      ...defaultSceneStep('material-parameter'),
+      ...defaultSceneStep('set-background'),
       id: 'background-material',
-      target: { kind: 'background' },
       material: sceneMaterialRef('sprite-material'),
-      parameter: 'u_useTexture',
-      value: 0.9,
-      transition: 'none',
-      durationMs: 0,
-      easing: 'linear',
-      clock: 'gameplay',
-      waitForCompletion: false,
-      skippable: true,
     },
     {
       ...defaultSceneStep('material-parameter'),
@@ -2427,20 +2411,14 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
       position: 'center',
     },
     {
-      ...defaultSceneStep('material-parameter'),
+      ...defaultSceneStep('set-background'),
       id: 'actor-material',
-      target: { kind: 'actor', slotId: 'hero-stage', layerId: 'body' },
       material: sceneMaterialRef('sprite-material'),
-      parameter: 'u_useTexture',
-      value: 1,
     },
     {
-      ...defaultSceneStep('material-parameter'),
+      ...defaultSceneStep('set-background'),
       id: 'layout-material',
-      target: { kind: 'actor', slotId: 'hero-stage', layerId: 'body' },
       material: sceneMaterialRef('sprite-material'),
-      parameter: 'u_useTexture',
-      value: 0,
     },
     {
       ...defaultSceneStep('transition-group'),

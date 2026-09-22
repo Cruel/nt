@@ -1566,8 +1566,8 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
                                              std::nullopt, std::string{"#ffffff"},
                                              compiled::BackgroundFit::Cover, sprite_material}}));
     const MaterialOccurrence background = BackgroundMaterialOccurrence{};
-    REQUIRE(state.upsert_material_parameter(
-        project, DesiredMaterialParameter{owner, background, sprite_material, "u_useTexture", 0.2,
+    CHECK_FALSE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, background, sprite_material, "u_removed", 0.2,
                                           std::nullopt, MaterialClockPolicy::Gameplay}));
 
     const auto effect_id = id<PostprocessEffectInstanceId>("saved-grade");
@@ -1584,7 +1584,7 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
 
     auto saved = make_save_state(project, state);
     REQUIRE(saved);
-    CHECK(saved.value().material_parameters.size() == 2);
+    CHECK(saved.value().material_parameters.size() == 1);
     CHECK(saved.value().postprocess_effects.size() == 1);
 
     auto encoded = encode_save_state(project, saved.value());
@@ -1594,7 +1594,7 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
     auto restored = test_support::restore_session(project, decoded.value());
     REQUIRE(restored);
 
-    REQUIRE(restored.value().material_parameters().size() == 2);
+    REQUIRE(restored.value().material_parameters().size() == 1);
     REQUIRE(restored.value().postprocess_effects().size() == 1);
     const auto& restored_effect = restored.value().postprocess_effects().front();
     CHECK(restored_effect.instance == effect_id);

@@ -535,6 +535,12 @@ TEST_CASE("Material contract registry exposes stable V1 identities and renderer-
     CHECK(engine_preset->contract_identity == "noveltea.material-preset:engine-2d:1");
     CHECK(engine_preset->contract_fingerprint.starts_with("sha256:"));
     CHECK(engine_preset->contract_fingerprint.size() == 71);
+    CHECK(engine_preset->compatibility_projection_json.find("u_useTexture") ==
+          std::string_view::npos);
+    CHECK(engine_preset->compatibility_projection_json.find("s_texColor") ==
+          std::string_view::npos);
+    CHECK(engine_role->pipeline_state.blend == "premultiplied-alpha");
+    CHECK(engine_role->pipeline_state.output_alpha == "premultiplied");
     CHECK(noveltea::material_contract_fingerprint_algorithm() == "sha256");
     CHECK(noveltea::material_contract_fingerprint_encoding() == "canonical-json-v1");
 }
