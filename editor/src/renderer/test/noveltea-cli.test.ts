@@ -1619,6 +1619,10 @@ describe('NovelTea headless CLI', () => {
       },
       async exportPackage(request) {
         receivedOptions = (request as { options?: unknown }).options;
+        await value.fileSystem.writeBytesAtomic(
+          (request as { outputPath: string }).outputPath,
+          new TextEncoder().encode('runtime-package'),
+        );
         return { ok: true, success: true };
       },
       async validateFontCoverage() {
@@ -1649,6 +1653,89 @@ describe('NovelTea headless CLI', () => {
     expect(receivedOptions).toMatchObject({ stripShaderSources: false });
   });
 
+  it('keeps the published Runtime Package unchanged when a pinned external Asset drifts', async () => {
+    const value = fixture(validProject(), true);
+    const assetPath = `${root}/assets/pinned.bin`;
+    const outputPath = `${root}/dist/game.ntpkg`;
+    await value.fileSystem.writeBytesAtomic(assetPath, new TextEncoder().encode('asset-v1'));
+    await value.fileSystem.writeBytesAtomic(
+      outputPath,
+      new TextEncoder().encode('previous-package'),
+    );
+    const pinned = await value.fileSystem.readPathMetadata!(assetPath);
+    let stagedPath = '';
+    const nativeTools: NovelTeaCliNativeToolService = {
+      ...validationNativeTools(),
+      async exportPackage(request) {
+        stagedPath = (request as { outputPath: string }).outputPath;
+        await value.fileSystem.writeBytesAtomic(
+          stagedPath,
+          new TextEncoder().encode('new-package'),
+        );
+        await value.fileSystem.writeBytesAtomic(assetPath, new TextEncoder().encode('asset-v2'));
+        return { ok: true, success: true };
+      },
+    };
+
+    const result = await runNovelTeaCli(
+      ['--json', 'package', 'export', '--output', 'dist/game.ntpkg'],
+      {
+        ...options(value, root, nativeTools),
+        pinnedExternalAssets: [
+          {
+            path: 'assets/pinned.bin',
+            byteSize: pinned.byteSize,
+            mtimeNanoseconds: pinned.mtimeNanoseconds,
+          },
+        ],
+      },
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout).toContain('export.pinned_input_changed');
+    expect(await value.fileSystem.readText(outputPath)).toBe('previous-package');
+    expect(await value.fileSystem.inspect(stagedPath)).toBe('missing');
+  });
+
+  it('atomically replaces the Runtime Package from staging after pinned inputs remain current', async () => {
+    const value = fixture(validProject(), true);
+    const assetPath = `${root}/assets/pinned.bin`;
+    const outputPath = `${root}/dist/game.ntpkg`;
+    await value.fileSystem.writeBytesAtomic(assetPath, new TextEncoder().encode('asset-v1'));
+    await value.fileSystem.writeBytesAtomic(
+      outputPath,
+      new TextEncoder().encode('previous-package'),
+    );
+    const pinned = await value.fileSystem.readPathMetadata!(assetPath);
+    const nativeTools: NovelTeaCliNativeToolService = {
+      ...validationNativeTools(),
+      async exportPackage(request) {
+        await value.fileSystem.writeBytesAtomic(
+          (request as { outputPath: string }).outputPath,
+          new TextEncoder().encode('new-package'),
+        );
+        return { ok: true, success: true };
+      },
+    };
+
+    const result = await runNovelTeaCli(
+      ['--json', 'package', 'export', '--output', 'dist/game.ntpkg'],
+      {
+        ...options(value, root, nativeTools),
+        pinnedExternalAssets: [
+          {
+            path: 'assets/pinned.bin',
+            byteSize: pinned.byteSize,
+            mtimeNanoseconds: pinned.mtimeNanoseconds,
+          },
+        ],
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(await value.fileSystem.readText(outputPath)).toBe('new-package');
+  });
+
   it('requires an explicit localization warning override for unattended Runtime Package export', async () => {
     const project = validProject();
     project.localization.locales.fr = {
@@ -1673,8 +1760,12 @@ describe('NovelTea headless CLI', () => {
       async runUiTest() {
         return { ok: true, success: true };
       },
-      async exportPackage() {
+      async exportPackage(request) {
         exports += 1;
+        await value.fileSystem.writeBytesAtomic(
+          (request as { outputPath: string }).outputPath,
+          new TextEncoder().encode('runtime-package'),
+        );
         return { ok: true, success: true };
       },
       async validateFontCoverage() {

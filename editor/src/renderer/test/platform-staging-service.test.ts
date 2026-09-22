@@ -413,6 +413,25 @@ describe('platform staging service', () => {
     ).toBe(true);
   });
 
+  it('does not publish staged output when the final pinned-input check fails', async () => {
+    const { request } = await fixture();
+    fs.mkdirSync(request.outputDirectory);
+    fs.writeFileSync(path.join(request.outputDirectory, 'old'), 'old');
+
+    const result = await stagePlatformExport(
+      request,
+      async () =>
+        "Pinned external Asset 'assets/background.png' changed while export work was running.",
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'platform-export-input-drift' })]),
+    );
+    expect(fs.readFileSync(path.join(request.outputDirectory, 'old'), 'utf8')).toBe('old');
+    expect(fs.existsSync(`${request.outputDirectory}.tar.gz`)).toBe(false);
+  });
+
   it('emits a ZIP when the Linux profile selects the ZIP artifact', async () => {
     const { request } = await fixture();
     if (request.profile.target !== 'linux') throw new Error('Expected Linux fixture profile.');

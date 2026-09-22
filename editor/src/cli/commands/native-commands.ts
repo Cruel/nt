@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
@@ -26,6 +27,7 @@ import type { CliSemanticResult } from '../semantic-project';
 import type { CliCommandContext, CliCommandDefinition, CliCommandInvocation } from './types';
 import { CliCommandUsageError } from './types';
 import { executeCachedRuntimeArtifactWithRecovery } from '../../shared/runtime-cache-native-consumer';
+import { verifyPinnedExternalAssets } from '../pinned-external-assets';
 
 const shaderVariantIds = new Set(['glsl-330', 'essl-300', 'metal']);
 const runtimeBuildCacheProcessLiveness = new NodeProjectWorkspaceProcessLiveness();
@@ -70,6 +72,59 @@ function valueOption(arguments_: readonly string[], option: string): string | un
   if (!value || value.startsWith('--'))
     throw new CliCommandUsageError(`${option} requires a value.`);
   return value;
+}
+
+async function removeFileIfPresent(context: CliCommandContext, value: string): Promise<void> {
+  const kind = context.fileSystem.readPathMetadata
+    ? (await context.fileSystem.readPathMetadata(value)).kind
+    : await context.fileSystem.inspect(value).catch(() => 'missing' as const);
+  if (kind === 'file') await context.fileSystem.removeFile(value);
+}
+
+async function publishStagedPackage(
+  context: CliCommandContext,
+  stagedPath: string,
+  outputPath: string,
+): Promise<CliSemanticResult | null> {
+  const target = context.fileSystem.readPathMetadata
+    ? await context.fileSystem.readPathMetadata(outputPath)
+    : { kind: await context.fileSystem.inspect(outputPath).catch(() => 'missing' as const) };
+  if (target.kind !== 'missing' && target.kind !== 'file')
+    return {
+      ok: false,
+      diagnostics: [
+        cliDiagnostic(
+          'export.output_invalid',
+          '/output',
+          `Runtime Package output '${outputPath}' is not a replaceable regular file.`,
+        ),
+      ],
+    };
+  const backupPath = `${outputPath}.previous-${randomUUID()}`;
+  let backedUp = false;
+  try {
+    if (target.kind === 'file') {
+      await context.fileSystem.movePathAtomic(outputPath, backupPath);
+      backedUp = true;
+    }
+    await context.fileSystem.movePathAtomic(stagedPath, outputPath);
+    if (backedUp) await removeFileIfPresent(context, backupPath);
+    return null;
+  } catch (error) {
+    await removeFileIfPresent(context, outputPath).catch(() => undefined);
+    if (backedUp)
+      await context.fileSystem.movePathAtomic(backupPath, outputPath).catch(() => undefined);
+    return {
+      ok: false,
+      diagnostics: [
+        cliDiagnostic(
+          'export.publish_failed',
+          '/output',
+          error instanceof Error ? error.message : 'Runtime Package publication failed.',
+        ),
+      ],
+    };
+  }
 }
 
 export const shadersCompileCommand: CliCommandDefinition = {
@@ -574,13 +629,42 @@ export const packageExportCommand: CliCommandDefinition = {
               ),
             ],
           };
-        return nativeSuccess(
-          await context.nativeTools.exportPackage({
+        const outputPath = path.resolve(context.cwd, output);
+        const stagedPath = `${outputPath}.tmp-${process.pid}-${randomUUID()}`;
+        try {
+          const response = await context.nativeTools.exportPackage({
             project: prepared.artifact.compiledProject,
-            outputPath: path.resolve(context.cwd, output),
+            outputPath: stagedPath,
             options: prepared.artifact.packageOptions,
-          }),
-        );
+          });
+          const native = nativeSuccess(response);
+          if (!native.ok) return native;
+          if (context.pinnedExternalAssets) {
+            const inputDiagnostics = await verifyPinnedExternalAssets(
+              context.fileSystem,
+              context.snapshot.projectRoot,
+              context.pinnedExternalAssets,
+            );
+            if (inputDiagnostics.length > 0) return { ok: false, diagnostics: inputDiagnostics };
+          }
+          if (context.abortSignal?.aborted)
+            return {
+              ok: false,
+              diagnostics: [
+                cliDiagnostic(
+                  'export.cancelled',
+                  '/output',
+                  'Runtime Package export was cancelled before publication.',
+                  'warning',
+                ),
+              ],
+            };
+          const publication = await publishStagedPackage(context, stagedPath, outputPath);
+          if (publication) return publication;
+          return nativeSuccess(response);
+        } finally {
+          await removeFileIfPresent(context, stagedPath).catch(() => undefined);
+        }
       },
     };
   },

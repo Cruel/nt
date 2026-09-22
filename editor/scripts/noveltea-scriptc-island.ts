@@ -306,6 +306,48 @@ export interface ScriptcInvocationContext {
   readonly prepareResidentSnapshotOnly?: boolean;
 }
 
+function pinnedExternalAssetsFromSnapshot(
+  snapshotText: string | undefined,
+):
+  | readonly import('../src/cli/pinned-external-assets').PinnedExternalAssetExpectation[]
+  | undefined {
+  if (!snapshotText) return undefined;
+  const parsed = JSON.parse(snapshotText) as { externalAssets?: unknown };
+  if (!Array.isArray(parsed.externalAssets))
+    throw new Error('Pinned portable Project snapshot is missing external Asset authority.');
+  return parsed.externalAssets.map((value) => {
+    if (!value || typeof value !== 'object')
+      throw new Error('Pinned portable Project snapshot has malformed external Asset authority.');
+    const record = value as Record<string, unknown>;
+    if (
+      typeof record.path !== 'string' ||
+      (record.sourceIdentity !== undefined && typeof record.sourceIdentity !== 'string') ||
+      (record.byteSize !== undefined &&
+        (!Number.isSafeInteger(record.byteSize) || (record.byteSize as number) < 0)) ||
+      (record.mtimeNanoseconds !== undefined &&
+        record.mtimeNanoseconds !== null &&
+        typeof record.mtimeNanoseconds !== 'string') ||
+      (record.contentHash !== undefined &&
+        record.contentHash !== null &&
+        typeof record.contentHash !== 'string')
+    )
+      throw new Error('Pinned portable Project snapshot has malformed external Asset authority.');
+    return {
+      path: record.path,
+      ...(typeof record.sourceIdentity === 'string'
+        ? { sourceIdentity: record.sourceIdentity }
+        : {}),
+      ...(typeof record.byteSize === 'number' ? { byteSize: record.byteSize } : {}),
+      ...(typeof record.mtimeNanoseconds === 'string' || record.mtimeNanoseconds === null
+        ? { mtimeNanoseconds: record.mtimeNanoseconds }
+        : {}),
+      ...(typeof record.contentHash === 'string' || record.contentHash === null
+        ? { contentHash: record.contentHash }
+        : {}),
+    };
+  });
+}
+
 export async function runNovelTeaScriptcIsland(
   argvText: string,
   invokeHost: ScriptcHostInvoke,
@@ -575,6 +617,13 @@ async function runNovelTeaScriptcIslandScoped(
         skipAuthoringWholeResultCache: true,
         ...(invocationContext.prepareResidentSnapshotOnly
           ? { prepareResidentSnapshotOnly: true }
+          : {}),
+        ...(invocationContext.pinnedProjectSnapshot
+          ? {
+              pinnedExternalAssets: pinnedExternalAssetsFromSnapshot(
+                invocationContext.pinnedProjectSnapshot.snapshotText,
+              ),
+            }
           : {}),
         ...(precomputedAuthoringCacheInventory ? { precomputedAuthoringCacheInventory } : {}),
         onAuthoringValidationInstrumentation:

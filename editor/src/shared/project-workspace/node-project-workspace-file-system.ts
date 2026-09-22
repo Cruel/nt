@@ -53,7 +53,11 @@ async function readNodePathMetadata(value: string): Promise<ProjectWorkspacePath
     const info = await fs.lstat(value, { bigint: true });
     const byteSize = Number(info.size);
     if (!Number.isSafeInteger(byteSize) || byteSize < 0) return { kind: 'other' };
-    const metadata = { byteSize, mtimeNanoseconds: info.mtimeNs.toString() };
+    const metadata = {
+      sourceIdentity: `posix:${info.dev.toString()}:${info.ino.toString()}`,
+      byteSize,
+      mtimeNanoseconds: info.mtimeNs.toString(),
+    };
     if (info.isSymbolicLink()) return { kind: 'symlink', ...metadata };
     if (info.isFile()) return { kind: 'file', ...metadata };
     if (info.isDirectory()) return { kind: 'directory', ...metadata };

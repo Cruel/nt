@@ -15,6 +15,7 @@ import type {
   ProjectWorkspaceService,
 } from '../../shared/project-workspace';
 import { CliCommandUsageError } from './errors';
+import type { PinnedExternalAssetExpectation } from '../pinned-external-assets';
 
 export { CliCommandUsageError } from './errors';
 
@@ -36,6 +37,7 @@ interface CliCommandContextBase {
   readonly onPlatformProgress?: (stage: string, message: string) => void;
   readonly abortSignal?: AbortSignal;
   readonly forceRuntimeCacheRebuild: boolean;
+  readonly pinnedExternalAssets?: readonly PinnedExternalAssetExpectation[];
 }
 
 export interface CliCommandContext extends CliCommandContextBase {

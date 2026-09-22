@@ -156,7 +156,13 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
   }
 
   if (family === 'package' && operation === 'export')
-    return { ...projectRead, replaySafe: false, streamedEvents: true, cancellation: true };
+    return {
+      ...projectRead,
+      executionClass: 'disposable-heavy',
+      replaySafe: false,
+      streamedEvents: true,
+      cancellation: true,
+    };
 
   if (family === 'platform') {
     if (operation === 'profiles') return projectRead;
@@ -166,7 +172,7 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
       return {
         ...projectRead,
         projectAccess: 'opaque-write',
-        executionClass: 'owner-mutation',
+        executionClass: 'disposable-heavy',
         replaySafe: false,
         streamedEvents: true,
         cancellation: true,

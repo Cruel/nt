@@ -195,6 +195,7 @@ export async function exportProjectToPlatform(
     compileShaders: typeof defaultNativeTools.compileShaders;
     exportPackage: typeof defaultNativeTools.exportPackage;
   }> = defaultNativeTools,
+  beforePublish?: () => Promise<string | null>,
 ): Promise<PlatformStageResult> {
   let request: ProjectPlatformExportRequest;
   try {
@@ -635,8 +636,9 @@ export async function exportProjectToPlatform(
               stageRequest,
               verifiedTemplate.descriptor,
               templateRootForToken(resolved.token),
+              beforePublish,
             )
-          : await stagePlatformExport(stageRequest);
+          : await stagePlatformExport(stageRequest, beforePublish);
       progress('finalizing', 'Finalizing platform artifacts');
       progress('verifying', 'Verifying generated artifacts and manifests');
       return result.success

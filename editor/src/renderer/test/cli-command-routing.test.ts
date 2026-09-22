@@ -106,6 +106,15 @@ describe('CLI semantic command routing', () => {
       staticCompletion: 'runtime-cache',
       executionClass: 'disposable-heavy',
     });
+    expect(classifyNovelTeaCliCommand(['package', 'export'])).toMatchObject({
+      executionClass: 'disposable-heavy',
+    });
+    expect(classifyNovelTeaCliCommand(['platform', 'export'])).toMatchObject({
+      executionClass: 'disposable-heavy',
+    });
+    expect(classifyNovelTeaCliCommand(['platform', 'export', '--check'])).toMatchObject({
+      executionClass: 'owner-short',
+    });
   });
 
   it('declares stdin, streaming, and cancellation requirements semantically', () => {
