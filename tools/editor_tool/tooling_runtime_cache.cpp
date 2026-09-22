@@ -718,13 +718,18 @@ Json probe_authoring(const Json& request)
     if (!text)
         return response("unusable", "current-result-unreadable");
     const auto manifest = Json::parse(*text, nullptr, false);
-    if (!manifest.is_object() || manifest.size() != 6 ||
-        string_field(manifest, "projectRoot") != root_text ||
-        string_field(manifest, "schema") != "noveltea.authoring-cache" ||
-        string_field(manifest, "semanticKey") != semantic_key || !manifest.contains("inputs") ||
+    if (!manifest.is_object() || manifest.size() != 6 || !manifest.contains("inputs") ||
         !manifest["inputs"].is_array() || !manifest.contains("discoveryScopes") ||
-        !manifest.contains("result") || !validation_result_shape_valid(manifest["result"]))
-        return response("unusable", "cache-contract-changed");
+        !manifest.contains("result"))
+        return response("unusable", "cache-contract-shape-changed");
+    if (string_field(manifest, "projectRoot") != root_text)
+        return response("unusable", "cache-project-root-changed");
+    if (string_field(manifest, "schema") != "noveltea.authoring-cache")
+        return response("unusable", "cache-schema-changed");
+    if (string_field(manifest, "semanticKey") != semantic_key)
+        return response("unusable", "cache-semantic-key-changed");
+    if (!validation_result_shape_valid(manifest["result"]))
+        return response("unusable", "cache-result-contract-changed");
 
     const Json scopes =
         Json::array({{{"root", "i18n"},

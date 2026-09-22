@@ -46,6 +46,7 @@ import {
   type NovelTeaCliCommandResult,
   type NovelTeaCliDiagnostic,
 } from './contracts';
+import type { NovelTeaCliNativeToolService } from './native-tool-service';
 
 interface RunComfyUiCatalogCommandOptions {
   command: readonly string[];
@@ -54,6 +55,7 @@ interface RunComfyUiCatalogCommandOptions {
   cwd: string;
   fileSystem: ProjectWorkspaceFileSystem;
   workspace: ProjectWorkspaceService;
+  nativeTools?: NovelTeaCliNativeToolService;
   libraryOptions?: WorkflowLibraryServiceOptions;
   abortSignal?: AbortSignal;
   onRunProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
@@ -676,6 +678,16 @@ export async function runComfyUiCatalogCommand(
           plan: runPlan,
           outputs: result.outputs,
           force: runCommand.force,
+          registerStagedOutput: options.nativeTools?.registerStagedOutput
+            ? async (path) => options.nativeTools!.registerStagedOutput!(path)
+            : undefined,
+          commitStagedProjectAssets: options.nativeTools?.commitComfyUiAssetPublication
+            ? async (request) =>
+                (await options.nativeTools!.commitComfyUiAssetPublication!(request)) as Record<
+                  string,
+                  import('../main/services/comfyui-asset-publication-service').ComfyUiPublishedAssetOutput[]
+                >
+            : undefined,
         });
       } catch (error) {
         if (error instanceof ComfyUiRunError)

@@ -27,6 +27,17 @@ import type { CliTerminalContext } from './commands/types';
 import type { NovelTeaAgentKitPayload } from './agent-kit';
 import type { WorkflowLibraryServiceOptions } from '../main/services/comfyui-workflow-library-service';
 
+function certificationDelay(name: string): void {
+  if (process.env.NOVELTEA_CLI_CERTIFICATION !== '1') return;
+  const delay = Number(process.env[name] ?? '0');
+  if (!Number.isSafeInteger(delay) || delay <= 0 || delay > 5_000) return;
+  const deadline = Date.now() + delay;
+  while (Date.now() < deadline) {
+    // Certification-only deterministic race seam. The external certification process keeps
+    // mutating disk while this Project-owner QuickJS process is intentionally paused.
+  }
+}
+
 export class AuthoringValidationAuthorityMismatchError extends Error {
   constructor() {
     super('Authoring validation inputs no longer match the editor-authoritative disk generation.');
@@ -267,6 +278,28 @@ export async function runNovelTeaCli(
               return discovered.ok ? discovered.projectRoot : null;
             })()
         : null;
+    if (options.prepareResidentSnapshotOnly && opaqueProjectRoot && options.residentWorkspace) {
+      const opened = await options.residentWorkspace.open(opaqueProjectRoot);
+      if (!opened.ok)
+        return failure(
+          workspaceOpenExitCode(opened.diagnostics),
+          opened.diagnostics,
+          globals.json,
+          {
+            projectRoot: opaqueProjectRoot,
+          },
+        );
+      return formatCliResult(
+        {
+          success: true,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+          diagnostics: opened.diagnostics,
+          projectRoot: opaqueProjectRoot,
+        },
+        globals.json,
+        { success: 'NovelTea resident Project snapshot preparation succeeded.' },
+      );
+    }
     try {
       const { runComfyUiCatalogCommand } = await import('./comfyui-catalog-commands');
       const comfyUiCatalog = await runComfyUiCatalogCommand({
@@ -279,6 +312,7 @@ export async function runNovelTeaCli(
           routing.projectAccess === 'opaque-write' && options.residentWorkspace
             ? options.residentWorkspace
             : services.workspace,
+        nativeTools,
         libraryOptions: options.comfyUiWorkflowLibraryOptions,
         abortSignal: options.abortSignal,
         onRunProgress: options.onComfyUiProgress,
@@ -299,7 +333,7 @@ export async function runNovelTeaCli(
         globals.json,
       );
     } finally {
-      if (opaqueProjectRoot && options.residentWorkspace)
+      if (opaqueProjectRoot && options.residentWorkspace && !options.trustPinnedResidentSnapshot)
         await options.residentWorkspace.reconcileAfterOpaqueWrite(opaqueProjectRoot);
     }
   }
@@ -590,7 +624,7 @@ export async function runNovelTeaCli(
     // narrow on-disk cache is produced only by non-resident callers (editor/Node/no-daemon); daemon
     // resident results are retained/persisted by native maintenance after foreground completion.
     const validationInputs =
-      validationCache && !residentProjectSession && options.expectedAuthoringValidationInputs
+      validationCache && !residentProjectSession
         ? await validationCache.captureAuthoringValidationAuthorityInputs(
             services.fileSystem,
             activeOpened.opened.snapshot,
@@ -645,19 +679,25 @@ export async function runNovelTeaCli(
         pinnedExternalAssets: options.pinnedExternalAssets,
       });
     } finally {
-      if (routing.projectAccess === 'opaque-write' && options.residentWorkspace)
+      if (
+        routing.projectAccess === 'opaque-write' &&
+        options.residentWorkspace &&
+        !options.trustPinnedResidentSnapshot
+      )
         await options.residentWorkspace.reconcileAfterOpaqueWrite(discovery.projectRoot);
     }
 
     if (
       routing.projectAccess === 'read' &&
       activeWorkspace === options.residentWorkspace &&
-      !options.trustPinnedResidentSnapshot &&
-      !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))
+      !options.trustPinnedResidentSnapshot
     ) {
-      const retry = options.residentReadAttempt ?? 0;
-      if (retry < 2) return runNovelTeaCli(argv, { ...options, residentReadAttempt: retry + 1 });
-      throw new AuthoringValidationAuthorityMismatchError();
+      certificationDelay('NOVELTEA_CLI_CERTIFICATION_BEFORE_READ_PROOF_DELAY_MS');
+      if (!(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))) {
+        const retry = options.residentReadAttempt ?? 0;
+        if (retry < 2) return runNovelTeaCli(argv, { ...options, residentReadAttempt: retry + 1 });
+        throw new AuthoringValidationAuthorityMismatchError();
+      }
     }
 
     const diagnosticProjectionStarted = Date.now();
@@ -683,32 +723,23 @@ export async function runNovelTeaCli(
     }
     const diagnosticProjectionMs = Date.now() - diagnosticProjectionStarted;
     const cachePublicationStarted = Date.now();
-    if (validationCache && !residentProjectSession) {
+    if (validationCache && !residentProjectSession && validationInputs) {
       const exactResult = {
         success: semantic.ok,
         exitCode: semantic.ok ? 0 : (semantic.exitCode ?? semanticExitCode(diagnostics)),
         diagnostics,
         editorDiagnostics,
       };
-      // Persistence is restart acceleration, not foreground correctness. If an editor caller
-      // supplied an exact expected authority we already proved it above; ordinary cold/no-daemon
-      // validation captures its publication authority entirely after the result is known. Neither
-      // the physical inventory nor the cache write may hold the foreground validation open.
-      void (async () => {
-        const publishInputs =
-          validationInputs ??
-          (await validationCache.captureAuthoringValidationAuthorityInputs(
-            services.fileSystem,
-            activeOpened.opened.snapshot,
-          ));
-        if (publishInputs)
-          await validationCache.publishAuthoringCache(
-            services.fileSystem,
-            discovery.projectRoot,
-            publishInputs,
-            exactResult,
-          );
-      })().catch(() => {});
+      // Capture authority before semantic work; publication may prove that baseline, never replace
+      // it with newer disk state. Optional persistence still cannot hold the result open.
+      void validationCache
+        .publishAuthoringCache(
+          services.fileSystem,
+          discovery.projectRoot,
+          validationInputs,
+          exactResult,
+        )
+        .catch(() => {});
     }
     const cachePublicationMs = Date.now() - cachePublicationStarted;
     if (semantic.authoringValidationMetrics) {

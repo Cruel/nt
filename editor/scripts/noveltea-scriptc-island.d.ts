@@ -20,7 +20,6 @@ export interface ScriptcInvocationContext {
   readonly pinnedProjectSnapshot?: Readonly<{
     projectRoot: string;
     snapshotText: string;
-    ownerMetadataText: string;
   }>;
   readonly prepareResidentSnapshotOnly?: boolean;
 }
@@ -33,5 +32,9 @@ export declare function runNovelTeaScriptcIsland(
 ): Promise<string>;
 
 export declare function reconcileNovelTeaResidentProjects(): Promise<number>;
+export declare function commitNovelTeaResidentComfyUiAssetPublication(
+  requestText: string,
+  invokeHost: (operation: string, requestText: string) => string,
+): Promise<Readonly<Record<string, unknown>>>;
 export declare function prepareNovelTeaResidentProjectSnapshots(): Promise<number>;
 export declare function novelTeaResidentProjectSessionCount(): number;

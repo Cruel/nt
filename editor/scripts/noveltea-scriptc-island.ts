@@ -40,6 +40,28 @@ export async function reconcileNovelTeaResidentProjects(): Promise<number> {
   return advanced;
 }
 
+export async function commitNovelTeaResidentComfyUiAssetPublication(
+  requestText: string,
+  invokeHost: ScriptcHostInvoke,
+): Promise<Readonly<Record<string, unknown>>> {
+  if (!residentWorkspace || !residentFileSystem)
+    throw new Error('Resident Project owner is unavailable for ComfyUI Asset publication.');
+  residentInvokeHost = invokeHost;
+  const request = JSON.parse(requestText) as unknown;
+  if (request === null || typeof request !== 'object' || Array.isArray(request))
+    throw new Error('ComfyUI Asset publication request is malformed.');
+  const { publishStagedComfyUiAssets } =
+    await import('../src/main/services/comfyui-asset-publication-service');
+  const result = await publishStagedComfyUiAssets({
+    request:
+      request as import('../src/main/services/comfyui-asset-publication-service').ComfyUiStagedAssetPublicationRequest,
+    workspace: residentWorkspace,
+    fileSystem: residentFileSystem,
+  });
+  announceResidentProjectGenerations();
+  return result;
+}
+
 function portableSnapshotChunks(text: string): string[] {
   const chunks: string[] = [];
   const maxCodeUnits = 24 * 1024;
@@ -182,10 +204,35 @@ async function retainExactResidentValidation(
   );
 }
 
-function createNativeTools(invoke: ScriptcHostInvoke): NovelTeaCliNativeToolService {
+function createNativeTools(
+  invoke: ScriptcHostInvoke,
+  disposable = false,
+): NovelTeaCliNativeToolService {
   const call = (operation: string, request: unknown): unknown =>
     JSON.parse(invoke(operation, JSON.stringify(request))) as unknown;
   return {
+    ...(disposable
+      ? {
+          async registerStagedOutput(path: string) {
+            const response = call('daemon-register-staged-output', { path }) as {
+              ok?: boolean;
+              error?: string;
+            };
+            if (response.ok !== true)
+              throw new Error(response.error ?? 'Failed to register staged output cleanup.');
+          },
+          async commitComfyUiAssetPublication(request: unknown) {
+            const response = call('daemon-commit-comfyui-assets', request) as {
+              ok?: boolean;
+              result?: unknown;
+              error?: string;
+            };
+            if (response.ok !== true)
+              throw new Error(response.error ?? 'Failed to commit ComfyUI Asset publication.');
+            return response.result;
+          },
+        }
+      : {}),
     async compileShaders(shaderProject, options) {
       return call('compile-shaders', { shaderProject, options }) as Awaited<
         ReturnType<NovelTeaCliNativeToolService['compileShaders']>
@@ -344,7 +391,6 @@ export interface ScriptcInvocationContext {
   readonly pinnedProjectSnapshot?: Readonly<{
     projectRoot: string;
     snapshotText: string;
-    ownerMetadataText: string;
   }>;
   readonly prepareResidentSnapshotOnly?: boolean;
 }
@@ -440,7 +486,7 @@ async function runNovelTeaScriptcIslandScoped(
     publishResidentProjectSessionCount();
   }
   const effectiveArgv = argv;
-  const nativeTools = createNativeTools(invokeHost);
+  const nativeTools = createNativeTools(invokeHost, !!invocationContext.pinnedProjectSnapshot);
   const internal = await runInternalCommand(effectiveArgv, nativeTools, invokeHost);
   if (internal !== null) return internal;
 
@@ -570,16 +616,26 @@ async function runNovelTeaScriptcIslandScoped(
           invocationContext.residentProjectSessionEpoch,
         );
       }
-      const retainedProjectSnapshot =
-        invocationContext.residentProjectSnapshot ?? invocationContext.pinnedProjectSnapshot;
-      if (retainedProjectSnapshot && residentWorkspace) {
-        const retained = retainedProjectSnapshot;
+      if (invocationContext.residentProjectSnapshot && residentWorkspace) {
+        const retained = invocationContext.residentProjectSnapshot;
         const rehydrated = await residentWorkspace.rehydratePortableSnapshot(
           retained.projectRoot,
           retained.snapshotText,
           retained.ownerMetadataText,
         );
         if (rehydrated) trace(`resident Project snapshot rehydrated: ${retained.projectRoot}`);
+      }
+      if (invocationContext.pinnedProjectSnapshot && residentWorkspace) {
+        const pinned = invocationContext.pinnedProjectSnapshot;
+        const hydrated = await residentWorkspace.hydratePortableSnapshot(
+          pinned.projectRoot,
+          pinned.snapshotText,
+        );
+        if (!hydrated)
+          throw new Error(
+            'Pinned Project generation could not be hydrated from its portable snapshot.',
+          );
+        trace(`pinned Project snapshot hydrated: ${pinned.projectRoot}`);
       }
     }
   }

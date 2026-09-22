@@ -49,7 +49,11 @@ import {
   type AuthoringCollectionKey,
 } from '../project-schema/authoring-collections';
 import { entityIdSchema } from '../project-schema/authoring-common';
-import { authoringProjectSchema, type AuthoringProject } from '../project-schema/authoring-project';
+import {
+  authoringProjectSchema,
+  cloneAuthoringProject,
+  type AuthoringProject,
+} from '../project-schema/authoring-project';
 import { migrateLegacyAssetMemoryPolicyPercentages } from '../project-schema/platform-export-contracts';
 import {
   authoringLocalizationSchema,
@@ -707,16 +711,19 @@ function candidateWorkspaceFilesForAffectedPath(
   const [head, id] = segments;
   if (!head) return null;
   if (isAuthoringCollectionKey(head)) {
-    if (!id) return null;
-    const files = new Set<string>([recordFile(head, id)]);
-    if (head === 'layouts') {
-      files.add(layoutFile(id, 'rml'));
-      files.add(layoutFile(id, 'rcss'));
-      files.add(layoutFile(id, 'lua'));
-    } else if (head === 'scripts') {
-      const candidate = project.scripts[id];
-      if (candidate?.data.source.kind === 'inline-lua')
-        files.add(scriptSourcePaths[id] ?? `scripts/${id}.lua`);
+    const ids = id ? [id] : Object.keys(project[head]);
+    const files = new Set<string>();
+    for (const candidateId of ids) {
+      files.add(recordFile(head, candidateId));
+      if (head === 'layouts') {
+        files.add(layoutFile(candidateId, 'rml'));
+        files.add(layoutFile(candidateId, 'rcss'));
+        files.add(layoutFile(candidateId, 'lua'));
+      } else if (head === 'scripts') {
+        const candidate = project.scripts[candidateId];
+        if (candidate?.data.source.kind === 'inline-lua')
+          files.add(scriptSourcePaths[candidateId] ?? `scripts/${candidateId}.lua`);
+      }
     }
     return [...files];
   }
@@ -3401,11 +3408,15 @@ export class ProjectWorkspaceService {
     const fullProjection = explicitCandidates
       ? null
       : projectWorkspaceFiles(project, editorState, projectedSourcePaths);
+    const priorFullProjection = explicitCandidates
+      ? null
+      : projectWorkspaceFiles(
+          openedSnapshot.project,
+          openedSnapshot.project.editor,
+          openedSnapshot.scriptSourcePaths,
+        );
     const candidates = new Set(
-      explicitCandidates ?? [
-        ...openedSnapshot.canonicalSourceFiles,
-        ...Object.keys(fullProjection!),
-      ],
+      explicitCandidates ?? [...Object.keys(priorFullProjection!), ...Object.keys(fullProjection!)],
     );
     const expected =
       options.expectedFileRevisions ??
@@ -3435,15 +3446,18 @@ export class ProjectWorkspaceService {
     targets.push(...(options.extraTargets ?? []));
     let projectedSnapshot: LoadedProjectWorkspaceSnapshot | null = null;
     if (options.refreshAfterCommit === false) {
-      const canonicalSourceFileSet = fullProjection
-        ? new Set(Object.keys(fullProjection))
-        : new Set(openedSnapshot.canonicalSourceFiles);
-      if (!fullProjection)
-        for (const file of candidates) {
-          const nextText = projectWorkspaceFile(project, editorState, projectedSourcePaths, file);
-          if (nextText === undefined) canonicalSourceFileSet.delete(file);
-          else canonicalSourceFileSet.add(file);
-        }
+      // A resident generation must own a stable authoring value. Mutation callers intentionally
+      // keep editing their mutable Project object after a save; retaining that same object here
+      // would retroactively mutate the coherent "before" generation and hide later removals.
+      const committedProject = cloneAuthoringProject(project);
+      const canonicalSourceFileSet = new Set(openedSnapshot.canonicalSourceFiles);
+      for (const file of candidates) {
+        const nextText = fullProjection
+          ? fullProjection[file]
+          : projectWorkspaceFile(project, editorState, projectedSourcePaths, file);
+        if (nextText === undefined) canonicalSourceFileSet.delete(file);
+        else canonicalSourceFileSet.add(file);
+      }
       const canonicalSourceFiles = [...canonicalSourceFileSet].sort(
         compareProjectWorkspaceUnicodeCodePoints,
       );
@@ -3473,13 +3487,13 @@ export class ProjectWorkspaceService {
         snapshotKind: 'loaded',
         projectRoot: openedSnapshot.projectRoot,
         manifestPath: openedSnapshot.manifestPath,
-        project,
+        project: committedProject,
         workspaceRevision,
         sourceRevision: workspaceRevision,
         canonicalSourceFiles: Object.freeze(canonicalSourceFiles),
         fileRevisions: Object.freeze(fileRevisions),
-        saveUnitFileOwnership: ownershipFor(project, projectedSourcePaths),
-        externalSourceDescriptors: externalDescriptors(project, projectedSourcePaths),
+        saveUnitFileOwnership: ownershipFor(committedProject, projectedSourcePaths),
+        externalSourceDescriptors: externalDescriptors(committedProject, projectedSourcePaths),
         scriptSourcePaths: Object.freeze(sortKeys(projectedSourcePaths)),
       });
       snapshotRevisionStates.set(projectedSnapshot, aggregate.state);

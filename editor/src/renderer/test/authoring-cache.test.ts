@@ -17,6 +17,7 @@ import type { NovelTeaCliNativeToolService } from '../../cli/native-tool-service
 import { NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY } from '../../cli/static-contracts';
 import {
   AUTHORING_VALIDATION_DISCOVERY_SCOPES,
+  captureAuthoringValidationAuthorityInputs,
   publishAuthoringCache,
   readAuthoringCache,
 } from '../../shared/authoring-cache';
@@ -24,6 +25,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { captureProjectSourceInventory } from '../../shared/project-source-inventory';
 import {
   NodeProjectWorkspaceFileSystem,
+  ProjectWorkspaceService,
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
 import { createDefaultAuthoringRecord } from '../project/entity-operations';
@@ -74,10 +76,19 @@ function tools(): NovelTeaCliNativeToolService {
 }
 
 async function inventory(fileSystem: NodeProjectWorkspaceFileSystem, root: string) {
-  return captureProjectSourceInventory(fileSystem, root, {
+  const captured = await captureProjectSourceInventory(fileSystem, root, {
     authoritativePaths: ['project.json', 'editor.json', 'traits.json'],
     discoveryScopes: AUTHORING_VALIDATION_DISCOVERY_SCOPES,
   });
+  return {
+    entries: await Promise.all(
+      captured.entries.map(async (entry) => ({
+        ...entry,
+        sourceIdentity: (await fileSystem.readPathMetadata(fileSystem.joinPath(root, entry.path)))
+          .sourceIdentity!,
+      })),
+    ),
+  };
 }
 
 const exactResult = {
@@ -192,6 +203,62 @@ describe('narrow exact validation cache', () => {
     await expect(stat(path.join(outside, 'authoring/current.json'))).rejects.toMatchObject({
       code: 'ENOENT',
     });
+  });
+
+  it('does not attach newly discovered sources to an already assembled Project', async () => {
+    const root = await fixture();
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    const opened = await new ProjectWorkspaceService(fileSystem).open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error('Fixture failed to open');
+    await writeFile(path.join(root, 'records/rooms/added.json'), '{malformed');
+
+    await expect(
+      captureAuthoringValidationAuthorityInputs(fileSystem, opened.snapshot),
+    ).resolves.toBeNull();
+  });
+
+  it('does not publish an old validation result after source membership changes', async () => {
+    const root = await fixture();
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    const opened = await new ProjectWorkspaceService(fileSystem).open(root);
+    if (!opened.ok) throw new Error('Fixture failed to open');
+    const inputs = await captureAuthoringValidationAuthorityInputs(fileSystem, opened.snapshot);
+    expect(inputs).not.toBeNull();
+    if (!inputs) throw new Error('Fixture authority unavailable');
+    await writeFile(path.join(root, 'records/rooms/added.json'), '{malformed');
+
+    await publishAuthoringCache(fileSystem, root, inputs, exactResult);
+
+    await expect(readAuthoringCache(fileSystem, root)).resolves.toBeNull();
+    await expect(
+      stat(path.join(root, '.noveltea/cache/authoring/current.json')),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not replace the validated file identity during cache publication', async () => {
+    const root = await fixture();
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    const inputs = await inventory(fileSystem, root);
+    const roomPath = path.join(root, 'records/rooms/start.json');
+    const replacement = `${roomPath}.replacement`;
+    await writeFile(replacement, await readFile(roomPath));
+    await rename(replacement, roomPath);
+    const replacementMetadata = await fileSystem.readPathMetadata(roomPath);
+    // Keep all other metadata equal so this specifically protects the captured file identity.
+    const matchingTimes = {
+      entries: inputs.entries.map((entry) =>
+        entry.path === 'records/rooms/start.json'
+          ? { ...entry, mtimeNanoseconds: replacementMetadata.mtimeNanoseconds! }
+          : entry,
+      ),
+    };
+
+    await publishAuthoringCache(fileSystem, root, matchingTimes, exactResult);
+
+    await expect(
+      stat(path.join(root, '.noveltea/cache/authoring/current.json')),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('does not wait for optional exact-result persistence before returning validation', async () => {

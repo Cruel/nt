@@ -239,22 +239,29 @@ export async function readAuthoringCacheAdmission(
   }
 }
 
+export interface AuthoringValidationAuthorityInputs {
+  readonly entries: readonly z.infer<typeof manifestSchema>['inputs'][number][];
+}
+
 export async function captureAuthoringValidationAuthorityInputs(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: LoadedProjectWorkspaceSnapshot,
-): Promise<ProjectSourceInventory | null> {
+): Promise<AuthoringValidationAuthorityInputs | null> {
   if (!fileSystem.readPathMetadata) return null;
   try {
     if (!(await settled(fileSystem, snapshot.projectRoot))) return null;
+    const validatedPaths = new Set([
+      ...snapshot.canonicalSourceFiles,
+      'project.json',
+      'editor.json',
+      ...assetSourcePaths(snapshot.project),
+    ]);
     const inputs = await captureProjectSourceInventory(fileSystem, snapshot.projectRoot, {
-      authoritativePaths: [
-        ...snapshot.canonicalSourceFiles,
-        'project.json',
-        'editor.json',
-        ...assetSourcePaths(snapshot.project),
-      ],
+      authoritativePaths: [...validatedPaths],
       discoveryScopes: AUTHORING_VALIDATION_DISCOVERY_SCOPES,
     });
+    // Discovery must not attach an unparsed addition to an older validation result.
+    if (inputs.entries.some((entry) => !validatedPaths.has(entry.path))) return null;
     const inputByPath = new Map(inputs.entries.map((entry) => [entry.path, entry]));
     for (const relative of snapshot.canonicalSourceFiles) {
       const captured = snapshot.fileRevisions[relative];
@@ -266,7 +273,21 @@ export async function captureAuthoringValidationAuthorityInputs(
       if (current.contentHash !== captured.contentHash || current.byteSize !== captured.byteSize)
         return null;
     }
-    return (await settled(fileSystem, snapshot.projectRoot)) ? inputs : null;
+    const entries = [];
+    for (const input of inputs.entries) {
+      const metadata = await fileSystem.readPathMetadata(
+        fileSystem.joinPath(snapshot.projectRoot, input.path),
+      );
+      if (
+        metadata.kind !== 'file' ||
+        !metadata.sourceIdentity ||
+        metadata.byteSize !== input.byteSize ||
+        metadata.mtimeNanoseconds !== input.mtimeNanoseconds
+      )
+        return null;
+      entries.push({ ...input, sourceIdentity: metadata.sourceIdentity });
+    }
+    return (await settled(fileSystem, snapshot.projectRoot)) ? { entries } : null;
   } catch {
     return null;
   }
@@ -275,7 +296,7 @@ export async function captureAuthoringValidationAuthorityInputs(
 export async function publishAuthoringCache(
   fileSystem: ProjectWorkspaceFileSystem,
   root: string,
-  inputs: ProjectSourceInventory,
+  inputs: AuthoringValidationAuthorityInputs,
   result: Readonly<{
     success: boolean;
     exitCode: number;
@@ -295,7 +316,7 @@ export async function publishAuthoringCache(
       const metadata = await fileSystem.readPathMetadata!(fileSystem.joinPath(root, input.path));
       if (
         metadata.kind !== 'file' ||
-        !metadata.sourceIdentity ||
+        metadata.sourceIdentity !== input.sourceIdentity ||
         metadata.byteSize !== input.byteSize ||
         metadata.mtimeNanoseconds !== input.mtimeNanoseconds
       )

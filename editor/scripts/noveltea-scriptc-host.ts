@@ -614,6 +614,8 @@ type DaemonRequestContext = Readonly<{
   streamedEvents: boolean;
   forceRuntimeCacheRebuild: boolean;
   authoringValidationSemanticKey: string;
+  internalOperation?: string;
+  internalRequestText?: string;
 }>;
 
 type DaemonNativeResponse = Readonly<{
@@ -678,6 +680,7 @@ type DaemonNativeResponse = Readonly<{
   projectSnapshots?: number;
   projectSnapshotBytes?: number;
   engineeringOwnerPids?: readonly number[];
+  engineeringOwners?: readonly Readonly<{ canonicalRoot?: string; pid?: number }>[];
   engineeringDisposablePids?: readonly number[];
   engineeringCounters?: Readonly<Record<string, number>>;
 }>;
@@ -701,6 +704,7 @@ type DaemonEngineeringSnapshot = Readonly<{
   projectSnapshots: number;
   projectSnapshotBytes: number;
   ownerPids: readonly number[];
+  owners: readonly Readonly<{ canonicalRoot: string; pid: number }>[];
   disposablePids: readonly number[];
   counters: Readonly<Record<string, number>>;
 }>;
@@ -711,6 +715,7 @@ type DaemonBrokerContext = Readonly<{
   daemonIdleMs?: number;
   projectSessionIdleMs?: number;
   disposableExtraIdleMs?: number;
+  projectSnapshotBudgetBytes?: number;
   runtimeRoot?: string;
 }>;
 
@@ -761,6 +766,9 @@ function daemonBrokerContext(): DaemonBrokerContext {
     ),
     disposableExtraIdleMs: certificationPositiveInteger(
       'NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_IDLE_MS',
+    ),
+    projectSnapshotBudgetBytes: certificationPositiveInteger(
+      'NOVELTEA_CLI_CERTIFICATION_PROJECT_SNAPSHOT_BUDGET_BYTES',
     ),
     runtimeRoot: runtimeRoot || undefined,
   };
@@ -857,6 +865,15 @@ function daemonEngineeringSnapshot(result: DaemonNativeResponse): DaemonEngineer
     projectSnapshotBytes: integer(result.projectSnapshotBytes),
     ownerPids: (result.engineeringOwnerPids ?? []).filter(
       (value) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
+    ),
+    owners: (result.engineeringOwners ?? []).flatMap((owner) =>
+      typeof owner.canonicalRoot === 'string' &&
+      owner.canonicalRoot.length > 0 &&
+      typeof owner.pid === 'number' &&
+      Number.isSafeInteger(owner.pid) &&
+      owner.pid > 0
+        ? [{ canonicalRoot: owner.canonicalRoot, pid: owner.pid }]
+        : [],
     ),
     disposablePids: (result.engineeringDisposablePids ?? []).filter(
       (value) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
@@ -1138,6 +1155,7 @@ function hiddenDaemonPayloadNativeRequest(
     projectSessions?: number;
     ownerWorkerId?: number;
     disposableWorkerId?: number;
+    stagedOutputPath?: string;
     advanced?: boolean;
     event?: Readonly<Record<string, unknown>>;
     sessionEpoch?: number;
@@ -1168,6 +1186,7 @@ function hiddenDaemonPayloadNativeRequest(
         projectSessions: payload.projectSessions,
         ownerWorkerId: payload.ownerWorkerId,
         disposableWorkerId: payload.disposableWorkerId,
+        stagedOutputPath: payload.stagedOutputPath,
         advanced: payload.advanced,
         event: payload.event,
         sessionEpoch: payload.sessionEpoch,
@@ -1182,6 +1201,55 @@ function hiddenDaemonPayloadNativeRequest(
       }),
     ),
   ) as DaemonNativeResponse;
+}
+
+function hiddenDaemonDisposableOwnerMutationRequest(
+  invocation: HiddenDaemonBrokerInvocation,
+  disposableWorkerId: number,
+  token: number,
+  requestText: string,
+): string {
+  return invokeHost(
+    'daemon',
+    JSON.stringify({
+      action: 'disposable-owner-mutation',
+      build: invocation.build,
+      protocol: invocation.protocol,
+      daemonIdleMs: invocation.daemonIdleMs,
+      projectSessionIdleMs: invocation.projectSessionIdleMs,
+      runtimeRoot: invocation.runtimeRoot,
+      disposableWorkerId,
+      token,
+      operation: 'comfyui-asset-publication',
+      requestText,
+    }),
+  );
+}
+
+function hiddenDaemonOwnerInternalComplete(
+  invocation: HiddenDaemonBrokerInvocation,
+  ownerWorkerId: number,
+  token: number,
+  resultText: string,
+): void {
+  const response = JSON.parse(
+    invokeHost(
+      'daemon',
+      JSON.stringify({
+        action: 'owner-internal-complete',
+        build: invocation.build,
+        protocol: invocation.protocol,
+        daemonIdleMs: invocation.daemonIdleMs,
+        projectSessionIdleMs: invocation.projectSessionIdleMs,
+        runtimeRoot: invocation.runtimeRoot,
+        ownerWorkerId,
+        token,
+        resultText,
+      }),
+    ),
+  ) as { ok?: boolean; error?: string };
+  if (response.ok !== true)
+    throw new Error(response.error ?? 'Failed to complete internal Project-owner mutation.');
 }
 
 function hiddenDaemonProjectAuthorityNativeRequest(
@@ -1234,7 +1302,17 @@ function hiddenDaemonEventNativeRequest(
 }
 
 function requestEnvironment(): Record<string, string> {
-  const result: Record<string, string> = {};
+  // scriptc's statically lowered Record access cannot represent a missing key as `undefined`.
+  // These internal scheduler/certification fields are read directly by worker code, so preserve a
+  // total record shape even when the caller did not set them.
+  const result: Record<string, string> = {
+    NOVELTEA_CLI_CERTIFICATION: '',
+    NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH: '',
+    NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '',
+    NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_CRASH: '',
+    NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS: '',
+    NOVELTEA_CLI_SCHEDULER_PROFILE: '',
+  };
   for (const [key, value] of Object.entries(process.env))
     if (typeof value === 'string') result[key] = value;
   return result;
@@ -1335,6 +1413,11 @@ function daemonRequestContext(
       routing?.staticCompletion === 'authoring-cache'
         ? NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY
         : '',
+    // Hidden owner code runs through ScriptC's statically typed Record lowering, where an absent
+    // optional slot cannot be observed as `undefined`. Keep the internal-operation slots total for
+    // ordinary public requests; broker-generated internal requests overwrite them with real values.
+    internalOperation: '',
+    internalRequestText: '',
   };
 }
 
@@ -1361,6 +1444,34 @@ function requestInvokeHost(
   };
   return (operation, requestText) => {
     if (operation === 'read-stdin') return context.stdinText ?? '';
+    if (operation === 'daemon-register-staged-output') {
+      const parsed = JSON.parse(requestText) as unknown;
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw new Error('Staged output cleanup request is malformed.');
+      const request = parsed as Readonly<Record<string, unknown>>;
+      if (!disposableWorkerId || typeof request.path !== 'string')
+        throw new Error('Staged output cleanup requires an active disposable worker.');
+      return JSON.stringify(
+        hiddenDaemonPayloadNativeRequest('disposable-register-staged-output', invocation, {
+          disposableWorkerId,
+          token,
+          stagedOutputPath: request.path,
+        }),
+      );
+    }
+    if (operation === 'daemon-commit-comfyui-assets') {
+      if (!disposableWorkerId)
+        throw new Error('ComfyUI Asset publication requires an active disposable worker.');
+      const parsed = JSON.parse(requestText) as unknown;
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw new Error('ComfyUI Asset publication request is malformed.');
+      return hiddenDaemonDisposableOwnerMutationRequest(
+        invocation,
+        disposableWorkerId,
+        token,
+        requestText,
+      );
+    }
     if (operation === 'daemon-enter-critical')
       return JSON.stringify(
         ownerWorkerId
@@ -1603,6 +1714,25 @@ function requestInvokeHost(
       output.stdout += envelope.stdout;
       output.stderr += envelope.stderr;
     }
+    if (
+      operation === 'export-package' &&
+      disposableWorkerId &&
+      context.environment.NOVELTEA_CLI_CERTIFICATION === '1'
+    ) {
+      if (context.environment.NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_CRASH === '1')
+        process.exit(97);
+      const delayMs = Number(
+        context.environment.NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS || '0',
+      );
+      if (Number.isSafeInteger(delayMs) && delayMs > 0 && delayMs <= 10_000) {
+        const deadline = Date.now() + delayMs;
+        while (Date.now() < deadline)
+          hiddenDaemonPayloadNativeRequest('disposable-cancelled', invocation, {
+            disposableWorkerId,
+            token,
+          });
+      }
+    }
     return envelope.response;
   };
 }
@@ -1694,6 +1824,7 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
   // @ts-expect-error The private island package is materialized only during release staging.
   const island = await import('noveltea-scriptc-island');
   const {
+    commitNovelTeaResidentComfyUiAssetPublication,
     runNovelTeaScriptcIsland,
     reconcileNovelTeaResidentProjects,
     prepareNovelTeaResidentProjectSnapshots,
@@ -1729,15 +1860,8 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
           });
         }
       }
-      try {
-        const prepared = await prepareNovelTeaResidentProjectSnapshots();
-        if (prepared > 0)
-          trace(`daemon Project owner prepared ${String(prepared)} portable snapshot(s)`);
-      } catch (error) {
-        trace(
-          `daemon Project owner snapshot maintenance failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
+      // Whole-Project serialization is required handoff work only, never idle maintenance that
+      // can monopolize the owner when a new short request arrives.
       continue;
     }
     const token = next.token;
@@ -1762,6 +1886,19 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
       const residentProjectSnapshot = retainedSnapshotPending;
       const prepareDisposable = next.prepareDisposable === true;
       const output: RequestOutputCapture = { stdout: '', stderr: '' };
+      if (payload.internalOperation === 'comfyui-asset-publication') {
+        const mutationResult = await commitNovelTeaResidentComfyUiAssetPublication(
+          payload.internalRequestText ?? '{}',
+          requestInvokeHost(payload, output, invocation, token, invocation.ownerWorkerId),
+        );
+        hiddenDaemonOwnerInternalComplete(
+          invocation,
+          invocation.ownerWorkerId,
+          token,
+          JSON.stringify(mutationResult as unknown),
+        );
+        continue;
+      }
       const responseText = await runNovelTeaScriptcIsland(
         JSON.stringify(payload.argv),
         requestInvokeHost(payload, output, invocation, token, invocation.ownerWorkerId),
@@ -1852,25 +1989,35 @@ async function runHiddenDaemonDisposable(
 
   const chunks: string[] = [];
   const snapshotReadStarted = Date.now();
-  if (next.hasProjectSnapshot === true) {
-    if (
-      typeof next.canonicalRoot !== 'string' ||
-      next.canonicalRoot.length === 0 ||
-      !Number.isSafeInteger(next.chunkCount) ||
-      (next.chunkCount as number) <= 0 ||
-      typeof next.ownerMetadata !== 'string'
-    )
-      throw new Error('NovelTea disposable worker received malformed Project snapshot metadata.');
-    for (let index = 0; index < (next.chunkCount as number); index += 1) {
-      const chunk = hiddenDaemonPayloadNativeRequest('disposable-snapshot-read', invocation, {
-        disposableWorkerId: invocation.disposableWorkerId,
-        token,
-        index,
-      });
-      if (chunk.ok !== true || typeof chunk.chunk !== 'string')
-        throw new Error(chunk.error ?? 'Failed to read pinned portable Project snapshot.');
-      chunks.push(chunk.chunk);
+  try {
+    if (next.hasProjectSnapshot === true) {
+      if (
+        typeof next.canonicalRoot !== 'string' ||
+        next.canonicalRoot.length === 0 ||
+        !Number.isSafeInteger(next.chunkCount) ||
+        (next.chunkCount as number) <= 0
+      )
+        throw new Error('NovelTea disposable worker received malformed Project snapshot metadata.');
+      for (let index = 0; index < (next.chunkCount as number); index += 1) {
+        const chunk = hiddenDaemonPayloadNativeRequest('disposable-snapshot-read', invocation, {
+          disposableWorkerId: invocation.disposableWorkerId,
+          token,
+          index,
+        });
+        if (chunk.ok !== true || typeof chunk.chunk !== 'string')
+          throw new Error(chunk.error ?? 'Failed to read pinned portable Project snapshot.');
+        chunks.push(chunk.chunk);
+      }
     }
+  } catch (error) {
+    hiddenDaemonPayloadNativeRequest('disposable-complete', invocation, {
+      disposableWorkerId: invocation.disposableWorkerId,
+      token,
+      requestOk: false,
+      result: null,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 0;
   }
 
   try {
@@ -1903,7 +2050,6 @@ async function runHiddenDaemonDisposable(
         ? {
             projectRoot: next.canonicalRoot as string,
             snapshotText: chunks.join(''),
-            ownerMetadataText: next.ownerMetadata as string,
           }
         : undefined;
     const responseText = await runNovelTeaScriptcIsland(
@@ -2009,13 +2155,12 @@ function staticFastPath(argv: readonly string[]): HostResult | null {
       continue;
     }
     if (argument === '--help') {
-      if (help) return null;
+      // Repeated static flags are idempotent so they never fall through into daemon routing.
       help = true;
       index += 1;
       continue;
     }
     if (argument === '--version') {
-      if (version) return null;
       version = true;
       index += 1;
       continue;
@@ -2251,6 +2396,7 @@ async function main(): Promise<void> {
               nativeBoundaryCalls: delta.nativeBoundaryCalls ?? 0,
               physicalFilesObserved: delta.filesObserved ?? 0,
               authorityObservations: delta.authorityObservations ?? 0,
+              authorityFullRescans: delta.authorityFullRescans ?? 0,
               snapshotPublications: delta.snapshotPublications ?? 0,
               resident: {
                 projectOwners: engineeringAfter.projectOwnerWorkers,
@@ -2258,6 +2404,7 @@ async function main(): Promise<void> {
                 snapshots: engineeringAfter.projectSnapshots,
                 snapshotBytes: engineeringAfter.projectSnapshotBytes,
                 ownerPids: engineeringAfter.ownerPids,
+                owners: engineeringAfter.owners,
                 disposablePids: engineeringAfter.disposablePids,
               },
             })}\n`,

@@ -6,7 +6,10 @@ import {
 } from '../project-source-inventory';
 import { parseAssetData } from '../project-schema/authoring-assets';
 import type { AuthoringProject } from '../project-schema/authoring-project';
-import type { EditorProjectState } from '../project-schema/editor-project-state';
+import {
+  stripEditorProjectState,
+  type EditorProjectState,
+} from '../project-schema/editor-project-state';
 import { sha256PrefixedBytes } from '../web-crypto';
 import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
 import {
@@ -72,6 +75,16 @@ const residentDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = Object.f
   { root: 'records', extensions: ['.json', '.lua', '.rcss', '.rml'], excludedPrefixes: [] },
   { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
 ]);
+
+function certificationDelay(name: string): void {
+  if (process.env.NOVELTEA_CLI_CERTIFICATION !== '1') return;
+  const delay = Number(process.env[name] ?? '0');
+  if (!Number.isSafeInteger(delay) || delay <= 0 || delay > 5_000) return;
+  const deadline = Date.now() + delay;
+  while (Date.now() < deadline) {
+    // Certification-only deterministic race seam between transaction commit and physical proof.
+  }
+}
 
 function isResidentSemanticSourcePath(path: string): boolean {
   return (
@@ -192,8 +205,11 @@ type PortableResidentProjectSnapshot = Readonly<{
   identity: ResidentProjectGenerationIdentity;
   snapshot: LoadedProjectWorkspaceSnapshot;
   editorState: EditorProjectState;
+  diagnostics: SuccessfulOpen['diagnostics'];
   sourceContributions: SuccessfulOpen['sourceContributions'];
   validationContributions: SuccessfulOpen['validationContributions'];
+  validationWork: SuccessfulOpen['validationWork'];
+  sourceWork: SuccessfulOpen['sourceWork'];
   externalAssets: readonly Readonly<{
     path: string;
     sourceIdentity?: string;
@@ -219,6 +235,7 @@ export interface PreparedPortableResidentProjectSnapshot {
 type ResidentEntry = {
   readonly canonicalRoot: string;
   readonly session: ResidentProjectWorkspaceSession;
+  immutablePinned: boolean;
   authority: ProjectSourceInventory | null;
   readonly pendingNativeSemanticPaths: Set<string>;
   pendingNativeStructuralChange: boolean;
@@ -430,8 +447,14 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
   private async openCold(
     canonicalRoot: string,
     options: ProjectWorkspaceOpenOptions,
+    identity?: ResidentProjectGenerationIdentity,
   ): Promise<ProjectWorkspaceOpenResult> {
     const workspace = this.createSessionWorkspace(this.residentFileSystem);
+    const admittedIdentity =
+      identity ??
+      (this.residentSessionEpoch === undefined
+        ? undefined
+        : { sessionEpoch: this.residentSessionEpoch, generation: 1 });
     const admissionOptions = {
       ...options,
       // Persistent semantic contribution hydration was removed. These reuse hooks remain valid for
@@ -462,13 +485,12 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
             fileSystem: this.residentFileSystem,
             createWorkspaceService: this.createSessionWorkspace,
           },
-          this.residentSessionEpoch === undefined
-            ? undefined
-            : { sessionEpoch: this.residentSessionEpoch, generation: 1 },
+          admittedIdentity,
         );
         const entry: ResidentEntry = {
           canonicalRoot,
           session,
+          immutablePinned: false,
           authority: null,
           pendingNativeSemanticPaths: new Set(),
           pendingNativeStructuralChange: false,
@@ -494,14 +516,13 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           fileSystem: this.residentFileSystem,
           createWorkspaceService: this.createSessionWorkspace,
         },
-        this.residentSessionEpoch === undefined
-          ? undefined
-          : { sessionEpoch: this.residentSessionEpoch, generation: 1 },
+        admittedIdentity,
       );
       await session.captureAuthoringFileStamps();
       const entry: ResidentEntry = {
         canonicalRoot,
         session,
+        immutablePinned: false,
         authority,
         pendingNativeSemanticPaths: new Set(),
         pendingNativeStructuralChange: false,
@@ -521,9 +542,12 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     options: ProjectWorkspaceOpenOptions,
   ): Promise<ProjectWorkspaceOpenResult> {
     if (this.nativeAuthority) {
+      const currentIdentity = entry.session.generationIdentity();
       entry.session.markResyncNeeded();
-      this.sessions.delete(entry.canonicalRoot);
-      return this.openCold(entry.canonicalRoot, options);
+      return this.openCold(entry.canonicalRoot, options, {
+        sessionEpoch: currentIdentity.sessionEpoch,
+        generation: currentIdentity.generation + 1,
+      });
     }
     entry.session.invalidateCachedProjectState();
     const reopened = await entry.session.service().open(entry.canonicalRoot, options);
@@ -656,6 +680,12 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     options: ProjectWorkspaceOpenOptions,
   ): Promise<ProjectWorkspaceOpenResult> {
     return entry.session.runExclusive(async () => {
+      if (entry.session.coherenceState() === 'resync-needed')
+        return this.reopenResidentEntry(entry, options);
+      if (!(await workspaceSettled(this.residentFileSystem, entry.canonicalRoot))) {
+        entry.session.markResyncNeeded();
+        return this.reopenResidentEntry(entry, options);
+      }
       const current = entry.session.openedGeneration();
       if (!current) return this.reopenResidentEntry(entry, options);
       if (this.nativeAuthority) return this.reconcileNative(entry, current, options);
@@ -749,8 +779,16 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       return this.logicalView(entry, cold, logicalRoot);
     }
 
+    if (entry.immutablePinned) {
+      const pinned = entry.session.openedGeneration();
+      if (!pinned) throw new Error('Pinned Project generation is unavailable.');
+      return this.logicalView(entry, pinned, logicalRoot);
+    }
+
     const opened = await this.reconcile(entry, options);
-    return opened.ok ? this.logicalView(entry, opened, logicalRoot) : opened;
+    if (!opened.ok) return opened;
+    entry = this.sessions.get(canonicalRoot) ?? entry;
+    return this.logicalView(entry, opened, logicalRoot);
   }
 
   async openForMutation(
@@ -771,8 +809,17 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       return this.logicalView(entry, cold, logicalRoot);
     }
 
+    if (entry.immutablePinned)
+      throw new ProjectWorkspaceMutationError(
+        'WORKSPACE_REVISION_CONFLICT',
+        'Pinned disposable Project generations are immutable.',
+      );
+
     const reconciled = await this.reconcile(entry, options);
-    if (reconciled.ok) return this.logicalView(entry, reconciled, logicalRoot);
+    if (reconciled.ok) {
+      entry = this.sessions.get(canonicalRoot) ?? entry;
+      return this.logicalView(entry, reconciled, logicalRoot);
+    }
     if (entry.session.coherenceState() !== 'invalid') return reconciled;
     const coherent = entry.session.openedGeneration();
     return coherent ? this.logicalView(entry, coherent, logicalRoot) : reconciled;
@@ -869,6 +916,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       );
       let observation: ResidentProjectAuthorityObservation;
       try {
+        certificationDelay('NOVELTEA_CLI_CERTIFICATION_BEFORE_MUTATION_PROOF_DELAY_MS');
         observation = await this.observeNativeAuthority(
           entry.canonicalRoot,
           candidateAssetSourcePaths,
@@ -971,6 +1019,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         editorState,
         sourcePathOverrides,
         options,
+      );
+    if (entry.immutablePinned)
+      throw new ProjectWorkspaceMutationError(
+        'WORKSPACE_REVISION_CONFLICT',
+        'Pinned disposable Project generations are immutable.',
       );
 
     return entry.session.runExclusive(async () => {
@@ -1076,13 +1129,21 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     );
     const entry = canonicalRoot ? this.sessions.get(canonicalRoot) : undefined;
     if (!entry) return;
+    if (entry.immutablePinned) return;
 
+    const currentIdentity = entry.session.generationIdentity();
     entry.session.markResyncNeeded();
-    this.sessions.delete(entry.canonicalRoot);
     // Opaque effects may include local editor state or Project source ownership changes that are
     // intentionally outside the resident inventory. Re-admit from disk instead of guessing which
-    // parts of the prior generation remain valid.
-    await this.openCold(entry.canonicalRoot, {});
+    // parts of the prior generation remain valid, while retaining the owner's monotonic identity.
+    await this.openCold(
+      entry.canonicalRoot,
+      {},
+      {
+        sessionEpoch: currentIdentity.sessionEpoch,
+        generation: currentIdentity.generation + 1,
+      },
+    );
   }
 
   async hasResidentSession(projectRoot: string): Promise<boolean> {
@@ -1200,8 +1261,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         identity,
         snapshot: opened.snapshot,
         editorState: opened.editorState,
+        diagnostics: opened.diagnostics,
         sourceContributions: opened.sourceContributions,
         validationContributions: opened.validationContributions,
+        validationWork: opened.validationWork,
+        sourceWork: opened.sourceWork,
         externalAssets,
       };
       const ownerMetadata: PortableResidentProjectOwnerMetadata = {
@@ -1238,18 +1302,46 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     const canonicalRoot = await this.canonicalProjectRoot(logicalRoot);
     if (!canonicalRoot || this.sessions.has(canonicalRoot)) return false;
 
-    let portable: PortableResidentProjectSnapshot;
     let ownerMetadata: PortableResidentProjectOwnerMetadata;
     try {
-      portable = JSON.parse(snapshotText) as PortableResidentProjectSnapshot;
       ownerMetadata = JSON.parse(ownerMetadataText) as PortableResidentProjectOwnerMetadata;
     } catch {
       return false;
     }
     if (
-      portable?.version !== PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION ||
       ownerMetadata?.version !== PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION ||
       ownerMetadata.canonicalRoot !== canonicalRoot ||
+      !Array.isArray(ownerMetadata.nativeAssetSourcePaths) ||
+      ownerMetadata.nativeAssetSourcePaths.some((path) => typeof path !== 'string') ||
+      !(await this.hydratePortableSnapshot(projectRoot, snapshotText))
+    )
+      return false;
+    const entry = this.sessions.get(canonicalRoot);
+    if (!entry) return false;
+    entry.immutablePinned = false;
+    entry.nativeAssetSourcePaths = Object.freeze([...ownerMetadata.nativeAssetSourcePaths]);
+    entry.portableSnapshot = Object.freeze({
+      projectRoot: canonicalRoot,
+      identity: entry.session.generationIdentity(),
+      snapshotText,
+      ownerMetadataText,
+    });
+    return true;
+  }
+
+  async hydratePortableSnapshot(projectRoot: string, snapshotText: string): Promise<boolean> {
+    const logicalRoot = this.residentFileSystem.resolvePath(projectRoot);
+    const canonicalRoot = await this.canonicalProjectRoot(logicalRoot);
+    if (!canonicalRoot || this.sessions.has(canonicalRoot)) return false;
+
+    let portable: PortableResidentProjectSnapshot;
+    try {
+      portable = JSON.parse(snapshotText) as PortableResidentProjectSnapshot;
+    } catch {
+      return false;
+    }
+    if (
+      portable?.version !== PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION ||
       portable.snapshot?.snapshotKind !== 'loaded' ||
       portable.snapshot.projectRoot !== canonicalRoot ||
       portable.snapshot.manifestPath !==
@@ -1258,43 +1350,46 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       portable.identity.sessionEpoch <= 0 ||
       !Number.isSafeInteger(portable.identity?.generation) ||
       portable.identity.generation <= 0 ||
-      !Array.isArray(ownerMetadata.nativeAssetSourcePaths) ||
-      ownerMetadata.nativeAssetSourcePaths.some((path) => typeof path !== 'string') ||
+      !Array.isArray(portable.diagnostics) ||
       !portable.sourceContributions ||
-      !Array.isArray(portable.validationContributions)
+      !Array.isArray(portable.validationContributions) ||
+      !portable.validationWork ||
+      !portable.sourceWork
     )
       return false;
 
     try {
-      const session = ResidentProjectWorkspaceSession.fromSnapshotWithHost(
-        portable.snapshot,
-        portable.editorState,
+      const opened: SuccessfulOpen = {
+        ok: true,
+        snapshot: portable.snapshot,
+        diagnostics: portable.diagnostics,
+        editorState: portable.editorState,
+        repairs: [],
+        contentProject: stripEditorProjectState(portable.snapshot.project),
+        savedContentProject: stripEditorProjectState(portable.snapshot.project),
+        sourceContributions: portable.sourceContributions,
+        validationContributions: portable.validationContributions,
+        validationWork: portable.validationWork,
+        sourceWork: portable.sourceWork,
+      };
+      const session = ResidentProjectWorkspaceSession.fromOpenedWithHost(
+        opened,
         {
           fileSystem: this.residentFileSystem,
           createWorkspaceService: this.createSessionWorkspace,
         },
         portable.identity,
       );
-      const opened = await session.service().open(canonicalRoot, {
-        reusableSourceContributions: portable.sourceContributions,
-        reusableValidationContributions: portable.validationContributions,
-      });
-      if (!opened.ok) return false;
-      session.rehydrateOpened(opened);
       const entry: ResidentEntry = {
         canonicalRoot,
         session,
+        immutablePinned: true,
         authority: null,
         pendingNativeSemanticPaths: new Set(),
         pendingNativeStructuralChange: false,
-        nativeAssetSourcePaths: Object.freeze([...ownerMetadata.nativeAssetSourcePaths]),
+        nativeAssetSourcePaths: Object.freeze([]),
         lastUsedAtMilliseconds: Date.now(),
-        portableSnapshot: Object.freeze({
-          projectRoot: canonicalRoot,
-          identity: portable.identity,
-          snapshotText,
-          ownerMetadataText,
-        }),
+        portableSnapshot: null,
       };
       this.sessions.set(canonicalRoot, entry);
       this.bindSnapshot(entry, opened.snapshot);
@@ -1313,7 +1408,9 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         advanced += 1;
         continue;
       }
-      const after = entry.session.generationIdentity();
+      const after =
+        this.sessions.get(entry.canonicalRoot)?.session.generationIdentity() ??
+        entry.session.generationIdentity();
       if (before.sessionEpoch !== after.sessionEpoch || before.generation !== after.generation)
         advanced += 1;
     }

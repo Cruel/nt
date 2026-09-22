@@ -478,6 +478,60 @@ describe('ProjectWorkspaceService', () => {
     );
   });
 
+  it('preserves file-backed Script Module source across a collection-level Asset write', async () => {
+    const project = createAuthoringProject();
+    project.scripts.bootstrap = {
+      id: 'bootstrap',
+      label: 'Bootstrap',
+      data: {
+        kind: 'script-module',
+        source: { kind: 'project-file', path: 'scripts/bootstrap.lua' },
+      },
+    } as never;
+    project.assets.logo = {
+      id: 'logo',
+      label: 'Logo',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/logo.bin' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    } as never;
+    const projected = projectWorkspaceFiles(project, project.editor);
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries({
+          ...projected,
+          'scripts/bootstrap.lua': 'return true\n',
+          'assets/logo.bin': 'asset bytes',
+        }).map(([file, text]) => [`/project/${file}`, text]),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(fileSystem);
+    const opened = await workspace.open('/project');
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+
+    const changed = structuredClone(opened.snapshot.project);
+    changed.assets.logo!.label = 'Changed Logo';
+    await workspace.write(
+      '/project',
+      opened.snapshot.workspaceRevision,
+      changed,
+      opened.editorState,
+      opened.snapshot.scriptSourcePaths,
+      { affectedPaths: ['/assets'] },
+    );
+
+    expect(await fileSystem.readText('/project/scripts/bootstrap.lua')).toBe('return true\n');
+    expect(await fileSystem.readText('/project/records/assets/logo.json')).toContain(
+      'Changed Logo',
+    );
+    const reopened = await workspace.open('/project');
+    expect(reopened.ok).toBe(true);
+  });
+
   it('preserves project-file Script Module identity and asset-backed Layout identity', async () => {
     const project = createAuthoringProject();
     project.assets.rml = {

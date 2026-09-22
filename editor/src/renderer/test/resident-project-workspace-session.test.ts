@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { cloneAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -22,6 +23,9 @@ import {
 } from '../../shared/project-workspace/resident-project-workspace-service';
 
 const ROOT = '/projects/resident-session';
+
+const sha256PrefixedUtf8 = (value: string): `sha256:${string}` =>
+  `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`;
 
 function createProjectAuthorityProbe() {
   let tracked = false;
@@ -397,6 +401,74 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(probe.requests.slice(requestCount)).toEqual([null]);
     expect(await workspace.verifyReadAuthority(reopened.snapshot)).toBe(true);
     expect(probe.requests.at(-1)).toBeNull();
+  });
+
+  it('recovers an interrupted transaction without regressing the resident generation', async () => {
+    const { fileSystem, probe, workspace } = await createNativeAssetWorkspace();
+    const beforeIdentity = await workspace.residentGenerationIdentity(ROOT);
+    const target = 'records/assets/image.json';
+    const absolute = `${ROOT}/${target}`;
+    const before = await fileSystem.readText(absolute);
+    const changed = JSON.parse(before) as { label: string };
+    changed.label = 'Interrupted Image';
+    const after = `${JSON.stringify(changed, null, 2)}\n`;
+    const transactionRoot = `${ROOT}/.noveltea/transactions/interrupted`;
+    await fileSystem.createDirectory(`${transactionRoot}/before`);
+    await fileSystem.createDirectory(`${transactionRoot}/after`);
+    await fileSystem.writeTextAtomic(`${transactionRoot}/before/0`, before);
+    await fileSystem.writeTextAtomic(`${transactionRoot}/after/0`, after);
+    await fileSystem.writeTextAtomic(absolute, after);
+    await fileSystem.writeTextAtomic(
+      `${transactionRoot}/manifest.json`,
+      `${JSON.stringify(
+        {
+          schema: 'noveltea.workspace.transaction',
+          schemaVersion: 1,
+          transactionId: 'interrupted',
+          state: 'writing',
+          writerOwnerToken: 'crashed-owner',
+          writerPid: 2147483647,
+          operationLabel: 'interrupted resident test',
+          targets: [
+            {
+              path: target,
+              operation: 'write',
+              beforeRevision: sha256PrefixedUtf8(before),
+              afterRevision: sha256PrefixedUtf8(after),
+              beforeBlob: 'before/0',
+              afterBlob: 'after/0',
+            },
+          ],
+          completedTargets: [target],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    probe.change(target);
+
+    const reopened = await workspace.open(ROOT);
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('Recovered Project reopen failed.');
+    expect(reopened.snapshot.project.assets.image.label).toBe('Image');
+    expect(await fileSystem.readText(absolute)).toBe(before);
+    expect(await fileSystem.inspect(transactionRoot)).toBe('missing');
+    expect(await workspace.residentGenerationIdentity(ROOT)).toEqual({
+      sessionEpoch: beforeIdentity?.sessionEpoch,
+      generation: (beforeIdentity?.generation ?? 0) + 1,
+    });
+  });
+
+  it('re-admits an opaque write without regressing the resident generation', async () => {
+    const { workspace } = await createNativeAssetWorkspace();
+    const beforeIdentity = await workspace.residentGenerationIdentity(ROOT);
+
+    await workspace.reconcileAfterOpaqueWrite(ROOT);
+
+    expect(await workspace.residentGenerationIdentity(ROOT)).toEqual({
+      sessionEpoch: beforeIdentity?.sessionEpoch,
+      generation: (beforeIdentity?.generation ?? 0) + 1,
+    });
   });
 
   it('rejects a committed Asset payload that changes before native promotion', async () => {
@@ -1798,6 +1870,56 @@ describe('ResidentProjectWorkspaceSession', () => {
         (descriptor) => descriptor.sourceUrl === 'project:/scripts/bootstrap.lua',
       )?.inlineText,
     ).toBe('local portable_script = true\n');
+  });
+
+  it('hydrates a pinned portable generation without admitting newer structural disk state', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const owner = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const opened = await owner.open(ROOT);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error('Initial Project open failed.');
+    const prepared = await owner.preparePortableSnapshot(ROOT);
+    if (!prepared) throw new Error('Portable Project snapshot was not prepared.');
+
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/records/rooms/live-only.json`,
+      JSON.stringify({ id: 'live-only', label: 'Live Only', data: defaultRoomData('Live Only') }),
+    );
+
+    const originalReadText = fileSystem.readText.bind(fileSystem);
+    fileSystem.readText = async (value) => {
+      const relative = fileSystem
+        .relativePath(ROOT, fileSystem.resolvePath(value))
+        .replaceAll('\\', '/');
+      if (relative === 'records/rooms/live-only.json' || opened.snapshot.canonicalSourceFiles.includes(relative))
+        throw new Error(`Authored source '${relative}' was read during pinned snapshot hydration.`);
+      return originalReadText(value);
+    };
+
+    const disposable = new ResidentProjectWorkspaceService(fileSystem);
+    expect(await disposable.hydratePortableSnapshot(ROOT, prepared.snapshotText)).toBe(true);
+    expect(await disposable.residentGenerationIdentity(ROOT)).toEqual(prepared.identity);
+    const pinned = await disposable.open(ROOT);
+    expect(pinned.ok).toBe(true);
+    if (!pinned.ok) throw new Error('Pinned Project snapshot did not hydrate.');
+    expect(pinned.snapshot.project.rooms.foyer.label).toBe('Foyer');
+    expect(pinned.snapshot.project.rooms['live-only']).toBeUndefined();
+    await expect(disposable.openForMutation(ROOT)).rejects.toThrow(
+      'Pinned disposable Project generations are immutable.',
+    );
   });
 
   it('rehydrates the retained generation after the original resident session is evicted', async () => {

@@ -23,6 +23,8 @@ export interface NovelTeaCliNativeToolService {
   runTestSuite?(request: unknown): Promise<unknown>;
   runUiTest(request: unknown): Promise<unknown>;
   exportPackage(request: unknown): Promise<unknown>;
+  registerStagedOutput?(path: string): Promise<void>;
+  commitComfyUiAssetPublication?(request: unknown): Promise<unknown>;
   validateFontCoverage?(
     request: LocalizationFontCoverageRequest,
   ): Promise<LocalizationFontCoverageResponse>;
