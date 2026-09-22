@@ -29,7 +29,6 @@ interface MaterialData {
     varying?: MaterialShaderSource;
   };
   blend?: 'premultiplied-alpha';
-  postprocessScope?: 'world' | 'full-game-viewport';
   parameters: Record<string, MaterialParameterOverride>;
   textures: Record<string, MaterialTextureOverride>;
   preview?: {
@@ -59,7 +58,7 @@ A preset defines:
 - default engine vertex/fragment implementation;
 - varying/interface definition;
 - engine-owned versus author-settable parameter/sampler metadata;
-- default blend/postprocess behavior;
+- default pipeline behavior;
 - preview harness metadata.
 
 Role is therefore derived from the terminal preset and is not an independently editable Material field. A preset-backed Material requires no project shader source files.
@@ -68,7 +67,7 @@ Role is therefore derived from the terminal preset and is not an independently e
 
 Material inheritance is single-parent. A Material's immediate base may be a preset or another Material, but every valid chain must terminate at a built-in preset. Cycles and missing bases are errors.
 
-Inheritance uses sparse overrides. Parameter and texture slots are keyed by stable semantic names rather than array position. Shader-stage, blend, postprocess, and preview overrides are likewise sparse. Effective resolution records provenance so the editor can distinguish preset, inherited Material, and current-Material values. Resetting an override reveals the inherited value again.
+Inheritance uses sparse overrides. Parameter and texture slots are keyed by stable semantic names rather than array position. Shader-stage, blend, and preview overrides are likewise sparse. Effective resolution records provenance so the editor can distinguish preset, inherited Material, and current-Material values. Resetting an override reveals the inherited value again. Postprocess scope is not Material state; each Postprocess Effect occurrence owns its `world` or `full-game-viewport` scope independently.
 
 A representative parameter override is:
 
@@ -124,6 +123,8 @@ Author-settable texture slots may use:
 Asset references participate in Project reference validation. Engine-bound sampler slots cannot be overridden by Material authoring.
 
 For the `engine-2d` role, `s_texColor` is the renderer-owned `engine.draw_texture` input. A Material does not author a texture source for that sampler: each draw binds the current sprite/draw texture, or a neutral opaque-white texture when the draw has no visual texture. The same contract-owned fixture behavior is used by Material preview, so preview data does not synthesize an authored `s_texColor` assignment. Engine2D output is premultiplied RGBA and uses the role's premultiplied-alpha pipeline state.
+
+For the `postprocess` role, `s_texColor` is the renderer-owned `engine.postprocess_source` input at sampler stage 0. It is always bound from the current composition surface with clamp/linear sampling and cannot be assigned an authored texture source. Postprocess output is premultiplied RGBA and uses the role contract's replacement/no-blend pipeline state. Scope remains on the Postprocess Effect occurrence, allowing the same Material to be reused at either `world` or `full-game-viewport` scope.
 
 ## Validation
 

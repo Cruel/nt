@@ -3555,13 +3555,11 @@
             "type": "float"
           }
         ],
-        "postprocessScope": "world",
         "role": "hotspot-overlay"
       },
       {
         "id": "sprite-material",
         "parameters": [],
-        "postprocessScope": "world",
         "role": "engine-2d"
       }
     ],
@@ -3589,7 +3587,7 @@
       }
     ]
   },
-  "saveContract": "sc1:8abfeb66fdae4db839bfeb5613d7f3d4",
+  "saveContract": "sc1:bfeb7d14eeed96fea85284c4a044c4aa",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

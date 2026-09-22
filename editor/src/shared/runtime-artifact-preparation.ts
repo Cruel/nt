@@ -794,7 +794,6 @@ async function assembleRuntimeArtifact(
         return {
           id,
           role: material.role,
-          postprocessScope: material.postprocess_scope ?? 'world',
           parameters: Object.entries(shader?.uniforms ?? {})
             .sort(([left], [right]) => left.localeCompare(right))
             .map(([name, uniform]) => ({

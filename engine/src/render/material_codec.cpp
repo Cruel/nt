@@ -171,15 +171,6 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
 
 [[nodiscard]] bool deferred_shader_role(ShaderRole role) { return role == ShaderRole::RmlUiFilter; }
 
-[[nodiscard]] std::optional<PostprocessScope> parse_postprocess_scope(std::string_view scope)
-{
-    if (scope == "world")
-        return PostprocessScope::World;
-    if (scope == "full-game-viewport")
-        return PostprocessScope::FullGameViewport;
-    return std::nullopt;
-}
-
 [[nodiscard]] std::optional<ShaderUniformType> parse_uniform_type(std::string_view type)
 {
     if (type == "float")
@@ -1011,7 +1002,8 @@ void parse_material_textures(const nlohmann::json& material_json, const ShaderDe
                            "material assigns undeclared shader sampler: " + name);
             continue;
         }
-        if (material.role == ShaderRole::Engine2D || material.role == ShaderRole::RmlUiDecorator) {
+        if (material.role == ShaderRole::Engine2D || material.role == ShaderRole::RmlUiDecorator ||
+            material.role == ShaderRole::Postprocess) {
             if (const auto* role_contract = material_role_contract(to_string(material.role));
                 role_contract != nullptr) {
                 const auto contract_sampler = std::find_if(
@@ -1174,19 +1166,11 @@ void parse_material_definition(std::string_view id, const nlohmann::json& materi
         }
     }
 
-    const auto scope_it = material_json.find("postprocess_scope");
-    if (scope_it != material_json.end()) {
-        if (!scope_it->is_string()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
-                           field_path(base_path, "postprocess_scope"),
-                           "material postprocess_scope must be a string");
-        } else if (const auto scope = parse_postprocess_scope(scope_it->get<std::string_view>())) {
-            material.postprocess_scope = *scope;
-        } else {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidPostprocessScope,
-                           field_path(base_path, "postprocess_scope"),
-                           "postprocess scope must be 'world' or 'full-game-viewport'");
-        }
+    if (material_json.contains("postprocess_scope")) {
+        add_diagnostic(
+            diagnostics, MaterialDiagnosticCode::InvalidPostprocessScope,
+            field_path(base_path, "postprocess_scope"),
+            "postprocess scope belongs to the Postprocess Effect occurrence, not the Material");
     }
 
     parse_material_uniforms(material_json, shader, material, diagnostics);

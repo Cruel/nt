@@ -201,6 +201,14 @@ TEST_CASE("material binder reports unknown materials without bgfx program loadin
                                  noveltea::ShaderProgramDiagnosticCode::UnknownMaterial));
 }
 
+TEST_CASE("postprocess pipeline state is contract-owned replacement over premultiplied output")
+{
+    const auto state =
+        noveltea::bgfx_backend::material_pipeline_state(noveltea::ShaderRole::Postprocess);
+    REQUIRE(state.has_value());
+    CHECK(*state == (BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A));
+}
+
 TEST_CASE("material binder packs schema uniform values into vec4 bgfx uniforms")
 {
     using noveltea::ShaderColor;

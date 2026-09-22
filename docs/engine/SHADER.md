@@ -83,7 +83,7 @@ The runtime continues to use internal shader/program structures and the `novelte
 - shipped system-program metadata for ordinary preset-backed Materials;
 - custom derived programs for source-overridden Materials;
 - reflected uniforms/samplers for compiled custom programs;
-- Material values, textures, blend state, role, and postprocess scope;
+- Material values, textures, role, and derived pipeline metadata;
 - diagnostics for unresolved inheritance, invalid bindings, unsupported reflection, and orphaned configuration.
 
 At certification boundaries the builder can additionally request the built-in preset source programs, allowing shipped presets to pass through the same native contract verifier without forcing ordinary editor previews to recompile system shaders. Preset programs otherwise resolve to shipped system shader binaries. Custom source programs must have the required compiled target variants before runtime package export succeeds.
@@ -94,7 +94,7 @@ Current Material roles include ordinary 2D rendering, ActiveText, RmlUi decorati
 
 Standard engine bindings remain typed runtime-owned inputs. Examples include time, paint dimensions, raster/UI scale values, viewport dimensions, pointer state, and role-specific hotspot/RmlUi inputs. A reflected input can be author-settable or engine-bound, but not both.
 
-Postprocess Materials retain the closed composition scopes `world` and `full-game-viewport`. Hotspot and RmlUi presets retain their role-specific sampler/uniform ownership rules.
+Postprocess scope is occurrence state rather than Material state: each Postprocess Effect selects the closed `world` or `full-game-viewport` scope independently. The postprocess role owns `s_texColor` at stage 0 as `engine.postprocess_source`, and the renderer supplies the current premultiplied composition surface with the contract's fixed clamp/linear sampling and replacement pipeline state. Hotspot and RmlUi presets retain their role-specific sampler/uniform ownership rules.
 
 ## ActiveText
 

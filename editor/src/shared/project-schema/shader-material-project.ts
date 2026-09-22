@@ -8,7 +8,6 @@ import { materialPresets } from './authoring-material-presets';
 import {
   materialBlendValues,
   materialTextureFilteringValues,
-  postprocessScopeValues,
   resolvedMaterialUsesCustomShader,
   resolveMaterialAuthoredOverrides,
   resolveMaterialData,
@@ -113,7 +112,6 @@ export const runtimeShaderDefinitionSchema = strict({
 export const runtimeMaterialDefinitionSchema = strict({
   display_name: z.string(),
   role: z.enum(shaderRoleValues),
-  postprocess_scope: z.enum(postprocessScopeValues).optional(),
   shader: z.string().min(1),
   uniforms: z.record(z.string().min(1), shaderUniformValueSchema),
   textures: z.record(
@@ -121,19 +119,6 @@ export const runtimeMaterialDefinitionSchema = strict({
     strict({ source: z.string().min(1), sampler: z.enum(materialTextureFilteringValues) }),
   ),
   blend: z.enum(materialBlendValues),
-}).superRefine((material, context) => {
-  if (material.role === 'postprocess' && material.postprocess_scope === undefined)
-    context.addIssue({
-      code: 'custom',
-      path: ['postprocess_scope'],
-      message: 'Postprocess Material requires postprocess_scope.',
-    });
-  if (material.role !== 'postprocess' && material.postprocess_scope !== undefined)
-    context.addIssue({
-      code: 'custom',
-      path: ['postprocess_scope'],
-      message: 'Only a postprocess Material may specify postprocess_scope.',
-    });
 });
 export const shaderMaterialProjectWireSchema = strict({
   schema: z.literal(SHADER_MATERIAL_SCHEMA),
@@ -505,7 +490,6 @@ export async function buildShaderMaterialProject(
     const parsedMaterial = runtimeMaterialDefinitionSchema.safeParse({
       display_name: record.label,
       role: resolved.role,
-      ...(resolved.role === 'postprocess' ? { postprocess_scope: resolved.postprocessScope } : {}),
       shader: shaderId,
       uniforms,
       textures,
@@ -609,7 +593,9 @@ function buildRuntimeShader(
       roleContract?.reservedInterface.rendererUniforms.map((uniform) => uniform.name) ?? [],
     );
     const migratedRendererSamplerContract =
-      resolved.role === 'engine-2d' || resolved.role === 'rmlui-decorator';
+      resolved.role === 'engine-2d' ||
+      resolved.role === 'rmlui-decorator' ||
+      resolved.role === 'postprocess';
     const rendererSamplerNames = new Set(
       migratedRendererSamplerContract
         ? (roleContract?.reservedInterface.samplers

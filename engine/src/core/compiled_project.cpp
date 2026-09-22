@@ -480,10 +480,6 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
     }
     for (const auto& material : input.material_interfaces) {
         if (!enum_at_most(material.role, compiled::MaterialRole::HotspotOverlay) ||
-            !enum_at_most(material.postprocess_scope,
-                          compiled::MaterialPostprocessScope::FullGameViewport) ||
-            (material.role != compiled::MaterialRole::Postprocess &&
-             material.postprocess_scope != compiled::MaterialPostprocessScope::World) ||
             std::any_of(
                 material.parameters.begin(), material.parameters.end(),
                 [](const compiled::MaterialParameterDeclaration& parameter) {

@@ -485,26 +485,18 @@ ShaderMaterialProject make_demo_shader_materials()
     postprocess_shader.samplers.push_back(
         ShaderSamplerDeclaration{.name = "s_texColor", .binding = std::nullopt});
 
-    const auto make_postprocess_material = [&](std::string id, PostprocessScope scope) {
+    const auto make_postprocess_material = [&](std::string id) {
         MaterialDefinition result;
         result.id = MaterialId(std::move(id));
         result.role = ShaderRole::Postprocess;
         result.shader = postprocess_shader.id;
         result.display_name = "Demo Postprocess Tint";
-        result.postprocess_scope = scope;
         result.uniforms.push_back(MaterialUniformAssignment{
             .name = "u_tint", .value = ShaderColor{0.35f, 1.0f, 0.35f, 1.0f}});
-        result.textures.push_back(MaterialTextureAssignment{
-            .sampler = "s_texColor",
-            .source = "$draw.texture",
-            .filtering = MaterialTextureSampler::ClampLinear,
-        });
         return result;
     };
-    auto world_postprocess_material =
-        make_postprocess_material("demo/postprocess_world", PostprocessScope::World);
-    auto full_game_postprocess_material =
-        make_postprocess_material("demo/postprocess_full_game", PostprocessScope::FullGameViewport);
+    auto world_postprocess_material = make_postprocess_material("demo/postprocess_world");
+    auto full_game_postprocess_material = make_postprocess_material("demo/postprocess_full_game");
 
     ShaderStageDefinition rmlui_vertex;
     rmlui_vertex.stage = ShaderStage::Vertex;
@@ -2132,7 +2124,8 @@ void Engine::Impl::poll_tooling_postprocess_assets()
             break;
         }
         m_assets.set_supplemental_leases_on_owner(std::move(*leases));
-        m_renderer.set_postprocess_material(MaterialId(m_tooling_postprocess_material_id));
+        m_renderer.set_postprocess_material(MaterialId(m_tooling_postprocess_material_id),
+                                            m_tooling_postprocess_scope);
         SDL_Log("[engine] tooling postprocess material resident: %s",
                 m_tooling_postprocess_material_id.c_str());
         break;
@@ -3197,7 +3190,8 @@ bool EngineTooling::set_runtime_ui_scale(Engine& engine, double scale)
     return bool(engine.m_impl->set_runtime_ui_scale(scale));
 }
 
-bool EngineTooling::set_postprocess_material(Engine& engine, std::string material_id)
+bool EngineTooling::set_postprocess_material(Engine& engine, std::string material_id,
+                                             PostprocessScope scope)
 {
     auto& impl = *engine.m_impl;
     if (!impl.m_initialized || material_id.empty())
@@ -3241,6 +3235,7 @@ bool EngineTooling::set_postprocess_material(Engine& engine, std::string materia
                                            .show_overlay_immediately = false,
                                            .presentation_revision = std::nullopt});
     impl.m_tooling_postprocess_material_id = material_id;
+    impl.m_tooling_postprocess_scope = scope;
     impl.m_assets.clear_supplemental_leases_on_owner();
     return true;
 }

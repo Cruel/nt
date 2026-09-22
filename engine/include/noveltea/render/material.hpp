@@ -123,7 +123,6 @@ struct MaterialDefinition {
     std::vector<MaterialUniformAssignment> uniforms;
     std::vector<MaterialTextureAssignment> textures;
     MaterialBlendMode blend = MaterialBlendMode::PremultipliedAlpha;
-    PostprocessScope postprocess_scope = PostprocessScope::World;
     bool fallback = false;
 };
 

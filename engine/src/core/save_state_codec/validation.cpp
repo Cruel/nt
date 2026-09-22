@@ -1151,7 +1151,6 @@ bool valid_saved_postprocess_effect(const CompiledProject& project, const SaveSt
     const auto* interface = project.find_material_interface(effect.material);
     return valid_saved_owner(project, save, effect.owner) && interface != nullptr &&
            interface->role == compiled::MaterialRole::Postprocess &&
-           interface->postprocess_scope == effect.scope &&
            effect.scope <= compiled::MaterialPostprocessScope::FullGameViewport &&
            effect.clock <= MaterialClockPolicy::UnscaledPresentation;
 }

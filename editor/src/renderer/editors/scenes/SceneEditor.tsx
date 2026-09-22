@@ -434,12 +434,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
         (id) => resolveMaterialData(project, id).data?.role === 'postprocess',
       );
       if (!materialId) return step;
-      const material = resolveMaterialData(project, materialId).data;
       return {
         ...step,
         action: 'upsert',
         material: sceneMaterialRef(materialId),
-        scope: material?.postprocessScope ?? 'world',
+        scope: 'world',
       };
     }
     return step;
@@ -2927,14 +2926,10 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             return;
                           }
                           const nextMaterial = materialId || postprocessMaterials[0] || '';
-                          const material = nextMaterial
-                            ? resolveMaterialData(project, nextMaterial).data
-                            : null;
                           replaceStep({
                             ...selected,
                             action,
                             material: nextMaterial ? sceneMaterialRef(nextMaterial) : null,
-                            scope: material?.postprocessScope ?? selected.scope,
                           });
                         }}
                       >
@@ -2959,11 +2954,9 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             value={materialId}
                             onValueChange={(id) => {
                               if (!id) return;
-                              const material = resolveMaterialData(project, id).data;
                               replaceStep({
                                 ...selected,
                                 material: sceneMaterialRef(id),
-                                scope: material?.postprocessScope ?? selected.scope,
                                 parameters: [],
                               });
                             }}
@@ -2977,7 +2970,16 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                         </Label>
                         <Label>
                           Scope
-                          <Select value={selected.scope} disabled>
+                          <Select
+                            value={selected.scope}
+                            onValueChange={(scope) =>
+                              replaceStep({
+                                ...selected,
+                                scope:
+                                  scope === 'full-game-viewport' ? 'full-game-viewport' : 'world',
+                              })
+                            }
+                          >
                             <SelectItem value="world">World</SelectItem>
                             <SelectItem value="full-game-viewport">Full Game Viewport</SelectItem>
                           </Select>
