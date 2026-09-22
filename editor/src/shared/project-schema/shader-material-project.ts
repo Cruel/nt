@@ -595,7 +595,8 @@ function buildRuntimeShader(
     const migratedRendererSamplerContract =
       resolved.role === 'engine-2d' ||
       resolved.role === 'rmlui-decorator' ||
-      resolved.role === 'postprocess';
+      resolved.role === 'postprocess' ||
+      resolved.role === 'hotspot-overlay';
     const rendererSamplerNames = new Set(
       migratedRendererSamplerContract
         ? (roleContract?.reservedInterface.samplers

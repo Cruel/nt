@@ -212,38 +212,6 @@ ShaderMaterialProject make_builtin_hotspot_material_project()
     return project;
 }
 
-bool hotspot_material_interface_compatible(const ShaderDefinition& shader,
-                                           HotspotMaterialInterface interface) noexcept
-{
-    if (std::find(shader.roles.begin(), shader.roles.end(), ShaderRole::HotspotOverlay) ==
-        shader.roles.end())
-        return false;
-
-    const auto uniform_count = [&](ShaderInputSemantic semantic, ShaderUniformType type) {
-        return std::count_if(shader.uniforms.begin(), shader.uniforms.end(),
-                             [&](const ShaderUniformDeclaration& uniform) {
-                                 return uniform.binding == semantic && uniform.type == type;
-                             });
-    };
-    if (uniform_count(ShaderInputSemantic::EngineHotspotBounds, ShaderUniformType::Vec4) != 1 ||
-        uniform_count(ShaderInputSemantic::EngineHotspotHovered, ShaderUniformType::Bool) != 1 ||
-        uniform_count(ShaderInputSemantic::EngineHotspotPressed, ShaderUniformType::Bool) != 1 ||
-        uniform_count(ShaderInputSemantic::EngineHotspotImageDimensions, ShaderUniformType::Vec2) !=
-            1 ||
-        uniform_count(ShaderInputSemantic::EngineHotspotMaskDimensions, ShaderUniformType::Vec2) !=
-            1)
-        return false;
-
-    const auto sampler_count = [&](ShaderSamplerSemantic semantic) {
-        return std::count_if(
-            shader.samplers.begin(), shader.samplers.end(),
-            [&](const ShaderSamplerDeclaration& sampler) { return sampler.binding == semantic; });
-    };
-    return sampler_count(ShaderSamplerSemantic::EngineHotspotImage) == 1 &&
-           sampler_count(ShaderSamplerSemantic::EngineHotspotMask) ==
-               (interface == HotspotMaterialInterface::Custom ? 1 : 0);
-}
-
 std::string_view to_string(MaterialDiagnosticCode code) noexcept
 {
     switch (code) {

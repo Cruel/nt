@@ -629,35 +629,58 @@ TEST_CASE("Material contract registry exposes stable V1 identities and renderer-
     CHECK(noveltea::material_contract_fingerprint_encoding() == "canonical-json-v1");
 }
 
-TEST_CASE("built-in hotspot materials expose distinct alpha and custom interfaces")
+TEST_CASE("hotspot Materials use contract-owned samplers and premultiplied composition")
 {
+    const auto* role = noveltea::material_role_contract("hotspot-overlay");
+    const auto* alpha = noveltea::material_preset_contract("hotspot-overlay-alpha");
+    const auto* custom = noveltea::material_preset_contract("hotspot-overlay-custom");
+    REQUIRE(role != nullptr);
+    REQUIRE(alpha != nullptr);
+    REQUIRE(custom != nullptr);
+    REQUIRE(role->samplers.size() == 2);
+    CHECK(role->samplers[0].semantic == "engine.hotspot_image");
+    CHECK(role->samplers[0].stage == 0);
+    CHECK(role->samplers[0].source_ownership == "renderer");
+    REQUIRE(role->samplers[0].address_policy.count == 1);
+    CHECK(role->samplers[0].address_policy.values[0] == "clamp");
+    REQUIRE(role->samplers[0].filter_policy.count == 1);
+    CHECK(role->samplers[0].filter_policy.values[0] == "inherit");
+    CHECK(role->samplers[1].semantic == "engine.hotspot_mask");
+    CHECK(role->samplers[1].stage == 1);
+    CHECK(role->samplers[1].source_ownership == "renderer");
+    REQUIRE(role->samplers[1].address_policy.count == 1);
+    CHECK(role->samplers[1].address_policy.values[0] == "clamp");
+    REQUIRE(role->samplers[1].filter_policy.count == 1);
+    CHECK(role->samplers[1].filter_policy.values[0] == "nearest");
+    CHECK(role->pipeline_state.blend == "premultiplied-alpha");
+    CHECK(role->pipeline_state.output_alpha == "premultiplied");
+
+    REQUIRE(alpha->sampler_capabilities.size() == 2);
+    CHECK(alpha->sampler_capabilities[0].slot == "s_hotspotImage");
+    CHECK(alpha->sampler_capabilities[0].state == "required");
+    CHECK(alpha->sampler_capabilities[1].slot == "s_hotspotMask");
+    CHECK(alpha->sampler_capabilities[1].state == "disabled");
+    REQUIRE(custom->sampler_capabilities.size() == 2);
+    CHECK(custom->sampler_capabilities[0].state == "required");
+    CHECK(custom->sampler_capabilities[1].state == "required");
+
     const auto project = noveltea::make_builtin_hotspot_material_project();
     REQUIRE(project.shaders.size() == 2);
     REQUIRE(project.materials.size() == 2);
-    CHECK(project.materials[0].id.value() == noveltea::builtin_hotspot_alpha_material_id);
-    CHECK(project.materials[1].id.value() == noveltea::builtin_hotspot_custom_material_id);
     CHECK(project.materials[0].fallback);
     CHECK(project.materials[1].fallback);
-    CHECK(noveltea::hotspot_material_interface_compatible(
-        project.shaders[0], noveltea::HotspotMaterialInterface::Alpha));
-    CHECK_FALSE(noveltea::hotspot_material_interface_compatible(
-        project.shaders[0], noveltea::HotspotMaterialInterface::Custom));
-    CHECK(noveltea::hotspot_material_interface_compatible(
-        project.shaders[1], noveltea::HotspotMaterialInterface::Custom));
-    CHECK_FALSE(noveltea::hotspot_material_interface_compatible(
-        project.shaders[1], noveltea::HotspotMaterialInterface::Alpha));
     CHECK(project.materials[0].textures.empty());
     CHECK(project.materials[1].textures.empty());
 }
 
-TEST_CASE("material documents reject assignments to engine-bound hotspot samplers")
+TEST_CASE("material documents reject authored sources for contract-owned hotspot samplers")
 {
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials",
       "shaders":{
         "hotspot/test":{
           "stages":{"fragment":{"source":"project:/hotspot.fs.sc"}},
-          "samplers":{"s_image":{"type":"texture2d","binding":"engine.hotspot_image"}},
+          "samplers":{"s_hotspotImage":{"type":"texture2d","binding":null}},
           "roles":["hotspot-overlay"],
           "role_bindings":{}
         }
@@ -666,7 +689,7 @@ TEST_CASE("material documents reject assignments to engine-bound hotspot sampler
         "hotspot/test":{
           "role":"hotspot-overlay",
           "shader":"hotspot/test",
-          "textures":{"s_image":{"source":"project:/image.png","sampler":"clamp-linear"}}
+          "textures":{"s_hotspotImage":{"source":"project:/image.png","sampler":"clamp-linear"}}
         }
       }
     })json");

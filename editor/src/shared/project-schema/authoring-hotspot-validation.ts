@@ -1,6 +1,7 @@
 import { parseAssetData } from './authoring-assets';
 import { parseInteractableData, type InteractableData } from './authoring-interactables';
 import { resolveMaterialData } from './authoring-materials';
+import { materialContractRegistry } from './material-contract-registry.generated';
 import type { AuthoringProject } from './authoring-project';
 import { parseRoomData } from './authoring-rooms';
 import type { InteractionSubjectData } from './authoring-features';
@@ -128,49 +129,26 @@ function validateHighlight(
         'hotspot.authoring.highlight.material-role',
       ),
     ];
-  const diagnostics: HotspotAuthoringDiagnostic[] = [];
-  const requiredUniforms = new Map([
-    ['engine.hotspot_bounds', 'vec4'],
-    ['engine.hotspot_hovered', 'bool'],
-    ['engine.hotspot_pressed', 'bool'],
-    ['engine.hotspot_image_dimensions', 'vec2'],
-    ['engine.hotspot_mask_dimensions', 'vec2'],
-  ] as const);
-  for (const [binding, type] of requiredUniforms) {
-    const matches = Object.values(material.preset.uniforms).filter(
-      (uniform) => uniform.binding === binding,
-    );
-    if (matches.length !== 1 || matches[0]?.type !== type)
-      diagnostics.push(
+  const preset = materialContractRegistry.presets.find(
+    (candidate) => candidate.id === material.preset.id,
+  );
+  const imageState = preset?.capabilities.samplers.s_hotspotImage;
+  const maskState = preset?.capabilities.samplers.s_hotspotMask;
+  const samplerCompatible =
+    imageState === 'required' &&
+    (mode === 'sprite-alpha' ? maskState === 'disabled' : maskState === 'required');
+  return samplerCompatible
+    ? []
+    : [
         diagnostic(
           category,
           `${path}/material/$ref`,
-          `Hotspot Material contract must declare exactly one '${binding}' uniform with type '${type}'.`,
-          'hotspot.authoring.highlight.uniform-interface',
+          mode === 'sprite-alpha'
+            ? 'Default-alpha hotspot highlights require the alpha hotspot Material contract.'
+            : 'Custom hotspot highlights require the custom-mask hotspot Material contract.',
+          'hotspot.authoring.highlight.sampler-interface',
         ),
-      );
-  }
-  const imageBindings = Object.values(material.preset.samplers).filter(
-    (sampler) => sampler.binding === 'engine.hotspot_image',
-  );
-  const maskBindings = Object.values(material.preset.samplers).filter(
-    (sampler) => sampler.binding === 'engine.hotspot_mask',
-  );
-  const samplerCompatible =
-    imageBindings.length === 1 &&
-    (mode === 'sprite-alpha' ? maskBindings.length === 0 : maskBindings.length === 1);
-  if (!samplerCompatible)
-    diagnostics.push(
-      diagnostic(
-        category,
-        `${path}/material/$ref`,
-        mode === 'sprite-alpha'
-          ? "Default-alpha hotspot Material contract must declare exactly one 'engine.hotspot_image' sampler and no 'engine.hotspot_mask' sampler."
-          : "Custom hotspot Material contract must declare exactly one 'engine.hotspot_image' and one 'engine.hotspot_mask' sampler.",
-        'hotspot.authoring.highlight.sampler-interface',
-      ),
-    );
-  return diagnostics;
+      ];
 }
 
 function validateSourceImage(
