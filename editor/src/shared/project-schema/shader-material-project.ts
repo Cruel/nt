@@ -4,7 +4,6 @@ import { sha256HexUtf8 } from '../web-crypto';
 import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject } from './authoring-project';
 import { materialContractRegistry } from './material-contract-registry.generated';
-import { materialPresets } from './authoring-material-presets';
 import {
   materialBlendValues,
   materialTextureFilteringValues,
@@ -152,7 +151,6 @@ export interface ShaderMaterialProjectBuildResult {
   project: z.infer<typeof shaderMaterialProjectWireSchema>;
   compilation: ShaderSourcePrograms;
   diagnostics: ShaderMaterialProjectDiagnostic[];
-  activeTextSourcePrograms: ReadonlyMap<string, string>;
 }
 export interface ShaderMaterialProjectBuildOptions {
   certifyPresetPrograms?: boolean;
@@ -243,19 +241,6 @@ function isBgfxPredefinedUniform(name: string): boolean {
   return bgfxPredefinedUniformNames.has(name);
 }
 
-function reflectedType(type: string): ShaderUniformType | null {
-  if (
-    type === 'float' ||
-    type === 'vec2' ||
-    type === 'vec3' ||
-    type === 'vec4' ||
-    type === 'int' ||
-    type === 'bool'
-  )
-    return type;
-  return null;
-}
-
 function implicitUniformDefault(type: ShaderUniformType): ShaderUniformValue {
   switch (type) {
     case 'float':
@@ -273,140 +258,6 @@ function implicitUniformDefault(type: ShaderUniformType): ShaderUniformValue {
   }
 }
 
-function activeTextPairKey(vertexSource: string, fragmentSource: string): string {
-  return `${vertexSource}\u0000${fragmentSource}`;
-}
-
-function sourceBackedShaderIdentity(value: string | undefined): value is string {
-  return value?.startsWith('project:/shaders/') === true || value?.startsWith('engine:/') === true;
-}
-
-export function rewriteActiveTextSourcePrograms(
-  text: string,
-  programs: ReadonlyMap<string, string>,
-): string {
-  const preset = materialPresets['active-text'];
-  return text.replace(/\[shader\b([^\]]*)\]/giu, (tag, body: string) => {
-    const attributes = new Map<string, string>();
-    for (const attribute of body.matchAll(/(?:^|\s)([vf])=("[^"]*"|'[^']*'|[^\s\]]+)/giu)) {
-      const raw = attribute[2] ?? '';
-      attributes.set(attribute[1]!.toLowerCase(), raw.replace(/^(['"])(.*)\1$/u, '$2'));
-    }
-    const authoredVertex = attributes.get('v');
-    const authoredFragment = attributes.get('f');
-    if (
-      (authoredVertex !== undefined && !sourceBackedShaderIdentity(authoredVertex)) ||
-      (authoredFragment !== undefined && !sourceBackedShaderIdentity(authoredFragment)) ||
-      (authoredVertex === undefined && authoredFragment === undefined)
-    )
-      return tag;
-    const vertexSource = authoredVertex ?? preset.vertexSource;
-    const fragmentSource = authoredFragment ?? preset.fragmentSource;
-    const program = programs.get(activeTextPairKey(vertexSource, fragmentSource));
-    return program ? `[shader v=source-program:${program} f=source-program:${program}]` : tag;
-  });
-}
-
-function collectActiveTextSourcePairs(project: AuthoringProject): Array<{
-  vertexSource: string;
-  fragmentSource: string;
-}> {
-  const pairs = new Map<string, { vertexSource: string; fragmentSource: string }>();
-  const preset = materialPresets['active-text'];
-  const visit = (value: unknown) => {
-    if (typeof value === 'string') {
-      for (const match of value.matchAll(/\[shader\b([^\]]*)\]/giu)) {
-        const attributes = new Map<string, string>();
-        for (const attribute of match[1]?.matchAll(
-          /(?:^|\s)([vf])=("[^"]*"|'[^']*'|[^\s\]]+)/giu,
-        ) ?? []) {
-          const raw = attribute[2] ?? '';
-          attributes.set(attribute[1]!.toLowerCase(), raw.replace(/^(['"])(.*)\1$/u, '$2'));
-        }
-        const authoredVertex = attributes.get('v');
-        const authoredFragment = attributes.get('f');
-        if (
-          (authoredVertex !== undefined && !sourceBackedShaderIdentity(authoredVertex)) ||
-          (authoredFragment !== undefined && !sourceBackedShaderIdentity(authoredFragment))
-        )
-          continue;
-        if (authoredVertex === undefined && authoredFragment === undefined) continue;
-        const vertexSource = authoredVertex ?? preset.vertexSource;
-        const fragmentSource = authoredFragment ?? preset.fragmentSource;
-        pairs.set(activeTextPairKey(vertexSource, fragmentSource), {
-          vertexSource,
-          fragmentSource,
-        });
-      }
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item);
-      return;
-    }
-    if (value && typeof value === 'object')
-      for (const item of Object.values(value as Record<string, unknown>)) visit(item);
-  };
-  visit(project);
-  return [...pairs.values()];
-}
-
-function buildSourceProgramShaderDefinition(
-  request: ShaderSourcePrograms['programs'][string],
-  outputs: readonly ShaderCompileOutput[],
-  role: 'active-text',
-): RuntimeShaderDefinition {
-  const stages: RuntimeShaderDefinition['stages'] = {
-    vertex: { source: request.vertexSource, compiled: {} },
-    fragment: { source: request.fragmentSource, compiled: {} },
-  };
-  for (const output of outputs) {
-    const stage = output.stage === 'vertex' ? stages.vertex : stages.fragment;
-    stage!.compiled ??= {};
-    stage!.compiled![output.variant] = {
-      runtimePath: output.runtimePath,
-      byteHash: output.byteHash,
-      byteSize: output.byteSize,
-    };
-  }
-  const reflected = new Map<
-    string,
-    { kind: 'uniform' | 'sampled-image'; type: string; registerIndex?: number }
-  >();
-  for (const output of outputs)
-    for (const input of output.reflectedInputs) {
-      if (input.kind === 'uniform' && isBgfxPredefinedUniform(input.name)) continue;
-      reflected.set(input.name, {
-        kind: input.kind,
-        type: input.type,
-        registerIndex: input.registerIndex,
-      });
-    }
-  const uniforms: RuntimeShaderDefinition['uniforms'] = {};
-  const samplers: RuntimeShaderDefinition['samplers'] = {};
-  for (const [name, input] of reflected) {
-    if (input.kind === 'sampled-image') {
-      if (input.registerIndex === undefined)
-        throw new Error(`Reflected sampler '${name}' is missing its compiled sampler stage.`);
-      samplers[name] = { type: 'texture2d', stage: input.registerIndex, binding: null };
-    } else {
-      const type = reflectedType(input.type);
-      if (type) uniforms[name] = { type };
-    }
-  }
-  const preset = materialPresets['active-text'];
-  return runtimeShaderDefinitionSchema.parse({
-    display_name: 'Derived ActiveText source program',
-    interface_contract: preset.interfaceContract,
-    interface_fingerprint: preset.interfaceFingerprint,
-    stages,
-    uniforms,
-    samplers,
-    roles: [role],
-    role_bindings: {},
-  });
-}
-
 export async function buildShaderMaterialProject(
   project: AuthoringProject,
   compiledOutputs: readonly ShaderCompileOutput[] = [],
@@ -421,26 +272,6 @@ export async function buildShaderMaterialProject(
     const bucket = compiledByProgram.get(output.program) ?? [];
     bucket.push(output);
     compiledByProgram.set(output.program, bucket);
-  }
-
-  const activeTextSourcePrograms = new Map<string, string>();
-  for (const pair of collectActiveTextSourcePairs(project)) {
-    const preset = materialPresets['active-text'];
-    const request: ShaderSourcePrograms['programs'][string] = {
-      vertexSource: pair.vertexSource,
-      fragmentSource: pair.fragmentSource,
-      varyingDefinition: preset.varyingDefinition,
-      interfaceContract: preset.interfaceContract,
-      interfaceFingerprint: preset.interfaceFingerprint,
-    };
-    const key = `active-text-${(await sha256HexUtf8(JSON.stringify(request))).slice(0, 24)}`;
-    programs[key] = request;
-    activeTextSourcePrograms.set(activeTextPairKey(pair.vertexSource, pair.fragmentSource), key);
-    shaders[key] = buildSourceProgramShaderDefinition(
-      request,
-      compiledByProgram.get(key) ?? [],
-      'active-text',
-    );
   }
 
   for (const [materialId, record] of Object.entries(project.materials)) {
@@ -523,7 +354,6 @@ export async function buildShaderMaterialProject(
     project: { schema: SHADER_MATERIAL_SCHEMA, shaders, materials },
     compilation: { schema: SHADER_SOURCE_PROGRAMS_SCHEMA, programs },
     diagnostics,
-    activeTextSourcePrograms,
   };
 }
 
@@ -610,6 +440,7 @@ function buildRuntimeShader(
     );
     const migratedRendererSamplerContract =
       resolved.role === 'engine-2d' ||
+      resolved.role === 'active-text' ||
       resolved.role === 'rmlui-decorator' ||
       resolved.role === 'postprocess' ||
       resolved.role === 'hotspot-overlay';

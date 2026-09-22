@@ -169,7 +169,7 @@ Material-backed engine 2D quads use `ShaderRole::Engine2D`. RmlUi decorator mate
 
 Postprocess materials use `ShaderRole::Postprocess`. The generated role contract owns `s_texColor` at stage 0 as `engine.postprocess_source`; each postprocess draw explicitly binds the current premultiplied composition surface with clamp/linear sampling, so a previous draw's texture state cannot become an implicit source. The role pipeline is replacement/no-blend, and a failed Material bind falls back to a replacement copy rather than alpha blending. `world` versus `full-game-viewport` is Postprocess Effect occurrence state and is not carried by the Material definition, allowing one postprocess Material to serve either scope.
 
-ActiveText rich-text material tags attempt `ShaderRole::ActiveText` material resolution, and low-level vertex/fragment shader metadata attempts direct shader-pair resolution; both paths fall back to default text rendering with deduped diagnostics when unavailable.
+ActiveText rich-text material tags resolve only through `ShaderRole::ActiveText`. The canonical `s_textAtlas` sampler is renderer-owned at stage 0, and both explicit ActiveText Materials and the built-in/default text Material bind through `BgfxMaterialBinder` with the role's premultiplied-alpha pipeline state. Direct vertex/fragment shader metadata is not part of ActiveText runtime state; invalid or unavailable explicit Materials fall back to the built-in ActiveText Material with deduped diagnostics.
 
 ## Runtime UI Usage
 

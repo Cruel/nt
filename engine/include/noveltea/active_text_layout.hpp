@@ -47,8 +47,6 @@ struct ActiveTextGlyphVisual {
     float glow = 0.0f;
     std::string object_id;
     std::string material_id;
-    std::string vertex_shader_id;
-    std::string fragment_shader_id;
     bool diff = false;
     core::RichTextAnimation animation{};
     PositionedGlyph shaped_glyph{};

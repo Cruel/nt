@@ -21,7 +21,7 @@ Derived build output remains under `.noveltea/` and is not canonical authoring s
 
 ### Runtime artifact preparation and lowering
 
-`editor/src/renderer/test/shader-material-project.test.ts` covers preset-backed Materials, inheritance safety, custom source-backed Materials, reflected interfaces, and derived source-program output without authored Shader records. `editor/src/renderer/test/runtime-artifact-preparation.test.ts` covers ephemeral shader preparation without authoring mutation, requested target/source packaging, reflected Material parameters, source-revision invalidation, and ActiveText direct source pairs.
+`editor/src/renderer/test/shader-material-project.test.ts` covers preset-backed Materials, inheritance safety, custom source-backed Materials, reflected interfaces, canonical ActiveText glyph-atlas ownership, and derived source-program output without authored Shader records. `editor/src/renderer/test/runtime-artifact-preparation.test.ts` covers ephemeral shader preparation without authoring mutation, requested target/source packaging, reflected Material parameters, source-revision invalidation, and the absence of synthesized runtime programs for rejected ActiveText direct shader markup.
 
 Runtime wire structures may still contain internal shader/program objects. Those objects are generated from effective Material/source inputs and do not restore a user-authored Shader identity.
 

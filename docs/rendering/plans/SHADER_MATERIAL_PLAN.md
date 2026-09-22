@@ -211,39 +211,26 @@ Role behavior:
 - Optional texture slots.
 - Premultiplied-alpha output for normal 2D blending.
 
-### ActiveText Material / Direct Shader Pair
+### ActiveText Material
 
 Used by NovelTea rich text and ActiveText effects.
 
-There are two paths:
+ActiveText has one rendering path: rich-text Material tags resolve to `active-text` Material ids. The
+semantic rich-text model, layout glyphs, runtime metadata, and program cache do not carry direct
+vertex/fragment shader identities. Direct `[shader ...]` markup is rejected instead of being rewritten
+into a derived source-program token.
 
-- Rich-text material tags resolve to material ids and use the material/shader registry.
-- ActiveText's lower-level shader BBCode preserves separate `fragment_shader_id` and `vertex_shader_id` fields on `RichTextStyle`; that path resolves directly through the shader registry/program cache and must not be forced into a material record.
-
-The direct shader-pair path still uses precompiled bgfx binaries at runtime and falls back to the default ActiveText/text shader path if the requested pair is unavailable.
-
-Current runtime status: ActiveText glyph visuals preserve material ids and direct shader ids while
-using the engine text stack for shaped glyph positions. `Renderer::draw_active_text()` attempts
-`ShaderRole::ActiveText` material resolution and `resolve_direct_shader_pair_program()` for direct
-shader-pair metadata, then falls back to default text rendering when the requested program is
-unavailable. Diagnostics are deduped by requested material id or shader pair and include the fallback
-behavior.
-
-Implementation requirement: this should advance from resolution-only diagnostics to real binding.
-When an ActiveText material or direct shader pair resolves to an available precompiled bgfx program,
-the affected glyph geometry should be submitted with that program. Material records should bind their
-declared uniform values and texture/sampler assignments through the same `BgfxMaterialBinder` policy
-used by engine 2D quads. Direct shader-pair metadata has no material record, so it may initially bind
-only engine-provided uniforms/samplers and default glyph atlas inputs, but the program selection must
-be real rather than diagnostic-only. Missing material/program variants still fall back to default text
-rendering with structured, deduped diagnostics.
+`Renderer::draw_active_text()` batches by Material identity and glyph-atlas page. Explicit Materials
+bind through `BgfxMaterialBinder`; missing or invalid explicit Materials fall back to a built-in
+ActiveText Material that uses the same role contract and binder. The role reserves `s_textAtlas` at
+stage 0 for the renderer-owned `engine.glyph_atlas` input and owns the premultiplied-alpha pipeline
+state. There is no legacy sampler-name detection or parallel direct-program ABI.
 
 Text outline/border rendering is intentionally not part of the next ActiveText material milestone.
 Outline metadata may remain preserved for compatibility, but high-quality outline/border effects are
 sidelined until an authored fixture requires them. ActiveText V1 glow is implemented as CPU effect
-metadata plus a simple renderer-side warm color boost in `v_color0`, including material and direct
-shader batches. A true halo/blur glow remains future work for an expanded glyph, SDF/MSDF, or bounded
-postprocess slice.
+metadata plus a simple renderer-side warm color boost in `v_color0`, including Material batches. A
+true halo/blur glow remains future work for an expanded glyph, SDF/MSDF, or bounded postprocess slice.
 
 ### RmlUi Decorator Material
 
@@ -328,7 +315,7 @@ MaterialDefinition
   project/game schema record: material id, selected shader role, shader reference, uniform values, textures, blend policy
 
 ShaderRegistry
-  resolves shader ids and direct ActiveText shader pairs
+  resolves Material-owned shader programs
   selects compiled binary refs for the inferred active variant
   exposes uniform/sampler/role metadata
 
@@ -428,7 +415,6 @@ Editor hot reload should be host-only.
 Every material or shader resolution/compilation failure must report the relevant context:
 
 - Material id, if a material was requested.
-- Shader id or direct ActiveText vertex/fragment shader ids, if a direct shader pair was requested.
 - Selected shader role.
 - Referencing asset, RmlUi document, rich-text run, or project object if known.
 - Inferred compiled shader variant.
@@ -440,7 +426,7 @@ Fallbacks:
 
 - RmlUi decorator fallback: obvious error tint/checker constrained to the element geometry.
 - Engine 2D fallback: visible checker quad with object/material id logged.
-- ActiveText direct shader-pair fallback: default text/ActiveText shader path with an actionable diagnostic.
+- ActiveText Material fallback: built-in ActiveText Material with an actionable diagnostic.
 - Missing texture fallback: existing checker texture or a material-specific fallback texture.
 
 Do not silently return zero for project-authored materials after the material system exists. Returning zero remains acceptable for unsupported RmlUi shader names before a provider is configured.
@@ -497,14 +483,13 @@ Acceptance:
 
 Implemented model:
 
-- `engine/include/noveltea/render/shader_manifest.hpp` defines backend-neutral runtime shader-program resolution records, diagnostics, direct shader-pair support, and stable cache keys.
+- `engine/include/noveltea/render/shader_manifest.hpp` defines backend-neutral Material shader-program resolution records, diagnostics, and stable cache keys.
 - `ShaderDefinition::stages[].compiled` is the first runtime metadata source for compiled binary paths. A future generated manifest can feed the same resolver without changing renderer-facing call sites.
 - `resolve_material_shader_program()` maps material id + selected shader role + inferred compiled variant to resolved vertex/fragment shader binary refs.
-- `resolve_direct_shader_pair_program()` maps ActiveText's preserved vertex/fragment shader ids + inferred compiled variant to resolved binary refs without requiring a material record.
 - Role-specific stage bindings are required when the material shader record does not itself contain both vertex and fragment stages.
-- Resolved programs carry uniform and sampler declarations forward for later material binding and direct ActiveText shader binding.
-- `BgfxShaderProgramCache` loads resolved compiled binaries through `AssetManager`, creates bgfx programs, caches them by material-vs-direct context plus variant and binary paths, and owns program lifetimes.
-- Tests cover material metadata selection, direct ActiveText shader-pair selection, missing inferred-variant diagnostics, role-binding requirements, shared fragment shaders across roles, and cache-key separation.
+- Resolved programs carry uniform and sampler declarations forward for Material binding.
+- `BgfxShaderProgramCache` loads resolved compiled binaries through `AssetManager`, creates bgfx programs, caches them by binary paths/variant, and owns program lifetimes.
+- Tests cover material metadata selection, missing inferred-variant diagnostics, role-binding requirements, shared fragment shaders across roles, and Material/binary cache-key separation.
 
 Still intentionally not implemented:
 
@@ -516,11 +501,10 @@ Still intentionally not implemented:
 
 Acceptance:
 
-- Runtime metadata resolution can select a precompiled material program for the active backend.
-- Runtime metadata resolution can select a precompiled direct shader-pair program for ActiveText low-level shader metadata.
+- Runtime metadata resolution can select a precompiled Material program for the active backend.
+- ActiveText uses the same Material resolver/binder path as other Material roles, including its built-in fallback Material.
 - `BgfxShaderProgramCache` can load/create/cache bgfx programs from resolved compiled binary refs when called inside an initialized bgfx runtime.
-- Missing material program diagnostics name the material id, selected shader role, inferred active variant, and expected path.
-- Missing direct shader-pair diagnostics name the vertex/fragment shader ids, inferred active variant, and expected paths.
+- Missing Material program diagnostics name the Material id, selected shader role, inferred active variant, and expected path.
 
 ### Phase 3: Editor/Import Shader Compilation `[implemented]`
 
@@ -562,8 +546,7 @@ variant participate in derived compile/cache identity.
 Successful source-program outputs expose reflected uniforms and sampled images from the compiled bgfx
 binary. The `essl-300` output additionally exposes the compiled ESSL source payload for the future
 lightweight Material preview renderer. Derived binaries use a deterministic program identity rather
-than authored Shader ids, and runtime program resolution has a matching source-program key path that
-can represent ActiveText direct vertex/fragment programs without Shader records.
+than authored Shader ids and are consumed through the Material-owned runtime shader definition.
 
 `compile_shader_project()` and the current Shader-record schema remain supported during this prefactor;
 the canonical authoring cutover is intentionally deferred to later #292 tickets.

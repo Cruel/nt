@@ -82,6 +82,35 @@ describe('canonical Material shader lowering', () => {
     });
   });
 
+  it('lowers ActiveText Materials with only the canonical renderer-owned glyph atlas', async () => {
+    const project = createAuthoringProject();
+    project.materials.dialogue = {
+      id: 'dialogue',
+      label: 'Dialogue',
+      data: defaultMaterialData('Dialogue', 'active-text'),
+    };
+
+    const built = await buildShaderMaterialProject(project);
+
+    expect(built.diagnostics).toEqual([]);
+    expect(built.project.materials.dialogue).toMatchObject({
+      role: 'active-text',
+      shader: 'preset-active-text',
+      textures: {},
+    });
+    expect(built.project.shaders['preset-active-text']).toMatchObject({
+      interface_contract: materialPresets['active-text'].interfaceContract,
+      interface_fingerprint: materialPresets['active-text'].interfaceFingerprint,
+      roles: ['active-text'],
+      samplers: {
+        s_textAtlas: { type: 'texture2d', stage: 0, binding: null },
+      },
+    });
+    expect(built.project.shaders['preset-active-text']?.samplers).not.toHaveProperty(
+      's_glyphAtlas',
+    );
+  });
+
   it('keeps postprocess source renderer-owned and does not publish Material-level scope', async () => {
     const project = createAuthoringProject();
     project.materials.grade = {

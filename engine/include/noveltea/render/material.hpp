@@ -15,6 +15,7 @@ inline constexpr std::string_view builtin_hotspot_alpha_material_id =
     "system/fallback/hotspot_alpha";
 inline constexpr std::string_view builtin_hotspot_custom_material_id =
     "system/fallback/hotspot_custom";
+inline constexpr std::string_view builtin_active_text_material_id = "system/fallback/active_text";
 
 class MaterialId {
 public:
@@ -147,6 +148,7 @@ using MaterialParseResult = ShaderMaterialProjectParseResult;
 [[nodiscard]] MaterialDefinition make_engine_2d_fallback_material();
 [[nodiscard]] MaterialDefinition make_rmlui_decorator_fallback_material();
 [[nodiscard]] ShaderMaterialProject make_builtin_hotspot_material_project();
+[[nodiscard]] ShaderMaterialProject make_builtin_active_text_material_project();
 
 [[nodiscard]] std::string_view to_string(MaterialDiagnosticCode code) noexcept;
 [[nodiscard]] std::string_view to_string(MaterialDiagnosticSeverity severity) noexcept;

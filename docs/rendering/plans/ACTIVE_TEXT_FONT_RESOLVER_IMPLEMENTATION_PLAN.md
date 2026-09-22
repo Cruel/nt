@@ -317,7 +317,7 @@ Tasks:
 3. Shape the full final string for wrapping stability, then reveal by visible glyph count, preserving the existing precomputed wrapping behavior.
 4. Replace the current per-glyph shaping helper in `build_active_text_layout(document, options, FontHandle, ActiveTextShaper)` with a styled shaper path.
 5. Keep the unshaped fallback layout for tests/environments where the text engine is unavailable.
-6. Preserve object span hit rectangles, material ids, direct shader ids, diff flags, offsets, scale, page-break flags, and effect metadata.
+6. Preserve object span hit rectangles, Material ids, diff flags, offsets, scale, page-break flags, and effect metadata.
 
 Tests:
 

@@ -39,8 +39,6 @@ nlohmann::json encode_style(const RichTextStyle& style)
         {"font_alias", style.font_alias},
         {"material_id", style.material_id},
         {"object_id", style.object_id},
-        {"vertex_shader_id", style.vertex_shader_id},
-        {"fragment_shader_id", style.fragment_shader_id},
         {"x_offset", style.x_offset},
         {"y_offset", style.y_offset},
         {"font_size", style.font_size},
@@ -131,8 +129,6 @@ bool decode_rich_text_document(const nlohmann::json& value, RichTextDocument& ou
                 run.style.font_alias = style_value->value("font_alias", "");
                 run.style.material_id = style_value->value("material_id", "");
                 run.style.object_id = style_value->value("object_id", "");
-                run.style.vertex_shader_id = style_value->value("vertex_shader_id", "");
-                run.style.fragment_shader_id = style_value->value("fragment_shader_id", "");
                 run.style.x_offset = style_value->value("x_offset", 0);
                 run.style.y_offset = style_value->value("y_offset", 0);
                 run.style.font_size = style_value->value("font_size", 12u);

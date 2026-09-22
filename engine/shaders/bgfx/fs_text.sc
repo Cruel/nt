@@ -8,5 +8,5 @@ void main()
 {
     vec4 color = v_color0;
     color.a *= texture2D(s_textAtlas, v_texcoord0).a;
-    gl_FragColor = color;
+    gl_FragColor = vec4(color.rgb * color.a, color.a);
 }

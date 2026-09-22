@@ -221,10 +221,6 @@ std::string glyph_rml(const ActiveTextGlyph& glyph)
         out << " data-material=\"" << escape_rml(glyph.style.material_id) << "\"";
     if (!glyph.style.font_alias.empty())
         out << " data-font=\"" << escape_rml(glyph.style.font_alias) << "\"";
-    if (!glyph.style.vertex_shader_id.empty())
-        out << " data-vertex-shader=\"" << escape_rml(glyph.style.vertex_shader_id) << "\"";
-    if (!glyph.style.fragment_shader_id.empty())
-        out << " data-fragment-shader=\"" << escape_rml(glyph.style.fragment_shader_id) << "\"";
     if (glyph.style.font_size != 12)
         out << " data-font-size=\"" << glyph.style.font_size << "\"";
     if (glyph.offset.x != 0.0f)

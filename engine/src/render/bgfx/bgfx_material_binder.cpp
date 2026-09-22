@@ -19,9 +19,8 @@ constexpr std::string_view engine_draw_texture_semantic = "engine.draw_texture";
 constexpr std::string_view engine_postprocess_source_semantic = "engine.postprocess_source";
 constexpr std::string_view engine_hotspot_image_semantic = "engine.hotspot_image";
 constexpr std::string_view engine_hotspot_mask_semantic = "engine.hotspot_mask";
+constexpr std::string_view engine_glyph_atlas_semantic = "engine.glyph_atlas";
 constexpr std::string_view legacy_draw_texture_source = "$draw.texture";
-constexpr std::string_view glyph_atlas_sampler = "s_textAtlas";
-constexpr std::string_view legacy_glyph_atlas_sampler = "s_glyphAtlas";
 
 void add_diagnostic(std::vector<ShaderProgramDiagnostic>* diagnostics,
                     ShaderProgramDiagnosticCode code, std::string context, std::string message)
@@ -57,11 +56,6 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
 [[nodiscard]] bool starts_with(std::string_view value, std::string_view prefix) noexcept
 {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
-}
-
-[[nodiscard]] bool is_glyph_atlas_sampler(std::string_view name) noexcept
-{
-    return name == glyph_atlas_sampler || name == legacy_glyph_atlas_sampler;
 }
 
 [[nodiscard]] const MaterialContractSamplerSlot* find_contract_sampler(ShaderRole role,
@@ -431,10 +425,24 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
                              bgfx_sampler_flags(MaterialTextureSampler::ClampNearest));
             continue;
         }
-        if (inputs.role == ShaderRole::ActiveText && is_glyph_atlas_sampler(sampler.name) &&
-            bgfx::isValid(inputs.glyph_atlas)) {
-            bgfx::setTexture(sampler.stage, sampler_handle(sampler.name), inputs.glyph_atlas,
-                             BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+        if (const auto* slot = find_contract_sampler(inputs.role, sampler.name);
+            slot != nullptr && slot->source_ownership == "renderer" &&
+            slot->semantic == engine_glyph_atlas_semantic) {
+            if (!has_single_policy(slot->address_policy, "clamp") ||
+                !has_single_policy(slot->filter_policy, "linear")) {
+                add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::IncompatibleShaderRole,
+                               material_context(material_id, inputs.role),
+                               "glyph atlas sampler contract has unsupported policy");
+                return {};
+            }
+            if (!bgfx::isValid(inputs.glyph_atlas)) {
+                add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
+                               material_context(material_id, inputs.role),
+                               "glyph atlas binding is unavailable");
+                return {};
+            }
+            bgfx::setTexture(slot->stage, sampler_handle(sampler.name), inputs.glyph_atlas,
+                             bgfx_sampler_flags(MaterialTextureSampler::ClampLinear));
             continue;
         }
 
@@ -567,7 +575,7 @@ BgfxMaterialBinder::bind_system_material(const ShaderMaterialProject& project,
     if (!bgfx::isValid(program)) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
                        material_context(material_id, inputs.role),
-                       "built-in hotspot shader program is unavailable");
+                       "built-in shader program is unavailable");
         return {};
     }
     return bind_resolved_material(material_id, *material, *resolved.program, program, inputs,

@@ -152,8 +152,6 @@ ActiveTextGlyphVisual make_visual(const ActiveTextGlyph& glyph,
     visual.glow = glyph.glow;
     visual.object_id = glyph.style.object_id;
     visual.material_id = glyph.style.material_id;
-    visual.vertex_shader_id = glyph.style.vertex_shader_id;
-    visual.fragment_shader_id = glyph.style.fragment_shader_id;
     visual.diff = glyph.style.diff;
     visual.animation = glyph.animation;
     return visual;
