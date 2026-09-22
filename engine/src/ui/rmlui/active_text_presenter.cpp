@@ -13,9 +13,10 @@ namespace {
 
 constexpr float kActiveTextBaseSize = 17.0f;
 
-core::RichTextDocument active_text_document(const core::TypedRuntimeUIViewState& state)
+core::RichTextDocument active_text_document(const core::TypedRuntimeUIViewState& state,
+                                            const ShaderMaterialProject* shader_materials)
 {
-    return make_active_text_snapshot(state).rich_text;
+    return make_active_text_snapshot(state, shader_materials).rich_text;
 }
 
 std::string active_text_content_key(const core::TypedRuntimeUIViewState& state)
@@ -33,9 +34,10 @@ std::string active_text_content_key(const core::TypedRuntimeUIViewState& state)
 }
 
 ActiveTextPlaybackInput playback_input(const core::TypedRuntimeUIViewState& state,
-                                       std::size_t page_index, float delta_seconds)
+                                       std::size_t page_index, float delta_seconds,
+                                       const ShaderMaterialProject* shader_materials)
 {
-    const auto document = active_text_document(state);
+    const auto document = active_text_document(state, shader_materials);
     const auto page = active_text_document_page(document, page_index);
     return ActiveTextPlaybackInput{.body_key = active_text_content_key(state),
                                    .glyph_count = text::utf8_grapheme_count(page.plain_text),
@@ -105,11 +107,12 @@ void remap_active_text_progress(const core::RichTextDocument& document, double o
 
 std::optional<core::RuntimeInputMessage>
 dialogue_reveal_input(const core::TypedRuntimeUIViewState* view, std::size_t page_index,
-                      float reveal_progress, bool skipping)
+                      float reveal_progress, bool skipping,
+                      const ShaderMaterialProject* shader_materials)
 {
     if (view == nullptr || !view->dialogue || !view->dialogue->line || !view->dialogue->segment)
         return std::nullopt;
-    const auto document = active_text_document(*view);
+    const auto document = active_text_document(*view, shader_materials);
     const double progress = active_text_overall_progress(document, page_index, reveal_progress);
     if (progress <= view->dialogue->reveal_progress)
         return std::nullopt;
@@ -152,9 +155,11 @@ ActiveTextPresenter::ActiveTextPresenter(core::Diagnostics& diagnostics)
 ActiveTextPresenter::~ActiveTextPresenter() = default;
 
 void ActiveTextPresenter::initialize(assets::AssetManager& assets,
-                                     ActiveTextPresenterShaper shape_text)
+                                     ActiveTextPresenterShaper shape_text,
+                                     const ShaderMaterialProject* shader_materials)
 {
     m_assets = &assets;
+    m_shader_materials = shader_materials;
     m_shape_text = std::move(shape_text);
     ensure_font_requests_current({});
 }
@@ -237,7 +242,8 @@ std::optional<core::RuntimeInputMessage>
 ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float delta_seconds)
 {
     const std::string content_key = view ? active_text_content_key(*view) : std::string{};
-    const auto document = view ? active_text_document(*view) : core::RichTextDocument{};
+    const auto document =
+        view ? active_text_document(*view, m_shader_materials) : core::RichTextDocument{};
     const std::string realization_key =
         (view ? view->locale.active_locale : std::string{}) + "\x1f" + document.source;
     const bool same_occurrence = !content_key.empty() && content_key == m_content_key;
@@ -261,7 +267,7 @@ ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float de
     const auto previous_instance = m_playback.instance_id;
     ActiveTextPlaybackInput input;
     if (view)
-        input = playback_input(*view, m_page_index, delta_seconds);
+        input = playback_input(*view, m_page_index, delta_seconds, m_shader_materials);
     else
         input.delta_seconds = delta_seconds;
     m_playback = update_active_text_playback(m_playback, input, m_playback_config);
@@ -276,7 +282,8 @@ ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float de
     if (view)
         m_overall_reveal_progress =
             active_text_overall_progress(document, m_page_index, m_playback.reveal_progress);
-    return dialogue_reveal_input(view, m_page_index, m_playback.reveal_progress, false);
+    return dialogue_reveal_input(view, m_page_index, m_playback.reveal_progress, false,
+                                 m_shader_materials);
 }
 
 void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* view,
@@ -287,7 +294,8 @@ void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* vi
         return;
     }
 
-    const auto document = view ? active_text_document(*view) : core::RichTextDocument{};
+    const auto document =
+        view ? active_text_document(*view, m_shader_materials) : core::RichTextDocument{};
     ensure_font_requests_current(document);
     m_page_count = active_text_page_count(document);
     m_page_index = std::min(m_page_index, m_page_count - 1u);
@@ -367,11 +375,12 @@ ActiveTextPresenter::activate(const core::TypedRuntimeUIViewState* view, float x
     if (m_playback.can_skip_reveal) {
         m_playback = skip_active_text_reveal(m_playback);
         if (view)
-            m_overall_reveal_progress = active_text_overall_progress(
-                active_text_document(*view), m_page_index, m_playback.reveal_progress);
+            m_overall_reveal_progress =
+                active_text_overall_progress(active_text_document(*view, m_shader_materials),
+                                             m_page_index, m_playback.reveal_progress);
         activation.local_state_changed = true;
-        activation.input =
-            dialogue_reveal_input(view, m_page_index, m_playback.reveal_progress, true);
+        activation.input = dialogue_reveal_input(view, m_page_index, m_playback.reveal_progress,
+                                                 true, m_shader_materials);
         return activation;
     }
     if (m_playback.can_continue) {
@@ -379,8 +388,8 @@ ActiveTextPresenter::activate(const core::TypedRuntimeUIViewState* view, float x
             ++m_page_index;
             m_playback = {};
             if (view)
-                m_overall_reveal_progress =
-                    active_text_overall_progress(active_text_document(*view), m_page_index, 0.0f);
+                m_overall_reveal_progress = active_text_overall_progress(
+                    active_text_document(*view, m_shader_materials), m_page_index, 0.0f);
             m_time_seconds = 0.0;
             activation.local_state_changed = true;
         } else {

@@ -99,7 +99,8 @@ std::string escape_rml(std::string_view value)
     return escaped;
 }
 
-ActiveTextComponentSnapshot make_active_text_snapshot(const core::TypedRuntimeUIViewState& state)
+ActiveTextComponentSnapshot make_active_text_snapshot(const core::TypedRuntimeUIViewState& state,
+                                                      const ShaderMaterialProject* shader_materials)
 {
     ActiveTextComponentSnapshot snapshot;
     const core::PresentedTextState* text = nullptr;
@@ -115,6 +116,8 @@ ActiveTextComponentSnapshot make_active_text_snapshot(const core::TypedRuntimeUI
         snapshot.body = state.room->description;
         snapshot.rich_text = core::parse_rich_text(state.room->description);
     }
+    if (shader_materials != nullptr)
+        (void)resolve_active_text_material_occurrences(*shader_materials, snapshot.rich_text);
     return snapshot;
 }
 

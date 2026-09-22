@@ -289,6 +289,34 @@ TEST_CASE("runtime package still requires localized base asset used by a support
     CHECK(has_code(loaded.error(), "runtime_package.missing_asset"));
 }
 
+TEST_CASE("compiled package validates every localized ActiveText Material occurrence")
+{
+    auto document = read_json("minimal");
+    auto french_locale = document["localization"]["locales"][0];
+    french_locale["locale"] = "fr";
+    french_locale["nativeName"] = "Français";
+    french_locale["displayName"] = "French";
+    document["localization"]["locales"].push_back(std::move(french_locale));
+    auto french_catalog = document["localization"]["catalogs"][0];
+    french_catalog["locale"] = "fr";
+    french_catalog["entries"][0]["value"] = "[mat id=missing/material]Texte[/mat]";
+    document["localization"]["catalogs"].push_back(std::move(french_catalog));
+
+    auto decoded = decode_compiled_project(document, "localized-active-text.json");
+    REQUIRE(decoded.has_value());
+    auto project = std::move(decoded).value();
+    auto manifest = decode_runtime_package_manifest(package_manifest_for(project, true));
+    REQUIRE(manifest.has_value());
+    auto shaders = decode_shader_material_manifest(shader_manifest());
+    REQUIRE(shaders.has_value());
+    auto files = inventory_for(manifest.value());
+
+    auto loaded = assemble_compiled_package(std::move(project), std::move(manifest).value(),
+                                            std::move(shaders).value(), std::move(files));
+    REQUIRE_FALSE(loaded.has_value());
+    CHECK(has_code(loaded.error(), "runtime_package.active_text_unknown_material_ref"));
+}
+
 TEST_CASE("compiled package rejects inventory and cross-document reference failures")
 {
     SECTION("checksum mismatch")

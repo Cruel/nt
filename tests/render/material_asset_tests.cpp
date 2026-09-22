@@ -1,10 +1,13 @@
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include "noveltea/core/rich_text.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/material_codec.hpp"
 #include "noveltea/render/material_contract.hpp"
 
+#include <algorithm>
 #include <array>
 #include <string_view>
 #include <utility>
@@ -49,6 +52,52 @@ const noveltea::ShaderUniformDeclaration* find_uniform(const noveltea::ShaderDef
             return &uniform;
     }
     return nullptr;
+}
+
+bool has_code(const std::vector<noveltea::MaterialDiagnostic>& diagnostics,
+              MaterialDiagnosticCode code)
+{
+    for (const auto& diagnostic : diagnostics) {
+        if (diagnostic.code == code)
+            return true;
+    }
+    return false;
+}
+
+noveltea::ShaderMaterialProject active_text_override_project()
+{
+    noveltea::ShaderDefinition shader;
+    shader.id = noveltea::ShaderId("text/effect_shader");
+    shader.roles = {noveltea::ShaderRole::ActiveText};
+    shader.uniforms = {
+        {.name = "u_float", .type = noveltea::ShaderUniformType::Float},
+        {.name = "u_vec2", .type = noveltea::ShaderUniformType::Vec2},
+        {.name = "u_vec3", .type = noveltea::ShaderUniformType::Vec3},
+        {.name = "u_vec4", .type = noveltea::ShaderUniformType::Vec4},
+        {.name = "u_color", .type = noveltea::ShaderUniformType::Color},
+        {.name = "u_int", .type = noveltea::ShaderUniformType::Int},
+        {.name = "u_bool", .type = noveltea::ShaderUniformType::Bool},
+        {.name = "u_time",
+         .type = noveltea::ShaderUniformType::Float,
+         .binding = noveltea::ShaderInputSemantic::EngineTime},
+    };
+    shader.samplers = {{.name = "s_textAtlas", .stage = 0}};
+
+    noveltea::MaterialDefinition material;
+    material.id = noveltea::MaterialId("text/effect");
+    material.role = noveltea::ShaderRole::ActiveText;
+    material.shader = shader.id;
+
+    noveltea::ShaderDefinition wrong_shader;
+    wrong_shader.id = noveltea::ShaderId("world/wrong_shader");
+    wrong_shader.roles = {noveltea::ShaderRole::Engine2D};
+    noveltea::MaterialDefinition wrong_material;
+    wrong_material.id = noveltea::MaterialId("world/wrong");
+    wrong_material.role = noveltea::ShaderRole::Engine2D;
+    wrong_material.shader = wrong_shader.id;
+
+    return {.shaders = {std::move(shader), std::move(wrong_shader)},
+            .materials = {std::move(material), std::move(wrong_material)}};
 }
 
 const noveltea::MaterialUniformAssignment*
@@ -744,6 +793,83 @@ TEST_CASE("hotspot Materials use contract-owned samplers and premultiplied compo
     CHECK(project.materials[1].fallback);
     CHECK(project.materials[0].textures.empty());
     CHECK(project.materials[1].textures.empty());
+}
+
+TEST_CASE("ActiveText Material occurrence overrides resolve and canonicalize typed values")
+{
+    auto project = active_text_override_project();
+    auto document = noveltea::core::parse_rich_text(
+        "[mat id=text/effect u_vec3=1,2,3 u_bool=true u_float=1.5 u_int=-4 "
+        "u_color=#ff008080 u_vec4=4,3,2,1 u_vec2=9,8]typed[/mat]");
+    REQUIRE(document.diagnostics.empty());
+
+    const auto diagnostics = noveltea::resolve_active_text_material_occurrences(project, document);
+    REQUIRE(diagnostics.empty());
+    const auto run = std::find_if(document.runs.begin(), document.runs.end(),
+                                  [](const auto& value) { return value.text == "typed"; });
+    REQUIRE(run != document.runs.end());
+    const auto& overrides = run->style.material_overrides;
+    REQUIRE(overrides.size() == 7u);
+    CHECK(overrides[0].name == "u_bool");
+    CHECK(std::get<bool>(overrides[0].value));
+    CHECK(overrides[1].name == "u_color");
+    const auto color = std::get<noveltea::core::RichTextMaterialColor>(overrides[1].value);
+    CHECK(color.r == 1.0f);
+    CHECK(color.g == 0.0f);
+    CHECK(color.b == Catch::Approx(128.0f / 255.0f));
+    CHECK(color.a == Catch::Approx(128.0f / 255.0f));
+    CHECK(overrides[2].name == "u_float");
+    CHECK(std::get<float>(overrides[2].value) == Catch::Approx(1.5f));
+    CHECK(overrides[3].name == "u_int");
+    CHECK(std::get<int>(overrides[3].value) == -4);
+    CHECK(overrides[4].name == "u_vec2");
+    CHECK(std::get<std::array<float, 2>>(overrides[4].value) == std::array<float, 2>{9.0f, 8.0f});
+    CHECK(overrides[5].name == "u_vec3");
+    CHECK(std::get<std::array<float, 3>>(overrides[5].value) ==
+          std::array<float, 3>{1.0f, 2.0f, 3.0f});
+    CHECK(overrides[6].name == "u_vec4");
+}
+
+TEST_CASE("ActiveText Material occurrence resolver rejects non-authorable inputs")
+{
+    auto project = active_text_override_project();
+
+    SECTION("unknown parameter")
+    {
+        auto document = noveltea::core::parse_rich_text("[mat id=text/effect u_missing=1]x[/mat]");
+        const auto diagnostics =
+            noveltea::resolve_active_text_material_occurrences(project, document);
+        CHECK(has_code(diagnostics, MaterialDiagnosticCode::UndeclaredUniform));
+    }
+    SECTION("renderer semantic uniform")
+    {
+        auto document = noveltea::core::parse_rich_text("[mat id=text/effect u_time=1]x[/mat]");
+        const auto diagnostics =
+            noveltea::resolve_active_text_material_occurrences(project, document);
+        CHECK(has_code(diagnostics, MaterialDiagnosticCode::RendererOwnedOverride));
+    }
+    SECTION("sampler")
+    {
+        auto document =
+            noveltea::core::parse_rich_text("[mat id=text/effect s_textAtlas=anything]x[/mat]");
+        const auto diagnostics =
+            noveltea::resolve_active_text_material_occurrences(project, document);
+        CHECK(has_code(diagnostics, MaterialDiagnosticCode::InvalidMaterialOverride));
+    }
+    SECTION("malformed typed value")
+    {
+        auto document = noveltea::core::parse_rich_text("[mat id=text/effect u_bool=1]x[/mat]");
+        const auto diagnostics =
+            noveltea::resolve_active_text_material_occurrences(project, document);
+        CHECK(has_code(diagnostics, MaterialDiagnosticCode::InvalidMaterialOverride));
+    }
+    SECTION("wrong role")
+    {
+        auto document = noveltea::core::parse_rich_text("[mat id=world/wrong]x[/mat]");
+        const auto diagnostics =
+            noveltea::resolve_active_text_material_occurrences(project, document);
+        CHECK(has_code(diagnostics, MaterialDiagnosticCode::IncompatibleShaderRole));
+    }
 }
 
 TEST_CASE("material documents reject authored sources for contract-owned hotspot samplers")

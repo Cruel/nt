@@ -1,9 +1,11 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include "noveltea/core/diagnostic.hpp"
@@ -71,9 +73,34 @@ struct RichTextAnimation {
     bool wait_for_click = false;
 };
 
+struct RichTextMaterialAttribute {
+    std::string name;
+    std::string value;
+    bool operator==(const RichTextMaterialAttribute&) const = default;
+};
+
+struct RichTextMaterialColor {
+    float r = 0.0f;
+    float g = 0.0f;
+    float b = 0.0f;
+    float a = 0.0f;
+    bool operator==(const RichTextMaterialColor&) const = default;
+};
+
+using RichTextMaterialValue = std::variant<float, std::array<float, 2>, std::array<float, 3>,
+                                           std::array<float, 4>, RichTextMaterialColor, int, bool>;
+
+struct RichTextMaterialOverride {
+    std::string name;
+    RichTextMaterialValue value = 0.0f;
+    bool operator==(const RichTextMaterialOverride&) const = default;
+};
+
 struct RichTextStyle {
     std::string font_alias;
     std::string material_id;
+    std::vector<RichTextMaterialAttribute> material_attributes;
+    std::vector<RichTextMaterialOverride> material_overrides;
     std::string object_id;
     int x_offset = 0;
     int y_offset = 0;

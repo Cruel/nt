@@ -4,6 +4,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <string_view>
+
 using namespace noveltea::core;
 
 TEST_CASE("Rich text parser preserves old BBCode style semantics")
@@ -73,6 +76,46 @@ TEST_CASE("Rich text parser accepts material ids with slash namespaces and rejec
     CHECK_FALSE(shader.diagnostics.empty());
 }
 
+TEST_CASE("Rich text material markup requires an explicit id and rejects duplicate attributes")
+{
+    const auto missing_id = parse_rich_text("[mat u_gain=1]text[/mat]");
+    REQUIRE_FALSE(missing_id.diagnostics.empty());
+    CHECK(missing_id.diagnostics.front().code == "rich_text.invalid_material_tag");
+    CHECK(missing_id.diagnostics.front().severity == ErrorSeverity::Error);
+
+    const auto duplicate = parse_rich_text("[mat id=demo/text u_gain=1 u_gain=2]text[/mat]");
+    REQUIRE_FALSE(duplicate.diagnostics.empty());
+    CHECK(duplicate.diagnostics.front().code == "rich_text.invalid_material_tag");
+    CHECK(duplicate.diagnostics.front().message.find("duplicate") != std::string::npos);
+}
+
+TEST_CASE("Nested rich text Materials completely shadow outer occurrence attributes")
+{
+    const auto doc = parse_rich_text(
+        "[mat id=outer u_outer=1]before [mat id=inner u_inner=2]inner[/mat] after[/mat]");
+    REQUIRE(doc.diagnostics.empty());
+    const auto nonempty = [&](std::string_view text) -> const RichTextRun* {
+        const auto found = std::find_if(doc.runs.begin(), doc.runs.end(),
+                                        [&](const auto& run) { return run.text == text; });
+        return found == doc.runs.end() ? nullptr : &*found;
+    };
+    const auto* before = nonempty("before ");
+    const auto* inner = nonempty("inner");
+    const auto* after = nonempty(" after");
+    REQUIRE(before != nullptr);
+    REQUIRE(inner != nullptr);
+    REQUIRE(after != nullptr);
+    CHECK(before->style.material_id == "outer");
+    REQUIRE(before->style.material_attributes.size() == 1u);
+    CHECK(before->style.material_attributes[0].name == "u_outer");
+    CHECK(inner->style.material_id == "inner");
+    REQUIRE(inner->style.material_attributes.size() == 1u);
+    CHECK(inner->style.material_attributes[0].name == "u_inner");
+    CHECK(after->style.material_id == "outer");
+    REQUIRE(after->style.material_attributes.size() == 1u);
+    CHECK(after->style.material_attributes[0].name == "u_outer");
+}
+
 TEST_CASE("Rich text parser recovers from malformed and unmatched tags like the old parser")
 {
     CHECK(strip_rich_text_tags("te[/i]st") == "test");
@@ -115,6 +158,14 @@ TEST_CASE("Rich text JSON round-trips semantic document data")
 {
     auto doc = parse_rich_text(
         "[[Key|key-object]] [b][i]bold[/i][/b] [c=#bed]color[/c][p=0.5][a1 e=s t=2]shake[/a1]");
+    REQUIRE_FALSE(doc.runs.empty());
+    doc.runs[0].style.material_id = "text/effect";
+    doc.runs[0].style.material_attributes = {{"u_gain", "1.5"}};
+    doc.runs[0].style.material_overrides = {
+        {"u_enabled", RichTextMaterialValue{true}},
+        {"u_gain", RichTextMaterialValue{1.5f}},
+        {"u_tint", RichTextMaterialValue{RichTextMaterialColor{1.0f, 0.5f, 0.0f, 1.0f}}},
+    };
 
     RichTextDocument copy;
     REQUIRE(decode_rich_text_document(encode_rich_text_document(doc), copy));
@@ -123,6 +174,9 @@ TEST_CASE("Rich text JSON round-trips semantic document data")
     CHECK(copy.plain_text == doc.plain_text);
     REQUIRE(copy.runs.size() == doc.runs.size());
     CHECK(copy.runs[0].style.object_id == "key-object");
+    CHECK(copy.runs[0].style.material_id == "text/effect");
+    CHECK(copy.runs[0].style.material_attributes == doc.runs[0].style.material_attributes);
+    CHECK(copy.runs[0].style.material_overrides == doc.runs[0].style.material_overrides);
     CHECK((copy.runs[2].style.font_style & FontBold) != 0);
     CHECK((copy.runs[2].style.font_style & FontItalic) != 0);
     CHECK(copy.runs[4].style.color.r == 0xbb);

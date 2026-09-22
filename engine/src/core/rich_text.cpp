@@ -190,6 +190,33 @@ bool parse_key_values(StyleTag& tag, std::string_view full, bool make_lower)
     return true;
 }
 
+bool parse_material_key_values(StyleTag& tag, std::string_view full, bool closing,
+                               std::string& error)
+{
+    auto parts = split(full, ' ');
+    tag.name = parts.empty() ? std::string{} : parts[0];
+    if (closing)
+        return parts.size() == 1;
+
+    for (std::size_t i = 1; i < parts.size(); ++i) {
+        auto kv = split(parts[i], '=');
+        if (kv.size() != 2 || kv[0].empty() || kv[1].empty()) {
+            error = "invalid material attribute";
+            return false;
+        }
+        if (tag.params.contains(kv[0])) {
+            error = "duplicate material attribute '" + kv[0] + "'";
+            return false;
+        }
+        tag.params.emplace(std::move(kv[0]), std::move(kv[1]));
+    }
+    if (!tag.params.contains("id")) {
+        error = "material tag requires explicit id";
+        return false;
+    }
+    return true;
+}
+
 std::optional<StyleTag> parse_style_tag(std::string tag_full, bool& closing, std::string& error)
 {
     if (tag_full.empty()) {
@@ -276,10 +303,11 @@ std::optional<StyleTag> parse_style_tag(std::string tag_full, bool& closing, std
         tag.type = TextStyleType::Font;
         parse_single_arg(tag, tag_full, "id");
     } else if (c == 'm') {
-        if (tag_lower.size() > 2 && tag_lower[1] == 'a' && tag_lower[2] == 't') {
+        if (lower(tag.name) == "mat") {
             tag.type = TextStyleType::Material;
-            if (!parse_key_values(tag, tag_full, false) || (tag.params.empty() && !closing)) {
-                error = "invalid material tag";
+            if (!parse_material_key_values(tag, tag_full, closing, error)) {
+                if (error.empty())
+                    error = "invalid material tag";
                 return std::nullopt;
             }
         } else {
@@ -373,8 +401,15 @@ void apply_tag(RichTextStyle& style, RichTextAnimation& anim, const StyleTag& ta
         style.y_offset = parse_int(parameter("y"));
         break;
     case TextStyleType::Material:
+        style.material_id.clear();
+        style.material_attributes.clear();
+        style.material_overrides.clear();
         if (auto it = tag.params.find("id"); it != tag.params.end())
             style.material_id = it->second;
+        for (const auto& [name, value] : tag.params) {
+            if (name != "id")
+                style.material_attributes.push_back(RichTextMaterialAttribute{name, value});
+        }
         break;
     case TextStyleType::PageBreak:
         if (auto it = tag.params.find("delay"); it != tag.params.end()) {
@@ -497,12 +532,17 @@ RichTextDocument parse_rich_text(std::string_view input, const RichTextParseOpti
                 parsed_tag.reset();
             }
             if (!parsed_tag) {
-                document.diagnostics.push_back(Diagnostic{"rich_text.invalid_tag",
-                                                          std::move(parse_error),
-                                                          ErrorSeverity::Warning,
-                                                          {},
-                                                          "/" + std::to_string(i),
-                                                          {}});
+                const std::string normalized_tag = lower(*tag_text);
+                const bool material_tag =
+                    normalized_tag == "mat" || normalized_tag.starts_with("mat ") ||
+                    normalized_tag == "/mat" || normalized_tag.starts_with("/mat ");
+                document.diagnostics.push_back(Diagnostic{
+                    material_tag ? "rich_text.invalid_material_tag" : "rich_text.invalid_tag",
+                    std::move(parse_error),
+                    material_tag ? ErrorSeverity::Error : ErrorSeverity::Warning,
+                    {},
+                    "/" + std::to_string(i),
+                    {}});
                 buffer << c;
                 continue;
             }

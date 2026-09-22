@@ -7,6 +7,7 @@
 #include <noveltea/core/feature_view.hpp>
 #include <noveltea/core/message_realization.hpp>
 #include <noveltea/core/rich_text.hpp>
+#include <noveltea/render/material.hpp>
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementInstancer.h>
@@ -38,7 +39,8 @@ struct TypedMapViewComponentSnapshot {
 
 [[nodiscard]] std::string escape_rml(std::string_view value);
 [[nodiscard]] ActiveTextComponentSnapshot
-make_active_text_snapshot(const core::TypedRuntimeUIViewState& state);
+make_active_text_snapshot(const core::TypedRuntimeUIViewState& state,
+                          const ShaderMaterialProject* shader_materials = nullptr);
 [[nodiscard]] TypedMapViewComponentSnapshot
 make_map_view_snapshot(const core::TypedRuntimeUIViewState& state,
                        std::optional<core::MapId> map = std::nullopt);
