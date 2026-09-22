@@ -297,6 +297,8 @@ TEST_CASE(
         .fragment_source = "project:/shaders/main.fs.sc",
         .varying_definition = "project:/shaders/varying.def.sc",
         .interface_contract = "engine-2d:v1",
+        .interface_fingerprint =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000001",
     };
     const noveltea::ShaderCompilerService compiler;
     const auto first = compiler.compile_source_program(request, options);
@@ -345,6 +347,13 @@ TEST_CASE(
     const auto third = compiler.compile_source_program(changed_contract, options);
     REQUIRE(third.success());
     CHECK(third.program_identity != second.program_identity);
+
+    auto changed_fingerprint = request;
+    changed_fingerprint.interface_fingerprint =
+        "sha256:0000000000000000000000000000000000000000000000000000000000000002";
+    const auto fourth = compiler.compile_source_program(changed_fingerprint, options);
+    REQUIRE(fourth.success());
+    CHECK(fourth.program_identity != second.program_identity);
 
     std::filesystem::remove_all(temp);
 }

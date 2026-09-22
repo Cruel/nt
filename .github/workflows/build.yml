@@ -54,6 +54,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
+      - name: Verify Material contract projections
+        run: node scripts/generate-material-contract-registry.mjs --check
       - name: Test CI contracts
         run: node --test tests/ci/*.mjs
       - name: Verify compiler feature policy header

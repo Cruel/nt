@@ -6,6 +6,12 @@ NovelTea does not expose Shader as an authored Project record. Materials are the
 
 Built-in Material Presets provide the default rendering contract for ordinary Materials. A preset defines the Material role, engine shader stages, interface/binding metadata, default render state, and preview harness. Presets are engine-owned stable contracts and are not Project records.
 
+The canonical engine-owned registry is `engine/material-contracts/material-contract-registry.json`. It defines the five current roles and six current preset contracts, including reserved renderer interface slots, standard-semantic availability, sampler stages and policies, pipeline state, deterministic preview fixtures, and the inputs used to derive each contract fingerprint. `scripts/generate-material-contract-registry.mjs` deterministically produces checked-in TypeScript and C++ projections; normal native builds consume the C++ projection directly and do not require Node. CI runs the generator in drift-check mode.
+
+Each preset keeps its stable `noveltea.material-preset:<preset>:1` identity and also has a derived `sha256:` contract fingerprint. The identity names the V1 contract while the fingerprint changes when its canonical resolved ABI inputs change. Source-program compilation carries both values so cache/program identity cannot silently reuse a program compiled against a different resolved contract.
+
+During the staged #333 Material-contract cutover, the generated TypeScript preset projection intentionally preserves the currently authorable preset fields consumed by existing editor/project code. Renderer-owned strict ABI data already comes from the canonical registry; later role-specific tickets remove the obsolete authoring compatibility fields as their runtime paths migrate.
+
 When a Material uses custom shader source, its stages reference normalized source paths directly. Project-owned shader files live beneath `shaders/`; engine-owned stages use `engine:/...` identities. Reuse happens through source files and `#include`, not through shared authored Shader IDs.
 
 ## Canonical authoring model
@@ -56,13 +62,13 @@ Editor/native shader compilation consumes the canonical source-program request:
 noveltea.shader-source-programs
 ```
 
-Each requested program identifies vertex source, fragment source, varying definition, and the interface-contract identity. Source inputs may mix project files and engine-provided stages. Project includes are contained to approved project shader roots; engine includes resolve through explicit embedded engine/bgfx roots. Relative escapes are rejected.
+Each requested program identifies vertex source, fragment source, varying definition, the stable interface-contract identity, and its derived interface fingerprint. Source inputs may mix project files and engine-provided stages. Project includes are contained to approved project shader roots; engine includes resolve through explicit embedded engine/bgfx roots. Relative escapes are rejected.
 
 The standalone native tooling embeds the NovelTea engine shader source bundle required to resolve `engine:/...` stages. A source checkout is therefore not required merely to compile a Material program.
 
 Compiler output includes the target variant, derived runtime path/hash/size, dependency fingerprint information, reflected inputs, and browser payload where applicable. Compiled outputs and compiler fingerprints are derived build/runtime artifacts only; they are never written into canonical Material records.
 
-Program/cache identity is derived from effective source inputs, dependencies, interface contract, compiler identity, and target variant. Authored Shader IDs do not participate in runtime identity or deduplication.
+Program/cache identity is derived from effective source inputs, dependencies, interface contract and fingerprint, compiler identity, and target variant. Authored Shader IDs do not participate in runtime identity or deduplication.
 
 ## Runtime metadata
 
@@ -125,6 +131,11 @@ Internal runtime shader/program types may continue to use shader-oriented termin
 ## Primary implementation files
 
 ```text
+engine/material-contracts/material-contract-registry.json
+scripts/generate-material-contract-registry.mjs
+engine/include/noveltea/render/material_contract.hpp
+engine/src/render/material_contract_registry.generated.hpp
+editor/src/shared/project-schema/material-contract-registry.generated.ts
 editor/src/shared/project-schema/authoring-material-presets.ts
 editor/src/shared/project-schema/authoring-materials.ts
 editor/src/shared/project-schema/authoring-shaders.ts

@@ -7,6 +7,7 @@ import {
   resolveMaterialData,
   validateMaterialData,
 } from '../../shared/project-schema/authoring-materials';
+import { materialPresets } from '../../shared/project-schema/authoring-material-presets';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   buildShaderMaterialProject,
@@ -226,6 +227,8 @@ describe('canonical Material shader lowering', () => {
       expect.objectContaining({
         vertexSource: 'engine:/vs_quad.sc',
         fragmentSource: 'engine:/fs_custom.sc',
+        interfaceContract: 'noveltea.material-preset:engine-2d:1',
+        interfaceFingerprint: materialPresets['engine-2d'].interfaceFingerprint,
       }),
     );
     expect(built.project.materials.panel?.shader).toMatch(/^program-/u);

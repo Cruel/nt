@@ -1292,6 +1292,8 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
                     json_access::value_or(value, "varyingDefinition", std::string{}),
                 .interface_contract =
                     json_access::value_or(value, "interfaceContract", std::string{}),
+                .interface_fingerprint =
+                    json_access::value_or(value, "interfaceFingerprint", std::string{}),
             };
             auto result = compiler.compile_source_program(source_request, options);
             success = success && result.success();
