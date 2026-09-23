@@ -17,6 +17,8 @@ import type {
 } from '../../shared/project-workspace';
 import { CliCommandUsageError } from './errors';
 import type { PinnedExternalAssetExpectation } from '../pinned-external-assets';
+import type { RuntimeArtifactPathAdapter } from '../../shared/runtime-artifact-preparation';
+import type { PinnedRuntimeBuildCacheInputs } from '../../shared/runtime-build-cache';
 
 export { CliCommandUsageError } from './errors';
 
@@ -39,6 +41,11 @@ interface CliCommandContextBase {
   readonly abortSignal?: AbortSignal;
   readonly forceRuntimeCacheRebuild: boolean;
   readonly pinnedExternalAssets?: readonly PinnedExternalAssetExpectation[];
+  readonly pinnedProjectTextSources?: Readonly<
+    Record<string, Readonly<{ text: string; contentHash?: string }>>
+  >;
+  readonly runtimeArtifactPaths?: RuntimeArtifactPathAdapter;
+  readonly pinnedRuntimeBuildCacheInputs?: PinnedRuntimeBuildCacheInputs | null;
 }
 
 export interface CliCommandContext extends CliCommandContextBase {

@@ -956,6 +956,11 @@ public:
                 return complete_request(token, false, Json(), "request cancelled");
             if (!ok)
                 return complete_request(token, false, result, error);
+            if (!result.is_array() || result.size() != 3 || !result[0].is_number_integer())
+                return complete_request(token, false, Json(),
+                                        "Project owner returned a malformed preparation result");
+            if (result[0].get<std::int64_t>() != 0)
+                return complete_request(token, true, result, {});
             if (canonical_root.empty() || !active_generation)
                 return complete_request(
                     token, false, Json(),

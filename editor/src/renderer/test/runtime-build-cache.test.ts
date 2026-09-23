@@ -21,9 +21,14 @@ import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import {
   NodeProjectWorkspaceFileSystem,
+  ProjectWorkspaceService,
   projectWorkspaceFiles,
   type ProjectWorkspaceFileSystem,
 } from '../../shared/project-workspace';
+import {
+  lookupCanonicalRuntimeBuildCache,
+  publishCanonicalRuntimeBuildCache,
+} from '../../shared/runtime-build-cache';
 
 const roots: string[] = [];
 
@@ -173,6 +178,75 @@ describe('persistent runtime build cache', () => {
     expect(cacheStatus(second)).toMatchObject({ status: 'hit', testCatalogStatus: 'hit' });
     expect(projects).toHaveLength(2);
     expect(projects[1]).toEqual(projects[0]);
+  });
+
+  it('admits and publishes cache state against pinned generation authority instead of newer live metadata', async () => {
+    const root = await createProjectWorkspace();
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    const opened = await new ProjectWorkspaceService(fileSystem).open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error('Pinned baseline Project did not open.');
+
+    expect((await runCachedTest(root, nativeTools([]), fileSystem)).exitCode).toBe(0);
+    const generation = await currentGeneration(root);
+    const manifest = JSON.parse(
+      await readFile(generationPath(root, generation, 'manifest.json'), 'utf8'),
+    ) as {
+      inputs: readonly { path: string; byteSize: number; mtimeNanoseconds: string }[];
+      testCatalog: {
+        inputs: readonly { path: string; byteSize: number; mtimeNanoseconds: string }[];
+      };
+    };
+    const pinnedInputs = {
+      runtime: { entries: manifest.inputs },
+      tests: { entries: manifest.testCatalog.inputs },
+    };
+    const pinnedHit = await lookupCanonicalRuntimeBuildCache(
+      fileSystem,
+      opened.snapshot,
+      undefined,
+      pinnedInputs,
+    );
+    expect(pinnedHit.enabled && pinnedHit.observation.status).toBe('hit');
+    if (!pinnedHit.enabled || !pinnedHit.artifact || !pinnedHit.testCatalog)
+      throw new Error('Pinned baseline cache did not admit.');
+
+    const roomPath = path.join(root, 'records/rooms/start.json');
+    const room = JSON.parse(await readFile(roomPath, 'utf8')) as Record<string, unknown>;
+    room.label = 'Newer live generation';
+    await writeFile(roomPath, `${JSON.stringify(room)}\n`, 'utf8');
+    expect((await runCachedTest(root, nativeTools([]), fileSystem)).exitCode).toBe(0);
+
+    const oldGenerationLookup = await lookupCanonicalRuntimeBuildCache(
+      fileSystem,
+      opened.snapshot,
+      undefined,
+      pinnedInputs,
+    );
+    expect(oldGenerationLookup.enabled && oldGenerationLookup.observation).toMatchObject({
+      status: 'stale',
+      reason: 'input-metadata-changed',
+    });
+
+    const publication = await publishCanonicalRuntimeBuildCache(
+      fileSystem,
+      opened.snapshot,
+      opened.snapshot,
+      pinnedHit.artifact,
+      pinnedHit.testCatalog,
+      pinnedInputs.runtime,
+      pinnedInputs.tests,
+      pinnedHit.artifactText,
+      {
+        pid: process.pid,
+        processLiveness: {
+          async isProcessAlive() {
+            return true;
+          },
+        },
+      },
+    );
+    expect(publication).toEqual({ published: false, reason: 'inputs-changed-during-preparation' });
   });
 
   it('rebuilds once and retries once when the CLI native consumer rejects a cached compiled project', async () => {

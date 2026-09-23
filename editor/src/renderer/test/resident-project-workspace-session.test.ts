@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { cloneAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
@@ -1923,6 +1923,56 @@ describe('ResidentProjectWorkspaceSession', () => {
     await expect(disposable.openForMutation(ROOT)).rejects.toThrow(
       'Pinned disposable Project generations are immutable.',
     );
+  });
+
+  it('retains Project-owned Script Module and Layout dependency source bytes in the pinned generation', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.scripts.main = {
+      id: 'main',
+      label: 'Main',
+      data: {
+        kind: 'script-module',
+        source: { kind: 'project-file', path: 'scripts/main.lua' },
+      },
+    };
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.dependencies.scripts = ['scripts/layout-helper.lua'];
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    files[`${ROOT}/scripts/main.lua`] = 'return "generation-one-main"\n';
+    files[`${ROOT}/scripts/layout-helper.lua`] = 'return "generation-one-layout"\n';
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const owner = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const opened = await owner.open(ROOT);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error('Initial Project open failed.');
+    const prepared = await owner.preparePortableSnapshot(ROOT);
+    if (!prepared) throw new Error('Portable Project snapshot was not prepared.');
+
+    await fileSystem.writeTextAtomic(`${ROOT}/scripts/main.lua`, 'return "generation-two-main"\n');
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/scripts/layout-helper.lua`,
+      'return "generation-two-layout"\n',
+    );
+
+    const disposable = new ResidentProjectWorkspaceService(fileSystem);
+    const parse = vi.spyOn(JSON, 'parse');
+    expect(await disposable.hydratePortableSnapshot(ROOT, prepared.snapshotText)).toBe(true);
+    const inputs = await disposable.pinnedPortableInputs(ROOT);
+    expect(parse.mock.calls.filter(([text]) => text === prepared.snapshotText)).toHaveLength(1);
+    parse.mockRestore();
+    expect(inputs?.projectTextSources['scripts/main.lua']).toMatchObject({
+      text: 'return "generation-one-main"\n',
+    });
+    expect(inputs?.projectTextSources['scripts/layout-helper.lua']).toMatchObject({
+      text: 'return "generation-one-layout"\n',
+    });
   });
 
   it('rehydrates the retained generation after the original resident session is evicted', async () => {

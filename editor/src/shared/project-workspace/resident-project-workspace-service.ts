@@ -5,7 +5,10 @@ import {
   type ProjectSourceInventory,
 } from '../project-source-inventory';
 import { parseAssetData } from '../project-schema/authoring-assets';
+import { parseLayoutData } from '../project-schema/authoring-layouts';
+import { parseMaterialData } from '../project-schema/authoring-materials';
 import type { AuthoringProject } from '../project-schema/authoring-project';
+import { parseScriptModuleData } from '../project-schema/authoring-script-modules';
 import {
   stripEditorProjectState,
   type EditorProjectState,
@@ -198,7 +201,20 @@ async function captureResidentAuthority(
 type SuccessfulOpen = Extract<ProjectWorkspaceOpenResult, { ok: true }>;
 type ProjectWorkspaceWriteResult = Awaited<ReturnType<ProjectWorkspaceService['write']>>;
 
-const PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION = 1 as const;
+const PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION = 2 as const;
+
+export type PortableResidentProjectAuthorityEntry = Readonly<{
+  path: string;
+  sourceIdentity?: string;
+  byteSize?: number;
+  mtimeNanoseconds?: string | null;
+  contentHash?: string | null;
+}>;
+
+export type PortableResidentProjectTextSource = Readonly<{
+  contentHash: `sha256:${string}`;
+  text: string;
+}>;
 
 type PortableResidentProjectSnapshot = Readonly<{
   version: typeof PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION;
@@ -210,13 +226,9 @@ type PortableResidentProjectSnapshot = Readonly<{
   validationContributions: SuccessfulOpen['validationContributions'];
   validationWork: SuccessfulOpen['validationWork'];
   sourceWork: SuccessfulOpen['sourceWork'];
-  externalAssets: readonly Readonly<{
-    path: string;
-    sourceIdentity?: string;
-    byteSize?: number;
-    mtimeNanoseconds?: string | null;
-    contentHash?: string | null;
-  }>[];
+  externalAssets: readonly PortableResidentProjectAuthorityEntry[];
+  physicalAuthority: readonly PortableResidentProjectAuthorityEntry[];
+  projectTextSources: Readonly<Record<string, PortableResidentProjectTextSource>>;
 }>;
 
 type PortableResidentProjectOwnerMetadata = Readonly<{
@@ -243,7 +255,75 @@ type ResidentEntry = {
   nativeAssetSourcePaths: readonly string[];
   lastUsedAtMilliseconds: number;
   portableSnapshot: PreparedPortableResidentProjectSnapshot | null;
+  pinnedPhysicalAuthority: readonly PortableResidentProjectAuthorityEntry[] | null;
+  pinnedExternalAssets: readonly PortableResidentProjectAuthorityEntry[] | null;
+  pinnedProjectTextSources: Readonly<Record<string, PortableResidentProjectTextSource>> | null;
 };
+
+export type PinnedPortableResidentProjectInputs = Readonly<{
+  sourceContributions: SuccessfulOpen['sourceContributions'];
+  physicalAuthority: readonly PortableResidentProjectAuthorityEntry[];
+  externalAssets: readonly PortableResidentProjectAuthorityEntry[];
+  projectTextSources: Readonly<Record<string, PortableResidentProjectTextSource>>;
+}>;
+
+function portableProjectTextSourcePaths(project: AuthoringProject): readonly string[] {
+  const paths = new Set<string>();
+  for (const record of Object.values(project.scripts)) {
+    const data = parseScriptModuleData(record.data);
+    if (data?.source.kind === 'project-file') paths.add(data.source.path);
+  }
+  for (const record of Object.values(project.layouts)) {
+    const data = parseLayoutData(record.data);
+    for (const source of data?.dependencies.scripts ?? []) paths.add(source);
+  }
+  for (const record of Object.values(project.materials)) {
+    const shader = parseMaterialData(record.data)?.shader;
+    for (const source of [shader?.vertex, shader?.fragment, shader?.varying])
+      if (source?.kind === 'project') paths.add(source.path);
+  }
+  return [...paths].sort();
+}
+
+function portableAuthorityEntriesValid(
+  value: unknown,
+): value is readonly PortableResidentProjectAuthorityEntry[] {
+  return (
+    Array.isArray(value) &&
+    value.every((candidate) => {
+      if (!candidate || typeof candidate !== 'object') return false;
+      const entry = candidate as Record<string, unknown>;
+      return (
+        typeof entry.path === 'string' &&
+        (entry.sourceIdentity === undefined || typeof entry.sourceIdentity === 'string') &&
+        (entry.byteSize === undefined ||
+          (Number.isSafeInteger(entry.byteSize) && (entry.byteSize as number) >= 0)) &&
+        (entry.mtimeNanoseconds === undefined ||
+          entry.mtimeNanoseconds === null ||
+          typeof entry.mtimeNanoseconds === 'string') &&
+        (entry.contentHash === undefined ||
+          entry.contentHash === null ||
+          typeof entry.contentHash === 'string')
+      );
+    })
+  );
+}
+
+function portableTextSourcesValid(
+  value: unknown,
+): value is Readonly<Record<string, PortableResidentProjectTextSource>> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.entries(value).every(([path, candidate]) => {
+    if (!path || !candidate || typeof candidate !== 'object' || Array.isArray(candidate))
+      return false;
+    const source = candidate as Record<string, unknown>;
+    return (
+      typeof source.text === 'string' &&
+      typeof source.contentHash === 'string' &&
+      /^sha256:[0-9a-f]{64}$/u.test(source.contentHash)
+    );
+  });
+}
 
 type SnapshotBinding = Readonly<{
   entry: ResidentEntry;
@@ -490,6 +570,9 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           nativeAssetSourcePaths,
           lastUsedAtMilliseconds: Date.now(),
           portableSnapshot: null,
+          pinnedPhysicalAuthority: null,
+          pinnedExternalAssets: null,
+          pinnedProjectTextSources: null,
         };
         this.sessions.set(canonicalRoot, entry);
         this.bindSnapshot(entry, opened.snapshot);
@@ -523,6 +606,9 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         nativeAssetSourcePaths: Object.freeze([]),
         lastUsedAtMilliseconds: Date.now(),
         portableSnapshot: null,
+        pinnedPhysicalAuthority: null,
+        pinnedExternalAssets: null,
+        pinnedProjectTextSources: null,
       };
       this.sessions.set(canonicalRoot, entry);
       this.bindSnapshot(entry, opened.snapshot);
@@ -1186,6 +1272,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       if (!opened) return null;
 
       let externalAssets: PortableResidentProjectSnapshot['externalAssets'] = [];
+      let physicalAuthority: PortableResidentProjectSnapshot['physicalAuthority'] = [];
       if (this.nativeAuthority) {
         let proof = await this.observeNativeAuthority(
           entry.canonicalRoot,
@@ -1227,6 +1314,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           opened = advanced;
         }
         const assetPaths = new Set(entry.nativeAssetSourcePaths);
+        physicalAuthority = Object.freeze([...proof.manifest.entries]);
         externalAssets = Object.freeze(
           proof.manifest.entries.filter((candidate) => assetPaths.has(candidate.path)),
         );
@@ -1243,6 +1331,50 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
                   ? null
                   : (candidate.mtimeNanoseconds?.toString() ?? null),
             })),
+        );
+        physicalAuthority = Object.freeze(
+          entry.authority.entries.map((candidate) => ({
+            path: candidate.path,
+            byteSize: candidate.byteSize,
+            mtimeNanoseconds: candidate.mtimeNanoseconds,
+          })),
+        );
+      }
+
+      const projectTextSources: Record<string, PortableResidentProjectTextSource> = {};
+      for (const relativePath of portableProjectTextSourcePaths(opened.snapshot.project)) {
+        const contribution = opened.sourceContributions[relativePath];
+        if (contribution?.kind === 'text') {
+          projectTextSources[relativePath] = Object.freeze({
+            contentHash: contribution.contentHash,
+            text: contribution.text,
+          });
+          continue;
+        }
+        try {
+          const bytes = await this.residentFileSystem.readBytes(
+            this.residentFileSystem.joinPath(entry.canonicalRoot, relativePath),
+          );
+          projectTextSources[relativePath] = Object.freeze({
+            contentHash: await sha256PrefixedBytes(bytes),
+            text: new TextDecoder().decode(bytes).replace(/^\uFEFF/u, ''),
+          });
+        } catch {
+          return null;
+        }
+      }
+      if (this.nativeAuthority) {
+        const postSourceProof = await this.observeNativeAuthority(
+          entry.canonicalRoot,
+          entry.nativeAssetSourcePaths,
+          true,
+        );
+        this.recordNativeObservation(entry, postSourceProof);
+        if (!postSourceProof.unchanged) return null;
+        const assetPaths = new Set(entry.nativeAssetSourcePaths);
+        physicalAuthority = Object.freeze([...postSourceProof.manifest.entries]);
+        externalAssets = Object.freeze(
+          postSourceProof.manifest.entries.filter((candidate) => assetPaths.has(candidate.path)),
         );
       }
 
@@ -1264,6 +1396,8 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         validationWork: opened.validationWork,
         sourceWork: opened.sourceWork,
         externalAssets,
+        physicalAuthority,
+        projectTextSources: Object.freeze(projectTextSources),
       };
       const ownerMetadata: PortableResidentProjectOwnerMetadata = {
         version: PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION,
@@ -1351,7 +1485,10 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       !portable.sourceContributions ||
       !Array.isArray(portable.validationContributions) ||
       !portable.validationWork ||
-      !portable.sourceWork
+      !portable.sourceWork ||
+      !portableAuthorityEntriesValid(portable.externalAssets) ||
+      !portableAuthorityEntriesValid(portable.physicalAuthority) ||
+      !portableTextSourcesValid(portable.projectTextSources)
     )
       return false;
 
@@ -1388,6 +1525,9 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         nativeAssetSourcePaths: Object.freeze([]),
         lastUsedAtMilliseconds: Date.now(),
         portableSnapshot: null,
+        pinnedPhysicalAuthority: Object.freeze([...portable.physicalAuthority]),
+        pinnedExternalAssets: Object.freeze([...portable.externalAssets]),
+        pinnedProjectTextSources: Object.freeze({ ...portable.projectTextSources }),
       };
       this.sessions.set(canonicalRoot, entry);
       this.bindSnapshot(entry, opened.snapshot);
@@ -1395,6 +1535,30 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     } catch {
       return false;
     }
+  }
+
+  async pinnedPortableInputs(
+    projectRoot: string,
+  ): Promise<PinnedPortableResidentProjectInputs | null> {
+    const canonicalRoot = await this.canonicalProjectRoot(
+      this.residentFileSystem.resolvePath(projectRoot),
+    );
+    const entry = canonicalRoot ? this.sessions.get(canonicalRoot) : undefined;
+    if (
+      !entry?.immutablePinned ||
+      !entry.pinnedPhysicalAuthority ||
+      !entry.pinnedExternalAssets ||
+      !entry.pinnedProjectTextSources
+    )
+      return null;
+    const opened = entry.session.openedGeneration();
+    if (!opened) return null;
+    return Object.freeze({
+      sourceContributions: opened.sourceContributions,
+      physicalAuthority: entry.pinnedPhysicalAuthority,
+      externalAssets: entry.pinnedExternalAssets,
+      projectTextSources: entry.pinnedProjectTextSources,
+    });
   }
 
   async reconcileResidentSessions(): Promise<number> {

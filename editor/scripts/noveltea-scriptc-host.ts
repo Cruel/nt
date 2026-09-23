@@ -1647,14 +1647,6 @@ function requestInvokeHost(
         const manifest = response.manifest;
         if (manifest) {
           const includeManifestEntries = request.includeManifestEntries === true;
-          const externalPaths = new Set(
-            includeManifestEntries
-              ? (payload?.authoritativePaths ?? []).filter(
-                  (path) =>
-                    path !== 'project.json' && path !== 'editor.json' && path !== 'traits.json',
-                )
-              : [],
-          );
           responseForIsland = {
             ok: response.ok,
             authority: response.authority,
@@ -1666,9 +1658,7 @@ function requestInvokeHost(
             manifest: {
               canonicalRoot: manifest.canonicalRoot,
               entries: includeManifestEntries
-                ? (manifest.entries ?? []).filter(
-                    (entry) => typeof entry.path === 'string' && externalPaths.has(entry.path),
-                  )
+                ? (manifest.entries ?? []).filter((entry) => typeof entry.path === 'string')
                 : [],
             },
           };
@@ -2001,12 +1991,12 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
         },
       );
       if (novelTeaResidentProjectSessionCount() > 0) retainedSnapshotPending = undefined;
-      if (prepareDisposable) {
+      const response = JSON.parse(responseText) as HostResult;
+      if (prepareDisposable && response[0] === 0) {
         const prepared = await prepareNovelTeaResidentProjectSnapshots();
         if (prepared > 0)
           trace(`daemon Project owner prepared ${String(prepared)} portable snapshot(s) on demand`);
       }
-      const response = JSON.parse(responseText) as HostResult;
       const completed: HostResult = [
         response[0],
         `${output.stdout}${response[1]}`,
