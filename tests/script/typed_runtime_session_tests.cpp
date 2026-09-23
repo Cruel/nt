@@ -4346,6 +4346,9 @@ TEST_CASE("runtime Lua Material Parameters support Material Definition and Inter
         REQUIRE(material != document["resources"]["materialInterfaces"].end());
         (*material)["parameters"].push_back(
             {{"name", "u_runtime"}, {"type", "float"}, {"rendererBinding", nullptr}});
+        auto alternate = *material;
+        alternate["id"] = "alternate-material";
+        document["resources"]["materialInterfaces"].push_back(std::move(alternate));
     });
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());
@@ -4359,13 +4362,21 @@ TEST_CASE("runtime Lua Material Parameters support Material Definition and Inter
         "{kind='interactable-definition', id='key'}, 'sprite-material', 'u_runtime', "
         "{kind='standard-facet', facet='paint-width'}, opts); assert(ok and err == nil)\n"
         "ok, err = noveltea.presentation.set_material_parameter({kind='interactable', id='key'}, "
-        "'sprite-material', 'u_runtime', 0.8, opts); assert(ok and err == nil)",
+        "'sprite-material', 'u_runtime', 0.8, opts); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_material_parameter({kind='interactable', id='key'}, "
+        "'alternate-material', 'u_runtime', 0.6, opts); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_material_selection("
+        "{kind='interactable-definition', id='key'}, 'alternate-material', opts); "
+        "assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_material_selection({kind='interactable', id='key'}, "
+        "'sprite-material', opts); assert(ok and err == nil)",
         "typed-scoped-material-parameters-set"));
 
     auto flushed = fixture.session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
     REQUIRE(flushed.diagnostics.empty());
-    REQUIRE(fixture.session->presentation_state().material_parameters().size() == 3);
+    REQUIRE(fixture.session->presentation_state().material_parameters().size() == 4);
+    REQUIRE(fixture.session->presentation_state().material_selections().size() == 2);
 
     REQUIRE(execute_session_lua(
         fixture,
@@ -4377,19 +4388,31 @@ TEST_CASE("runtime Lua Material Parameters support Material Definition and Inter
         "assert(err == nil and value.binding.kind == 'standard-facet' and "
         "value.binding.facet == 'paint-width')\n"
         "value, err = noveltea.presentation.material_parameter({kind='interactable', id='key'}, "
-        "'sprite-material', 'u_runtime', opts); assert(err == nil and value.value == 0.8)",
+        "'sprite-material', 'u_runtime', opts); assert(err == nil and value.value == 0.8)\n"
+        "local selection; selection, err = noveltea.presentation.material_selection("
+        "{kind='interactable-definition', id='key'}, opts); "
+        "assert(err == nil and selection.material == 'alternate-material')\n"
+        "selection, err = noveltea.presentation.material_selection({kind='interactable', "
+        "id='key'}, "
+        "opts); assert(err == nil and selection.material == 'sprite-material')",
         "typed-scoped-material-parameters-query"));
 
     REQUIRE(execute_session_lua(
         fixture,
-        "local ok, err = noveltea.presentation.clear_material_parameter("
-        "{kind='interactable', id='key'}, 'sprite-material', 'u_runtime', {owner='session'}); "
+        "local opts = {owner='session'}\n"
+        "local ok, err = noveltea.presentation.clear_material_selection("
+        "{kind='interactable', id='key'}, opts); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.clear_material_selection("
+        "{kind='interactable-definition', id='key'}, opts); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.clear_material_parameter("
+        "{kind='interactable', id='key'}, 'sprite-material', 'u_runtime', opts); "
         "assert(ok and err == nil)",
         "typed-scoped-material-parameters-clear"));
     flushed = fixture.session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
     REQUIRE(flushed.diagnostics.empty());
-    REQUIRE(fixture.session->presentation_state().material_parameters().size() == 2);
+    REQUIRE(fixture.session->presentation_state().material_parameters().size() == 3);
+    CHECK(fixture.session->presentation_state().material_selections().empty());
     REQUIRE(execute_session_lua(
         fixture,
         "local value, err = noveltea.presentation.material_parameter("

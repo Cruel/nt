@@ -2113,6 +2113,67 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                                                    std::move(owner_value->room)));
         });
     presentation.set_function(
+        "set_material_selection",
+        [api](sol::table target, std::string material_name, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto occurrence = parse_material_occurrence(target);
+            auto material = parse_id<core::MaterialId>(std::move(material_name));
+            auto owner = parse_presentation_owner_options(options);
+            if (!occurrence)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(occurrence.error()));
+            if (!material)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(material.error()));
+            if (!owner)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            return mutation(view, api->set_material_selection(std::move(*occurrence.value_if()),
+                                                              std::move(*material.value_if()),
+                                                              owner.value_if()->scope,
+                                                              std::move(owner.value_if()->room)));
+        });
+    presentation.set_function(
+        "clear_material_selection",
+        [api](sol::table target, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto occurrence = parse_material_occurrence(target);
+            auto owner = parse_presentation_owner_options(options);
+            if (!occurrence)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(occurrence.error()));
+            if (!owner)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            return mutation(view, api->clear_material_selection(std::move(*occurrence.value_if()),
+                                                                owner.value_if()->scope,
+                                                                std::move(owner.value_if()->room)));
+        });
+    presentation.set_function("material_selection",
+                              [api](sol::table target, sol::optional<sol::table> options,
+                                    sol::this_state state) -> ObjectResult {
+                                  sol::state_view view(state);
+                                  auto occurrence = parse_material_occurrence(target);
+                                  auto owner = parse_presentation_owner_options(options);
+                                  if (!occurrence)
+                                      return failure(view, occurrence.error());
+                                  if (!owner)
+                                      return failure(view, owner.error());
+                                  auto result = api->material_selection(
+                                      *occurrence.value_if(), owner.value_if()->scope,
+                                      std::move(owner.value_if()->room));
+                                  const auto* selection = result.value_if();
+                                  if (!selection)
+                                      return failure(view, result.error());
+                                  if (!*selection)
+                                      return {nil(view), nil(view)};
+                                  sol::table object = view.create_table();
+                                  object["material"] = (*selection)->material.text();
+                                  return {sol::make_object(view, object), nil(view)};
+                              });
+    presentation.set_function(
         "set_material_parameter",
         [api](sol::table target, std::string material_name, std::string parameter,
               sol::object value, sol::optional<sol::table> options,

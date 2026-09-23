@@ -293,6 +293,12 @@ using SavedMaterialOccurrence =
                  SavedEnvironmentMaterialOccurrence, SavedLayoutMaterialOccurrence,
                  SavedPostprocessMaterialOccurrence>;
 
+struct SavedMaterialSelection {
+    SavedPresentationOwner owner;
+    MaterialSelectionTarget target;
+    MaterialId material;
+};
+
 struct SavedMaterialParameter {
     SavedPresentationOwner owner;
     SavedMaterialOccurrence occurrence;
@@ -389,6 +395,7 @@ struct SaveState {
     std::vector<SavedActorPresentation> actors;
     std::vector<SavedPresentationProp> presentation_props;
     std::vector<SavedPresentationEnvironment> presentation_environments;
+    std::vector<SavedMaterialSelection> material_selections;
     std::vector<SavedMaterialParameter> material_parameters;
     std::vector<SavedPostprocessEffect> postprocess_effects;
     std::vector<SavedMountedLayout> mounted_layouts;

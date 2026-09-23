@@ -172,6 +172,23 @@ std::optional<std::uint64_t> background_precedence(const SessionState& state,
         owner);
 }
 
+const DesiredMaterialSelection*
+active_material_selection(const SessionState& state, const MaterialSelectionTarget& target) noexcept
+{
+    const DesiredMaterialSelection* selected = nullptr;
+    std::uint64_t selected_precedence = 0;
+    for (const auto& desired : state.material_selections()) {
+        if (desired.target != target)
+            continue;
+        const auto precedence = background_precedence(state, desired.owner);
+        if (!precedence || (selected != nullptr && *precedence <= selected_precedence))
+            continue;
+        selected = &desired;
+        selected_precedence = *precedence;
+    }
+    return selected;
+}
+
 const DesiredMaterialParameter* active_material_parameter(const SessionState& state,
                                                           const MaterialOccurrence& occurrence,
                                                           const MaterialId& material,
@@ -1513,33 +1530,50 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                    : std::nullopt;
     };
 
-    for (const auto& interactable : result.interactables) {
-        if (!interactable.material || !interactable.material_owner)
+    for (auto& interactable : result.interactables) {
+        if (!interactable.material_owner)
             continue;
         const auto* effective = world.resolved_configuration(interactable.interactable);
-        if (effective == nullptr || effective->presentation.material != interactable.material)
+        if (effective == nullptr)
             continue;
-        const auto application = interactable_material_application(effective->presentation);
-        if (!application)
-            continue;
-        const auto* interface = project.find_material_interface(application->material);
-        if (interface == nullptr)
-            continue;
-
         const auto* instance = project.find_interactable_instance(interactable.interactable);
         const auto* definition = project.find_interactable_definition(effective->identity.id);
+        const MaterialSelectionTarget instance_selection =
+            InteractableMaterialOccurrence{interactable.interactable};
+        const MaterialSelectionTarget definition_selection =
+            InteractableDefinitionMaterialOccurrence{effective->identity.id};
+        std::optional<MaterialId> selected_material;
+        if (const auto* selected = active_material_selection(state, instance_selection))
+            selected_material = selected->material;
+        else if (instance != nullptr && instance->material_override)
+            selected_material = instance->material_override;
+        else if (const auto* selected = active_material_selection(state, definition_selection))
+            selected_material = selected->material;
+        else
+            selected_material = effective->presentation.material;
+
+        if (selected_material != interactable.material) {
+            interactable.material = selected_material;
+            interactable.material_texture_overrides.clear();
+        }
+        if (!interactable.material)
+            continue;
+        const auto* interface = project.find_material_interface(*interactable.material);
+        if (interface == nullptr)
+            continue;
         const auto occurrence =
             MaterialOccurrence{InteractableMaterialOccurrence{interactable.interactable}};
         const auto definition_occurrence =
             MaterialOccurrence{InteractableDefinitionMaterialOccurrence{effective->identity.id}};
         const auto material_occurrence = MaterialOccurrence{MaterialWideMaterialOccurrence{}};
+        const auto selected_material_id = *interactable.material;
 
         for (const auto& declaration : interface->parameters) {
             if (declaration.renderer_binding)
                 continue;
 
             if (const auto* desired = active_material_parameter(
-                    state, occurrence, application->material, declaration.name)) {
+                    state, occurrence, selected_material_id, declaration.name)) {
                 if (auto projected = project_runtime_parameter(
                         *desired, *interactable.material_owner, occurrence))
                     result.material_parameters.push_back(std::move(*projected));
@@ -1553,7 +1587,7 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                         ? instance->material_override
                         : (definition != nullptr ? definition->presentation.material
                                                  : std::optional<MaterialId>{});
-                if (selected_material == interactable.material) {
+                if (selected_material == std::optional<MaterialId>{selected_material_id}) {
                     const auto found =
                         std::ranges::find_if(instance->material_parameters, [&](const auto& value) {
                             return value.name == declaration.name;
@@ -1565,13 +1599,13 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             }
             if (instance_parameter != nullptr) {
                 if (auto projected = project_authored_interactable_parameter(
-                        *instance_parameter, interactable, application->material))
+                        *instance_parameter, interactable, selected_material_id))
                     result.material_parameters.push_back(std::move(*projected));
                 continue;
             }
 
             if (const auto* desired = active_material_parameter(
-                    state, definition_occurrence, application->material, declaration.name)) {
+                    state, definition_occurrence, selected_material_id, declaration.name)) {
                 if (auto projected = project_runtime_parameter(
                         *desired, *interactable.material_owner, occurrence))
                     result.material_parameters.push_back(std::move(*projected));
@@ -1579,8 +1613,8 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             }
 
             const compiled::MaterialApplicationParameterOverride* definition_parameter = nullptr;
-            if (definition != nullptr &&
-                definition->presentation.material == interactable.material) {
+            if (definition != nullptr && definition->presentation.material ==
+                                             std::optional<MaterialId>{selected_material_id}) {
                 const auto found = std::ranges::find_if(
                     definition->presentation.material_parameters,
                     [&](const auto& value) { return value.name == declaration.name; });
@@ -1590,13 +1624,13 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             }
             if (definition_parameter != nullptr) {
                 if (auto projected = project_authored_interactable_parameter(
-                        *definition_parameter, interactable, application->material))
+                        *definition_parameter, interactable, selected_material_id))
                     result.material_parameters.push_back(std::move(*projected));
                 continue;
             }
 
             if (const auto* desired = active_material_parameter(
-                    state, material_occurrence, application->material, declaration.name)) {
+                    state, material_occurrence, selected_material_id, declaration.name)) {
                 if (auto projected = project_runtime_parameter(
                         *desired, *interactable.material_owner, occurrence))
                     result.material_parameters.push_back(std::move(*projected));

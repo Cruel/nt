@@ -208,6 +208,16 @@ struct DesiredMaterialParameter {
     bool operator==(const DesiredMaterialParameter&) const = default;
 };
 
+using MaterialSelectionTarget =
+    std::variant<InteractableDefinitionMaterialOccurrence, InteractableMaterialOccurrence>;
+
+struct DesiredMaterialSelection {
+    PresentationOwner owner;
+    MaterialSelectionTarget target;
+    MaterialId material;
+    bool operator==(const DesiredMaterialSelection&) const = default;
+};
+
 inline constexpr std::size_t max_postprocess_effects_per_scope = 4;
 struct DesiredPostprocessEffect {
     PostprocessEffectInstanceId instance;

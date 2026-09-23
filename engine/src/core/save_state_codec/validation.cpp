@@ -1058,6 +1058,37 @@ std::string saved_mount_key_text(const MountedLayoutPresentationKey& key)
         key);
 }
 
+std::string material_selection_target_key(const MaterialSelectionTarget& target)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, InteractableDefinitionMaterialOccurrence>)
+                return std::string{"interactable-definition:"} + value.definition.text();
+            else
+                return std::string{"interactable:"} + value.interactable.text();
+        },
+        target);
+}
+
+bool valid_saved_material_selection(const CompiledProject& project, const SaveState& save,
+                                    const SavedMaterialSelection& selection) noexcept
+{
+    const auto* interface = project.find_material_interface(selection.material);
+    if (!valid_saved_owner(project, save, selection.owner) || interface == nullptr ||
+        interface->role != compiled::MaterialRole::Engine2D)
+        return false;
+    return std::visit(
+        [&](const auto& target) {
+            using T = std::decay_t<decltype(target)>;
+            if constexpr (std::is_same_v<T, InteractableDefinitionMaterialOccurrence>)
+                return project.find_interactable_definition(target.definition) != nullptr;
+            else
+                return resolved_interactable(project, save, target.interactable).has_value();
+        },
+        selection.target);
+}
+
 std::string saved_material_occurrence_key(const SavedMaterialOccurrence& occurrence)
 {
     return std::visit(
@@ -2259,6 +2290,18 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         if (!valid_environment_record(project, save, environment))
             error("save_codec.invalid_presentation_record",
                   "Presentation environment has an invalid owner or policy.");
+    }
+
+    std::unordered_set<std::string> material_selection_keys;
+    for (const auto& selection : save.material_selections) {
+        const auto key = saved_owner_key(selection.owner) + "|" +
+                         material_selection_target_key(selection.target);
+        if (!material_selection_keys.insert(key).second)
+            error("save_codec.duplicate_presentation_record",
+                  "Material selection identity appears more than once.");
+        if (!valid_saved_material_selection(project, save, selection))
+            error("save_codec.invalid_presentation_record",
+                  "Material selection has an invalid owner, target, or Engine 2D Material.");
     }
 
     std::unordered_set<std::string> material_parameter_keys;

@@ -1469,6 +1469,65 @@ SessionState::remove_presentation_environments(const PresentationEnvironmentStop
     return Result<void, Diagnostics>::success();
 }
 
+const DesiredMaterialSelection*
+SessionState::material_selection(const MaterialSelectionTarget& target,
+                                 const PresentationOwner& owner) const noexcept
+{
+    const auto found = std::find_if(m_material_selections.begin(), m_material_selections.end(),
+                                    [&](const DesiredMaterialSelection& value) {
+                                        return value.target == target && value.owner == owner;
+                                    });
+    return found == m_material_selections.end() ? nullptr : &*found;
+}
+
+Result<void, Diagnostics> SessionState::upsert_material_selection(const CompiledProject& project,
+                                                                  DesiredMaterialSelection value)
+{
+    auto owner = validate_presentation_owner(project, value.owner);
+    if (!owner)
+        return owner;
+    const auto* material = project.find_material_interface(value.material);
+    if (material == nullptr || material->role != compiled::MaterialRole::Engine2D)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.material_selection_invalid_material",
+            "Interactable Material selection requires a compiled Engine 2D Material"));
+
+    const bool target_valid = std::visit(
+        [&](const auto& target) {
+            using T = std::decay_t<decltype(target)>;
+            if constexpr (std::is_same_v<T, InteractableDefinitionMaterialOccurrence>)
+                return project.find_interactable_definition(target.definition) != nullptr;
+            else
+                return runtime_interactable(*this, target.interactable) != nullptr;
+        },
+        value.target);
+    if (!target_valid)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.material_selection_invalid_target",
+            "Material selection target does not name a live Interactable Definition or Instance"));
+
+    const auto found =
+        std::find_if(m_material_selections.begin(), m_material_selections.end(),
+                     [&](const DesiredMaterialSelection& current) {
+                         return current.target == value.target && current.owner == value.owner;
+                     });
+    if (found == m_material_selections.end())
+        m_material_selections.push_back(std::move(value));
+    else
+        *found = std::move(value);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+SessionState::remove_material_selection(const MaterialSelectionTarget& target,
+                                        const PresentationOwner& owner)
+{
+    std::erase_if(m_material_selections, [&](const DesiredMaterialSelection& value) {
+        return value.target == target && value.owner == owner;
+    });
+    return Result<void, Diagnostics>::success();
+}
+
 const DesiredMaterialParameter*
 SessionState::material_parameter(const MaterialOccurrence& occurrence,
                                  const PresentationOwner& owner, const MaterialId& material,
@@ -1553,11 +1612,7 @@ Result<void, Diagnostics> SessionState::upsert_material_parameter(const Compiled
             if constexpr (std::is_same_v<O, MaterialWideMaterialOccurrence>) {
                 return true;
             } else if constexpr (std::is_same_v<O, InteractableDefinitionMaterialOccurrence>) {
-                const auto* definition =
-                    project.find_interactable_definition(occurrence.definition);
-                return definition != nullptr &&
-                       definition->presentation.material ==
-                           std::optional<MaterialId>{value.material} &&
+                return project.find_interactable_definition(occurrence.definition) != nullptr &&
                        material->role == compiled::MaterialRole::Engine2D;
             } else if constexpr (std::is_same_v<O, BackgroundMaterialOccurrence>) {
                 const auto background =
@@ -1581,10 +1636,7 @@ Result<void, Diagnostics> SessionState::upsert_material_parameter(const Compiled
                 return selected == std::optional<MaterialId>{value.material} &&
                        material->role == compiled::MaterialRole::Engine2D;
             } else if constexpr (std::is_same_v<O, InteractableMaterialOccurrence>) {
-                const auto* interactable = runtime_interactable(*this, occurrence.interactable);
-                return interactable != nullptr &&
-                       interactable->presentation.material ==
-                           std::optional<MaterialId>{value.material} &&
+                return runtime_interactable(*this, occurrence.interactable) != nullptr &&
                        material->role == compiled::MaterialRole::Engine2D;
             } else if constexpr (std::is_same_v<O, PropMaterialOccurrence>) {
                 const auto found = std::ranges::find_if(

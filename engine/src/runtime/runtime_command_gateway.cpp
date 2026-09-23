@@ -986,6 +986,31 @@ RuntimeCommandGateway::presentation_environment(
 }
 
 core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::upsert_material_selection(core::DesiredMaterialSelection value)
+{
+    auto owner = require_gameplay_owner(m_project, m_state, value.owner);
+    return owner ? enqueue(UpsertMaterialSelectionCommand{std::move(value)}) : owner;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::remove_material_selection(core::MaterialSelectionTarget target,
+                                                 core::PresentationOwner owner)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid ? enqueue(RemoveMaterialSelectionCommand{std::move(target), std::move(owner)})
+                 : valid;
+}
+
+core::Result<std::optional<core::DesiredMaterialSelection>, core::Diagnostics>
+RuntimeCommandGateway::material_selection(const core::MaterialSelectionTarget& target,
+                                          const core::PresentationOwner& owner) const
+{
+    const auto* value = m_state.material_selection(target, owner);
+    return core::Result<std::optional<core::DesiredMaterialSelection>, core::Diagnostics>::success(
+        value == nullptr ? std::nullopt : std::optional<core::DesiredMaterialSelection>{*value});
+}
+
+core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::upsert_material_parameter(core::DesiredMaterialParameter value)
 {
     auto owner = require_gameplay_owner(m_project, m_state, value.owner);

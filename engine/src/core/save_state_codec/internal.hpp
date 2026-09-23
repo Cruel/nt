@@ -112,6 +112,7 @@ struct SavedPresentationRecords {
     std::vector<SavedActorPresentation> actors;
     std::vector<SavedPresentationProp> props;
     std::vector<SavedPresentationEnvironment> environments;
+    std::vector<SavedMaterialSelection> material_selections;
     std::vector<SavedMaterialParameter> material_parameters;
     std::vector<SavedPostprocessEffect> postprocess_effects;
     std::vector<SavedMountedLayout> layouts;

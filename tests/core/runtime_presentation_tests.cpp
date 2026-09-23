@@ -145,6 +145,9 @@ CompiledProject scoped_material_fixture()
          {{"name", "u_definition"}, {"type", "float"}, {"rendererBinding", nullptr}},
          {{"name", "u_material"}, {"type", "float"}, {"rendererBinding", nullptr}},
          {{"name", "u_renderer"}, {"type", "float"}, {"rendererBinding", "engine.time"}}});
+    auto alternate_material = *material;
+    alternate_material["id"] = "alternate-material";
+    document["resources"]["materialInterfaces"].push_back(std::move(alternate_material));
 
     auto definition = std::ranges::find_if(document["definitions"]["interactables"],
                                            [](const auto& value) { return value["id"] == "key"; });
@@ -750,6 +753,106 @@ TEST_CASE("Interactable runtime Material parameters resolve scoped precedence an
     REQUIRE(projected);
     CHECK(find_parameter(projected.value(), "u_material") ==
           projected.value().material_parameters.end());
+}
+
+TEST_CASE(
+    "Interactable runtime Material selection composes by scope without deleting dormant parameters")
+{
+    const auto project = scoped_material_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    REQUIRE(state.room_visit());
+
+    const PresentationOwner owner{state.session_presentation_owner()};
+    const auto authored_material = id<MaterialId>("sprite-material");
+    const auto alternate_material = id<MaterialId>("alternate-material");
+    const auto definition = id<InteractableDefinitionId>("key");
+    const auto interactable = id<InteractableInstanceId>("key");
+    const MaterialSelectionTarget definition_target =
+        InteractableDefinitionMaterialOccurrence{definition};
+    const MaterialSelectionTarget instance_target = InteractableMaterialOccurrence{interactable};
+    const MaterialOccurrence occurrence_scope{InteractableMaterialOccurrence{interactable}};
+
+    REQUIRE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, occurrence_scope, authored_material, "u_amount",
+                                          0.9, std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, occurrence_scope, alternate_material, "u_amount",
+                                          0.7, std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.upsert_material_selection(
+        project, DesiredMaterialSelection{owner, definition_target, alternate_material}));
+
+    const auto authored_definition = project.find_interactable_definition(definition);
+    REQUIRE(authored_definition != nullptr);
+    CHECK(authored_definition->presentation.material == authored_material);
+
+    auto room = resolve_room(project, state);
+    auto projected = project_snapshot(project, state, &room);
+    REQUIRE(projected);
+    const auto find_interactable = [&](const RuntimePresentationSnapshot& snapshot) {
+        return std::ranges::find_if(snapshot.interactables, [&](const auto& value) {
+            return value.interactable == interactable;
+        });
+    };
+    const auto find_amount = [&](const RuntimePresentationSnapshot& snapshot,
+                                 const MaterialId& material) {
+        return std::ranges::find_if(snapshot.material_parameters, [&](const auto& value) {
+            return value.occurrence == occurrence_scope && value.material == material &&
+                   value.parameter == "u_amount";
+        });
+    };
+
+    auto visual = find_interactable(projected.value());
+    REQUIRE(visual != projected.value().interactables.end());
+    REQUIRE(visual->material);
+    CHECK(*visual->material == alternate_material);
+    auto amount = find_amount(projected.value(), alternate_material);
+    REQUIRE(amount != projected.value().material_parameters.end());
+    REQUIRE(amount->value);
+    CHECK(std::get<double>(*amount->value) == 0.7);
+    CHECK(find_amount(projected.value(), authored_material) ==
+          projected.value().material_parameters.end());
+
+    REQUIRE(state.upsert_material_selection(
+        project, DesiredMaterialSelection{owner, instance_target, authored_material}));
+    projected = project_snapshot(project, state, &room);
+    REQUIRE(projected);
+    visual = find_interactable(projected.value());
+    REQUIRE(visual != projected.value().interactables.end());
+    REQUIRE(visual->material);
+    CHECK(*visual->material == authored_material);
+    amount = find_amount(projected.value(), authored_material);
+    REQUIRE(amount != projected.value().material_parameters.end());
+    REQUIRE(amount->value);
+    CHECK(std::get<double>(*amount->value) == 0.9);
+
+    REQUIRE(state.remove_material_selection(instance_target, owner));
+    projected = project_snapshot(project, state, &room);
+    REQUIRE(projected);
+    visual = find_interactable(projected.value());
+    REQUIRE(visual != projected.value().interactables.end());
+    REQUIRE(visual->material);
+    CHECK(*visual->material == alternate_material);
+    amount = find_amount(projected.value(), alternate_material);
+    REQUIRE(amount != projected.value().material_parameters.end());
+    REQUIRE(amount->value);
+    CHECK(std::get<double>(*amount->value) == 0.7);
+
+    REQUIRE(state.remove_material_selection(definition_target, owner));
+    projected = project_snapshot(project, state, &room);
+    REQUIRE(projected);
+    visual = find_interactable(projected.value());
+    REQUIRE(visual != projected.value().interactables.end());
+    REQUIRE(visual->material);
+    CHECK(*visual->material == authored_material);
+    amount = find_amount(projected.value(), authored_material);
+    REQUIRE(amount != projected.value().material_parameters.end());
+    REQUIRE(amount->value);
+    CHECK(std::get<double>(*amount->value) == 0.9);
+    CHECK(state.material_selections().empty());
+    CHECK(state.material_parameters().size() == 2);
 }
 
 TEST_CASE("runtime and focused Room hotspot projection preserve semantic eligibility and geometry")
