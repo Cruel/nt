@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CollectionMasterDetail } from '@/components/collection-master-detail';
 import { EditorSectionHeading } from '@/components/editor-section-heading';
-import { Button } from '@/components/ui/button';
+import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -22,6 +22,10 @@ import type {
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
+import {
+  emptyMaterialApplication,
+  type MaterialApplication,
+} from '../../../shared/project-schema/authoring-material-applications';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import type { Condition } from '../../../shared/project-schema/authoring-flow';
@@ -29,8 +33,6 @@ import {
   systemCursorNames,
   type CursorTarget,
 } from '../../../shared/project-schema/authoring-cursor-vocabulary';
-import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
-import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
 import { useProjectStore } from '@/project/project-store';
 
 type EditableHotspotTarget = RoomHotspotTarget | InteractableHotspotTarget;
@@ -40,10 +42,9 @@ export interface EditableHotspot {
   label: string;
   condition: Condition;
   inputOrder: number;
-  highlight: {
-    kind: 'default' | 'none' | 'material';
-    material?: { $ref: { collection: 'materials'; id: string } };
-  };
+  highlight:
+    | { kind: 'default' | 'none' }
+    | { kind: 'material'; materialApplication: MaterialApplication };
   cursor?: CursorTarget | null;
   target: EditableHotspotTarget;
   shape?: { kind: 'rect'; bounds: ImageNormalizedRect };
@@ -58,6 +59,10 @@ interface Props {
   selectedView: HotspotEditorViewState;
   ownerKind: 'room' | 'interactable';
   ownerId: string;
+  materialProperties?: readonly {
+    id: string;
+    contract: { type: string; label?: string | null };
+  }[];
   localFeatures: readonly { id: string; label: string }[];
   exits?: readonly { id: string; label: string }[];
   alphaMode?: boolean;
@@ -87,7 +92,6 @@ function subjectTarget(subject: InteractionSubjectData): EditableHotspotTarget {
 
 export function HotspotAuthoringPanel(props: Props) {
   const { t } = useTranslation('workspace');
-  const [materialSelectorOpen, setMaterialSelectorOpen] = useState(false);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const asset = props.assetId ? props.project.assets[props.assetId] : null;
   const assetData = parseAssetData(asset?.data);
@@ -115,17 +119,6 @@ export function HotspotAuthoringPanel(props: Props) {
   const materials = Object.entries(props.project.materials).filter(
     ([id]) => resolveMaterialData(props.project, id).data?.role === 'hotspot-overlay',
   );
-  const selectorItems = useMemo(
-    () => buildCommandPaletteItems(props.project, t),
-    [props.project, t],
-  );
-  const materialSelectorItems = useMemo(() => {
-    const allowed = new Set(materials.map(([id]) => id));
-    return filterSelectorItems(selectorItems, {
-      collections: ['materials'],
-      includeActions: false,
-    }).filter((item) => item.entityId && allowed.has(item.entityId));
-  }, [materials, selectorItems]);
   const variables = Object.entries(props.project.variables);
 
   const targetOptions = useMemo<TargetOption[]>(() => {
@@ -368,12 +361,7 @@ export function HotspotAuthoringPanel(props: Props) {
                       kind === 'material'
                         ? {
                             kind: 'material',
-                            material: {
-                              $ref: {
-                                collection: 'materials',
-                                id: materials[0]?.[0] ?? '',
-                              },
-                            },
+                            materialApplication: emptyMaterialApplication(materials[0]?.[0] ?? ''),
                           }
                         : { kind: kind as 'default' | 'none' },
                   })
@@ -389,32 +377,19 @@ export function HotspotAuthoringPanel(props: Props) {
             {selected.highlight.kind === 'material' ? (
               <div>
                 <Label>{t('hotspots.fields.highlightMaterial')}</Label>
-                <Select
-                  value={selected.highlight.material?.$ref.id ?? ''}
-                  onValueChange={(id) =>
+                <MaterialApplicationEditor
+                  project={props.project}
+                  value={selected.highlight.materialApplication}
+                  expectedRole="hotspot-overlay"
+                  properties={props.materialProperties ?? []}
+                  allowClear={false}
+                  onChange={(materialApplication) => {
+                    if (!materialApplication) return;
                     updateSelected({
-                      highlight: {
-                        kind: 'material',
-                        material: { $ref: { collection: 'materials', id: String(id) } },
-                      },
-                    })
-                  }
-                >
-                  {materials.map(([id, record]) => (
-                    <SelectItem key={id} value={id}>
-                      {record.label}
-                    </SelectItem>
-                  ))}
-                </Select>
-                <Button
-                  className="mt-1"
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setMaterialSelectorOpen(true)}
-                >
-                  {t('hotspots.searchRecords')}
-                </Button>
+                      highlight: { kind: 'material', materialApplication },
+                    });
+                  }}
+                />
               </div>
             ) : null}
             {props.ownerKind === 'room' || !props.alphaMode ? (
@@ -608,28 +583,6 @@ export function HotspotAuthoringPanel(props: Props) {
             ) : null}
           </div>
         )}
-      />
-      <SearchSelectorDialog
-        open={materialSelectorOpen}
-        title={t('hotspots.selectMaterial')}
-        placeholder={t('hotspots.searchRecords')}
-        emptyMessage={t('hotspots.noMatchingRecords')}
-        items={materialSelectorItems}
-        selectedId={
-          materialSelectorItems.find(
-            (item) => item.entityId === selected?.highlight.material?.$ref.id,
-          )?.id
-        }
-        onOpenChange={setMaterialSelectorOpen}
-        onSelect={(item) => {
-          if (!selected || !item.entityId) return;
-          updateSelected({
-            highlight: {
-              kind: 'material',
-              material: { $ref: { collection: 'materials', id: item.entityId } },
-            },
-          });
-        }}
       />
     </section>
   );

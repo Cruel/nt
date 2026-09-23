@@ -4,6 +4,7 @@ import {
   defaultInteractableInstanceData,
 } from '../../shared/project-schema/authoring-interactables';
 import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
+import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -194,7 +195,7 @@ describe('hotspot semantic validation', () => {
     item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
     primaryHotspot(item).highlight = {
       kind: 'material',
-      material: { $ref: { collection: 'materials', id: 'hotspot' } },
+      materialApplication: emptyMaterialApplication('hotspot'),
     };
     project.interactables.item = { id: 'item', label: 'Item', data: item };
 

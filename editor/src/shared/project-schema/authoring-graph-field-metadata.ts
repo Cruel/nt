@@ -491,6 +491,15 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^\/scenes\/\*\/data\/(?:stage\/background|events\/\*(?:\/children\/\*)?|defaultBackground|steps\/\*(?:\/children\/\*)?)\/materialApplication\/(?:parameters|textures)(?:\/|$)/,
     OWNER,
   ],
+  // #347 migrates the remaining author-owned Material hosts to the same Material Application
+  // contract. These new nested selection/parameter/texture leaves all affect only their owning
+  // Layout, Hotspot, or postprocess occurrence and must not shift the pre-existing reviewed slots.
+  [/^\/layouts\/\*\/data\/dependencies\/materials\/\*\/(?:parameters|textures)(?:\/|$)/, OWNER],
+  [
+    /^\/(?:rooms\/\*\/data\/hotspots\/\*|interactables\/\*\/data\/presentation\/hotspots\/(?:hotspot|hotspots\/\*))\/highlight\/materialApplication(?:\/|$)/,
+    OWNER,
+  ],
+  [/^\/scenes\/\*\/data\/(?:events|steps)\/\*\/materialApplication(?:\/|$)/, OWNER],
   // Transition-group background children postdate the reviewed direct Scene Material leaf set, so
   // their replacement Material selection is an explicit owner contribution rather than a legacy slot.
   [
@@ -634,6 +643,12 @@ function roomLifecycleGameplayCommandEffect(
 }
 
 function preservedReviewedPath(path: JsonPointer): JsonPointer {
+  if (
+    /^\/layouts\/\*\/data\/dependencies\/materials\/\*\/material\/\$ref\/(?:collection|id)$/.test(
+      path,
+    )
+  )
+    return path.replace('/material/$ref/', '/$ref/') as JsonPointer;
   if (
     /^\/(?:interactables\/\*\/data\/presentation|rooms\/\*\/data\/(?:background|props\/\*|environments\/\*)|characters\/\*\/data\/(?:profiles\/\*\/(?:poses\/\*\/layers\/\*|animationClips\/\*\/frames\/\*\/layers\/\*)|(?:expressions|appearances)\/\*\/profiles\/\*\/layers\/\*)|scenes\/\*\/data\/(?:stage\/background|events\/\*(?:\/children\/\*)?|defaultBackground|steps\/\*(?:\/children\/\*)?))\/materialApplication\/material\/\$ref\/(?:collection|id)$/.test(
       path,

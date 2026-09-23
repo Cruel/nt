@@ -2037,11 +2037,24 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
             decoder.member(*dependencies_value, "materials", dependency_pointer);
         auto materials =
             material_collection
-                ? decoder.array<MaterialId>(
+                ? decoder.array<MaterialApplication>(
                       *material_collection, pointer_child(dependency_pointer, "materials"),
-                      [&](const nlohmann::json& reference, const std::string& item_pointer) {
-                          return decode_reference<MaterialId>(decoder, reference, item_pointer,
-                                                              "material");
+                      [&](const nlohmann::json& value, const std::string& item_pointer)
+                          -> std::optional<MaterialApplication> {
+                          if (!decoder.object(value, item_pointer,
+                                              {"material", "materialParameters", "materialTextures"}))
+                              return std::nullopt;
+                          const auto* material = decoder.member(value, "material", item_pointer);
+                          const auto* parameters = json_access::member(value, "materialParameters");
+                          const auto* textures = json_access::member(value, "materialTextures");
+                          if (!material)
+                              return std::nullopt;
+                          nlohmann::json application{
+                              {"material", *material},
+                              {"parameters", parameters ? *parameters : nlohmann::json::array()},
+                              {"textures", textures ? *textures : nlohmann::json::array()},
+                          };
+                          return decode_material_application(decoder, application, item_pointer);
                       })
                 : std::nullopt;
         if (fonts && images && materials && scripts && stylesheets && data)

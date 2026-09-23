@@ -825,10 +825,73 @@ private:
                                  const std::string& path)
     {
         validate_condition(condition, path + "/condition");
-        if (const auto* material = std::get_if<MaterialHotspotHighlight>(&highlight);
-            material && material->material.text().empty())
+        const auto* application = std::get_if<MaterialHotspotHighlight>(&highlight);
+        if (!application)
+            return;
+        if (application->material.text().empty()) {
             error("compiled_project.invalid_hotspot_material",
                   "Hotspot Material reference must not be empty.", path + "/highlight/material");
+            return;
+        }
+        const auto* material = material_interface(application->material);
+        if (!material) {
+            require(m_material_interfaces, application->material, "material interface",
+                    path + "/highlight/material");
+        } else if (material->role != MaterialRole::HotspotOverlay) {
+            error("compiled_project.hotspot_material_role_mismatch",
+                  "Hotspot highlight requires a hotspot-overlay Material.",
+                  path + "/highlight/material");
+        }
+        for (std::size_t parameter_index = 0;
+             parameter_index < application->material_parameters.size(); ++parameter_index) {
+            const auto& parameter = application->material_parameters[parameter_index];
+            const auto parameter_path = path + "/highlight/materialParameters/" +
+                                        std::to_string(parameter_index);
+            if (material) {
+                const auto declaration = std::ranges::find_if(
+                    material->parameters,
+                    [&](const auto& candidate) { return candidate.name == parameter.name; });
+                if (declaration == material->parameters.end())
+                    error("compiled_project.material_parameter_unknown_uniform",
+                          "Hotspot Material Application names an undeclared Shader uniform.",
+                          parameter_path + "/name");
+                else if (declaration->renderer_binding)
+                    error("compiled_project.material_parameter_renderer_bound",
+                          "Renderer-bound uniforms cannot be occurrence-controlled.",
+                          parameter_path + "/name");
+                else if (declaration->type != parameter.type)
+                    error("compiled_project.material_parameter_type_mismatch",
+                          "Hotspot Material Application parameter type does not match its Shader uniform.",
+                          parameter_path + "/type");
+            }
+            if (const auto* literal =
+                    std::get_if<MaterialApplicationLiteralSource>(&parameter.source);
+                literal != nullptr && !material_value_matches(parameter.type, literal->value))
+                error("compiled_project.material_application_literal_type_mismatch",
+                      "Material Application literal value does not match its stored type.",
+                      parameter_path + "/source/value");
+            if (std::holds_alternative<MaterialApplicationStandardFacetSource>(parameter.source) &&
+                parameter.type != MaterialParameterType::Float)
+                error("compiled_project.material_application_standard_facet_type_mismatch",
+                      "Standard Material facets require float parameters.",
+                      parameter_path + "/source");
+        }
+        for (std::size_t texture_index = 0; texture_index < application->material_textures.size();
+             ++texture_index) {
+            const auto& texture = application->material_textures[texture_index];
+            const auto texture_path = path + "/highlight/materialTextures/" +
+                                      std::to_string(texture_index);
+            if (texture.name == "s_hotspotImage" || texture.name == "s_hotspotMask")
+                error("compiled_project.hotspot_renderer_texture_override",
+                      "Hotspot renderer-owned image and mask samplers cannot be overridden.",
+                      texture_path + "/name");
+            require(m_assets, texture.source, "asset", texture_path + "/source");
+            const auto* source = asset(texture.source);
+            if (source && source->kind != AssetKind::Image)
+                error("compiled_project.invalid_asset_kind",
+                      "Material Application texture source must use an image Asset.",
+                      texture_path + "/source");
+        }
     }
 
     void validate_location(const InteractableLocation& location, const std::string& path)
@@ -1916,6 +1979,79 @@ private:
             };
             assets(layout.dependencies.fonts, "fonts");
             assets(layout.dependencies.images, "images");
+            std::unordered_set<MaterialId> layout_material_ids;
+            for (std::size_t dependency = 0; dependency < layout.dependencies.materials.size();
+                 ++dependency) {
+                const auto& application = layout.dependencies.materials[dependency];
+                const auto application_path =
+                    path + "/dependencies/materials/" + std::to_string(dependency);
+                if (!layout_material_ids.insert(application.material).second)
+                    error("compiled_project.duplicate_layout_material_application",
+                          "Layout Material Applications must select unique Materials.",
+                          application_path + "/material");
+                const auto* material = material_interface(application.material);
+                if (!material) {
+                    require(m_material_interfaces, application.material, "material interface",
+                            application_path + "/material");
+                } else if (material->role != MaterialRole::RmlUiDecorator) {
+                    error("compiled_project.layout_material_role_mismatch",
+                          "Layout Material Application requires an rmlui-decorator Material.",
+                          application_path + "/material");
+                }
+                for (std::size_t parameter_index = 0;
+                     parameter_index < application.parameters.size(); ++parameter_index) {
+                    const auto& parameter = application.parameters[parameter_index];
+                    const auto parameter_path = application_path + "/materialParameters/" +
+                                                std::to_string(parameter_index);
+                    if (material) {
+                        const auto declaration = std::ranges::find_if(
+                            material->parameters, [&](const auto& candidate) {
+                                return candidate.name == parameter.name;
+                            });
+                        if (declaration == material->parameters.end())
+                            error("compiled_project.material_parameter_unknown_uniform",
+                                  "Layout Material Application names an undeclared Shader uniform.",
+                                  parameter_path + "/name");
+                        else if (declaration->renderer_binding)
+                            error("compiled_project.material_parameter_renderer_bound",
+                                  "Renderer-bound uniforms cannot be occurrence-controlled.",
+                                  parameter_path + "/name");
+                        else if (declaration->type != parameter.type)
+                            error("compiled_project.material_parameter_type_mismatch",
+                                  "Layout Material Application parameter type does not match its Shader uniform.",
+                                  parameter_path + "/type");
+                    }
+                    if (const auto* literal =
+                            std::get_if<MaterialApplicationLiteralSource>(&parameter.source);
+                        literal != nullptr &&
+                        !material_value_matches(parameter.type, literal->value))
+                        error("compiled_project.material_application_literal_type_mismatch",
+                              "Material Application literal value does not match its stored type.",
+                              parameter_path + "/source/value");
+                    if (std::holds_alternative<MaterialApplicationStandardFacetSource>(
+                            parameter.source) &&
+                        parameter.type != MaterialParameterType::Float)
+                        error("compiled_project.material_application_standard_facet_type_mismatch",
+                              "Standard Material facets require float parameters.",
+                              parameter_path + "/source");
+                }
+                for (std::size_t texture_index = 0; texture_index < application.textures.size();
+                     ++texture_index) {
+                    const auto& texture = application.textures[texture_index];
+                    const auto texture_path = application_path + "/materialTextures/" +
+                                              std::to_string(texture_index);
+                    if (texture.name == "s_texColor")
+                        error("compiled_project.layout_renderer_texture_override",
+                              "RmlUi renderer-owned s_texColor cannot be overridden.",
+                              texture_path + "/name");
+                    require(m_assets, texture.source, "asset", texture_path + "/source");
+                    const auto* source = asset(texture.source);
+                    if (source && source->kind != AssetKind::Image)
+                        error("compiled_project.invalid_asset_kind",
+                              "Material Application texture source must use an image Asset.",
+                              texture_path + "/source");
+                }
+            }
             for (std::size_t dependency = 0; dependency < layout.dependencies.scripts.size();
                  ++dependency) {
                 const auto& script_path = layout.dependencies.scripts[dependency];
@@ -4032,13 +4168,13 @@ private:
                                               "Postprocess Effect requires a postprocess Material.",
                                               instruction_path + "/material");
                                     for (std::size_t parameter_index = 0;
-                                         parameter_index < instruction.parameters.size();
+                                         parameter_index < instruction.material_parameters.size();
                                          ++parameter_index) {
                                         const auto& parameter =
-                                            instruction.parameters[parameter_index];
-                                        const auto parameter_path = instruction_path +
-                                                                    "/parameters/" +
-                                                                    std::to_string(parameter_index);
+                                            instruction.material_parameters[parameter_index];
+                                        const auto parameter_path =
+                                            instruction_path + "/materialParameters/" +
+                                            std::to_string(parameter_index);
                                         const auto declaration = std::ranges::find_if(
                                             material->parameters, [&](const auto& candidate) {
                                                 return candidate.name == parameter.name;
@@ -4046,22 +4182,51 @@ private:
                                         if (declaration == material->parameters.end())
                                             error("compiled_project.material_parameter_unknown_"
                                                   "uniform",
-                                                  "Postprocess parameter names an undeclared "
-                                                  "Shader uniform.",
+                                                  "Postprocess Material Application names an undeclared Shader uniform.",
                                                   parameter_path + "/name");
                                         else if (declaration->renderer_binding)
                                             error("compiled_project.material_parameter_renderer_"
                                                   "bound",
-                                                  "Renderer-bound uniforms cannot be "
-                                                  "occurrence-controlled.",
+                                                  "Renderer-bound uniforms cannot be occurrence-controlled.",
                                                   parameter_path + "/name");
-                                        else if (!material_value_matches(declaration->type,
-                                                                         parameter.value))
+                                        else if (declaration->type != parameter.type)
+                                            error("compiled_project.material_parameter_type_mismatch",
+                                                  "Postprocess Material Application parameter type does not match its Shader uniform.",
+                                                  parameter_path + "/type");
+                                        if (const auto* literal =
+                                                std::get_if<MaterialApplicationLiteralSource>(
+                                                    &parameter.source);
+                                            literal != nullptr &&
+                                            !material_value_matches(parameter.type,
+                                                                    literal->value))
                                             error(
-                                                "compiled_project.material_parameter_type_mismatch",
-                                                "Postprocess parameter value does not match the "
-                                                "uniform type.",
-                                                parameter_path + "/value");
+                                                "compiled_project.material_application_literal_type_mismatch",
+                                                "Material Application literal value does not match its stored type.",
+                                                parameter_path + "/source/value");
+                                        if (std::holds_alternative<
+                                                MaterialApplicationStandardFacetSource>(
+                                                parameter.source) &&
+                                            parameter.type != MaterialParameterType::Float)
+                                            error(
+                                                "compiled_project.material_application_standard_facet_type_mismatch",
+                                                "Standard Material facets require float parameters.",
+                                                parameter_path + "/source");
+                                    }
+                                    for (std::size_t texture_index = 0;
+                                         texture_index < instruction.material_textures.size();
+                                         ++texture_index) {
+                                        const auto& texture =
+                                            instruction.material_textures[texture_index];
+                                        const auto texture_path =
+                                            instruction_path + "/materialTextures/" +
+                                            std::to_string(texture_index);
+                                        require(m_assets, texture.source, "asset",
+                                                texture_path + "/source");
+                                        const auto* source = asset(texture.source);
+                                        if (source && source->kind != AssetKind::Image)
+                                            error("compiled_project.invalid_asset_kind",
+                                                  "Material Application texture source must use an image Asset.",
+                                                  texture_path + "/source");
                                     }
                                 }
                             }

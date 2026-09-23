@@ -1438,6 +1438,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               selectedView={hotspotView}
               ownerKind="room"
               ownerId={roomId}
+              materialProperties={roomMaterialProperties}
               localFeatures={data.features}
               roomVisibleGuide={{
                 referenceSize: projectSettingsFromProject(project).display.referenceResolution,

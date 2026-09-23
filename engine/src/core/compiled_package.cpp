@@ -46,8 +46,8 @@ void collect_material_ids(const CompiledProject& project, std::unordered_set<std
             ids.insert(material->text());
     };
     for (const auto& layout : project.layouts())
-        for (const auto& material : layout.dependencies.materials)
-            ids.insert(material.text());
+        for (const auto& application : layout.dependencies.materials)
+            ids.insert(application.material.text());
     for (const auto& character : project.characters()) {
         for (const auto& profile : character.profiles)
             for (const auto& pose : profile.poses)
@@ -77,6 +77,9 @@ void collect_material_ids(const CompiledProject& project, std::unordered_set<std
             if (const auto* background =
                     std::get_if<compiled::SetBackgroundInstruction>(&instruction))
                 add(background->background.material);
+            else if (const auto* postprocess =
+                         std::get_if<compiled::PostprocessEffectInstruction>(&instruction))
+                add(postprocess->material);
         }
     }
 }

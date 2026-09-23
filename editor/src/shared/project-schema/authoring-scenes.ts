@@ -451,21 +451,16 @@ const materialParameterStepSchema = strict({
   waitForCompletion: z.boolean(),
   skippable: z.boolean(),
 });
-const postprocessParameterSchema = strict({
-  name: z.string().min(1),
-  value: materialParameterValueSchema,
-});
 const postprocessEffectStepSchema = strict({
   ...commonRuntimeStep,
   type: z.literal('postprocess-effect'),
   owner: z.enum(scenePresentationOwnerValues),
   action: z.enum(['upsert', 'remove']),
   instanceId: entityIdSchema,
-  material: sceneMaterialRefSchema.nullable(),
+  materialApplication: materialApplicationSchema.nullable(),
   scope: z.enum(scenePostprocessScopeValues),
   order: z.number().int(),
   clock: z.enum(sceneMaterialClockValues),
-  parameters: z.array(postprocessParameterSchema),
 });
 const transitionGroupChildSchema = z.discriminatedUnion('type', [
   strict({
@@ -799,11 +794,10 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
         owner: 'invocation',
         action: 'remove',
         instanceId: 'effect',
-        material: null,
+        materialApplication: null,
         scope: 'world',
         order: 0,
         clock: 'gameplay',
-        parameters: [],
       };
     case 'transition-group':
       return {
@@ -1653,46 +1647,48 @@ export function validateSceneData(
     }
     if (step.type === 'postprocess-effect') {
       if (step.action === 'remove') {
-        if (step.material !== null)
-          diagnostics.push(
-            diagnostic(`${path}/material`, 'Removing a Postprocess Effect cannot name a Material.'),
-          );
-        if (step.parameters.length !== 0)
+        if (step.materialApplication !== null)
           diagnostics.push(
             diagnostic(
-              `${path}/parameters`,
-              'Removing a Postprocess Effect cannot assign Material Parameters.',
+              `${path}/materialApplication`,
+              'Removing a Postprocess Effect cannot configure a Material Application.',
             ),
           );
-      } else if (!step.material) {
+      } else if (!step.materialApplication) {
         diagnostics.push(
-          diagnostic(`${path}/material`, 'Adding a Postprocess Effect requires a Material.'),
+          diagnostic(
+            `${path}/materialApplication`,
+            'Adding a Postprocess Effect requires a Material Application.',
+          ),
         );
       } else {
-        requireRecord('materials', step.material.$ref.id, `${path}/material`);
-        const resolved = resolveMaterialData(project, step.material.$ref.id);
-        if (resolved.data) {
-          if (resolved.data.role !== 'postprocess')
+        const materialId = step.materialApplication.material.$ref.id;
+        requireRecord('materials', materialId, `${path}/materialApplication/material`);
+        const resolved = resolveMaterialData(project, materialId);
+        if (resolved.data?.role !== 'postprocess')
+          diagnostics.push(
+            diagnostic(
+              `${path}/materialApplication/material`,
+              'Postprocess Effects require postprocess Materials.',
+            ),
+          );
+        for (const [name, texture] of Object.entries(step.materialApplication.textures)) {
+          const asset = project.assets[texture.source.$ref.id];
+          if (!asset)
             diagnostics.push(
-              diagnostic(`${path}/material`, 'Postprocess Effects require postprocess Materials.'),
+              diagnostic(
+                `${path}/materialApplication/textures/${name}/source/$ref`,
+                `Missing texture asset '${texture.source.$ref.id}'.`,
+              ),
+            );
+          else if (parseAssetData(asset.data)?.kind !== 'image')
+            diagnostics.push(
+              diagnostic(
+                `${path}/materialApplication/textures/${name}/source/$ref`,
+                `Material texture override '${name}' must reference an image asset.`,
+              ),
             );
         }
-        const names = new Set<string>();
-        step.parameters.forEach((parameter, parameterIndex) => {
-          const parameterPath = `${path}/parameters/${parameterIndex}`;
-          if (names.has(parameter.name))
-            diagnostics.push(
-              diagnostic(`${parameterPath}/name`, `Duplicate parameter '${parameter.name}'.`),
-            );
-          names.add(parameter.name);
-          validateMaterialParameter(
-            step.material!.$ref.id,
-            parameter.name,
-            parameter.value,
-            parameterPath,
-            ['postprocess'],
-          );
-        });
       }
     }
     if (step.type === 'transition-group') {

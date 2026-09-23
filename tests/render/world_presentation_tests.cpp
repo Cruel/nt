@@ -900,6 +900,11 @@ TEST_CASE("Interactable hotspot overlays inherit placement geometry and authored
          id<AssetId>("item"), 400, 200,
          compiled::RoomPlacementRef{id<RoomId>("room"), id<RoomPlacementId>("table")},
          compiled::NormalizedRect{0.25, 0.4, 0.3, 0.2}, PresentationPlane::WorldContent, 12});
+    snapshot.hotspots.back().material_parameters.push_back(
+        {"u_glow", compiled::MaterialParameterValue{0.75}, std::nullopt,
+         MaterialClockPolicy::Gameplay});
+    snapshot.hotspots.back().material_texture_overrides.push_back(
+        {"s_noise", "project:/assets/noise.png"});
 
     REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
@@ -912,6 +917,13 @@ TEST_CASE("Interactable hotspot overlays inherit placement geometry and authored
     CHECK(overlay.command.rect.width == Catch::Approx(owner->command.rect.width));
     CHECK(overlay.command.rect.height == Catch::Approx(owner->command.rect.height));
     CHECK(overlay.command.material.value() == "custom-highlight");
+    REQUIRE(overlay.command.material_texture_overrides.size() == 1);
+    CHECK(overlay.command.material_texture_overrides.front().name == "s_noise");
+    CHECK(overlay.command.material_texture_overrides.front().source == "project:/assets/noise.png");
+    REQUIRE(overlay.command.material_uniform_overrides.size() == 1);
+    CHECK(overlay.command.material_uniform_overrides.front().name == "u_glow");
+    CHECK(std::get<float>(overlay.command.material_uniform_overrides.front().value) ==
+          Catch::Approx(0.75f));
     CHECK(overlay.order == owner->order);
     CHECK(overlay.sublayer == owner->sublayer + 1);
 }

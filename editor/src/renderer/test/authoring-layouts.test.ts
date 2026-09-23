@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
 import {
@@ -337,7 +338,7 @@ describe('authoring layouts schema', () => {
           fonts: [],
           stylesheets: [],
           scripts: [],
-          materials: [{ $ref: { collection: 'materials', id: 'missing-material' } }],
+          materials: [emptyMaterialApplication('missing-material')],
         },
       },
     };
@@ -345,7 +346,9 @@ describe('authoring layouts schema', () => {
     expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ path: '/layouts/main/data/dependencies/images/0/$ref' }),
-        expect.objectContaining({ path: '/layouts/main/data/dependencies/materials/0/$ref' }),
+        expect.objectContaining({
+          path: '/layouts/main/data/dependencies/materials/0/material/$ref',
+        }),
       ]),
     );
   });

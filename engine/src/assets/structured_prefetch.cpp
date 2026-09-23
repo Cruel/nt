@@ -431,6 +431,9 @@ struct StructuredAssetDependencyIndex::Impl {
         if (const auto* material =
                 std::get_if<core::compiled::MaterialHotspotHighlight>(&highlight)) {
             append_material(output, material->material, collection_diagnostics, context);
+            for (const auto& texture : material->material_textures)
+                append_asset(output, texture.source, core::compiled::AssetKind::Image,
+                             collection_diagnostics, context);
         }
     }
 
@@ -860,9 +863,13 @@ StructuredAssetDependencyIndex StructuredAssetDependencyIndex::build(
         for (const auto& image : layout.dependencies.images)
             impl->append_asset(dependencies, image, core::compiled::AssetKind::Image,
                                layout_diagnostics, "Layout image dependency");
-        for (const auto& material : layout.dependencies.materials)
-            impl->append_material(dependencies, material, layout_diagnostics,
+        for (const auto& application : layout.dependencies.materials) {
+            impl->append_material(dependencies, application.material, layout_diagnostics,
                                   "Layout material dependency");
+            for (const auto& texture : application.textures)
+                impl->append_asset(dependencies, texture.source, core::compiled::AssetKind::Image,
+                                   layout_diagnostics, "Layout Material texture dependency");
+        }
         impl->layout_dependencies.emplace(
             layout.id, Impl::LayoutDependencies{.descriptors = dependencies.take(),
                                                 .diagnostics = std::move(layout_diagnostics)});
@@ -978,6 +985,11 @@ MandatoryAssetDependencyCollector::collect(const MandatoryAssetDependencyContext
                 continue;
             m_index.m_impl->append_material(current, effect.material, current_diagnostics,
                                             "current postprocess effect");
+            for (const auto& texture : effect.material_textures)
+                m_index.m_impl->append_asset(current, texture.source,
+                                             core::compiled::AssetKind::Image,
+                                             current_diagnostics,
+                                             "current postprocess Material texture");
         }
         for (const auto& audio : snapshot->desired_audio)
             m_index.m_impl->append_audio(current, audio.asset, audio.purpose, current_diagnostics,

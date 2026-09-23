@@ -318,7 +318,7 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
     const material = await materialProjection(
       context.project,
       context.projectSessionId,
-      layout.dependencies.materials.map((ref) => ref.$ref.id),
+      layout.dependencies.materials.map((application) => application.material.$ref.id),
       context.hostCapabilities.activeShaderVariant,
     );
     resources.push(...material.resources);

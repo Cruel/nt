@@ -138,13 +138,17 @@ function assetRef(ref: { $ref: { id: string } } | null | undefined) {
   return ref ? { kind: 'asset' as const, id: ref.$ref.id } : null;
 }
 
-function compileHighlight(highlight: {
-  kind: 'default' | 'material' | 'none';
-  material?: { $ref: { id: string } };
-}) {
-  return highlight.kind === 'material'
-    ? { kind: 'material' as const, material: materialRef(highlight.material)! }
-    : { kind: highlight.kind };
+function compileHighlight(
+  highlight:
+    | { kind: 'default' | 'none' }
+    | { kind: 'material'; materialApplication: MaterialApplication },
+) {
+  if (highlight.kind === 'material')
+    return {
+      kind: 'material' as const,
+      ...compileMaterialApplicationFields(highlight.materialApplication),
+    };
+  return { kind: highlight.kind };
 }
 
 export function compileInteractionSubject(subject: InteractionSubjectData) {
@@ -252,6 +256,62 @@ function compileInteractableHotspots(
 
 function materialRef(ref: { $ref: { id: string } } | null | undefined) {
   return ref ? { kind: 'material' as const, id: ref.$ref.id } : null;
+}
+
+function compileMaterialApplicationValue(
+  override: MaterialApplicationParameterOverride,
+): Extract<CompiledMaterialApplicationParameter['source'], { kind: 'literal' }>['value'] {
+  if (override.source.kind !== 'literal' || override.source.value === null)
+    throw new Error('Validated Material Application literal cannot lower a null value.');
+  const value = override.source.value;
+  switch (override.type) {
+    case 'float':
+      return { type: 'float', value: value as number };
+    case 'vec2':
+      return { type: 'vec2', value: value as [number, number] };
+    case 'vec3':
+      return { type: 'vec3', value: value as [number, number, number] };
+    case 'vec4':
+      return { type: 'vec4', value: value as [number, number, number, number] };
+    case 'color':
+      return { type: 'color', value: value as { r: number; g: number; b: number; a: number } };
+    case 'int':
+      return { type: 'int', value: value as number };
+    case 'bool':
+      return { type: 'bool', value: value as boolean };
+  }
+}
+
+function compileMaterialApplicationOverrides(
+  parametersByName: MaterialApplication['parameters'],
+  texturesByName: MaterialApplication['textures'],
+) {
+  const parameters: CompiledMaterialApplicationParameter[] = Object.entries(parametersByName)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, override]) => ({
+      name,
+      type: override.type,
+      source:
+        override.source.kind === 'literal'
+          ? { kind: 'literal' as const, value: compileMaterialApplicationValue(override) }
+          : override.source.kind === 'property'
+            ? { kind: 'property' as const, property: override.source.property }
+            : { kind: 'standard-facet' as const, facet: override.source.facet },
+    }));
+  const textures: CompiledMaterialApplicationTexture[] = Object.entries(texturesByName)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, override]) => ({ name, source: assetRef(override.source)! }));
+  return {
+    ...(parameters.length > 0 ? { materialParameters: parameters } : {}),
+    ...(textures.length > 0 ? { materialTextures: textures } : {}),
+  };
+}
+
+function compileMaterialApplicationFields(application: MaterialApplication) {
+  return {
+    material: materialRef(application.material)!,
+    ...compileMaterialApplicationOverrides(application.parameters, application.textures),
+  };
 }
 
 function layoutRef(ref: { $ref: { id: string } } | null | undefined) {
@@ -590,7 +650,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         images: data.dependencies.images.map((ref) => assetRef(ref)!),
         fonts: data.dependencies.fonts.map((ref) => assetRef(ref)!),
         stylesheets: data.dependencies.stylesheets.map((ref) => assetRef(ref)!),
-        materials: data.dependencies.materials.map((ref) => materialRef(ref)!),
+        materials: data.dependencies.materials.map((application) =>
+          compileMaterialApplicationFields(application),
+        ),
         scripts: data.dependencies.scripts.map((path) => `project:/${path}`),
         data: (data.dependencies.data ?? []).map((ref) => assetRef(ref)!),
       },

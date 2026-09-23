@@ -106,6 +106,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         std::optional<core::LayoutStateShape> state_shape;
         std::vector<core::PresentationLayoutStateValue> state_values;
         std::vector<core::PresentationMaterialParameter> material_parameters;
+        std::vector<core::PresentationMaterialTextureBinding> material_textures;
         double material_camera_zoom = 1.0;
         std::optional<core::TriggerContext> trigger_context;
         core::PresentationCompositionGroup composition_group =
@@ -132,8 +133,9 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                  : core::MountedLayoutOwner::Shell,
              mount.policy, mount.scale_overrides, mount.occurrence, mount.inputs,
              mount.connected_signals, mount.state_shape, mount.state_values,
-             std::move(material_parameters), snapshot.camera ? snapshot.camera->view.zoom : 1.0,
-             mount.trigger_context, mount.composition_group});
+             std::move(material_parameters), mount.material_textures,
+             snapshot.camera ? snapshot.camera->view.zoom : 1.0, mount.trigger_context,
+             mount.composition_group});
     }
     std::sort(desired.begin(), desired.end(),
               [](const auto& lhs, const auto& rhs) { return lhs.identity < rhs.identity; });
@@ -195,6 +197,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
             existing->second.state_shape == item.state_shape &&
             existing->second.state_values == item.state_values &&
             existing->second.material_parameters == item.material_parameters &&
+            existing->second.material_textures == item.material_textures &&
             existing->second.material_camera_zoom == item.material_camera_zoom &&
             existing->second.trigger_context == item.trigger_context &&
             existing->second.composition_group == item.composition_group) {
@@ -218,6 +221,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         request.state_shape = item.state_shape;
         request.state_values = item.state_values;
         request.material_parameters = item.material_parameters;
+        request.material_textures = item.material_textures;
         request.material_camera_zoom = item.material_camera_zoom;
         request.trigger_context = item.trigger_context;
         request.source =
@@ -242,8 +246,8 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                     item.key, existing->second.instance, item.layout, item.semantic_owner,
                     item.owner, item.policy, item.scale_overrides, item.occurrence, item.inputs,
                     item.connected_signals, item.state_shape, item.state_values,
-                    item.material_parameters, item.material_camera_zoom, item.trigger_context,
-                    item.composition_group, snapshot.revision});
+                    item.material_parameters, item.material_textures, item.material_camera_zoom,
+                    item.trigger_context, item.composition_group, snapshot.revision});
             continue;
         }
         if (retained_match && retained_revision != m_retained.end() &&
@@ -264,8 +268,9 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                                       item.owner, item.policy, item.scale_overrides,
                                       item.occurrence, item.inputs, item.connected_signals,
                                       item.state_shape, item.state_values, item.material_parameters,
-                                      item.material_camera_zoom, item.trigger_context,
-                                      item.composition_group, snapshot.revision});
+                                      item.material_textures, item.material_camera_zoom,
+                                      item.trigger_context, item.composition_group,
+                                      snapshot.revision});
             continue;
         }
 
@@ -280,7 +285,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                                   item.key, *mounted.value_if(), item.layout, item.semantic_owner,
                                   item.owner, item.policy, item.scale_overrides, item.occurrence,
                                   item.inputs, item.connected_signals, item.state_shape,
-                                  item.state_values, item.material_parameters,
+                                  item.state_values, item.material_parameters, item.material_textures,
                                   item.material_camera_zoom, item.trigger_context,
                                   item.composition_group, snapshot.revision});
     }

@@ -1044,7 +1044,12 @@ const cursorTargetSchema = z.discriminatedUnion('kind', [
 
 const hotspotHighlightSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('default') }),
-  strict({ kind: z.literal('material'), material: materialReferenceSchema }),
+  strict({
+    kind: z.literal('material'),
+    material: materialReferenceSchema,
+    materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+    materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
+  }),
   strict({ kind: z.literal('none') }),
 ]);
 const roomHotspotTargetSchema = z.discriminatedUnion('kind', [
@@ -1874,12 +1879,11 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     action: z.enum(['upsert', 'remove']),
     instanceId: id,
     material: materialReferenceSchema.nullable(),
+    materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+    materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
     scope: z.enum(['world', 'full-game-viewport']),
     order: z.number().int(),
     clock: z.enum(['gameplay', 'unscaled-presentation']),
-    parameters: z.array(
-      strict({ name: z.string().min(1), value: compiledMaterialParameterValueSchema }),
-    ),
   }),
   strict({
     ...sceneInstructionCommon,
@@ -2329,7 +2333,13 @@ const layoutResourceSchema = strict({
   dependencies: strict({
     fonts: z.array(assetReferenceSchema),
     images: z.array(assetReferenceSchema),
-    materials: z.array(materialReferenceSchema),
+    materials: z.array(
+      strict({
+        material: materialReferenceSchema,
+        materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+        materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
+      }),
+    ),
     scripts: z.array(
       z
         .string()

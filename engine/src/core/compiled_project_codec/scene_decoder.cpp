@@ -1567,16 +1567,17 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                    : std::nullopt;
     }
     if (*kind == "postprocess-effect") {
-        SCENE_FIELDS("action", "clock", "instanceId", "material", "order", "owner", "parameters",
-                     "scope");
+        SCENE_FIELDS("action", "clock", "instanceId", "material", "materialParameters",
+                     "materialTextures", "order", "owner", "scope");
         const auto* action_value = decoder.member(value, "action", pointer);
         const auto* instance_value = decoder.member(value, "instanceId", pointer);
         const auto* material_value = decoder.member(value, "material", pointer);
+        const auto* material_parameters_value = json_access::member(value, "materialParameters");
+        const auto* material_textures_value = json_access::member(value, "materialTextures");
         const auto* scope_value = decoder.member(value, "scope", pointer);
         const auto* order_value = decoder.member(value, "order", pointer);
         const auto* owner_value = decoder.member(value, "owner", pointer);
         const auto* clock_value = decoder.member(value, "clock", pointer);
-        const auto* parameters_value = decoder.member(value, "parameters", pointer);
         auto action = action_value ? decoder.enumeration<PostprocessEffectAction>(
                                          *action_value, pointer_child(pointer, "action"),
                                          {{"upsert", PostprocessEffectAction::Upsert},
@@ -1586,11 +1587,30 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                              *instance_value, pointer_child(pointer, "instanceId"))
                                        : std::nullopt;
         std::optional<MaterialId> material;
+        std::vector<MaterialApplicationParameterOverride> material_parameters;
+        std::vector<MaterialApplicationTextureOverride> material_textures;
         bool material_ok = material_value != nullptr;
         if (material_value && !material_value->is_null()) {
-            material = decode_reference<MaterialId>(decoder, *material_value,
-                                                    pointer_child(pointer, "material"), "material");
-            material_ok = material.has_value();
+            nlohmann::json application{
+                {"material", *material_value},
+                {"parameters", material_parameters_value ? *material_parameters_value
+                                                         : nlohmann::json::array()},
+                {"textures", material_textures_value ? *material_textures_value
+                                                     : nlohmann::json::array()},
+            };
+            auto decoded = decode_material_application(decoder, application, pointer);
+            material_ok = decoded.has_value();
+            if (decoded) {
+                material = std::move(decoded->material);
+                material_parameters = std::move(decoded->parameters);
+                material_textures = std::move(decoded->textures);
+            }
+        } else if ((material_parameters_value && !material_parameters_value->empty()) ||
+                   (material_textures_value && !material_textures_value->empty())) {
+            decoder.error(k_code_variant,
+                          "Postprocess Material Application overrides require a selected Material.",
+                          std::string(pointer));
+            material_ok = false;
         }
         auto scope = scope_value
                          ? decoder.enumeration<MaterialPostprocessScope>(
@@ -1622,42 +1642,7 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         auto owner = owner_value ? decode_scene_presentation_owner(decoder, *owner_value,
                                                                    pointer_child(pointer, "owner"))
                                  : std::nullopt;
-        auto parameters =
-            parameters_value
-                ? decoder.array<PostprocessEffectParameter>(
-                      *parameters_value, pointer_child(pointer, "parameters"),
-                      [&](const nlohmann::json& item, const std::string& item_pointer)
-                          -> std::optional<PostprocessEffectParameter> {
-                          if (!decoder.object(item, item_pointer, {"name", "value"}))
-                              return std::nullopt;
-                          const auto* name_value = decoder.member(item, "name", item_pointer);
-                          const auto* payload = decoder.member(item, "value", item_pointer);
-                          auto name =
-                              name_value
-                                  ? decoder.string(*name_value, pointer_child(item_pointer, "name"))
-                                  : std::nullopt;
-                          auto data =
-                              payload ? decode_material_parameter_value(
-                                            decoder, *payload, pointer_child(item_pointer, "value"))
-                                      : std::nullopt;
-                          return name && !name->empty() && data
-                                     ? std::optional<PostprocessEffectParameter>(
-                                           PostprocessEffectParameter{std::move(*name),
-                                                                      std::move(*data)})
-                                     : std::nullopt;
-                      })
-                : std::nullopt;
-        if (parameters) {
-            std::unordered_set<std::string> names;
-            for (std::size_t index = 0; index < parameters->size(); ++index) {
-                if (!names.emplace((*parameters)[index].name).second)
-                    decoder.error(
-                        k_code_duplicate, "Duplicate Postprocess Material Parameter name.",
-                        pointer_child(pointer_child(pointer, "parameters"), std::to_string(index)) +
-                            "/name");
-            }
-        }
-        if (action && material_ok && owner && parameters &&
+        if (action && material_ok && owner &&
             ((*action == PostprocessEffectAction::Remove) != !material.has_value())) {
             decoder.error(
                 k_code_variant,
@@ -1665,18 +1650,18 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                 pointer_child(pointer, "material"));
             material_ok = false;
         }
-        if (action && *action == PostprocessEffectAction::Remove && parameters &&
-            !parameters->empty()) {
+        if (action && *action == PostprocessEffectAction::Remove &&
+            (!material_parameters.empty() || !material_textures.empty())) {
             decoder.error(k_code_variant,
-                          "Removing a Postprocess Effect cannot assign Material Parameters.",
-                          pointer_child(pointer, "parameters"));
-            parameters.reset();
+                          "Removing a Postprocess Effect cannot configure a Material Application.",
+                          std::string(pointer));
+            material_ok = false;
         }
-        return action && instance && material_ok && owner && scope && order && clock && parameters
+        return action && instance && material_ok && owner && scope && order && clock
                    ? std::optional<SceneInstruction>(PostprocessEffectInstruction{
                          std::move(*id), std::move(condition), *owner, *action,
                          std::move(*instance), std::move(material), *scope, *order, *clock,
-                         std::move(*parameters)})
+                         std::move(material_parameters), std::move(material_textures)})
                    : std::nullopt;
     }
     if (*kind == "transition-group") {

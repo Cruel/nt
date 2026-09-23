@@ -855,7 +855,8 @@ function layoutResourceIds(project: AuthoringProject, layouts: RoomPreviewDocume
     for (const family of ['images', 'fonts', 'stylesheets', 'templates', 'data'] as const)
       for (const ref of data.dependencies[family] ?? []) assets.add(ref.$ref.id);
     for (const path of data.dependencies.scripts) scripts.add(path);
-    for (const ref of data.dependencies.materials) materials.add(ref.$ref.id);
+    for (const application of data.dependencies.materials)
+      materials.add(application.material.$ref.id);
     for (const source of [data.rml, data.rcss, data.lua])
       if (source.sourceMode === 'asset' && source.sourceAsset)
         assets.add(source.sourceAsset.$ref.id);

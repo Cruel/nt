@@ -52,15 +52,23 @@ decode_hotspot_highlight(Decoder& decoder, const nlohmann::json& value, std::str
         return DefaultHotspotHighlight{};
     if (*kind == "none" && decoder.object(value, pointer, {"kind"}))
         return NoHotspotHighlight{};
-    if (*kind == "material" && decoder.object(value, pointer, {"kind", "material"})) {
+    if (*kind == "material" &&
+        decoder.object(value, pointer,
+                       {"kind", "material", "materialParameters", "materialTextures"})) {
         const auto* material_value = decoder.member(value, "material", pointer);
-        auto material =
-            material_value
-                ? decode_reference<MaterialId>(decoder, *material_value,
-                                               pointer_child(pointer, "material"), "material")
-                : std::nullopt;
-        if (material)
-            return MaterialHotspotHighlight{std::move(*material)};
+        const auto* parameters_value = json_access::member(value, "materialParameters");
+        const auto* textures_value = json_access::member(value, "materialTextures");
+        if (material_value) {
+            nlohmann::json application{
+                {"material", *material_value},
+                {"parameters", parameters_value ? *parameters_value : nlohmann::json::array()},
+                {"textures", textures_value ? *textures_value : nlohmann::json::array()},
+            };
+            if (auto decoded = decode_material_application(decoder, application, pointer))
+                return MaterialHotspotHighlight{std::move(decoded->material),
+                                                std::move(decoded->parameters),
+                                                std::move(decoded->textures)};
+        }
     }
     decoder.error(k_code_variant, "Unknown hotspot highlight kind.",
                   pointer_child(pointer, "kind"));

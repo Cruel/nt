@@ -864,7 +864,8 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
         auto restored = state->upsert_postprocess_effect(
             project,
             DesiredPostprocessEffect{saved.instance, *owner.value_if(), saved.material, saved.scope,
-                                     saved.order, saved.clock, saved.visible});
+                                     saved.order, saved.clock, saved.material_parameters,
+                                     saved.material_textures, saved.visible});
         if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());
     }

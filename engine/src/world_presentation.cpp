@@ -956,6 +956,12 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         overlay.sublayer = static_cast<std::uint8_t>(owner_draw->sublayer + 1);
         overlay.stable_identity = owner_draw->stable_identity;
         overlay.command.material = prepared.material;
+        overlay.command.material_uniform_overrides.clear();
+        overlay.command.material_texture_overrides.clear();
+        for (const auto& texture : hotspot.material_texture_overrides)
+            overlay.command.material_texture_overrides.push_back(
+                MaterialTextureOverride{texture.name, texture.source});
+        overlay.authored_hotspot_parameters = hotspot.material_parameters;
         overlay.command.hotspot_bounds = std::visit(
             [](const auto& shape) -> Rect {
                 using T = std::decay_t<decltype(shape)>;
@@ -1404,6 +1410,63 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                                            ? frame.base_game_ui_underlay_batch
                                            : frame.base_world_composition_batch;
         composition_batch.draw(std::move(command));
+    }
+
+    for (auto& surface : frame.hotspot_surfaces) {
+        auto& command = surface.overlay.command;
+        command.material_uniform_overrides.clear();
+        for (const auto& parameter : surface.overlay.authored_hotspot_parameters) {
+            std::optional<ShaderUniformValue> resolved;
+            if (parameter.value) {
+                resolved = render_material_parameter_value(*parameter.value);
+            } else if (parameter.standard_facet) {
+                float facet_value = 0.0f;
+                switch (*parameter.standard_facet) {
+                case core::MaterialStandardFacet::OccurrenceTime: {
+                    if (clock) {
+                        const auto domain = parameter.clock == core::MaterialClockPolicy::Gameplay
+                                                ? core::LayoutClockDomain::Gameplay
+                                                : core::LayoutClockDomain::UnscaledPresentation;
+                        const auto now = clock_time(*clock, domain);
+                        const auto key = std::string{"hotspot-material/"} +
+                                         surface.overlay.stable_identity + "/" +
+                                         std::to_string(surface.overlay.sublayer) + "/" +
+                                         command.material.string() + "/" + parameter.name;
+                        auto [epoch, inserted] =
+                            m_loop_epochs.try_emplace(key, LoopEpoch{domain, now});
+                        if (!inserted && epoch->second.clock != domain)
+                            epoch->second = LoopEpoch{domain, now};
+                        const auto elapsed = now >= epoch->second.started_at
+                                                 ? now - epoch->second.started_at
+                                                 : std::chrono::microseconds{0};
+                        facet_value =
+                            static_cast<float>(std::chrono::duration<double>(elapsed).count());
+                    }
+                    break;
+                }
+                case core::MaterialStandardFacet::PaintWidth:
+                    facet_value = command.rect.width;
+                    break;
+                case core::MaterialStandardFacet::PaintHeight:
+                    facet_value = command.rect.height;
+                    break;
+                case core::MaterialStandardFacet::ViewportWidth:
+                    facet_value = m_viewport.width;
+                    break;
+                case core::MaterialStandardFacet::ViewportHeight:
+                    facet_value = m_viewport.height;
+                    break;
+                case core::MaterialStandardFacet::CameraZoom:
+                    facet_value =
+                        frame.camera ? static_cast<float>(frame.camera->view.zoom) : 1.0f;
+                    break;
+                }
+                resolved = ShaderUniformValue{facet_value};
+            }
+            if (resolved)
+                command.material_uniform_overrides.push_back(
+                    MaterialUniformOverride{parameter.name, std::move(*resolved)});
+        }
     }
     rebuild_hotspot_overlays(frame);
 }

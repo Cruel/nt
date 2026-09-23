@@ -55,6 +55,7 @@ public:
         Rml::Context* context = nullptr;
         ResolvedContextMetrics metrics{};
         std::vector<core::PresentationMaterialParameter> material_parameters;
+        std::vector<core::PresentationMaterialTextureBinding> material_textures;
         double material_camera_zoom = 1.0;
         std::uint64_t cursor_source_id = 0;
     };
@@ -146,9 +147,9 @@ public:
     void set_cursor_presentation_resolver(CursorPresentationResolver resolver);
     void set_context_clock(ContextKey key);
     void
-    set_context_material_parameters(Rml::Context* context,
-                                    std::vector<core::PresentationMaterialParameter> parameters,
-                                    double camera_zoom);
+    set_context_material_parameters(
+        Rml::Context* context, std::vector<core::PresentationMaterialParameter> parameters,
+        std::vector<core::PresentationMaterialTextureBinding> textures, double camera_zoom);
 
     void refresh_pointer_cursor(const VisibleDocumentPredicate& has_visible_document,
                                 const LayoutEventDispatch& dispatch_layout_event);

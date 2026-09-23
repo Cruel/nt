@@ -778,6 +778,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
               selectedView={hotspotView}
               ownerKind="interactable"
               ownerId={interactableId}
+              materialProperties={materialProperties}
               localFeatures={data.features}
               alphaMode={hotspotMode.kind === 'sprite-alpha'}
               onViewChange={setHotspotView}

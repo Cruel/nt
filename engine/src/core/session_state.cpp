@@ -1663,8 +1663,11 @@ Result<void, Diagnostics> SessionState::upsert_material_parameter(const Compiled
                     return false;
                 const auto* layout = project.find_layout(found->layout);
                 return layout != nullptr &&
-                       std::ranges::find(layout->dependencies.materials, value.material) !=
-                           layout->dependencies.materials.end() &&
+                       std::ranges::find_if(
+                           layout->dependencies.materials,
+                           [&](const compiled::MaterialApplication& application) {
+                               return application.material == value.material;
+                           }) != layout->dependencies.materials.end() &&
                        material->role == compiled::MaterialRole::RmlUiDecorator;
             } else {
                 const auto found = std::ranges::find_if(

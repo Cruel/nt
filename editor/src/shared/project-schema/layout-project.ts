@@ -7,10 +7,10 @@ import {
   validateLayoutData,
   type LayoutAssetRef,
   type LayoutLuaSourceData,
-  type LayoutMaterialRef,
   type LayoutSourceData,
 } from './authoring-layouts';
 import { resolveMaterialData } from './authoring-materials';
+import type { MaterialApplication } from './authoring-material-applications';
 
 export const LAYOUT_PREVIEW_SCHEMA = 'noveltea.layout-preview' as const;
 
@@ -45,9 +45,9 @@ function assetMetadata(project: AuthoringProject, ref: LayoutAssetRef): Record<s
 
 function materialMetadata(
   project: AuthoringProject,
-  ref: LayoutMaterialRef,
+  application: MaterialApplication,
 ): Record<string, unknown> {
-  const id = ref.$ref.id;
+  const id = application.material.$ref.id;
   const record = project.materials[id];
   const data = resolveMaterialData(project, id).data;
   return {
@@ -102,9 +102,9 @@ export function layoutPreviewRevision(project: AuthoringProject, layoutId: strin
       const assetData = parseAssetData(asset?.data);
       return `${assetId}:${assetData?.contentHash ?? assetData?.source.path ?? 'missing'}`;
     });
-  const materialDeps = data.dependencies.materials.map((ref) => {
-    const materialId = ref.$ref.id;
-    return `${materialId}:${JSON.stringify(project.materials[materialId]?.data ?? null)}`;
+  const materialDeps = data.dependencies.materials.map((application) => {
+    const materialId = application.material.$ref.id;
+    return `${materialId}:${JSON.stringify(project.materials[materialId]?.data ?? null)}:${JSON.stringify(application)}`;
   });
   const revisionData = {
     ...data,
@@ -157,7 +157,10 @@ export function buildLayoutPreviewDocumentData(
         logicalPath: `project:/${path}`,
       })),
       data: (data.dependencies.data ?? []).map((ref) => assetMetadata(project, ref)),
-      materials: data.dependencies.materials.map((ref) => materialMetadata(project, ref)),
+      materials: data.dependencies.materials.map((application) => ({
+        ...materialMetadata(project, application),
+        application,
+      })),
     },
     sampleState: data.sampleState,
     preview: { background: data.preview.background },

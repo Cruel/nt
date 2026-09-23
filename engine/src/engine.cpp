@@ -132,7 +132,8 @@ std::string presentation_owner_key(const core::PresentationOwner& owner)
 }
 
 std::vector<RuntimePostprocessPass>
-runtime_postprocess_stack(const core::RuntimePresentationSnapshot& snapshot)
+runtime_postprocess_stack(const core::CompiledProject& project,
+                          const core::RuntimePresentationSnapshot& snapshot)
 {
     std::vector<RuntimePostprocessPass> result;
     result.reserve(snapshot.postprocess_effects.size());
@@ -143,6 +144,12 @@ runtime_postprocess_stack(const core::RuntimePresentationSnapshot& snapshot)
         pass.scope = effect.scope == core::compiled::MaterialPostprocessScope::World
                          ? PostprocessScope::World
                          : PostprocessScope::FullGameViewport;
+        for (const auto& texture : effect.material_textures) {
+            const auto* asset = project.find_asset(texture.source);
+            if (asset != nullptr)
+                pass.textures.push_back(
+                    MaterialTextureOverride{texture.name, "project:/" + asset->path});
+        }
         for (const auto& parameter : snapshot.material_parameters) {
             const auto* occurrence =
                 std::get_if<core::PostprocessMaterialOccurrence>(&parameter.occurrence);
@@ -1075,7 +1082,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                                                std::string(game.runtime_locale()));
         m_presentation_layouts.bind_project(project);
         auto snapshot_backend = m_game_host.runtime_presentation().bind_snapshot_backend(
-            [this](const core::RuntimePresentationSnapshot& snapshot) {
+            [this, &project](const core::RuntimePresentationSnapshot& snapshot) {
                 const auto previous_revision = m_presentation_layouts.current_revision();
                 auto world = m_world_presentation.reconcile(
                     snapshot, {static_cast<float>(m_renderer.reference_width()),
@@ -1089,7 +1096,8 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
 
                 auto layouts = m_presentation_layouts.reconcile(snapshot);
                 if (layouts) {
-                    m_renderer.set_runtime_postprocess_stack(runtime_postprocess_stack(snapshot));
+                    m_renderer.set_runtime_postprocess_stack(
+                        runtime_postprocess_stack(project, snapshot));
                     return layouts;
                 }
 

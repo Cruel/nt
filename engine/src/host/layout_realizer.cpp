@@ -89,7 +89,8 @@ public:
                                  *layout.semantic_owner, *layout.semantic_key, *layout.occurrence,
                                  layout.inputs, layout.connected_signals, layout.state_shape,
                                  layout.state_values, layout.material_parameters,
-                                 layout.material_camera_zoom, layout.trigger_context});
+                                 layout.material_camera_zoom, layout.trigger_context,
+                                 layout.material_textures});
         } else {
             m_runtime_ui.set_layout_mount_context(document_id, std::nullopt);
         }
@@ -682,6 +683,7 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
                 .state_shape = layout.contract.state,
                 .state_values = std::move(state_values),
                 .material_parameters = {},
+                .material_textures = {},
                 .material_camera_zoom = 1.0,
                 .trigger_context = std::nullopt,
                 .composition_group = game_hud ? core::PresentationCompositionGroup::Interface
@@ -974,6 +976,7 @@ LayoutRealizationResult LayoutRealizer::apply_layout_realization(LayoutRealizati
                                              .state_shape = std::nullopt,
                                              .state_values = {},
                                              .material_parameters = {},
+                                             .material_textures = {},
                                              .material_camera_zoom = 1.0,
                                              .trigger_context = std::nullopt,
                                              .composition_group = value.composition_group,
