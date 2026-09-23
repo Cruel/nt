@@ -94,6 +94,36 @@
       "localProperties": [],
       "materialApplication": { "material": null, "parameters": {}, "textures": {} },
       "featureOverrides": []
+    },
+    "material-definition-sample": {
+      "id": "material-definition-sample",
+      "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "materials-engine2d-lab" } } },
+      "enabled": true,
+      "visible": true,
+      "quantity": 1,
+      "traits": { "add": [], "remove": [] },
+      "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} },
+      "featureOverrides": []
+    },
+    "material-instance-sample": {
+      "id": "material-instance-sample",
+      "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "materials-engine2d-lab" } } },
+      "enabled": true,
+      "visible": true,
+      "quantity": 1,
+      "traits": { "add": [], "remove": [] },
+      "localProperties": [],
+      "materialApplication": {
+        "material": null,
+        "parameters": {
+          "u_strength": { "type": "float", "source": { "kind": "literal", "value": 0.8 } }
+        },
+        "textures": {}
+      },
+      "featureOverrides": []
     }
   }
 }

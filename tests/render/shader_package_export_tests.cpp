@@ -54,7 +54,7 @@ nlohmann::json make_material_metadata()
         "ui/noise_panel":{
           "display_name":"Packaged RmlUi Noise Panel",
           "interface_contract":"noveltea.material-preset:rmlui-decorator:1",
-          "interface_fingerprint":"sha256:4d6fa3ddc7c34a2d7ca9fa8102e0881305a1ea684693b47eff6ebebdddaf4a27",
+          "interface_fingerprint":"sha256:13861c8862bc8406cc2a3575a6a81e504c8f85943b9fcb5f9b4de8bf075245f8",
           "roles":["rmlui-decorator"],
           "role_bindings":{},
           "stages":{

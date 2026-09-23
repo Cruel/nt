@@ -312,7 +312,7 @@ nlohmann::json shader_material_manifest()
         "sprite-shader":{
           "display_name":"Sprite",
           "interface_contract":"noveltea.material-preset:engine-2d:1",
-          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
+          "interface_fingerprint":"sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9",
           "roles":["engine-2d","postprocess"],
           "role_bindings":{},
           "stages":{
@@ -321,9 +321,21 @@ nlohmann::json shader_material_manifest()
           },
           "uniforms":{},
           "samplers":{
-            "s_static":{"type":"texture2d","stage":3,"binding":null},
-            "s_draw":{"type":"texture2d","stage":4,"binding":null}
+            "s_static":{"type":"texture2d","stage":3,"binding":null}
           }
+        },
+        "layout-shader":{
+          "display_name":"Layout",
+          "interface_contract":"noveltea.material-preset:rmlui-decorator:1",
+          "interface_fingerprint":"sha256:13861c8862bc8406cc2a3575a6a81e504c8f85943b9fcb5f9b4de8bf075245f8",
+          "roles":["rmlui-decorator"],
+          "role_bindings":{},
+          "stages":{
+            "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
+            "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
+          },
+          "uniforms":{},
+          "samplers":{"s_texColor":{"type":"texture2d","stage":0,"binding":null}}
         }
       },
       "materials":{
@@ -334,18 +346,22 @@ nlohmann::json shader_material_manifest()
           "uniforms":{},
           "textures":{
             "s_static":{"source":"project:/assets/images/main.png",
-                        "sampler":"repeat-nearest"},
-            "s_draw":"$draw.texture"
-          },
-          "blend":"premultiplied-alpha"
+                        "sampler":"repeat-nearest"}
+          }
         },
         "scene-postprocess-material":{
           "display_name":"Scene Postprocess",
           "role":"postprocess",
           "shader":"sprite-shader",
           "uniforms":{},
-          "textures":{},
-          "blend":"premultiplied-alpha"
+          "textures":{}
+        },
+        "layout-material":{
+          "display_name":"Layout",
+          "role":"rmlui-decorator",
+          "shader":"layout-shader",
+          "uniforms":{},
+          "textures":{}
         }
       }
     })json");

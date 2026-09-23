@@ -151,8 +151,7 @@ asset, Layout, material, gameplay, package-size, and image-dimension lookup data
 `MandatoryAssetDependencyCollector` emits only the typed dependency closure required by the current
 presentation and required system Layouts. It has no Scene/Dialogue/Room speculative traversal and no
 prediction buckets. Material closure includes the material, its resolved shader program, and
-package-backed static texture assignments while excluding renderer-generated sources such as
-`$draw.texture`.
+package-backed author-owned texture assignments while excluding renderer-owned contract inputs such as Engine2D `engine.draw_texture`, ActiveText glyph atlases, RmlUi decorator textures, hotspot image/mask inputs, and postprocess source surfaces.
 
 Production Flow speculation resolves semantic predictor output into ranked `PrefetchCandidate`s that
 retain execution distance/order, confidence, dependency sub-priority, provenance, and an advisory

@@ -165,12 +165,21 @@ function validateRegistry(registry) {
     if (preset.contractIdentity !== `noveltea.material-preset:${id}:1`)
       fail(`${base}.contractIdentity must preserve the current V1 identity.`);
     expectObject(preset.shader, `${base}.shader`);
+    expectObject(preset.shader.standardUniforms, `${base}.shader.standardUniforms`);
     expectObject(preset.capabilities, `${base}.capabilities`);
     expectObject(preset.defaultParameters, `${base}.defaultParameters`);
     expectObject(preset.preview, `${base}.preview`);
-    expectObject(preset.compatibilityProjection, `${base}.compatibilityProjection`);
 
     const roleContract = roles.find((candidate) => candidate.id === role);
+    const standardSemantics = new Set(
+      roleContract.standardSemanticAvailability.map((entry) => entry.semantic),
+    );
+    for (const [name, semantic] of Object.entries(preset.shader.standardUniforms)) {
+      expectString(name, `${base}.shader.standardUniforms name`);
+      expectString(semantic, `${base}.shader.standardUniforms.${name}`);
+      if (!standardSemantics.has(semantic))
+        fail(`${base}.shader.standardUniforms.${name} references unavailable semantic '${semantic}'.`);
+    }
     const reservedSamplers = new Set(roleContract.reservedInterface.samplers.map((sampler) => sampler.name));
     for (const [slot, state] of Object.entries(preset.capabilities.samplers ?? {})) {
       if (!reservedSamplers.has(slot)) fail(`${base} declares unknown reserved sampler '${slot}'.`);
@@ -357,7 +366,6 @@ function generatedCpp(registry) {
     lines.push(`            .geometry = ${cppString(preset.preview.geometry)},`);
     lines.push(`            .background = ${cppString(preset.preview.background)},`);
     lines.push('        },');
-    lines.push(`        .compatibility_projection_json = ${cppString(canonicalJson(preset.compatibilityProjection))},`);
     lines.push('    },');
   }
   lines.push(

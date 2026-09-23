@@ -98,10 +98,6 @@ enum class MaterialTextureSampler {
     RepeatLinear,
 };
 
-enum class MaterialBlendMode {
-    PremultipliedAlpha,
-};
-
 enum class PostprocessScope {
     World,
     FullGameViewport,
@@ -125,7 +121,6 @@ struct MaterialDefinition {
     std::string display_name;
     std::vector<MaterialUniformAssignment> uniforms;
     std::vector<MaterialTextureAssignment> textures;
-    MaterialBlendMode blend = MaterialBlendMode::PremultipliedAlpha;
     bool fallback = false;
 };
 
@@ -164,7 +159,6 @@ resolve_active_text_material_occurrences(const ShaderMaterialProject& project,
 [[nodiscard]] std::string_view to_string(MaterialDiagnosticCode code) noexcept;
 [[nodiscard]] std::string_view to_string(MaterialDiagnosticSeverity severity) noexcept;
 [[nodiscard]] std::string_view to_string(MaterialTextureSampler sampler) noexcept;
-[[nodiscard]] std::string_view to_string(MaterialBlendMode mode) noexcept;
 [[nodiscard]] std::string_view to_string(PostprocessScope scope) noexcept;
 
 } // namespace noveltea

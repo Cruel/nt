@@ -74,7 +74,6 @@ struct MaterialPresetContract {
     std::span<const MaterialContractCapability> sampler_capabilities;
     std::string_view default_parameters_json;
     MaterialContractPreviewFixture preview;
-    std::string_view compatibility_projection_json;
 };
 
 [[nodiscard]] std::span<const MaterialRoleContract> material_role_contracts() noexcept;

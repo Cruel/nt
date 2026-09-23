@@ -37,6 +37,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -409,14 +410,19 @@ make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> s
             return Result<HeadlessRuntimeInput, Diagnostics>::failure(
                 std::move(decoded_materials).error());
         std::vector<std::string> variants;
+        std::set<std::string> binary_paths;
+        bool has_shader_sources = false;
         for (const auto& shader : decoded_materials.value_if()->shaders) {
             for (const auto& stage : shader.stages) {
+                has_shader_sources = has_shader_sources || !stage.source.empty() || !stage.source_text.empty();
                 for (const auto& binary : stage.compiled) {
                     if (std::find(variants.begin(), variants.end(), binary.variant) == variants.end())
                         variants.push_back(binary.variant);
                     const auto package_path = runtime_package_entry_path(binary.path);
-                    entries.push_back({{"path", package_path}, {"size", 0}});
-                    files.push_back({package_path, 0, std::nullopt});
+                    if (binary_paths.insert(package_path).second) {
+                        entries.push_back({{"path", package_path}, {"size", 0}});
+                        files.push_back({package_path, 0, std::nullopt});
+                    }
                 }
             }
         }
@@ -424,9 +430,11 @@ make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> s
         files.push_back({"shader-materials.json", 0, std::nullopt});
         manifest["entries"] = entries;
         manifest["shader_variants"] = std::move(variants);
+        if (has_shader_sources)
+            manifest["kind"] = "editable";
         manifest["shader_materials"] = {{"entry", "shader-materials.json"},
                                         {"schema", "noveltea.shader-materials"},
-                                        {"sources_stripped", true}};
+                                        {"sources_stripped", !has_shader_sources}};
     }
     auto typed_manifest = decode_runtime_package_manifest(manifest, "manifest.json");
     if (!typed_manifest)

@@ -89,16 +89,38 @@ runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
     };
     auto shader_materials = nlohmann::json::parse(R"json({
       "schema":"noveltea.shader-materials",
-      "shaders":{"sprite-shader":{"display_name":"Sprite",
-        "interface_contract":"noveltea.material-preset:engine-2d:1",
-        "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
-        "roles":["engine-2d"],"role_bindings":{},
-        "stages":{"vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
-                  "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
-        "uniforms":{},"samplers":{}}},
-      "materials":{"sprite-material":{"display_name":"Sprite","role":"engine-2d",
-        "shader":"sprite-shader","uniforms":{},"textures":{},
-        "blend":"premultiplied-alpha"}}
+      "shaders":{
+        "sprite-shader":{"display_name":"Sprite",
+          "interface_contract":"noveltea.material-preset:engine-2d:1",
+          "interface_fingerprint":"sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9",
+          "roles":["engine-2d"],"role_bindings":{},
+          "stages":{"vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
+                    "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
+          "uniforms":{},"samplers":{"s_texColor":{"type":"texture2d","stage":0,"binding":null}}},
+        "layout-shader":{"display_name":"Layout",
+          "interface_contract":"noveltea.material-preset:rmlui-decorator:1",
+          "interface_fingerprint":"sha256:13861c8862bc8406cc2a3575a6a81e504c8f85943b9fcb5f9b4de8bf075245f8",
+          "roles":["rmlui-decorator"],"role_bindings":{},
+          "stages":{"vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
+                    "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
+          "uniforms":{},"samplers":{"s_texColor":{"type":"texture2d","stage":0,"binding":null}}},
+        "postprocess-shader":{"display_name":"Postprocess",
+          "interface_contract":"noveltea.material-preset:postprocess-tint:1",
+          "interface_fingerprint":"sha256:be4687257959764c5f1eaac0b101615349c727a9671bd515c75dd8d923accdf3",
+          "roles":["postprocess"],"role_bindings":{},
+          "stages":{"vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
+                    "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
+          "uniforms":{"u_tint":{"type":"color","default":"#ffffffff"}},
+          "samplers":{"s_texColor":{"type":"texture2d","stage":0,"binding":null}}}
+      },
+      "materials":{
+        "sprite-material":{"display_name":"Sprite","role":"engine-2d",
+          "shader":"sprite-shader","uniforms":{},"textures":{}},
+        "layout-material":{"display_name":"Layout","role":"rmlui-decorator",
+          "shader":"layout-shader","uniforms":{},"textures":{}},
+        "scene-postprocess-material":{"display_name":"Postprocess","role":"postprocess",
+          "shader":"postprocess-shader","uniforms":{},"textures":{}}
+      }
     })json");
     auto decoded_manifest = core::decode_runtime_package_manifest(manifest, "manifest.json");
     REQUIRE(decoded_manifest.has_value());

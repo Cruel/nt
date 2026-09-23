@@ -1,0 +1,21 @@
+{
+  "id": "engine2d-draw-contract",
+  "label": "Engine2D Draw Contract",
+  "data": {
+    "kind": "material",
+    "base": { "kind": "preset", "preset": "engine-2d" },
+    "displayName": "Engine2D Draw Contract",
+    "shader": {
+      "fragment": { "kind": "project", "path": "shaders/engine2d-draw-contract.fs.sc" }
+    },
+    "parameters": {
+      "u_strength": {
+        "type": "float",
+        "value": 0.25,
+        "editor": { "label": "Hologram Strength", "range": [0, 1], "control": "slider" }
+      }
+    },
+    "textures": {},
+    "preview": { "geometry": "sprite", "background": "checker" }
+  }
+}

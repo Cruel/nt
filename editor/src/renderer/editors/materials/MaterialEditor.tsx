@@ -41,8 +41,10 @@ import {
   isAuthoringProject,
   type AuthoringProject,
 } from '../../../shared/project-schema/authoring-project';
+import { materialContractRegistry } from '../../../shared/project-schema/material-contract-registry.generated';
 import {
   isUniformValueCompatible,
+  shaderSamplerBindingValues,
   shaderUniformValueSchema,
   type ShaderUniformType,
   type ShaderUniformValue,
@@ -335,10 +337,61 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
       : `material:${data.base.material.$ref.id}`;
   const customSource = effective ? resolvedMaterialUsesCustomShader(effective) : false;
   const currentDerivedInterface = previewResource?.derivedInterface ?? null;
+  const roleContract = effective
+    ? materialContractRegistry.roles.find((role) => role.id === effective.role)
+    : undefined;
+  const presetParameterDeclarations = effective
+    ? Object.fromEntries(
+        [
+          ...new Set([
+            ...Object.keys(effective.preset.uniforms),
+            ...Object.keys(effective.preset.standardUniforms),
+          ]),
+        ].flatMap((name) => {
+          const parameter = effective.parameters[name];
+          if (!parameter?.type) return [];
+          return [
+            [
+              name,
+              {
+                ...effective.preset.uniforms[name],
+                type: parameter.type,
+                binding: parameter.binding ?? undefined,
+              },
+            ],
+          ];
+        }),
+      )
+    : {};
+  const presetTextureDeclarations = effective
+    ? Object.fromEntries(
+        Object.entries(effective.preset.samplerCapabilities).flatMap(([name, state]) => {
+          if (state === 'disabled') return [];
+          const sampler = roleContract?.reservedInterface.samplers.find(
+            (candidate) => candidate.name === name,
+          );
+          if (!sampler) return [];
+          const binding = shaderSamplerBindingValues.includes(
+            sampler.semantic as (typeof shaderSamplerBindingValues)[number],
+          )
+            ? (sampler.semantic as (typeof shaderSamplerBindingValues)[number])
+            : null;
+          return [[name, { type: 'texture2d' as const, stage: sampler.stage, binding }]];
+        }),
+      )
+    : {};
+  const rendererOwnedSamplerNames = new Set(
+    roleContract?.reservedInterface.samplers
+      .filter((sampler) => sampler.sourceOwnership === 'renderer')
+      .map((sampler) => sampler.name) ?? [],
+  );
   const parameterDeclarations =
-    currentDerivedInterface?.uniforms ?? (customSource ? {} : (effective?.preset.uniforms ?? {}));
-  const textureDeclarations =
-    currentDerivedInterface?.samplers ?? (customSource ? {} : (effective?.preset.samplers ?? {}));
+    currentDerivedInterface?.uniforms ?? (customSource ? {} : presetParameterDeclarations);
+  const textureDeclarations = Object.fromEntries(
+    Object.entries(
+      currentDerivedInterface?.samplers ?? (customSource ? {} : presetTextureDeclarations),
+    ).filter(([name]) => !rendererOwnedSamplerNames.has(name)),
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-3">
@@ -646,14 +699,16 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
               .filter(([name, declaration]) => {
                 const local = data.textures[name];
                 return (
-                  (local?.source === undefined || declaration.binding == null) &&
+                  (local?.source === undefined ||
+                    (declaration.binding == null && !rendererOwnedSamplerNames.has(name))) &&
                   (local?.binding === undefined || local.binding === declaration.binding)
                 );
               })
               .map(([name, declaration]) => {
                 const local = data.textures[name];
                 const current = effective?.textures[name];
-                const rendererBound = declaration.binding != null;
+                const rendererBound =
+                  declaration.binding != null || rendererOwnedSamplerNames.has(name);
                 const provenance = effective?.provenance[`textures.${name}`];
                 const refId =
                   current?.source && '$ref' in current.source ? current.source.$ref.id : '__none__';

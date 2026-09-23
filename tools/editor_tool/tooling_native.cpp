@@ -168,6 +168,28 @@ struct HeadlessRuntimeInput {
     std::string runtime_locale;
 };
 
+void strip_shader_material_sources(nlohmann::json& metadata)
+{
+    auto shaders = metadata.find("shaders");
+    if (shaders == metadata.end() || !shaders->is_object())
+        return;
+    for (auto& [_shader_id, shader] : shaders->items()) {
+        if (!shader.is_object())
+            continue;
+        auto stages = shader.find("stages");
+        if (stages == shader.end() || !stages->is_object())
+            continue;
+        for (auto& [_stage_name, stage] : stages->items()) {
+            if (!stage.is_object())
+                continue;
+            stage.erase("source");
+            stage.erase("source_text");
+            stage.erase("editor_preview");
+            stage.erase("compile_cache");
+        }
+    }
+}
+
 Result<HeadlessRuntimeInput, Diagnostics>
 make_headless_running_game_input(nlohmann::json gameplay,
                                  std::optional<nlohmann::json> shader_materials,
@@ -229,8 +251,10 @@ make_headless_running_game_input(nlohmann::json gameplay,
         }
         std::vector<std::string> variants;
         std::set<std::string> binary_paths;
+        bool has_shader_sources = false;
         for (const auto& shader : decoded_materials.value_if()->shaders) {
             for (const auto& stage : shader.stages) {
+                has_shader_sources = has_shader_sources || !stage.source.empty() || !stage.source_text.empty();
                 for (const auto& binary : stage.compiled) {
                     if (std::find(variants.begin(), variants.end(), binary.variant) ==
                         variants.end()) {
@@ -248,9 +272,11 @@ make_headless_running_game_input(nlohmann::json gameplay,
         files.push_back({"shader-materials.json", 0, std::nullopt});
         manifest["entries"] = std::move(entries);
         manifest["shader_variants"] = std::move(variants);
+        if (has_shader_sources)
+            manifest["kind"] = "editable";
         manifest["shader_materials"] = {{"entry", "shader-materials.json"},
                                         {"schema", "noveltea.shader-materials"},
-                                        {"sources_stripped", true}};
+                                        {"sources_stripped", !has_shader_sources}};
     }
 
     auto typed_manifest = decode_runtime_package_manifest(manifest, "manifest.json");
@@ -554,26 +580,8 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
     TypedMemorySaveSlotStore saves;
     HeadlessPresentationRuntime presentation;
     auto shader_material_metadata = options.shader_material_metadata;
-    if (shader_material_metadata && options.strip_shader_sources) {
-        auto shaders = shader_material_metadata->find("shaders");
-        if (shaders != shader_material_metadata->end() && shaders->is_object()) {
-            for (auto& [_shader_id, shader] : shaders->items()) {
-                if (!shader.is_object())
-                    continue;
-                auto stages = shader.find("stages");
-                if (stages == shader.end() || !stages->is_object())
-                    continue;
-                for (auto& [_stage_name, stage] : stages->items()) {
-                    if (!stage.is_object())
-                        continue;
-                    stage.erase("source");
-                    stage.erase("source_text");
-                    stage.erase("editor_preview");
-                    stage.erase("compile_cache");
-                }
-            }
-        }
-    }
+    if (shader_material_metadata && options.strip_shader_sources)
+        strip_shader_material_sources(*shader_material_metadata);
     auto input =
         make_headless_running_game_input(project, std::move(shader_material_metadata), "en");
     if (!input)
@@ -652,7 +660,15 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         return fail("Lua runtime initialization failed.");
     TypedMemorySaveSlotStore saves;
     HeadlessPresentationRuntime presentation;
-    auto input = make_headless_running_game_input(*project, std::nullopt, "en");
+    std::optional<nlohmann::json> shader_material_metadata;
+    if (const auto metadata = request.find("shaderMaterialMetadata"); metadata != request.end()) {
+        if (!metadata->is_null() && !metadata->is_object())
+            return fail("Runtime Test shaderMaterialMetadata must be an object or null.");
+        if (!metadata->is_null())
+            shader_material_metadata = *metadata;
+    }
+    auto input =
+        make_headless_running_game_input(*project, std::move(shader_material_metadata), "en");
     if (!input)
         return compiled_project_admission_failure("Compiled runtime load failed.",
                                                   compiled_diagnostics_to_json(input.error()));

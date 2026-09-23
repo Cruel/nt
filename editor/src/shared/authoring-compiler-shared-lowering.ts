@@ -1729,13 +1729,19 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     materialInterfaces.push({
       id,
       role: resolved.data.role,
-      parameters: Object.entries(resolved.data.preset.uniforms)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([name, uniform]) => ({
-          name,
-          type: uniform.type,
-          rendererBinding: resolved.data?.parameters[name]?.binding ?? uniform.binding ?? null,
-        })),
+      parameters: [
+        ...new Set([
+          ...Object.keys(resolved.data.preset.uniforms),
+          ...Object.keys(resolved.data.preset.standardUniforms),
+        ]),
+      ]
+        .sort((left, right) => left.localeCompare(right))
+        .flatMap((name) => {
+          const parameter = resolved.data?.parameters[name];
+          return parameter?.type
+            ? [{ name, type: parameter.type, rendererBinding: parameter.binding ?? null }]
+            : [];
+        }),
     });
   }
 

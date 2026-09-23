@@ -66,7 +66,7 @@ The effective Material `preview.geometry` and `preview.background` metadata sele
 
 Custom source-backed Materials use the compiler's `essl-300` browser payload when available, so their shader source runs through the same Web shader compilation path used for browser-facing derived artifacts. Native browser payloads are normalized with the required `#version 300 es` directive before WebGL2 compilation when the compiler payload omits it. The lightweight harness supplies effective author-settable values plus common engine inputs such as time, preview bounds, and hotspot pointer state.
 
-Built-in/common 2D Materials use the lightweight WebGL harness with the canonical sampler, uniform, blend, texture, and effective-value semantics. Context-heavy roles deliberately use representative fixtures:
+Built-in/common 2D Materials use the lightweight WebGL harness with the canonical sampler, uniform, texture, effective-value, and role-owned pipeline semantics. Engine2D preview binds the fixture texture through the same renderer-owned `engine.draw_texture` contract used at runtime; it does not synthesize an authored `s_texColor` source or Material blend override. Context-heavy roles deliberately use representative fixtures:
 
 - ActiveText uses the glyphs harness; it does not reproduce shaping, dialogue state, or the full text renderer.
 - RmlUi decorator Materials use a rounded-rectangle fixture rather than an RmlUi document/layout pass. The fixture still follows the generated `rmlui-decorator` contract: it supplies the contract-owned projection/transform/translation uniforms and renderer-owned decorator texture at the reserved stage with clamp/linear sampling, then composites with premultiplied-alpha blending.

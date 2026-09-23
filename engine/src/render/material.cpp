@@ -736,15 +736,6 @@ std::string_view to_string(ShaderSamplerSemantic semantic) noexcept
     return "unknown";
 }
 
-std::string_view to_string(MaterialBlendMode mode) noexcept
-{
-    switch (mode) {
-    case MaterialBlendMode::PremultipliedAlpha:
-        return "premultiplied-alpha";
-    }
-    return "unknown";
-}
-
 std::string_view to_string(PostprocessScope scope) noexcept
 {
     switch (scope) {

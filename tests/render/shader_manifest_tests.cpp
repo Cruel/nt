@@ -15,7 +15,7 @@ noveltea::ShaderMaterialProject make_project()
       "shaders":{
         "engine_2d_default":{
           "interface_contract":"noveltea.material-preset:engine-2d:1",
-          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
+          "interface_fingerprint":"sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9",
           "stages":{
             "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/engine_2d_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
@@ -24,7 +24,7 @@ noveltea::ShaderMaterialProject make_project()
         },
         "rmlui_decorator_default":{
           "interface_contract":"noveltea.material-preset:rmlui-decorator:1",
-          "interface_fingerprint":"sha256:4d6fa3ddc7c34a2d7ca9fa8102e0881305a1ea684693b47eff6ebebdddaf4a27",
+          "interface_fingerprint":"sha256:13861c8862bc8406cc2a3575a6a81e504c8f85943b9fcb5f9b4de8bf075245f8",
           "stages":{
             "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/rmlui_decorator_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
@@ -33,7 +33,7 @@ noveltea::ShaderMaterialProject make_project()
         },
         "soft_noise":{
           "interface_contract":"noveltea.material-preset:engine-2d:1",
-          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
+          "interface_fingerprint":"sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9",
           "stages":{
             "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
@@ -156,7 +156,7 @@ TEST_CASE("material resolution does not guess vertex stages when role binding is
       "shaders":{
         "fragment_only":{
           "interface_contract":"noveltea.material-preset:engine-2d:1",
-          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
+          "interface_fingerprint":"sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9",
           "stages":{"fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/fragment_only.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
           "roles":["engine-2d"],
           "role_bindings":{}

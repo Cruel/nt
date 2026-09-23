@@ -104,8 +104,7 @@ private:
     [[nodiscard]] bgfx::UniformHandle uniform_handle(std::string_view name);
     [[nodiscard]] bgfx::UniformHandle sampler_handle(std::string_view name);
     [[nodiscard]] bgfx::TextureHandle
-    texture_for_source(std::string_view source, const QuadCommand* command,
-                       MaterialTextureSampler sampler,
+    texture_for_source(std::string_view source, MaterialTextureSampler sampler,
                        std::vector<ShaderProgramDiagnostic>* diagnostics);
     [[nodiscard]] BgfxMaterialBindResult
     bind_resolved_material(const MaterialId& material_id, const MaterialDefinition& material,

@@ -537,6 +537,22 @@ visible: boolean
 
 `stop_environments` removes all matching desired environments for the selected owner. `environment()` returns `material`, optional `asset`, `stop_key`, `order`, `visible`, and `opacity`.
 
+### Interactable Material selection
+
+```text
+noveltea.presentation.set_material_selection(target, material_id, options?) -> ok, error
+noveltea.presentation.clear_material_selection(target, options?) -> ok, error
+noveltea.presentation.material_selection(target, options?) -> state_or_nil, error
+```
+
+Runtime Material selection targets are `{kind='interactable-definition', id='definition-id'}` or
+`{kind='interactable', id='instance-id'}`. Concrete Instance runtime selection outranks the authored
+Instance Material specialization, which outranks Definition runtime selection and the authored
+Definition application. Clearing a runtime selection removes only that sparse desired-state layer and
+reveals the next lower selection; it does not mutate authored data or delete dormant Material-keyed
+parameter state. `material_selection()` returns the selected Material identity for that runtime layer,
+or `nil, nil` when no override exists.
+
 ### Material parameters
 
 ```text
@@ -546,11 +562,13 @@ noveltea.presentation.clear_material_parameter(target, material_id, parameter, o
 noveltea.presentation.material_parameter(target, material_id, parameter, options?) -> state_or_nil, error
 ```
 
-Material parameter state is local to one semantic presentation occurrence. `target.kind` is one of
-`background`, `scene-actor`, `scoped-actor`, `prop`, `environment`, `reserved-layout`,
-`scoped-layout`, `room-overlay`, or `postprocess`; the remaining target fields identify that
-occurrence (for example `slot_id`, `instance_id`, `slot`, `room`, and `overlay_id`). Actor targets
-also accept `layer = 'pose' | 'expression'`.
+Material parameter state is sparse semantic desired state. `target.kind` may be `material` for
+Material-wide state, `interactable-definition` for Definition-scoped state, `interactable` for one
+concrete Instance, or one of the presentation-occurrence targets `background`, `scene-actor`,
+`scoped-actor`, `prop`, `environment`, `reserved-layout`, `scoped-layout`, `room-overlay`, or
+`postprocess`. The remaining target fields identify that scope/occurrence (for example `id`,
+`slot_id`, `instance_id`, `slot`, `room`, and `overlay_id`). Actor targets also accept
+`layer = 'pose' | 'expression'`.
 
 Values are typed from the selected Material's Shader uniform declaration: boolean, integer, finite
 float, a 2/3/4-element numeric vector table, or `{r, g, b, a}` color. Renderer-bound uniforms are

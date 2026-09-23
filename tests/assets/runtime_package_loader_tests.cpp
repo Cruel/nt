@@ -306,7 +306,7 @@ TEST_CASE("loose compiled project strips shader sources before runtime package a
            {{"display_name", "Custom"},
             {"interface_contract", "noveltea.material-preset:engine-2d:1"},
             {"interface_fingerprint",
-             "sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a"},
+             "sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9"},
             {"stages",
              {{"vertex",
                {{"source_text", "void main() {}"},
@@ -334,8 +334,7 @@ TEST_CASE("loose compiled project strips shader sources before runtime package a
             {"role", "engine-2d"},
             {"shader", "custom"},
             {"uniforms", nlohmann::json::object()},
-            {"textures", nlohmann::json::object()},
-            {"blend", "premultiplied-alpha"}}}}},
+            {"textures", nlohmann::json::object()}}}}},
     };
 
     auto source = std::make_shared<assets::MemoryAssetSource>();

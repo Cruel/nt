@@ -20,7 +20,6 @@ constexpr std::string_view engine_postprocess_source_semantic = "engine.postproc
 constexpr std::string_view engine_hotspot_image_semantic = "engine.hotspot_image";
 constexpr std::string_view engine_hotspot_mask_semantic = "engine.hotspot_mask";
 constexpr std::string_view engine_glyph_atlas_semantic = "engine.glyph_atlas";
-constexpr std::string_view legacy_draw_texture_source = "$draw.texture";
 
 void add_diagnostic(std::vector<ShaderProgramDiagnostic>* diagnostics,
                     ShaderProgramDiagnosticCode code, std::string context, std::string message)
@@ -273,19 +272,9 @@ bgfx::UniformHandle BgfxMaterialBinder::sampler_handle(std::string_view name)
 }
 
 bgfx::TextureHandle
-BgfxMaterialBinder::texture_for_source(std::string_view source, const QuadCommand* command,
-                                       MaterialTextureSampler sampler,
+BgfxMaterialBinder::texture_for_source(std::string_view source, MaterialTextureSampler sampler,
                                        std::vector<ShaderProgramDiagnostic>* diagnostics)
 {
-    if (source == legacy_draw_texture_source) {
-        if (command != nullptr) {
-            const auto draw_texture = bgfx::TextureHandle{command->texture.handle};
-            if (command->texture.valid() && bgfx::isValid(draw_texture))
-                return draw_texture;
-        }
-        return m_fallback_texture;
-    }
-
     if (!starts_with(source, "project:/") && !starts_with(source, "system:/")) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant, {},
                        "unsupported material texture source '" + std::string(source) + "'");
@@ -475,13 +464,8 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
                                 ? std::string_view{occurrence_texture_override->source}
                                 : std::string_view{assignment->source};
         const MaterialTextureSampler filtering =
-            assignment != nullptr && assignment->source == legacy_draw_texture_source &&
-                    inputs.quad_command != nullptr
-                ? resolve_draw_texture_sampler(assignment->filtering,
-                                               inputs.quad_command->texture_sampler)
-                : (assignment != nullptr ? assignment->filtering
-                                         : MaterialTextureSampler::ClampLinear);
-        const auto texture = texture_for_source(source, inputs.quad_command, filtering, diagnostics);
+            assignment != nullptr ? assignment->filtering : MaterialTextureSampler::ClampLinear;
+        const auto texture = texture_for_source(source, filtering, diagnostics);
         if (!bgfx::isValid(texture)) {
             if (bgfx::isValid(m_fallback_texture)) {
                 bgfx::setTexture(sampler.stage, sampler_handle(sampler.name), m_fallback_texture,

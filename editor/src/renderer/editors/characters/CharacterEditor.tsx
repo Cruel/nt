@@ -45,7 +45,6 @@ import {
   type CharacterPoseData,
   type CharacterPresentationProfileData,
 } from '../../../shared/project-schema/authoring-characters';
-import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
 import {
@@ -192,13 +191,6 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     ? Object.entries(project.assets)
         .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'audio')
         .map(([id, asset]) => ({ id, label: asset.label }))
-    : [];
-  const materials = project
-    ? Object.entries(project.materials).flatMap(([id, material]) =>
-        resolveMaterialData(project, id).data?.role === 'engine-2d'
-          ? [{ id, label: material.label }]
-          : [],
-      )
     : [];
   const rooms = project
     ? Object.entries(project.rooms).map(([roomId, room]) => ({ roomId, roomLabel: room.label }))

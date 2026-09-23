@@ -1753,8 +1753,16 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                     continue;
                 if (const auto* desired =
                         active_material_parameter(state, occurrence, material, declaration.name)) {
-                    if (auto projected = project_runtime_parameter(*desired, owner, occurrence))
-                        result.material_parameters.push_back(std::move(*projected));
+                    const bool already_projected =
+                        std::ranges::any_of(result.material_parameters, [&](const auto& parameter) {
+                            return parameter.owner == owner && parameter.occurrence == occurrence &&
+                                   parameter.material == material &&
+                                   parameter.parameter == declaration.name;
+                        });
+                    if (!already_projected) {
+                        if (auto projected = project_runtime_parameter(*desired, owner, occurrence))
+                            result.material_parameters.push_back(std::move(*projected));
+                    }
                     continue;
                 }
                 const auto authored = std::ranges::find_if(parameters, [&](const auto& parameter) {

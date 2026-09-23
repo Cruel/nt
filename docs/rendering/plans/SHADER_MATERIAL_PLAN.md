@@ -312,7 +312,7 @@ ShaderDefinition
   project/game schema record: stage source references, compiled binary refs, uniforms, samplers, shader roles
 
 MaterialDefinition
-  project/game schema record: material id, selected shader role, shader reference, uniform values, textures, blend policy
+  derived runtime record: material id, certified shader program, author-settable uniform values, and author-owned textures; pipeline state comes from the Material role contract
 
 ShaderRegistry
   resolves Material-owned shader programs
@@ -374,7 +374,7 @@ Initial constraints:
 ### Editor/import path
 
 1. Read shader and material records from the project schema.
-2. Validate shader source refs, stage declarations, uniform declarations, sampler declarations, shader roles, material shader refs, material uniform values, texture assignments, and blend policy.
+2. Validate shader source refs, stage declarations, uniform declarations, sampler declarations, shader roles, material shader refs, material uniform values, texture assignments, and role-owned pipeline compatibility.
 3. Compute a stable hash from shader source, includes, shader definition metadata, compiler version, inferred target variant, and relevant flags.
 4. Invoke the embedded shaderc implementation for each variant implied by the active build/export targets.
 5. Store compiled shader binaries under a cache/output path keyed by hash and inferred target variant.
@@ -465,7 +465,7 @@ Implemented model:
 - `engine/include/noveltea/render/material.hpp` now defines backend-neutral `ShaderDefinition` and `MaterialDefinition` records.
 - `ShaderId` and `MaterialId` normalize as stable project schema ids/aliases, not file paths.
 - Shader records declare stages, authoring source refs/source text placeholders, compiled binary refs, uniforms, samplers, supported shader roles, and role-specific stage-pair bindings.
-- Material records reference a shader, select one shader role, assign uniform values, assign texture sources/samplers, define blend policy, and carry fallback flags.
+- Derived runtime Material records reference a certified shader program, select one shader role, and assign author-settable uniform values and author-owned texture sources/samplers. Blend/output-alpha policy is supplied by the canonical role contract, not by Material data.
 - Uniform/sampler declarations live on shader records; material records validate values/textures against the referenced shader.
 - Shader-role validation rejects material/shader combinations unless the shader declares support for the selected role.
 - Fallback material records now use schema ids such as `system/fallback/engine_2d_error`, not material asset paths.
