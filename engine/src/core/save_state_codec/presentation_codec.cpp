@@ -726,6 +726,8 @@ nlohmann::json encode_material_occurrence(const SavedMaterialOccurrence& occurre
                 return {{"kind", "actor"},
                         {"key", encode_actor_key(value.key)},
                         {"layer", value.layer.text()}};
+            else if constexpr (std::is_same_v<T, SavedInteractableMaterialOccurrence>)
+                return {{"kind", "interactable"}, {"interactable", value.interactable.text()}};
             else if constexpr (std::is_same_v<T, SavedPropMaterialOccurrence>)
                 return {{"kind", "prop"}, {"instance", value.instance.text()}};
             else if constexpr (std::is_same_v<T, SavedEnvironmentMaterialOccurrence>)
@@ -767,6 +769,18 @@ decode_material_occurrence(Decoder& d, const nlohmann::json& value, std::string_
         return key && layer ? std::optional<SavedMaterialOccurrence>{SavedActorMaterialOccurrence{
                                   std::move(*key), std::move(*layer)}}
                             : std::nullopt;
+    }
+    if (*kind == "interactable") {
+        d.object(value, pointer, {"interactable", "kind"});
+        const auto* interactable_value = d.member(value, "interactable", pointer);
+        auto interactable = interactable_value
+                                ? d.id<InteractableInstanceId>(
+                                      *interactable_value, child(pointer, "interactable"))
+                                : std::nullopt;
+        return interactable
+                   ? std::optional<SavedMaterialOccurrence>{
+                         SavedInteractableMaterialOccurrence{std::move(*interactable)}}
+                   : std::nullopt;
     }
     if (*kind == "prop") {
         d.object(value, pointer, {"instance", "kind"});

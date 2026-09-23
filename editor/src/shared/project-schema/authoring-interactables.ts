@@ -2,12 +2,14 @@ import { z } from 'zod';
 import { assetRefSchema, materialRefSchema, roomRefSchema } from './authoring-flow';
 import { entityIdSchema } from './authoring-common';
 import { parseAssetData } from './authoring-assets';
+import { resolveMaterialData } from './authoring-materials';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
 import { featureDataSchema, interactableHotspotTargetSchema } from './authoring-features';
 import { inventoryDefinitionSchema, inventoryReferenceSchema } from './authoring-inventories';
 import { authoredPropertyValueSchema, ownerLocalPropertiesSchema } from './authoring-properties';
 import { cursorTargetSchema } from './authoring-cursor-vocabulary';
+import { materialApplicationSchema } from './authoring-material-applications';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const interactableAssetRefSchema = assetRefSchema;
@@ -78,7 +80,7 @@ export const interactableDataSchema = strict({
   stackLimit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
   presentation: strict({
     sprite: interactableAssetRefSchema.nullable(),
-    material: interactableMaterialRefSchema.nullable(),
+    materialApplication: materialApplicationSchema.nullable(),
     cursor: cursorTargetSchema.nullable().optional(),
     hotspots: interactableHotspotsSchema,
   }),
@@ -121,7 +123,7 @@ export function defaultInteractableData(label = 'Interactable'): InteractableDat
     stackLimit: null,
     presentation: {
       sprite: null,
-      material: null,
+      materialApplication: null,
       cursor: null,
       hotspots: { kind: 'none' },
     },
@@ -183,13 +185,43 @@ export function validateInteractableData(
         ),
       );
   }
-  if (data.presentation.material && !project.materials[data.presentation.material.$ref.id])
-    diagnostics.push(
-      diagnostic(
-        `${base}/presentation/material/$ref`,
-        `Missing material '${data.presentation.material.$ref.id}'.`,
-      ),
-    );
+  if (data.presentation.materialApplication) {
+    const materialId = data.presentation.materialApplication.material.$ref.id;
+    if (!project.materials[materialId])
+      diagnostics.push(
+        diagnostic(
+          `${base}/presentation/materialApplication/material/$ref`,
+          `Missing material '${materialId}'.`,
+        ),
+      );
+    else {
+      const resolved = resolveMaterialData(project, materialId).data;
+      if (resolved && resolved.role !== 'engine-2d')
+        diagnostics.push(
+          diagnostic(
+            `${base}/presentation/materialApplication/material/$ref`,
+            `Interactable Material must use the engine-2d role, not '${resolved.role}'.`,
+          ),
+        );
+    }
+    for (const [name, texture] of Object.entries(data.presentation.materialApplication.textures)) {
+      const asset = project.assets[texture.source.$ref.id];
+      if (!asset)
+        diagnostics.push(
+          diagnostic(
+            `${base}/presentation/materialApplication/textures/${name}/source/$ref`,
+            `Missing texture asset '${texture.source.$ref.id}'.`,
+          ),
+        );
+      else if (parseAssetData(asset.data)?.kind !== 'image')
+        diagnostics.push(
+          diagnostic(
+            `${base}/presentation/materialApplication/textures/${name}/source/$ref`,
+            `Material texture override '${name}' must reference an image asset.`,
+          ),
+        );
+    }
+  }
   const namedCursorIds = new Set(project.settings.cursors.named.map((cursor) => cursor.id));
   const validateCursor = (
     cursor: { kind: string; id?: string } | null | undefined,

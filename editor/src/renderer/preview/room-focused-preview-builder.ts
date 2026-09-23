@@ -962,7 +962,7 @@ export async function buildFocusedRoomPreview(
           condition: focusedCondition(occurrence.condition),
           placementId: occurrence.placementId,
           spriteAssetId: definition.presentation.sprite?.$ref.id ?? null,
-          materialId: definition.presentation.material?.$ref.id ?? null,
+          materialId: definition.presentation.materialApplication?.material.$ref.id ?? null,
           enabled: instance.enabled,
           visible: instance.visible,
           occurrenceVisible: occurrence.visible,

@@ -1228,7 +1228,8 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
                  ? std::optional{decoded_id<core::AssetId>(*interactable.sprite_asset_id)}
                  : std::nullopt,
              interactable.material_id
-                 ? std::optional{decoded_id<core::MaterialId>(*interactable.material_id)}
+                 ? std::optional{core::compiled::MaterialApplication{
+                       decoded_id<core::MaterialId>(*interactable.material_id), {}, {}}}
                  : std::nullopt});
     for (const auto& hotspot : document.world.hotspots) {
         if (!hotspot.source_asset)

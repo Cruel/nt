@@ -1571,6 +1571,12 @@ Result<void, Diagnostics> SessionState::upsert_material_parameter(const Compiled
                     resolved_actor_layer_material(*character, *desired_actor, occurrence.layer);
                 return selected == std::optional<MaterialId>{value.material} &&
                        material->role == compiled::MaterialRole::Engine2D;
+            } else if constexpr (std::is_same_v<O, InteractableMaterialOccurrence>) {
+                const auto* interactable = runtime_interactable(*this, occurrence.interactable);
+                return interactable != nullptr &&
+                       interactable->presentation.material ==
+                           std::optional<MaterialId>{value.material} &&
+                       material->role == compiled::MaterialRole::Engine2D;
             } else if constexpr (std::is_same_v<O, PropMaterialOccurrence>) {
                 const auto found = std::ranges::find_if(
                     m_presentation_props, [&](const DesiredPresentationProp& item) {

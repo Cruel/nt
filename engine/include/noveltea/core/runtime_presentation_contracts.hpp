@@ -68,12 +68,20 @@ struct PresentationActor {
     bool operator==(const PresentationActor&) const = default;
 };
 
+struct PresentationMaterialTextureOverride {
+    std::string name;
+    std::string source;
+    bool operator==(const PresentationMaterialTextureOverride&) const = default;
+};
+
 struct PresentationInteractable {
     InteractableInstanceId interactable;
     compiled::RoomPlacementRef placement;
     compiled::NormalizedRect bounds;
     std::optional<AssetId> sprite;
     std::optional<MaterialId> material;
+    std::optional<PresentationOwner> material_owner;
+    std::vector<PresentationMaterialTextureOverride> material_texture_overrides;
     PresentationPlane plane = PresentationPlane::WorldContent;
     std::int32_t order = 0;
     bool enabled = true;

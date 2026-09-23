@@ -1068,6 +1068,8 @@ std::string saved_material_occurrence_key(const SavedMaterialOccurrence& occurre
             else if constexpr (std::is_same_v<T, SavedActorMaterialOccurrence>)
                 return std::string{"actor:"} + saved_actor_key_text(value.key) + ":" +
                        value.layer.text();
+            else if constexpr (std::is_same_v<T, SavedInteractableMaterialOccurrence>)
+                return std::string{"interactable:"} + value.interactable.text();
             else if constexpr (std::is_same_v<T, SavedPropMaterialOccurrence>)
                 return std::string{"prop:"} + value.instance.text();
             else if constexpr (std::is_same_v<T, SavedEnvironmentMaterialOccurrence>)

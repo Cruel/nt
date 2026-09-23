@@ -180,7 +180,10 @@ save_material_occurrence(const SavedFrameMap& frame_ids, const MaterialOccurrenc
                     return Result<SavedMaterialOccurrence, Diagnostics>::failure(key.error());
                 return Result<SavedMaterialOccurrence, Diagnostics>::success(
                     SavedActorMaterialOccurrence{std::move(*key.value_if()), value.layer});
-            } else if constexpr (std::is_same_v<T, PropMaterialOccurrence>)
+            } else if constexpr (std::is_same_v<T, InteractableMaterialOccurrence>)
+                return Result<SavedMaterialOccurrence, Diagnostics>::success(
+                    SavedInteractableMaterialOccurrence{value.interactable});
+            else if constexpr (std::is_same_v<T, PropMaterialOccurrence>)
                 return Result<SavedMaterialOccurrence, Diagnostics>::success(
                     SavedPropMaterialOccurrence{value.instance});
             else if constexpr (std::is_same_v<T, EnvironmentMaterialOccurrence>)

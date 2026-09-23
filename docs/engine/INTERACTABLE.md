@@ -35,6 +35,8 @@ Interactable, a label, compatible Trait attachments, and compatible Property ass
 Feature subject is always referenced as `(InteractableInstanceId, FeatureId)`; a bare Feature ID is not a
 runtime identity.
 
+Definition presentation may select an Engine2D Material through a shared Material Application. The application contains the Material selection plus sparse typed parameter sources and sparse author-owned texture sources. Parameters may use literals, compatible Interactable Property bindings, or supported scalar standard facets; renderer-owned inputs remain read-only. Changing the selected Material does not delete incompatible saved entries: they remain dormant until a compatible Material is selected again. This Definition-level application is inherited by all Instances; concrete Instance Material specialization is reserved for the separate, more-specific Instance authoring layer.
+
 Presentation chooses one of three explicit Hotspot modes: `none`, `sprite-alpha`, or `custom`.
 `none` performs no pointer hit testing and does not require a sprite. `sprite-alpha` provides one
 Hotspot whose hit area comes from the sprite alpha mask and therefore requires a valid image sprite.
@@ -108,7 +110,8 @@ is no parallel Item identity path.
 
 - **Authoring Definition:** collection-specific Interactable record, Trait attachments, ordered typed
   Property schemas with optional Defaults, intrinsic stackability/optional Stack limit, owner-local
-  Features for non-stackable definitions, immutable presentation, and semantic Hotspot targets.
+  Features for non-stackable definitions, immutable presentation including its Definition Material
+  Application, and semantic Hotspot targets.
 - **Authoring Instance:** infrastructure-level `interactableInstances` registry entry with exact ID,
   Definition reference, optional editor label, Location/state/quantity, Trait deltas, sparse inherited
   Value overrides, and ordered Instance-local typed Properties. The editor labels these entries

@@ -319,6 +319,47 @@ struct MaterialInterfaceResource {
     bool operator==(const MaterialInterfaceResource&) const = default;
 };
 
+enum class MaterialApplicationStandardFacet : std::uint8_t {
+    OccurrenceTime,
+    PaintWidth,
+    PaintHeight,
+    ViewportWidth,
+    ViewportHeight,
+    CameraZoom,
+};
+struct MaterialApplicationLiteralSource {
+    MaterialParameterValue value;
+    bool operator==(const MaterialApplicationLiteralSource&) const = default;
+};
+struct MaterialApplicationPropertySource {
+    PropertyId property;
+    bool operator==(const MaterialApplicationPropertySource&) const = default;
+};
+struct MaterialApplicationStandardFacetSource {
+    MaterialApplicationStandardFacet facet = MaterialApplicationStandardFacet::OccurrenceTime;
+    bool operator==(const MaterialApplicationStandardFacetSource&) const = default;
+};
+using MaterialApplicationParameterSource =
+    std::variant<MaterialApplicationLiteralSource, MaterialApplicationPropertySource,
+                 MaterialApplicationStandardFacetSource>;
+struct MaterialApplicationParameterOverride {
+    std::string name;
+    MaterialParameterType type = MaterialParameterType::Float;
+    MaterialApplicationParameterSource source;
+    bool operator==(const MaterialApplicationParameterOverride&) const = default;
+};
+struct MaterialApplicationTextureOverride {
+    std::string name;
+    AssetId source;
+    bool operator==(const MaterialApplicationTextureOverride&) const = default;
+};
+struct MaterialApplication {
+    MaterialId material;
+    std::vector<MaterialApplicationParameterOverride> parameters;
+    std::vector<MaterialApplicationTextureOverride> textures;
+    bool operator==(const MaterialApplication&) const = default;
+};
+
 struct AspectRatio {
     std::uint32_t width;
     std::uint32_t height;
@@ -941,6 +982,8 @@ struct RoomDefinition {
 using InteractableLocation = std::variant<InventoryLocation, UnplacedLocation, RoomLocation>;
 struct InteractablePresentation {
     std::optional<MaterialId> material;
+    std::vector<MaterialApplicationParameterOverride> material_parameters;
+    std::vector<MaterialApplicationTextureOverride> material_textures;
     std::optional<AssetId> sprite;
     InteractableHotspots hotspots;
     std::optional<CursorTarget> cursor;

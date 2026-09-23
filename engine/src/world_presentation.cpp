@@ -725,7 +725,15 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             candidate.draws, interactable.plane, WorldDrawFamily::Interactable, interactable.order,
             identity, 0,
             WorldPresentationLayoutPolicy::normalized_rect(interactable.bounds, viewport), full_uv,
-            *visual);
+            *visual, std::nullopt, std::nullopt, {0.0, 0.0}, interactable.material_owner,
+            interactable.material_owner
+                ? std::optional<core::MaterialOccurrence>{
+                      core::InteractableMaterialOccurrence{interactable.interactable}}
+                : std::nullopt);
+        auto& command = candidate.draws.back().command;
+        for (const auto& texture : interactable.material_texture_overrides)
+            command.material_texture_overrides.push_back(
+                MaterialTextureOverride{texture.name, texture.source});
     }
 
     for (const auto& actor : snapshot.actors) {

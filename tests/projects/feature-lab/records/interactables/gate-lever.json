@@ -12,7 +12,7 @@
     "stackLimit": null,
     "presentation": {
       "sprite": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
-      "material": null,
+      "materialApplication": null,
       "hotspots": { "kind": "none" }
     },
     "features": [

@@ -258,6 +258,10 @@ struct SavedActorMaterialOccurrence {
     CharacterPresentationLayerId layer;
     auto operator<=>(const SavedActorMaterialOccurrence&) const = default;
 };
+struct SavedInteractableMaterialOccurrence {
+    InteractableInstanceId interactable;
+    auto operator<=>(const SavedInteractableMaterialOccurrence&) const = default;
+};
 struct SavedPropMaterialOccurrence {
     PresentationPropInstanceId instance;
     auto operator<=>(const SavedPropMaterialOccurrence&) const = default;
@@ -277,8 +281,9 @@ struct SavedPostprocessMaterialOccurrence {
 };
 using SavedMaterialOccurrence =
     std::variant<SavedBackgroundMaterialOccurrence, SavedActorMaterialOccurrence,
-                 SavedPropMaterialOccurrence, SavedEnvironmentMaterialOccurrence,
-                 SavedLayoutMaterialOccurrence, SavedPostprocessMaterialOccurrence>;
+                 SavedInteractableMaterialOccurrence, SavedPropMaterialOccurrence,
+                 SavedEnvironmentMaterialOccurrence, SavedLayoutMaterialOccurrence,
+                 SavedPostprocessMaterialOccurrence>;
 
 struct SavedMaterialParameter {
     SavedPresentationOwner owner;
