@@ -119,6 +119,12 @@ describe('CLI semantic command routing', () => {
       staticCompletion: 'runtime-cache',
       executionClass: 'disposable-heavy',
     });
+    expect(classifyNovelTeaCliCommand(['project', 'export', '--output', 'bundle'])).toMatchObject({
+      executionClass: 'disposable-heavy',
+    });
+    expect(classifyNovelTeaCliCommand(['shaders', 'compile'])).toMatchObject({
+      executionClass: 'disposable-heavy',
+    });
     expect(classifyNovelTeaCliCommand(['package', 'export'])).toMatchObject({
       executionClass: 'disposable-heavy',
     });

@@ -11,6 +11,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <optional>
 #include <string>
@@ -80,6 +81,82 @@ Json context(std::string build)
             {"daemonIdleMs", 5000},
             {"projectSessionIdleMs", 2500},
             {"disableDisposableWorkerProcessesForTests", true}};
+}
+
+Json scheduler_context(std::string build)
+{
+    auto result = context(std::move(build));
+    result["disableDisposableWorkerProcessesForTests"] = false;
+    result["simulateWorkerProcessesForTests"] = true;
+    result["disposableExtraIdleMs"] = 80;
+    result["projectSessionIdleMs"] = 10'000;
+    return result;
+}
+
+Json daemon_status(Json request)
+{
+    request["action"] = "status";
+    return invoke_daemon(request);
+}
+
+bool wait_until(std::function<bool()> predicate,
+                std::chrono::milliseconds timeout = std::chrono::seconds(2))
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (predicate())
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return predicate();
+}
+
+std::optional<std::uint64_t> owner_worker_for_root(const Json& status,
+                                                   const std::filesystem::path& root)
+{
+    std::error_code error;
+    const auto canonical = std::filesystem::canonical(root, error).string();
+    if (error || !status.contains("engineeringOwners"))
+        return std::nullopt;
+    for (const auto& owner : status["engineeringOwners"]) {
+        if (owner.value("canonicalRoot", std::string{}) == canonical)
+            return owner.value("workerId", std::uint64_t{0});
+    }
+    return std::nullopt;
+}
+
+std::vector<std::uint64_t> disposable_worker_ids(const Json& status)
+{
+    std::vector<std::uint64_t> result;
+    for (const auto& worker : status.value("engineeringDisposableWorkers", Json::array()))
+        result.push_back(worker.value("workerId", std::uint64_t{0}));
+    return result;
+}
+
+Json owner_request(Json base, std::string request_id, const std::filesystem::path& root,
+                   std::string execution_class = "owner-short")
+{
+    base["action"] = "request";
+    base["requestId"] = std::move(request_id);
+    base["method"] = "invoke";
+    base["payload"] = Json{{"argv", Json::array({"validate"})},
+                           {"executionClass", std::move(execution_class)},
+                           {"ownerProjectRoot", root.string()},
+                           {"ownerProjectRootExplicit", true},
+                           {"environment", Json::object()}};
+    return base;
+}
+
+Json disposable_request(Json base, std::string request_id)
+{
+    base["action"] = "request";
+    base["requestId"] = std::move(request_id);
+    base["method"] = "invoke";
+    base["payload"] = Json{{"argv", Json::array({"project", "create", "unused"})},
+                           {"executionClass", "disposable-heavy"},
+                           {"ownerProjectRoot", nullptr},
+                           {"environment", Json::object()}};
+    return base;
 }
 
 struct TempRuntimeRoot {
@@ -1070,6 +1147,317 @@ TEST_CASE("daemon rejects the superseded direct execution class")
     request["action"] = "stop";
     REQUIRE(invoke_daemon(request)["ok"] == true);
     request["action"] = "serve-wait";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+
+TEST_CASE("daemon scheduler bounds owners and prioritizes queued Project admission over heavy work")
+{
+    auto request = scheduler_context(unique_build("global-worker-cap"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    REQUIRE(wait_until([&] { return daemon_status(request)["disposableStandbyWorkers"] == 1; }));
+
+    auto projects = temp_runtime_root("scheduler-cap-projects");
+    std::vector<std::filesystem::path> roots;
+    std::vector<std::future<Json>> owner_results;
+    for (int index = 0; index < 8; ++index) {
+        const auto root = projects.path / ("project-" + std::to_string(index));
+        write_project_file(root / "project.json", "{}\n");
+        roots.push_back(root);
+        const auto work = owner_request(request, "owner-" + std::to_string(index), root);
+        owner_results.push_back(
+            std::async(std::launch::async, [work] { return invoke_daemon(work); }));
+        REQUIRE(wait_until(
+            [&] { return owner_worker_for_root(daemon_status(request), root).has_value(); }));
+    }
+
+    const auto saturated = daemon_status(request);
+    CHECK(saturated["projectOwnerWorkers"] == 8);
+    CHECK(saturated["disposableWorkers"] == 0);
+    CHECK(saturated["engineeringWorkerProcesses"] == 8);
+
+    auto heavy_request = disposable_request(request, "queued-heavy");
+    auto heavy =
+        std::async(std::launch::async, [heavy_request] { return invoke_daemon(heavy_request); });
+    CHECK(heavy.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout);
+
+    const auto ninth_root = projects.path / "project-8";
+    write_project_file(ninth_root / "project.json", "{}\n");
+    const auto ninth_request = owner_request(request, "owner-8", ninth_root);
+    auto ninth =
+        std::async(std::launch::async, [ninth_request] { return invoke_daemon(ninth_request); });
+    REQUIRE(wait_until([&] {
+        return daemon_status(request).value("engineeringQueuedProjectAdmissions", 0) == 1;
+    }));
+    CHECK_FALSE(owner_worker_for_root(daemon_status(request), ninth_root).has_value());
+
+    const auto first_owner = owner_worker_for_root(daemon_status(request), roots.front());
+    REQUIRE(first_owner);
+    auto next = request;
+    next["action"] = "owner-next";
+    next["ownerWorkerId"] = *first_owner;
+    const auto first_work = invoke_daemon(next);
+    REQUIRE(first_work["ok"] == true);
+    REQUIRE(first_work["requestId"] == "owner-0");
+    auto complete = request;
+    complete["action"] = "owner-complete";
+    complete["ownerWorkerId"] = *first_owner;
+    complete["token"] = first_work["token"];
+    complete["requestOk"] = true;
+    complete["result"] = Json{{"done", true}};
+    REQUIRE(invoke_daemon(complete)["ok"] == true);
+    REQUIRE(owner_results.front().wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    CHECK(owner_results.front().get()["ok"] == true);
+
+    REQUIRE(wait_until(
+        [&] { return owner_worker_for_root(daemon_status(request), ninth_root).has_value(); }));
+    const auto admitted = daemon_status(request);
+    CHECK(admitted["engineeringWorkerProcesses"] == 8);
+    CHECK(admitted["disposableWorkers"] == 0);
+    CHECK(admitted["disposableQueuedJobs"] == 1);
+    CHECK(heavy.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout);
+
+    for (std::size_t index = 1; index < roots.size(); ++index) {
+        const auto owner = owner_worker_for_root(daemon_status(request), roots[index]);
+        REQUIRE(owner);
+        next = request;
+        next["action"] = "owner-next";
+        next["ownerWorkerId"] = *owner;
+        const auto owner_work = invoke_daemon(next);
+        REQUIRE(owner_work["ok"] == true);
+        complete = request;
+        complete["action"] = "owner-complete";
+        complete["ownerWorkerId"] = *owner;
+        complete["token"] = owner_work["token"];
+        complete["requestOk"] = true;
+        complete["result"] = Json{{"done", true}};
+        REQUIRE(invoke_daemon(complete)["ok"] == true);
+        REQUIRE(owner_results[index].wait_for(std::chrono::seconds(2)) ==
+                std::future_status::ready);
+        CHECK(owner_results[index].get()["ok"] == true);
+    }
+
+    const auto ninth_owner = owner_worker_for_root(daemon_status(request), ninth_root);
+    REQUIRE(ninth_owner);
+    next = request;
+    next["action"] = "owner-next";
+    next["ownerWorkerId"] = *ninth_owner;
+    const auto ninth_work = invoke_daemon(next);
+    REQUIRE(ninth_work["ok"] == true);
+    complete = request;
+    complete["action"] = "owner-complete";
+    complete["ownerWorkerId"] = *ninth_owner;
+    complete["token"] = ninth_work["token"];
+    complete["requestOk"] = true;
+    complete["result"] = Json{{"done", true}};
+    REQUIRE(invoke_daemon(complete)["ok"] == true);
+    REQUIRE(ninth.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    CHECK(ninth.get()["ok"] == true);
+
+    REQUIRE(wait_until([&] { return daemon_status(request)["disposableWorkers"] >= 1; }));
+    auto status = daemon_status(request);
+    auto disposable_ids = disposable_worker_ids(status);
+    REQUIRE_FALSE(disposable_ids.empty());
+    auto ready = request;
+    ready["action"] = "disposable-ready";
+    ready["disposableWorkerId"] = disposable_ids.front();
+    REQUIRE(invoke_daemon(ready)["ok"] == true);
+    REQUIRE(wait_until([&] { return daemon_status(request)["disposableBusyWorkers"] == 1; }));
+
+    auto disposable_next = request;
+    disposable_next["action"] = "disposable-next";
+    disposable_next["disposableWorkerId"] = disposable_ids.front();
+    const auto heavy_work = invoke_daemon(disposable_next);
+    REQUIRE(heavy_work["ok"] == true);
+    REQUIRE(heavy_work["requestId"] == "queued-heavy");
+    auto disposable_complete = request;
+    disposable_complete["action"] = "disposable-complete";
+    disposable_complete["disposableWorkerId"] = disposable_ids.front();
+    disposable_complete["token"] = heavy_work["token"];
+    disposable_complete["requestOk"] = true;
+    disposable_complete["result"] = Json{{"done", true}};
+    REQUIRE(invoke_daemon(disposable_complete)["ok"] == true);
+    REQUIRE(heavy.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    CHECK(heavy.get()["ok"] == true);
+
+    REQUIRE(wait_until([&] {
+        const auto current = daemon_status(request);
+        return current["disposableStandbyWorkers"] == 1 &&
+               current["engineeringWorkerProcesses"].get<std::size_t>() <= 8;
+    }));
+
+    request["action"] = "serve-abort";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+
+TEST_CASE(
+    "daemon scheduler replenishes standbys and cleans up cancelled or crashed disposable workers")
+{
+    auto request = scheduler_context(unique_build("disposable-lifecycle"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    REQUIRE(wait_until([&] { return daemon_status(request)["disposableStandbyWorkers"] == 1; }));
+
+    auto status = daemon_status(request);
+    auto ids = disposable_worker_ids(status);
+    REQUIRE(ids.size() == 1);
+    auto ready = request;
+    ready["action"] = "disposable-ready";
+    ready["disposableWorkerId"] = ids.front();
+    REQUIRE(invoke_daemon(ready)["ok"] == true);
+
+    auto extra = request;
+    extra["action"] = "serve-start-extra-disposable-for-tests";
+    const auto extra_started = invoke_daemon(extra);
+    REQUIRE(extra_started["ok"] == true);
+    ready["disposableWorkerId"] = extra_started["workerId"];
+    REQUIRE(invoke_daemon(ready)["ok"] == true);
+    REQUIRE(wait_until([&] { return daemon_status(request)["disposableStandbyWorkers"] == 2; }));
+    REQUIRE(wait_until([&] { return daemon_status(request)["disposableWorkers"] == 1; },
+                       std::chrono::seconds(2)));
+
+    status = daemon_status(request);
+    ids = disposable_worker_ids(status);
+    REQUIRE(ids.size() == 1);
+    const auto cancelled_worker = ids.front();
+    auto cancelled_request = disposable_request(request, "cancelled-heavy");
+    cancelled_request["cancelAfterMs"] = 250;
+    auto cancelled = std::async(std::launch::async,
+                                [cancelled_request] { return invoke_daemon(cancelled_request); });
+    REQUIRE(wait_until([&] { return daemon_status(request)["disposableBusyWorkers"] == 1; }));
+    auto next = request;
+    next["action"] = "disposable-next";
+    next["disposableWorkerId"] = cancelled_worker;
+    const auto cancelled_work = invoke_daemon(next);
+    REQUIRE(cancelled_work["ok"] == true);
+    REQUIRE(cancelled_work["requestId"] == "cancelled-heavy");
+    REQUIRE(cancelled.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    const auto cancelled_result = cancelled.get();
+    CHECK(cancelled_result["ok"] == false);
+    CHECK(cancelled_result["cancelled"] == true);
+    CHECK(cancelled_result["error"] == "request cancelled");
+    REQUIRE(wait_until([&] {
+        const auto current = daemon_status(request);
+        const auto current_ids = disposable_worker_ids(current);
+        return std::find(current_ids.begin(), current_ids.end(), cancelled_worker) ==
+                   current_ids.end() &&
+               current["disposableStandbyWorkers"] >= 1;
+    }));
+
+    status = daemon_status(request);
+    for (const auto& worker : status["engineeringDisposableWorkers"]) {
+        if (worker["state"] == "starting") {
+            ready = request;
+            ready["action"] = "disposable-ready";
+            ready["disposableWorkerId"] = worker["workerId"];
+            REQUIRE(invoke_daemon(ready)["ok"] == true);
+        }
+    }
+
+    auto crashed_request = disposable_request(request, "crashed-heavy");
+    auto crashed = std::async(std::launch::async,
+                              [crashed_request] { return invoke_daemon(crashed_request); });
+    REQUIRE(wait_until([&] { return daemon_status(request)["disposableBusyWorkers"] == 1; }));
+    status = daemon_status(request);
+    std::uint64_t crashed_worker = 0;
+    for (const auto& worker : status["engineeringDisposableWorkers"]) {
+        if (worker["state"] == "busy") {
+            crashed_worker = worker["workerId"].get<std::uint64_t>();
+            break;
+        }
+    }
+    REQUIRE(crashed_worker != 0);
+    next = request;
+    next["action"] = "disposable-next";
+    next["disposableWorkerId"] = crashed_worker;
+    const auto crashed_work = invoke_daemon(next);
+    REQUIRE(crashed_work["ok"] == true);
+    REQUIRE(crashed_work["requestId"] == "crashed-heavy");
+
+    auto crash = request;
+    crash["action"] = "serve-simulate-worker-exit-for-tests";
+    crash["workerKind"] = "disposable";
+    crash["workerId"] = crashed_worker;
+    REQUIRE(invoke_daemon(crash)["ok"] == true);
+    REQUIRE(crashed.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    const auto crashed_result = crashed.get();
+    CHECK(crashed_result["ok"] == false);
+    CHECK(crashed_result["error"] == "daemon disposable worker exited unexpectedly");
+    REQUIRE(wait_until([&] {
+        const auto current = daemon_status(request);
+        const auto current_ids = disposable_worker_ids(current);
+        return std::find(current_ids.begin(), current_ids.end(), crashed_worker) ==
+                   current_ids.end() &&
+               current["disposableStandbyWorkers"] >= 1;
+    }));
+
+    auto projects = temp_runtime_root("owner-handoff-project");
+    const auto root = projects.path / "project";
+    write_project_file(root / "project.json", "{}\n");
+    auto owner_work_request = owner_request(request, "owner-before-crash", root);
+    auto owner_result = std::async(
+        std::launch::async, [owner_work_request] { return invoke_daemon(owner_work_request); });
+    REQUIRE(wait_until(
+        [&] { return owner_worker_for_root(daemon_status(request), root).has_value(); }));
+    const auto first_owner = owner_worker_for_root(daemon_status(request), root);
+    REQUIRE(first_owner);
+    auto owner_next = request;
+    owner_next["action"] = "owner-next";
+    owner_next["ownerWorkerId"] = *first_owner;
+    const auto first_owner_work = invoke_daemon(owner_next);
+    REQUIRE(first_owner_work["ok"] == true);
+    auto owner_complete = request;
+    owner_complete["action"] = "owner-complete";
+    owner_complete["ownerWorkerId"] = *first_owner;
+    owner_complete["token"] = first_owner_work["token"];
+    owner_complete["requestOk"] = true;
+    owner_complete["result"] = Json{{"done", true}};
+    REQUIRE(invoke_daemon(owner_complete)["ok"] == true);
+    REQUIRE(owner_result.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    CHECK(owner_result.get()["ok"] == true);
+
+    crash = request;
+    crash["action"] = "serve-simulate-worker-exit-for-tests";
+    crash["workerKind"] = "owner";
+    crash["workerId"] = *first_owner;
+    REQUIRE(invoke_daemon(crash)["ok"] == true);
+    owner_work_request = owner_request(request, "owner-after-crash", root);
+    auto replacement_result = std::async(
+        std::launch::async, [owner_work_request] { return invoke_daemon(owner_work_request); });
+    REQUIRE(wait_until([&] {
+        const auto replacement = owner_worker_for_root(daemon_status(request), root);
+        return replacement.has_value() && *replacement != *first_owner;
+    }));
+    status = daemon_status(request);
+    std::size_t same_root_owners = 0;
+    const auto canonical_root = std::filesystem::canonical(root).string();
+    for (const auto& owner : status["engineeringOwners"])
+        if (owner["canonicalRoot"] == canonical_root)
+            ++same_root_owners;
+    CHECK(same_root_owners == 1);
+
+    const auto replacement_owner = owner_worker_for_root(status, root);
+    REQUIRE(replacement_owner);
+    owner_next = request;
+    owner_next["action"] = "owner-next";
+    owner_next["ownerWorkerId"] = *replacement_owner;
+    const auto replacement_work = invoke_daemon(owner_next);
+    REQUIRE(replacement_work["ok"] == true);
+    owner_complete = request;
+    owner_complete["action"] = "owner-complete";
+    owner_complete["ownerWorkerId"] = *replacement_owner;
+    owner_complete["token"] = replacement_work["token"];
+    owner_complete["requestOk"] = true;
+    owner_complete["result"] = Json{{"done", true}};
+    REQUIRE(invoke_daemon(owner_complete)["ok"] == true);
+    REQUIRE(replacement_result.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    CHECK(replacement_result.get()["ok"] == true);
+
+    request["action"] = "serve-abort";
     REQUIRE(invoke_daemon(request)["ok"] == true);
 }
 

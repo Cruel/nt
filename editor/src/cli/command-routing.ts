@@ -88,7 +88,14 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
   if (family === 'project') {
     if (operation === 'create' || operation === 'import')
       return { ...noProjectRead, replaySafe: false };
-    if (operation === 'export') return { ...projectRead, replaySafe: false };
+    if (operation === 'export')
+      return {
+        ...projectRead,
+        executionClass: 'disposable-heavy',
+        replaySafe: false,
+        streamedEvents: true,
+        cancellation: true,
+      };
     return null;
   }
 
@@ -142,7 +149,13 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
     return null;
   }
 
-  if (family === 'shaders' && operation === 'compile') return { ...projectRead, replaySafe: false };
+  if (family === 'shaders' && operation === 'compile')
+    return {
+      ...projectRead,
+      executionClass: 'disposable-heavy',
+      replaySafe: false,
+      cancellation: true,
+    };
 
   if (family === 'test') {
     if (operation !== 'run' && operation !== 'run-spec' && operation !== 'run-ui-spec') return null;

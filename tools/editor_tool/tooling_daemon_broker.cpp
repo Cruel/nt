@@ -130,6 +130,7 @@ struct BrokerContext {
     std::size_t exact_validation_budget_bytes = default_exact_validation_budget_bytes;
     std::optional<std::filesystem::path> runtime_root_override;
     bool disposable_worker_processes_enabled = true;
+    bool simulate_worker_processes_for_tests = false;
 };
 
 struct Endpoint {
@@ -226,6 +227,14 @@ std::optional<BrokerContext> parse_context(const Json& request, std::string& err
         }
         context.disposable_worker_processes_enabled =
             !request["disableDisposableWorkerProcessesForTests"].get<bool>();
+    }
+    if (request.contains("simulateWorkerProcessesForTests")) {
+        if (!request["simulateWorkerProcessesForTests"].is_boolean()) {
+            error = "simulateWorkerProcessesForTests must be a boolean";
+            return std::nullopt;
+        }
+        context.simulate_worker_processes_for_tests =
+            request["simulateWorkerProcessesForTests"].get<bool>();
     }
     if (context.daemon_idle_ms == 0 || context.project_session_idle_ms == 0) {
         error = "daemon idle intervals must be greater than zero";
@@ -692,6 +701,8 @@ struct ActiveRequest {
 };
 
 struct ChildProcess {
+    bool simulated = false;
+    bool simulated_alive = false;
 #if defined(_WIN32)
     HANDLE handle = nullptr;
     DWORD pid = 0;
@@ -744,6 +755,7 @@ struct DisposableWorker {
     std::optional<PreparedDisposableRequest> assignment;
     std::vector<std::filesystem::path> staged_outputs;
     std::uint64_t last_activity_millis = 0;
+    bool retirement_started = false;
 };
 
 void cleanup_staged_outputs(const std::vector<std::filesystem::path>& paths)
@@ -1333,6 +1345,7 @@ public:
         }
         touch();
         active_cv_.notify_all();
+        owner_cv_.notify_all();
         return {{"ok", true}, {"delivered", delivered}};
     }
 
@@ -1511,12 +1524,15 @@ public:
                     identity.session_epoch != *owner->second.retained_session_epoch)) {
             return error_json("resident Project generation session epoch does not belong to owner");
         }
+        const bool promoted =
+            !owner->second.active_generation || *owner->second.active_generation != identity;
         if (!project_snapshots_.declare_current(owner->second.canonical_root, identity,
                                                 now_millis()))
             return error_json("resident Project generation could not be declared current");
         owner->second.active_session_epoch = identity.session_epoch;
         owner->second.active_generation = identity;
-        generation_promotions_.fetch_add(1);
+        if (promoted)
+            generation_promotions_.fetch_add(1);
         return {{"ok", true}};
     }
 
@@ -1692,6 +1708,8 @@ public:
             result["projectOwnerWorkers"] = project_owners_.size();
             result["projectSessions"] = project_owners_.size() + generic_project_sessions_.load();
             result["disposableWorkers"] = disposable_workers_.size();
+            result["engineeringWorkerProcesses"] = live_worker_processes_locked();
+            result["engineeringQueuedProjectAdmissions"] = pending_project_admissions_.load();
             result["disposableQueuedJobs"] = prepared_disposable_.size();
             result["disposableStandbyWorkers"] = std::count_if(
                 disposable_workers_.begin(), disposable_workers_.end(), [](const auto& entry) {
@@ -1705,26 +1723,38 @@ public:
             result["engineeringOwnerPids"] = Json::array();
             result["engineeringOwners"] = Json::array();
             for (const auto& [id, owner] : project_owners_) {
-                (void)id;
 #if defined(_WIN32)
                 result["engineeringOwnerPids"].push_back(owner.process.pid);
-                result["engineeringOwners"].push_back({{"canonicalRoot", owner.canonical_root},
-                                                       { "pid",
-                                                         owner.process.pid }});
+                result["engineeringOwners"].push_back({{"workerId", id},
+                                                       {"canonicalRoot", owner.canonical_root},
+                                                       {"pid", owner.process.pid},
+                                                       { "retiring",
+                                                         owner.retiring }});
 #else
                 result["engineeringOwnerPids"].push_back(owner.process.pid);
-                result["engineeringOwners"].push_back(
-                    {{"canonicalRoot", owner.canonical_root}, {"pid", owner.process.pid}});
+                result["engineeringOwners"].push_back({{"workerId", id},
+                                                       {"canonicalRoot", owner.canonical_root},
+                                                       {"pid", owner.process.pid},
+                                                       {"retiring", owner.retiring}});
 #endif
             }
             result["engineeringDisposablePids"] = Json::array();
+            result["engineeringDisposableWorkers"] = Json::array();
             for (const auto& [id, worker] : disposable_workers_) {
-                (void)id;
 #if defined(_WIN32)
                 result["engineeringDisposablePids"].push_back(worker.process.pid);
 #else
                 result["engineeringDisposablePids"].push_back(worker.process.pid);
 #endif
+                const char* state = "starting";
+                if (worker.state == DisposableWorkerState::idle)
+                    state = "idle";
+                else if (worker.state == DisposableWorkerState::busy)
+                    state = "busy";
+                else if (worker.state == DisposableWorkerState::retiring)
+                    state = "retiring";
+                result["engineeringDisposableWorkers"].push_back(
+                    {{"workerId", id}, {"pid", worker.process.pid}, {"state", state}});
             }
         }
         result["projectAuthorities"] = project_authority_.tracked_project_count();
@@ -1754,6 +1784,38 @@ public:
     }
 
     const BrokerContext& context() const { return context_; }
+
+    Json simulate_worker_exit_for_tests(bool disposable, std::uint64_t worker_id)
+    {
+        if (!context_.simulate_worker_processes_for_tests)
+            return error_json("simulated worker exit is available only in scheduler tests");
+        std::scoped_lock lock(queue_mutex_);
+        if (disposable) {
+            const auto worker = disposable_workers_.find(worker_id);
+            if (worker == disposable_workers_.end() || !worker->second.process.simulated)
+                return error_json("simulated disposable worker is unavailable");
+            worker->second.process.simulated_alive = false;
+        } else {
+            const auto owner = project_owners_.find(worker_id);
+            if (owner == project_owners_.end() || !owner->second.process.simulated)
+                return error_json("simulated Project owner is unavailable");
+            owner->second.process.simulated_alive = false;
+        }
+        owner_cv_.notify_all();
+        disposable_cv_.notify_all();
+        return {{"ok", true}};
+    }
+
+    Json start_extra_disposable_for_tests()
+    {
+        if (!context_.simulate_worker_processes_for_tests)
+            return error_json("extra simulated worker is available only in scheduler tests");
+        std::scoped_lock lock(queue_mutex_);
+        const auto worker_id = next_disposable_worker_id_.load();
+        if (!start_disposable_worker_locked())
+            return error_json("scheduler test could not admit an extra disposable worker");
+        return {{"ok", true}, {"workerId", worker_id}};
+    }
 
 private:
     enum class State {
@@ -1814,14 +1876,53 @@ private:
         return true;
     }
 
-    static constexpr std::size_t disposable_worker_cap = 4;
+    static constexpr std::size_t worker_process_cap = 8;
+    static constexpr std::size_t owner_soft_limit = worker_process_cap - 1;
     static constexpr std::uint64_t disposable_cancel_grace_ms = 100;
 
-    std::size_t live_disposable_workers_locked() const
+    class ProjectAdmissionPriority {
+    public:
+        ProjectAdmissionPriority(std::atomic<std::size_t>& count,
+                                 std::condition_variable& disposable_cv)
+            : count_(count), disposable_cv_(disposable_cv)
+        {
+        }
+
+        ~ProjectAdmissionPriority() { release(); }
+
+        void activate()
+        {
+            if (active_)
+                return;
+            count_.fetch_add(1);
+            active_ = true;
+        }
+
+        void release()
+        {
+            if (!active_)
+                return;
+            count_.fetch_sub(1);
+            active_ = false;
+            disposable_cv_.notify_all();
+        }
+
+    private:
+        std::atomic<std::size_t>& count_;
+        std::condition_variable& disposable_cv_;
+        bool active_ = false;
+    };
+
+    std::size_t live_worker_processes_locked() const
     {
-        // Retiring children still count until their process has actually exited. This keeps the
-        // cap a bound on physical ScriptC worker processes, not merely schedulable workers.
-        return disposable_workers_.size();
+        // Starting and retiring children remain in their owning maps until the process has
+        // physically exited. This is therefore the daemon-wide physical ScriptC process count.
+        return project_owners_.size() + disposable_workers_.size();
+    }
+
+    bool worker_capacity_available_locked() const
+    {
+        return live_worker_processes_locked() < worker_process_cap;
     }
 
     bool has_disposable_standby_locked() const
@@ -1837,7 +1938,9 @@ private:
     {
         if (!context_.disposable_worker_processes_enabled)
             return false;
-        if (live_disposable_workers_locked() >= disposable_worker_cap)
+        // Foreground Project admission owns free capacity ahead of queued heavy work. Existing
+        // disposable workers may finish, but replenishment waits until Project admission settles.
+        if (pending_project_admissions_.load() != 0 || !worker_capacity_available_locked())
             return false;
         const auto worker_id = next_disposable_worker_id_.fetch_add(1);
         auto process = spawn_disposable_worker_process(context_, worker_id);
@@ -1851,6 +1954,7 @@ private:
                                                    .assignment = std::nullopt,
                                                    .staged_outputs = {},
                                                    .last_activity_millis = now_millis(),
+                                                   .retirement_started = false,
                                                });
         return true;
     }
@@ -1916,6 +2020,45 @@ private:
         return false;
     }
 
+    bool owner_inactive_locked(std::uint64_t owner_worker_id) const
+    {
+        const auto owner = project_owners_.find(owner_worker_id);
+        if (owner == project_owners_.end() || owner->second.retiring ||
+            !child_process_alive(owner->second.process) || !owner->second.queued.empty() ||
+            owner->second.dispatching || owner->second.critical_sections != 0 ||
+            owner->second.reconciling ||
+            exact_validation_probe_roots_.contains(owner->second.canonical_root))
+            return false;
+        return std::none_of(active_.begin(), active_.end(), [&](const auto& item) {
+            return item.second.owner_worker_id == owner_worker_id;
+        });
+    }
+
+    std::optional<std::uint64_t>
+    inactive_owner_for_admission_locked(std::string_view requested_root) const
+    {
+        std::optional<std::pair<std::uint64_t, std::uint64_t>> oldest;
+        for (const auto& [id, owner] : project_owners_) {
+            if (owner.canonical_root == requested_root || !owner_inactive_locked(id))
+                continue;
+            if (!oldest || owner.last_activity_millis < oldest->first)
+                oldest = std::pair{owner.last_activity_millis, id};
+        }
+        return oldest ? std::optional<std::uint64_t>(oldest->second) : std::nullopt;
+    }
+
+    std::optional<std::uint64_t> idle_disposable_for_admission_locked() const
+    {
+        const auto worker = std::find_if(
+            disposable_workers_.begin(), disposable_workers_.end(), [](const auto& entry) {
+                return (entry.second.state == DisposableWorkerState::starting ||
+                        entry.second.state == DisposableWorkerState::idle) &&
+                       !entry.second.assignment;
+            });
+        return worker == disposable_workers_.end() ? std::nullopt
+                                                   : std::optional<std::uint64_t>(worker->first);
+    }
+
     std::optional<std::uint64_t> ensure_project_owner_locked(const std::string& canonical_root)
     {
         if (const auto existing = project_owner_by_root_.find(canonical_root);
@@ -1926,6 +2069,9 @@ private:
                 return owner->first;
             return std::nullopt;
         }
+
+        if (!worker_capacity_available_locked())
+            return std::nullopt;
 
         const auto owner_worker_id = next_owner_worker_id_.fetch_add(1);
         const auto cold_session_epoch = next_project_session_epoch_.fetch_add(1);
@@ -2073,8 +2219,11 @@ private:
                                          std::string{}) == "1")
             project_authority_.notify_watcher_unknown(canonical_root);
 
+        ProjectAdmissionPriority admission_priority(pending_project_admissions_, disposable_cv_);
         for (;;) {
             std::optional<std::uint64_t> dead_owner;
+            std::optional<std::uint64_t> capacity_owner;
+            std::optional<std::uint64_t> capacity_disposable;
             {
                 std::unique_lock lock(queue_mutex_);
                 if (state_.load() == State::draining || state_.load() == State::stopped)
@@ -2160,33 +2309,118 @@ private:
                         if (owner == project_owners_.end()) {
                             project_owner_by_root_.erase(mapped);
                         } else if (owner->second.retiring) {
+                            owner_cv_.wait(lock, [this, &canonical_root] {
+                                const auto current = project_owner_by_root_.find(canonical_root);
+                                if (current == project_owner_by_root_.end())
+                                    return true;
+                                const auto current_owner = project_owners_.find(current->second);
+                                return current_owner == project_owners_.end() ||
+                                       !current_owner->second.retiring ||
+                                       state_.load() == State::draining ||
+                                       state_.load() == State::stopped;
+                            });
                             continue;
                         } else if (!child_process_alive(owner->second.process)) {
                             dead_owner = owner->first;
                         }
                     }
                     if (!dead_owner) {
-                        const auto owner_worker_id = ensure_project_owner_locked(canonical_root);
-                        if (!owner_worker_id)
-                            return "failed to start daemon Project owner worker";
-                        auto& owner = project_owners_.at(*owner_worker_id);
-                        owner.queued.push_back(QueuedRequest{
-                            .client = client,
-                            .request_id = request_id,
-                            .method = method,
-                            .payload = payload,
-                            .prepare_disposable = payload.value("executionClass", std::string{}) ==
-                                                  "disposable-heavy",
-                        });
-                        owner.last_activity_millis = now_millis();
-                        owner_cv_.notify_all();
-                        touch();
-                        return std::nullopt;
+                        auto owner_worker_id = ensure_project_owner_locked(canonical_root);
+                        if (!owner_worker_id && !worker_capacity_available_locked()) {
+                            admission_priority.activate();
+                            if (const auto disposable = idle_disposable_for_admission_locked()) {
+                                auto worker = disposable_workers_.find(*disposable);
+                                if (worker != disposable_workers_.end() &&
+                                    worker->second.state != DisposableWorkerState::retiring) {
+                                    worker->second.state = DisposableWorkerState::retiring;
+                                    worker->second.retirement_started = true;
+                                    capacity_disposable = *disposable;
+                                }
+                            } else if (const auto inactive =
+                                           inactive_owner_for_admission_locked(canonical_root)) {
+                                auto owner = project_owners_.find(*inactive);
+                                if (owner != project_owners_.end() && !owner->second.retiring) {
+                                    owner->second.retiring = true;
+                                    capacity_owner = *inactive;
+                                }
+                            } else {
+                                owner_cv_.wait(lock, [this, &canonical_root] {
+                                    return state_.load() == State::draining ||
+                                           state_.load() == State::stopped ||
+                                           worker_capacity_available_locked() ||
+                                           idle_disposable_for_admission_locked().has_value() ||
+                                           inactive_owner_for_admission_locked(canonical_root)
+                                               .has_value();
+                                });
+                                continue;
+                            }
+                        }
+                        if (!capacity_owner && !capacity_disposable) {
+                            if (!owner_worker_id)
+                                return "failed to start daemon Project owner worker";
+                            auto& owner = project_owners_.at(*owner_worker_id);
+                            owner.queued.push_back(QueuedRequest{
+                                .client = client,
+                                .request_id = request_id,
+                                .method = method,
+                                .payload = payload,
+                                .prepare_disposable =
+                                    payload.value("executionClass", std::string{}) ==
+                                    "disposable-heavy",
+                            });
+                            owner.last_activity_millis = now_millis();
+                            owner_cv_.notify_all();
+                            touch();
+                            return std::nullopt;
+                        }
                     }
                 }
             }
-            retire_project_owner(*dead_owner, "daemon Project owner exited unexpectedly", true);
+            if (dead_owner) {
+                retire_project_owner(*dead_owner, "daemon Project owner exited unexpectedly", true);
+                continue;
+            }
+            if (capacity_disposable) {
+                retire_idle_disposable_worker(*capacity_disposable);
+                continue;
+            }
+            if (capacity_owner) {
+                retire_project_owner(*capacity_owner, "daemon Project owner was evicted");
+                continue;
+            }
         }
+    }
+
+    void retire_idle_disposable_worker(std::uint64_t worker_id)
+    {
+        ChildProcess process;
+        {
+            std::scoped_lock lock(queue_mutex_);
+            const auto worker = disposable_workers_.find(worker_id);
+            if (worker == disposable_workers_.end())
+                return;
+            if ((worker->second.state != DisposableWorkerState::starting &&
+                 worker->second.state != DisposableWorkerState::idle &&
+                 worker->second.state != DisposableWorkerState::retiring) ||
+                worker->second.assignment)
+                return;
+            worker->second.state = DisposableWorkerState::retiring;
+            worker->second.retirement_started = true;
+            process = worker->second.process;
+        }
+        terminate_child_process(process);
+        {
+            std::scoped_lock lock(queue_mutex_);
+            disposable_workers_.erase(worker_id);
+            disposable_retirements_.fetch_add(1);
+            if (state_.load() == State::ready) {
+                assign_disposable_jobs_locked();
+                ensure_disposable_standby_locked();
+            }
+        }
+        owner_cv_.notify_all();
+        disposable_cv_.notify_all();
+        active_cv_.notify_all();
     }
 
     void retire_project_owner(std::uint64_t owner_worker_id, std::string_view reason,
@@ -2280,8 +2514,13 @@ private:
             if (const auto mapped = project_owner_by_root_.find(canonical_root);
                 mapped != project_owner_by_root_.end() && mapped->second == owner_worker_id)
                 project_owner_by_root_.erase(mapped);
+            if (state_.load() == State::ready) {
+                assign_disposable_jobs_locked();
+                ensure_disposable_standby_locked();
+            }
         }
         owner_cv_.notify_all();
+        disposable_cv_.notify_all();
         for (const auto& request : queued) {
             if (const auto client = request.client.lock())
                 client->send(result_event_json(request.request_id, false, "null", reason));
@@ -2309,22 +2548,26 @@ private:
 
     void retire_all_disposable_workers(std::string_view reason)
     {
+        std::vector<std::uint64_t> worker_ids;
         std::vector<ChildProcess> processes;
         std::vector<std::filesystem::path> staged_outputs;
         std::vector<PreparedDisposableRequest> pinned;
         std::vector<ActiveRequest> active;
         {
             std::scoped_lock lock(queue_mutex_);
+            worker_ids.reserve(disposable_workers_.size());
             processes.reserve(disposable_workers_.size());
             for (auto& [id, worker] : disposable_workers_) {
-                (void)id;
+                worker_ids.push_back(id);
+                worker.state = DisposableWorkerState::retiring;
+                worker.retirement_started = true;
                 processes.push_back(worker.process);
                 staged_outputs.insert(staged_outputs.end(), worker.staged_outputs.begin(),
                                       worker.staged_outputs.end());
                 if (worker.assignment)
                     pinned.push_back(std::move(*worker.assignment));
+                worker.assignment.reset();
             }
-            disposable_workers_.clear();
             pinned.insert(pinned.end(), std::make_move_iterator(prepared_disposable_.begin()),
                           std::make_move_iterator(prepared_disposable_.end()));
             prepared_disposable_.clear();
@@ -2339,6 +2582,11 @@ private:
         }
         for (auto& process : processes)
             terminate_child_process(process);
+        {
+            std::scoped_lock lock(queue_mutex_);
+            for (const auto worker_id : worker_ids)
+                disposable_workers_.erase(worker_id);
+        }
         cleanup_staged_outputs(staged_outputs);
         for (const auto& request : pinned) {
             if (request.identity)
@@ -2355,12 +2603,12 @@ private:
                 client->send(result_event_json(request.request_id, false, "null", reason));
         }
         disposable_cv_.notify_all();
+        owner_cv_.notify_all();
         active_cv_.notify_all();
     }
 
     void maintain_project_owners()
     {
-        constexpr std::size_t owner_soft_limit = 8;
         std::vector<std::pair<std::uint64_t, bool>> retire;
         std::vector<std::pair<std::uint64_t, std::uint64_t>> pressure_candidates;
         const auto now = now_millis();
@@ -2481,6 +2729,8 @@ private:
                            entry.second.state == DisposableWorkerState::idle;
                 });
             for (auto& [id, worker] : disposable_workers_) {
+                if (worker.retirement_started)
+                    continue;
                 const bool was_standby = worker.state == DisposableWorkerState::starting ||
                                          worker.state == DisposableWorkerState::idle;
                 const bool alive = child_process_alive(worker.process);
@@ -2510,6 +2760,7 @@ private:
                 };
                 worker.assignment.reset();
                 worker.state = DisposableWorkerState::retiring;
+                worker.retirement_started = true;
                 if (was_standby && standby_count > 0)
                     --standby_count;
                 if (active != active_.end()) {
@@ -2562,6 +2813,7 @@ private:
                 ensure_disposable_standby_locked();
             }
             disposable_cv_.notify_all();
+            owner_cv_.notify_all();
             active_cv_.notify_all();
         }
     }
@@ -3792,6 +4044,7 @@ private:
     std::atomic<std::uint64_t> next_owner_worker_id_{1};
     std::unordered_map<std::uint64_t, DisposableWorker> disposable_workers_;
     std::vector<PreparedDisposableRequest> prepared_disposable_;
+    std::atomic<std::size_t> pending_project_admissions_{0};
     std::atomic<std::uint64_t> next_disposable_worker_id_{1};
     std::atomic<std::uint64_t> next_project_session_epoch_{1};
     std::mutex clients_mutex_;
@@ -4096,6 +4349,36 @@ Json set_local_project_session_count(const Json& request)
     return server->set_project_session_count(request["projectSessions"].get<std::uint64_t>());
 }
 
+Json simulate_local_worker_exit_for_tests(const Json& request)
+{
+    std::shared_ptr<BrokerServer> server;
+    {
+        std::scoped_lock lock(server_mutex);
+        server = local_server;
+    }
+    if (!server)
+        return {{"ok", false}, {"error", "daemon broker is not running in this process"}};
+    if (!request.contains("workerId") || !request["workerId"].is_number_unsigned() ||
+        !request.contains("workerKind") || !request["workerKind"].is_string())
+        return {{"ok", false}, {"error", "simulated worker exit requires workerId and workerKind"}};
+    const auto kind = request["workerKind"].get_ref<const std::string&>();
+    if (kind != "owner" && kind != "disposable")
+        return {{"ok", false}, {"error", "simulated worker kind is invalid"}};
+    return server->simulate_worker_exit_for_tests(kind == "disposable",
+                                                  request["workerId"].get<std::uint64_t>());
+}
+
+Json start_local_extra_disposable_for_tests()
+{
+    std::shared_ptr<BrokerServer> server;
+    {
+        std::scoped_lock lock(server_mutex);
+        server = local_server;
+    }
+    return server ? server->start_extra_disposable_for_tests()
+                  : Json{{"ok", false}, {"error", "daemon broker is not running in this process"}};
+}
+
 bool parse_string_array(const Json& object, std::string_view field,
                         std::vector<std::string>& output, std::string& error, bool required = true)
 {
@@ -4354,6 +4637,10 @@ bool safe_remove_stale_socket(const Endpoint& endpoint)
 std::optional<ChildProcess> spawn_project_owner_process(const BrokerContext& context,
                                                         std::uint64_t owner_worker_id)
 {
+    if (context.simulate_worker_processes_for_tests)
+        return ChildProcess{.simulated = true,
+                            .simulated_alive = true,
+                            .pid = static_cast<pid_t>(1'000'000 + owner_worker_id)};
     const auto executable_path = current_executable_path();
     if (!executable_path)
         return std::nullopt;
@@ -4396,6 +4683,10 @@ std::optional<ChildProcess> spawn_project_owner_process(const BrokerContext& con
 std::optional<ChildProcess> spawn_disposable_worker_process(const BrokerContext& context,
                                                             std::uint64_t worker_id_value)
 {
+    if (context.simulate_worker_processes_for_tests)
+        return ChildProcess{.simulated = true,
+                            .simulated_alive = true,
+                            .pid = static_cast<pid_t>(2'000'000 + worker_id_value)};
     const auto executable_path = current_executable_path();
     if (!executable_path)
         return std::nullopt;
@@ -4437,6 +4728,8 @@ std::optional<ChildProcess> spawn_disposable_worker_process(const BrokerContext&
 
 bool child_process_alive(const ChildProcess& process)
 {
+    if (process.simulated)
+        return process.simulated_alive;
     if (process.pid <= 0)
         return false;
     for (;;) {
@@ -4454,6 +4747,11 @@ bool child_process_alive(const ChildProcess& process)
 
 void terminate_child_process(ChildProcess& process)
 {
+    if (process.simulated) {
+        process.simulated_alive = false;
+        process.pid = -1;
+        return;
+    }
     if (process.pid <= 0)
         return;
     if (child_process_alive(process))
@@ -4474,6 +4772,11 @@ void terminate_child_process(ChildProcess& process)
 
 void release_child_process(ChildProcess& process)
 {
+    if (process.simulated) {
+        process.simulated_alive = false;
+        process.pid = -1;
+        return;
+    }
     if (process.pid <= 0)
         return;
     int status = 0;
@@ -4593,6 +4896,11 @@ std::wstring quote_windows_argument(std::wstring_view value)
 std::optional<ChildProcess> spawn_project_owner_process(const BrokerContext& context,
                                                         std::uint64_t owner_worker_id)
 {
+    if (context.simulate_worker_processes_for_tests)
+        return ChildProcess{.simulated = true,
+                            .simulated_alive = true,
+                            .handle = nullptr,
+                            .pid = static_cast<DWORD>(1'000'000 + owner_worker_id)};
     const auto executable_path = current_executable_path();
     if (!executable_path)
         return std::nullopt;
@@ -4633,6 +4941,11 @@ std::optional<ChildProcess> spawn_project_owner_process(const BrokerContext& con
 std::optional<ChildProcess> spawn_disposable_worker_process(const BrokerContext& context,
                                                             std::uint64_t worker_id)
 {
+    if (context.simulate_worker_processes_for_tests)
+        return ChildProcess{.simulated = true,
+                            .simulated_alive = true,
+                            .handle = nullptr,
+                            .pid = static_cast<DWORD>(2'000'000 + worker_id)};
     const auto executable_path = current_executable_path();
     if (!executable_path)
         return std::nullopt;
@@ -4672,6 +4985,8 @@ std::optional<ChildProcess> spawn_disposable_worker_process(const BrokerContext&
 
 bool child_process_alive(const ChildProcess& process)
 {
+    if (process.simulated)
+        return process.simulated_alive;
     if (process.handle == nullptr)
         return false;
     DWORD exit_code = 0;
@@ -4680,6 +4995,12 @@ bool child_process_alive(const ChildProcess& process)
 
 void terminate_child_process(ChildProcess& process)
 {
+    if (process.simulated) {
+        process.simulated_alive = false;
+        process.handle = nullptr;
+        process.pid = 0;
+        return;
+    }
     if (process.handle == nullptr)
         return;
     if (child_process_alive(process)) {
@@ -4693,6 +5014,12 @@ void terminate_child_process(ChildProcess& process)
 
 void release_child_process(ChildProcess& process)
 {
+    if (process.simulated) {
+        process.simulated_alive = false;
+        process.handle = nullptr;
+        process.pid = 0;
+        return;
+    }
     if (process.handle != nullptr)
         CloseHandle(process.handle);
     process.handle = nullptr;
@@ -5665,6 +5992,10 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = leave_local_critical_section();
     else if (action == "serve-project-sessions")
         result = set_local_project_session_count(parsed);
+    else if (action == "serve-simulate-worker-exit-for-tests")
+        result = simulate_local_worker_exit_for_tests(parsed);
+    else if (action == "serve-start-extra-disposable-for-tests")
+        result = start_local_extra_disposable_for_tests();
     else if (action == "serve-project-observe")
         result = observe_local_project(parsed);
     else if (action == "serve-project-release")

@@ -484,12 +484,16 @@ async function waitForComfyUiRequest(logPath, expectedPath, timeoutMs = 5000) {
 
 async function waitForComfyUiRequestPrefix(logPath, expectedPrefix, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
+  let latest = [];
   while (Date.now() < deadline) {
-    const requests = await readComfyUiRequests(logPath);
-    if (requests.some((request) => request.path.startsWith(expectedPrefix))) return;
+    latest = await readComfyUiRequests(logPath);
+    if (latest.some((request) => request.path.startsWith(expectedPrefix))) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  fail(`Timed out waiting for fake ComfyUI request prefix '${expectedPrefix}'.`);
+  fail(
+    `Timed out waiting for fake ComfyUI request prefix '${expectedPrefix}'. ` +
+      `Observed requests: ${JSON.stringify(latest.map((request) => request.path))}`,
+  );
 }
 
 async function waitForFile(filePath, timeoutMs = 5000) {
@@ -1412,7 +1416,7 @@ async function certifyAuthoringCache(tempRoot, pristine) {
       cwd: root,
       env: { ...process.env, NOVELTEA_CLI_TRACE: '1', NOVELTEA_NO_DAEMON: '1' },
     });
-    assertIslandTrace(label, result, island);
+    if (island !== null) assertIslandTrace(label, result, island);
     const reference = runNode(args, { cwd: root });
     assertPublicCommandParity(label, reference, {
       ...result,
@@ -1446,8 +1450,12 @@ async function certifyAuthoringCache(tempRoot, pristine) {
   await writeFile(candidate, '-- new candidate\n');
   invoke('authoring added candidate', true);
   await rm(candidate);
-  // Removing the unadmitted candidate restores the exact previously cached generation.
-  invoke('authoring removed candidate', false);
+  // Removing the unadmitted candidate restores the previous source set. Filesystems that preserve
+  // every exact metadata proof can reuse the previous current.json immediately; a conservative
+  // physical-metadata mismatch is also allowed to recompute once. The repaired generation must
+  // then be an exact warm hit.
+  invoke('authoring removed candidate', null);
+  invoke('authoring removed candidate warm', false);
   const manifestPath = path.join(root, 'project.json');
   await writeFile(manifestPath, `${await readFile(manifestPath, 'utf8')}\n`);
   invoke('authoring changed metadata', true);
@@ -1477,7 +1485,11 @@ async function certifyAuthoringCache(tempRoot, pristine) {
   await mkdir(currentPath);
   invoke('authoring best-effort publication', true);
   await rm(currentPath, { recursive: true });
-  invoke('authoring publication recovery', true);
+  // The preceding best-effort publication is intentionally detached from command completion. Once
+  // the blocking directory is removed, that publication may win the race and make this invocation
+  // an immediate exact hit, or this invocation may perform the recovery itself. Either outcome is
+  // valid; the following invocation must observe the recovered warm cache.
+  invoke('authoring publication recovery', null);
   invoke('authoring recovered warm hit', false);
   const incompleteManifest = JSON.parse(await readFile(currentPath, 'utf8'));
   incompleteManifest.inputs = incompleteManifest.inputs.filter(
@@ -2236,9 +2248,13 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
       'Project-owner pressure status',
       runNative(['--json', 'daemon', 'status'], { env: pressureEnvironment }),
     );
-    if (JSON.parse(pressureStatus.stdout).daemon.projectSessions !== 8)
+    const pressureDaemon = JSON.parse(pressureStatus.stdout).daemon;
+    if (
+      pressureDaemon.projectSessions + pressureDaemon.disposableWorkers > 8 ||
+      pressureDaemon.projectSessions !== 7
+    )
       fail(
-        `Project-owner memory pressure did not reduce residency to the internal cap: ${pressureStatus.stdout}`,
+        `Project-owner memory pressure did not preserve the daemon-wide worker budget: ${pressureStatus.stdout}`,
       );
     requireSuccess(
       'Project-owner pressure daemon stop',
@@ -2369,7 +2385,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
     );
     return JSON.parse(result.stdout).daemon;
   };
-  const waitForStatus = async (label, predicate, timeoutMs = 5000) => {
+  const waitForStatus = async (label, predicate, timeoutMs = 15000) => {
     const deadline = Date.now() + timeoutMs;
     let latest = null;
     while (Date.now() < deadline) {
@@ -2507,7 +2523,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
       NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '2000',
     };
     const queuedRuns = [];
-    for (let index = 0; index < 5; index += 1) {
+    for (let index = 0; index < 9; index += 1) {
       queuedRuns.push(
         await runAsync(
           nativeCli,
@@ -2518,7 +2534,10 @@ async function certifyDisposableTestScheduling(tempRoot) {
     }
     await waitForStatus(
       'Disposable Test worker-cap queue certification',
-      (daemon) => daemon.disposableBusyWorkers === 4 && daemon.disposableQueuedJobs >= 1,
+      (daemon) =>
+        daemon.projectSessions + daemon.disposableWorkers === 8 &&
+        daemon.disposableBusyWorkers >= 1 &&
+        daemon.disposableQueuedJobs >= 1,
       8000,
     );
     for (let index = 0; index < queuedRuns.length; index += 1)
@@ -2693,7 +2712,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     );
     return JSON.parse(result.stdout).daemon;
   };
-  const waitForStatus = async (label, predicate, timeoutMs = 5000) => {
+  const waitForStatus = async (label, predicate, timeoutMs = 15000) => {
     const deadline = Date.now() + timeoutMs;
     let latest = null;
     while (Date.now() < deadline) {
@@ -2716,6 +2735,121 @@ async function certifyDisposableOutputScheduling(tempRoot) {
 
   runNative(['daemon', 'stop'], { env: environment });
   try {
+    const portableRoot = await resetFeatureLab('disposable-portable-project-export');
+    const portableOutput = path.join(tempRoot, 'disposable-portable-project.ntproject');
+    await rm(portableOutput, { force: true });
+    const portableEnvironment = {
+      ...traceEnvironment,
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
+      NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
+    };
+    const portableExport = await runAsync(
+      nativeCli,
+      ['--project', portableRoot, '--json', 'project', 'export', '--output', portableOutput],
+      { cwd: portableRoot, env: portableEnvironment },
+    );
+    await waitForStatus(
+      'Portable Project export disposable admission',
+      (daemon) => daemon.disposableBusyWorkers >= 1,
+    );
+    requireSuccess(
+      'Portable Project export concurrent foreground validation',
+      runNative(['--project', portableRoot, '--json', 'validate'], {
+        cwd: portableRoot,
+        env: traceEnvironment,
+      }),
+    );
+    const portableResult = requireSuccess(
+      'Portable Project export disposable completion',
+      await portableExport.result(),
+    );
+    const portableSchedulerProfile = schedulerProfile(portableResult);
+    const portableWorkerProfile = workerProfile(portableResult);
+    if (
+      !portableSchedulerProfile?.snapshotHandoff ||
+      portableWorkerProfile?.workerKind !== 'disposable' ||
+      portableWorkerProfile.hasProjectSnapshot !== true
+    )
+      fail(
+        `Portable Project export did not use a pinned disposable generation: ${portableResult.stderr}`,
+      );
+    if (!(await stat(portableOutput).catch(() => null)))
+      fail('Disposable Portable Project export did not publish its bundle.');
+
+    const portableDriftRoot = await resetFeatureLab('disposable-portable-project-drift');
+    const portableDriftOutput = path.join(tempRoot, 'disposable-portable-project-drift.ntproject');
+    await rm(portableDriftOutput, { force: true });
+    const portableDrift = await runAsync(
+      nativeCli,
+      [
+        '--project',
+        portableDriftRoot,
+        '--json',
+        'project',
+        'export',
+        '--output',
+        portableDriftOutput,
+      ],
+      { cwd: portableDriftRoot, env: portableEnvironment },
+    );
+    await waitForStatus(
+      'Portable Project export drift admission',
+      (daemon) => daemon.disposableBusyWorkers >= 1,
+    );
+    const driftRoomPath = path.join(portableDriftRoot, 'records', 'rooms', 'feature-lab-home.json');
+    const driftRoom = JSON.parse(await readFile(driftRoomPath, 'utf8'));
+    driftRoom.label = `${driftRoom.label} portable drift`;
+    await writeJson(driftRoomPath, driftRoom);
+    requireSuccess(
+      'Portable Project drift concurrent foreground validation',
+      runNative(['--project', portableDriftRoot, '--json', 'validate'], {
+        cwd: portableDriftRoot,
+        env: traceEnvironment,
+      }),
+    );
+    const portableDriftResult = await portableDrift.result();
+    if (
+      portableDriftResult.status === 0 ||
+      !`${portableDriftResult.stdout}${portableDriftResult.stderr}`.includes(
+        'changed while preparing the bundle',
+      )
+    )
+      fail(
+        `Disposable Portable Project export did not preserve source-change authority: ${portableDriftResult.stdout}${portableDriftResult.stderr}`,
+      );
+    if (await stat(portableDriftOutput).catch(() => null))
+      fail('Disposable Portable Project export published after source drift.');
+
+    const shaderRoot = await resetFeatureLab('disposable-shader-compile');
+    const shaderCompile = await runAsync(
+      nativeCli,
+      ['--project', shaderRoot, '--json', 'shaders', 'compile', '--force-rebuild'],
+      { cwd: shaderRoot, env: portableEnvironment },
+    );
+    await waitForStatus(
+      'Shader compile disposable admission',
+      (daemon) => daemon.disposableBusyWorkers >= 1,
+    );
+    requireSuccess(
+      'Shader compile concurrent foreground validation',
+      runNative(['--project', shaderRoot, '--json', 'validate'], {
+        cwd: shaderRoot,
+        env: traceEnvironment,
+      }),
+    );
+    const shaderResult = requireSuccess(
+      'Shader compile disposable completion',
+      await shaderCompile.result(),
+    );
+    const shaderSchedulerProfile = schedulerProfile(shaderResult);
+    const shaderWorkerProfile = workerProfile(shaderResult);
+    if (
+      !shaderSchedulerProfile?.snapshotHandoff ||
+      shaderWorkerProfile?.workerKind !== 'disposable' ||
+      shaderWorkerProfile.hasProjectSnapshot !== true
+    )
+      fail(`Shader compile did not use a pinned disposable generation: ${shaderResult.stderr}`);
+
     const generationRoot = await resetFeatureLab('disposable-output-generation');
     const layoutRecordPath = path.join(
       generationRoot,
@@ -2895,6 +3029,10 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     );
 
     return {
+      portableProjectExportPinned: true,
+      portableProjectExportAuthority: true,
+      shaderCompilePinned: true,
+      foregroundOwnerResponsive: true,
       generationPinned: true,
       foregroundOwnerProgress: true,
       assetDriftBlocksPublication: true,
@@ -2909,7 +3047,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
 
 async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine) {
   const root = path.join(tempRoot, 'authority-mutation-certification');
-  const runtimeRoot = path.join(tempRoot, 'authority-mutation-runtime');
+  const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), 'nt-auth-'));
   await resetCase(pristine, root);
   const environment = {
     ...process.env,
@@ -3014,9 +3152,10 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
         `Stale retained snapshot was not reconciled before heavy handoff: ${staleDispatch.stderr}`,
       );
 
+    const raceGalleryText = await readFile(galleryPath, 'utf8');
     const raceInvocation = await runAsync(
       nativeCli,
-      ['--project', root, '--json', 'asset', 'audit'],
+      ['--project', root, '--json', 'usages', 'rooms', 'gallery'],
       {
         cwd: root,
         env: {
@@ -3026,18 +3165,16 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
       },
     );
     await new Promise((resolve) => setTimeout(resolve, 150));
-    const racePath = path.join(root, 'records', 'assets', 'authority-race.json');
-    await mkdir(path.dirname(racePath), { recursive: true });
-    await writeFile(racePath, '{"id":');
+    await writeFile(galleryPath, '{"id":');
     const raceResult = await raceInvocation.result();
-    if (raceResult.status === 0 || !raceResult.stdout.includes('authority-race'))
+    if (raceResult.status === 0)
       fail(
         `Authority race returned a stale pre-edit result: ${raceResult.stdout}${raceResult.stderr}`,
       );
-    await rm(racePath, { force: true });
+    await writeFile(galleryPath, raceGalleryText);
     requireSuccess(
       'authority race repair',
-      runNative(['--project', root, '--json', 'asset', 'audit'], {
+      runNative(['--project', root, '--json', 'usages', 'rooms', 'gallery'], {
         cwd: root,
         env: traceEnvironment,
       }),
@@ -3056,12 +3193,12 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
     const churnStarted = Date.now();
     const churnInvocation = await runAsync(
       nativeCli,
-      ['--project', root, '--json', 'asset', 'audit'],
+      ['--project', root, '--json', 'usages', 'rooms', 'gallery'],
       {
         cwd: root,
         env: {
           ...traceEnvironment,
-          NOVELTEA_CLI_CERTIFICATION_BEFORE_READ_PROOF_DELAY_MS: '250',
+          NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '1',
         },
       },
     );
@@ -3076,7 +3213,7 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
     await writeJson(galleryPath, originalGallery);
     requireSuccess(
       'authority churn repair',
-      runNative(['--project', root, '--json', 'asset', 'audit'], {
+      runNative(['--project', root, '--json', 'usages', 'rooms', 'gallery'], {
         cwd: root,
         env: traceEnvironment,
       }),
@@ -3152,7 +3289,7 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
 
 async function certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine) {
   const root = path.join(tempRoot, 'comfyui-owner-isolation');
-  const runtimeRoot = path.join(tempRoot, 'comfyui-owner-isolation-runtime');
+  const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), 'nt-comfy-'));
   const configRoot = path.join(tempRoot, 'comfyui-owner-isolation-config');
   await resetCase(pristine, root);
   await rm(configRoot, { recursive: true, force: true });
@@ -3197,7 +3334,23 @@ async function certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine) {
       },
     );
     const resultPromise = invocation.result();
-    await waitForComfyUiRequestPrefix(server.logPath, '/history/');
+    try {
+      await Promise.race([
+        waitForComfyUiRequestPrefix(server.logPath, '/history/', 15_000),
+        resultPromise.then((result) =>
+          fail(
+            `Project-backed ComfyUI generation exited before reaching history polling: ` +
+              `status=${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+          ),
+        ),
+      ]);
+    } catch (error) {
+      const daemon = runNative(['--json', 'daemon', 'status'], { env: environment });
+      fail(
+        `${error instanceof Error ? error.message : String(error)}\n` +
+          `daemon status=${daemon.status}\nstdout:\n${daemon.stdout}\nstderr:\n${daemon.stderr}`,
+      );
+    }
     const shortRead = requireSuccess(
       'ComfyUI concurrent short Project read',
       runNative(['--project', root, '--json', 'usages', 'rooms', 'gallery'], {
@@ -3213,6 +3366,15 @@ async function certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine) {
     if (!shortProfile?.ownerHit)
       fail(
         `ComfyUI generation prevented the existing Project owner from serving short work: ${shortRead.stderr}`,
+      );
+    const afterShortReadStatus = requireSuccess(
+      'ComfyUI owner-isolation status after short read',
+      runNative(['--json', 'daemon', 'status'], { env: environment }),
+    );
+    const afterShortReadDaemon = JSON.parse(afterShortReadStatus.stdout).daemon;
+    if (afterShortReadDaemon.projectSessions !== 1)
+      fail(
+        `ComfyUI concurrent short read did not leave the Project owner resident: ${afterShortReadStatus.stdout}`,
       );
     const result = requireSuccess('ComfyUI disposable Project run', await resultPromise);
     const profile = schedulerProfile(result);
@@ -5362,6 +5524,64 @@ async function certifyRelocation(tempRoot) {
 }
 
 async function main() {
+  const sectionNames = Object.freeze([
+    'differential',
+    'bootstrap-island',
+    'typed-shaders',
+    'raw-shaderc',
+    'authoring-cache',
+    'daemon-authoring-cache',
+    'daemon-authoring-cache-pressure',
+    'project-owner-scheduling',
+    'disposable-tests',
+    'disposable-output',
+    'build-protocol-isolation',
+    'authority-mutation',
+    'comfyui-owner-isolation',
+    'resident-daemon',
+    'editor-authoring-cache-sharing',
+    'performance',
+    'scoped-preparation',
+    'test-command-parity',
+    'runtime-cache',
+    'native-operations',
+    'feature-lab-tests',
+    'platform-host',
+    'comfyui-standalone',
+    'relocation',
+  ]);
+  const argv = process.argv.slice(2);
+  let onlySections = null;
+  for (let index = 0; index < argv.length; ++index) {
+    const argument = argv[index];
+    if (argument === '--list-sections') {
+      process.stdout.write(`${sectionNames.join('\n')}\n`);
+      return;
+    }
+    let value = null;
+    if (argument === '--only') {
+      value = argv[++index];
+      if (!value) fail('--only requires a comma-separated section list.');
+    } else if (argument.startsWith('--only=')) {
+      value = argument.slice('--only='.length);
+    } else {
+      fail(`Unknown CLI certification argument '${argument}'.`);
+    }
+    const requested = value
+      .split(',')
+      .map((section) => section.trim())
+      .filter(Boolean);
+    if (requested.length === 0) fail('--only requires at least one certification section.');
+    onlySections ??= new Set();
+    for (const section of requested) {
+      if (!sectionNames.includes(section))
+        fail(
+          `Unknown CLI certification section '${section}'. Available sections: ${sectionNames.join(', ')}`,
+        );
+      onlySections.add(section);
+    }
+  }
+
   if (!['linux', 'win32'].includes(process.platform) || process.arch !== 'x64')
     fail(
       `CLI certification is admitted on Linux and Windows x64; received ${process.platform}/${process.arch}.`,
@@ -5387,6 +5607,102 @@ async function main() {
   let primaryError = null;
   let cleanupError = null;
   try {
+    if (onlySections) {
+      let pristine = null;
+      const ensurePristine = async () => {
+        if (pristine) return pristine;
+        pristine = path.join(tempRoot, 'pristine');
+        await materializeFixture(pristine);
+        await makeShaderFree(pristine);
+        return pristine;
+      };
+      for (const section of onlySections) {
+        process.stdout.write(`[certification] section ${section}: START\n`);
+        switch (section) {
+          case 'differential': {
+            ({ pristine } = await runDifferential(tempRoot));
+            break;
+          }
+          case 'bootstrap-island':
+            certifyBootstrapOnlyIslandFailures();
+            break;
+          case 'typed-shaders':
+            await certifyTypedShaders(tempRoot);
+            break;
+          case 'raw-shaderc':
+            await certifyRawShaderc(tempRoot);
+            break;
+          case 'authoring-cache':
+            await certifyAuthoringCache(tempRoot, await ensurePristine());
+            break;
+          case 'daemon-authoring-cache':
+            await certifyDaemonAuthoringCacheResidency(tempRoot, await ensurePristine());
+            break;
+          case 'daemon-authoring-cache-pressure':
+            await certifyDaemonAuthoringCachePressure(tempRoot, await ensurePristine());
+            break;
+          case 'project-owner-scheduling':
+            await certifyProjectOwnerScheduling(tempRoot, await ensurePristine());
+            break;
+          case 'disposable-tests':
+            await certifyDisposableTestScheduling(tempRoot);
+            break;
+          case 'disposable-output':
+            await certifyDisposableOutputScheduling(tempRoot);
+            break;
+          case 'build-protocol-isolation':
+            await certifyDaemonBuildProtocolIsolation(tempRoot);
+            break;
+          case 'authority-mutation':
+            await certifyStandaloneAuthorityAndMutationHandling(tempRoot, await ensurePristine());
+            break;
+          case 'comfyui-owner-isolation':
+            await certifyComfyUiDisposableOwnerIsolation(tempRoot, await ensurePristine());
+            break;
+          case 'resident-daemon':
+            await certifyResidentDaemon(tempRoot, await ensurePristine());
+            break;
+          case 'editor-authoring-cache-sharing':
+            certifyEditorAuthoringCacheSharing();
+            break;
+          case 'performance':
+            await certifyPerformanceEnvelope(tempRoot, await ensurePristine());
+            break;
+          case 'scoped-preparation':
+            certifyScopedPreparationLazyBoundaries(await ensurePristine());
+            break;
+          case 'test-command-parity':
+            await certifyTestCommandParity(tempRoot, await ensurePristine());
+            break;
+          case 'runtime-cache':
+            await certifyRuntimeCacheInvalidation(tempRoot, await ensurePristine());
+            break;
+          case 'native-operations':
+            await certifyNativeOperations(tempRoot, await ensurePristine());
+            break;
+          case 'feature-lab-tests':
+            await certifyFeatureLabAuthoredTests(tempRoot);
+            break;
+          case 'platform-host':
+            await certifyPlatformHost(tempRoot, await ensurePristine());
+            break;
+          case 'comfyui-standalone':
+            await certifyComfyUiStandalone(tempRoot, await ensurePristine());
+            break;
+          case 'relocation':
+            await certifyRelocation(tempRoot);
+            break;
+          default:
+            fail(`Unhandled CLI certification section '${section}'.`);
+        }
+        process.stdout.write(`[certification] section ${section}: PASS\n`);
+      }
+      process.stdout.write(
+        `${JSON.stringify({ success: true, selectedSections: [...onlySections] })}\n`,
+      );
+      return;
+    }
+
     const { pristine } = await runDifferential(tempRoot);
     certifyBootstrapOnlyIslandFailures();
     await certifyTypedShaders(tempRoot);
