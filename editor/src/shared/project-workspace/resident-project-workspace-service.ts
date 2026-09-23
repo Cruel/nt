@@ -207,8 +207,6 @@ async function captureResidentAuthority(
 type SuccessfulOpen = Extract<ProjectWorkspaceOpenResult, { ok: true }>;
 type ProjectWorkspaceWriteResult = Awaited<ReturnType<ProjectWorkspaceService['write']>>;
 
-const PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION = 2 as const;
-
 export type PortableResidentProjectAuthorityEntry = Readonly<{
   path: string;
   sourceIdentity?: string;
@@ -223,7 +221,6 @@ export type PortableResidentProjectTextSource = Readonly<{
 }>;
 
 type PortableResidentProjectSnapshot = Readonly<{
-  version: typeof PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION;
   identity: ResidentProjectGenerationIdentity;
   snapshot: LoadedProjectWorkspaceSnapshot;
   editorState: EditorProjectState;
@@ -238,7 +235,6 @@ type PortableResidentProjectSnapshot = Readonly<{
 }>;
 
 type PortableResidentProjectOwnerMetadata = Readonly<{
-  version: typeof PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION;
   canonicalRoot: string;
   nativeAssetSourcePaths: readonly string[];
 }>;
@@ -331,6 +327,32 @@ function portableTextSourcesValid(
     );
   });
 }
+
+function hasExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+const PORTABLE_RESIDENT_PROJECT_SNAPSHOT_KEYS = Object.freeze([
+  'identity',
+  'snapshot',
+  'editorState',
+  'diagnostics',
+  'sourceContributions',
+  'validationContributions',
+  'validationWork',
+  'sourceWork',
+  'externalAssets',
+  'physicalAuthority',
+  'projectTextSources',
+] as const);
+
+const PORTABLE_RESIDENT_PROJECT_OWNER_METADATA_KEYS = Object.freeze([
+  'canonicalRoot',
+  'nativeAssetSourcePaths',
+] as const);
 
 type SnapshotBinding = Readonly<{
   entry: ResidentEntry;
@@ -1496,7 +1518,6 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         return entry.portableSnapshot;
 
       const snapshot: PortableResidentProjectSnapshot = {
-        version: PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION,
         identity,
         snapshot: opened.snapshot,
         editorState: opened.editorState,
@@ -1510,7 +1531,6 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         projectTextSources: Object.freeze(projectTextSources),
       };
       const ownerMetadata: PortableResidentProjectOwnerMetadata = {
-        version: PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION,
         canonicalRoot: entry.canonicalRoot,
         nativeAssetSourcePaths: entry.nativeAssetSourcePaths,
       };
@@ -1550,7 +1570,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       return false;
     }
     if (
-      ownerMetadata?.version !== PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION ||
+      !hasExactKeys(ownerMetadata, PORTABLE_RESIDENT_PROJECT_OWNER_METADATA_KEYS) ||
       ownerMetadata.canonicalRoot !== canonicalRoot ||
       !Array.isArray(ownerMetadata.nativeAssetSourcePaths) ||
       ownerMetadata.nativeAssetSourcePaths.some((path) => typeof path !== 'string') ||
@@ -1583,7 +1603,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       return false;
     }
     if (
-      portable?.version !== PORTABLE_RESIDENT_PROJECT_SNAPSHOT_VERSION ||
+      !hasExactKeys(portable, PORTABLE_RESIDENT_PROJECT_SNAPSHOT_KEYS) ||
       portable.snapshot?.snapshotKind !== 'loaded' ||
       portable.snapshot.projectRoot !== canonicalRoot ||
       portable.snapshot.manifestPath !==

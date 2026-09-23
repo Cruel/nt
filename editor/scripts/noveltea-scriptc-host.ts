@@ -2505,10 +2505,12 @@ async function main(): Promise<void> {
             typeof daemonResponse?.error === 'string'
               ? daemonResponse.error
               : 'Resident daemon execution failed.';
-          const safeConnectionFailure = message === 'daemon broker is not reachable';
+          const unavailableBeforeDispatch = message === 'daemon broker is not reachable';
+          const brokerLostMidRequest = message === 'daemon broker closed without a result';
           const replayDisallowed =
-            !request.replaySafe || request.executionClass === 'disposable-heavy';
-          if (replayDisallowed && !safeConnectionFailure)
+            !request.replaySafe ||
+            (request.executionClass === 'disposable-heavy' && !brokerLostMidRequest);
+          if (replayDisallowed && !unavailableBeforeDispatch)
             response = daemonFailureResult(request.outputMode === 'json', message);
         }
       } else trace(`daemon ensure failed: ${ensured.error ?? 'unknown daemon startup failure'}`);

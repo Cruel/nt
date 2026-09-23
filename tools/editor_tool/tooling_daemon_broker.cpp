@@ -129,6 +129,7 @@ struct BrokerContext {
     std::size_t project_snapshot_budget_bytes = default_project_snapshot_budget_bytes;
     std::size_t exact_validation_budget_bytes = default_exact_validation_budget_bytes;
     std::optional<std::filesystem::path> runtime_root_override;
+    std::optional<std::filesystem::path> validation_publication_test_gate;
     bool disposable_worker_processes_enabled = true;
     bool simulate_worker_processes_for_tests = false;
 };
@@ -220,6 +221,15 @@ std::optional<BrokerContext> parse_context(const Json& request, std::string& err
         context.runtime_root_override =
             std::filesystem::path(request["runtimeRoot"].get<std::string>());
     }
+    if (request.contains("validationPublicationTestGate")) {
+        if (!request["validationPublicationTestGate"].is_string() ||
+            request["validationPublicationTestGate"].get_ref<const std::string&>().empty()) {
+            error = "validationPublicationTestGate must be a non-empty path";
+            return std::nullopt;
+        }
+        context.validation_publication_test_gate =
+            std::filesystem::path(request["validationPublicationTestGate"].get<std::string>());
+    }
     if (request.contains("disableDisposableWorkerProcessesForTests")) {
         if (!request["disableDisposableWorkerProcessesForTests"].is_boolean()) {
             error = "disableDisposableWorkerProcessesForTests must be a boolean";
@@ -235,6 +245,10 @@ std::optional<BrokerContext> parse_context(const Json& request, std::string& err
         }
         context.simulate_worker_processes_for_tests =
             request["simulateWorkerProcessesForTests"].get<bool>();
+    }
+    if (context.validation_publication_test_gate && !context.simulate_worker_processes_for_tests) {
+        error = "validationPublicationTestGate is available only with simulated test workers";
+        return std::nullopt;
     }
     if (context.daemon_idle_ms == 0 || context.project_session_idle_ms == 0) {
         error = "daemon idle intervals must be greater than zero";
@@ -1281,8 +1295,8 @@ public:
         };
         exact_validation_results_.retain(retained, now_millis());
         {
-            std::scoped_lock lock(validation_mutex_);
-            pending_validation_publications_[canonical_root] = std::move(retained);
+            std::scoped_lock lock(validation_publication_state_->mutex);
+            validation_publication_state_->pending[canonical_root] = std::move(retained);
         }
         return {{"ok", true}};
     }
@@ -2038,6 +2052,12 @@ public:
     }
 
 private:
+    struct ValidationPublicationState {
+        std::mutex mutex;
+        std::unordered_map<std::string, RetainedExactValidationResult> pending;
+        bool writer_running = false;
+    };
+
     enum class State {
         starting,
         ready,
@@ -2897,8 +2917,8 @@ private:
             active_roots, context_.exact_validation_budget_bytes);
         for (const auto& canonical_root : exact_evictions) {
             {
-                std::scoped_lock lock(validation_mutex_);
-                pending_validation_publications_.erase(canonical_root);
+                std::scoped_lock lock(validation_publication_state_->mutex);
+                validation_publication_state_->pending.erase(canonical_root);
             }
             bool owner_active = false;
             {
@@ -3090,24 +3110,39 @@ private:
         return replaced;
     }
 
-    void publish_pending_validation_cache()
+    static void wait_for_validation_publication_test_gate(
+        const std::optional<std::filesystem::path>& gate)
     {
-        std::optional<RetainedExactValidationResult> pending;
-        {
-            std::scoped_lock lock(validation_mutex_);
-            if (pending_validation_publications_.empty())
-                return;
-            pending = pending_validation_publications_.begin()->second;
+        if (!gate)
+            return;
+        auto started_path = *gate;
+        started_path += ".started";
+        std::ofstream started(started_path, std::ios::binary | std::ios::trunc);
+        started << "started\n";
+        started.close();
+        auto release_path = *gate;
+        release_path += ".release";
+        std::error_code error;
+        while (!std::filesystem::exists(release_path, error)) {
+            error.clear();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
+    }
+
+    static void publish_validation_cache_entry(
+        RetainedExactValidationResult pending,
+        std::optional<std::filesystem::path> validation_publication_test_gate)
+    {
+        wait_for_validation_publication_test_gate(validation_publication_test_gate);
 
 #if defined(_WIN32)
-        const std::filesystem::path root = utf8_to_wide(pending->canonical_root);
+        const std::filesystem::path root = utf8_to_wide(pending.canonical_root);
 #else
-        const std::filesystem::path root = pending->canonical_root;
+        const std::filesystem::path root = pending.canonical_root;
 #endif
         Json inputs = Json::array();
         bool persistable = true;
-        for (const auto& entry : pending->authority.manifest.entries) {
+        for (const auto& entry : pending.authority.manifest.entries) {
             if (!entry.mtime_nanoseconds || entry.source_identity.empty()) {
                 persistable = false;
                 break;
@@ -3118,31 +3153,58 @@ private:
                               {"mtimeNanoseconds", std::to_string(*entry.mtime_nanoseconds)}});
         }
         Json scopes = Json::array();
-        for (const auto& scope : pending->authority.discovery_scopes)
+        for (const auto& scope : pending.authority.discovery_scopes)
             scopes.push_back({{"root", scope.root},
                               {"extensions", scope.extensions},
                               {"excludedPrefixes", scope.excluded_prefixes}});
         if (persistable) {
             const Json manifest = {{"schema", "noveltea.authoring-cache"},
-                                   {"semanticKey", pending->semantic_key},
-                                   {"projectRoot", pending->canonical_root},
+                                   {"semanticKey", pending.semantic_key},
+                                   {"projectRoot", pending.canonical_root},
                                    {"discoveryScopes", std::move(scopes)},
                                    {"inputs", std::move(inputs)},
-                                   {"result", Json::parse(pending->semantic_result_json)}};
+                                   {"result", Json::parse(pending.semantic_result_json)}};
             if (const auto directory = authoring_cache_directory(root))
                 (void)write_text_atomic(*directory / "current.json", manifest.dump() + "\n",
-                                        pending->revision);
+                                        pending.revision);
         }
+        if (validation_publication_test_gate) {
+            auto finished_path = *validation_publication_test_gate;
+            finished_path += ".finished";
+            std::ofstream finished(finished_path, std::ios::binary | std::ios::trunc);
+            finished << "finished\n";
+        }
+    }
 
-        // Persistence is disposable acceleration. A failed write is dropped rather than retried on
-        // the foreground path; a newer exact result will enqueue a fresh best-effort publication.
+    void publish_pending_validation_cache()
+    {
+        const auto state = validation_publication_state_;
         {
-            std::scoped_lock lock(validation_mutex_);
-            const auto found = pending_validation_publications_.find(pending->canonical_root);
-            if (found != pending_validation_publications_.end() &&
-                found->second.revision == pending->revision)
-                pending_validation_publications_.erase(found);
+            std::scoped_lock lock(state->mutex);
+            if (state->writer_running || state->pending.empty())
+                return;
+            state->writer_running = true;
         }
+        // Persistence is disposable acceleration. Hand it to an unjoined one-shot task so a slow
+        // filesystem cannot become part of graceful daemon shutdown. Shared publication state keeps
+        // one writer in flight and continues coalescing newer per-Project results while that writer
+        // is blocked. Atomic temp-file replacement means process exit can abandon it safely.
+        std::thread([state, gate = context_.validation_publication_test_gate]() mutable {
+            for (;;) {
+                std::optional<RetainedExactValidationResult> pending;
+                {
+                    std::scoped_lock lock(state->mutex);
+                    if (state->pending.empty()) {
+                        state->writer_running = false;
+                        return;
+                    }
+                    auto found = state->pending.begin();
+                    pending = std::move(found->second);
+                    state->pending.erase(found);
+                }
+                publish_validation_cache_entry(std::move(*pending), gate);
+            }
+        }).detach();
     }
 
     void create_listener()
@@ -3176,7 +3238,15 @@ private:
             }
             throw std::runtime_error("failed to acquire daemon lifetime ownership");
         }
+#if defined(SOCK_CLOEXEC)
+        listener_ = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+#else
         listener_ = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        if (listener_ >= 0 && ::fcntl(listener_, F_SETFD, FD_CLOEXEC) != 0) {
+            ::close(listener_);
+            listener_ = -1;
+        }
+#endif
         if (listener_ < 0)
             throw std::runtime_error("failed to create daemon Unix-domain socket");
         sockaddr_un address{};
@@ -3249,7 +3319,15 @@ private:
                 continue;
             }
 #else
+#if defined(__linux__)
+            connection = ::accept4(listener_, nullptr, nullptr, SOCK_CLOEXEC);
+#else
             connection = ::accept(listener_, nullptr, nullptr);
+            if (connection >= 0 && ::fcntl(connection, F_SETFD, FD_CLOEXEC) != 0) {
+                ::close(connection);
+                connection = invalid_connection;
+            }
+#endif
             if (connection < 0) {
                 if (errno == EINTR)
                     continue;
@@ -3310,6 +3388,10 @@ private:
                 wait_for_drain();
                 finish_if_safe();
                 client->send(result_event_json(request_id, true, status_json().dump()));
+                // The stop caller has received its final frame. Close any persistent owner/control
+                // channels now so serve-wait/process teardown cannot remain joined to an otherwise
+                // idle client connection after the daemon has entered stopped.
+                close_clients();
                 break;
             }
             const auto message_payload = message.value("payload", Json::object());
@@ -4244,8 +4326,13 @@ private:
                 if (!queued_.empty() || !active_.empty() || owner_work_pending)
                     continue;
             }
-            publish_pending_validation_cache();
             const auto elapsed = now_millis() - last_activity_millis_.load();
+            // Exact-result persistence is optional acceleration, so let foreground bursts settle
+            // before starting filesystem work. This keeps repeated interactive validations
+            // coalesced onto the newest retained result instead of making the idle-maintenance tick
+            // compete with the next short owner request.
+            if (elapsed >= 500)
+                publish_pending_validation_cache();
             if (elapsed >= context_.daemon_idle_ms) {
                 request_stop();
                 break;
@@ -4296,8 +4383,8 @@ private:
     ProjectAuthorityManager project_authority_;
     ProjectSnapshotStore project_snapshots_;
     ExactValidationStore exact_validation_results_;
-    std::mutex validation_mutex_;
-    std::unordered_map<std::string, RetainedExactValidationResult> pending_validation_publications_;
+    std::shared_ptr<ValidationPublicationState> validation_publication_state_ =
+        std::make_shared<ValidationPublicationState>();
     std::atomic<std::uint64_t> next_validation_revision_{1};
     std::mutex critical_mutex_;
     std::condition_variable critical_cv_;

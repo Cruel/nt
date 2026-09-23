@@ -1111,6 +1111,88 @@ TEST_CASE("daemon broker exposes starting, queues work until ready, and drains o
     CHECK(final_status["state"] == "stopped");
 }
 
+TEST_CASE("daemon shutdown does not wait for optional exact-validation persistence")
+{
+    auto project = temp_project_root("validation-publication-shutdown");
+    auto gate_root = temp_runtime_root("validation-publication-gate");
+    std::filesystem::create_directories(gate_root.path);
+    const auto gate = gate_root.path / "publication";
+    auto started_path = gate;
+    started_path += ".started";
+    auto release_path = gate;
+    release_path += ".release";
+    auto finished_path = gate;
+    finished_path += ".finished";
+
+    auto request = scheduler_context(unique_build("validation-publication-shutdown"));
+    request["validationPublicationTestGate"] = gate.string();
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    auto work = owner_request(request, "validation-publication", project.path);
+    work["payload"]["authoringValidationSemanticKey"] = "test-semantic-key";
+    auto foreground = std::async(std::launch::async, [work] { return invoke_daemon(work); });
+    REQUIRE(wait_until(
+        [&] { return owner_worker_for_root(daemon_status(request), project.path).has_value(); }));
+    const auto owner = owner_worker_for_root(daemon_status(request), project.path);
+    REQUIRE(owner);
+
+    auto next = request;
+    next["action"] = "owner-next";
+    next["ownerWorkerId"] = *owner;
+    const auto owner_work = invoke_daemon(next);
+    REQUIRE(owner_work["ok"] == true);
+
+    auto observe = request;
+    observe["action"] = "owner-project-observe";
+    observe["ownerWorkerId"] = *owner;
+    observe["projectRoot"] = project.path.string();
+    observe["authoritativePaths"] = Json::array({"project.json", "editor.json", "traits.json"});
+    observe["discoveryScopes"] =
+        Json::array({Json{{"root", "records"}, {"extensions", Json::array({".json"})}},
+                     Json{{"root", "scripts"}, {"extensions", Json::array({".lua"})}},
+                     Json{{"root", "i18n"}, {"extensions", Json::array({".json"})}}});
+    REQUIRE(invoke_daemon(observe)["ok"] == true);
+
+    auto retain = request;
+    retain["action"] = "owner-validation-result";
+    retain["ownerWorkerId"] = *owner;
+    retain["token"] = owner_work["token"];
+    retain["semanticKey"] = "test-semantic-key";
+    retain["validationResult"] = Json{{"success", true},
+                                       {"exitCode", 0},
+                                       {"diagnostics", Json::array()},
+                                       {"editorDiagnostics", Json::array()}};
+    REQUIRE(invoke_daemon(retain)["ok"] == true);
+
+    auto complete = request;
+    complete["action"] = "owner-complete";
+    complete["ownerWorkerId"] = *owner;
+    complete["token"] = owner_work["token"];
+    complete["requestOk"] = true;
+    complete["result"] = Json{{"done", true}};
+    REQUIRE(invoke_daemon(complete)["ok"] == true);
+    REQUIRE(foreground.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    REQUIRE(foreground.get()["ok"] == true);
+    REQUIRE(wait_until([&] { return std::filesystem::exists(started_path); }));
+    CHECK_FALSE(std::filesystem::exists(finished_path));
+
+    auto stop = request;
+    stop["action"] = "stop";
+    REQUIRE(invoke_daemon(stop)["ok"] == true);
+    auto wait = request;
+    wait["action"] = "serve-wait";
+    auto shutdown = std::async(std::launch::async, [wait] { return invoke_daemon(wait); });
+    REQUIRE(shutdown.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    CHECK(shutdown.get()["state"] == "stopped");
+    CHECK_FALSE(std::filesystem::exists(finished_path));
+
+    write_project_file(release_path, "release\n");
+    REQUIRE(wait_until([&] { return std::filesystem::exists(finished_path); }));
+}
+
 TEST_CASE("queued daemon request can be cancelled before worker readiness")
 {
     auto request = context(unique_build("cancel"));
