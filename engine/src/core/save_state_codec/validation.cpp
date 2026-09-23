@@ -1063,7 +1063,11 @@ std::string saved_material_occurrence_key(const SavedMaterialOccurrence& occurre
     return std::visit(
         [](const auto& value) {
             using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, SavedBackgroundMaterialOccurrence>)
+            if constexpr (std::is_same_v<T, SavedMaterialWideMaterialOccurrence>)
+                return std::string{"material"};
+            else if constexpr (std::is_same_v<T, SavedInteractableDefinitionMaterialOccurrence>)
+                return std::string{"interactable-definition:"} + value.definition.text();
+            else if constexpr (std::is_same_v<T, SavedBackgroundMaterialOccurrence>)
                 return std::string{"background"};
             else if constexpr (std::is_same_v<T, SavedActorMaterialOccurrence>)
                 return std::string{"actor:"} + saved_actor_key_text(value.key) + ":" +

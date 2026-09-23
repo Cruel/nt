@@ -131,6 +131,13 @@ struct LayoutPresentationParent {
     bool operator==(const LayoutPresentationParent&) const = default;
 };
 
+struct MaterialWideMaterialOccurrence {
+    auto operator<=>(const MaterialWideMaterialOccurrence&) const = default;
+};
+struct InteractableDefinitionMaterialOccurrence {
+    InteractableDefinitionId definition;
+    auto operator<=>(const InteractableDefinitionMaterialOccurrence&) const = default;
+};
 struct BackgroundMaterialOccurrence {
     auto operator<=>(const BackgroundMaterialOccurrence&) const = default;
 };
@@ -161,7 +168,8 @@ struct PostprocessMaterialOccurrence {
     auto operator<=>(const PostprocessMaterialOccurrence&) const = default;
 };
 using MaterialOccurrence =
-    std::variant<BackgroundMaterialOccurrence, ActorMaterialOccurrence,
+    std::variant<MaterialWideMaterialOccurrence, InteractableDefinitionMaterialOccurrence,
+                 BackgroundMaterialOccurrence, ActorMaterialOccurrence,
                  InteractableMaterialOccurrence, PropMaterialOccurrence,
                  EnvironmentMaterialOccurrence, LayoutMaterialOccurrence,
                  PostprocessMaterialOccurrence>;

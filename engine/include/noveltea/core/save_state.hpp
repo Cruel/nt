@@ -250,6 +250,13 @@ struct SavedPresentationEnvironment {
     bool visible = true;
 };
 
+struct SavedMaterialWideMaterialOccurrence {
+    auto operator<=>(const SavedMaterialWideMaterialOccurrence&) const = default;
+};
+struct SavedInteractableDefinitionMaterialOccurrence {
+    InteractableDefinitionId definition;
+    auto operator<=>(const SavedInteractableDefinitionMaterialOccurrence&) const = default;
+};
 struct SavedBackgroundMaterialOccurrence {
     auto operator<=>(const SavedBackgroundMaterialOccurrence&) const = default;
 };
@@ -280,7 +287,8 @@ struct SavedPostprocessMaterialOccurrence {
     auto operator<=>(const SavedPostprocessMaterialOccurrence&) const = default;
 };
 using SavedMaterialOccurrence =
-    std::variant<SavedBackgroundMaterialOccurrence, SavedActorMaterialOccurrence,
+    std::variant<SavedMaterialWideMaterialOccurrence, SavedInteractableDefinitionMaterialOccurrence,
+                 SavedBackgroundMaterialOccurrence, SavedActorMaterialOccurrence,
                  SavedInteractableMaterialOccurrence, SavedPropMaterialOccurrence,
                  SavedEnvironmentMaterialOccurrence, SavedLayoutMaterialOccurrence,
                  SavedPostprocessMaterialOccurrence>;

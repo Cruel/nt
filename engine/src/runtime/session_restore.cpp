@@ -175,7 +175,13 @@ restore_material_occurrence(const SavedMaterialOccurrence& occurrence,
     return std::visit(
         [&](const auto& value) -> Result<MaterialOccurrence, Diagnostics> {
             using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, SavedBackgroundMaterialOccurrence>)
+            if constexpr (std::is_same_v<T, SavedMaterialWideMaterialOccurrence>)
+                return Result<MaterialOccurrence, Diagnostics>::success(
+                    MaterialWideMaterialOccurrence{});
+            else if constexpr (std::is_same_v<T, SavedInteractableDefinitionMaterialOccurrence>)
+                return Result<MaterialOccurrence, Diagnostics>::success(
+                    InteractableDefinitionMaterialOccurrence{value.definition});
+            else if constexpr (std::is_same_v<T, SavedBackgroundMaterialOccurrence>)
                 return Result<MaterialOccurrence, Diagnostics>::success(
                     BackgroundMaterialOccurrence{});
             else if constexpr (std::is_same_v<T, SavedActorMaterialOccurrence>) {
