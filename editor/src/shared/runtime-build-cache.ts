@@ -14,6 +14,7 @@ import {
   PROJECT_WORKSPACE_SCHEMA_VERSION,
   assertProjectWorkspacePathContained,
   assetSourcePaths,
+  compareProjectWorkspaceUnicodeCodePoints,
   type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceFileSystem,
   type ProjectWorkspaceProcessLiveness,
@@ -47,6 +48,47 @@ export interface RuntimeBuildCacheObservation {
 }
 
 export type RuntimeBuildCacheInputSnapshot = ProjectSourceInventory;
+
+export type PinnedRuntimeBuildCacheInputs = Readonly<{
+  runtime: RuntimeBuildCacheInputSnapshot;
+  tests: RuntimeBuildCacheInputSnapshot;
+}>;
+
+export function pinnedRuntimeBuildCacheInputsFromAuthority(
+  snapshot: LoadedProjectWorkspaceSnapshot,
+  authority: readonly Readonly<{
+    path: string;
+    byteSize?: number;
+    mtimeNanoseconds?: string | null;
+  }>[],
+): PinnedRuntimeBuildCacheInputs | null {
+  const byPath = new Map(authority.map((entry) => [normalizeRelativePath(entry.path), entry]));
+  const inventory = (paths: readonly string[]): RuntimeBuildCacheInputSnapshot | null => {
+    const entries = [...new Set(paths.map(normalizeRelativePath))]
+      .sort(compareProjectWorkspaceUnicodeCodePoints)
+      .map((path) => {
+        const entry = byPath.get(path);
+        return entry &&
+          Number.isSafeInteger(entry.byteSize) &&
+          (entry.byteSize as number) >= 0 &&
+          typeof entry.mtimeNanoseconds === 'string'
+          ? {
+              path,
+              byteSize: entry.byteSize as number,
+              mtimeNanoseconds: entry.mtimeNanoseconds,
+            }
+          : null;
+      });
+    return entries.some((entry) => entry === null)
+      ? null
+      : { entries: entries as ProjectSourceInventory['entries'] };
+  };
+  const runtime = inventory(runtimeAuthoritativePaths(snapshot));
+  const tests = inventory(
+    snapshot.canonicalSourceFiles.filter((file) => file.startsWith('records/tests/')),
+  );
+  return runtime && tests ? { runtime, tests } : null;
+}
 
 export interface RuntimeBuildCachePublicationHost {
   readonly pid: number;
@@ -339,12 +381,13 @@ async function lookupRuntimeBuildCache(
   snapshot: LoadedProjectWorkspaceSnapshot,
   variant: string,
   compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
+  pinnedInputs?: PinnedRuntimeBuildCacheInputs,
 ): Promise<RuntimeBuildCacheLookup> {
   if (!fileSystem.readPathMetadata) return { enabled: false };
 
   let inputs: RuntimeBuildCacheInputSnapshot;
   try {
-    inputs = await captureRuntimeInputs(fileSystem, snapshot);
+    inputs = pinnedInputs?.runtime ?? (await captureRuntimeInputs(fileSystem, snapshot));
   } catch (error) {
     return {
       enabled: true,
@@ -358,7 +401,7 @@ async function lookupRuntimeBuildCache(
 
   let testInputs: RuntimeBuildCacheInputSnapshot | undefined;
   try {
-    testInputs = await captureTestInputs(fileSystem, snapshot);
+    testInputs = pinnedInputs?.tests ?? (await captureTestInputs(fileSystem, snapshot));
   } catch {
     testInputs = undefined;
   }
@@ -609,12 +652,14 @@ export function lookupCanonicalRuntimeBuildCache(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: LoadedProjectWorkspaceSnapshot,
   compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
+  pinnedInputs?: PinnedRuntimeBuildCacheInputs,
 ): Promise<RuntimeBuildCacheLookup> {
   return lookupRuntimeBuildCache(
     fileSystem,
     snapshot,
     RUNTIME_BUILD_CACHE_CANONICAL_VARIANT,
     compilerIdentity,
+    pinnedInputs,
   );
 }
 

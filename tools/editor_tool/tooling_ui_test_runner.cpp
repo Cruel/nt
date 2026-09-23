@@ -664,11 +664,32 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         project_root = candidate;
     }
 
+    auto project_assets = std::make_shared<noveltea::assets::MemoryAssetSource>();
+    bool has_project_text_sources = false;
+    if (const auto provided = request.find("projectTextSources"); provided != request.end()) {
+        if (!provided->is_object())
+            return fail("Runtime UI Test projectTextSources must be an object.");
+        for (const auto& [relative, source] : provided->items()) {
+            const auto logical_path = "project:/" + relative;
+            if (!source.is_string() || !noveltea::assets::AssetPath::parse(logical_path))
+                return fail("Runtime UI Test projectTextSources contains an invalid entry.");
+            const auto text = source.get<std::string>();
+            project_assets->add(
+                logical_path, noveltea::assets::AssetBytes(text.begin(), text.end()),
+                "pinned Project text source");
+            has_project_text_sources = true;
+        }
+    }
+
     ToolingScriptSource fallback_gameplay_sources;
     noveltea::assets::AssetManager gameplay_assets;
     noveltea::runtime::ScriptSourcePort* gameplay_sources = &fallback_gameplay_sources;
+    if (has_project_text_sources)
+        gameplay_assets.mount("project", project_assets);
     if (project_root) {
         gameplay_assets.mount_directory("project", *project_root, false);
+    }
+    if (has_project_text_sources || project_root) {
         gameplay_sources = &gameplay_assets;
     }
     auto gameplay_scripts = std::make_unique<noveltea::script::ScriptRuntime>();
@@ -687,7 +708,6 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         return compiled_project_admission_failure("Compiled runtime load failed.",
                                                   diagnostics_json(running_game.error()));
 
-    auto project_assets = std::make_shared<noveltea::assets::MemoryAssetSource>();
     noveltea::jobs::InlineJobExecutor executor;
     ExecutorShutdownGuard executor_shutdown(executor);
     auto residency = std::make_shared<noveltea::assets::AssetResidencyManager>(
@@ -697,9 +717,11 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
                                          .audio_bytes = 64 * 1024 * 1024,
                                          .temporary_bytes = 64 * 1024 * 1024});
     noveltea::assets::AssetManager frontend_assets;
+    if (has_project_text_sources)
+        frontend_assets.mount("project", project_assets);
     if (project_root)
         frontend_assets.mount_directory("project", *project_root, false);
-    else
+    else if (!has_project_text_sources)
         frontend_assets.mount("project", project_assets);
     frontend_assets.mount_directory("system", system_asset_root, false);
     if (!frontend_assets.configure_async_requests(executor, residency))

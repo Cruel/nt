@@ -378,46 +378,77 @@ export interface ScriptcInvocationContext {
   readonly prepareResidentSnapshotOnly?: boolean;
 }
 
-function pinnedExternalAssetsFromSnapshot(
-  snapshotText: string | undefined,
-):
-  | readonly import('../src/cli/pinned-external-assets').PinnedExternalAssetExpectation[]
-  | undefined {
-  if (!snapshotText) return undefined;
-  const parsed = JSON.parse(snapshotText) as { externalAssets?: unknown };
-  if (!Array.isArray(parsed.externalAssets))
-    throw new Error('Pinned portable Project snapshot is missing external Asset authority.');
-  return parsed.externalAssets.map((value) => {
-    if (!value || typeof value !== 'object')
-      throw new Error('Pinned portable Project snapshot has malformed external Asset authority.');
-    const record = value as Record<string, unknown>;
-    if (
-      typeof record.path !== 'string' ||
-      (record.sourceIdentity !== undefined && typeof record.sourceIdentity !== 'string') ||
-      (record.byteSize !== undefined &&
-        (!Number.isSafeInteger(record.byteSize) || (record.byteSize as number) < 0)) ||
-      (record.mtimeNanoseconds !== undefined &&
-        record.mtimeNanoseconds !== null &&
-        typeof record.mtimeNanoseconds !== 'string') ||
-      (record.contentHash !== undefined &&
-        record.contentHash !== null &&
-        typeof record.contentHash !== 'string')
-    )
-      throw new Error('Pinned portable Project snapshot has malformed external Asset authority.');
-    return {
-      path: record.path,
-      ...(typeof record.sourceIdentity === 'string'
-        ? { sourceIdentity: record.sourceIdentity }
-        : {}),
-      ...(typeof record.byteSize === 'number' ? { byteSize: record.byteSize } : {}),
-      ...(typeof record.mtimeNanoseconds === 'string' || record.mtimeNanoseconds === null
-        ? { mtimeNanoseconds: record.mtimeNanoseconds }
-        : {}),
-      ...(typeof record.contentHash === 'string' || record.contentHash === null
-        ? { contentHash: record.contentHash }
-        : {}),
-    };
-  });
+async function createPinnedRuntimeArtifactPaths(
+  fileSystem: import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem,
+  projectRoot: string,
+  inputs: import('../src/shared/project-workspace/resident-project-workspace-service').PinnedPortableResidentProjectInputs,
+): Promise<import('../src/shared/runtime-artifact-preparation').RuntimeArtifactPathAdapter> {
+  const [nodePaths, pinnedAssets] = await Promise.all([
+    import('../src/main/services/node-runtime-artifact-adapters'),
+    import('../src/cli/pinned-external-assets'),
+  ]);
+  const externalByPath = new Map(
+    inputs.externalAssets.map((entry) => [entry.path.replaceAll('\\', '/'), entry]),
+  );
+  return {
+    ...nodePaths.nodeRuntimeArtifactPaths,
+    async readProjectTextSources(root, entries) {
+      const results = new Map<
+        string,
+        Awaited<
+          ReturnType<NonNullable<typeof nodePaths.nodeRuntimeArtifactPaths.readProjectTextSources>>
+        >[number]
+      >();
+      const external = [] as (typeof entries)[number][];
+      for (const entry of entries) {
+        const relative = entry.projectRelativePath.replaceAll('\\', '/').replace(/^\/+/, '');
+        if (entry.expectedContentHash !== null) {
+          external.push(entry);
+          continue;
+        }
+        const source = inputs.projectTextSources[relative];
+        results.set(
+          entry.assetId,
+          source
+            ? {
+                status: 'ready',
+                assetId: entry.assetId,
+                projectRelativePath: relative,
+                contentHash: source.contentHash,
+                text: source.text,
+              }
+            : { status: 'unavailable', assetId: entry.assetId },
+        );
+      }
+      if (external.length > 0) {
+        const expectations = external
+          .map((entry) =>
+            externalByPath.get(entry.projectRelativePath.replaceAll('\\', '/').replace(/^\/+/, '')),
+          )
+          .filter((entry) => entry !== undefined);
+        if (expectations.length === external.length) {
+          const diagnostics = await pinnedAssets.verifyPinnedExternalAssets(
+            fileSystem,
+            projectRoot,
+            expectations,
+          );
+          if (diagnostics.length === 0) {
+            const observed = await nodePaths.nodeRuntimeArtifactPaths.readProjectTextSources!(
+              root,
+              external,
+            );
+            for (const entry of observed) results.set(entry.assetId, entry);
+          }
+        }
+        for (const entry of external)
+          if (!results.has(entry.assetId))
+            results.set(entry.assetId, { status: 'unavailable', assetId: entry.assetId });
+      }
+      return entries.map(
+        (entry) => results.get(entry.assetId) ?? { status: 'unavailable', assetId: entry.assetId },
+      );
+    },
+  };
 }
 
 export async function runNovelTeaScriptcIsland(
@@ -516,6 +547,19 @@ async function runNovelTeaScriptcIslandScoped(
     | undefined;
   let workspace:
     | import('../src/shared/project-workspace/project-workspace-service').ProjectWorkspaceService
+    | undefined;
+  let pinnedExternalAssets:
+    | readonly import('../src/cli/pinned-external-assets').PinnedExternalAssetExpectation[]
+    | undefined;
+  let pinnedProjectTextSources:
+    | import('../src/shared/project-workspace/resident-project-workspace-service').PinnedPortableResidentProjectInputs['projectTextSources']
+    | undefined;
+  let pinnedRuntimeBuildCacheInputs:
+    | import('../src/shared/runtime-build-cache').PinnedRuntimeBuildCacheInputs
+    | null
+    | undefined;
+  let pinnedRuntimeArtifactPaths:
+    | import('../src/shared/runtime-artifact-preparation').RuntimeArtifactPathAdapter
     | undefined;
   if (!projectIndependentPlatform) {
     trace('scoped filesystem import starting');
@@ -618,6 +662,25 @@ async function runNovelTeaScriptcIslandScoped(
           throw new Error(
             'Pinned Project generation could not be hydrated from its portable snapshot.',
           );
+        const pinnedInputs = await residentWorkspace.pinnedPortableInputs(pinned.projectRoot);
+        if (!pinnedInputs)
+          throw new Error('Pinned Project generation did not retain its decoded portable inputs.');
+        pinnedExternalAssets = pinnedInputs.externalAssets;
+        pinnedProjectTextSources = pinnedInputs.projectTextSources;
+        const { pinnedRuntimeBuildCacheInputsFromAuthority } =
+          await import('../src/shared/runtime-build-cache');
+        const openedPinned = await residentWorkspace.open(pinned.projectRoot);
+        if (!openedPinned.ok)
+          throw new Error('Pinned Project generation could not expose its decoded Project state.');
+        pinnedRuntimeBuildCacheInputs = pinnedRuntimeBuildCacheInputsFromAuthority(
+          openedPinned.snapshot,
+          pinnedInputs.physicalAuthority,
+        );
+        pinnedRuntimeArtifactPaths = await createPinnedRuntimeArtifactPaths(
+          fileSystem,
+          pinned.projectRoot,
+          pinnedInputs,
+        );
         trace(`pinned Project snapshot hydrated: ${pinned.projectRoot}`);
       }
     }
@@ -694,9 +757,10 @@ async function runNovelTeaScriptcIslandScoped(
           : {}),
         ...(invocationContext.pinnedProjectSnapshot
           ? {
-              pinnedExternalAssets: pinnedExternalAssetsFromSnapshot(
-                invocationContext.pinnedProjectSnapshot.snapshotText,
-              ),
+              pinnedExternalAssets,
+              pinnedProjectTextSources,
+              pinnedRuntimeBuildCacheInputs,
+              runtimeArtifactPaths: pinnedRuntimeArtifactPaths,
             }
           : {}),
         onAuthoringValidationInstrumentation:

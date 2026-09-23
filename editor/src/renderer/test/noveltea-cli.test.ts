@@ -1638,6 +1638,62 @@ describe('NovelTea headless CLI', () => {
     expect(receivedOptions).toMatchObject({ stripShaderSources: false });
   });
 
+  it('packages pinned Project-owned script bytes instead of reopening their live files', async () => {
+    const project = validProject();
+    project.scripts.bootstrap = {
+      id: 'bootstrap',
+      label: 'Bootstrap',
+      data: {
+        kind: 'script-module',
+        source: { kind: 'project-file', path: 'scripts/bootstrap.lua' },
+      },
+    };
+    const value = fixture(project);
+    await value.fileSystem.writeTextAtomic(
+      `${root}/scripts/bootstrap.lua`,
+      'return "newer-live-generation"\n',
+    );
+    let receivedOptions: {
+      fileEntries?: Array<{ packagePath: string }>;
+      textEntries?: Array<{ packagePath: string; text: string }>;
+    } = {};
+    const nativeTools: NovelTeaCliNativeToolService = {
+      ...validationNativeTools(),
+      async exportPackage(request) {
+        receivedOptions = (request as { options: typeof receivedOptions }).options;
+        await value.fileSystem.writeBytesAtomic(
+          (request as { outputPath: string }).outputPath,
+          new TextEncoder().encode('runtime-package'),
+        );
+        return { ok: true, success: true };
+      },
+    };
+
+    const result = await runNovelTeaCli(
+      ['--json', 'package', 'export', '--output', 'dist/game.ntpkg'],
+      {
+        ...options(value, root, nativeTools),
+        pinnedProjectTextSources: {
+          'scripts/bootstrap.lua': {
+            text: 'return "pinned-generation"\n',
+            contentHash: `sha256:${'0'.repeat(64)}`,
+          },
+        },
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(receivedOptions.fileEntries).not.toContainEqual(
+      expect.objectContaining({ packagePath: 'scripts/bootstrap.lua' }),
+    );
+    expect(receivedOptions.textEntries).toContainEqual(
+      expect.objectContaining({
+        packagePath: 'scripts/bootstrap.lua',
+        text: 'return "pinned-generation"\n',
+      }),
+    );
+  });
+
   it('keeps the published Runtime Package unchanged when a pinned external Asset drifts', async () => {
     const value = fixture(validProject(), true);
     const assetPath = `${root}/assets/pinned.bin`;
@@ -2073,6 +2129,41 @@ describe('NovelTea headless CLI', () => {
       projectRoot: root,
       shaderMaterialMetadata: null,
       spec: { id: 'semantic' },
+    });
+  });
+
+  it('passes pinned Project-owned text sources to native Test playback', async () => {
+    const project = validProject();
+    project.tests.semantic = {
+      id: 'semantic',
+      label: 'Semantic smoke',
+      data: defaultTestData('Semantic smoke'),
+    };
+    const value = fixture(project);
+    let headlessRequest: unknown;
+    const nativeTools: NovelTeaCliNativeToolService = {
+      ...validationNativeTools(),
+      async runHeadlessTest(request) {
+        headlessRequest = request;
+        return { ok: true, success: true };
+      },
+    };
+
+    const result = await runNovelTeaCli(['--json', 'test', 'run', 'semantic'], {
+      ...options(value, root, nativeTools),
+      pinnedProjectTextSources: {
+        'scripts/bootstrap.lua': {
+          text: 'return "pinned-generation"\n',
+          contentHash: `sha256:${'0'.repeat(64)}`,
+        },
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(headlessRequest).toMatchObject({
+      projectTextSources: {
+        'scripts/bootstrap.lua': 'return "pinned-generation"\n',
+      },
     });
   });
 

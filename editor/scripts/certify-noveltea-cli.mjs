@@ -1188,16 +1188,17 @@ async function runDifferential(tempRoot) {
     const nodeResult = normalizeResult(nodeResultRaw, roots.node);
     const scriptcResult = normalizeResult(scriptcResultRaw, roots.daemon);
     const noDaemonResult = normalizeResult(noDaemonResultRaw, roots.noDaemon);
-    const [nodeTree, scriptcTree, noDaemonTree] = [roots.node, roots.daemon, roots.noDaemon].map(
-      (root) =>
+    const [nodeTree, scriptcTree, noDaemonTree] = await Promise.all(
+      [roots.node, roots.daemon, roots.noDaemon].map((root) =>
         test.project === false
-          ? ''
+          ? Promise.resolve('')
           : treeSnapshot(root, (relativePath, bytes) =>
               canonicalizeLaneBytes(
                 test.normalizeTree ? test.normalizeTree(relativePath, bytes) : bytes,
                 root,
               ),
             ),
+      ),
     );
 
     const canonicalStdout = test.canonicalStdout ?? ((value) => value);
@@ -2382,9 +2383,20 @@ async function certifyDisposableTestScheduling(tempRoot) {
   runNative(['daemon', 'stop'], { env: environment });
   try {
     const generationRoot = await resetFeatureLab('disposable-test-generation');
+    requireSuccess(
+      'Disposable Test pinned-cache baseline',
+      runNative(['--project', generationRoot, '--json', 'test', 'run', 'rooms-interactions-flow'], {
+        cwd: generationRoot,
+        env: traceEnvironment,
+      }),
+    );
+    await rm(path.join(generationRoot, '.noveltea', 'cache', 'runtime'), {
+      recursive: true,
+      force: true,
+    });
     const longEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '5000',
       NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
     };
     const longTest = await runAsync(
@@ -2397,34 +2409,80 @@ async function certifyDisposableTestScheduling(tempRoot) {
       (daemon) => daemon.disposableBusyWorkers >= 1 && daemon.disposableStandbyWorkers >= 1,
     );
     const daemonPid = activeStatus.pid;
-    const roomPath = path.join(generationRoot, 'records', 'rooms', 'feature-lab-home.json');
-    const room = JSON.parse(await readFile(roomPath, 'utf8'));
-    room.label = `${room.label} generation advance`;
-    await writeJson(roomPath, room);
-    requireSuccess(
-      'Disposable Test concurrent foreground validation',
-      runNative(['--project', generationRoot, '--json', 'validate'], {
-        cwd: generationRoot,
-        env: traceEnvironment,
-      }),
+    const bootstrapPath = path.join(generationRoot, 'scripts', 'feature-lab-bootstrap.lua');
+    await writeFile(
+      bootstrapPath,
+      'error("generation-two")\nreturn { route_startup = function() end }\n',
     );
-    const structuralRacePath = path.join(
+    const newerTarget = runNative(
+      ['--project', generationRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
+      { cwd: generationRoot, env: traceEnvironment },
+    );
+    if (
+      newerTarget.status === 0 ||
+      !`${newerTarget.stdout}${newerTarget.stderr}`.includes('generation-two')
+    )
+      fail('Newer disposable Test generation did not establish observably different semantics.');
+    const runtimeCurrentPath = path.join(
       generationRoot,
-      'records',
-      'rooms',
-      'disposable-pinned-generation-race.json',
+      '.noveltea',
+      'cache',
+      'runtime',
+      'current',
     );
-    await writeFile(structuralRacePath, '{ invalid live-only source');
+    const newerGeneration = (await readFile(runtimeCurrentPath, 'utf8')).trim();
+    if (!newerGeneration)
+      fail('Newer disposable Test generation did not publish a runtime cache generation.');
     const longResult = await longTest.result();
     requireSuccess('Disposable Test generation-pinned execution', longResult);
-    await rm(structuralRacePath, { force: true });
+    if (JSON.parse(longResult.stdout).native?.report?.passed !== true)
+      fail('Pinned disposable Test did not preserve generation-N runtime semantics.');
+    const generationAfterPinnedCompletion = (await readFile(runtimeCurrentPath, 'utf8')).trim();
+    if (generationAfterPinnedCompletion !== newerGeneration)
+      fail(
+        `Pinned Test generation replaced the newer runtime cache generation: ` +
+          `${newerGeneration} -> ${generationAfterPinnedCompletion}`,
+      );
+
+    const malformedRoot = await resetFeatureLab('disposable-test-malformed-latest');
     requireSuccess(
-      'Disposable Test structural-race repair',
-      runNative(['--project', generationRoot, '--json', 'validate'], {
-        cwd: generationRoot,
-        env: traceEnvironment,
+      'Disposable Test malformed-latest retained baseline',
+      runNative(['--project', malformedRoot, '--json', 'test', 'run', 'rooms-interactions-flow'], {
+        cwd: malformedRoot,
+        env: environment,
       }),
     );
+    const malformedRoom = path.join(malformedRoot, 'records', 'rooms', 'feature-lab-home.json');
+    await writeFile(malformedRoom, '{ malformed current generation');
+    const retainedFailure = runNative(
+      ['--project', malformedRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
+      { cwd: malformedRoot, env: environment },
+    );
+    const localFailure = runNative(
+      ['--project', malformedRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
+      {
+        cwd: malformedRoot,
+        env: { ...environment, NOVELTEA_NO_DAEMON: '1' },
+      },
+    );
+    if (
+      retainedFailure.status === 0 ||
+      retainedFailure.status !== localFailure.status ||
+      retainedFailure.stdout !== localFailure.stdout
+    )
+      fail(
+        `Malformed newest Project generation did not preserve the original heavy-command failure semantics.\n` +
+          `daemon=${retainedFailure.status}: ${retainedFailure.stdout}\n` +
+          `local=${localFailure.status}: ${localFailure.stdout}`,
+      );
+    if (
+      `${retainedFailure.stdout}${retainedFailure.stderr}`.includes(
+        'Project owner did not publish the requested portable snapshot',
+      )
+    )
+      fail(
+        'Malformed newest Project generation collapsed into a generic snapshot-preparation error.',
+      );
     if (!longResult.stderr.includes('[scriptc-host] daemon invocation forwarding'))
       fail('Generation-pinned Test did not exercise the resident daemon route.');
     const longSchedulerProfile = schedulerProfile(longResult);
@@ -2571,8 +2629,8 @@ async function certifyDisposableTestScheduling(tempRoot) {
     if (recovered.pid !== daemonPid)
       fail('Disposable Test worker crash replaced or terminated the daemon broker.');
     const ownerAfterDisposableCrash = requireSuccess(
-      'Disposable Test crash isolation owner validation',
-      runNative(['--project', crashRoot, '--json', 'validate'], {
+      'Disposable Test crash isolation owner read',
+      runNative(['--project', crashRoot, '--json', 'usages', 'rooms', 'feature-lab-home'], {
         cwd: crashRoot,
         env: { ...traceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
       }),
@@ -2659,6 +2717,18 @@ async function certifyDisposableOutputScheduling(tempRoot) {
   runNative(['daemon', 'stop'], { env: environment });
   try {
     const generationRoot = await resetFeatureLab('disposable-output-generation');
+    const layoutRecordPath = path.join(
+      generationRoot,
+      'records',
+      'layouts',
+      'feature-lab-hud',
+      'layout.json',
+    );
+    const layoutRecord = JSON.parse(await readFile(layoutRecordPath, 'utf8'));
+    layoutRecord.data.dependencies.scripts.push('scripts/disposable-layout-helper.lua');
+    await writeJson(layoutRecordPath, layoutRecord);
+    const layoutHelperPath = path.join(generationRoot, 'scripts', 'disposable-layout-helper.lua');
+    await writeFile(layoutHelperPath, 'return { generation = "one" }\n');
     const generationBaselineOutput = path.join(tempRoot, 'disposable-generation-baseline.ntpkg');
     const generationOutput = path.join(tempRoot, 'disposable-generation.ntpkg');
     await rm(generationBaselineOutput, { force: true });
@@ -2688,6 +2758,12 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     const room = JSON.parse(await readFile(roomPath, 'utf8'));
     room.label = `${room.label} output generation advance`;
     await writeJson(roomPath, room);
+    const bootstrapPath = path.join(generationRoot, 'scripts', 'feature-lab-bootstrap.lua');
+    await writeFile(
+      bootstrapPath,
+      `${await readFile(bootstrapPath, 'utf8')}\n-- disposable generation two\n`,
+    );
+    await writeFile(layoutHelperPath, 'return { generation = "two" }\n');
     const addedRoomPath = path.join(
       generationRoot,
       'records',

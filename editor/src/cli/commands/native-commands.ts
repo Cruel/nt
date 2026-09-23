@@ -28,9 +28,50 @@ import type { CliCommandContext, CliCommandDefinition, CliCommandInvocation } fr
 import { CliCommandUsageError } from './types';
 import { executeCachedRuntimeArtifactWithRecovery } from '../../shared/runtime-cache-native-consumer';
 import { verifyPinnedExternalAssets } from '../pinned-external-assets';
+import type { PreparedRuntimePackageOptions } from '../../shared/project-schema/prepared-runtime-artifact';
 
 const shaderVariantIds = new Set(['glsl-330', 'essl-300', 'metal']);
 const runtimeBuildCacheProcessLiveness = new NodeProjectWorkspaceProcessLiveness();
+
+function pinnedProjectTextSourceRequest(context: CliCommandContext) {
+  if (!context.pinnedProjectTextSources) return {};
+  return {
+    projectTextSources: Object.fromEntries(
+      Object.entries(context.pinnedProjectTextSources).map(([relativePath, source]) => [
+        relativePath.replaceAll('\\', '/').replace(/^\/+/, ''),
+        source.text,
+      ]),
+    ),
+  };
+}
+
+function packageOptionsWithPinnedProjectTextSources(
+  options: PreparedRuntimePackageOptions,
+  sources: CliCommandContext['pinnedProjectTextSources'],
+): PreparedRuntimePackageOptions {
+  if (!sources) return options;
+  const byPath = new Map(
+    Object.entries(sources).map(([relativePath, source]) => [
+      relativePath.replaceAll('\\', '/').replace(/^\/+/, ''),
+      source,
+    ]),
+  );
+  const pinnedEntries = options.fileEntries.filter((entry) => byPath.has(entry.packagePath));
+  if (pinnedEntries.length === 0) return options;
+  const pinnedPaths = new Set(pinnedEntries.map((entry) => entry.packagePath));
+  return {
+    ...options,
+    fileEntries: options.fileEntries.filter((entry) => !pinnedPaths.has(entry.packagePath)),
+    textEntries: [
+      ...options.textEntries.filter((entry) => !pinnedPaths.has(entry.packagePath)),
+      ...pinnedEntries.map((entry) => ({
+        text: byPath.get(entry.packagePath)!.text,
+        packagePath: entry.packagePath,
+        storage: entry.storage,
+      })),
+    ],
+  };
+}
 
 function nativeFailure(code: string, pathValue: string, response: unknown): CliSemanticResult {
   const record =
@@ -275,7 +316,15 @@ function nativeSuiteResult(response: unknown): CliSemanticResult {
 }
 
 async function prepareCachedTestRuntime(context: CliCommandContext, forceRebuild = false) {
-  const lookup = await lookupCanonicalRuntimeBuildCache(context.fileSystem, context.snapshot);
+  const lookup =
+    context.pinnedRuntimeBuildCacheInputs === null
+      ? ({ enabled: false } as const)
+      : await lookupCanonicalRuntimeBuildCache(
+          context.fileSystem,
+          context.snapshot,
+          undefined,
+          context.pinnedRuntimeBuildCacheInputs,
+        );
   const rebuild = forceRebuild || context.forceRuntimeCacheRebuild;
   let artifact = rebuild ? undefined : lookup.enabled ? lookup.artifact : undefined;
   let testCatalog = rebuild ? undefined : lookup.enabled ? lookup.testCatalog : undefined;
@@ -289,6 +338,7 @@ async function prepareCachedTestRuntime(context: CliCommandContext, forceRebuild
   const expectedTestInputs =
     lookup.enabled && lookup.inputSnapshot
       ? (lookup.testInputSnapshot ??
+        context.pinnedRuntimeBuildCacheInputs?.tests ??
         (await captureRuntimeBuildCacheTestInputs(context.fileSystem, context.snapshot).catch(
           () => undefined,
         )))
@@ -405,6 +455,7 @@ export const testRunCommand: CliCommandDefinition = {
               project: runtime.artifact.compiledProject,
               catalog: runtime.testCatalog,
               projectRoot: context.snapshot.projectRoot,
+              ...pinnedProjectTextSourceRequest(context),
               shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
             });
           };
@@ -461,6 +512,7 @@ export const testRunCommand: CliCommandDefinition = {
             project: runtime.artifact.compiledProject,
             spec: runtimeEntry.spec,
             projectRoot: context.snapshot.projectRoot,
+            ...pinnedProjectTextSourceRequest(context),
             shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
           };
           return runtimeEntry.runner === 'runtime-ui'
@@ -519,12 +571,14 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
                   project: runtime.artifact.compiledProject,
                   spec,
                   projectRoot: context.snapshot.projectRoot,
+                  ...pinnedProjectTextSourceRequest(context),
                   shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
                 })
               : context.nativeTools.runHeadlessTest({
                   project: runtime.artifact.compiledProject,
                   spec,
                   projectRoot: context.snapshot.projectRoot,
+                  ...pinnedProjectTextSourceRequest(context),
                   shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
                 });
           const response = await executeCachedRuntimeArtifactWithRecovery({
@@ -605,7 +659,7 @@ export const packageExportCommand: CliCommandDefinition = {
           shaderCompiler: nodeShaderCompilerAdapter((shaderProject, options) =>
             context.nativeTools.compileShaders(shaderProject, options),
           ),
-          paths: nodeRuntimeArtifactPaths,
+          paths: context.runtimeArtifactPaths ?? nodeRuntimeArtifactPaths,
         });
         if (prepared.status !== 'prepared')
           return {
@@ -636,7 +690,10 @@ export const packageExportCommand: CliCommandDefinition = {
           const response = await context.nativeTools.exportPackage({
             project: prepared.artifact.compiledProject,
             outputPath: stagedPath,
-            options: prepared.artifact.packageOptions,
+            options: packageOptionsWithPinnedProjectTextSources(
+              prepared.artifact.packageOptions,
+              context.pinnedProjectTextSources,
+            ),
           });
           const native = nativeSuccess(response);
           if (!native.ok) return native;

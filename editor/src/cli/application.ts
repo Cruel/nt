@@ -134,6 +134,13 @@ export interface RunNovelTeaCliOptions {
   /** Internal disposable-worker contract: native already pinned the supplied immutable generation. */
   readonly trustPinnedResidentSnapshot?: boolean;
   readonly pinnedExternalAssets?: readonly import('./pinned-external-assets').PinnedExternalAssetExpectation[];
+  readonly pinnedProjectTextSources?: Readonly<
+    Record<string, Readonly<{ text: string; contentHash?: string }>>
+  >;
+  readonly runtimeArtifactPaths?: import('../shared/runtime-artifact-preparation').RuntimeArtifactPathAdapter;
+  readonly pinnedRuntimeBuildCacheInputs?:
+    | import('../shared/runtime-build-cache').PinnedRuntimeBuildCacheInputs
+    | null;
   /** Internal bounded retry counter for resident read authority races. */
   readonly residentReadAttempt?: number;
 }
@@ -517,6 +524,9 @@ export async function runNovelTeaCli(
         abortSignal: options.abortSignal,
         forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
         pinnedExternalAssets: options.pinnedExternalAssets,
+        pinnedProjectTextSources: options.pinnedProjectTextSources,
+        runtimeArtifactPaths: options.runtimeArtifactPaths,
+        pinnedRuntimeBuildCacheInputs: options.pinnedRuntimeBuildCacheInputs,
       });
       const diagnostics = [...prepared.diagnostics, ...semantic.diagnostics];
       if (!semantic.ok)
@@ -677,6 +687,9 @@ export async function runNovelTeaCli(
         abortSignal: options.abortSignal,
         forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild ?? false,
         pinnedExternalAssets: options.pinnedExternalAssets,
+        pinnedProjectTextSources: options.pinnedProjectTextSources,
+        runtimeArtifactPaths: options.runtimeArtifactPaths,
+        pinnedRuntimeBuildCacheInputs: options.pinnedRuntimeBuildCacheInputs,
       });
     } finally {
       if (

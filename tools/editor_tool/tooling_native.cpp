@@ -535,6 +535,8 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
         }
         source.add("project:/" + entry.package_path, *content);
     }
+    for (const auto& entry : options.text_entries)
+        source.add("project:/" + entry.package_path, entry.text);
     if (!diagnostics.empty())
         return Result<void, Diagnostics>::failure(std::move(diagnostics));
 
@@ -624,6 +626,15 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         return fail("Request requires a playback spec.");
 
     ToolingScriptSource sources;
+    if (const auto provided = request.find("projectTextSources"); provided != request.end()) {
+        if (!provided->is_object())
+            return fail("Runtime Test projectTextSources must be an object.");
+        for (const auto& [relative, source] : provided->items()) {
+            if (!safe_project_relative_path(relative) || !source.is_string())
+                return fail("Runtime Test projectTextSources contains an invalid entry.");
+            sources.add("project:/" + relative, source.get<std::string>());
+        }
+    }
     if (const auto root = request.find("projectRoot"); root != request.end() && !root->is_null()) {
         if (!root->is_string())
             return fail("Runtime Test projectRoot must be a string or null.");
@@ -1144,6 +1155,8 @@ nlohmann::json run_test_suite(const nlohmann::json& request)
         };
         if (auto root = request.find("projectRoot"); root != request.end())
             preflight_request["projectRoot"] = *root;
+        if (auto sources = request.find("projectTextSources"); sources != request.end())
+            preflight_request["projectTextSources"] = *sources;
         if (auto shader_metadata = request.find("shaderMaterialMetadata");
             shader_metadata != request.end())
             preflight_request["shaderMaterialMetadata"] = *shader_metadata;
@@ -1187,6 +1200,8 @@ nlohmann::json run_test_suite(const nlohmann::json& request)
         nlohmann::json single_request = {{"project", *project}, {"spec", *spec}};
         if (auto root = request.find("projectRoot"); root != request.end())
             single_request["projectRoot"] = *root;
+        if (auto sources = request.find("projectTextSources"); sources != request.end())
+            single_request["projectTextSources"] = *sources;
         if (auto shader_metadata = request.find("shaderMaterialMetadata");
             shader_metadata != request.end())
             single_request["shaderMaterialMetadata"] = *shader_metadata;
