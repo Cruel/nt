@@ -303,6 +303,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .actors = {},
         .presentation_props = {},
         .presentation_environments = {},
+        .material_selections = {},
         .material_parameters = {},
         .postprocess_effects = {},
         .mounted_layouts = {},
@@ -410,6 +411,14 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                 environment.material, environment.bounds, environment.plane, environment.order,
                 environment.clock, environment.scroll_per_second, environment.opacity,
                 environment.visible});
+    }
+    for (const auto& selection : session.m_material_selections) {
+        auto owner = save_presentation_owner(session, frame_ids, selection.owner);
+        if (!owner)
+            return Result<SaveState, Diagnostics>::failure(owner.error());
+        if (*owner.value_if())
+            save.material_selections.push_back(
+                SavedMaterialSelection{**owner.value_if(), selection.target, selection.material});
     }
     for (const auto& parameter : session.m_material_parameters) {
         auto owner = save_presentation_owner(session, frame_ids, parameter.owner);

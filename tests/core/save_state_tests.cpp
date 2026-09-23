@@ -1561,10 +1561,14 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
         REQUIRE(material != document["resources"]["materialInterfaces"].end());
         (*material)["parameters"].push_back(
             {{"name", "u_runtime"}, {"type", "float"}, {"rendererBinding", nullptr}});
+        auto alternate = *material;
+        alternate["id"] = "alternate-material";
+        document["resources"]["materialInterfaces"].push_back(std::move(alternate));
     });
     auto state = make_state(project);
     const PresentationOwner owner{state.session_presentation_owner()};
     const auto sprite_material = id<MaterialId>("sprite-material");
+    const auto alternate_material = id<MaterialId>("alternate-material");
     const auto postprocess_material = id<MaterialId>("scene-postprocess-material");
 
     REQUIRE(state.upsert_background_override(
@@ -1582,6 +1586,14 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
         InteractableDefinitionMaterialOccurrence{id<InteractableDefinitionId>("key")};
     const MaterialOccurrence interactable_scope =
         InteractableMaterialOccurrence{id<InteractableInstanceId>("key")};
+    const MaterialSelectionTarget definition_selection =
+        InteractableDefinitionMaterialOccurrence{id<InteractableDefinitionId>("key")};
+    const MaterialSelectionTarget interactable_selection =
+        InteractableMaterialOccurrence{id<InteractableInstanceId>("key")};
+    REQUIRE(state.upsert_material_selection(
+        project, DesiredMaterialSelection{owner, definition_selection, alternate_material}));
+    REQUIRE(state.upsert_material_selection(
+        project, DesiredMaterialSelection{owner, interactable_selection, sprite_material}));
     REQUIRE(state.upsert_material_parameter(
         project, DesiredMaterialParameter{owner, material_scope, sprite_material, "u_runtime", 0.2,
                                           std::nullopt, MaterialClockPolicy::Gameplay}));
@@ -1591,6 +1603,10 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
     REQUIRE(state.upsert_material_parameter(
         project, DesiredMaterialParameter{owner, interactable_scope, sprite_material, "u_runtime",
                                           0.6, std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.upsert_material_parameter(
+        project,
+        DesiredMaterialParameter{owner, interactable_scope, alternate_material, "u_runtime", 0.8,
+                                 std::nullopt, MaterialClockPolicy::Gameplay}));
 
     const auto effect_id = id<PostprocessEffectInstanceId>("saved-grade");
     REQUIRE(state.upsert_postprocess_effect(
@@ -1606,7 +1622,8 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
 
     auto saved = make_save_state(project, state);
     REQUIRE(saved);
-    CHECK(saved.value().material_parameters.size() == 4);
+    CHECK(saved.value().material_selections.size() == 2);
+    CHECK(saved.value().material_parameters.size() == 5);
     CHECK(saved.value().postprocess_effects.size() == 1);
 
     auto encoded = encode_save_state(project, saved.value());
@@ -1616,8 +1633,17 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
     auto restored = test_support::restore_session(project, decoded.value());
     REQUIRE(restored);
 
-    REQUIRE(restored.value().material_parameters().size() == 4);
+    REQUIRE(restored.value().material_selections().size() == 2);
+    REQUIRE(restored.value().material_parameters().size() == 5);
     REQUIRE(restored.value().postprocess_effects().size() == 1);
+    const auto restored_selection = [&](const MaterialSelectionTarget& target,
+                                        const MaterialId& material) {
+        return std::ranges::any_of(restored.value().material_selections(), [&](const auto& value) {
+            return value.target == target && value.material == material;
+        });
+    };
+    CHECK(restored_selection(definition_selection, alternate_material));
+    CHECK(restored_selection(interactable_selection, sprite_material));
     const auto& restored_effect = restored.value().postprocess_effects().front();
     CHECK(restored_effect.instance == effect_id);
     CHECK(restored_effect.material == postprocess_material);
@@ -1649,4 +1675,12 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
     restored_scoped_value(material_scope, 0.2);
     restored_scoped_value(definition_scope, 0.4);
     restored_scoped_value(interactable_scope, 0.6);
+    const auto dormant =
+        std::ranges::find_if(restored.value().material_parameters(), [&](const auto& parameter) {
+            return parameter.occurrence == interactable_scope &&
+                   parameter.material == alternate_material && parameter.parameter == "u_runtime";
+        });
+    REQUIRE(dormant != restored.value().material_parameters().end());
+    REQUIRE(dormant->value);
+    CHECK(std::get<double>(*dormant->value) == 0.8);
 }

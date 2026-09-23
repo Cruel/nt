@@ -140,6 +140,15 @@ struct RemovePresentationEnvironmentsByStopKeyCommand {
     core::PresentationOwner owner;
     bool operator==(const RemovePresentationEnvironmentsByStopKeyCommand&) const = default;
 };
+struct UpsertMaterialSelectionCommand {
+    core::DesiredMaterialSelection value;
+    bool operator==(const UpsertMaterialSelectionCommand&) const = default;
+};
+struct RemoveMaterialSelectionCommand {
+    core::MaterialSelectionTarget target;
+    core::PresentationOwner owner;
+    bool operator==(const RemoveMaterialSelectionCommand&) const = default;
+};
 struct UpsertMaterialParameterCommand {
     core::DesiredMaterialParameter value;
     bool operator==(const UpsertMaterialParameterCommand&) const = default;
@@ -205,10 +214,11 @@ using DeferredRuntimeCommandPayload = std::variant<
     RemoveBackgroundOverrideCommand, UpsertActorPresentationCommand, RemoveActorPresentationCommand,
     UpsertPresentationPropCommand, RemovePresentationPropCommand,
     UpsertPresentationEnvironmentCommand, RemovePresentationEnvironmentCommand,
-    RemovePresentationEnvironmentsByStopKeyCommand, UpsertMaterialParameterCommand,
-    RemoveMaterialParameterCommand, UpsertPostprocessEffectCommand, RemovePostprocessEffectCommand,
-    UpsertDesiredAudioCommand, RemoveDesiredAudioCommand, RemoveDesiredAudioPurposeCommand,
-    UpsertMountedLayoutCommand, RemoveMountedLayoutCommand, SetReservedLayoutCommand>;
+    RemovePresentationEnvironmentsByStopKeyCommand, UpsertMaterialSelectionCommand,
+    RemoveMaterialSelectionCommand, UpsertMaterialParameterCommand, RemoveMaterialParameterCommand,
+    UpsertPostprocessEffectCommand, RemovePostprocessEffectCommand, UpsertDesiredAudioCommand,
+    RemoveDesiredAudioCommand, RemoveDesiredAudioPurposeCommand, UpsertMountedLayoutCommand,
+    RemoveMountedLayoutCommand, SetReservedLayoutCommand>;
 
 struct DeferredRuntimeCommand {
     RuntimeCommandSequence sequence;

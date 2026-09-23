@@ -208,6 +208,13 @@ public:
     presentation_environment(const core::PresentationEnvironmentInstanceId& instance,
                              const core::PresentationOwner& owner) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
+    upsert_material_selection(core::DesiredMaterialSelection value);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_material_selection(core::MaterialSelectionTarget target, core::PresentationOwner owner);
+    [[nodiscard]] core::Result<std::optional<core::DesiredMaterialSelection>, core::Diagnostics>
+    material_selection(const core::MaterialSelectionTarget& target,
+                       const core::PresentationOwner& owner) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     upsert_material_parameter(core::DesiredMaterialParameter value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     remove_material_parameter(core::MaterialOccurrence occurrence, core::PresentationOwner owner,

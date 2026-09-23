@@ -89,13 +89,20 @@ The current capability surface includes:
 - `noveltea.presentation.set_prop`, `clear_prop`, and `prop`;
 - `noveltea.presentation.set_environment`, `clear_environment`, `stop_environments`, and
   `environment` for scoped, reconstructible long-lived visual modes;
+- `noveltea.presentation.set_material_selection`, `clear_material_selection`, and
+  `material_selection` for temporary runtime Interactable Material-selection overrides. Selection
+  targets are `{kind='interactable-definition', id='...'}` or `{kind='interactable', id='...'}`;
+  Instance runtime selection outranks the authored Instance Material override, which outranks
+  Definition runtime selection. Clearing reveals the next lower selection without mutating authored
+  data or deleting Material-keyed parameter state;
 - `noveltea.presentation.set_material_parameter`, `bind_material_parameter`,
   `clear_material_parameter`, and `material_parameter` for typed runtime Material parameter state.
   The temporary target vocabulary accepts `{kind='material'}` for Material-wide state,
   `{kind='interactable-definition', id='...'}` for Definition state, and
   `{kind='interactable', id='...'}` for one concrete Interactable Instance, in addition to the
   existing presentation-occurrence targets. These commands validate against the certified Material
-  interface, reject renderer-owned inputs, and persist through normal save/checkpoint state;
+  interface, reject renderer-owned inputs, remain keyed by Material identity while dormant, and
+  persist through normal save/checkpoint state;
 - `noveltea.presentation.cursor.set`, `set_image`, `hide`, and `clear` for transient cursor intent;
   ordinary gameplay Lua owns the Runtime Session request, while Layout Lua owns a request scoped to
   the exact live Layout Mount occurrence. Visible Mount requests compose by presentation stacking,

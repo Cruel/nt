@@ -1210,6 +1210,7 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
                   std::move(saved_presentation->actors),
                   std::move(saved_presentation->props),
                   std::move(saved_presentation->environments),
+                  std::move(saved_presentation->material_selections),
                   std::move(saved_presentation->material_parameters),
                   std::move(saved_presentation->postprocess_effects),
                   std::move(saved_presentation->layouts),

@@ -349,6 +349,18 @@ public:
                 runtime::RuntimePresentationOwnerScope owner_scope,
                 std::optional<core::RoomId> room = std::nullopt) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_material_selection(MaterialOccurrenceCommand target, core::MaterialId material,
+                           runtime::RuntimePresentationOwnerScope owner_scope,
+                           std::optional<core::RoomId> room = std::nullopt);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    clear_material_selection(MaterialOccurrenceCommand target,
+                             runtime::RuntimePresentationOwnerScope owner_scope,
+                             std::optional<core::RoomId> room = std::nullopt);
+    [[nodiscard]] core::Result<std::optional<core::DesiredMaterialSelection>, core::Diagnostics>
+    material_selection(const MaterialOccurrenceCommand& target,
+                       runtime::RuntimePresentationOwnerScope owner_scope,
+                       std::optional<core::RoomId> room = std::nullopt) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     set_material_parameter(MaterialOccurrenceCommand occurrence, core::MaterialId material,
                            std::string parameter, core::compiled::MaterialParameterValue value,
                            MaterialParameterCommandOptions options);

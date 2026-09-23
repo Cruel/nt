@@ -631,6 +631,7 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     state->m_actors.clear();
     state->m_presentation_props.clear();
     state->m_presentation_environments.clear();
+    state->m_material_selections.clear();
     state->m_material_parameters.clear();
     state->m_postprocess_effects.clear();
     state->m_mounted_layouts.clear();
@@ -864,6 +865,15 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
             project,
             DesiredPostprocessEffect{saved.instance, *owner.value_if(), saved.material, saved.scope,
                                      saved.order, saved.clock, saved.visible});
+        if (!restored)
+            return Result<SessionState, Diagnostics>::failure(restored.error());
+    }
+    for (const auto& saved : save.material_selections) {
+        auto owner = restore_presentation_owner(saved.owner, frame_ids, *state);
+        if (!owner)
+            return Result<SessionState, Diagnostics>::failure(owner.error());
+        auto restored = state->upsert_material_selection(
+            project, DesiredMaterialSelection{*owner.value_if(), saved.target, saved.material});
         if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());
     }

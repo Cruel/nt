@@ -42,6 +42,27 @@ runtime::RuntimeCapabilityGroup instance_group(const core::GameplayInstanceRef& 
         instance);
 }
 
+core::Result<core::MaterialSelectionTarget, core::Diagnostics>
+resolve_material_selection_target(const MaterialOccurrenceCommand& target)
+{
+    using Result = core::Result<core::MaterialSelectionTarget, core::Diagnostics>;
+    return std::visit(
+        [](const auto& value) -> Result {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, MaterialInteractableDefinitionOccurrenceCommand>)
+                return Result::success(
+                    core::InteractableDefinitionMaterialOccurrence{value.definition});
+            else if constexpr (std::is_same_v<T, MaterialInteractableOccurrenceCommand>)
+                return Result::success(core::InteractableMaterialOccurrence{value.interactable});
+            else
+                return Result::failure({core::Diagnostic{
+                    .code = "runtime.invalid_material_selection_target",
+                    .message = "Material selection target must be an Interactable "
+                               "Definition or concrete Interactable Instance"}});
+        },
+        target);
+}
+
 core::Result<core::MaterialOccurrence, core::Diagnostics>
 resolve_material_occurrence(const MaterialOccurrenceCommand& occurrence,
                             const core::PresentationOwner& owner, const core::MaterialId& material)
@@ -929,6 +950,83 @@ RuntimeScriptApi::environment(core::PresentationEnvironmentInstanceId instance,
         return core::Result<std::optional<core::DesiredPresentationEnvironment>,
                             core::Diagnostics>::failure(std::move(owner.error()));
     return gateway->presentation_environment(instance, *owner.value_if());
+}
+
+core::Result<void, core::Diagnostics> RuntimeScriptApi::set_material_selection(
+    MaterialOccurrenceCommand target, core::MaterialId material,
+    runtime::RuntimePresentationOwnerScope owner_scope, std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("Material selection mutation"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    auto resolved = resolve_material_selection_target(target);
+    if (!resolved)
+        return core::Result<void, core::Diagnostics>::failure(std::move(resolved.error()));
+    return gateway->upsert_material_selection(core::DesiredMaterialSelection{
+        std::move(*owner.value_if()), std::move(*resolved.value_if()), std::move(material)});
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::clear_material_selection(MaterialOccurrenceCommand target,
+                                           runtime::RuntimePresentationOwnerScope owner_scope,
+                                           std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("Material selection clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    auto resolved = resolve_material_selection_target(target);
+    if (!resolved)
+        return core::Result<void, core::Diagnostics>::failure(std::move(resolved.error()));
+    return gateway->remove_material_selection(std::move(*resolved.value_if()),
+                                              std::move(*owner.value_if()));
+}
+
+core::Result<std::optional<core::DesiredMaterialSelection>, core::Diagnostics>
+RuntimeScriptApi::material_selection(const MaterialOccurrenceCommand& target,
+                                     runtime::RuntimePresentationOwnerScope owner_scope,
+                                     std::optional<core::RoomId> room) const
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<std::optional<core::DesiredMaterialSelection>,
+                            core::Diagnostics>::failure(unavailable());
+    const auto* gateway =
+        m_state->capabilities->query_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<std::optional<core::DesiredMaterialSelection>,
+                            core::Diagnostics>::failure(denied("Material selection query"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<std::optional<core::DesiredMaterialSelection>,
+                            core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<std::optional<core::DesiredMaterialSelection>,
+                            core::Diagnostics>::failure(std::move(owner.error()));
+    auto resolved = resolve_material_selection_target(target);
+    if (!resolved)
+        return core::Result<std::optional<core::DesiredMaterialSelection>,
+                            core::Diagnostics>::failure(std::move(resolved.error()));
+    return gateway->material_selection(*resolved.value_if(), *owner.value_if());
 }
 
 core::Result<void, core::Diagnostics> RuntimeScriptApi::set_material_parameter(
