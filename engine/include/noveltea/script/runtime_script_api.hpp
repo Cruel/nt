@@ -120,6 +120,17 @@ struct PostprocessEffectCommandOptions {
     bool visible = true;
 };
 
+struct MaterialWideOccurrenceCommand {
+    bool operator==(const MaterialWideOccurrenceCommand&) const = default;
+};
+struct MaterialInteractableDefinitionOccurrenceCommand {
+    core::InteractableDefinitionId definition;
+    bool operator==(const MaterialInteractableDefinitionOccurrenceCommand&) const = default;
+};
+struct MaterialInteractableOccurrenceCommand {
+    core::InteractableInstanceId interactable;
+    bool operator==(const MaterialInteractableOccurrenceCommand&) const = default;
+};
 struct MaterialBackgroundOccurrenceCommand {
     bool operator==(const MaterialBackgroundOccurrenceCommand&) const = default;
 };
@@ -159,11 +170,12 @@ struct MaterialPostprocessOccurrenceCommand {
     bool operator==(const MaterialPostprocessOccurrenceCommand&) const = default;
 };
 using MaterialOccurrenceCommand =
-    std::variant<MaterialBackgroundOccurrenceCommand, MaterialSceneActorOccurrenceCommand,
-                 MaterialScopedActorOccurrenceCommand, MaterialPropOccurrenceCommand,
-                 MaterialEnvironmentOccurrenceCommand, MaterialReservedLayoutOccurrenceCommand,
-                 MaterialScopedLayoutOccurrenceCommand, MaterialRoomOverlayOccurrenceCommand,
-                 MaterialPostprocessOccurrenceCommand>;
+    std::variant<MaterialWideOccurrenceCommand, MaterialInteractableDefinitionOccurrenceCommand,
+                 MaterialInteractableOccurrenceCommand, MaterialBackgroundOccurrenceCommand,
+                 MaterialSceneActorOccurrenceCommand, MaterialScopedActorOccurrenceCommand,
+                 MaterialPropOccurrenceCommand, MaterialEnvironmentOccurrenceCommand,
+                 MaterialReservedLayoutOccurrenceCommand, MaterialScopedLayoutOccurrenceCommand,
+                 MaterialRoomOverlayOccurrenceCommand, MaterialPostprocessOccurrenceCommand>;
 
 class RuntimeScriptApi {
 public:

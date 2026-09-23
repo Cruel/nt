@@ -37,7 +37,7 @@ This specification covers:
 - Scene, current-Room, Room, session, and shell ownership;
 - complete effective presentation assembly;
 - immutable `RuntimePresentationSnapshot` publication;
-- background, actor, prop, environment, occurrence-local Material Parameters, postprocess effects,
+- background, actor, prop, environment, scoped runtime Material Parameters, postprocess effects,
   Layout, Map-underlay, text/choice, and desired-audio intent;
 - ordinary presentation mutations and atomic grouped mutations;
 - Room-navigation source-to-target transitions;

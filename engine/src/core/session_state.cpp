@@ -1550,7 +1550,16 @@ Result<void, Diagnostics> SessionState::upsert_material_parameter(const Compiled
     const bool occurrence_valid = std::visit(
         [&](const auto& occurrence) {
             using O = std::decay_t<decltype(occurrence)>;
-            if constexpr (std::is_same_v<O, BackgroundMaterialOccurrence>) {
+            if constexpr (std::is_same_v<O, MaterialWideMaterialOccurrence>) {
+                return true;
+            } else if constexpr (std::is_same_v<O, InteractableDefinitionMaterialOccurrence>) {
+                const auto* definition =
+                    project.find_interactable_definition(occurrence.definition);
+                return definition != nullptr &&
+                       definition->presentation.material ==
+                           std::optional<MaterialId>{value.material} &&
+                       material->role == compiled::MaterialRole::Engine2D;
+            } else if constexpr (std::is_same_v<O, BackgroundMaterialOccurrence>) {
                 const auto background =
                     std::find_if(m_background_overrides.begin(), m_background_overrides.end(),
                                  [&](const DesiredBackgroundOverride& item) {

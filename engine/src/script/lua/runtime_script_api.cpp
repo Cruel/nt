@@ -50,7 +50,15 @@ resolve_material_occurrence(const MaterialOccurrenceCommand& occurrence,
     return std::visit(
         [&](const auto& value) -> Result {
             using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, MaterialBackgroundOccurrenceCommand>) {
+            if constexpr (std::is_same_v<T, MaterialWideOccurrenceCommand>) {
+                return Result::success(core::MaterialWideMaterialOccurrence{});
+            } else if constexpr (std::is_same_v<T,
+                                                MaterialInteractableDefinitionOccurrenceCommand>) {
+                return Result::success(
+                    core::InteractableDefinitionMaterialOccurrence{value.definition});
+            } else if constexpr (std::is_same_v<T, MaterialInteractableOccurrenceCommand>) {
+                return Result::success(core::InteractableMaterialOccurrence{value.interactable});
+            } else if constexpr (std::is_same_v<T, MaterialBackgroundOccurrenceCommand>) {
                 return Result::success(core::BackgroundMaterialOccurrence{});
             } else if constexpr (std::is_same_v<T, MaterialSceneActorOccurrenceCommand>) {
                 const auto* scene = std::get_if<core::ScenePresentationOwner>(&owner);

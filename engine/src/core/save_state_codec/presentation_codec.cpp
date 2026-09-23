@@ -720,7 +720,11 @@ nlohmann::json encode_material_occurrence(const SavedMaterialOccurrence& occurre
     return std::visit(
         [](const auto& value) -> nlohmann::json {
             using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, SavedBackgroundMaterialOccurrence>)
+            if constexpr (std::is_same_v<T, SavedMaterialWideMaterialOccurrence>)
+                return {{"kind", "material"}};
+            else if constexpr (std::is_same_v<T, SavedInteractableDefinitionMaterialOccurrence>)
+                return {{"kind", "interactable-definition"}, {"id", value.definition.text()}};
+            else if constexpr (std::is_same_v<T, SavedBackgroundMaterialOccurrence>)
                 return {{"kind", "background"}};
             else if constexpr (std::is_same_v<T, SavedActorMaterialOccurrence>)
                 return {{"kind", "actor"},
@@ -753,6 +757,21 @@ decode_material_occurrence(Decoder& d, const nlohmann::json& value, std::string_
     auto kind = kind_value ? d.string(*kind_value, child(pointer, "kind")) : std::nullopt;
     if (!kind)
         return std::nullopt;
+    if (*kind == "material") {
+        d.object(value, pointer, {"kind"});
+        return SavedMaterialWideMaterialOccurrence{};
+    }
+    if (*kind == "interactable-definition") {
+        d.object(value, pointer, {"id", "kind"});
+        const auto* id_value = d.member(value, "id", pointer);
+        auto definition = id_value ? d.id<InteractableDefinitionId>(*id_value, child(pointer, "id"))
+                                   : std::nullopt;
+        return definition
+                   ? std::optional<
+                         SavedMaterialOccurrence>{SavedInteractableDefinitionMaterialOccurrence{
+                         std::move(*definition)}}
+                   : std::nullopt;
+    }
     if (*kind == "background") {
         d.object(value, pointer, {"kind"});
         return SavedBackgroundMaterialOccurrence{};

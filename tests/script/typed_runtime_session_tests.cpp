@@ -4337,6 +4337,67 @@ TEST_CASE("runtime Lua Material Parameters and postprocess effects stay semantic
     CHECK(fixture.session->presentation_state().postprocess_effects().empty());
 }
 
+TEST_CASE("runtime Lua Material Parameters support Material Definition and Interactable scopes")
+{
+    Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
+        auto material = std::ranges::find_if(
+            document["resources"]["materialInterfaces"],
+            [](const auto& value) { return value["id"] == "sprite-material"; });
+        REQUIRE(material != document["resources"]["materialInterfaces"].end());
+        (*material)["parameters"].push_back(
+            {{"name", "u_runtime"}, {"type", "float"}, {"rendererBinding", nullptr}});
+    });
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local opts = {owner='session'}\n"
+        "local ok, err = noveltea.presentation.set_material_parameter({kind='material'}, "
+        "'sprite-material', 'u_runtime', 0.2, opts); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.bind_material_parameter("
+        "{kind='interactable-definition', id='key'}, 'sprite-material', 'u_runtime', "
+        "{kind='standard-facet', facet='paint-width'}, opts); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_material_parameter({kind='interactable', id='key'}, "
+        "'sprite-material', 'u_runtime', 0.8, opts); assert(ok and err == nil)",
+        "typed-scoped-material-parameters-set"));
+
+    auto flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+    REQUIRE(fixture.session->presentation_state().material_parameters().size() == 3);
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local opts = {owner='session'}\n"
+        "local value, err = noveltea.presentation.material_parameter({kind='material'}, "
+        "'sprite-material', 'u_runtime', opts); assert(err == nil and value.value == 0.2)\n"
+        "value, err = noveltea.presentation.material_parameter("
+        "{kind='interactable-definition', id='key'}, 'sprite-material', 'u_runtime', opts); "
+        "assert(err == nil and value.binding.kind == 'standard-facet' and "
+        "value.binding.facet == 'paint-width')\n"
+        "value, err = noveltea.presentation.material_parameter({kind='interactable', id='key'}, "
+        "'sprite-material', 'u_runtime', opts); assert(err == nil and value.value == 0.8)",
+        "typed-scoped-material-parameters-query"));
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.clear_material_parameter("
+        "{kind='interactable', id='key'}, 'sprite-material', 'u_runtime', {owner='session'}); "
+        "assert(ok and err == nil)",
+        "typed-scoped-material-parameters-clear"));
+    flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+    REQUIRE(fixture.session->presentation_state().material_parameters().size() == 2);
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local value, err = noveltea.presentation.material_parameter("
+        "{kind='interactable', id='key'}, 'sprite-material', 'u_runtime', {owner='session'}); "
+        "assert(value == nil and err == nil)",
+        "typed-scoped-material-parameters-cleared-query"));
+}
+
 TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner and identity")
 {
     Fixture fixture;

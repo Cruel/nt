@@ -1554,7 +1554,14 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
 
 TEST_CASE("Material Parameter and postprocess Desired State round-trips through save restore")
 {
-    const auto project = load_fixture("scene-program.json");
+    const auto project = load_fixture("scene-program.json", [](nlohmann::json& document) {
+        auto material = std::ranges::find_if(
+            document["resources"]["materialInterfaces"],
+            [](const auto& value) { return value["id"] == "sprite-material"; });
+        REQUIRE(material != document["resources"]["materialInterfaces"].end());
+        (*material)["parameters"].push_back(
+            {{"name", "u_runtime"}, {"type", "float"}, {"rendererBinding", nullptr}});
+    });
     auto state = make_state(project);
     const PresentationOwner owner{state.session_presentation_owner()};
     const auto sprite_material = id<MaterialId>("sprite-material");
@@ -1570,6 +1577,21 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
         project, DesiredMaterialParameter{owner, background, sprite_material, "u_removed", 0.2,
                                           std::nullopt, MaterialClockPolicy::Gameplay}));
 
+    const MaterialOccurrence material_scope = MaterialWideMaterialOccurrence{};
+    const MaterialOccurrence definition_scope =
+        InteractableDefinitionMaterialOccurrence{id<InteractableDefinitionId>("key")};
+    const MaterialOccurrence interactable_scope =
+        InteractableMaterialOccurrence{id<InteractableInstanceId>("key")};
+    REQUIRE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, material_scope, sprite_material, "u_runtime", 0.2,
+                                          std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, definition_scope, sprite_material, "u_runtime",
+                                          0.4, std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, interactable_scope, sprite_material, "u_runtime",
+                                          0.6, std::nullopt, MaterialClockPolicy::Gameplay}));
+
     const auto effect_id = id<PostprocessEffectInstanceId>("saved-grade");
     REQUIRE(state.upsert_postprocess_effect(
         project, DesiredPostprocessEffect{effect_id, owner, postprocess_material,
@@ -1584,7 +1606,7 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
 
     auto saved = make_save_state(project, state);
     REQUIRE(saved);
-    CHECK(saved.value().material_parameters.size() == 1);
+    CHECK(saved.value().material_parameters.size() == 4);
     CHECK(saved.value().postprocess_effects.size() == 1);
 
     auto encoded = encode_save_state(project, saved.value());
@@ -1594,7 +1616,7 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
     auto restored = test_support::restore_session(project, decoded.value());
     REQUIRE(restored);
 
-    REQUIRE(restored.value().material_parameters().size() == 1);
+    REQUIRE(restored.value().material_parameters().size() == 4);
     REQUIRE(restored.value().postprocess_effects().size() == 1);
     const auto& restored_effect = restored.value().postprocess_effects().front();
     CHECK(restored_effect.instance == effect_id);
@@ -1613,4 +1635,18 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
     CHECK(std::get<compiled::MaterialColorValue>(*restored_parameter->value) ==
           compiled::MaterialColorValue{0.65, 0.65, 0.65, 1.0});
     CHECK(restored_parameter->clock == MaterialClockPolicy::UnscaledPresentation);
+
+    const auto restored_scoped_value = [&](const MaterialOccurrence& occurrence, double expected) {
+        const auto found = std::ranges::find_if(
+            restored.value().material_parameters(), [&](const auto& parameter) {
+                return parameter.occurrence == occurrence &&
+                       parameter.material == sprite_material && parameter.parameter == "u_runtime";
+            });
+        REQUIRE(found != restored.value().material_parameters().end());
+        REQUIRE(found->value);
+        CHECK(std::get<double>(*found->value) == expected);
+    };
+    restored_scoped_value(material_scope, 0.2);
+    restored_scoped_value(definition_scope, 0.4);
+    restored_scoped_value(interactable_scope, 0.6);
 }

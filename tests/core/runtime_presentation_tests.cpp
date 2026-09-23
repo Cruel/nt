@@ -127,6 +127,49 @@ CompiledProject hotspot_fixture()
     return std::move(decoded).value();
 }
 
+CompiledProject scoped_material_fixture()
+{
+    std::ifstream input(
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/interaction-program.json");
+    REQUIRE(input.good());
+    const std::string source((std::istreambuf_iterator<char>(input)), {});
+    auto document = nlohmann::json::parse(source);
+
+    auto material =
+        std::ranges::find_if(document["resources"]["materialInterfaces"],
+                             [](const auto& value) { return value["id"] == "sprite-material"; });
+    REQUIRE(material != document["resources"]["materialInterfaces"].end());
+    (*material)["parameters"] = nlohmann::json::array(
+        {{{"name", "u_amount"}, {"type", "float"}, {"rendererBinding", nullptr}},
+         {{"name", "u_definition"}, {"type", "float"}, {"rendererBinding", nullptr}},
+         {{"name", "u_material"}, {"type", "float"}, {"rendererBinding", nullptr}},
+         {{"name", "u_renderer"}, {"type", "float"}, {"rendererBinding", "engine.time"}}});
+
+    auto definition = std::ranges::find_if(document["definitions"]["interactables"],
+                                           [](const auto& value) { return value["id"] == "key"; });
+    REQUIRE(definition != document["definitions"]["interactables"].end());
+    (*definition)["presentation"]["materialParameters"] = nlohmann::json::array(
+        {{{"name", "u_amount"},
+          {"type", "float"},
+          {"source", {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 0.25}}}}}},
+         {{"name", "u_definition"},
+          {"type", "float"},
+          {"source", {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 0.3}}}}}}});
+
+    auto instance = std::ranges::find_if(document["interactableInstances"],
+                                         [](const auto& value) { return value["id"] == "key"; });
+    REQUIRE(instance != document["interactableInstances"].end());
+    (*instance)["materialParameters"] = nlohmann::json::array(
+        {{{"name", "u_amount"},
+          {"type", "float"},
+          {"source", {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 0.5}}}}}}});
+
+    auto decoded = decode_compiled_project(document, "scoped-material-parameters.json");
+    REQUIRE(decoded);
+    return std::move(decoded).value();
+}
+
 CompiledProject dialogue_fixture()
 {
     std::ifstream input(
@@ -600,6 +643,113 @@ TEST_CASE("shared Room snapshot projector matches the runtime Room baseline")
     CHECK(focused_baseline.value().interactables == runtime.value().interactables);
     CHECK(focused_baseline.value().props == runtime.value().props);
     CHECK(focused_baseline.value().environments == runtime.value().environments);
+}
+
+TEST_CASE("Interactable runtime Material parameters resolve scoped precedence and clearing")
+{
+    const auto project = scoped_material_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    REQUIRE(state.room_visit());
+
+    const PresentationOwner owner{state.session_presentation_owner()};
+    const auto material = id<MaterialId>("sprite-material");
+    const auto definition = id<InteractableDefinitionId>("key");
+    const auto interactable = id<InteractableInstanceId>("key");
+    const MaterialOccurrence material_scope{MaterialWideMaterialOccurrence{}};
+    const MaterialOccurrence definition_scope{InteractableDefinitionMaterialOccurrence{definition}};
+    const MaterialOccurrence occurrence_scope{InteractableMaterialOccurrence{interactable}};
+
+    REQUIRE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, material_scope, material, "u_amount", 0.1,
+                                          std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, material_scope, material, "u_definition", 0.2,
+                                          std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, material_scope, material, "u_material", 0.8,
+                                          std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.upsert_material_parameter(
+        project,
+        DesiredMaterialParameter{owner, definition_scope, material, "u_definition", std::nullopt,
+                                 MaterialParameterBinding{MaterialStandardFacetBinding{
+                                     MaterialStandardFacet::PaintWidth}},
+                                 MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, occurrence_scope, material, "u_amount", 0.9,
+                                          std::nullopt, MaterialClockPolicy::Gameplay}));
+    REQUIRE(state.upsert_background_override(
+        project,
+        DesiredBackgroundOverride{
+            owner, compiled::BackgroundPresentation{id<AssetId>("image-main"), std::nullopt,
+                                                    compiled::BackgroundFit::Contain, material}}));
+    CHECK_FALSE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, material_scope, material, "u_renderer", 1.0,
+                                          std::nullopt, MaterialClockPolicy::Gameplay}));
+
+    RuntimeWorld world(project, state);
+    RoomPresentationResolver resolver;
+    auto resolution = resolver.resolve(
+        project, world, state, *state.room_visit(),
+        [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
+        [&project](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(resolve_text(project, source));
+        });
+    REQUIRE(resolution);
+
+    const auto find_parameter = [&](const RuntimePresentationSnapshot& snapshot,
+                                    std::string_view name) {
+        return std::ranges::find_if(snapshot.material_parameters, [&](const auto& parameter) {
+            return parameter.occurrence == occurrence_scope && parameter.material == material &&
+                   parameter.parameter == name;
+        });
+    };
+
+    auto projected = project_snapshot(project, state, &resolution.value().presentation);
+    REQUIRE(projected);
+    auto amount = find_parameter(projected.value(), "u_amount");
+    auto definition_value = find_parameter(projected.value(), "u_definition");
+    auto material_value = find_parameter(projected.value(), "u_material");
+    REQUIRE(amount != projected.value().material_parameters.end());
+    REQUIRE(amount->value);
+    CHECK(std::get<double>(*amount->value) == 0.9);
+    REQUIRE(definition_value != projected.value().material_parameters.end());
+    CHECK(definition_value->standard_facet == MaterialStandardFacet::PaintWidth);
+    REQUIRE(material_value != projected.value().material_parameters.end());
+    REQUIRE(material_value->value);
+    CHECK(std::get<double>(*material_value->value) == 0.8);
+    const auto background_material_value =
+        std::ranges::find_if(projected.value().material_parameters, [&](const auto& parameter) {
+            return parameter.occurrence == MaterialOccurrence{BackgroundMaterialOccurrence{}} &&
+                   parameter.material == material && parameter.parameter == "u_material";
+        });
+    REQUIRE(background_material_value != projected.value().material_parameters.end());
+    REQUIRE(background_material_value->value);
+    CHECK(std::get<double>(*background_material_value->value) == 0.8);
+
+    REQUIRE(state.remove_material_parameter(occurrence_scope, owner, material, "u_amount"));
+    projected = project_snapshot(project, state, &resolution.value().presentation);
+    REQUIRE(projected);
+    amount = find_parameter(projected.value(), "u_amount");
+    REQUIRE(amount != projected.value().material_parameters.end());
+    REQUIRE(amount->value);
+    CHECK(std::get<double>(*amount->value) == 0.5);
+
+    REQUIRE(state.remove_material_parameter(definition_scope, owner, material, "u_definition"));
+    projected = project_snapshot(project, state, &resolution.value().presentation);
+    REQUIRE(projected);
+    definition_value = find_parameter(projected.value(), "u_definition");
+    REQUIRE(definition_value != projected.value().material_parameters.end());
+    REQUIRE(definition_value->value);
+    CHECK(std::get<double>(*definition_value->value) == 0.3);
+
+    REQUIRE(state.remove_material_parameter(material_scope, owner, material, "u_material"));
+    projected = project_snapshot(project, state, &resolution.value().presentation);
+    REQUIRE(projected);
+    CHECK(find_parameter(projected.value(), "u_material") ==
+          projected.value().material_parameters.end());
 }
 
 TEST_CASE("runtime and focused Room hotspot projection preserve semantic eligibility and geometry")

@@ -171,7 +171,13 @@ save_material_occurrence(const SavedFrameMap& frame_ids, const MaterialOccurrenc
     return std::visit(
         [&](const auto& value) -> Result<SavedMaterialOccurrence, Diagnostics> {
             using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, BackgroundMaterialOccurrence>)
+            if constexpr (std::is_same_v<T, MaterialWideMaterialOccurrence>)
+                return Result<SavedMaterialOccurrence, Diagnostics>::success(
+                    SavedMaterialWideMaterialOccurrence{});
+            else if constexpr (std::is_same_v<T, InteractableDefinitionMaterialOccurrence>)
+                return Result<SavedMaterialOccurrence, Diagnostics>::success(
+                    SavedInteractableDefinitionMaterialOccurrence{value.definition});
+            else if constexpr (std::is_same_v<T, BackgroundMaterialOccurrence>)
                 return Result<SavedMaterialOccurrence, Diagnostics>::success(
                     SavedBackgroundMaterialOccurrence{});
             else if constexpr (std::is_same_v<T, ActorMaterialOccurrence>) {

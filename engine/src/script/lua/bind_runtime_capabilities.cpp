@@ -554,6 +554,26 @@ parse_material_occurrence(const sol::table& target)
     if (!kind)
         return Result::failure(
             invalid("runtime.invalid_material_occurrence", "Material occurrence requires kind"));
+    if (*kind == "material")
+        return Result::success(MaterialWideOccurrenceCommand{});
+    if (*kind == "interactable-definition") {
+        const auto id_name = table_option<std::string>(target, "id");
+        if (!id_name)
+            return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                           "Interactable Definition occurrence requires id"));
+        auto id = parse_id<core::InteractableDefinitionId>(*id_name);
+        return id ? Result::success(MaterialInteractableDefinitionOccurrenceCommand{*id.value_if()})
+                  : Result::failure(id.error());
+    }
+    if (*kind == "interactable") {
+        const auto id_name = table_option<std::string>(target, "id");
+        if (!id_name)
+            return Result::failure(invalid("runtime.invalid_material_occurrence",
+                                           "Interactable occurrence requires id"));
+        auto id = parse_id<core::InteractableInstanceId>(*id_name);
+        return id ? Result::success(MaterialInteractableOccurrenceCommand{*id.value_if()})
+                  : Result::failure(id.error());
+    }
     if (*kind == "background")
         return Result::success(MaterialBackgroundOccurrenceCommand{});
     if (*kind == "scene-actor" || *kind == "scoped-actor") {
