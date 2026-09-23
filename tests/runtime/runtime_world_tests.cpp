@@ -245,6 +245,54 @@ TEST_CASE("shared recursive Conditions inspect identity Trait Location slots and
     CHECK(quantity_result.value());
 }
 
+TEST_CASE("declared Interactable Instances specialize Definition Material Applications sparsely")
+{
+    auto document = load_fixture_document("interaction-program.json");
+    auto definition = std::find_if(
+        document["definitions"]["interactables"].begin(),
+        document["definitions"]["interactables"].end(),
+        [](const auto& value) { return value["id"] == "key"; });
+    REQUIRE(definition != document["definitions"]["interactables"].end());
+    (*definition)["presentation"]["materialParameters"] = nlohmann::json::array(
+        {{{"name", "u_amount"},
+          {"type", "float"},
+          {"source", {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 0.25}}}}}},
+         {{"name", "u_definition"},
+          {"type", "float"},
+          {"source", {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 0.5}}}}}}});
+    auto declaration = std::find_if(
+        document["interactableInstances"].begin(), document["interactableInstances"].end(),
+        [](const auto& value) { return value["id"] == "key"; });
+    REQUIRE(declaration != document["interactableInstances"].end());
+    (*declaration)["materialParameters"] = nlohmann::json::array(
+        {{{"name", "u_amount"},
+          {"type", "float"},
+          {"source", {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 0.75}}}}}},
+         {{"name", "u_instance"},
+          {"type", "float"},
+          {"source", {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 1.0}}}}}}});
+
+    const auto project = decode_fixture(std::move(document), "instance-material-specialization.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+    const auto* effective = world.resolved_configuration(id<core::InteractableInstanceId>("key"));
+    REQUIRE(effective);
+    REQUIRE(effective->presentation.material_parameters.size() == 3);
+    const auto amount = std::ranges::find_if(
+        effective->presentation.material_parameters,
+        [](const auto& parameter) { return parameter.name == "u_amount"; });
+    REQUIRE(amount != effective->presentation.material_parameters.end());
+    const auto* literal = std::get_if<core::compiled::MaterialApplicationLiteralSource>(&amount->source);
+    REQUIRE(literal);
+    CHECK(std::get<double>(literal->value) == 0.75);
+    CHECK(std::ranges::any_of(effective->presentation.material_parameters,
+                              [](const auto& parameter) { return parameter.name == "u_definition"; }));
+    CHECK(std::ranges::any_of(effective->presentation.material_parameters,
+                              [](const auto& parameter) { return parameter.name == "u_instance"; }));
+}
+
 TEST_CASE("declared Interactable Instances realize independent exact Features and Inventories")
 {
     auto document = load_fixture_document("interaction-program.json");

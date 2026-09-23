@@ -92,6 +92,7 @@
       "quantity": 1,
       "traits": { "add": [], "remove": [] },
       "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} },
       "featureOverrides": []
     }
   }

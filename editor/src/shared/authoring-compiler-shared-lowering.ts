@@ -934,32 +934,37 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         return { type: 'bool', value: value as boolean };
     }
   };
-  const compileMaterialApplication = (application: MaterialApplication | null) => {
-    const parameters: CompiledMaterialApplicationParameter[] = application
-      ? Object.entries(application.parameters)
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([name, override]) => ({
-            name,
-            type: override.type,
-            source:
-              override.source.kind === 'literal'
-                ? { kind: 'literal' as const, value: compileMaterialApplicationValue(override) }
-                : override.source.kind === 'property'
-                  ? { kind: 'property' as const, property: override.source.property }
-                  : { kind: 'standard-facet' as const, facet: override.source.facet },
-          }))
-      : [];
-    const textures: CompiledMaterialApplicationTexture[] = application
-      ? Object.entries(application.textures)
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([name, override]) => ({ name, source: assetRef(override.source)! }))
-      : [];
+  const compileMaterialApplicationOverrides = (
+    parametersByName: MaterialApplication['parameters'],
+    texturesByName: MaterialApplication['textures'],
+  ) => {
+    const parameters: CompiledMaterialApplicationParameter[] = Object.entries(parametersByName)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, override]) => ({
+        name,
+        type: override.type,
+        source:
+          override.source.kind === 'literal'
+            ? { kind: 'literal' as const, value: compileMaterialApplicationValue(override) }
+            : override.source.kind === 'property'
+              ? { kind: 'property' as const, property: override.source.property }
+              : { kind: 'standard-facet' as const, facet: override.source.facet },
+      }));
+    const textures: CompiledMaterialApplicationTexture[] = Object.entries(texturesByName)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, override]) => ({ name, source: assetRef(override.source)! }));
     return {
-      material: application ? materialRef(application.material) : null,
       ...(parameters.length > 0 ? { materialParameters: parameters } : {}),
       ...(textures.length > 0 ? { materialTextures: textures } : {}),
     };
   };
+  const compileMaterialApplication = (application: MaterialApplication | null) => ({
+    material: application ? materialRef(application.material) : null,
+    ...compileMaterialApplicationOverrides(
+      application?.parameters ?? {},
+      application?.textures ?? {},
+    ),
+  });
 
   const interactables: SharedInteractableDefinition[] = [];
   for (const [id, record] of sortedEntries(project.interactables)) {
@@ -1042,6 +1047,13 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           enumValues: [...(property.enumValues ?? [])],
           value: compilePropertyValue(project, property.value),
         })),
+      ...(instance.materialApplication.material
+        ? { materialOverride: materialRef(instance.materialApplication.material)! }
+        : {}),
+      ...compileMaterialApplicationOverrides(
+        instance.materialApplication.parameters,
+        instance.materialApplication.textures,
+      ),
       featureOverrides: instance.featureOverrides.map((override) => ({
         featureId: override.featureId,
         traitAdds: [...override.traits.add].sort(),

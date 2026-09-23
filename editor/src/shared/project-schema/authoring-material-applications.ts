@@ -52,6 +52,12 @@ export const materialApplicationSchema = strict({
   textures: z.record(z.string().min(1), materialApplicationTextureOverrideSchema).default({}),
 });
 
+export const materialApplicationSpecializationSchema = strict({
+  material: materialRefSchema.nullable(),
+  parameters: z.record(z.string().min(1), materialApplicationParameterOverrideSchema).default({}),
+  textures: z.record(z.string().min(1), materialApplicationTextureOverrideSchema).default({}),
+});
+
 export type MaterialStandardFacet = (typeof materialStandardFacetValues)[number];
 export type MaterialApplicationParameterSource = z.infer<
   typeof materialApplicationParameterSourceSchema
@@ -63,12 +69,32 @@ export type MaterialApplicationTextureOverride = z.infer<
   typeof materialApplicationTextureOverrideSchema
 >;
 export type MaterialApplication = z.infer<typeof materialApplicationSchema>;
+export type MaterialApplicationSpecialization = z.infer<
+  typeof materialApplicationSpecializationSchema
+>;
 
 export function emptyMaterialApplication(materialId: string): MaterialApplication {
   return {
     material: { $ref: { collection: 'materials', id: materialId } },
     parameters: {},
     textures: {},
+  };
+}
+
+export function emptyMaterialApplicationSpecialization(): MaterialApplicationSpecialization {
+  return { material: null, parameters: {}, textures: {} };
+}
+
+export function effectiveMaterialApplication(
+  inherited: MaterialApplication | null,
+  specialization: MaterialApplicationSpecialization,
+): MaterialApplication | null {
+  const material = specialization.material ?? inherited?.material ?? null;
+  if (!material) return null;
+  return {
+    material,
+    parameters: { ...inherited?.parameters, ...specialization.parameters },
+    textures: { ...inherited?.textures, ...specialization.textures },
   };
 }
 

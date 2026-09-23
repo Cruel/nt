@@ -1439,6 +1439,9 @@ const interactableInstanceDeclarationSchema = strict({
   traitRemoves: z.array(id),
   propertyOverrides: z.array(propertyAssignmentSchema),
   localProperties: z.array(instanceLocalPropertySchema),
+  materialOverride: materialReferenceSchema.optional(),
+  materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+  materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
   featureOverrides: z.array(
     strict({
       featureId: id,

@@ -146,6 +146,31 @@ using RuntimeInteractableConfiguration =
     std::ranges::sort(assignments, {},
                       [](const auto& value) { return value.property_id().text(); });
 
+    if (declaration.material_override)
+        effective.presentation.material = declaration.material_override;
+    for (const auto& override : declaration.material_parameters) {
+        const auto found = std::ranges::find_if(
+            effective.presentation.material_parameters,
+            [&](const auto& value) { return value.name == override.name; });
+        if (found == effective.presentation.material_parameters.end())
+            effective.presentation.material_parameters.push_back(override);
+        else
+            *found = override;
+    }
+    for (const auto& override : declaration.material_textures) {
+        const auto found = std::ranges::find_if(
+            effective.presentation.material_textures,
+            [&](const auto& value) { return value.name == override.name; });
+        if (found == effective.presentation.material_textures.end())
+            effective.presentation.material_textures.push_back(override);
+        else
+            *found = override;
+    }
+    std::ranges::sort(effective.presentation.material_parameters, {},
+                      [](const auto& value) { return value.name; });
+    std::ranges::sort(effective.presentation.material_textures, {},
+                      [](const auto& value) { return value.name; });
+
     for (const auto& override : declaration.feature_overrides) {
         const auto feature = std::ranges::find_if(
             effective.features, [&](const compiled::FeatureDefinition& candidate) {

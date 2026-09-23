@@ -9,6 +9,7 @@ import {
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   defaultInteractableData,
+  defaultInteractableInstanceData,
   parseInteractableData,
 } from '../../shared/project-schema/authoring-interactables';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
@@ -311,6 +312,57 @@ describe('InteractableEditor', () => {
       parseInteractableData(restored.interactables.door?.data)?.presentation.materialApplication
         ?.material.$ref.id,
     ).toBe('panel');
+  });
+
+  it('shows Instance Material provenance and resets a Material override to the Definition', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    project.materials.alternate = {
+      id: 'alternate',
+      label: 'Alternate',
+      data: defaultMaterialData('Alternate', 'engine-2d'),
+    };
+    const data = defaultInteractableData('Door');
+    data.presentation.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'panel' } },
+      parameters: {},
+      textures: {},
+    };
+    project.interactables.door = { id: 'door', label: 'Door', traits: [], data };
+    project.interactableInstances['door-instance'] = defaultInteractableInstanceData(
+      'door-instance',
+      'door',
+    );
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    renderEditor();
+    expect(screen.getByText('Inherited from Definition')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Choose door-instance material' }));
+    await user.click(screen.getByRole('button', { name: /Select Alternate/ }));
+
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<
+        typeof createAuthoringProject
+      >;
+      expect(
+        current.interactableInstances['door-instance']?.materialApplication.material?.$ref.id,
+      ).toBe('alternate');
+    });
+    expect(screen.getByText('Instance material override')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Reset to inherited' }));
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<
+        typeof createAuthoringProject
+      >;
+      expect(
+        current.interactableInstances['door-instance']?.materialApplication.material,
+      ).toBeNull();
+    });
   });
 
   it('selects an exact hotspot when workbench diagnostic navigation targets it', () => {

@@ -314,6 +314,8 @@ std::optional<InteractionDefinition> decode_interaction(Decoder&, const nlohmann
 std::optional<CharacterDefinition> decode_character(Decoder&, const nlohmann::json&,
                                                     std::string_view);
 std::optional<RoomDefinition> decode_room(Decoder&, const nlohmann::json&, std::string_view);
+std::optional<MaterialApplication> decode_material_application(Decoder&, const nlohmann::json&,
+                                                               std::string_view);
 std::optional<InteractableDefinition> decode_interactable(Decoder&, const nlohmann::json&,
                                                           std::string_view);
 std::optional<ArchetypeDefinition> decode_archetype(Decoder&, const nlohmann::json&,

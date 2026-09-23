@@ -2930,6 +2930,42 @@ private:
                           local_path);
             }
 
+            if (value.material_override) {
+                const auto* material = material_interface(*value.material_override);
+                if (!material) {
+                    require(m_material_interfaces, *value.material_override, "material interface",
+                            path + "/materialOverride");
+                } else if (material->role != MaterialRole::Engine2D) {
+                    error("compiled_project.interactable_material_role_mismatch",
+                          "Interactable Instance specialization requires an engine-2d Material.",
+                          path + "/materialOverride");
+                }
+            }
+            for (std::size_t parameter_index = 0;
+                 parameter_index < value.material_parameters.size(); ++parameter_index) {
+                const auto& parameter = value.material_parameters[parameter_index];
+                const auto parameter_path =
+                    path + "/materialParameters/" + std::to_string(parameter_index);
+                if (const auto* literal =
+                        std::get_if<MaterialApplicationLiteralSource>(&parameter.source);
+                    literal != nullptr && !material_value_matches(parameter.type, literal->value))
+                    error("compiled_project.material_application_literal_type_mismatch",
+                          "Material Application literal value does not match its stored type.",
+                          parameter_path + "/source/value");
+            }
+            for (std::size_t texture_index = 0; texture_index < value.material_textures.size();
+                 ++texture_index) {
+                const auto& texture = value.material_textures[texture_index];
+                const auto texture_path =
+                    path + "/materialTextures/" + std::to_string(texture_index) + "/source";
+                require(m_assets, texture.source, "asset", texture_path);
+                const auto* source = asset(texture.source);
+                if (source && source->kind != AssetKind::Image)
+                    error("compiled_project.invalid_asset_kind",
+                          "Material Application texture source must use an image Asset.",
+                          texture_path);
+            }
+
             const auto has_instance_override = [&](const PropertyId& property_id) {
                 return properties.contains(property_id) || local_properties.contains(property_id);
             };

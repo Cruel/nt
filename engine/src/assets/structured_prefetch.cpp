@@ -253,6 +253,7 @@ struct StructuredAssetDependencyIndex::Impl {
     struct InitialInteractable {
         core::InteractableInstanceId instance;
         const core::compiled::InteractableDefinition* definition;
+        const core::compiled::InteractableInstanceDeclaration* declaration;
     };
     std::unordered_map<core::RoomId, std::vector<InitialInteractable>>
         initial_interactables_by_room;
@@ -694,13 +695,21 @@ struct StructuredAssetDependencyIndex::Impl {
                                  core::compiled::AssetKind::Image, collection_diagnostics,
                                  "Room initial interactable", retain_alpha_coverage);
                 }
-                if (interactable->presentation.material)
-                    append_material(output, *interactable->presentation.material,
-                                    collection_diagnostics, "Room initial interactable");
+                const auto effective_material =
+                    placed.declaration->material_override
+                        ? placed.declaration->material_override
+                        : interactable->presentation.material;
+                if (effective_material)
+                    append_material(output, *effective_material, collection_diagnostics,
+                                    "Room initial interactable");
                 for (const auto& texture : interactable->presentation.material_textures)
                     append_asset(output, texture.source, core::compiled::AssetKind::Image,
                                  collection_diagnostics,
-                                 "Room initial interactable Material texture");
+                                 "Room initial interactable Definition Material texture");
+                for (const auto& texture : placed.declaration->material_textures)
+                    append_asset(output, texture.source, core::compiled::AssetKind::Image,
+                                 collection_diagnostics,
+                                 "Room initial interactable Instance Material texture");
                 append_interactable_hotspots(output, placed.instance, *interactable,
                                              collection_diagnostics);
             }
@@ -781,7 +790,7 @@ StructuredAssetDependencyIndex StructuredAssetDependencyIndex::build(
         impl->interactables.emplace(instance.id, definition);
         if (const auto* location = std::get_if<core::compiled::RoomLocation>(&instance.location))
             impl->initial_interactables_by_room[location->room].push_back(
-                Impl::InitialInteractable{instance.id, definition});
+                Impl::InitialInteractable{instance.id, definition, &instance});
     }
 
     if (package.shader_materials()) {

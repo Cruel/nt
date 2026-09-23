@@ -1015,6 +1015,9 @@ struct InteractableInstanceDeclaration {
     std::vector<TraitId> trait_removes;
     std::vector<PropertyAssignment> property_overrides;
     std::vector<InstanceLocalProperty> local_properties;
+    std::optional<MaterialId> material_override;
+    std::vector<MaterialApplicationParameterOverride> material_parameters;
+    std::vector<MaterialApplicationTextureOverride> material_textures;
     std::vector<InteractableFeatureOverride> feature_overrides;
 };
 
