@@ -2607,7 +2607,10 @@ async function certifyDisposableTestScheduling(tempRoot) {
         'daemon disposable worker exited unexpectedly',
       )
     )
-      fail('Snapshotless disposable crash did not promptly report the failed job.');
+      fail(
+        `Snapshotless disposable crash did not promptly report the failed job: ` +
+          `status=${snapshotlessCrash.status}.\nstdout:\n${snapshotlessCrash.stdout}\nstderr:\n${snapshotlessCrash.stderr}`,
+      );
     await waitForStatus(
       'Snapshotless disposable crash standby replenishment',
       (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
@@ -3564,12 +3567,24 @@ async function certifyResidentDaemon(tempRoot, pristine) {
     'daemon static exact validation precedence',
     runNative(['--project', root, '--json', 'validate'], { cwd: root, env: traceEnvironment }),
   );
-  const staticExactSecond = requireSuccess(
-    'daemon static exact validation precedence repeat',
-    runNative(['--project', root, '--json', 'validate'], { cwd: root, env: traceEnvironment }),
-  );
-  if (staticExactSecond.stderr.includes('[scriptc-host] daemon invocation forwarding'))
-    fail('Exact static validation contacted the daemon.');
+  // Exact-result persistence is deliberately debounced until the foreground has been quiet. Do
+  // not probe it so aggressively that the probe itself keeps the daemon active and prevents the
+  // best-effort publication from starting.
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  let staticExactRepeat = null;
+  const staticExactDeadline = Date.now() + 3_000;
+  do {
+    staticExactRepeat = requireSuccess(
+      'daemon static exact validation precedence repeat',
+      runNative(['--project', root, '--json', 'validate'], { cwd: root, env: traceEnvironment }),
+    );
+    if (!staticExactRepeat.stderr.includes('[scriptc-host] daemon invocation forwarding')) break;
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  } while (Date.now() < staticExactDeadline);
+  if (staticExactRepeat.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    fail(
+      'Best-effort exact validation publication did not become reusable through the static path.',
+    );
   if (!staticExact.stderr.includes('[scriptc-host] daemon invocation forwarding')) {
     // A prior differential may already have populated an exact generation; either ordering is valid here.
     if (!staticExact.stderr.includes('[scriptc-host] static validation completed'))
@@ -3639,7 +3654,18 @@ async function certifyResidentDaemon(tempRoot, pristine) {
       { cwd: root, env: traceEnvironment },
     );
     const unsafeResultPromise = unsafeInvocation.result();
-    await waitForComfyUiRequestPrefix(unsafeServer.logPath, '/history/');
+    const unsafeAdmission = await Promise.race([
+      waitForComfyUiRequestPrefix(unsafeServer.logPath, '/history/', 30_000).then(() => ({
+        kind: 'history',
+      })),
+      unsafeResultPromise.then((result) => ({ kind: 'result', result })),
+    ]);
+    if (unsafeAdmission.kind === 'result')
+      fail(
+        `Unsafe daemon crash request exited before reaching ComfyUI history polling: ` +
+          `status=${unsafeAdmission.result.status}.\nstdout:\n${unsafeAdmission.result.stdout}\n` +
+          `stderr:\n${unsafeAdmission.result.stderr}`,
+      );
     process.kill(unsafePayload.pid);
     const unsafeResult = await unsafeResultPromise;
     if (unsafeResult.status !== 70)

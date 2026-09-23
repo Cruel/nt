@@ -69,6 +69,13 @@ Idle owners reconcile watcher deltas but never start a whole-Project serializati
 uninterruptible work would delay newly arriving short commands. An owner that has never needed a
 snapshot cold-loads after eviction; an already prepared snapshot remains available for rehydration
 and native proof/delta reconciliation. Exact-result persistence remains independent idle native work.
+The portable snapshot and its separate owner-rehydration metadata are strictly current RAM-only
+documents nested inside the exact daemon build plus Daemon Protocol identity; neither carries an
+independent numeric compatibility version. A stale or otherwise incompatible in-memory shape is
+discarded rather than migrated or dual-read. Optional exact-result disk publication is handed from
+idle maintenance to an unjoined self-contained writer, so graceful daemon shutdown does not wait for
+filesystem persistence; atomic temporary-file replacement preserves the previous valid cache when a
+publication is abandoned by process exit.
 
 ## Build-time source embedding
 

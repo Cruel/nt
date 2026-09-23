@@ -48,7 +48,9 @@ Examples include the assembled `AuthoringProject`, editor project/local/session 
 and draft payloads, preview documents nested inside Editor Runtime Protocol, shader/material preview
 documents, prepared runtime artifacts, workspace transaction journals, verification caches, export
 profiles and generated export manifests, template registry records, certification/build reports,
-resource-alias manifests, generated Agent Kit manifests, and the runtime-package manifest itself.
+resource-alias manifests, generated Agent Kit manifests, the runtime-package manifest itself, and the
+RAM-only portable resident Project snapshot plus owner-rehydration metadata nested inside the Daemon
+Protocol/build lifetime.
 
 These contracts should still use strict schemas, discriminators, validation, hashes, or regeneration
 rules where useful. Removing a numeric version does not make them loosely typed.
@@ -57,7 +59,9 @@ For disposable or regenerable data, incompatibility means discard/regenerate. Fo
 records, compatibility inherits Project Workspace Format. For compiled runtime records, compatibility
 inherits Compiled Project Format. For preview/runtime messages, compatibility inherits Editor Runtime
 Protocol. Runtime-package/bootstrap metadata crossing the editor-to-player seam inherits Player
-Runtime API.
+Runtime API. RAM-only resident daemon documents inherit the exact daemon build plus Daemon Protocol
+identity and accept only their current shape; they do not add a snapshot-format epoch or migration
+reader.
 
 ## Development and Stable Lifecycles
 

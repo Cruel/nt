@@ -1970,6 +1970,50 @@ describe('ResidentProjectWorkspaceSession', () => {
     ).toBe('local portable_script = true\n');
   });
 
+  it('treats portable resident documents as strict daemon-internal state without an independent version', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries(projectWorkspaceFiles(project, project.editor)).map(
+          ([relativePath, text]) => [`${ROOT}/${relativePath}`, text],
+        ),
+      ),
+    );
+    const probe = createProjectAuthorityProbe();
+    const owner = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const opened = await owner.open(ROOT);
+    expect(opened.ok).toBe(true);
+    const prepared = await owner.preparePortableSnapshot(ROOT);
+    if (!prepared) throw new Error('Portable Project snapshot was not prepared.');
+
+    const snapshot = JSON.parse(prepared.snapshotText) as Record<string, unknown>;
+    const ownerMetadata = JSON.parse(prepared.ownerMetadataText) as Record<string, unknown>;
+    expect(snapshot).not.toHaveProperty('version');
+    expect(ownerMetadata).not.toHaveProperty('version');
+
+    const legacySnapshot = JSON.stringify({ ...snapshot, version: 2 });
+    const legacyMetadata = JSON.stringify({ ...ownerMetadata, version: 2 });
+    expect(
+      await new ResidentProjectWorkspaceService(
+        fileSystem,
+        undefined,
+        probe.authority,
+      ).hydratePortableSnapshot(ROOT, legacySnapshot),
+    ).toBe(false);
+    expect(
+      await new ResidentProjectWorkspaceService(
+        fileSystem,
+        undefined,
+        probe.authority,
+      ).rehydratePortableSnapshot(ROOT, prepared.snapshotText, legacyMetadata),
+    ).toBe(false);
+  });
+
   it('hydrates a pinned portable generation without admitting newer structural disk state', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.rooms.foyer = {
