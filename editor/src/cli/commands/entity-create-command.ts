@@ -18,6 +18,7 @@ export const entityCreateCommand: CliCommandDefinition = {
     return {
       dryRun,
       mutation: !dryRun,
+      requiredSemanticPaths: [`/${collection}/${id}`],
       run: ({ workspace, snapshot }) => createEntity(workspace, snapshot, collection, id!, dryRun),
     };
   },

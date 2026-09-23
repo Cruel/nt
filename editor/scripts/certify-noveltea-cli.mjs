@@ -3210,6 +3210,19 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
       fail(
         `Continuous authority churn did not fail through bounded retries: status=${churnResult.status} elapsed=${churnMs}ms.`,
       );
+    const scopedChurnStarted = Date.now();
+    const scopedChurn = runNative(['--project', root, '--json', 'platform', 'profiles'], {
+      cwd: root,
+      env: {
+        ...traceEnvironment,
+        NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '1',
+      },
+    });
+    const scopedChurnMs = Date.now() - scopedChurnStarted;
+    if (scopedChurn.status === 0 || scopedChurnMs > 5_000)
+      fail(
+        `Scoped read authority churn did not fail through bounded retries: status=${scopedChurn.status} elapsed=${scopedChurnMs}ms.`,
+      );
     await writeJson(galleryPath, originalGallery);
     requireSuccess(
       'authority churn repair',

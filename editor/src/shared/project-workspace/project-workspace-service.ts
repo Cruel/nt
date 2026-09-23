@@ -252,6 +252,8 @@ export interface ProjectWorkspaceSourceWork {
   readonly foregroundSerializedBytes: number;
   /** Whether this generation changed inputs that can affect localization font coverage. */
   readonly localizationCoverageInputsChanged: boolean;
+  /** Revision identity of the latest generation that changed localization/font-coverage inputs. */
+  readonly localizationCoverageDependencyRevision: `sha256:${string}`;
 }
 
 export interface ProjectWorkspaceDependencyWork {
@@ -1618,6 +1620,24 @@ function descriptorsForContributionKeys(
     .map((descriptorIndex) => snapshot.externalSourceDescriptors[descriptorIndex]!);
 }
 
+function descriptorContributionKeysForSourcePaths(
+  snapshot: ProjectWorkspaceSnapshot,
+  changedPaths: readonly string[],
+): ReadonlySet<string> | null {
+  const keys = new Set<string>();
+  for (const relativePath of changedPaths) {
+    const owners = sourceContributionOwnerPaths(relativePath, snapshot.scriptSourcePaths);
+    for (const owner of owners) {
+      const root = recordOwnerRoot(owner);
+      if (!root) continue;
+      const segments = parseJsonPointer(root);
+      if (segments.length !== 2 || !isAuthoringCollectionKey(segments[0]!)) return null;
+      keys.add(recordContributionKey(segments[0] as AuthoringCollectionKey, segments[1]!));
+    }
+  }
+  return keys;
+}
+
 function createSnapshotValidationState(
   contributions: readonly AuthoringValidationContribution[],
 ): SnapshotValidationState {
@@ -1858,6 +1878,52 @@ export class ProjectWorkspaceService {
   private readonly snapshotExternalDescriptorIndexes = sharedSnapshotExternalDescriptorIndexes;
   private readonly snapshotSourceOwnerIndexes = sharedSnapshotSourceOwnerIndexes;
   private readonly transactions: ProjectWorkspaceTransactionService;
+
+  private advanceExternalDescriptors(
+    base: LoadedProjectWorkspaceSnapshot,
+    project: AuthoringProject,
+    scriptSourcePaths: Readonly<Record<string, string>>,
+    changedPaths: readonly string[],
+  ): Readonly<{
+    descriptors: readonly AuthoringLuaSourceDescriptor[];
+    index: SnapshotExternalDescriptorIndex;
+  }> | null {
+    const priorIndex = this.snapshotExternalDescriptorIndexes.get(base);
+    const contributionKeys = descriptorContributionKeysForSourcePaths(base, changedPaths);
+    if (!priorIndex || !contributionKeys) return null;
+    if (contributionKeys.size === 0)
+      return { descriptors: base.externalSourceDescriptors, index: priorIndex };
+
+    const fresh = externalDescriptors(project, scriptSourcePaths, undefined, contributionKeys);
+    const freshByKey = new Map<string, AuthoringLuaSourceDescriptor[]>();
+    for (const descriptor of fresh) {
+      const values = freshByKey.get(descriptor.contributionKey) ?? [];
+      values.push(descriptor);
+      freshByKey.set(descriptor.contributionKey, values);
+    }
+    const changes = new Map<number, AuthoringLuaSourceDescriptor>();
+    for (const key of contributionKeys) {
+      const indexes = priorIndex.indexesByContributionKey.get(key) ?? [];
+      const replacements = freshByKey.get(key) ?? [];
+      if (indexes.length !== replacements.length) return null;
+      for (let offset = 0; offset < indexes.length; offset += 1) {
+        const index = indexes[offset]!;
+        const before = base.externalSourceDescriptors[index]!;
+        const after = replacements[offset]!;
+        if (
+          before.contributionKey !== after.contributionKey ||
+          before.sourcePath !== after.sourcePath ||
+          before.sourceUrl !== after.sourceUrl
+        )
+          return null;
+        changes.set(index, after);
+      }
+    }
+    return {
+      descriptors: overlayReadonlyArray(base.externalSourceDescriptors, changes),
+      index: priorIndex,
+    };
+  }
 
   constructor(
     private readonly fileSystem: ProjectWorkspaceFileSystem,
@@ -2408,6 +2474,11 @@ export class ProjectWorkspaceService {
         });
       }
     }
+    const coverageInputsChanged = localizationCoverageInputsChanged(
+      changedPaths,
+      base.snapshot.project,
+      project,
+    );
     return withLazyOpenContent(
       {
         ok: true as const,
@@ -2430,11 +2501,10 @@ export class ProjectWorkspaceService {
           fullProjectProjections: 0,
           foregroundSerializations: 0,
           foregroundSerializedBytes: 0,
-          localizationCoverageInputsChanged: localizationCoverageInputsChanged(
-            changedPaths,
-            base.snapshot.project,
-            project,
-          ),
+          localizationCoverageInputsChanged: coverageInputsChanged,
+          localizationCoverageDependencyRevision: coverageInputsChanged
+            ? workspaceRevision
+            : base.sourceWork.localizationCoverageDependencyRevision,
         },
       },
       project,
@@ -2452,11 +2522,12 @@ export class ProjectWorkspaceService {
     changedPaths: readonly string[],
   ): ProjectWorkspaceOpenResult | null {
     if (base.snapshot.projectRoot !== committedSnapshot.projectRoot) return null;
-    const sourceContributions = { ...base.sourceContributions };
+    const sourceContributionChanges: Record<string, ProjectWorkspaceSourceContribution> = {};
     const changedOwnerPaths = new Map<string, readonly string[]>();
     let parsedJsonSources = 0;
     let readTextSources = 0;
     let projectedJsonSources = 0;
+    let sourceMembershipChanged = false;
 
     for (const relativePath of [...new Set(changedPaths)].sort(
       compareProjectWorkspaceUnicodeCodePoints,
@@ -2471,18 +2542,19 @@ export class ProjectWorkspaceService {
       const revision = committedSnapshot.fileRevisions[relativePath];
       if (text === undefined || !revision) {
         if (prior) changedOwnerPaths.set(relativePath, prior.ownerPaths);
-        delete sourceContributions[relativePath];
+        sourceMembershipChanged ||= prior !== undefined;
         continue;
       }
       const ownerPaths = sourceContributionOwnerPaths(
         relativePath,
         committedSnapshot.scriptSourcePaths,
       );
+      sourceMembershipChanged ||= prior === undefined;
       changedOwnerPaths.set(relativePath, ownerPaths);
       if (relativePath.endsWith('.json')) {
         parsedJsonSources += 1;
         projectedJsonSources += 1;
-        sourceContributions[relativePath] = Object.freeze({
+        sourceContributionChanges[relativePath] = Object.freeze({
           path: relativePath,
           ...revision,
           kind: 'json' as const,
@@ -2493,7 +2565,7 @@ export class ProjectWorkspaceService {
         });
       } else {
         readTextSources += 1;
-        sourceContributions[relativePath] = Object.freeze({
+        sourceContributionChanges[relativePath] = Object.freeze({
           path: relativePath,
           ...revision,
           kind: 'text' as const,
@@ -2505,107 +2577,167 @@ export class ProjectWorkspaceService {
       }
     }
 
-    const sourceOwnerPathIndex = buildSourceOwnerPathIndex(
-      new Map(
-        Object.entries(sourceContributions).map(([file, contribution]) => [
-          file,
-          contribution.ownerPaths,
-        ]),
-      ),
-    );
     const semanticMembershipChanged =
       aggregateSemanticMembershipChanged(
         changedPaths,
         base.snapshot.project,
         committedSnapshot.project,
-      ) ||
-      changedPaths.some((path) => !base.sourceContributions[path] || !sourceContributions[path]);
-    const validation = validateAdmittedAuthoringProject(committedSnapshot.project, {
-      contributions: semanticMembershipChanged ? [] : base.validationContributions,
-      ...(semanticMembershipChanged ? {} : { changedSourcePaths: new Set(changedPaths) }),
-      resolveInputs: (paths) => {
-        if (paths.some((path) => path === '/' || path === '/editor' || path.startsWith('/editor/')))
-          return null;
-        const resolvedFiles = new Set<string>();
-        for (const path of paths) {
-          const overlappingFiles = sourceOwnerPathIndex.overlappingFiles(path);
-          for (const file of overlappingFiles) resolvedFiles.add(file);
-          const collection = path.split('/')[1] ?? '';
-          if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
-            for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
-              resolvedFiles.add(file);
-          } else if (overlappingFiles.length === 0) resolvedFiles.add('project.json');
-        }
-        return [...resolvedFiles].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
-          path,
-          contentHash: committedSnapshot.fileRevisions[path]!.contentHash,
-        }));
-      },
+      ) || sourceMembershipChanged;
+    const priorSourceOwnerPathIndex = this.snapshotSourceOwnerIndexes.get(base.snapshot);
+    const ownerMembershipChanged = [...changedOwnerPaths].some(([relativePath, ownerPaths]) => {
+      const prior = base.sourceContributions[relativePath]?.ownerPaths;
+      return (
+        !prior ||
+        prior.length !== ownerPaths.length ||
+        prior.some((path, index) => path !== ownerPaths[index])
+      );
     });
+    const incrementalSourceOwnership =
+      !semanticMembershipChanged &&
+      !ownerMembershipChanged &&
+      priorSourceOwnerPathIndex !== undefined;
+    let sourceContributions: ProjectWorkspaceSourceContributions;
+    let sourceOwnerPathIndex: SourceOwnerPathIndex;
+    if (incrementalSourceOwnership) {
+      sourceContributions = overlayRecord(base.sourceContributions, sourceContributionChanges);
+      sourceOwnerPathIndex = priorSourceOwnerPathIndex;
+    } else {
+      const rebuiltSourceContributions = {
+        ...base.sourceContributions,
+        ...sourceContributionChanges,
+      };
+      for (const path of changedPaths)
+        if (!committedSnapshot.fileRevisions[path]) delete rebuiltSourceContributions[path];
+      sourceContributions = rebuiltSourceContributions;
+      sourceOwnerPathIndex = buildSourceOwnerPathIndex(
+        new Map(
+          Object.entries(sourceContributions).map(([file, contribution]) => [
+            file,
+            contribution.ownerPaths,
+          ]),
+        ),
+      );
+    }
+    const priorValidationState = this.snapshotValidationStates.get(base.snapshot);
+    const changedValidationKeys =
+      priorValidationState && !semanticMembershipChanged
+        ? changedValidationContributionKeys(
+            priorValidationState,
+            changedPaths,
+            base.snapshot.project,
+            committedSnapshot.project,
+          )
+        : null;
+    const resolveValidationInputs: AuthoringValidationReuse['resolveInputs'] = (paths) => {
+      if (paths.some((path) => path === '/' || path === '/editor' || path.startsWith('/editor/')))
+        return null;
+      const resolvedFiles = new Set<string>();
+      for (const path of paths) {
+        const overlappingFiles = sourceOwnerPathIndex.overlappingFiles(path);
+        for (const file of overlappingFiles) resolvedFiles.add(file);
+        const collection = path.split('/')[1] ?? '';
+        if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
+          for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
+            resolvedFiles.add(file);
+        } else if (overlappingFiles.length === 0) resolvedFiles.add('project.json');
+      }
+      return [...resolvedFiles].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
+        path,
+        contentHash: committedSnapshot.fileRevisions[path]!.contentHash,
+      }));
+    };
+    const validation = validateAdmittedAuthoringProject(
+      committedSnapshot.project,
+      semanticMembershipChanged
+        ? { contributions: [], resolveInputs: resolveValidationInputs }
+        : {
+            contributions: base.validationContributions,
+            ...(priorValidationState && changedValidationKeys
+              ? {
+                  contributionsByKey: priorValidationState.byKey,
+                  changedContributionKeys: changedValidationKeys,
+                  contributionIndexes: priorValidationState.indexByKey,
+                  baseDiagnostics: base.diagnostics,
+                }
+              : {}),
+            changedSourcePaths: new Set(changedPaths),
+            resolveInputs: resolveValidationInputs,
+          },
+    );
     const changedLocalDiagnostics = sourceLocalDiagnostics(
       validation.diagnostics,
       changedOwnerPaths,
     );
     for (const [relativePath, ownerPaths] of changedOwnerPaths) {
-      const contribution = sourceContributions[relativePath];
+      const contribution =
+        sourceContributionChanges[relativePath] ?? sourceContributions[relativePath];
       if (!contribution) continue;
-      sourceContributions[relativePath] = Object.freeze({
+      sourceContributionChanges[relativePath] = Object.freeze({
         ...contribution,
         ownerPaths,
         localDiagnostics: Object.freeze([...(changedLocalDiagnostics.get(relativePath) ?? [])]),
       });
     }
+    sourceContributions = incrementalSourceOwnership
+      ? overlayRecord(base.sourceContributions, sourceContributionChanges)
+      : Object.freeze({ ...sourceContributions, ...sourceContributionChanges });
 
     this.snapshotValidators.set(committedSnapshot, () => validation.diagnostics);
     this.snapshotValidationStates.set(
       committedSnapshot,
-      createSnapshotValidationState(validation.contributions),
-    );
-    this.snapshotExternalDescriptorIndexes.set(
-      committedSnapshot,
-      createSnapshotExternalDescriptorIndex(committedSnapshot.externalSourceDescriptors),
+      priorValidationState && changedValidationKeys && !semanticMembershipChanged
+        ? advanceSnapshotValidationState(
+            priorValidationState,
+            validation.contributions,
+            changedValidationKeys,
+          )
+        : createSnapshotValidationState(validation.contributions),
     );
     this.snapshotSourceOwnerIndexes.set(committedSnapshot, sourceOwnerPathIndex);
-    const dependencyReuse = semanticMembershipChanged
-      ? undefined
-      : this.snapshotDependencyReuse.get(base.snapshot);
-    if (dependencyReuse) {
-      const priorAnalysis = this.snapshotDependencyAnalysis.get(base.snapshot);
-      const impactedOwnerPaths = new Set(changedOwnerPaths.values().flatMap((paths) => [...paths]));
-      if (priorAnalysis) {
-        const roots = [...impactedOwnerPaths].flatMap((path) =>
-          findAuthoringDependencyOwnersByPath(priorAnalysis.graph, path),
-        );
-        for (const node of authoringDependencyReverseImpactClosure(
-          priorAnalysis.graph,
-          roots.map((node) => node.key),
-        ))
-          impactedOwnerPaths.add(node.owningPath);
-      }
-      const invalidContributionKeys = new Set(
-        (dependencyReuse.contributions ?? [])
-          .filter((contribution) =>
-            [...impactedOwnerPaths].some((path) =>
-              jsonPointersOverlap(path, contribution.ownerPath),
-            ),
-          )
-          .map((contribution) => contribution.key),
+    const committedDescriptorIndex = this.snapshotExternalDescriptorIndexes.get(committedSnapshot);
+    const priorDescriptorIndex = this.snapshotExternalDescriptorIndexes.get(base.snapshot);
+    if (committedDescriptorIndex) {
+      // write() already advanced this index when descriptor topology remained stable.
+    } else if (
+      !semanticMembershipChanged &&
+      priorDescriptorIndex &&
+      committedSnapshot.externalSourceDescriptors === base.snapshot.externalSourceDescriptors
+    ) {
+      this.snapshotExternalDescriptorIndexes.set(committedSnapshot, priorDescriptorIndex);
+    } else {
+      this.snapshotExternalDescriptorIndexes.set(
+        committedSnapshot,
+        createSnapshotExternalDescriptorIndex(committedSnapshot.externalSourceDescriptors),
       );
-      this.snapshotDependencyReuse.set(committedSnapshot, {
-        contributions: dependencyReuse.contributions?.filter(
-          (contribution) => !invalidContributionKeys.has(contribution.key),
-        ),
-        sourceAnalyses: dependencyReuse.sourceAnalyses
-          ? new Map(
-              [...dependencyReuse.sourceAnalyses].filter(
-                ([key]) => !invalidContributionKeys.has(key),
-              ),
-            )
-          : undefined,
-        externalSourceRevisions: dependencyReuse.externalSourceRevisions,
-      });
     }
 
+    const priorAnalysis = this.snapshotDependencyAnalysis.get(base.snapshot);
+    const impactedOwnerPaths = new Set(changedOwnerPaths.values().flatMap((paths) => [...paths]));
+    const incrementalDependencyKeys =
+      priorAnalysis && !semanticMembershipChanged
+        ? incrementalDependencyContributionKeys(priorAnalysis, impactedOwnerPaths)
+        : null;
+    if (priorAnalysis && incrementalDependencyKeys) {
+      this.snapshotIncrementalDependencySeeds.set(committedSnapshot, {
+        base: priorAnalysis,
+        contributionKeys: incrementalDependencyKeys,
+        symbolProjection: this.snapshotLuaSymbolProjections.get(base.snapshot),
+      });
+    } else if (!semanticMembershipChanged) {
+      const dependencyReuse = this.snapshotDependencyReuse.get(base.snapshot);
+      if (dependencyReuse)
+        this.snapshotDependencyReuse.set(committedSnapshot, {
+          // Without an analyzed graph there is no bounded way to identify the affected closure.
+          // Drop semantic contributions rather than scanning them during mutation promotion.
+          externalSourceRevisions: dependencyReuse.externalSourceRevisions,
+        });
+    }
+
+    const coverageInputsChanged = localizationCoverageInputsChanged(
+      changedPaths,
+      base.snapshot.project,
+      committedSnapshot.project,
+    );
     return withLazyOpenContent(
       {
         ok: true as const,
@@ -2613,7 +2745,7 @@ export class ProjectWorkspaceService {
         diagnostics: validation.diagnostics,
         editorState: committedSnapshot.project.editor,
         repairs: [],
-        sourceContributions: Object.freeze(sourceContributions),
+        sourceContributions,
         validationContributions: validation.contributions,
         validationWork: validation.work,
         sourceWork: {
@@ -2624,15 +2756,14 @@ export class ProjectWorkspaceService {
           reusedTextSources: 0,
           projectedJsonSources,
           wholeProjectSchemaParses: 0,
-          fullProjectTraversals: 1,
+          fullProjectTraversals: incrementalSourceOwnership && !semanticMembershipChanged ? 0 : 1,
           fullProjectProjections: 0,
           foregroundSerializations: 0,
           foregroundSerializedBytes: 0,
-          localizationCoverageInputsChanged: localizationCoverageInputsChanged(
-            changedPaths,
-            base.snapshot.project,
-            committedSnapshot.project,
-          ),
+          localizationCoverageInputsChanged: coverageInputsChanged,
+          localizationCoverageDependencyRevision: coverageInputsChanged
+            ? committedSnapshot.sourceRevision
+            : base.sourceWork.localizationCoverageDependencyRevision,
         },
       },
       committedSnapshot.project,
@@ -2673,6 +2804,8 @@ export class ProjectWorkspaceService {
             foregroundSerializations: 0,
             foregroundSerializedBytes: 0,
             localizationCoverageInputsChanged: true,
+            localizationCoverageDependencyRevision:
+              `sha256:${'0'.repeat(64)}` as `sha256:${string}`,
           };
           let requiresFullSchemaParse = false;
           const reusableContribution = (relativePath: string) => {
@@ -3311,6 +3444,7 @@ export class ProjectWorkspaceService {
           }
           const aggregate = await aggregateRevisionState(fileRevisions);
           const workspaceRevision = aggregate.revision;
+          sourceWork.localizationCoverageDependencyRevision = workspaceRevision;
           const contentProject = stripEditorProjectState(decodedProject);
           const snapshot: LoadedProjectWorkspaceSnapshot = Object.freeze({
             snapshotKind: 'loaded',
@@ -3392,10 +3526,11 @@ export class ProjectWorkspaceService {
     }
     if (!options.expectedFileRevisions && openedSnapshot.workspaceRevision !== expectedRevision)
       throw new Error('Project content changed outside the editor.');
-    const projectedSourcePaths = {
-      ...openedSnapshot.scriptSourcePaths,
-      ...scriptSourcePathOverrides,
-    };
+    const scriptSourcePathOverrideKeys = Object.keys(scriptSourcePathOverrides);
+    const projectedSourcePaths =
+      scriptSourcePathOverrideKeys.length === 0
+        ? openedSnapshot.scriptSourcePaths
+        : { ...openedSnapshot.scriptSourcePaths, ...scriptSourcePathOverrides };
     const affectedCandidates = options.affectedPaths
       ? this.affectedWorkspaceFiles(
           openedSnapshot,
@@ -3420,13 +3555,21 @@ export class ProjectWorkspaceService {
     );
     const expected =
       options.expectedFileRevisions ??
-      Object.fromEntries(
-        Object.entries(openedSnapshot.fileRevisions).map(([file, revision]) => [
-          file,
-          revision.contentHash,
-        ]),
-      );
+      (explicitCandidates
+        ? Object.fromEntries(
+            [...candidates].map((file) => [
+              file,
+              openedSnapshot.fileRevisions[file]?.contentHash ?? PROJECT_WORKSPACE_ABSENT_REVISION,
+            ]),
+          )
+        : Object.fromEntries(
+            Object.entries(openedSnapshot.fileRevisions).map(([file, revision]) => [
+              file,
+              revision.contentHash,
+            ]),
+          ));
     const targets: ProjectWorkspaceTransactionTargetInput[] = [];
+    let sourceMembershipChanged = false;
     for (const file of [...candidates].sort(compareProjectWorkspaceUnicodeCodePoints)) {
       const currentText = await this.fileSystem
         .readText(this.fileSystem.joinPath(projectRoot, file))
@@ -3435,6 +3578,8 @@ export class ProjectWorkspaceService {
         (fullProjection
           ? fullProjection[file]
           : projectWorkspaceFile(project, editorState, projectedSourcePaths, file)) ?? null;
+      sourceMembershipChanged ||=
+        (openedSnapshot.fileRevisions[file] !== undefined) !== (nextText !== null);
       if (currentText === nextText) continue;
       const expectedRevision = expected[file] ?? PROJECT_WORKSPACE_ABSENT_REVISION;
       targets.push(
@@ -3450,39 +3595,73 @@ export class ProjectWorkspaceService {
       // keep editing their mutable Project object after a save; retaining that same object here
       // would retroactively mutate the coherent "before" generation and hide later removals.
       const committedProject = cloneAuthoringProject(project);
-      const canonicalSourceFileSet = new Set(openedSnapshot.canonicalSourceFiles);
-      for (const file of candidates) {
-        const nextText = fullProjection
-          ? fullProjection[file]
-          : projectWorkspaceFile(project, editorState, projectedSourcePaths, file);
-        if (nextText === undefined) canonicalSourceFileSet.delete(file);
-        else canonicalSourceFileSet.add(file);
+      const incrementalProjection =
+        explicitCandidates !== null &&
+        !sourceMembershipChanged &&
+        scriptSourcePathOverrideKeys.length === 0;
+      let canonicalSourceFiles: readonly string[];
+      let fileRevisions: Readonly<Record<string, ProjectWorkspaceFileRevision>>;
+      const revisionChanges: Record<string, ProjectWorkspaceFileRevision> = {};
+      let canonicalSourceFileSet: Set<string> | null = null;
+      if (incrementalProjection) {
+        canonicalSourceFiles = openedSnapshot.canonicalSourceFiles;
+      } else {
+        canonicalSourceFileSet = new Set(openedSnapshot.canonicalSourceFiles);
+        for (const file of candidates) {
+          const nextText = fullProjection
+            ? fullProjection[file]
+            : projectWorkspaceFile(project, editorState, projectedSourcePaths, file);
+          if (nextText === undefined) canonicalSourceFileSet.delete(file);
+          else canonicalSourceFileSet.add(file);
+        }
+        canonicalSourceFiles = [...canonicalSourceFileSet].sort(
+          compareProjectWorkspaceUnicodeCodePoints,
+        );
       }
-      const canonicalSourceFiles = [...canonicalSourceFileSet].sort(
-        compareProjectWorkspaceUnicodeCodePoints,
-      );
-      const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {
-        ...openedSnapshot.fileRevisions,
-      };
-      for (const file of Object.keys(fileRevisions))
-        if (!canonicalSourceFileSet.has(file)) delete fileRevisions[file];
       for (const target of targets) {
-        if (!canonicalSourceFileSet.has(target.path)) continue;
+        const isCanonical = incrementalProjection
+          ? openedSnapshot.fileRevisions[target.path] !== undefined
+          : canonicalSourceFileSet!.has(target.path);
+        if (!isCanonical) continue;
         if (target.operation === 'delete') {
-          delete fileRevisions[target.path];
           continue;
         }
         const bytes = target.bytes!;
-        fileRevisions[target.path] = {
+        revisionChanges[target.path] = {
           contentHash: await sha256PrefixedBytes(bytes),
           byteSize: bytes.byteLength,
         };
       }
+      if (incrementalProjection) {
+        fileRevisions = overlayRecord(openedSnapshot.fileRevisions, revisionChanges);
+      } else {
+        const rebuiltRevisions: Record<string, ProjectWorkspaceFileRevision> = {
+          ...openedSnapshot.fileRevisions,
+          ...revisionChanges,
+        };
+        for (const file of Object.keys(rebuiltRevisions))
+          if (!canonicalSourceFileSet!.has(file)) delete rebuiltRevisions[file];
+        fileRevisions = rebuiltRevisions;
+      }
       for (const file of canonicalSourceFiles)
         if (!fileRevisions[file])
           throw new Error(`Committed workspace omitted revision state for '${file}'.`);
-      const aggregate = await aggregateRevisionState(fileRevisions);
+      const priorRevisionState = snapshotRevisionStates.get(openedSnapshot);
+      const aggregate =
+        incrementalProjection && priorRevisionState
+          ? await advanceRevisionState(
+              priorRevisionState,
+              openedSnapshot.fileRevisions,
+              fileRevisions,
+              Object.keys(revisionChanges),
+            )
+          : await aggregateRevisionState(fileRevisions);
       const workspaceRevision = aggregate.revision;
+      const descriptorAdvance = incrementalProjection
+        ? this.advanceExternalDescriptors(openedSnapshot, committedProject, projectedSourcePaths, [
+            ...candidates,
+          ])
+        : null;
       projectedSnapshot = Object.freeze({
         snapshotKind: 'loaded',
         projectRoot: openedSnapshot.projectRoot,
@@ -3490,13 +3669,21 @@ export class ProjectWorkspaceService {
         project: committedProject,
         workspaceRevision,
         sourceRevision: workspaceRevision,
-        canonicalSourceFiles: Object.freeze(canonicalSourceFiles),
-        fileRevisions: Object.freeze(fileRevisions),
-        saveUnitFileOwnership: ownershipFor(committedProject, projectedSourcePaths),
-        externalSourceDescriptors: externalDescriptors(committedProject, projectedSourcePaths),
-        scriptSourcePaths: Object.freeze(sortKeys(projectedSourcePaths)),
+        canonicalSourceFiles,
+        fileRevisions,
+        saveUnitFileOwnership: incrementalProjection
+          ? openedSnapshot.saveUnitFileOwnership
+          : ownershipFor(committedProject, projectedSourcePaths),
+        externalSourceDescriptors:
+          descriptorAdvance?.descriptors ??
+          externalDescriptors(committedProject, projectedSourcePaths),
+        scriptSourcePaths: incrementalProjection
+          ? openedSnapshot.scriptSourcePaths
+          : Object.freeze(sortKeys(projectedSourcePaths)),
       });
       snapshotRevisionStates.set(projectedSnapshot, aggregate.state);
+      if (descriptorAdvance)
+        this.snapshotExternalDescriptorIndexes.set(projectedSnapshot, descriptorAdvance.index);
       await options.admitCandidateBeforeCommit?.(projectedSnapshot);
     }
     if (targets.length > 0) {

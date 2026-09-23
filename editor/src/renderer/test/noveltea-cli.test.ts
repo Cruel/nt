@@ -862,6 +862,58 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
+  it('keeps scoped platform reads narrow through resident authority proof', async () => {
+    const project = validProject();
+    project.export.profiles = [defaultPlatformExportProfile('linux')];
+    const value = fixture(project, true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    const opened = await residentWorkspace.open(root);
+    if (!opened.ok) throw new Error('Initial resident Project open failed.');
+    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.json`, '{"id":');
+
+    const result = await runNovelTeaCli(['--json', 'platform', 'profiles'], {
+      ...options(value, root, undefined, platformTools()),
+      workspace: residentWorkspace,
+      residentWorkspace,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      profiles: [{ id: 'linux-release', target: 'linux', architecture: 'x64' }],
+    });
+  });
+
+  it('fails a scoped resident read after bounded required-domain authority races', async () => {
+    const project = validProject();
+    project.export.profiles = [defaultPlatformExportProfile('linux')];
+    const value = fixture(project, true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    const opened = await residentWorkspace.open(root);
+    if (!opened.ok) throw new Error('Initial resident Project open failed.');
+    const verify = residentWorkspace.verifyScopedReadAuthority.bind(residentWorkspace);
+    let race = 0;
+    residentWorkspace.verifyScopedReadAuthority = async (token) => {
+      const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as {
+        project: { description: string };
+      };
+      manifest.project.description = `race-${race++}`;
+      await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+      return verify(token);
+    };
+
+    const result = await runNovelTeaCli(['--json', 'platform', 'profiles'], {
+      ...options(value, root, undefined, platformTools()),
+      workspace: residentWorkspace,
+      residentWorkspace,
+    });
+
+    expect(race).toBe(3);
+    expect(result.exitCode).toBe(3);
+    expect(JSON.parse(result.stdout).diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'WORKSPACE_REVISION_CONFLICT' }),
+    );
+  });
+
   it('preserves Project identity diagnostics during scoped platform profile preparation', async () => {
     const value = fixture();
     const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<

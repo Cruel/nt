@@ -47,6 +47,22 @@ apply the same membership rule and prepare the indexes needed by the next reside
 Existing JSON-record edits refresh affected Lua/source descriptors as well as dependency contributions;
 source membership or routing changes conservatively rebuild descriptor indexes, while stable owners
 use indexed descriptor replacement without scanning unrelated sources.
+Committed existing-source mutations use the same bounded resident structures: stable source
+membership reuses canonical-source arrays, persistent file-revision state, save-unit ownership,
+script routing, validation/source-owner indexes, descriptor indexes, and analyzed dependency state.
+Only the changed contribution/closure is replaced; structural or routing changes deliberately fall
+back to the conservative whole structure. Localization/font-coverage preparation is keyed by the
+latest coverage-relevant source revision carried across later presentation-only generations rather
+than by a one-delta boolean. Native-proof processing likewise retains external Asset-path membership
+as owner state, so checking a compact physical delta does not construct a new Set over every Asset.
+
+Malformed disk state remains an overlay on the last coherent generation. Owner-short reads that
+declare a narrower semantic path set may use that coherent generation when every invalid source is
+outside the required dependency domain; required malformed inputs still fail. The special scoped
+Project-preparation commands preserve their lightweight direct-load boundary, but resident daemon
+execution now brackets that preparation with scoped native authority capture and a final bounded
+proof/retry before returning output. Thus ignoring malformed unrelated domains no longer bypasses
+the same physical-race boundary used by ordinary resident reads.
 
 Portable snapshots are prepared only on demand for a heavy handoff, then reused for that generation.
 Idle owners reconcile watcher deltas but never start a whole-Project serialization/upload pass: that

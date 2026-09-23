@@ -202,7 +202,9 @@ bool matches_extension(const ProjectSourceDiscoveryScope& scope, std::string_vie
         return false;
     return std::any_of(
         scope.extensions.begin(), scope.extensions.end(),
-        [relative](const std::string& extension) { return relative.ends_with(extension); });
+        [relative](const std::string& extension) {
+            return extension == "*" || relative.ends_with(extension);
+        });
 }
 
 bool event_relevant(const NormalizedConfig& config, std::string_view relative, bool directory)
@@ -405,18 +407,20 @@ void discover_scope(const fs::path& canonical_root, const ProjectSourceDiscovery
             if (error)
                 throw std::runtime_error("Cannot inspect Project discovery candidate: " + relative);
             const bool candidate = matches_extension(scope, relative);
-            if (candidate && !fs::is_regular_file(entry_status)) {
-                if (fs::is_symlink(entry_status))
-                    throw std::runtime_error(
-                        "Project discovery candidate must not be a symbolic link: " + relative);
-                throw std::runtime_error("Project discovery candidate is not a regular file: " +
-                                         relative);
-            }
+            const bool wildcard_scope =
+                std::find(scope.extensions.begin(), scope.extensions.end(), "*") !=
+                scope.extensions.end();
             if (fs::is_directory(entry_status)) {
+                if (candidate && !wildcard_scope)
+                    throw std::runtime_error("Project discovery candidate is not a regular file: " +
+                                             relative);
                 self(self, relative);
                 continue;
             }
             if (fs::is_symlink(entry_status)) {
+                if (candidate)
+                    throw std::runtime_error(
+                        "Project discovery candidate must not be a symbolic link: " + relative);
                 const auto followed = fs::status(absolute, error);
                 if (!error && fs::is_directory(followed))
                     throw std::runtime_error(
@@ -424,6 +428,9 @@ void discover_scope(const fs::path& canonical_root, const ProjectSourceDiscovery
                 error.clear();
                 continue;
             }
+            if (candidate && !fs::is_regular_file(entry_status))
+                throw std::runtime_error("Project discovery candidate is not a regular file: " +
+                                         relative);
             if (candidate)
                 paths.insert(relative);
         }

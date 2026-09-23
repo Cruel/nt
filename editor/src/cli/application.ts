@@ -7,6 +7,7 @@ import type {
   ProjectWorkspaceOpenResult,
   ProjectWorkspaceService,
 } from '../shared/project-workspace/project-workspace-service';
+import type { ScopedReadAuthorityToken } from '../shared/scoped-read-authority';
 import { bootstrapNovelTeaCli, novelTeaCliUsageFailure } from './bootstrap';
 import { classifyNovelTeaCliCommand } from './command-routing';
 import {
@@ -99,12 +100,30 @@ export interface AuthoringValidationInstrumentation {
 
 export interface ResidentCliProjectWorkspace extends ProjectWorkspaceService {
   hasResidentSession(projectRoot: string): Promise<boolean>;
+  openForRead(
+    projectRoot: string,
+    requiredSemanticPaths: readonly string[],
+    options?: ProjectWorkspaceOpenOptions,
+  ): Promise<ProjectWorkspaceOpenResult>;
   openForMutation(
     projectRoot: string,
     options?: ProjectWorkspaceOpenOptions,
   ): Promise<ProjectWorkspaceOpenResult>;
   verifyReadAuthority(snapshot: LoadedProjectWorkspaceSnapshot): Promise<boolean>;
+  captureScopedReadAuthority(
+    projectRoot: string,
+    requiredSemanticPaths: readonly string[],
+  ): Promise<ScopedReadAuthorityToken | null>;
+  verifyScopedReadAuthority(token: ScopedReadAuthorityToken): Promise<boolean>;
   reconcileAfterOpaqueWrite(projectRoot: string): Promise<void>;
+}
+
+export interface CliScopedReadAuthority {
+  captureScopedReadAuthority(
+    projectRoot: string,
+    requiredSemanticPaths: readonly string[],
+  ): Promise<ScopedReadAuthorityToken | null>;
+  verifyScopedReadAuthority(token: ScopedReadAuthorityToken): Promise<boolean>;
 }
 
 export interface RunNovelTeaCliOptions {
@@ -113,6 +132,7 @@ export interface RunNovelTeaCliOptions {
   readonly fileSystem?: ProjectWorkspaceFileSystem;
   readonly workspace?: ProjectWorkspaceService;
   readonly residentWorkspace?: ResidentCliProjectWorkspace;
+  readonly scopedReadAuthority?: CliScopedReadAuthority;
   readonly nativeTools?: NovelTeaCliNativeToolService;
   readonly platformTools?: NovelTeaCliPlatformToolService;
   readonly onPlatformProgress?: (stage: string, message: string) => void;
@@ -562,7 +582,16 @@ export async function runNovelTeaCli(
 
   if (command.projectPreparation) {
     try {
-      const { prepareCliProject } = await import('./project-preparation');
+      const { prepareCliProject, projectPreparationSemanticPaths } =
+        await import('./project-preparation');
+      const scopedSemanticPaths = projectPreparationSemanticPaths(command.projectPreparation);
+      const scopedReadAuthority = options.scopedReadAuthority ?? options.residentWorkspace;
+      const scopedAuthority = scopedReadAuthority
+        ? await scopedReadAuthority.captureScopedReadAuthority(
+            discovery.projectRoot,
+            scopedSemanticPaths,
+          )
+        : null;
       const prepared = await prepareCliProject(
         fileSystemService,
         discovery.projectRoot,
@@ -591,6 +620,32 @@ export async function runNovelTeaCli(
         runtimeArtifactPaths: options.runtimeArtifactPaths,
         pinnedRuntimeBuildCacheInputs: options.pinnedRuntimeBuildCacheInputs,
       });
+      if (scopedAuthority && scopedReadAuthority && !options.trustPinnedResidentSnapshot) {
+        certificationDelay('NOVELTEA_CLI_CERTIFICATION_BEFORE_READ_PROOF_DELAY_MS');
+        const forceCertificationMismatch =
+          process.env.NOVELTEA_CLI_CERTIFICATION === '1' &&
+          process.env.NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH === '1';
+        if (
+          forceCertificationMismatch ||
+          !(await scopedReadAuthority.verifyScopedReadAuthority(scopedAuthority))
+        ) {
+          const retry = options.residentReadAttempt ?? 0;
+          if (retry < 2)
+            return runNovelTeaCli(argv, { ...options, residentReadAttempt: retry + 1 });
+          return failure(
+            NOVELTEA_CLI_EXIT_CODES.workspace,
+            [
+              cliDiagnostic(
+                'WORKSPACE_REVISION_CONFLICT',
+                '/',
+                'Project authority changed repeatedly while the read result was being proven.',
+              ),
+            ],
+            globals.json,
+            { projectRoot: discovery.projectRoot },
+          );
+        }
+      }
       const diagnostics = [...prepared.diagnostics, ...semantic.diagnostics];
       if (!semantic.ok)
         return failure(
@@ -676,11 +731,22 @@ export async function runNovelTeaCli(
   const workspaceAdmissionStarted = Date.now();
   const opened = await openCliProject(activeWorkspace, discovery.projectRoot, {
     readOnly: command.dryRun,
-    ...(routing.projectAccess === 'transactional-write' && options.residentWorkspace
-      ? {
-          openProject: (projectRoot, openOptions) =>
-            options.residentWorkspace!.openForMutation(projectRoot, openOptions),
-        }
+    ...(options.residentWorkspace && activeWorkspace === options.residentWorkspace
+      ? routing.projectAccess === 'transactional-write'
+        ? {
+            openProject: (projectRoot, openOptions) =>
+              options.residentWorkspace!.openForMutation(projectRoot, openOptions),
+          }
+        : routing.projectAccess === 'read' && command.requiredSemanticPaths
+          ? {
+              openProject: (projectRoot, openOptions) =>
+                options.residentWorkspace!.openForRead(
+                  projectRoot,
+                  command.requiredSemanticPaths!,
+                  openOptions,
+                ),
+            }
+          : {}
       : {}),
   });
   const workspaceAdmissionMs = Date.now() - workspaceAdmissionStarted;
