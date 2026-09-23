@@ -54,7 +54,7 @@ noveltea::ShaderMaterialProject make_source_project(const std::filesystem::path&
       "shaders":{
         "sample_effect":{
           "interface_contract":"noveltea.material-preset:engine-2d:1",
-          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
+          "interface_fingerprint":"sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9",
           "stages":{
             "vertex":{"source":"project:/shaders/sample.vs.sc"},
             "fragment":{"source":"project:/shaders/sample.fs.sc"}
@@ -209,7 +209,7 @@ TEST_CASE("shader compiler compiles source_text through generated temporary sour
       "shaders":{
         "inline_effect":{
           "interface_contract":"noveltea.material-preset:engine-2d:1",
-          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
+          "interface_fingerprint":"sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9",
           "stages":{"fragment":{"source_text":"#include <bgfx_shader.sh>\nvoid main() { gl_FragColor = vec4(1.0); }\n"}},
           "roles":["engine-2d"],
           "role_bindings":{}
@@ -262,7 +262,7 @@ TEST_CASE("shader compiler reports missing source diagnostics without an externa
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials",
       "shaders":{
-        "missing_source":{"interface_contract":"noveltea.material-preset:engine-2d:1","interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a","stages":{"fragment":{"source":"project:/shaders/missing.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}
+        "missing_source":{"interface_contract":"noveltea.material-preset:engine-2d:1","interface_fingerprint":"sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9","stages":{"fragment":{"source":"project:/shaders/missing.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}
       },
       "materials":{}
     })json");

@@ -10,7 +10,7 @@ The canonical engine-owned registry is `engine/material-contracts/material-contr
 
 Each preset keeps its stable `noveltea.material-preset:<preset>:1` identity and also has a derived `sha256:` contract fingerprint. The identity names the V1 contract while the fingerprint changes when its canonical resolved ABI inputs change. Source-program compilation carries both values so cache/program identity cannot silently reuse a program compiled against a different resolved contract.
 
-During the staged #333 Material-contract cutover, the generated TypeScript preset projection intentionally preserves the currently authorable preset fields consumed by existing editor/project code. Renderer-owned strict ABI data already comes from the canonical registry; later role-specific tickets remove the obsolete authoring compatibility fields as their runtime paths migrate.
+The #333 Material-contract cutover is complete. Generated TypeScript and C++ projections consume the same canonical registry shape directly; no compatibility projection of retired authoring fields is retained.
 
 When a Material uses custom shader source, its stages reference normalized source paths directly. Project-owned shader files live beneath `shaders/`; engine-owned stages use `engine:/...` identities. Reuse happens through source files and `#include`, not through shared authored Shader IDs.
 
@@ -30,7 +30,7 @@ or:
 { kind: 'material', material: { $ref: { collection: 'materials', id: 'base-material' } } }
 ```
 
-Material inheritance is single-parent and must terminate at a built-in preset. Cycles and missing bases are invalid. Parameters, textures, render-state fields, preview metadata, and shader-stage overrides are sparse overrides. Resolution preserves provenance so the editor can distinguish preset values, inherited Material values, and local overrides.
+Material inheritance is single-parent and must terminate at a built-in preset. Cycles and missing bases are invalid. Parameters, textures, preview metadata, and shader-stage overrides are sparse overrides. Pipeline blend/output-alpha policy comes only from the selected role contract. Resolution preserves provenance so the editor can distinguish preset values, inherited Material values, and local overrides.
 
 A Material may override shader stages with project or engine source paths:
 
@@ -83,7 +83,7 @@ The runtime continues to use internal shader/program structures and the `novelte
 - shipped system-program metadata for ordinary preset-backed Materials;
 - custom derived programs for source-overridden Materials;
 - reflected uniforms/samplers for compiled custom programs;
-- Material values, textures, role, and derived pipeline metadata;
+- Material values, author-owned textures, role, and contract-derived pipeline behavior;
 - diagnostics for unresolved inheritance, invalid bindings, unsupported reflection, and orphaned configuration.
 
 At certification boundaries the builder can additionally request the built-in preset source programs, allowing shipped presets to pass through the same native contract verifier without forcing ordinary editor previews to recompile system shaders. Preset programs otherwise resolve to shipped system shader binaries. Custom source programs must have the required compiled target variants before runtime package export succeeds.

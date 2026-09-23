@@ -10,6 +10,11 @@
       "id": "dialogue-presentation",
       "title": "Dialogue & Presentation",
       "description": "Dialogue flow, Character presentation, timed cues, audio, and authored choice UI."
+    },
+    {
+      "id": "rendering-materials",
+      "title": "Rendering & Materials",
+      "description": "Canonical Material contracts, renderer-owned inputs, specialization, and visual rendering behavior."
     }
   ],
   "launches": [
@@ -24,6 +29,10 @@
     {
       "id": "dialogue-presentation",
       "roomId": "dialogue-presentation-stage"
+    },
+    {
+      "id": "materials-engine2d",
+      "roomId": "materials-engine2d-lab"
     }
   ],
   "visualCheckpoints": [],
@@ -187,6 +196,42 @@
             { "kind": "semantic-test", "id": "rooms-interactions-flow" },
             { "kind": "ui-test", "id": "rooms-interactions-ui" }
           ]
+        }
+      ]
+    },
+    {
+      "id": "materials-engine2d",
+      "categoryId": "rendering-materials",
+      "title": "Engine2D Draw Texture & Specialization",
+      "description": "Two ordinary Interactable sprites use one custom Engine2D Material. The renderer supplies each draw's sprite texture automatically; one Instance inherits the Definition parameter while the other specializes it.",
+      "status": "ready",
+      "created": "2026-09-23T18:30:00Z",
+      "modified": "2026-09-23T18:30:00Z",
+      "launch": { "entry": "materials-engine2d" },
+      "checks": [
+        {
+          "id": "engine2d-draw-texture",
+          "title": "Renderer-owned draw texture is automatic",
+          "action": "Launch the scenario and inspect both button sprites.",
+          "expected": "Both sprites retain the authored button image through the custom Engine2D Material even though the Material and both applications author no texture source for s_texColor.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-09-23T18:30:00Z",
+          "modified": "2026-09-23T18:30:00Z",
+          "assetRequirements": ["pilot-button-sprite"],
+          "automation": []
+        },
+        {
+          "id": "definition-instance-specialization",
+          "title": "Definition and Instance parameter specialization",
+          "action": "Compare the left Definition sample with the right Instance sample.",
+          "expected": "Both use the same Material and sprite, while the right sample has the visibly stronger cyan tint from its Instance u_strength override over the Definition value.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-09-23T18:30:00Z",
+          "modified": "2026-09-23T18:30:00Z",
+          "assetRequirements": ["pilot-button-sprite"],
+          "automation": []
         }
       ]
     },

@@ -42,9 +42,10 @@ export interface MaterialPresetDefinition {
   fragmentSource: string;
   varyingDefinition: string;
   programName: string;
+  standardUniforms: Readonly<Record<string, ShaderInputBinding>>;
+  samplerCapabilities: Readonly<Record<string, 'required' | 'optional' | 'disabled'>>;
   uniforms: Readonly<Record<string, MaterialPresetUniform>>;
   samplers: Readonly<Record<string, MaterialPresetSampler>>;
-  blend: 'premultiplied-alpha';
   preview: {
     geometry: 'quad' | 'rounded-rect' | 'sprite' | 'glyphs';
     background: 'transparent' | 'checker' | 'dark' | 'light';
@@ -54,7 +55,9 @@ export interface MaterialPresetDefinition {
 function projectedPreset(
   preset: (typeof materialContractRegistry.presets)[number],
 ): MaterialPresetDefinition {
-  const compatibility = preset.compatibilityProjection;
+  const uniforms = Object.fromEntries(
+    Object.entries(preset.defaultParameters).map(([name, parameter]) => [name, parameter]),
+  ) as Readonly<Record<string, MaterialPresetUniform>>;
   return {
     id: preset.id as MaterialPresetId,
     label: preset.label,
@@ -65,9 +68,14 @@ function projectedPreset(
     fragmentSource: preset.shader.fragmentSource,
     varyingDefinition: preset.shader.varyingDefinition,
     programName: preset.shader.programName,
-    uniforms: compatibility.uniforms as unknown as Readonly<Record<string, MaterialPresetUniform>>,
-    samplers: compatibility.samplers as unknown as Readonly<Record<string, MaterialPresetSampler>>,
-    blend: compatibility.blend as 'premultiplied-alpha',
+    standardUniforms: preset.shader.standardUniforms as Readonly<
+      Record<string, ShaderInputBinding>
+    >,
+    samplerCapabilities: preset.capabilities.samplers as unknown as Readonly<
+      Record<string, 'required' | 'optional' | 'disabled'>
+    >,
+    uniforms,
+    samplers: {},
     preview: {
       geometry: preset.preview.geometry as MaterialPresetDefinition['preview']['geometry'],
       background: preset.preview.background as MaterialPresetDefinition['preview']['background'],

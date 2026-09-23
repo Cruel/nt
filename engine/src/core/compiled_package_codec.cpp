@@ -365,7 +365,7 @@ void validate_shader_manifest_shape(Decoder& decoder, const nlohmann::json& root
             const auto base = Decoder::child("/materials", material.key());
             if (!decoder.object(
                     *material, base,
-                    {"display_name", "role", "shader", "uniforms", "textures", "blend"}))
+                    {"display_name", "role", "shader", "uniforms", "textures"}))
                 continue;
             if (const auto* textures = json_access::member(*material, "textures");
                 textures && textures->is_object()) {

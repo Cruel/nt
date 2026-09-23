@@ -2399,8 +2399,29 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     const core::SessionState source_state = m_state;
                     const auto source_room = m_room_presentation;
                     std::optional<core::compiled::MaterialParameterValue> source_value;
-                    if (current)
+                    if (current) {
                         source_value = current->value;
+                    } else if (const auto* postprocess =
+                                   std::get_if<core::PostprocessMaterialOccurrence>(
+                                       occurrence.value_if())) {
+                        const auto effect = std::ranges::find_if(
+                            m_state.postprocess_effects(), [&](const auto& candidate) {
+                                return candidate.instance == postprocess->instance &&
+                                       candidate.owner == owner && candidate.material == value.material;
+                            });
+                        if (effect != m_state.postprocess_effects().end()) {
+                            const auto parameter = std::ranges::find_if(
+                                effect->material_parameters, [&](const auto& candidate) {
+                                    return candidate.name == value.parameter;
+                                });
+                            if (parameter != effect->material_parameters.end()) {
+                                if (const auto* literal =
+                                        std::get_if<core::compiled::MaterialApplicationLiteralSource>(
+                                            &parameter->source))
+                                    source_value = literal->value;
+                            }
+                        }
+                    }
                     auto changed = m_state.upsert_material_parameter(
                         m_project, core::DesiredMaterialParameter{
                                        owner, *occurrence.value_if(), value.material,

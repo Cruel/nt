@@ -111,9 +111,7 @@ performed. The same graph plumbing can support more aggressive record closure la
 the export contract.
 
 Authoring asset metadata supplies source filesystem paths only after the asset survives that audit.
-Shader/material assembly produces `shader-materials.json` and enumerates required platform binaries.
-Normal runtime packages strip authored shader source while retaining all required binaries and
-metadata; Developer Mode/CLI can explicitly preserve shader sources for diagnostic exports.
+Shader/material assembly produces `shader-materials.json` and enumerates required platform binaries. The assembly is current-contract-only: role-owned pipeline state and renderer-owned sampler sources are derived from the canonical Material contract registry, while retired authored Material blend/scope fields and renderer source aliases are rejected before export. Normal runtime packages strip authored shader source while retaining all required binaries and metadata; Developer Mode/CLI can explicitly preserve shader sources for diagnostic exports.
 
 Every authored audio entry is exported with explicit `stored` ZIP policy and included in the
 required-seekable list. This is semantic rather than path- or extension-based: an asset at

@@ -98,11 +98,6 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
     return parse_logical_asset_ref(logical, ignored);
 }
 
-[[nodiscard]] bool valid_draw_texture_ref(std::string_view value)
-{
-    return value == "$draw.texture";
-}
-
 [[nodiscard]] bool valid_identifier(std::string_view value)
 {
     if (value.empty())
@@ -247,13 +242,6 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
         return ShaderSamplerSemantic::EngineHotspotImage;
     if (semantic == "engine.hotspot_mask")
         return ShaderSamplerSemantic::EngineHotspotMask;
-    return std::nullopt;
-}
-
-[[nodiscard]] std::optional<MaterialBlendMode> parse_blend_mode(std::string_view blend)
-{
-    if (blend == "premultiplied-alpha")
-        return MaterialBlendMode::PremultipliedAlpha;
     return std::nullopt;
 }
 
@@ -1130,7 +1118,7 @@ void parse_material_textures(const nlohmann::json& material_json, const ShaderDe
             continue;
         }
         assignment.source = source_json->get<std::string>();
-        if (!valid_draw_texture_ref(assignment.source) && !valid_asset_ref(assignment.source)) {
+        if (assignment.source == "$draw.texture" || !valid_asset_ref(assignment.source)) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource, path,
                            "invalid material texture source: " + assignment.source);
             continue;
@@ -1221,18 +1209,10 @@ void parse_material_definition(std::string_view id, const nlohmann::json& materi
         }
     }
 
-    const auto blend_it = material_json.find("blend");
-    if (blend_it != material_json.end()) {
-        if (!blend_it->is_string()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
-                           field_path(base_path, "blend"), "material blend must be a string");
-        } else if (const auto blend = parse_blend_mode(blend_it->get<std::string_view>())) {
-            material.blend = *blend;
-        } else {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedBlendPolicy,
-                           field_path(base_path, "blend"),
-                           "unsupported material blend policy: " + blend_it->get<std::string>());
-        }
+    if (material_json.contains("blend")) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedBlendPolicy,
+                       field_path(base_path, "blend"),
+                       "Material blend is owned by the role/preset pipeline contract");
     }
 
     if (material_json.contains("postprocess_scope")) {

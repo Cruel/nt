@@ -23,7 +23,7 @@ Read the specific component doc before changing its schema, commands, editor UI,
 - `docs/engine/MAP.md` — exit-backed map presentation and selection without duplicate navigation topology.
 - `docs/engine/SCRIPT_MODULE.md` — Lua module ownership, explicit execution, yielding, save, and package rules.
 - `docs/engine/LAYOUT.md` — authored RmlUi layouts, system layout roles, source files, preview, export, and runtime mounting.
-- `docs/engine/SHADER.md` — source-backed shader programs, compiler reflection, derived program identity, ActiveText direct programs, and runtime/export status; there is no authored Shader-record collection.
+- `docs/engine/SHADER.md` — source-backed Material shader programs, compiler reflection, derived program identity, canonical ActiveText Material binding, and runtime/export status; there is no authored Shader-record collection or direct ActiveText shader path.
 - `docs/engine/MATERIAL.md` — Material Presets, single-parent sparse inheritance, source-backed shader overrides, reflected interfaces, preview, and runtime/export status.
 - `docs/engine/MATERIAL_AUTHORING_CUTOVER_CERTIFICATION.md` — final #292 cutover boundary and cross-seam certification evidence for the Material/preset/source-file architecture.
 - `docs/engine/VARIABLE.md` — project Variables/Global Properties, typed Property resolution, mutation, saves, and Lua APIs.

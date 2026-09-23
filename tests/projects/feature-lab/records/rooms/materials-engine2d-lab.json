@@ -1,0 +1,81 @@
+{
+  "id": "materials-engine2d-lab",
+  "label": "Materials · Engine2D Draw Contract",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Materials · Engine2D Draw Contract",
+    "background": {
+      "asset": null,
+      "materialApplication": null,
+      "fit": "cover",
+      "color": "#101827"
+    },
+    "description": {
+      "source": { "kind": "inline", "text": "Both sprites use one Engine2D Material that samples the renderer-owned draw texture. Left inherits the Definition strength; right specializes it at the Instance." },
+      "markup": "active-text"
+    },
+    "presentationSpace": {
+      "size": { "width": 1920, "height": 1080 },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [
+      {
+        "id": "material-definition-sample",
+        "interactable": { "$ref": { "registry": "interactableInstances", "id": "material-definition-sample" } },
+        "condition": { "kind": "always" },
+        "placementId": "material-definition-placement",
+        "visible": true,
+        "order": 10
+      },
+      {
+        "id": "material-instance-sample",
+        "interactable": { "$ref": { "registry": "interactableInstances", "id": "material-instance-sample" } },
+        "condition": { "kind": "always" },
+        "placementId": "material-instance-placement",
+        "visible": true,
+        "order": 20
+      }
+    ],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": { "kind": "always" },
+      "canLeave": { "kind": "always" },
+      "beforeEnter": [],
+      "afterEnter": [],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [],
+    "placements": [
+      {
+        "id": "material-definition-placement",
+        "bounds": { "x": 0.28, "y": 0.38, "width": 0.16, "height": 0.24 },
+        "order": 10,
+        "presentation": { "label": null, "layout": null }
+      },
+      {
+        "id": "material-instance-placement",
+        "bounds": { "x": 0.56, "y": 0.38, "width": 0.16, "height": 0.24 },
+        "order": 20,
+        "presentation": { "label": null, "layout": null }
+      }
+    ],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

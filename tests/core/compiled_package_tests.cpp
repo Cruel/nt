@@ -50,7 +50,7 @@ nlohmann::json shader_manifest()
         "sprite-shader":{
           "display_name":"Sprite",
           "interface_contract":"noveltea.material-preset:engine-2d:1",
-          "interface_fingerprint":"sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a",
+          "interface_fingerprint":"sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9",
           "roles":["engine-2d"],
           "role_bindings":{},
           "stages":{
@@ -58,7 +58,20 @@ nlohmann::json shader_manifest()
             "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "uniforms":{},
-          "samplers":{}
+          "samplers":{"s_texColor":{"type":"texture2d","stage":0,"binding":null}}
+        },
+        "layout-shader":{
+          "display_name":"Layout",
+          "interface_contract":"noveltea.material-preset:rmlui-decorator:1",
+          "interface_fingerprint":"sha256:13861c8862bc8406cc2a3575a6a81e504c8f85943b9fcb5f9b4de8bf075245f8",
+          "roles":["rmlui-decorator"],
+          "role_bindings":{},
+          "stages":{
+            "vertex":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
+            "fragment":{"compiled":{"glsl-330":{"runtimePath":"project:/shaders/bgfx/glsl-330/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
+          },
+          "uniforms":{},
+          "samplers":{"s_texColor":{"type":"texture2d","stage":0,"binding":null}}
         }
       },
       "materials":{
@@ -67,8 +80,21 @@ nlohmann::json shader_manifest()
           "role":"engine-2d",
           "shader":"sprite-shader",
           "uniforms":{},
-          "textures":{},
-          "blend":"premultiplied-alpha"
+          "textures":{}
+        },
+        "layout-material":{
+          "display_name":"Layout",
+          "role":"rmlui-decorator",
+          "shader":"layout-shader",
+          "uniforms":{},
+          "textures":{}
+        },
+        "wrong-hotspot-material":{
+          "display_name":"Wrong Hotspot",
+          "role":"engine-2d",
+          "shader":"sprite-shader",
+          "uniforms":{},
+          "textures":{}
         }
       }
     })json");
@@ -182,8 +208,8 @@ TEST_CASE("strict package and shader manifests decode separately")
 
     auto shaders = decode_shader_material_manifest(shader_manifest());
     REQUIRE(shaders.has_value());
-    CHECK(shaders.value().shaders.size() == 1);
-    CHECK(shaders.value().materials.size() == 1);
+    CHECK(shaders.value().shaders.size() == 2);
+    CHECK(shaders.value().materials.size() == 3);
 
     auto unknown_package = package_manifest_for(project, false);
     unknown_package["future"] = true;
@@ -368,7 +394,9 @@ TEST_CASE("compiled package rejects inventory and cross-document reference failu
             test_support::json_object_by_id(document["definitions"]["interactables"], "coin");
         REQUIRE(coin != nullptr);
         (*coin)["presentation"]["hotspots"]["hotspots"][0]["highlight"]["material"]["id"] =
-            "sprite-material";
+            "wrong-hotspot-material";
+        document["resources"]["materialInterfaces"].push_back(
+            {{"id", "wrong-hotspot-material"}, {"role", "hotspot-overlay"}, {"parameters", nlohmann::json::array()}});
         auto decoded = decode_compiled_project(document, "interaction-program.json");
         REQUIRE(decoded.has_value());
         auto project = std::move(decoded).value();

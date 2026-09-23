@@ -69,7 +69,6 @@ describe('canonical Material shader lowering', () => {
       display_name: 'Panel',
       role: 'engine-2d',
       shader: 'preset-engine-2d',
-      blend: 'premultiplied-alpha',
       textures: {},
     });
     expect(built.project.shaders['preset-engine-2d']).toMatchObject({

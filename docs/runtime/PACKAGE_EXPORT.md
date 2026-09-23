@@ -15,7 +15,7 @@ are separate:
 - `shader-materials.json`: optional shader/material manifest.
 - referenced assets and required compiled shader binaries.
 
-Gameplay JSON never embeds package inventory or shader/material manifests.
+Gameplay JSON never embeds package inventory or shader/material manifests. The derived `shader-materials.json` uses only the current canonical runtime shape: Material pipeline blend state is taken from the certified role contract, renderer-owned samplers are supplied by the renderer, and retired authored fields/source aliases are rejected rather than preserved for compatibility.
 
 ## Production
 

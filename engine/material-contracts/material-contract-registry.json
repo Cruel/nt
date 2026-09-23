@@ -256,7 +256,8 @@
         "vertexSource": "engine:/vs_quad.sc",
         "fragmentSource": "engine:/fs_quad.sc",
         "varyingDefinition": "engine:/varying.def.sc",
-        "programName": "quad"
+        "programName": "quad",
+        "standardUniforms": {}
       },
       "capabilities": {
         "samplers": { "s_texColor": "required" }
@@ -266,12 +267,6 @@
         "fixture": "engine-2d-sprite-checker",
         "geometry": "quad",
         "background": "checker"
-      },
-      "compatibilityProjection": {
-        "uniforms": {},
-        "samplers": {},
-        "blend": "premultiplied-alpha",
-        "postprocessScope": "world"
       }
     },
     {
@@ -283,7 +278,8 @@
         "vertexSource": "engine:/vs_text.sc",
         "fragmentSource": "engine:/fs_text.sc",
         "varyingDefinition": "engine:/varying.def.sc",
-        "programName": "text"
+        "programName": "text",
+        "standardUniforms": {}
       },
       "capabilities": {
         "samplers": { "s_textAtlas": "required" }
@@ -293,12 +289,6 @@
         "fixture": "active-text-glyph-atlas",
         "geometry": "glyphs",
         "background": "dark"
-      },
-      "compatibilityProjection": {
-        "uniforms": {},
-        "samplers": { "s_textAtlas": {} },
-        "blend": "premultiplied-alpha",
-        "postprocessScope": "world"
       }
     },
     {
@@ -310,7 +300,8 @@
         "vertexSource": "engine:/vs_rmlui.sc",
         "fragmentSource": "engine:/fs_rmlui.sc",
         "varyingDefinition": "engine:/varying.def.sc",
-        "programName": "rmlui"
+        "programName": "rmlui",
+        "standardUniforms": {}
       },
       "capabilities": {
         "samplers": { "s_texColor": "required" }
@@ -320,12 +311,6 @@
         "fixture": "rmlui-decorator-texture",
         "geometry": "rounded-rect",
         "background": "checker"
-      },
-      "compatibilityProjection": {
-        "uniforms": {},
-        "samplers": { "s_texColor": {} },
-        "blend": "premultiplied-alpha",
-        "postprocessScope": "world"
       }
     },
     {
@@ -337,7 +322,8 @@
         "vertexSource": "engine:/vs_postprocess_tint.sc",
         "fragmentSource": "engine:/fs_postprocess_tint.sc",
         "varyingDefinition": "engine:/varying.def.sc",
-        "programName": "postprocess_tint"
+        "programName": "postprocess_tint",
+        "standardUniforms": {}
       },
       "capabilities": {
         "samplers": { "s_texColor": "required" }
@@ -349,14 +335,6 @@
         "fixture": "postprocess-composed-scene",
         "geometry": "quad",
         "background": "checker"
-      },
-      "compatibilityProjection": {
-        "uniforms": {
-          "u_tint": { "type": "color", "default": [1, 1, 1, 1], "label": "Tint" }
-        },
-        "samplers": { "s_texColor": {} },
-        "blend": "premultiplied-alpha",
-        "postprocessScope": "world"
       }
     },
     {
@@ -368,7 +346,15 @@
         "vertexSource": "engine:/vs_quad.sc",
         "fragmentSource": "engine:/fs_hotspot_alpha.sc",
         "varyingDefinition": "engine:/varying.def.sc",
-        "programName": "hotspot_alpha"
+        "programName": "hotspot_alpha",
+        "standardUniforms": {
+          "u_time": "engine.time",
+          "u_hotspotBounds": "engine.hotspot_bounds",
+          "u_hotspotHovered": "engine.hotspot_hovered",
+          "u_hotspotPressed": "engine.hotspot_pressed",
+          "u_hotspotImageDimensions": "engine.hotspot_image_dimensions",
+          "u_hotspotMaskDimensions": "engine.hotspot_mask_dimensions"
+        }
       },
       "capabilities": {
         "samplers": {
@@ -381,21 +367,6 @@
         "fixture": "hotspot-image",
         "geometry": "sprite",
         "background": "checker"
-      },
-      "compatibilityProjection": {
-        "uniforms": {
-          "u_time": { "type": "float", "binding": "engine.time", "label": "Time" },
-          "u_hotspotBounds": { "type": "vec4", "binding": "engine.hotspot_bounds" },
-          "u_hotspotHovered": { "type": "bool", "binding": "engine.hotspot_hovered" },
-          "u_hotspotPressed": { "type": "bool", "binding": "engine.hotspot_pressed" },
-          "u_hotspotImageDimensions": { "type": "vec2", "binding": "engine.hotspot_image_dimensions" },
-          "u_hotspotMaskDimensions": { "type": "vec2", "binding": "engine.hotspot_mask_dimensions" }
-        },
-        "samplers": {
-          "s_hotspotImage": { "binding": "engine.hotspot_image" }
-        },
-        "blend": "premultiplied-alpha",
-        "postprocessScope": "world"
       }
     },
     {
@@ -407,7 +378,15 @@
         "vertexSource": "engine:/vs_quad.sc",
         "fragmentSource": "engine:/fs_hotspot_custom.sc",
         "varyingDefinition": "engine:/varying.def.sc",
-        "programName": "hotspot_custom"
+        "programName": "hotspot_custom",
+        "standardUniforms": {
+          "u_time": "engine.time",
+          "u_hotspotBounds": "engine.hotspot_bounds",
+          "u_hotspotHovered": "engine.hotspot_hovered",
+          "u_hotspotPressed": "engine.hotspot_pressed",
+          "u_hotspotImageDimensions": "engine.hotspot_image_dimensions",
+          "u_hotspotMaskDimensions": "engine.hotspot_mask_dimensions"
+        }
       },
       "capabilities": {
         "samplers": {
@@ -420,22 +399,6 @@
         "fixture": "hotspot-image-mask",
         "geometry": "sprite",
         "background": "checker"
-      },
-      "compatibilityProjection": {
-        "uniforms": {
-          "u_time": { "type": "float", "binding": "engine.time", "label": "Time" },
-          "u_hotspotBounds": { "type": "vec4", "binding": "engine.hotspot_bounds" },
-          "u_hotspotHovered": { "type": "bool", "binding": "engine.hotspot_hovered" },
-          "u_hotspotPressed": { "type": "bool", "binding": "engine.hotspot_pressed" },
-          "u_hotspotImageDimensions": { "type": "vec2", "binding": "engine.hotspot_image_dimensions" },
-          "u_hotspotMaskDimensions": { "type": "vec2", "binding": "engine.hotspot_mask_dimensions" }
-        },
-        "samplers": {
-          "s_hotspotImage": { "binding": "engine.hotspot_image" },
-          "s_hotspotMask": { "binding": "engine.hotspot_mask" }
-        },
-        "blend": "premultiplied-alpha",
-        "postprocessScope": "world"
       }
     }
   ]

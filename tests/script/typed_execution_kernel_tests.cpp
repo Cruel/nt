@@ -572,19 +572,19 @@ TEST_CASE(
     REQUIRE(kernel->state().postprocess_effects().size() == 1);
     CHECK(kernel->state().postprocess_effects().front().instance ==
           core::PostprocessEffectInstanceId::create("scene-grade").value());
-    REQUIRE(kernel->state().material_parameters().size() == 1);
-    CHECK(kernel->state().material_parameters().front().parameter == "u_tint");
-    REQUIRE(kernel->state().material_parameters().front().value);
-    CHECK(std::get<core::compiled::MaterialColorValue>(
-              *kernel->state().material_parameters().front().value) ==
+    CHECK(kernel->state().material_parameters().empty());
+    REQUIRE(kernel->state().postprocess_effects().front().material_parameters.size() == 1);
+    const auto& authored_tint =
+        kernel->state().postprocess_effects().front().material_parameters.front();
+    CHECK(authored_tint.name == "u_tint");
+    const auto* literal = std::get_if<core::compiled::MaterialApplicationLiteralSource>(&authored_tint.source);
+    REQUIRE(literal != nullptr);
+    CHECK(std::get<core::compiled::MaterialColorValue>(literal->value) ==
           core::compiled::MaterialColorValue{0.4, 0.4, 0.4, 1.0});
 
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
-    REQUIRE(kernel->state().material_parameters().size() == 1);
-    CHECK(std::ranges::any_of(kernel->state().material_parameters(), [](const auto& parameter) {
-        return parameter.parameter == "u_tint" && parameter.value.has_value();
-    }));
+    CHECK(kernel->state().material_parameters().empty());
 
     auto material_transition = kernel->run_until_blocked(1, "en");
     const auto* material_blocked = std::get_if<core::FlowBlockedOutcome>(&material_transition);

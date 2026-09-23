@@ -5,7 +5,6 @@ import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject } from './authoring-project';
 import { materialContractRegistry } from './material-contract-registry.generated';
 import {
-  materialBlendValues,
   materialTextureFilteringValues,
   resolvedMaterialUsesCustomShader,
   resolveMaterialAuthoredOverrides,
@@ -120,7 +119,6 @@ export const runtimeMaterialDefinitionSchema = strict({
     z.string().min(1),
     strict({ source: z.string().min(1), sampler: z.enum(materialTextureFilteringValues) }),
   ),
-  blend: z.enum(materialBlendValues),
 });
 export const shaderMaterialProjectWireSchema = strict({
   schema: z.literal(SHADER_MATERIAL_SCHEMA),
@@ -340,7 +338,6 @@ export async function buildShaderMaterialProject(
       shader: shaderId,
       uniforms,
       textures,
-      blend: resolved.blend,
     });
     if (!parsedMaterial.success) {
       diagnostics.push(
@@ -470,10 +467,15 @@ function buildRuntimeShader(
       }
       if (input.kind === 'sampled-image') {
         const texture = authoredOverrides.textures[name];
-        const binding =
-          texture?.binding !== undefined
-            ? texture.binding
-            : (resolved.preset.samplers[name]?.binding ?? null);
+        const contractSampler = roleContract?.reservedInterface.samplers.find(
+          (sampler) => sampler.name === name,
+        );
+        const contractBinding = shaderSamplerBindingValues.includes(
+          contractSampler?.semantic as (typeof shaderSamplerBindingValues)[number],
+        )
+          ? (contractSampler?.semantic as (typeof shaderSamplerBindingValues)[number])
+          : null;
+        const binding = texture?.binding !== undefined ? texture.binding : contractBinding;
         if (texture?.source !== undefined && (binding !== null || rendererSamplerNames.has(name)))
           diagnostics.push(
             diagnostic(
@@ -590,36 +592,51 @@ function buildRuntimeShader(
         ...(value.label ? { editor: { label: value.label } } : {}),
       };
     const roleContract = materialContractRegistry.roles.find((role) => role.id === resolved.role);
-    for (const [name, value] of Object.entries(resolved.preset.samplers)) {
+    const standardSemanticTypes = new Map(
+      roleContract?.standardSemanticAvailability.map((entry) => [
+        entry.semantic,
+        entry.logicalType,
+      ]) ?? [],
+    );
+    for (const [name, semantic] of Object.entries(resolved.preset.standardUniforms)) {
+      const type = standardSemanticTypes.get(semantic);
+      if (
+        !type ||
+        !shaderInputBindingValues.includes(semantic as (typeof shaderInputBindingValues)[number])
+      ) {
+        diagnostics.push(
+          diagnostic(
+            `/materials/${materialId}/data`,
+            `Preset standard uniform '${name}' uses unavailable semantic '${semantic}'.`,
+          ),
+        );
+        continue;
+      }
+      uniforms[name] = {
+        type: type as ShaderUniformType,
+        binding: semantic as (typeof shaderInputBindingValues)[number],
+      };
+    }
+    for (const [name, state] of Object.entries(resolved.preset.samplerCapabilities)) {
+      if (state === 'disabled') continue;
       const contractSampler = roleContract?.reservedInterface.samplers.find(
         (sampler) => sampler.name === name,
       );
       if (!contractSampler) {
         diagnostics.push(
           diagnostic(
-            `/materials/${materialId}/data/textures/${name}`,
+            `/materials/${materialId}/data`,
             `Preset sampler '${name}' is missing from Material role '${resolved.role}' contract.`,
           ),
         );
         continue;
       }
-      samplers[name] = {
-        type: 'texture2d',
-        stage: contractSampler.stage,
-        binding: value.binding ?? null,
-      };
-    }
-    if (resolved.role === 'engine-2d') {
-      const drawTextureSampler = roleContract?.reservedInterface.samplers.find(
-        (sampler) =>
-          sampler.sourceOwnership === 'renderer' && sampler.semantic === 'engine.draw_texture',
-      );
-      if (drawTextureSampler)
-        samplers[drawTextureSampler.name] = {
-          type: 'texture2d',
-          stage: drawTextureSampler.stage,
-          binding: null,
-        };
+      const binding = shaderSamplerBindingValues.includes(
+        contractSampler.semantic as (typeof shaderSamplerBindingValues)[number],
+      )
+        ? (contractSampler.semantic as (typeof shaderSamplerBindingValues)[number])
+        : null;
+      samplers[name] = { type: 'texture2d', stage: contractSampler.stage, binding };
     }
   }
   const candidate = {

@@ -20,14 +20,14 @@ export const materialContractPresetIds = [
 ] as const;
 
 export const materialContractFingerprints = {
-  'engine-2d': 'sha256:0e4e262891e0e3895803481b735e0747bb62bc49599e4b8de76586139b2e292a',
-  'active-text': 'sha256:c62ec9672871d25d0736f7b093016d8835ea372693b9dab9016ea56d145427e2',
-  'rmlui-decorator': 'sha256:4d6fa3ddc7c34a2d7ca9fa8102e0881305a1ea684693b47eff6ebebdddaf4a27',
-  'postprocess-tint': 'sha256:07983cdd0065e8e8acf3aaf53c6e2c0bb443f8c557561403b0dd4917f4040b10',
+  'engine-2d': 'sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9',
+  'active-text': 'sha256:dca98d91d8339c97658f5aa9852bb5213f4601bb5fd4be532c93d7caba606554',
+  'rmlui-decorator': 'sha256:13861c8862bc8406cc2a3575a6a81e504c8f85943b9fcb5f9b4de8bf075245f8',
+  'postprocess-tint': 'sha256:be4687257959764c5f1eaac0b101615349c727a9671bd515c75dd8d923accdf3',
   'hotspot-overlay-alpha':
-    'sha256:c6676b68043dcc07e21ad86c5552a11e55784bb294a2aecb2ce0bc531fef378e',
+    'sha256:7379c072c2c57ad0d5f3bab480bf6487600acdc80d0ea9e4a3b29c900d5adc1f',
   'hotspot-overlay-custom':
-    'sha256:14cf3e7f960ec5334f2135358daee569b66949dfecb0b1ae0eac5b57c39e9434',
+    'sha256:252bf9943585748a6647bf4243375ac1c922224be11f52dffa2a7d1ed745eb6d',
 } as const;
 
 export const materialContractRegistry = {

@@ -7,6 +7,7 @@ import {
   materialPresetIdSchema,
   type MaterialPresetDefinition,
   type MaterialPresetId,
+  type MaterialPresetUniform,
 } from './authoring-material-presets';
 import { materialContractRegistry } from './material-contract-registry.generated';
 import {
@@ -22,7 +23,6 @@ import {
   type ShaderUniformValue,
 } from './authoring-shaders';
 
-export const materialBlendValues = ['premultiplied-alpha'] as const;
 export const materialTextureFilteringValues = [
   'clamp-nearest',
   'clamp-linear',
@@ -31,7 +31,6 @@ export const materialTextureFilteringValues = [
 ] as const;
 export const materialPreviewGeometryValues = ['quad', 'rounded-rect', 'sprite', 'glyphs'] as const;
 export const materialPreviewBackgroundValues = ['transparent', 'checker', 'dark', 'light'] as const;
-export type MaterialBlend = (typeof materialBlendValues)[number];
 export type MaterialTextureFiltering = (typeof materialTextureFilteringValues)[number];
 
 export const assetTextureRefSchema = z
@@ -120,7 +119,6 @@ export const materialDataSchema = z
     base: materialBaseSchema,
     displayName: z.string().optional(),
     shader: materialShaderOverrideSchema.optional(),
-    blend: z.enum(materialBlendValues).optional(),
     parameters: z.record(z.string().min(1), materialParameterOverrideSchema).default({}),
     textures: z.record(z.string().min(1), materialTextureDataSchema).default({}),
     preview: z
@@ -164,7 +162,6 @@ export interface ResolvedMaterialData {
   varyingDefinition: string;
   interfaceContract: string;
   interfaceFingerprint: string;
-  blend: MaterialBlend;
   parameters: Record<string, EffectiveMaterialParameter>;
   textures: Record<string, EffectiveMaterialTexture>;
   preview: {
@@ -226,6 +223,27 @@ export function referenceTargetForMaterial(materialId: string): ReferenceTarget 
 function projectSourceIdentity(source: MaterialShaderSource): string {
   return source.kind === 'engine' ? source.path : `project:/${source.path}`;
 }
+function presetStandardUniform(
+  preset: MaterialPresetDefinition,
+  name: string,
+): MaterialPresetUniform | undefined {
+  const binding = preset.standardUniforms[name];
+  if (!binding) return undefined;
+  const role = materialContractRegistry.roles.find((candidate) => candidate.id === preset.role);
+  const semantic = role?.standardSemanticAvailability.find(
+    (candidate) => candidate.semantic === binding,
+  );
+  if (!semantic) return undefined;
+  return { type: semantic.logicalType as ShaderUniformType, binding };
+}
+
+function presetUniform(
+  preset: MaterialPresetDefinition,
+  name: string,
+): MaterialPresetUniform | undefined {
+  return preset.uniforms[name] ?? presetStandardUniform(preset, name);
+}
+
 function resolvedFromPreset(preset: MaterialPresetDefinition): ResolvedMaterialData {
   const provenance: Record<string, MaterialProvenance> = {};
   const parameters: Record<string, EffectiveMaterialParameter> = {};
@@ -245,6 +263,13 @@ function resolvedFromPreset(preset: MaterialPresetDefinition): ResolvedMaterialD
         : {}),
     };
   }
+  for (const name of Object.keys(preset.standardUniforms)) {
+    if (parameters[name]) continue;
+    const value = presetStandardUniform(preset, name);
+    if (!value) continue;
+    provenance[`parameters.${name}`] = { kind: 'preset', id: preset.id };
+    parameters[name] = { type: value.type, binding: value.binding };
+  }
   const textures: Record<string, EffectiveMaterialTexture> = {};
   for (const [name, value] of Object.entries(preset.samplers)) {
     provenance[`textures.${name}`] = { kind: 'preset', id: preset.id };
@@ -258,7 +283,6 @@ function resolvedFromPreset(preset: MaterialPresetDefinition): ResolvedMaterialD
     'shader.vertex',
     'shader.fragment',
     'shader.varying',
-    'blend',
     'preview.geometry',
     'preview.background',
   ])
@@ -271,7 +295,6 @@ function resolvedFromPreset(preset: MaterialPresetDefinition): ResolvedMaterialD
     varyingDefinition: preset.varyingDefinition,
     interfaceContract: preset.interfaceContract,
     interfaceFingerprint: preset.interfaceFingerprint,
-    blend: preset.blend,
     parameters,
     textures,
     preview: { ...preset.preview },
@@ -314,8 +337,6 @@ function applyMaterialOverrides(
     varyingDefinition = projectSourceIdentity(data.shader.varying);
     provenance['shader.varying'] = source;
   }
-  const blend = data.blend ?? base.blend;
-  if (data.blend) provenance.blend = source;
   const preview = {
     geometry: data.preview?.geometry ?? base.preview.geometry,
     background: data.preview?.background ?? base.preview.background,
@@ -327,7 +348,6 @@ function applyMaterialOverrides(
     vertexSource,
     fragmentSource,
     varyingDefinition,
-    blend,
     parameters,
     textures,
     preview,
@@ -529,7 +549,7 @@ export function validateMaterialData(
     return diagnostics;
   }
   for (const [name, parameter] of Object.entries(data.parameters)) {
-    const declaration = preset.uniforms[name];
+    const declaration = presetUniform(preset, name);
     if (!declaration) {
       diagnostics.push(
         diagnostic(
@@ -566,8 +586,13 @@ export function validateMaterialData(
       );
   }
   for (const [name, texture] of Object.entries(data.textures)) {
-    const declaration = preset.samplers[name];
-    if (!declaration)
+    const capability = preset.samplerCapabilities[name];
+    const declared = capability !== undefined && capability !== 'disabled';
+    const roleContract = materialContractRegistry.roles.find((role) => role.id === preset.role);
+    const contractSampler = roleContract?.reservedInterface.samplers.find(
+      (sampler) => sampler.name === name,
+    );
+    if (!declared)
       diagnostics.push(
         diagnostic(
           `${base}/textures/${name}`,
@@ -576,18 +601,19 @@ export function validateMaterialData(
         ),
       );
     else {
-      const roleContract = materialContractRegistry.roles.find((role) => role.id === preset.role);
-      const rendererOwned = roleContract?.reservedInterface.samplers.some(
-        (sampler) => sampler.name === name && sampler.sourceOwnership === 'renderer',
-      );
-      if (texture.source !== undefined && (declaration.binding !== undefined || rendererOwned))
+      const rendererOwned = contractSampler?.sourceOwnership === 'renderer';
+      if (texture.source !== undefined && rendererOwned)
         diagnostics.push(
           diagnostic(
             `${base}/textures/${name}/source`,
             `Renderer-bound texture '${name}' cannot have an authored source.`,
           ),
         );
-      if (texture.binding !== undefined && texture.binding !== declaration.binding)
+      const contractBinding = contractSampler?.semantic;
+      if (
+        texture.binding !== undefined &&
+        (!contractBinding || texture.binding !== contractBinding)
+      )
         diagnostics.push(
           diagnostic(
             `${base}/textures/${name}/binding`,

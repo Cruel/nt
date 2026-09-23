@@ -877,9 +877,6 @@ const legacySchemaLeafPaths = [
     '/layouts/*/data/dependencies/scripts/*/$ref/collection',
     '/layouts/*/data/dependencies/scripts/*/$ref/id',
   ] as JsonPointer[]),
-  // #338 moves postprocess scope from Material definition state to each Postprocess Effect
-  // occurrence. Preserve the retired Material leaf only for reviewed graph-effect alignment.
-  '/materials/*/data/postprocessScope' as JsonPointer,
   // #197 replaces the old detached locale catalog and fallback selector at the preserved authoring
   // schema version. Keep their reviewed slots solely to retain graph-effect alignment.
   '/localization/catalogs/*/*' as JsonPointer,
@@ -1047,14 +1044,21 @@ const legacySchemaLeafPaths = [
   '/tests/*/data/steps/*/uiClick/target' as JsonPointer,
 ].sort();
 const legacyReviewedPaths = legacySchemaLeafPaths.filter((path) => !explicitFieldEffect(path));
-if (legacyReviewedPaths.length !== PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length) {
+// #348 removes the last two retired Material compatibility leaves from this alignment-only tree.
+// Their historical effects were both `none`, so drop those fixed slots instead of retaining obsolete
+// schema paths solely for positional bookkeeping.
+const POST_MATERIAL_CUTOVER_REVIEWED_FIELD_EFFECT_CODES =
+  PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.split('')
+    .filter((_, index) => index !== 410 && index !== 413)
+    .join('');
+if (legacyReviewedPaths.length !== POST_MATERIAL_CUTOVER_REVIEWED_FIELD_EFFECT_CODES.length) {
   throw new Error(
-    `Authoring graph Trait contract replacement changed the legacy reviewed leaf set: expected ${PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length}, received ${legacyReviewedPaths.length}.`,
+    `Authoring graph Trait contract replacement changed the legacy reviewed leaf set: expected ${POST_MATERIAL_CUTOVER_REVIEWED_FIELD_EFFECT_CODES.length}, received ${legacyReviewedPaths.length}.`,
   );
 }
 const legacyReviewedEffects = new Map(
   legacyReviewedPaths.map(
-    (path, index) => [path, PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES[index]!] as const,
+    (path, index) => [path, POST_MATERIAL_CUTOVER_REVIEWED_FIELD_EFFECT_CODES[index]!] as const,
   ),
 );
 const ACTIVE_REVIEWED_FIELD_EFFECT_CODES = sortedSchemaLeafPaths
@@ -1132,17 +1136,17 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     entrypoint: 'a61673d4',
     export: '0ba5bfbc',
     interactableInstances: '991618e4',
-    interactables: '83184ea2',
+    interactables: '48e20c2e',
     interactions: '8c02d069',
     inventories: 'a8c38dae',
-    layouts: '4f6da266',
+    layouts: 'b9fb12f6',
     localization: '3cedd4cb',
     maps: '9d711bea',
-    materials: 'f3aa8039',
+    materials: 'c8d72fde',
     prefetchHints: 'b985056c',
     project: 'da3be83d',
-    rooms: '5db8903d',
-    scenes: '2855e8e0',
+    rooms: 'cf6cc747',
+    scenes: '6650b472',
     schema: '63fb9bb9',
     scripts: '278134b5',
     settings: '7ffea374',

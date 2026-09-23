@@ -12,7 +12,13 @@
     "stackLimit": null,
     "presentation": {
       "sprite": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
-      "materialApplication": null,
+      "materialApplication": {
+        "material": { "$ref": { "collection": "materials", "id": "engine2d-draw-contract" } },
+        "parameters": {
+          "u_strength": { "type": "float", "source": { "kind": "literal", "value": 0.25 } }
+        },
+        "textures": {}
+      },
       "hotspots": { "kind": "none" }
     },
     "features": [
