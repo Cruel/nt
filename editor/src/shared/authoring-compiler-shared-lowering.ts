@@ -47,6 +47,10 @@ import type { InventoryReferenceData } from './project-schema/authoring-inventor
 import { PROJECT_INVENTORY_ID } from './project-schema/authoring-inventories';
 import type { AuthoringProject, AuthoringRecordBase } from './project-schema/authoring-project';
 import type { AuthoredPropertyValue } from './project-schema/authoring-properties';
+import type {
+  MaterialApplication,
+  MaterialApplicationParameterOverride,
+} from './project-schema/authoring-material-applications';
 import { compileRoomNavigationTransition, parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
@@ -63,6 +67,12 @@ export type SharedRoomDefinition = Omit<WireDefinitions['rooms'][number], 'lifec
   lifecycle: Omit<WireDefinitions['rooms'][number]['lifecycle'], 'hooks'>;
 };
 export type SharedInteractableDefinition = WireDefinitions['interactables'][number];
+type CompiledMaterialApplicationParameter = NonNullable<
+  SharedInteractableDefinition['presentation']['materialParameters']
+>[number];
+type CompiledMaterialApplicationTexture = NonNullable<
+  SharedInteractableDefinition['presentation']['materialTextures']
+>[number];
 export type SharedVerbDefinition = Omit<
   WireDefinitions['verbs'][number],
   'availability' | 'defaultProgram'
@@ -901,6 +911,56 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     });
   }
 
+  const compileMaterialApplicationValue = (
+    override: MaterialApplicationParameterOverride,
+  ): Extract<CompiledMaterialApplicationParameter['source'], { kind: 'literal' }>['value'] => {
+    if (override.source.kind !== 'literal' || override.source.value === null)
+      throw new Error('Validated Material Application literal cannot lower a null value.');
+    const value = override.source.value;
+    switch (override.type) {
+      case 'float':
+        return { type: 'float', value: value as number };
+      case 'vec2':
+        return { type: 'vec2', value: value as [number, number] };
+      case 'vec3':
+        return { type: 'vec3', value: value as [number, number, number] };
+      case 'vec4':
+        return { type: 'vec4', value: value as [number, number, number, number] };
+      case 'color':
+        return { type: 'color', value: value as { r: number; g: number; b: number; a: number } };
+      case 'int':
+        return { type: 'int', value: value as number };
+      case 'bool':
+        return { type: 'bool', value: value as boolean };
+    }
+  };
+  const compileMaterialApplication = (application: MaterialApplication | null) => {
+    const parameters: CompiledMaterialApplicationParameter[] = application
+      ? Object.entries(application.parameters)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([name, override]) => ({
+            name,
+            type: override.type,
+            source:
+              override.source.kind === 'literal'
+                ? { kind: 'literal' as const, value: compileMaterialApplicationValue(override) }
+                : override.source.kind === 'property'
+                  ? { kind: 'property' as const, property: override.source.property }
+                  : { kind: 'standard-facet' as const, facet: override.source.facet },
+          }))
+      : [];
+    const textures: CompiledMaterialApplicationTexture[] = application
+      ? Object.entries(application.textures)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([name, override]) => ({ name, source: assetRef(override.source)! }))
+      : [];
+    return {
+      material: application ? materialRef(application.material) : null,
+      ...(parameters.length > 0 ? { materialParameters: parameters } : {}),
+      ...(textures.length > 0 ? { materialTextures: textures } : {}),
+    };
+  };
+
   const interactables: SharedInteractableDefinition[] = [];
   for (const [id, record] of sortedEntries(project.interactables)) {
     const effectiveRecord = resolveGameplayInstanceRecord(project, 'interactable', record);
@@ -937,7 +997,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       inventories: compileInventories(data.inventories),
       presentation: {
         sprite: assetRef(data.presentation.sprite),
-        material: materialRef(data.presentation.material),
+        ...compileMaterialApplication(data.presentation.materialApplication),
         cursor: data.presentation.cursor ?? null,
         hotspots: compileInteractableHotspots(data.presentation.hotspots),
       },
@@ -1471,7 +1531,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           inventories: compileInventories(data.inventories),
           presentation: {
             sprite: assetRef(data.presentation.sprite),
-            material: materialRef(data.presentation.material),
+            ...compileMaterialApplication(data.presentation.materialApplication),
             cursor: data.presentation.cursor ?? null,
             hotspots: compileInteractableHotspots(data.presentation.hotspots),
           },

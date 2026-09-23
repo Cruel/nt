@@ -97,6 +97,16 @@ Preset metadata and role-standard semantics decorate compatible reflected inputs
 
 If authored parameter or texture configuration no longer exists in the reflected interface, NovelTea retains that configuration and reports it as orphaned. It is not destructively removed during shader edits.
 
+## Material Applications
+
+Presentation hosts specialize a Material through the shared `MaterialApplication` authoring contract. A Material Application stores one Material selection plus sparse named parameter sources and sparse author-owned texture sources. It never copies inherited Material defaults: resetting an occurrence override deletes only that sparse delta and reveals the Material value below it.
+
+Interactable Definitions are the first complete Engine2D host for this contract. Their ordinary parameter overrides may be typed literals, bindings to compatible Interactable Properties, or supported standard facets such as occurrence time and paint/viewport dimensions. Standard facets are scalar float sources. The compiled/runtime presentation path resolves compatible bindings against the concrete Interactable Instance and passes the resulting values through the ordinary occurrence-uniform binder.
+
+Texture specialization is permitted only for author-owned sampled images. Renderer-owned inputs such as Engine2D `s_texColor` remain contract supplied and cannot be replaced by a Material Application. Application texture Assets participate in dependency collection/prefetch and are supplied to the renderer as occurrence texture overrides for compatible author-owned sampler names.
+
+Named application entries are non-destructive across Material changes. If the newly selected Material does not expose a compatible authorable parameter or texture slot, the saved entry remains dormant rather than being deleted; selecting a compatible Material again can reactivate it. Runtime application considers only entries compatible with the selected Material's certified interface.
+
 ## Shader Compilation and Derived Identity
 
 `buildShaderMaterialProject()` produces two derived contracts:
@@ -158,6 +168,8 @@ The collective **Materials** Project destination is a searchable visual library.
 The focused Material editor edits effective values with sparse overrides and explicit provenance. Base selection includes built-in presets plus only cycle-safe Material parents. Effective parameters and textures show whether their value comes from the terminal preset, a base Material, or the current Material. Editing an inherited value creates a local sparse override; Reset deletes that local override and reveals the inherited value again. Changing the base contract retains authored named parameter/texture values and editor metadata, so incompatible entries remain diagnosable orphaned configuration rather than being deleted. Orphaned entries expose both cleanup and explicit rebind actions.
 
 Role is read-only and comes from the terminal preset. Reflected shader inputs drive the focused parameter/texture controls for custom Materials; preset metadata and authored editor metadata decorate those inputs with labels, ranges, and control intent. Engine-bound inputs are displayed as runtime supplied rather than editable occurrence values.
+
+The reusable Material Application editor uses that same certified reflected interface. It combines Material selection with per-occurrence Override/Reset controls, shows whether a value is inherited from the Material or explicitly specialized by the host, exposes compatible Property/standard-facet sources, and keeps incompatible saved entries visible as dormant configuration. Material-selector candidate previews receive the application's compatible literal overrides so changing candidates can be evaluated in occurrence context without rewriting the saved deltas.
 
 Preset-backed Materials expose their effective `engine:/` shader implementation without creating Project files. Built-in source opens in a read-only source tab that is deliberately outside the Files tree. **Customize Shader** copies only the selected effective stage/interface source into `shaders/materials/<material-id>/` and switches that Material stage to the new Project source in the same workspace transaction. The transaction is bound to the exact effective source identity shown by the editor, so an unsaved preset/base edit cannot cause the saved baseline's older preset source to be copied accidentally. The renderer reconciles the committed shader-path change into both its saved baseline and working document without discarding unrelated dirty Material edits. Once detached, the copied file is ordinary Project-owned source and is not rewritten by engine preset changes.
 

@@ -697,6 +697,10 @@ struct StructuredAssetDependencyIndex::Impl {
                 if (interactable->presentation.material)
                     append_material(output, *interactable->presentation.material,
                                     collection_diagnostics, "Room initial interactable");
+                for (const auto& texture : interactable->presentation.material_textures)
+                    append_asset(output, texture.source, core::compiled::AssetKind::Image,
+                                 collection_diagnostics,
+                                 "Room initial interactable Material texture");
                 append_interactable_hotspots(output, placed.instance, *interactable,
                                              collection_diagnostics);
             }

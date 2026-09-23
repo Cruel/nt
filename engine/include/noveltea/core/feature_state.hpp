@@ -139,6 +139,10 @@ struct ActorMaterialOccurrence {
     CharacterPresentationLayerId layer;
     auto operator<=>(const ActorMaterialOccurrence&) const = default;
 };
+struct InteractableMaterialOccurrence {
+    InteractableInstanceId interactable;
+    auto operator<=>(const InteractableMaterialOccurrence&) const = default;
+};
 struct PropMaterialOccurrence {
     PresentationPropInstanceId instance;
     auto operator<=>(const PropMaterialOccurrence&) const = default;
@@ -156,9 +160,11 @@ struct PostprocessMaterialOccurrence {
     PostprocessEffectInstanceId instance;
     auto operator<=>(const PostprocessMaterialOccurrence&) const = default;
 };
-using MaterialOccurrence = std::variant<BackgroundMaterialOccurrence, ActorMaterialOccurrence,
-                                        PropMaterialOccurrence, EnvironmentMaterialOccurrence,
-                                        LayoutMaterialOccurrence, PostprocessMaterialOccurrence>;
+using MaterialOccurrence =
+    std::variant<BackgroundMaterialOccurrence, ActorMaterialOccurrence,
+                 InteractableMaterialOccurrence, PropMaterialOccurrence,
+                 EnvironmentMaterialOccurrence, LayoutMaterialOccurrence,
+                 PostprocessMaterialOccurrence>;
 
 enum class MaterialClockPolicy : std::uint8_t {
     Gameplay,

@@ -1371,6 +1371,30 @@ const interactableLocationSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('unplaced') }),
   strict({ kind: z.literal('room'), room: roomReferenceSchema }),
 ]);
+const materialApplicationParameterSourceSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('literal'), value: compiledMaterialParameterValueSchema }),
+  strict({ kind: z.literal('property'), property: id }),
+  strict({
+    kind: z.literal('standard-facet'),
+    facet: z.enum([
+      'occurrence-time',
+      'paint-width',
+      'paint-height',
+      'viewport-width',
+      'viewport-height',
+      'camera-zoom',
+    ]),
+  }),
+]);
+const compiledMaterialApplicationParameterOverrideSchema = strict({
+  name: z.string().min(1),
+  type: compiledMaterialParameterTypeSchema,
+  source: materialApplicationParameterSourceSchema,
+});
+const compiledMaterialApplicationTextureOverrideSchema = strict({
+  name: z.string().min(1),
+  source: assetReferenceSchema,
+});
 const interactableDefinitionSchema = strict({
   ...propertyBearingDefinition,
   displayName: compiledTextSchema,
@@ -1381,6 +1405,8 @@ const interactableDefinitionSchema = strict({
   inventories: z.array(inventoryDefinitionSchema),
   presentation: strict({
     material: materialReferenceSchema.nullable(),
+    materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+    materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
     sprite: assetReferenceSchema.nullable(),
     cursor: cursorTargetSchema.nullable().default(null),
     hotspots: z.discriminatedUnion('kind', [

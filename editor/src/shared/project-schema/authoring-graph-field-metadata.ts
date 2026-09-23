@@ -470,6 +470,13 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // Interactable Hotspot overrides. These fields change only the owning compiled presentation.
   [/^\/rooms\/\*\/data\/hotspots\/\*\/cursor(?:\/|$)/, OWNER],
   [/^\/interactables\/\*\/data\/presentation\/cursor(?:\/|$)/, OWNER],
+  // #342 replaces the Definition-level Material reference with the shared sparse Material
+  // Application contract. Selection, parameter sources, and author-owned texture sources all
+  // contribute only to the owning Interactable's compiled presentation.
+  [
+    /^\/interactables\/\*\/data\/presentation\/materialApplication\/(?:parameters|textures)(?:\/|$)/,
+    OWNER,
+  ],
   [/^\/interactables\/\*\/data\/presentation\/hotspots\/hotspots\/\*\/cursor(?:\/|$)/, OWNER],
 ]);
 
@@ -607,6 +614,12 @@ function roomLifecycleGameplayCommandEffect(
 }
 
 function preservedReviewedPath(path: JsonPointer): JsonPointer {
+  if (
+    /^\/interactables\/\*\/data\/presentation\/materialApplication\/material\/\$ref\/(?:collection|id)$/.test(
+      path,
+    )
+  )
+    return path.replace('/materialApplication/material/', '/material/') as JsonPointer;
   // #122 preserves the reviewed Interaction instruction contribution for the legacy-compatible
   // Global Property/Lua leaves after removing the `apply-effect` wrapper.
   if (
@@ -1084,7 +1097,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     entrypoint: 'a61673d4',
     export: '0ba5bfbc',
     interactableInstances: '33e3748f',
-    interactables: 'f78e903e',
+    interactables: '83184ea2',
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: '4f6da266',

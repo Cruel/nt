@@ -349,6 +349,8 @@ TEST_CASE("world backend realizes canonical family order and every actor key fam
                                       {0.4, 0.5, 0.1, 0.15},
                                       id<AssetId>("item"),
                                       id<core::MaterialId>("item-material"),
+                                      std::nullopt,
+                                      {},
                                       PresentationPlane::WorldContent,
                                       30,
                                       true,
@@ -380,6 +382,58 @@ TEST_CASE("world backend realizes canonical family order and every actor key fam
     }
     CHECK(actor_identities == std::vector<std::string>{"character/hero", "room-cast/atrium/guard",
                                                        "scene/7/opening/lead", "scoped/temporary"});
+}
+
+TEST_CASE("Interactable Material Application overrides reach the draw command")
+{
+    FakeWorldResources resources;
+    resources.add_texture("item", 4, 32, 32);
+    WorldPresentationBackend backend(resources);
+
+    auto snapshot = base_snapshot();
+    const auto interactable = id<InteractableInstanceId>("key");
+    const auto material = id<core::MaterialId>("item-material");
+    const PresentationOwner owner = RoomPresentationOwner{id<RoomId>("atrium")};
+    snapshot.interactables.push_back({interactable,
+                                      {id<RoomId>("atrium"), id<RoomPlacementId>("table")},
+                                      {0.4, 0.5, 0.1, 0.15},
+                                      id<AssetId>("item"),
+                                      material,
+                                      owner,
+                                      {{"s_noise", "project:/assets/noise.png"}},
+                                      PresentationPlane::WorldContent,
+                                      30,
+                                      true,
+                                      true});
+    snapshot.material_parameters.push_back(
+        {owner,
+         InteractableMaterialOccurrence{interactable},
+         material,
+         "u_amount",
+         compiled::MaterialParameterValue{0.5},
+         std::nullopt,
+         MaterialClockPolicy::Gameplay});
+
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    REQUIRE(backend.frame());
+    const auto* draw = find_draw(*backend.frame(), "key", 0);
+    REQUIRE(draw);
+    REQUIRE(draw->command.material_texture_overrides.size() == 1);
+    CHECK(draw->command.material_texture_overrides.front().name == "s_noise");
+    CHECK(draw->command.material_texture_overrides.front().source ==
+          "project:/assets/noise.png");
+
+    const auto rendered = std::ranges::find_if(
+        backend.frame()->base_batch.commands(), [&](const QuadCommand& command) {
+            return command.material.string() == material.text();
+        });
+    REQUIRE(rendered != backend.frame()->base_batch.commands().end());
+    REQUIRE(rendered->material_uniform_overrides.size() == 1);
+    CHECK(rendered->material_uniform_overrides.front().name == "u_amount");
+    CHECK(std::get<float>(rendered->material_uniform_overrides.front().value) ==
+          Catch::Approx(0.5f));
+    REQUIRE(rendered->material_texture_overrides.size() == 1);
+    CHECK(rendered->material_texture_overrides.front().source == "project:/assets/noise.png");
 }
 
 TEST_CASE("world reconciliation is failure atomic and identical snapshots do no work")
@@ -692,6 +746,8 @@ TEST_CASE("Interactable hotspot overlays inherit placement geometry and authored
                                       {0.25, 0.4, 0.3, 0.2},
                                       id<AssetId>("item"),
                                       std::nullopt,
+                                      std::nullopt,
+                                      {},
                                       PresentationPlane::WorldContent,
                                       12,
                                       true,
@@ -761,6 +817,8 @@ TEST_CASE("world hotspot controller honors draw order input order and background
                                       {0.4, 0.4, 0.2, 0.2},
                                       id<AssetId>("item"),
                                       std::nullopt,
+                                      std::nullopt,
+                                      {},
                                       PresentationPlane::WorldContent,
                                       0,
                                       true,
@@ -922,6 +980,8 @@ TEST_CASE("world hotspot alpha coverage passes transparent pixels through")
                                       {0.0, 0.0, 1.0, 1.0},
                                       id<AssetId>("item"),
                                       std::nullopt,
+                                      std::nullopt,
+                                      {},
                                       PresentationPlane::WorldContent,
                                       0,
                                       true,

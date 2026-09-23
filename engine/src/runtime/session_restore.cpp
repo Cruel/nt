@@ -184,7 +184,10 @@ restore_material_occurrence(const SavedMaterialOccurrence& occurrence,
                     return Result<MaterialOccurrence, Diagnostics>::failure(key.error());
                 return Result<MaterialOccurrence, Diagnostics>::success(
                     ActorMaterialOccurrence{std::move(*key.value_if()), value.layer});
-            } else if constexpr (std::is_same_v<T, SavedPropMaterialOccurrence>)
+            } else if constexpr (std::is_same_v<T, SavedInteractableMaterialOccurrence>)
+                return Result<MaterialOccurrence, Diagnostics>::success(
+                    InteractableMaterialOccurrence{value.interactable});
+            else if constexpr (std::is_same_v<T, SavedPropMaterialOccurrence>)
                 return Result<MaterialOccurrence, Diagnostics>::success(
                     PropMaterialOccurrence{value.instance});
             else if constexpr (std::is_same_v<T, SavedEnvironmentMaterialOccurrence>)

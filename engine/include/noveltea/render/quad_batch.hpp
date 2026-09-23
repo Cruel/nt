@@ -31,6 +31,12 @@ struct MaterialUniformOverride {
     bool operator==(const MaterialUniformOverride&) const = default;
 };
 
+struct MaterialTextureOverride {
+    std::string name;
+    std::string source;
+    bool operator==(const MaterialTextureOverride&) const = default;
+};
+
 struct QuadCommand {
     Rect rect{};
     Rect uv{0.0f, 0.0f, 1.0f, 1.0f};
@@ -39,6 +45,7 @@ struct QuadCommand {
     MaterialTextureSampler texture_sampler = MaterialTextureSampler::ClampLinear;
     MaterialId material{};
     std::vector<MaterialUniformOverride> material_uniform_overrides;
+    std::vector<MaterialTextureOverride> material_texture_overrides;
     std::optional<float> time_seconds;
     std::optional<Texture> hotspot_mask;
     Rect hotspot_bounds{};

@@ -268,7 +268,11 @@ describe('InteractableEditor', () => {
       data: defaultMaterialData('Post FX', 'postprocess-tint'),
     };
     const data = defaultInteractableData('Door');
-    data.presentation.material = { $ref: { collection: 'materials', id: 'panel' } };
+    data.presentation.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'panel' } },
+      parameters: {},
+      textures: {},
+    };
     project.interactables.door = {
       id: 'door',
       label: 'Door',
@@ -294,7 +298,8 @@ describe('InteractableEditor', () => {
         typeof createAuthoringProject
       >;
       expect(
-        parseInteractableData(current.interactables.door?.data)?.presentation.material?.$ref.id,
+        parseInteractableData(current.interactables.door?.data)?.presentation.materialApplication
+          ?.material.$ref.id,
       ).toBe('alternate');
     });
 
@@ -303,7 +308,8 @@ describe('InteractableEditor', () => {
       typeof createAuthoringProject
     >;
     expect(
-      parseInteractableData(restored.interactables.door?.data)?.presentation.material?.$ref.id,
+      parseInteractableData(restored.interactables.door?.data)?.presentation.materialApplication
+        ?.material.$ref.id,
     ).toBe('panel');
   });
 

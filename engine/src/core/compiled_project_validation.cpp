@@ -2614,6 +2614,48 @@ private:
             if (value.presentation.sprite)
                 require(m_assets, *value.presentation.sprite, "asset",
                         path + "/presentation/sprite");
+            if (value.presentation.material) {
+                const auto* material = material_interface(*value.presentation.material);
+                if (!material) {
+                    require(m_material_interfaces, *value.presentation.material,
+                            "material interface", path + "/presentation/material");
+                } else if (material->role != MaterialRole::Engine2D) {
+                    error("compiled_project.interactable_material_role_mismatch",
+                          "Interactable presentation requires an engine-2d Material.",
+                          path + "/presentation/material");
+                }
+                for (std::size_t parameter_index = 0;
+                     parameter_index < value.presentation.material_parameters.size();
+                     ++parameter_index) {
+                    const auto& parameter = value.presentation.material_parameters[parameter_index];
+                    const auto parameter_path = path + "/presentation/materialParameters/" +
+                                                std::to_string(parameter_index);
+                    if (const auto* literal =
+                            std::get_if<MaterialApplicationLiteralSource>(&parameter.source);
+                        literal != nullptr &&
+                        !material_value_matches(parameter.type, literal->value))
+                        error("compiled_project.material_application_literal_type_mismatch",
+                              "Material Application literal value does not match its stored type.",
+                              parameter_path + "/source/value");
+                }
+                for (std::size_t texture_index = 0;
+                     texture_index < value.presentation.material_textures.size(); ++texture_index) {
+                    const auto& texture = value.presentation.material_textures[texture_index];
+                    const auto texture_path = path + "/presentation/materialTextures/" +
+                                              std::to_string(texture_index) + "/source";
+                    require(m_assets, texture.source, "asset", texture_path);
+                    const auto* source = asset(texture.source);
+                    if (source && source->kind != AssetKind::Image)
+                        error("compiled_project.invalid_asset_kind",
+                              "Material Application texture source must use an image Asset.",
+                              texture_path);
+                }
+            } else if (!value.presentation.material_parameters.empty() ||
+                       !value.presentation.material_textures.empty()) {
+                error("compiled_project.material_application_without_material",
+                      "Interactable Material Application overrides require a selected Material.",
+                      path + "/presentation");
+            }
             const bool requires_sprite = std::visit(
                 [](const auto& definition) {
                     using T = std::decay_t<decltype(definition)>;

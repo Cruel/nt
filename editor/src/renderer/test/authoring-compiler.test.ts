@@ -31,6 +31,7 @@ import {
 import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
 import { defaultInteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import { defaultMapData } from '../../shared/project-schema/authoring-maps';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   defaultInteractableData,
@@ -3101,6 +3102,80 @@ describe('authoring compiler framework', () => {
       sprite: null,
       material: null,
       hotspots: { kind: 'none' },
+    });
+  });
+
+  it('lowers sparse Interactable Definition Material Applications without discarding dormant entries', () => {
+    const project = validProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    project.assets.noise = {
+      id: 'noise',
+      label: 'Noise',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/noise.png',
+        extension: '.png',
+        byteSize: 64,
+        contentHash: 'noise-hash',
+        imageMetadata: { width: 8, height: 8, hasAlpha: false, orientation: 1 },
+      }),
+    };
+    const data = defaultInteractableData('Key');
+    data.presentation.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'panel' } },
+      parameters: {
+        u_amount: { type: 'float', source: { kind: 'literal', value: 0.5 } },
+        u_bound: { type: 'float', source: { kind: 'property', property: 'heat' } },
+        u_time_scale: {
+          type: 'float',
+          source: { kind: 'standard-facet', facet: 'occurrence-time' },
+        },
+        dormant_vec: { type: 'vec2', source: { kind: 'literal', value: [1, 2] } },
+      },
+      textures: {
+        s_noise: { source: { $ref: { collection: 'assets', id: 'noise' } } },
+      },
+    };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      defaultProperties: [
+        { id: 'heat', label: 'Heat', type: 'number', nullable: false, defaultValue: 0.25 },
+      ],
+      data,
+    };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(
+      true,
+    );
+    if (!result.ok) return;
+    expect(result.project.definitions.interactables[0]?.presentation).toMatchObject({
+      material: { kind: 'material', id: 'panel' },
+      materialParameters: [
+        {
+          name: 'dormant_vec',
+          type: 'vec2',
+          source: { kind: 'literal', value: { type: 'vec2', value: [1, 2] } },
+        },
+        {
+          name: 'u_amount',
+          type: 'float',
+          source: { kind: 'literal', value: { type: 'float', value: 0.5 } },
+        },
+        { name: 'u_bound', type: 'float', source: { kind: 'property', property: 'heat' } },
+        {
+          name: 'u_time_scale',
+          type: 'float',
+          source: { kind: 'standard-facet', facet: 'occurrence-time' },
+        },
+      ],
+      materialTextures: [{ name: 's_noise', source: { kind: 'asset', id: 'noise' } }],
     });
   });
 

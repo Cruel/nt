@@ -7,7 +7,7 @@ import {
   type HotspotEditorViewState,
 } from '@/components/image-stage/hotspot-view-state';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
-import { MaterialSelector } from '@/components/materials/MaterialSelector';
+import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
 import {
   InteractableDefinitionPropertiesEditor,
   InteractableInstanceFeatureOverridesEditor,
@@ -36,11 +36,11 @@ import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/au
 import {
   defaultInteractableData,
   interactableAssetRef,
-  interactableMaterialRef,
   parseInteractableData,
   type InteractableData,
 } from '../../../shared/project-schema/authoring-interactables';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { effectiveInteractableDefinitionProperties } from '../../../shared/project-schema/authoring-interactable-properties';
 import { entityIdSchema } from '../../../shared/project-schema/authoring-common';
 import { systemCursorNames } from '../../../shared/project-schema/authoring-cursor-vocabulary';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -125,6 +125,13 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   );
   const selectedSpriteItem = imageAssetItems.find(
     (item) => item.entityId === data.presentation.sprite?.$ref.id,
+  );
+  const materialProperties = useMemo(
+    () =>
+      project && interactableId
+        ? effectiveInteractableDefinitionProperties(project, interactableId)
+        : [],
+    [interactableId, project],
   );
   const declaredInstances = useMemo(
     () =>
@@ -384,42 +391,22 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
         </div>
         <div data-workbench-anchor="interactable.material">
           <Label>Material</Label>
-          <div className="flex items-stretch gap-1">
-            <MaterialSelector
-              project={project}
-              value={data.presentation.material?.$ref.id ?? null}
-              expectedRole="engine-2d"
-              ariaLabel={t('materialSelector.interactableChoose')}
-              className="min-w-0 flex-1"
-              onValueChange={(materialId) =>
-                commit(
-                  {
-                    ...data,
-                    presentation: {
-                      ...data.presentation,
-                      material: interactableMaterialRef(materialId),
-                    },
-                  },
-                  'Update interactable material',
-                )
-              }
-            />
-            {data.presentation.material ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-auto shrink-0 px-3"
-                onClick={() =>
-                  commit(
-                    { ...data, presentation: { ...data.presentation, material: null } },
-                    'Clear interactable material',
-                  )
-                }
-              >
-                Clear
-              </Button>
-            ) : null}
-          </div>
+          <MaterialApplicationEditor
+            project={project}
+            value={data.presentation.materialApplication}
+            expectedRole="engine-2d"
+            properties={materialProperties}
+            ariaLabel={t('materialSelector.interactableChoose')}
+            onChange={(materialApplication) =>
+              commit(
+                {
+                  ...data,
+                  presentation: { ...data.presentation, materialApplication },
+                },
+                'Update interactable Material Application',
+              )
+            }
+          />
         </div>
         <div data-workbench-anchor="interactable.cursor">
           <Label>{t('hotspots.fields.cursor')}</Label>

@@ -31,7 +31,7 @@ struct RoomPresentationVisualCatalog {
     struct InteractableVisual {
         InteractableInstanceId interactable;
         std::optional<AssetId> sprite;
-        std::optional<MaterialId> material;
+        std::optional<compiled::MaterialApplication> material_application;
     };
     struct HotspotVisual {
         compiled::HotspotRef ref;

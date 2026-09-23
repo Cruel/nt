@@ -45,6 +45,37 @@ const compiled::RoomPlacement* find_placement(const runtime::RuntimeWorld& world
     return found == room->placements.end() ? nullptr : &*found;
 }
 
+std::optional<compiled::MaterialApplication>
+interactable_material_application(const compiled::InteractablePresentation& presentation)
+{
+    if (!presentation.material)
+        return std::nullopt;
+    return compiled::MaterialApplication{*presentation.material, presentation.material_parameters,
+                                         presentation.material_textures};
+}
+
+std::optional<MaterialId>
+material_application_material(const std::optional<compiled::MaterialApplication>& application)
+{
+    return application ? std::optional<MaterialId>{application->material} : std::nullopt;
+}
+
+std::vector<PresentationMaterialTextureOverride>
+material_application_textures(const CompiledProject& project,
+                              const std::optional<compiled::MaterialApplication>& application)
+{
+    std::vector<PresentationMaterialTextureOverride> result;
+    if (!application)
+        return result;
+    result.reserve(application->textures.size());
+    for (const auto& texture : application->textures) {
+        const auto* asset = project.find_asset(texture.source);
+        if (asset != nullptr)
+            result.push_back({texture.name, "project:/" + asset->path});
+    }
+    return result;
+}
+
 void validate_text_and_choice(const CompiledProject& project, const runtime::RuntimeWorld& world,
                               const SessionState& state, Diagnostics& diagnostics)
 {
@@ -478,7 +509,11 @@ append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld
                        "Interactable sprite", diagnostics);
         result.interactables.push_back(PresentationInteractable{
             interactable.interactable, placement, placement_definition->bounds,
-            definition->presentation.sprite, definition->presentation.material,
+            definition->presentation.sprite,
+            definition->presentation.material,
+            RoomPresentationOwner{room.visit.room},
+            material_application_textures(project,
+                                          interactable_material_application(definition->presentation)),
             PresentationPlane::WorldContent, placement_definition->order, interactable.enabled,
             interactable.visible});
     }
@@ -598,7 +633,7 @@ build_room_visual_catalog_impl(const runtime::RuntimeWorld& world,
         if (definition != nullptr)
             catalog.interactables.push_back({interactable.interactable,
                                              definition->presentation.sprite,
-                                             definition->presentation.material});
+                                             interactable_material_application(definition->presentation)});
     }
     return catalog;
 }
@@ -648,7 +683,9 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
                                      {passive.presentation.visit.room, interactable.placement},
                                      bounds->bounds,
                                      visual->sprite,
-                                     visual->material,
+                                     material_application_material(visual->material_application),
+                                     RoomPresentationOwner{passive.presentation.visit.room},
+                                     {},
                                      PresentationPlane::WorldContent,
                                      bounds->order,
                                      interactable.enabled,
@@ -854,7 +891,9 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
                                      {resolution.presentation.visit.room, interactable.placement},
                                      bounds->bounds,
                                      visual->sprite,
-                                     visual->material,
+                                     material_application_material(visual->material_application),
+                                     RoomPresentationOwner{resolution.presentation.visit.room},
+                                     material_application_textures(project, visual->material_application),
                                      PresentationPlane::WorldContent,
                                      bounds->order,
                                      interactable.enabled,
@@ -1292,6 +1331,108 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             desired.instance, desired.owner, desired.stop_key, desired.asset, desired.material,
             desired.bounds, desired.plane, desired.order, desired.clock, desired.scroll_per_second,
             desired.opacity, desired.visible});
+    }
+
+    for (const auto& interactable : result.interactables) {
+        if (!interactable.material || !interactable.material_owner)
+            continue;
+        const auto* definition = world.resolved_configuration(interactable.interactable);
+        if (definition == nullptr || definition->presentation.material != interactable.material)
+            continue;
+        const auto application = interactable_material_application(definition->presentation);
+        if (!application)
+            continue;
+        const auto* interface = project.find_material_interface(application->material);
+        if (interface == nullptr)
+            continue;
+        for (const auto& parameter : application->parameters) {
+            const auto declaration =
+                std::find_if(interface->parameters.begin(), interface->parameters.end(),
+                             [&](const auto& value) { return value.name == parameter.name; });
+            if (declaration == interface->parameters.end() || declaration->renderer_binding ||
+                declaration->type != parameter.type)
+                continue;
+            PresentationMaterialParameter projected{
+                *interactable.material_owner,
+                InteractableMaterialOccurrence{interactable.interactable},
+                application->material,
+                parameter.name,
+                std::nullopt,
+                std::nullopt,
+                MaterialClockPolicy::Gameplay};
+            bool resolved = true;
+            std::visit(
+                [&](const auto& source) {
+                    using S = std::decay_t<decltype(source)>;
+                    if constexpr (std::is_same_v<S, compiled::MaterialApplicationLiteralSource>) {
+                        projected.value = source.value;
+                    } else if constexpr (std::is_same_v<
+                                             S,
+                                             compiled::MaterialApplicationStandardFacetSource>) {
+                        if (parameter.type != compiled::MaterialParameterType::Float) {
+                            resolved = false;
+                            return;
+                        }
+                        switch (source.facet) {
+                        case compiled::MaterialApplicationStandardFacet::OccurrenceTime:
+                            projected.standard_facet = MaterialStandardFacet::OccurrenceTime;
+                            break;
+                        case compiled::MaterialApplicationStandardFacet::PaintWidth:
+                            projected.standard_facet = MaterialStandardFacet::PaintWidth;
+                            break;
+                        case compiled::MaterialApplicationStandardFacet::PaintHeight:
+                            projected.standard_facet = MaterialStandardFacet::PaintHeight;
+                            break;
+                        case compiled::MaterialApplicationStandardFacet::ViewportWidth:
+                            projected.standard_facet = MaterialStandardFacet::ViewportWidth;
+                            break;
+                        case compiled::MaterialApplicationStandardFacet::ViewportHeight:
+                            projected.standard_facet = MaterialStandardFacet::ViewportHeight;
+                            break;
+                        case compiled::MaterialApplicationStandardFacet::CameraZoom:
+                            projected.standard_facet = MaterialStandardFacet::CameraZoom;
+                            break;
+                        }
+                    } else {
+                        PropertyResolver resolver(project, const_cast<SessionState&>(state));
+                        auto lookup = resolver.get(
+                            PropertyOwnerRef{interactable.interactable}, source.property);
+                        if (!lookup) {
+                            resolved = false;
+                            return;
+                        }
+                        const auto* value = std::get_if<RuntimeValue>(lookup.value_if());
+                        if (value == nullptr) {
+                            resolved = false;
+                            return;
+                        }
+                        if (parameter.type == compiled::MaterialParameterType::Float) {
+                            if (const auto* number = std::get_if<double>(value))
+                                projected.value = compiled::MaterialParameterValue{*number};
+                            else if (const auto* integer = std::get_if<std::int64_t>(value))
+                                projected.value = compiled::MaterialParameterValue{
+                                    static_cast<double>(*integer)};
+                            else
+                                resolved = false;
+                        } else if (parameter.type == compiled::MaterialParameterType::Int) {
+                            if (const auto* integer = std::get_if<std::int64_t>(value))
+                                projected.value = compiled::MaterialParameterValue{*integer};
+                            else
+                                resolved = false;
+                        } else if (parameter.type == compiled::MaterialParameterType::Bool) {
+                            if (const auto* flag = std::get_if<bool>(value))
+                                projected.value = compiled::MaterialParameterValue{*flag};
+                            else
+                                resolved = false;
+                        } else {
+                            resolved = false;
+                        }
+                    }
+                },
+                parameter.source);
+            if (resolved && (projected.value || projected.standard_facet))
+                result.material_parameters.push_back(std::move(projected));
+        }
     }
 
     for (const auto& desired : state.material_parameters()) {
