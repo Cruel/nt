@@ -49,6 +49,10 @@ struct RoomPresentationVisualCatalog {
 [[nodiscard]] RoomPresentationVisualCatalog
 build_room_presentation_visual_catalog(const runtime::RuntimeWorld& world,
                                        const RoomPresentationResolution& resolution);
+[[nodiscard]] RoomPresentationVisualCatalog
+build_room_presentation_visual_catalog(const CompiledProject& project,
+                                       const runtime::RuntimeWorld& world,
+                                       const RoomPresentationResolution& resolution);
 
 class RoomPresentationSnapshotProjector final {
 public:

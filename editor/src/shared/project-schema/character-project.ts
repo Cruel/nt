@@ -8,10 +8,10 @@ import {
   type CharacterExpressionData,
   type CharacterLayerCompositionData,
   type CharacterLayerOverrideData,
-  type CharacterMaterialRef,
   type CharacterPoseData,
   type CharacterPresentationProfileData,
 } from './authoring-characters';
+import type { MaterialApplication } from './authoring-material-applications';
 import { resolveMaterialData } from './authoring-materials';
 import type { AuthoringProject } from './authoring-project';
 
@@ -52,10 +52,10 @@ function assetMetadata(
 
 function materialMetadata(
   project: AuthoringProject,
-  ref: CharacterMaterialRef | null,
+  application: MaterialApplication | null,
 ): Record<string, unknown> | null {
-  if (!ref) return null;
-  const id = ref.$ref.id;
+  if (!application) return null;
+  const id = application.material.$ref.id;
   const record = project.materials[id];
   const data = resolveMaterialData(project, id).data;
   return {
@@ -70,6 +70,10 @@ function materialMetadata(
           varying: data.varyingDefinition,
         }
       : null,
+    occurrenceOverrides: {
+      parameters: application.parameters,
+      textures: application.textures,
+    },
   };
 }
 
@@ -132,7 +136,9 @@ function applyOverrides(
   return {
     ...layer,
     ...(patch.sprite !== undefined ? { sprite: patch.sprite } : {}),
-    ...(patch.material !== undefined ? { material: patch.material } : {}),
+    ...(patch.materialApplication !== undefined
+      ? { materialApplication: patch.materialApplication }
+      : {}),
     ...(patch.visible !== undefined ? { visible: patch.visible } : {}),
   };
 }
@@ -147,7 +153,7 @@ export function resolveCharacterPresentationLayers(
   id: string;
   role: string | null;
   sprite: CharacterAssetRef | null;
-  material: CharacterMaterialRef | null;
+  materialApplication: MaterialApplication | null;
   offset: { x: number; y: number };
   scale: number;
   anchor: { x: number; y: number };
@@ -183,7 +189,7 @@ export function resolveCharacterPresentationLayers(
         id: resolved.layerId,
         role: definition.role,
         sprite: resolved.sprite,
-        material: resolved.material,
+        materialApplication: resolved.materialApplication,
         offset: resolved.offset,
         scale: resolved.scale,
         anchor: resolved.anchor,
@@ -200,14 +206,22 @@ function dependencyRevision(project: AuthoringProject, data: CharacterData): str
     for (const pose of profile.poses) {
       for (const layer of pose.layers) {
         if (layer.sprite) assetIds.add(layer.sprite.$ref.id);
-        if (layer.material) materialIds.add(layer.material.$ref.id);
+        if (layer.materialApplication) {
+          materialIds.add(layer.materialApplication.material.$ref.id);
+          for (const texture of Object.values(layer.materialApplication.textures))
+            assetIds.add(texture.source.$ref.id);
+        }
       }
     }
     for (const clip of profile.animationClips) {
       for (const frame of clip.frames) {
         for (const layer of frame.layers) {
           if (layer.sprite) assetIds.add(layer.sprite.$ref.id);
-          if (layer.material) materialIds.add(layer.material.$ref.id);
+          if (layer.materialApplication) {
+            materialIds.add(layer.materialApplication.material.$ref.id);
+            for (const texture of Object.values(layer.materialApplication.textures))
+              assetIds.add(texture.source.$ref.id);
+          }
         }
       }
     }
@@ -216,7 +230,11 @@ function dependencyRevision(project: AuthoringProject, data: CharacterData): str
     for (const profile of entry.profiles) {
       for (const layer of profile.layers) {
         if (layer.sprite) assetIds.add(layer.sprite.$ref.id);
-        if (layer.material) materialIds.add(layer.material.$ref.id);
+        if (layer.materialApplication) {
+          materialIds.add(layer.materialApplication.material.$ref.id);
+          for (const texture of Object.values(layer.materialApplication.textures))
+            assetIds.add(texture.source.$ref.id);
+        }
       }
     }
   }
@@ -274,7 +292,7 @@ export function buildCharacterPreviewDocumentData(
     id: layer.id,
     role: layer.role,
     sprite: assetMetadata(project, layer.sprite),
-    material: materialMetadata(project, layer.material),
+    material: materialMetadata(project, layer.materialApplication),
     offset: layer.offset,
     scale: layer.scale,
     anchor: layer.anchor,

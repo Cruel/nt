@@ -23,7 +23,7 @@ describe('authoring rooms schema', () => {
     expect(defaultRoomData('Foyer')).toMatchObject({
       kind: 'room',
       displayName: 'Foyer',
-      background: { asset: null, material: null, fit: 'cover' },
+      background: { asset: null, materialApplication: null, fit: 'cover' },
       description: { markup: 'active-text', source: { kind: 'inline', text: '' } },
       presentationSpace: {
         size: { width: 1920, height: 1080 },

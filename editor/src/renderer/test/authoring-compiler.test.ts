@@ -31,6 +31,7 @@ import {
 import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
 import { defaultInteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import { defaultMapData } from '../../shared/project-schema/authoring-maps';
+import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
@@ -3105,6 +3106,217 @@ describe('authoring compiler framework', () => {
     });
   });
 
+  it('lowers Scene Engine2D Material Applications for stage and background instructions', () => {
+    const project = validProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    const scene = defaultSceneData('Opening');
+    scene.stage = {
+      kind: 'blank',
+      background: {
+        asset: null,
+        materialApplication: {
+          material: { $ref: { collection: 'materials', id: 'panel' } },
+          parameters: {
+            u_amount: { type: 'float', source: { kind: 'literal', value: 0.2 } },
+          },
+          textures: {},
+        },
+        color: '#000000',
+        fit: 'cover',
+      },
+      layout: null,
+    };
+    const step = defaultSceneStep('set-background');
+    if (step.type !== 'set-background') throw new Error('expected set-background Scene step');
+    step.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'panel' } },
+      parameters: {
+        u_amount: { type: 'float', source: { kind: 'literal', value: 0.8 } },
+      },
+      textures: {},
+    };
+    scene.events = [step];
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(
+      true,
+    );
+    if (!result.ok) return;
+    const compiled = result.project.definitions.scenes.find(
+      (candidate) => candidate.id === 'opening',
+    )!;
+    expect(compiled.stage).toMatchObject({
+      kind: 'blank',
+      background: {
+        material: { kind: 'material', id: 'panel' },
+        materialParameters: [expect.objectContaining({ name: 'u_amount' })],
+      },
+    });
+    expect(compiled.program.events[0]?.instruction).toMatchObject({
+      kind: 'set-background',
+      material: { kind: 'material', id: 'panel' },
+      materialParameters: [
+        expect.objectContaining({
+          name: 'u_amount',
+          source: { kind: 'literal', value: { type: 'float', value: 0.8 } },
+        }),
+      ],
+    });
+  });
+
+  it('lowers Character layer Material Applications through pose and expression presentation', () => {
+    const project = validProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    const character = defaultCharacterData('Hero');
+    const poseLayer = character.profiles[0]!.poses[0]!.layers[0]! as unknown as Record<
+      string,
+      unknown
+    >;
+    delete poseLayer.material;
+    poseLayer.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'panel' } },
+      parameters: {
+        u_amount: { type: 'float', source: { kind: 'literal', value: 0.25 } },
+      },
+      textures: {},
+    };
+    character.expressions[0]!.profiles = [
+      {
+        profileId: 'stage',
+        layers: [
+          {
+            layerId: 'body',
+            materialApplication: {
+              material: { $ref: { collection: 'materials', id: 'panel' } },
+              parameters: {
+                u_amount: { type: 'float', source: { kind: 'literal', value: 0.75 } },
+              },
+              textures: {},
+            },
+          } as never,
+        ],
+      },
+    ];
+    project.characters.hero = { id: 'hero', label: 'Hero', data: character };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(
+      true,
+    );
+    if (!result.ok) return;
+    const compiled = result.project.definitions.characters.find(
+      (candidate) => candidate.id === 'hero',
+    )!;
+    expect(compiled.profiles[0]?.poses[0]?.layers[0]).toMatchObject({
+      material: { kind: 'material', id: 'panel' },
+      materialParameters: [expect.objectContaining({ name: 'u_amount' })],
+    });
+    expect(compiled.expressions[0]?.profiles[0]?.layers[0]).toMatchObject({
+      material: { kind: 'material', id: 'panel' },
+      materialParameters: [
+        expect.objectContaining({
+          name: 'u_amount',
+          source: { kind: 'literal', value: { type: 'float', value: 0.75 } },
+        }),
+      ],
+    });
+  });
+
+  it('lowers Room Engine2D Material Applications for background, props, and environments', () => {
+    const project = validProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    project.assets.noise = {
+      id: 'noise',
+      label: 'Noise',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/noise.png',
+        extension: '.png',
+        byteSize: 64,
+        contentHash: 'noise-hash',
+        imageMetadata: { width: 8, height: 8, hasAlpha: false, orientation: 1 },
+      }),
+    };
+    const room = project.rooms.foyer.data as ReturnType<typeof defaultRoomData>;
+    const application = {
+      material: { $ref: { collection: 'materials' as const, id: 'panel' } },
+      parameters: {
+        u_amount: { type: 'float' as const, source: { kind: 'literal' as const, value: 0.5 } },
+      },
+      textures: {
+        s_noise: { source: { $ref: { collection: 'assets' as const, id: 'noise' } } },
+      },
+    };
+    room.background.materialApplication = application;
+    room.placements.push({
+      id: 'prop-slot',
+      bounds: { x: 0, y: 0, width: 0.5, height: 0.5 },
+      presentation: { label: null, layout: null },
+    });
+    room.props.push({
+      id: 'lamp',
+      condition: { kind: 'always' },
+      placementId: 'prop-slot',
+      asset: null,
+      materialApplication: application,
+      visible: true,
+      order: 1,
+    });
+    room.environments.push({
+      id: 'rain',
+      condition: { kind: 'always' },
+      asset: null,
+      materialApplication: application,
+      bounds: { x: 0, y: 0, width: 1, height: 1 },
+      plane: 'world-background',
+      order: 0,
+      clock: 'gameplay',
+      scrollPerSecond: { x: 0, y: 0 },
+      opacity: 1,
+      visible: true,
+    });
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(
+      true,
+    );
+    if (!result.ok) return;
+    const compiled = result.project.definitions.rooms.find(
+      (candidate) => candidate.id === 'foyer',
+    )!;
+    expect(compiled.background).toMatchObject({
+      material: { kind: 'material', id: 'panel' },
+      materialParameters: [expect.objectContaining({ name: 'u_amount' })],
+      materialTextures: [{ name: 's_noise', source: { kind: 'asset', id: 'noise' } }],
+    });
+    expect(compiled.props[0]).toMatchObject({
+      material: { kind: 'material', id: 'panel' },
+      materialParameters: [expect.objectContaining({ name: 'u_amount' })],
+      materialTextures: [{ name: 's_noise', source: { kind: 'asset', id: 'noise' } }],
+    });
+    expect(compiled.environments?.[0]).toMatchObject({
+      material: { kind: 'material', id: 'panel' },
+      materialParameters: [expect.objectContaining({ name: 'u_amount' })],
+      materialTextures: [{ name: 's_noise', source: { kind: 'asset', id: 'noise' } }],
+    });
+  });
+
   it('lowers sparse Interactable Definition Material Applications without discarding dormant entries', () => {
     const project = validProject();
     project.materials.panel = {
@@ -3479,7 +3691,7 @@ describe('authoring compiler framework', () => {
         id: 'rain',
         condition: { kind: 'always' },
         asset: { $ref: { collection: 'assets', id: 'image-main' } },
-        material: { $ref: { collection: 'materials', id: 'sprite-material' } },
+        materialApplication: emptyMaterialApplication('sprite-material'),
         bounds: { x: 0, y: 0, width: 1, height: 1 },
         plane: 'world-overlay',
         order: 4,
@@ -3609,7 +3821,7 @@ describe('authoring compiler framework', () => {
         condition: { kind: 'always' },
         placementId: 'key-placement',
         asset: null,
-        material: { $ref: { collection: 'materials', id: 'material' } },
+        materialApplication: emptyMaterialApplication('material'),
         visible: true,
         order: 0,
       },

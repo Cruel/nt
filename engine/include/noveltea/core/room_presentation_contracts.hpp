@@ -66,6 +66,8 @@ struct RoomPresentationDefinitionView {
         RoomPlacementId placement;
         std::optional<AssetId> asset;
         std::optional<MaterialId> material;
+        std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+        std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
         bool visible = true;
         std::int32_t order = 0;
     };
@@ -74,6 +76,8 @@ struct RoomPresentationDefinitionView {
         RoomPresentationConditionToken condition = 0;
         std::optional<AssetId> asset;
         MaterialId material;
+        std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+        std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
         compiled::NormalizedRect bounds{};
         PresentationPlane plane = PresentationPlane::WorldContent;
         std::int32_t order = 0;
@@ -188,6 +192,8 @@ struct ResolvedRoomProp {
     RoomPlacementId placement;
     std::optional<AssetId> asset;
     std::optional<MaterialId> material;
+    std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+    std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
     bool visible = true;
     std::int32_t order = 0;
 };
@@ -196,6 +202,8 @@ struct ResolvedRoomEnvironment {
     RoomEnvironmentId environment;
     std::optional<AssetId> asset;
     MaterialId material;
+    std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+    std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
     compiled::NormalizedRect bounds{0.0, 0.0, 1.0, 1.0};
     PresentationPlane plane = PresentationPlane::WorldContent;
     std::int32_t order = 0;

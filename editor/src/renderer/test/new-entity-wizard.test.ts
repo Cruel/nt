@@ -109,7 +109,11 @@ describe('new entity wizard registry', () => {
       kind: 'room',
       background: {
         asset: { $ref: { collection: 'assets', id: 'foyer-image' } },
-        material: { $ref: { collection: 'materials', id: 'painted' } },
+        materialApplication: {
+          material: { $ref: { collection: 'materials', id: 'painted' } },
+          parameters: {},
+          textures: {},
+        },
         fit: 'contain',
       },
       description: { source: { kind: 'inline', text: 'A quiet foyer.' } },

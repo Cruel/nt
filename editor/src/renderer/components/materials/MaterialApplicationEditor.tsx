@@ -13,7 +13,6 @@ import {
   type MaterialApplicationParameterOverride,
 } from '../../../shared/project-schema/authoring-material-applications';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
-import type { EffectiveInteractableProperty } from '../../../shared/project-schema/authoring-interactable-properties';
 import {
   isUniformValueCompatible,
   shaderUniformValueSchema,
@@ -68,7 +67,18 @@ function parseValue(type: ShaderUniformType, text: string): ShaderUniformValue |
   return parsed.success && isUniformValueCompatible(type, parsed.data) ? parsed.data : null;
 }
 
-function propertyCompatible(type: ShaderUniformType, property: EffectiveInteractableProperty) {
+export interface MaterialApplicationPropertyBindingOption {
+  id: string;
+  contract: {
+    type: string;
+    label?: string | null;
+  };
+}
+
+function propertyCompatible(
+  type: ShaderUniformType,
+  property: MaterialApplicationPropertyBindingOption,
+) {
   if (type === 'bool') return property.contract.type === 'boolean';
   if (type === 'int') return property.contract.type === 'integer';
   if (type === 'float')
@@ -85,7 +95,7 @@ function sourceLabel(override: MaterialApplicationParameterOverride) {
 export function materialApplicationParameterOverrideCompatible(
   type: ShaderUniformType,
   override: MaterialApplicationParameterOverride,
-  properties: readonly EffectiveInteractableProperty[],
+  properties: readonly MaterialApplicationPropertyBindingOption[],
 ): boolean {
   if (override.type !== type) return false;
   if (override.source.kind === 'literal')
@@ -107,16 +117,18 @@ export function MaterialApplicationEditor({
   inheritedValue = null,
   overrideLabel = 'Definition override',
   hideMaterialSelector = false,
+  allowClear = true,
 }: {
   project: AuthoringProject;
   value: MaterialApplication | null;
   expectedRole: ShaderRole;
-  properties?: readonly EffectiveInteractableProperty[];
+  properties?: readonly MaterialApplicationPropertyBindingOption[];
   onChange: (value: MaterialApplication | null) => void;
   ariaLabel?: string;
   inheritedValue?: MaterialApplication | null;
   overrideLabel?: string;
   hideMaterialSelector?: boolean;
+  allowClear?: boolean;
 }) {
   const materialId = value?.material.$ref.id ?? null;
   const resource = useMaterialPreviewResource(materialId);
@@ -201,7 +213,7 @@ export function MaterialApplicationEditor({
               )
             }
           />
-          {value ? (
+          {value && allowClear ? (
             <Button
               type="button"
               variant="outline"

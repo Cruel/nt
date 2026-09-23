@@ -17,12 +17,21 @@ enum class PresentationRuntimeMode : std::uint8_t {
     Ended
 };
 
+struct PresentationMaterialTextureOverride {
+    std::string name;
+    std::string source;
+    bool operator==(const PresentationMaterialTextureOverride&) const = default;
+};
+
 struct PresentationBackground {
     std::optional<PresentationOwner> material_owner;
+    std::optional<PropertyOwnerRef> material_property_owner;
     std::optional<AssetId> asset;
     std::optional<std::string> color;
     compiled::BackgroundFit fit = compiled::BackgroundFit::Cover;
     std::optional<MaterialId> material;
+    std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+    std::vector<PresentationMaterialTextureOverride> material_texture_overrides;
     bool operator==(const PresentationBackground&) const = default;
 };
 
@@ -37,6 +46,8 @@ struct PresentationActorLayer {
     std::optional<std::string> role;
     std::optional<AssetId> sprite;
     std::optional<MaterialId> material;
+    std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+    std::vector<PresentationMaterialTextureOverride> material_texture_overrides;
     compiled::Vector2 anchor;
     compiled::Vector2 offset;
     double scale = 1.0;
@@ -68,12 +79,6 @@ struct PresentationActor {
     bool operator==(const PresentationActor&) const = default;
 };
 
-struct PresentationMaterialTextureOverride {
-    std::string name;
-    std::string source;
-    bool operator==(const PresentationMaterialTextureOverride&) const = default;
-};
-
 struct PresentationInteractable {
     InteractableInstanceId interactable;
     compiled::RoomPlacementRef placement;
@@ -103,8 +108,11 @@ using PresentationPropKey = std::variant<RoomPropPresentationKey, ScopedPropPres
 struct PresentationProp {
     PresentationPropKey key;
     PresentationOwner owner;
+    std::optional<PropertyOwnerRef> material_property_owner;
     std::optional<AssetId> asset;
     std::optional<MaterialId> material;
+    std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+    std::vector<PresentationMaterialTextureOverride> material_texture_overrides;
     std::optional<compiled::RoomPlacementRef> placement;
     compiled::NormalizedRect bounds;
     PresentationPlane plane = PresentationPlane::WorldContent;
@@ -116,9 +124,12 @@ struct PresentationProp {
 struct PresentationEnvironment {
     PresentationEnvironmentInstanceId instance;
     PresentationOwner owner;
+    std::optional<PropertyOwnerRef> material_property_owner;
     PresentationEnvironmentStopKey stop_key;
     std::optional<AssetId> asset;
     MaterialId material;
+    std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+    std::vector<PresentationMaterialTextureOverride> material_texture_overrides;
     compiled::NormalizedRect bounds{0.0, 0.0, 1.0, 1.0};
     PresentationPlane plane = PresentationPlane::WorldContent;
     std::int32_t order = 0;

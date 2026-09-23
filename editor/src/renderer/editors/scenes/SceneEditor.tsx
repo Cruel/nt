@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import {
   GameplayCommandListEditor,
@@ -14,6 +15,7 @@ import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
+import { useOptionalMaterialPreviewProjectResources } from '@/material-preview/material-preview-provider';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -45,6 +47,7 @@ import type {
   ShaderUniformData,
   ShaderUniformValue,
 } from '../../../shared/project-schema/authoring-shaders';
+import type { MaterialDerivedInterface } from '../../../shared/project-schema/shader-material-project';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
   buildScenePreviewDocumentData,
@@ -221,18 +224,24 @@ function scalar(value: string): string | number | boolean | null {
 function materialUniforms(
   project: NonNullable<ReturnType<typeof useProjectStore.getState>['document']>,
   materialId: string,
+  derivedInterface: MaterialDerivedInterface | null | undefined,
 ): ShaderUniformData[] {
   if (!isAuthoringProject(project)) return [];
   const material = resolveMaterialData(project, materialId).data;
   if (!material) return [];
-  return Object.entries(material.preset.uniforms)
+  const uniforms = derivedInterface?.uniforms ?? material.preset.uniforms;
+  return Object.entries(uniforms)
     .filter(([, uniform]) => !uniform.binding)
     .map(([name, uniform]) => ({
       name,
       type: uniform.type,
       ...(uniform.default !== undefined ? { default: uniform.default } : {}),
       ...(uniform.range ? { range: [uniform.range[0], uniform.range[1]] as [number, number] } : {}),
-      ...(uniform.label !== undefined ? { label: uniform.label } : {}),
+      ...('label' in uniform && uniform.label !== undefined
+        ? { label: uniform.label }
+        : 'editor' in uniform && uniform.editor?.label !== undefined
+          ? { label: uniform.editor.label }
+          : {}),
       ...(uniform.binding !== undefined ? { binding: uniform.binding } : {}),
     }));
 }
@@ -299,6 +308,10 @@ function parseUniformValue(
 export function SceneEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
   const project = isAuthoringProject(document) ? document : null;
+  const materialPreviewResources = useOptionalMaterialPreviewProjectResources();
+  const [materialInterfaces, setMaterialInterfaces] = useState<
+    Readonly<Record<string, MaterialDerivedInterface | null>>
+  >({});
   const sceneId = tab.resource?.entityId;
   const record = sceneId && project ? project.scenes[sceneId] : null;
   const data = parseSceneData(record?.data) ?? defaultSceneData(record?.label ?? 'Scene');
@@ -310,6 +323,30 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
     () => (project && record && sceneId ? validateSceneData(project, sceneId, record) : []),
     [project, record, sceneId],
   );
+  useEffect(() => {
+    let active = true;
+    if (!project || !materialPreviewResources) {
+      setMaterialInterfaces({});
+      return () => {
+        active = false;
+      };
+    }
+    const materialIds = Object.keys(project.materials);
+    void Promise.all(
+      materialIds.map(
+        async (materialId) =>
+          [
+            materialId,
+            (await materialPreviewResources.getMaterial(materialId))?.derivedInterface ?? null,
+          ] as const,
+      ),
+    ).then((entries) => {
+      if (active) setMaterialInterfaces(Object.fromEntries(entries));
+    });
+    return () => {
+      active = false;
+    };
+  }, [materialPreviewResources, project]);
 
   const blankStage = data.stage.kind === 'blank' ? data.stage : null;
   const timelineEndMs = Math.max(
@@ -420,7 +457,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
         (id) => resolveMaterialData(project, id).data?.role === 'engine-2d',
       );
       if (!materialId) return null;
-      const uniform = materialUniforms(project, materialId)[0];
+      const uniform = materialUniforms(project, materialId, materialInterfaces[materialId])[0];
       if (!uniform) return null;
       return {
         ...step,
@@ -939,7 +976,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                       kind: 'blank',
                       background: {
                         asset: null,
-                        material: null,
+                        materialApplication: null,
                         color: '#0f172a',
                         fit: 'cover',
                       },
@@ -1000,32 +1037,25 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
             </Label>
           ) : null}
           {blankStage ? (
-            <Label>
-              Stage background material
-              <Select
-                value={refId(blankStage.background.material)}
-                onValueChange={(id) => {
-                  if (id)
-                    commit({
-                      ...data,
-                      stage: {
-                        ...blankStage,
-                        background: {
-                          ...blankStage.background,
-                          material: id === '__none__' ? null : sceneMaterialRef(id),
-                        },
-                      },
-                    });
-                }}
-              >
-                <SelectItem value="__none__">None</SelectItem>
-                {Object.entries(project.materials).map(([id, item]) => (
-                  <SelectItem key={id} value={id}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </Select>
-            </Label>
+            <div className="space-y-1.5">
+              <Label>Stage background Material</Label>
+              <MaterialApplicationEditor
+                project={project}
+                value={blankStage.background.materialApplication}
+                expectedRole="engine-2d"
+                ariaLabel="Scene stage background Material"
+                overrideLabel="Scene override"
+                onChange={(materialApplication) =>
+                  commit({
+                    ...data,
+                    stage: {
+                      ...blankStage,
+                      background: { ...blankStage.background, materialApplication },
+                    },
+                  })
+                }
+              />
+            </div>
           ) : null}
           {blankStage ? (
             <Label>
@@ -1275,26 +1305,19 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                     ))}
                   </Select>
                 </Label>
-                <Label>
-                  Material
-                  <Select
-                    value={refId(selected.material)}
-                    onValueChange={(id) => {
-                      if (id)
-                        replaceStep({
-                          ...selected,
-                          material: id === '__none__' ? null : sceneMaterialRef(id),
-                        });
-                    }}
-                  >
-                    <SelectItem value="__none__">None</SelectItem>
-                    {Object.entries(project.materials).map(([id, item]) => (
-                      <SelectItem key={id} value={id}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </Label>
+                <div className="space-y-1.5">
+                  <Label>Material</Label>
+                  <MaterialApplicationEditor
+                    project={project}
+                    value={selected.materialApplication}
+                    expectedRole="engine-2d"
+                    ariaLabel={`Scene background ${selected.id} Material`}
+                    overrideLabel="Scene override"
+                    onChange={(materialApplication) =>
+                      replaceStep({ ...selected, materialApplication })
+                    }
+                  />
+                </div>
                 <Label>
                   Color
                   <Input
@@ -2640,7 +2663,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                   const role = resolveMaterialData(project, id).data?.role;
                   return role ? allowedRoles.has(role) : false;
                 });
-                const uniforms = materialUniforms(project, selected.material.$ref.id);
+                const uniforms = materialUniforms(
+                  project,
+                  selected.material.$ref.id,
+                  materialInterfaces[selected.material.$ref.id],
+                );
                 const uniform = uniforms.find((item) => item.name === selected.parameter);
                 const tweenable = uniform ? !['bool', 'int'].includes(uniform.type) : false;
                 return (
@@ -2689,7 +2716,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             replaceStep({ ...selected, target });
                             return;
                           }
-                          const nextUniform = materialUniforms(project, nextMaterial)[0];
+                          const nextUniform = materialUniforms(
+                            project,
+                            nextMaterial,
+                            materialInterfaces[nextMaterial],
+                          )[0];
                           replaceStep({
                             ...selected,
                             target,
@@ -2740,7 +2771,11 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                         value={selected.material.$ref.id}
                         onValueChange={(materialId) => {
                           if (!materialId) return;
-                          const nextUniform = materialUniforms(project, materialId)[0];
+                          const nextUniform = materialUniforms(
+                            project,
+                            materialId,
+                            materialInterfaces[materialId],
+                          )[0];
                           replaceStep({
                             ...selected,
                             material: sceneMaterialRef(materialId),
@@ -2912,7 +2947,9 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                   (id) => resolveMaterialData(project, id).data?.role === 'postprocess',
                 );
                 const materialId = selected.material?.$ref.id ?? '';
-                const uniforms = materialId ? materialUniforms(project, materialId) : [];
+                const uniforms = materialId
+                  ? materialUniforms(project, materialId, materialInterfaces[materialId])
+                  : [];
                 return (
                   <>
                     <Label>
@@ -3212,7 +3249,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                               ),
                               type: 'set-background',
                               asset: null,
-                              material: null,
+                              materialApplication: null,
                               color: '#0f172a',
                               fit: 'cover',
                             },
@@ -3362,26 +3399,19 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                                 ))}
                               </Select>
                             </Label>
-                            <Label>
-                              Material
-                              <Select
-                                value={refId(child.material)}
-                                onValueChange={(id) => {
-                                  if (id)
-                                    updateChild({
-                                      ...child,
-                                      material: id === '__none__' ? null : sceneMaterialRef(id),
-                                    });
-                                }}
-                              >
-                                <SelectItem value="__none__">None</SelectItem>
-                                {Object.entries(project.materials).map(([id, item]) => (
-                                  <SelectItem key={id} value={id}>
-                                    {item.label}
-                                  </SelectItem>
-                                ))}
-                              </Select>
-                            </Label>
+                            <div className="space-y-1.5">
+                              <Label>Material</Label>
+                              <MaterialApplicationEditor
+                                project={project}
+                                value={child.materialApplication}
+                                expectedRole="engine-2d"
+                                ariaLabel={`Transition background ${child.id} Material`}
+                                overrideLabel="Scene override"
+                                onChange={(materialApplication) =>
+                                  updateChild({ ...child, materialApplication })
+                                }
+                              />
+                            </div>
                             <Label>
                               Color
                               <Input

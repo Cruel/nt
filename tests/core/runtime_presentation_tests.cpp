@@ -168,6 +168,47 @@ CompiledProject scoped_material_fixture()
           {"type", "float"},
           {"source", {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 0.5}}}}}}});
 
+    auto room = std::ranges::find_if(document["definitions"]["rooms"],
+                                     [](const auto& value) { return value["id"] == "start"; });
+    REQUIRE(room != document["definitions"]["rooms"].end());
+    (*room)["background"]["materialParameters"] = nlohmann::json::array(
+        {{{"name", "u_amount"},
+          {"type", "float"},
+          {"source", {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 0.4}}}}}}});
+    (*room)["background"]["materialTextures"] = nlohmann::json::array(
+        {{{"name", "s_overlay"}, {"source", {{"kind", "asset"}, {"id", "image-main"}}}}});
+    (*room)["cast"] = nlohmann::json::array({
+        {{"id", "hero-cast"},
+         {"character", {{"kind", "character"}, {"id", "hero"}}},
+         {"condition", {{"kind", "always"}}},
+         {"placementId", "key-placement"},
+         {"profileId", "stage"},
+         {"poseId", "default"},
+         {"expressionId", "neutral"},
+         {"appearanceId", nullptr},
+         {"idleId", nullptr},
+         {"visible", true},
+         {"order", 1}},
+    });
+
+    auto character = std::ranges::find_if(document["definitions"]["characters"],
+                                          [](const auto& value) { return value["id"] == "hero"; });
+    REQUIRE(character != document["definitions"]["characters"].end());
+    auto& layer = (*character)["profiles"][0]["poses"][0]["layers"][0];
+    layer["materialParameters"] = nlohmann::json::array(
+        {{{"name", "u_amount"},
+          {"type", "float"},
+          {"source", {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 0.6}}}}}}});
+    layer["materialTextures"] = nlohmann::json::array(
+        {{{"name", "s_overlay"}, {"source", {{"kind", "asset"}, {"id", "image-main"}}}}});
+    auto& expression_layer = (*character)["expressions"][0]["profiles"][0]["layers"][0];
+    expression_layer["materialParameters"] = nlohmann::json::array(
+        {{{"name", "u_amount"},
+          {"type", "float"},
+          {"source", {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 0.6}}}}}}});
+    expression_layer["materialTextures"] = nlohmann::json::array(
+        {{{"name", "s_overlay"}, {"source", {{"kind", "asset"}, {"id", "image-main"}}}}});
+
     auto decoded = decode_compiled_project(document, "scoped-material-parameters.json");
     REQUIRE(decoded);
     return std::move(decoded).value();
@@ -646,6 +687,62 @@ TEST_CASE("shared Room snapshot projector matches the runtime Room baseline")
     CHECK(focused_baseline.value().interactables == runtime.value().interactables);
     CHECK(focused_baseline.value().props == runtime.value().props);
     CHECK(focused_baseline.value().environments == runtime.value().environments);
+}
+
+TEST_CASE("Room and Character authored Material Applications project parameters and textures")
+{
+    const auto project = scoped_material_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    auto room = resolve_room(project, state);
+    auto projected = project_snapshot(project, state, &room);
+    REQUIRE(projected);
+
+    const auto material = id<MaterialId>("sprite-material");
+    REQUIRE(projected.value().background);
+    REQUIRE(projected.value().background->material);
+    CHECK(*projected.value().background->material == material);
+    REQUIRE(projected.value().background->material_owner);
+    CHECK(*projected.value().background->material_owner ==
+          PresentationOwner{RoomPresentationOwner{id<RoomId>("start")}});
+    REQUIRE(projected.value().background->material_texture_overrides.size() == 1);
+    const auto* image = project.find_asset(id<AssetId>("image-main"));
+    REQUIRE(image != nullptr);
+    CHECK(projected.value().background->material_texture_overrides.front().source ==
+          "project:/" + image->path);
+
+    const auto background_parameter =
+        std::ranges::find_if(projected.value().material_parameters, [&](const auto& value) {
+            return value.occurrence == MaterialOccurrence{BackgroundMaterialOccurrence{}} &&
+                   value.material == material && value.parameter == "u_amount";
+        });
+    REQUIRE(background_parameter != projected.value().material_parameters.end());
+    REQUIRE(background_parameter->value);
+    CHECK(std::get<double>(*background_parameter->value) == 0.4);
+
+    const auto actor = std::ranges::find_if(projected.value().actors, [](const auto& value) {
+        return value.character == id<CharacterId>("hero");
+    });
+    REQUIRE(actor != projected.value().actors.end());
+    REQUIRE(actor->material_owner);
+    const auto layer = std::ranges::find_if(actor->layers, [](const auto& value) {
+        return value.id == id<CharacterPresentationLayerId>("body");
+    });
+    REQUIRE(layer != actor->layers.end());
+    REQUIRE(layer->material);
+    REQUIRE(layer->material_texture_overrides.size() == 1);
+    CHECK(layer->material_texture_overrides.front().source == "project:/" + image->path);
+    const auto actor_parameter =
+        std::ranges::find_if(projected.value().material_parameters, [&](const auto& value) {
+            return value.occurrence ==
+                       MaterialOccurrence{ActorMaterialOccurrence{actor->key, layer->id}} &&
+                   value.material == material && value.parameter == "u_amount";
+        });
+    REQUIRE(actor_parameter != projected.value().material_parameters.end());
+    REQUIRE(actor_parameter->value);
+    CHECK(std::get<double>(*actor_parameter->value) == 0.6);
 }
 
 TEST_CASE("Interactable runtime Material parameters resolve scoped precedence and clearing")

@@ -5,7 +5,6 @@ import {
 import { defaultArchetypeData } from '../../../shared/project-schema/authoring-archetypes';
 import {
   characterAssetRef,
-  characterMaterialRef,
   defaultCharacterData,
 } from '../../../shared/project-schema/authoring-characters';
 import {
@@ -26,6 +25,7 @@ import {
 } from '../../../shared/project-schema/authoring-layouts';
 import { defaultMapData } from '../../../shared/project-schema/authoring-maps';
 import { defaultMaterialData } from '../../../shared/project-schema/authoring-materials';
+import { emptyMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import {
   createAuthoringProject,
   type AuthoringProject,
@@ -36,7 +36,6 @@ import {
   defaultRoomData,
   roomAssetRef,
   roomLayoutRef,
-  roomMaterialRef,
   roomRoomRef,
 } from '../../../shared/project-schema/authoring-rooms';
 import {
@@ -188,7 +187,7 @@ export function canonicalLinearGoldenProject(): AuthoringProject {
   const scene = defaultSceneData('Opening');
   scene.stage = {
     kind: 'blank',
-    background: { asset: null, material: null, color: '#0f172a', fit: 'cover' },
+    background: { asset: null, materialApplication: null, color: '#0f172a', fit: 'cover' },
     layout: null,
   };
   scene.events = [
@@ -251,7 +250,7 @@ export function canonicalFlowGoldenProject(): AuthoringProject {
   const parent = defaultSceneData('Handoff Parent');
   parent.stage = {
     kind: 'blank',
-    background: { asset: null, material: null, color: '#111827', fit: 'cover' },
+    background: { asset: null, materialApplication: null, color: '#111827', fit: 'cover' },
     layout: null,
   };
   parent.events = [
@@ -293,7 +292,7 @@ export function canonicalFastForwardGoldenProject(): AuthoringProject {
   const scene = defaultSceneData('Fast Forward');
   scene.stage = {
     kind: 'blank',
-    background: { asset: null, material: null, color: '#0f172a', fit: 'cover' },
+    background: { asset: null, materialApplication: null, color: '#0f172a', fit: 'cover' },
     layout: null,
   };
   scene.events = [
@@ -400,7 +399,7 @@ export function canonicalLayoutSignalGoldenProject(): AuthoringProject {
   const scene = defaultSceneData('Layout Signal');
   scene.stage = {
     kind: 'blank',
-    background: { asset: null, material: null, color: '#111827', fit: 'cover' },
+    background: { asset: null, materialApplication: null, color: '#111827', fit: 'cover' },
     layout: null,
   };
   scene.events = [
@@ -607,7 +606,8 @@ export function comprehensiveGoldenProject(): AuthoringProject {
 
   const hero = defaultCharacterData('Hero');
   hero.profiles[0]!.poses[0]!.layers[0]!.sprite = characterAssetRef('image-main');
-  hero.profiles[0]!.poses[0]!.layers[0]!.material = characterMaterialRef('sprite-material');
+  hero.profiles[0]!.poses[0]!.layers[0]!.materialApplication =
+    emptyMaterialApplication('sprite-material');
   hero.expressions[0]!.profiles = [
     {
       profileId: 'stage',
@@ -615,7 +615,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
         {
           layerId: 'body',
           sprite: characterAssetRef('image-main'),
-          material: characterMaterialRef('sprite-material'),
+          materialApplication: emptyMaterialApplication('sprite-material'),
         },
       ],
     },
@@ -689,7 +689,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   const start = defaultRoomData('Start');
   start.background = {
     asset: roomAssetRef('image-main'),
-    material: roomMaterialRef('sprite-material'),
+    materialApplication: emptyMaterialApplication('sprite-material'),
     fit: 'cover',
     color: '#101820',
   };
@@ -801,7 +801,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   const hall = defaultRoomData('Hall');
   hall.background = {
     asset: roomAssetRef('image-main'),
-    material: roomMaterialRef('sprite-material'),
+    materialApplication: emptyMaterialApplication('sprite-material'),
     fit: 'contain',
     color: null,
   };
@@ -1124,7 +1124,7 @@ export function sceneProgramGoldenProject(): AuthoringProject {
     kind: 'blank',
     background: {
       asset: null,
-      material: null,
+      materialApplication: null,
       color: '#112233',
       fit: 'stretch',
     },
@@ -1135,7 +1135,7 @@ export function sceneProgramGoldenProject(): AuthoringProject {
       ...defaultSceneStep('set-background'),
       id: 'background',
       asset: sceneAssetRef('image-main'),
-      material: sceneMaterialRef('sprite-material'),
+      materialApplication: emptyMaterialApplication('sprite-material'),
       color: '#223344',
       fit: 'center',
       transition: 'cut',
@@ -1317,7 +1317,7 @@ export function sceneProgramGoldenProject(): AuthoringProject {
     {
       ...defaultSceneStep('set-background'),
       id: 'background-material',
-      material: sceneMaterialRef('sprite-material'),
+      materialApplication: emptyMaterialApplication('sprite-material'),
     },
     {
       ...defaultSceneStep('material-parameter'),
@@ -2393,7 +2393,7 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
       id: 'background',
       owner: 'runtime-session',
       asset: sceneAssetRef('image-main'),
-      material: sceneMaterialRef('sprite-material'),
+      materialApplication: emptyMaterialApplication('sprite-material'),
       transition: 'fade',
       durationMs: 100,
       waitForCompletion: false,
@@ -2427,12 +2427,12 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
     {
       ...defaultSceneStep('set-background'),
       id: 'actor-material',
-      material: sceneMaterialRef('sprite-material'),
+      materialApplication: emptyMaterialApplication('sprite-material'),
     },
     {
       ...defaultSceneStep('set-background'),
       id: 'layout-material',
-      material: sceneMaterialRef('sprite-material'),
+      materialApplication: emptyMaterialApplication('sprite-material'),
     },
     {
       ...defaultSceneStep('transition-group'),
@@ -2445,7 +2445,7 @@ export function canonicalVocabularyGoldenProject(): AuthoringProject {
           id: 'transition-background',
           type: 'set-background',
           asset: sceneAssetRef('image-main'),
-          material: sceneMaterialRef('sprite-material'),
+          materialApplication: emptyMaterialApplication('sprite-material'),
           color: null,
           fit: 'cover',
         },

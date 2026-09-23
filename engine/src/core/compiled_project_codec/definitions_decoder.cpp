@@ -468,12 +468,25 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
             defaults = CharacterDefaults{std::move(*profile), std::move(*expression),
                                          std::move(appearance), std::move(idle)};
     }
+    const auto decode_layer_material_application =
+        [&](const nlohmann::json& layer, const std::string& layer_pointer,
+            const nlohmann::json& material_value) -> std::optional<MaterialApplication> {
+        const auto* parameters_value = json_access::member(layer, "materialParameters");
+        const auto* textures_value = json_access::member(layer, "materialTextures");
+        nlohmann::json application{
+            {"material", material_value},
+            {"parameters", parameters_value ? *parameters_value : nlohmann::json::array()},
+            {"textures", textures_value ? *textures_value : nlohmann::json::array()},
+        };
+        return decode_material_application(decoder, application, layer_pointer);
+    };
     const auto decode_layer_composition =
         [&](const nlohmann::json& layer,
             const std::string& layer_pointer) -> std::optional<CharacterLayerComposition> {
         if (!decoder.object(
                 layer, layer_pointer,
-                {"anchor", "layerId", "material", "offset", "scale", "sprite", "visible"}))
+                {"anchor", "layerId", "material", "materialParameters", "materialTextures",
+                 "offset", "scale", "sprite", "visible"}))
             return std::nullopt;
         const auto* layer_id_value = decoder.member(layer, "layerId", layer_pointer);
         const auto* sprite_value = decoder.member(layer, "sprite", layer_pointer);
@@ -494,11 +507,25 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
             sprite_ok = sprite.has_value();
         }
         std::optional<MaterialId> material;
+        std::vector<MaterialApplicationParameterOverride> material_parameters;
+        std::vector<MaterialApplicationTextureOverride> material_textures;
         bool material_ok = material_value != nullptr;
         if (material_value && !material_value->is_null()) {
-            material = decode_reference<MaterialId>(
-                decoder, *material_value, pointer_child(layer_pointer, "material"), "material");
-            material_ok = material.has_value();
+            auto application = decode_layer_material_application(layer, layer_pointer, *material_value);
+            material_ok = application.has_value();
+            if (application) {
+                material = std::move(application->material);
+                material_parameters = std::move(application->parameters);
+                material_textures = std::move(application->textures);
+            }
+        } else if ((json_access::member(layer, "materialParameters") &&
+                    !json_access::member(layer, "materialParameters")->empty()) ||
+                   (json_access::member(layer, "materialTextures") &&
+                    !json_access::member(layer, "materialTextures")->empty())) {
+            decoder.error(k_code_variant,
+                          "Material Application overrides require a selected Material.",
+                          layer_pointer);
+            material_ok = false;
         }
         auto offset = offset_value ? decode_vector2(decoder, *offset_value,
                                                     pointer_child(layer_pointer, "offset"))
@@ -522,6 +549,8 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
         return CharacterLayerComposition{std::move(*layer_id),
                                          std::move(sprite),
                                          std::move(material),
+                                         std::move(material_parameters),
+                                         std::move(material_textures),
                                          std::move(*offset),
                                          *scale,
                                          std::move(*anchor),
@@ -532,7 +561,8 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
             const std::string& layer_pointer) -> std::optional<CharacterAnimationLayerFrame> {
         if (!decoder.object(
                 layer, layer_pointer,
-                {"anchor", "layerId", "material", "offset", "scale", "sprite", "visible"}))
+                {"anchor", "layerId", "material", "materialParameters", "materialTextures",
+                 "offset", "scale", "sprite", "visible"}))
             return std::nullopt;
         const auto* layer_id_value = decoder.member(layer, "layerId", layer_pointer);
         auto layer_id = layer_id_value
@@ -550,14 +580,24 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
             }
         }
         CharacterOptionalOverride<MaterialId> material;
+        std::vector<MaterialApplicationParameterOverride> material_parameters;
+        std::vector<MaterialApplicationTextureOverride> material_textures;
         if (const auto* material_value = json_access::member(layer, "material")) {
             material.specified = true;
             if (!material_value->is_null()) {
-                material.value = decode_reference<MaterialId>(
-                    decoder, *material_value, pointer_child(layer_pointer, "material"), "material");
-                if (!material.value)
+                auto application = decode_layer_material_application(layer, layer_pointer, *material_value);
+                if (!application)
                     return std::nullopt;
+                material.value = std::move(application->material);
+                material_parameters = std::move(application->parameters);
+                material_textures = std::move(application->textures);
             }
+        } else if (json_access::member(layer, "materialParameters") ||
+                   json_access::member(layer, "materialTextures")) {
+            decoder.error(k_code_variant,
+                          "Material Application overrides require an explicit Material override.",
+                          layer_pointer);
+            return std::nullopt;
         }
         std::optional<Vector2> offset;
         if (const auto* offset_value = json_access::member(layer, "offset")) {
@@ -592,6 +632,8 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
         return CharacterAnimationLayerFrame{std::move(*layer_id),
                                             std::move(sprite),
                                             std::move(material),
+                                            std::move(material_parameters),
+                                            std::move(material_textures),
                                             std::move(offset),
                                             scale,
                                             std::move(anchor),
@@ -960,8 +1002,10 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                       *layers_value, pointer_child(profile_pointer, "layers"),
                       [&](const nlohmann::json& layer, const std::string& layer_pointer)
                           -> std::optional<CharacterLayerOverride> {
-                          if (!decoder.object(layer, layer_pointer,
-                                              {"layerId", "material", "sprite", "visible"}))
+                          if (!decoder.object(
+                                  layer, layer_pointer,
+                                  {"layerId", "material", "materialParameters", "materialTextures",
+                                   "sprite", "visible"}))
                               return std::nullopt;
                           const auto* layer_id_value =
                               decoder.member(layer, "layerId", layer_pointer);
@@ -982,15 +1026,26 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                               }
                           }
                           CharacterOptionalOverride<MaterialId> material;
+                          std::vector<MaterialApplicationParameterOverride> material_parameters;
+                          std::vector<MaterialApplicationTextureOverride> material_textures;
                           if (const auto* material_value = json_access::member(layer, "material")) {
                               material.specified = true;
                               if (!material_value->is_null()) {
-                                  material.value = decode_reference<MaterialId>(
-                                      decoder, *material_value,
-                                      pointer_child(layer_pointer, "material"), "material");
-                                  if (!material.value)
+                                  auto application = decode_layer_material_application(
+                                      layer, layer_pointer, *material_value);
+                                  if (!application)
                                       return std::nullopt;
+                                  material.value = std::move(application->material);
+                                  material_parameters = std::move(application->parameters);
+                                  material_textures = std::move(application->textures);
                               }
+                          } else if (json_access::member(layer, "materialParameters") ||
+                                     json_access::member(layer, "materialTextures")) {
+                              decoder.error(
+                                  k_code_variant,
+                                  "Material Application overrides require an explicit Material override.",
+                                  layer_pointer);
+                              return std::nullopt;
                           }
                           std::optional<bool> visible;
                           if (const auto* visible_value = json_access::member(layer, "visible")) {
@@ -1001,8 +1056,9 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                           }
                           if (!layer_id)
                               return std::nullopt;
-                          return CharacterLayerOverride{std::move(*layer_id), std::move(sprite),
-                                                        std::move(material), visible};
+                          return CharacterLayerOverride{
+                              std::move(*layer_id), std::move(sprite), std::move(material),
+                              std::move(material_parameters), std::move(material_textures), visible};
                       })
                 : std::nullopt;
         if (!profile_id || !layers)
@@ -2136,8 +2192,9 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                       const std::string& item_pointer) -> std::optional<RoomEnvironment> {
                       if (!decoder.object(item, item_pointer,
                                           {"asset", "bounds", "clock", "condition", "id",
-                                           "material", "opacity", "order", "plane",
-                                           "scrollPerSecond", "visible"}))
+                                           "material", "materialParameters", "materialTextures",
+                                           "opacity", "order", "plane", "scrollPerSecond",
+                                           "visible"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(item, "id", item_pointer);
                       const auto* condition_value = decoder.member(item, "condition", item_pointer);
@@ -2166,11 +2223,22 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                               decoder, *asset_value, pointer_child(item_pointer, "asset"), "asset");
                           asset_ok = asset.has_value();
                       }
-                      auto material = material_value
-                                          ? decode_reference<MaterialId>(
-                                                decoder, *material_value,
-                                                pointer_child(item_pointer, "material"), "material")
-                                          : std::nullopt;
+                      std::optional<MaterialApplication> material_application;
+                      if (material_value) {
+                          nlohmann::json application{
+                              {"material", *material_value},
+                              {"parameters",
+                               json_access::member(item, "materialParameters")
+                                   ? *json_access::member(item, "materialParameters")
+                                   : nlohmann::json::array()},
+                              {"textures",
+                               json_access::member(item, "materialTextures")
+                                   ? *json_access::member(item, "materialTextures")
+                                   : nlohmann::json::array()},
+                          };
+                          material_application =
+                              decode_material_application(decoder, application, item_pointer);
+                      }
                       auto bounds = bounds_value
                                         ? decode_rect(decoder, *bounds_value,
                                                       pointer_child(item_pointer, "bounds"))
@@ -2206,12 +2274,14 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                                          ? decoder.boolean(*visible_value,
                                                            pointer_child(item_pointer, "visible"))
                                          : std::nullopt;
-                      if (id && condition && asset_ok && material && bounds && plane && order &&
-                          clock && scroll && opacity && visible)
+                      if (id && condition && asset_ok && material_application && bounds && plane &&
+                          order && clock && scroll && opacity && visible)
                           return RoomEnvironment{std::move(*id),
                                                  std::move(*condition),
                                                  std::move(asset),
-                                                 std::move(*material),
+                                                 std::move(material_application->material),
+                                                 std::move(material_application->parameters),
+                                                 std::move(material_application->textures),
                                                  std::move(*bounds),
                                                  *plane,
                                                  *order,
@@ -2229,7 +2299,8 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                   [&](const nlohmann::json& item,
                       const std::string& item_pointer) -> std::optional<RoomProp> {
                       if (!decoder.object(item, item_pointer,
-                                          {"asset", "condition", "id", "material", "order",
+                                          {"asset", "condition", "id", "material",
+                                           "materialParameters", "materialTextures", "order",
                                            "placementId", "visible"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(item, "id", item_pointer);
@@ -2268,12 +2339,36 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                           asset_ok = asset.has_value();
                       }
                       std::optional<MaterialId> material;
+                      std::vector<MaterialApplicationParameterOverride> material_parameters;
+                      std::vector<MaterialApplicationTextureOverride> material_textures;
                       bool material_ok = material_value != nullptr;
                       if (material_value && !material_value->is_null()) {
-                          material = decode_reference<MaterialId>(
-                              decoder, *material_value, pointer_child(item_pointer, "material"),
-                              "material");
-                          material_ok = material.has_value();
+                          nlohmann::json application{
+                              {"material", *material_value},
+                              {"parameters",
+                               json_access::member(item, "materialParameters")
+                                   ? *json_access::member(item, "materialParameters")
+                                   : nlohmann::json::array()},
+                              {"textures",
+                               json_access::member(item, "materialTextures")
+                                   ? *json_access::member(item, "materialTextures")
+                                   : nlohmann::json::array()},
+                          };
+                          auto decoded = decode_material_application(decoder, application, item_pointer);
+                          material_ok = decoded.has_value();
+                          if (decoded) {
+                              material = std::move(decoded->material);
+                              material_parameters = std::move(decoded->parameters);
+                              material_textures = std::move(decoded->textures);
+                          }
+                      } else if ((json_access::member(item, "materialParameters") &&
+                                  !json_access::member(item, "materialParameters")->empty()) ||
+                                 (json_access::member(item, "materialTextures") &&
+                                  !json_access::member(item, "materialTextures")->empty())) {
+                          decoder.error(k_code_variant,
+                                        "Material Application overrides require a selected Material.",
+                                        item_pointer);
+                          material_ok = false;
                       }
                       if (id && condition && placement && visible && order && asset_ok &&
                           material_ok && (asset || material))
@@ -2282,6 +2377,8 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                                           std::move(*placement),
                                           std::move(asset),
                                           std::move(material),
+                                          std::move(material_parameters),
+                                          std::move(material_textures),
                                           *visible,
                                           *order};
                       return std::nullopt;

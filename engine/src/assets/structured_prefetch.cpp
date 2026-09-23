@@ -898,11 +898,14 @@ MandatoryAssetDependencyCollector::collect(const MandatoryAssetDependencyContext
     DescriptorAccumulator current(&seen);
     if (const auto* snapshot = context.current_presentation) {
         if (snapshot->background) {
-            core::compiled::BackgroundPresentation background{.asset = snapshot->background->asset,
-                                                              .color = snapshot->background->color,
-                                                              .fit = snapshot->background->fit,
-                                                              .material =
-                                                                  snapshot->background->material};
+            core::compiled::BackgroundPresentation background{
+                .asset = snapshot->background->asset,
+                .color = snapshot->background->color,
+                .fit = snapshot->background->fit,
+                .material = snapshot->background->material,
+                .material_parameters = snapshot->background->material_parameters,
+                .material_textures = {},
+            };
             m_index.m_impl->append_background(current, background, current_diagnostics,
                                               "current presentation background");
         }

@@ -526,6 +526,8 @@ struct BackgroundPresentation {
     std::optional<std::string> color;
     BackgroundFit fit;
     std::optional<MaterialId> material;
+    std::vector<MaterialApplicationParameterOverride> material_parameters;
+    std::vector<MaterialApplicationTextureOverride> material_textures;
     bool operator==(const BackgroundPresentation&) const = default;
 };
 struct RoomPlacementRef {
@@ -543,6 +545,8 @@ struct CharacterLayerComposition {
     CharacterPresentationLayerId layer_id;
     std::optional<AssetId> sprite;
     std::optional<MaterialId> material;
+    std::vector<MaterialApplicationParameterOverride> material_parameters;
+    std::vector<MaterialApplicationTextureOverride> material_textures;
     Vector2 offset;
     double scale;
     Vector2 anchor;
@@ -563,6 +567,8 @@ struct CharacterAnimationLayerFrame {
     CharacterPresentationLayerId layer_id;
     CharacterOptionalOverride<AssetId> sprite;
     CharacterOptionalOverride<MaterialId> material;
+    std::vector<MaterialApplicationParameterOverride> material_parameters;
+    std::vector<MaterialApplicationTextureOverride> material_textures;
     std::optional<Vector2> offset;
     std::optional<double> scale;
     std::optional<Vector2> anchor;
@@ -609,6 +615,8 @@ struct CharacterLayerOverride {
     CharacterPresentationLayerId layer_id;
     CharacterOptionalOverride<AssetId> sprite;
     CharacterOptionalOverride<MaterialId> material;
+    std::vector<MaterialApplicationParameterOverride> material_parameters;
+    std::vector<MaterialApplicationTextureOverride> material_textures;
     std::optional<bool> visible;
     bool operator==(const CharacterLayerOverride&) const = default;
 };
@@ -921,6 +929,8 @@ struct RoomProp {
     RoomPlacementId placement_id;
     std::optional<AssetId> asset;
     std::optional<MaterialId> material;
+    std::vector<MaterialApplicationParameterOverride> material_parameters;
+    std::vector<MaterialApplicationTextureOverride> material_textures;
     bool visible;
     std::int32_t order = 0;
 };
@@ -929,6 +939,8 @@ struct RoomEnvironment {
     Condition condition;
     std::optional<AssetId> asset;
     MaterialId material;
+    std::vector<MaterialApplicationParameterOverride> material_parameters;
+    std::vector<MaterialApplicationTextureOverride> material_textures;
     NormalizedRect bounds;
     PresentationPlane plane;
     std::int32_t order;

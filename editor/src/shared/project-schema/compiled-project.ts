@@ -100,6 +100,30 @@ const compiledMaterialInterfaceSchema = strict({
   role: compiledMaterialRoleSchema,
   parameters: z.array(compiledMaterialParameterSchema),
 });
+const materialApplicationParameterSourceSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('literal'), value: compiledMaterialParameterValueSchema }),
+  strict({ kind: z.literal('property'), property: id }),
+  strict({
+    kind: z.literal('standard-facet'),
+    facet: z.enum([
+      'occurrence-time',
+      'paint-width',
+      'paint-height',
+      'viewport-width',
+      'viewport-height',
+      'camera-zoom',
+    ]),
+  }),
+]);
+export const compiledMaterialApplicationParameterOverrideSchema = strict({
+  name: z.string().min(1),
+  type: compiledMaterialParameterTypeSchema,
+  source: materialApplicationParameterSourceSchema,
+});
+export const compiledMaterialApplicationTextureOverrideSchema = strict({
+  name: z.string().min(1),
+  source: assetReferenceSchema,
+});
 const roomReferenceSchema = typedReference('room');
 const sceneReferenceSchema = typedReference('scene');
 const scriptReferenceSchema = typedReference('script');
@@ -1063,6 +1087,8 @@ const characterPresentationLayerSchema = strict({
 const characterLayerCompositionSchema = strict({
   layerId: id,
   material: materialReferenceSchema.nullable(),
+  materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+  materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
   offset: vector2Schema,
   scale: finiteNumber.positive(),
   sprite: assetReferenceSchema.nullable(),
@@ -1076,6 +1102,8 @@ const characterPoseSchema = strict({
 const characterAnimationLayerFrameSchema = strict({
   layerId: id,
   material: materialReferenceSchema.nullable().optional(),
+  materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+  materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
   sprite: assetReferenceSchema.nullable().optional(),
   offset: vector2Schema.optional(),
   scale: finiteNumber.positive().optional(),
@@ -1112,6 +1140,8 @@ const characterPresentationProfileSchema = strict({
 const characterLayerOverrideSchema = strict({
   layerId: id,
   material: materialReferenceSchema.nullable().optional(),
+  materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+  materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
   sprite: assetReferenceSchema.nullable().optional(),
   visible: z.boolean().optional(),
 });
@@ -1275,6 +1305,8 @@ const roomDefinitionSchema = strict({
     color: z.string().nullable(),
     fit: z.enum(['cover', 'contain', 'stretch', 'center']),
     material: materialReferenceSchema.nullable(),
+    materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+    materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
   }),
   description: compiledTextSchema,
   displayName: compiledTextSchema,
@@ -1322,6 +1354,8 @@ const roomDefinitionSchema = strict({
       placementId: id,
       asset: assetReferenceSchema.nullable(),
       material: materialReferenceSchema.nullable(),
+      materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+      materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
       visible: z.boolean(),
       order: z.number().int(),
     }),
@@ -1344,6 +1378,8 @@ const roomDefinitionSchema = strict({
         condition: compiledConditionSchema,
         asset: assetReferenceSchema.nullable(),
         material: materialReferenceSchema,
+        materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+        materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
         bounds: normalizedRectSchema,
         plane: z.enum(['world-background', 'world-content', 'world-overlay']),
         order: z.number().int(),
@@ -1371,30 +1407,6 @@ const interactableLocationSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('unplaced') }),
   strict({ kind: z.literal('room'), room: roomReferenceSchema }),
 ]);
-const materialApplicationParameterSourceSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('literal'), value: compiledMaterialParameterValueSchema }),
-  strict({ kind: z.literal('property'), property: id }),
-  strict({
-    kind: z.literal('standard-facet'),
-    facet: z.enum([
-      'occurrence-time',
-      'paint-width',
-      'paint-height',
-      'viewport-width',
-      'viewport-height',
-      'camera-zoom',
-    ]),
-  }),
-]);
-const compiledMaterialApplicationParameterOverrideSchema = strict({
-  name: z.string().min(1),
-  type: compiledMaterialParameterTypeSchema,
-  source: materialApplicationParameterSourceSchema,
-});
-const compiledMaterialApplicationTextureOverrideSchema = strict({
-  name: z.string().min(1),
-  source: assetReferenceSchema,
-});
 const interactableDefinitionSchema = strict({
   ...propertyBearingDefinition,
   displayName: compiledTextSchema,
@@ -1564,6 +1576,8 @@ const transitionGroupChildSchema = z.discriminatedUnion('kind', [
     id,
     kind: z.literal('set-background'),
     material: materialReferenceSchema.nullable(),
+    materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+    materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
   }),
   strict({ id, kind: z.literal('clear-background') }),
   strict({
@@ -1650,6 +1664,8 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     fit: z.enum(['cover', 'contain', 'stretch', 'center']),
     kind: z.literal('set-background'),
     material: materialReferenceSchema.nullable(),
+    materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+    materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
     skippable: z.boolean(),
     transition: z.enum(['none', 'fade', 'cut']),
     waitForCompletion: z.boolean(),
@@ -1905,6 +1921,8 @@ const sceneStageSchema = z.discriminatedUnion('kind', [
       color: z.string().nullable(),
       fit: z.enum(['cover', 'contain', 'stretch', 'center']),
       material: materialReferenceSchema.nullable(),
+      materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
+      materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
     }),
     layout: layoutReferenceSchema.nullable(),
   }),

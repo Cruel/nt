@@ -92,12 +92,22 @@ function useMaterialPreviewProjectContext() {
   return context;
 }
 
+function useOptionalMaterialPreviewProjectContext() {
+  return useContext(ProjectResourcesContext);
+}
+
 export function useMaterialPreviewProjectResources() {
   return useMaterialPreviewProjectContext().resources;
 }
 
+export function useOptionalMaterialPreviewProjectResources() {
+  return useOptionalMaterialPreviewProjectContext()?.resources ?? null;
+}
+
 export function useMaterialPreviewResource(materialId: string | null) {
-  const { resources, generation } = useMaterialPreviewProjectContext();
+  const context = useOptionalMaterialPreviewProjectContext();
+  const resources = context?.resources ?? null;
+  const generation = context?.generation ?? -1;
   const [state, setState] = useState<{
     materialId: string;
     generation: number;
@@ -106,7 +116,7 @@ export function useMaterialPreviewResource(materialId: string | null) {
 
   useEffect(() => {
     let active = true;
-    if (!materialId) {
+    if (!materialId || !resources) {
       setState(null);
       return () => {
         active = false;

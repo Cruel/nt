@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseAssetData } from './authoring-assets';
 import { entityIdSchema, layoutContractIdSchema } from './authoring-common';
 import {
   audioCausalityValues,
@@ -35,6 +36,7 @@ import { interactionSubjectSchema } from './authoring-features';
 import { interactableLocationSchema } from './authoring-interactables';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
+import { materialApplicationSchema } from './authoring-material-applications';
 import { resolvedMaterialUsesCustomShader, resolveMaterialData } from './authoring-materials';
 import { isUniformValueCompatible, shaderUniformValueSchema } from './authoring-shaders';
 
@@ -211,7 +213,7 @@ const setBackgroundStepSchema = strict({
   type: z.literal('set-background'),
   owner: z.enum(scenePresentationOwnerValues),
   asset: sceneAssetRefSchema.nullable(),
-  material: sceneMaterialRefSchema.nullable(),
+  materialApplication: materialApplicationSchema.nullable(),
   color: z.string().nullable(),
   fit: z.enum(sceneBackgroundFitValues),
   transition: z.enum(sceneBackgroundTransitionValues),
@@ -470,7 +472,7 @@ const transitionGroupChildSchema = z.discriminatedUnion('type', [
     id: entityIdSchema,
     type: z.literal('set-background'),
     asset: sceneAssetRefSchema.nullable(),
-    material: sceneMaterialRefSchema.nullable(),
+    materialApplication: materialApplicationSchema.nullable(),
     color: z.string().nullable(),
     fit: z.enum(sceneBackgroundFitValues),
   }),
@@ -554,7 +556,7 @@ export const sceneStageSchema = z.discriminatedUnion('kind', [
     kind: z.literal('blank'),
     background: strict({
       asset: sceneAssetRefSchema.nullable(),
-      material: sceneMaterialRefSchema.nullable(),
+      materialApplication: materialApplicationSchema.nullable(),
       color: z.string().nullable(),
       fit: z.enum(sceneBackgroundFitValues),
     }),
@@ -621,7 +623,7 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
         type,
         owner: 'invocation',
         asset: null,
-        material: null,
+        materialApplication: null,
         color: null,
         fit: 'cover',
         transition: 'none',
@@ -818,7 +820,7 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
             id: 'background',
             type: 'set-background',
             asset: null,
-            material: null,
+            materialApplication: null,
             color: '#0f172a',
             fit: 'cover',
           },
@@ -848,7 +850,7 @@ export function defaultSceneData(label = 'Scene'): SceneData {
     displayName: label,
     stage: {
       kind: 'blank',
-      background: { asset: null, material: null, color: '#0f172a', fit: 'cover' },
+      background: { asset: null, materialApplication: null, color: '#0f172a', fit: 'cover' },
       layout: null,
     },
     inputs: [],
@@ -1035,6 +1037,42 @@ export function validateSceneData(
         );
     }
   };
+  const validateEngine2dMaterialApplication = (
+    application: z.infer<typeof materialApplicationSchema> | null,
+    path: string,
+  ) => {
+    if (!application) return;
+    const materialId = application.material.$ref.id;
+    requireRecord('materials', materialId, `${path}/material`);
+    const resolved = resolveMaterialData(project, materialId).data;
+    if (resolved && resolved.role !== 'engine-2d')
+      diagnostics.push(
+        diagnostic(`${path}/material`, 'Scene background Material must use the engine-2d role.'),
+      );
+    for (const [name, parameter] of Object.entries(application.parameters))
+      if (parameter.source.kind === 'property')
+        diagnostics.push(
+          diagnostic(
+            `${path}/parameters/${name}/source`,
+            'Scene Material Applications cannot bind owner Properties because a Scene is not a Property owner.',
+          ),
+        );
+    for (const [name, texture] of Object.entries(application.textures)) {
+      const assetId = texture.source.$ref.id;
+      const asset = project.assets[assetId];
+      if (!asset)
+        diagnostics.push(
+          diagnostic(`${path}/textures/${name}/source/$ref`, `Missing texture asset '${assetId}'.`),
+        );
+      else if (parseAssetData(asset.data)?.kind !== 'image')
+        diagnostics.push(
+          diagnostic(
+            `${path}/textures/${name}/source/$ref`,
+            `Material texture override '${name}' must reference an image asset.`,
+          ),
+        );
+    }
+  };
   const validateMaterialParameter = (
     materialId: string,
     parameter: string,
@@ -1086,12 +1124,10 @@ export function validateSceneData(
         data.stage.background.asset.$ref.id,
         `${base}/stage/background/asset`,
       );
-    if (data.stage.background.material)
-      requireRecord(
-        'materials',
-        data.stage.background.material.$ref.id,
-        `${base}/stage/background/material`,
-      );
+    validateEngine2dMaterialApplication(
+      data.stage.background.materialApplication,
+      `${base}/stage/background/materialApplication`,
+    );
     if (data.stage.layout)
       requireRecord('layouts', data.stage.layout.$ref.id, `${base}/stage/layout`);
   }
@@ -1223,7 +1259,7 @@ export function validateSceneData(
     }
     if (step.type === 'set-background') {
       if (step.asset) requireRecord('assets', step.asset.$ref.id, `${path}/asset`);
-      if (step.material) requireRecord('materials', step.material.$ref.id, `${path}/material`);
+      validateEngine2dMaterialApplication(step.materialApplication, `${path}/materialApplication`);
       if (step.transition === 'fade') {
         if (step.durationMs <= 0)
           diagnostics.push(
@@ -1699,8 +1735,10 @@ export function validateSceneData(
         childIds.add(child.id);
         if (child.type === 'set-background') {
           if (child.asset) requireRecord('assets', child.asset.$ref.id, `${childPath}/asset`);
-          if (child.material)
-            requireRecord('materials', child.material.$ref.id, `${childPath}/material`);
+          validateEngine2dMaterialApplication(
+            child.materialApplication,
+            `${childPath}/materialApplication`,
+          );
         }
         if (child.type === 'actor-cue')
           requireRecord('characters', child.character.$ref.id, `${childPath}/character`);

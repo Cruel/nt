@@ -54,6 +54,7 @@ import {
 } from '@/components/properties/OwnerLocalPropertiesEditor';
 import { InteractableInstancePropertiesEditor } from '@/components/properties/InteractablePropertyEditors';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
+import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import {
   GameplayCommandListEditor,
@@ -115,7 +116,6 @@ import {
   roomEnvironmentPlaneValues,
   roomExitDirectionValues,
   roomLayoutRef,
-  roomMaterialRef,
   roomRoomRef,
   roomScriptHookKindValues,
   type RoomCastData,
@@ -130,6 +130,8 @@ import {
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
 import { inlineTextContent, type TextContent } from '../../../shared/project-schema/authoring-flow';
+import { emptyMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
+import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   captureScrollViewState,
@@ -405,13 +407,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [selectedPropIndex, setSelectedPropIndex] = useState(0);
   const [selectedEnvironmentIndex, setSelectedEnvironmentIndex] = useState(0);
   const [contentEntitySelector, setContentEntitySelector] = useState<{
-    kind:
-      | 'overlay-layout'
-      | 'cast-character'
-      | 'prop-asset'
-      | 'prop-material'
-      | 'environment-asset'
-      | 'environment-material';
+    kind: 'overlay-layout' | 'cast-character' | 'prop-asset' | 'environment-asset';
     id: string;
   } | null>(null);
   const [interactableSelectorOpen, setInteractableSelectorOpen] = useState(false);
@@ -488,10 +484,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   );
   const assetSelectorItems = useMemo(
     () => filterSelectorItems(selectorItems, { collections: ['assets'], includeActions: false }),
-    [selectorItems],
-  );
-  const materialSelectorItems = useMemo(
-    () => filterSelectorItems(selectorItems, { collections: ['materials'], includeActions: false }),
     [selectorItems],
   );
   const interactableItems = useMemo(() => {
@@ -621,6 +613,29 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   }, [backgroundAssetData, data.background.asset, projectSessionId]);
   if (!project || !record || !roomId)
     return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
+  const materialPropertyOptionsById = new Map<
+    string,
+    { id: string; contract: { type: string; label?: string | null } }
+  >();
+  for (const property of inheritedPropertyConfiguration?.defaultProperties ?? [])
+    materialPropertyOptionsById.set(property.id, {
+      id: property.id,
+      contract: { type: property.type, label: property.label ?? property.id },
+    });
+  for (const traitId of effectiveRecord?.traits ?? record.traits ?? [])
+    for (const property of project.traits[traitId]?.properties ?? [])
+      materialPropertyOptionsById.set(property.id, {
+        id: property.id,
+        contract: { type: property.type, label: property.label ?? property.id },
+      });
+  for (const property of record.localProperties ?? [])
+    materialPropertyOptionsById.set(property.id, {
+      id: property.id,
+      contract: { type: property.type, label: property.label ?? property.id },
+    });
+  const roomMaterialProperties = [...materialPropertyOptionsById.values()].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
   const previewSplitOrientation = resolveEditorPreviewSplitOrientation(
     editorPreviewLayout,
     projectSettingsFromProject(project).display,
@@ -712,10 +727,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const selectedDestinationItem = roomItems.find(
     (item) => item.entityId === destinationSelectorExit?.target.$ref.id,
   );
-  const materials = Object.entries(project.materials).map(([id, value]) => ({
-    id,
-    label: value.label,
-  }));
+  const materials = Object.entries(project.materials).flatMap(([id, value]) =>
+    resolveMaterialData(project, id).data?.role === 'engine-2d' ? [{ id, label: value.label }] : [],
+  );
   const layouts = Object.entries(project.layouts).map(([id, value]) => ({
     id,
     label: value.label,
@@ -1133,10 +1147,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       ? layoutSelectorItems
       : contentEntitySelector?.kind === 'cast-character'
         ? characterSelectorItems
-        : contentEntitySelector?.kind === 'prop-asset' ||
-            contentEntitySelector?.kind === 'environment-asset'
-          ? assetSelectorItems
-          : materialSelectorItems;
+        : assetSelectorItems;
   const contentEntitySelectorCurrentEntityId = (() => {
     if (!contentEntitySelector) return null;
     switch (contentEntitySelector.kind) {
@@ -1152,19 +1163,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         return (
           data.props.find((item) => item.id === contentEntitySelector.id)?.asset?.$ref.id ?? null
         );
-      case 'prop-material':
-        return (
-          data.props.find((item) => item.id === contentEntitySelector.id)?.material?.$ref.id ?? null
-        );
       case 'environment-asset':
         return (
           data.environments.find((item) => item.id === contentEntitySelector.id)?.asset?.$ref.id ??
           null
-        );
-      case 'environment-material':
-        return (
-          data.environments.find((item) => item.id === contentEntitySelector.id)?.material.$ref
-            .id ?? null
         );
     }
   })();
@@ -1173,10 +1175,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       ? 'Choose Layout'
       : contentEntitySelector?.kind === 'cast-character'
         ? 'Choose Character'
-        : contentEntitySelector?.kind === 'prop-asset' ||
-            contentEntitySelector?.kind === 'environment-asset'
-          ? 'Choose Asset'
-          : 'Choose Material';
+        : 'Choose Asset';
   const contentEntitySelectorSelectedId =
     contentEntitySelectorItems.find(
       (item) => item.entityId === contentEntitySelectorCurrentEntityId,
@@ -1300,34 +1299,23 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   <div className="grid gap-3 @3xl:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label>Material</Label>
-                      <Select
-                        value={refValue(data.background.material)}
-                        onValueChange={(value) =>
+                      <MaterialApplicationEditor
+                        project={project}
+                        value={data.background.materialApplication}
+                        expectedRole="engine-2d"
+                        properties={roomMaterialProperties}
+                        ariaLabel="Room background Material"
+                        overrideLabel="Room override"
+                        onChange={(materialApplication) =>
                           commit(
                             {
                               ...data,
-                              background: {
-                                ...data.background,
-                                material:
-                                  value === '__none__' ? null : roomMaterialRef(String(value)),
-                              },
+                              background: { ...data.background, materialApplication },
                             },
-                            'Update room material',
+                            'Update room background Material',
                           )
                         }
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">No material</SelectItem>
-                          {materials.map((material) => (
-                            <SelectItem key={material.id} value={material.id}>
-                              {material.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      />
                     </div>
                     <div className="space-y-1.5">
                       <Label>Fallback color</Label>
@@ -3014,8 +3002,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           condition: { kind: 'always' },
                           placementId: data.placements[0].id,
                           asset: assets[0] ? roomAssetRef(assets[0].id) : null,
-                          material:
-                            !assets[0] && materials[0] ? roomMaterialRef(materials[0].id) : null,
+                          materialApplication:
+                            !assets[0] && materials[0]
+                              ? emptyMaterialApplication(materials[0].id)
+                              : null,
                           visible: true,
                           order: data.props.length,
                         },
@@ -3090,31 +3080,19 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       ) : null}
                     </div>
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 @3xl:col-span-4">
                     <Label>Material</Label>
-                    <div className="flex overflow-hidden rounded-md border bg-background">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="h-7 min-w-0 flex-1 justify-start rounded-none px-2 text-left font-normal"
-                        onClick={() =>
-                          setContentEntitySelector({ kind: 'prop-material', id: entry.id })
-                        }
-                      >
-                        {materials.find((item) => item.id === entry.material?.$ref.id)?.label ??
-                          'Choose material'}
-                      </Button>
-                      {entry.material ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="h-7 rounded-none border-l px-2"
-                          onClick={() => replaceProp(entry.id, { material: null })}
-                        >
-                          Clear
-                        </Button>
-                      ) : null}
-                    </div>
+                    <MaterialApplicationEditor
+                      project={project}
+                      value={entry.materialApplication}
+                      expectedRole="engine-2d"
+                      properties={roomMaterialProperties}
+                      ariaLabel={`Room prop ${entry.id} Material`}
+                      overrideLabel="Prop override"
+                      onChange={(materialApplication) =>
+                        replaceProp(entry.id, { materialApplication })
+                      }
+                    />
                   </div>
                   <div className="@3xl:col-span-4">
                     <RecursiveConditionEditor
@@ -3161,7 +3139,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           ),
                           condition: { kind: 'always' },
                           asset: assets[0] ? roomAssetRef(assets[0].id) : null,
-                          material: roomMaterialRef(material.id),
+                          materialApplication: emptyMaterialApplication(material.id),
                           bounds: { x: 0, y: 0, width: 1, height: 1 },
                           plane: 'world-content',
                           order: data.environments.length,
@@ -3228,19 +3206,21 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       ) : null}
                     </div>
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 @3xl:col-span-4">
                     <Label>Material</Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full justify-start font-normal"
-                      onClick={() =>
-                        setContentEntitySelector({ kind: 'environment-material', id: entry.id })
-                      }
-                    >
-                      {materials.find((item) => item.id === entry.material.$ref.id)?.label ??
-                        entry.material.$ref.id}
-                    </Button>
+                    <MaterialApplicationEditor
+                      project={project}
+                      value={entry.materialApplication}
+                      expectedRole="engine-2d"
+                      properties={roomMaterialProperties}
+                      ariaLabel={`Room environment ${entry.id} Material`}
+                      overrideLabel="Environment override"
+                      allowClear={false}
+                      onChange={(materialApplication) => {
+                        if (materialApplication)
+                          replaceEnvironment(entry.id, { materialApplication });
+                      }}
+                    />
                   </div>
                   <label className="flex items-end gap-2 pb-2">
                     <input
@@ -3501,17 +3481,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               case 'prop-asset':
                 replaceProp(contentEntitySelector.id, { asset: roomAssetRef(item.entityId) });
                 break;
-              case 'prop-material':
-                replaceProp(contentEntitySelector.id, { material: roomMaterialRef(item.entityId) });
-                break;
               case 'environment-asset':
                 replaceEnvironment(contentEntitySelector.id, {
                   asset: roomAssetRef(item.entityId),
-                });
-                break;
-              case 'environment-material':
-                replaceEnvironment(contentEntitySelector.id, {
-                  material: roomMaterialRef(item.entityId),
                 });
                 break;
             }

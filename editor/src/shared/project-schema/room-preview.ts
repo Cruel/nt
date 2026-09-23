@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { shaderMaterialProjectWireSchema } from './shader-material-project';
+import {
+  compiledMaterialApplicationParameterOverrideSchema,
+  compiledMaterialApplicationTextureOverrideSchema,
+} from './compiled-project';
 import { interactableLocationSchema } from './authoring-interactables';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
@@ -191,6 +195,8 @@ const focusedCharacterVisualSchema = strict({
       role: z.string().min(1).nullable(),
       spriteAssetId: z.string().min(1).nullable(),
       materialId: z.string().min(1).nullable(),
+      materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).default([]),
+      materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).default([]),
       offset: vector2,
       scale: z.number().finite(),
       anchor: vector2,
@@ -251,6 +257,8 @@ export const focusedRoomWorldDefinitionSchema = strict({
   background: strict({
     assetId: z.string().min(1).nullable(),
     materialId: z.string().min(1).nullable(),
+    materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).default([]),
+    materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).default([]),
     fit: z.enum(['cover', 'contain', 'stretch', 'center']),
     color: z.string().nullable(),
   }),
@@ -307,6 +315,8 @@ export const focusedRoomWorldDefinitionSchema = strict({
       placementId: z.string().min(1),
       assetId: z.string().min(1).nullable(),
       materialId: z.string().min(1).nullable(),
+      materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).default([]),
+      materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).default([]),
       visible: z.boolean(),
       order: z.number().int(),
     }),
@@ -317,6 +327,8 @@ export const focusedRoomWorldDefinitionSchema = strict({
       condition: focusedConditionSchema,
       assetId: z.string().min(1).nullable(),
       materialId: z.string().min(1),
+      materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).default([]),
+      materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).default([]),
       bounds: normalizedRect,
       plane: z.enum(['world-background', 'world-content', 'world-overlay']),
       order: z.number().int(),

@@ -610,6 +610,61 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     });
   }
 
+  const compileMaterialApplicationValue = (
+    override: MaterialApplicationParameterOverride,
+  ): Extract<CompiledMaterialApplicationParameter['source'], { kind: 'literal' }>['value'] => {
+    if (override.source.kind !== 'literal' || override.source.value === null)
+      throw new Error('Validated Material Application literal cannot lower a null value.');
+    const value = override.source.value;
+    switch (override.type) {
+      case 'float':
+        return { type: 'float', value: value as number };
+      case 'vec2':
+        return { type: 'vec2', value: value as [number, number] };
+      case 'vec3':
+        return { type: 'vec3', value: value as [number, number, number] };
+      case 'vec4':
+        return { type: 'vec4', value: value as [number, number, number, number] };
+      case 'color':
+        return { type: 'color', value: value as { r: number; g: number; b: number; a: number } };
+      case 'int':
+        return { type: 'int', value: value as number };
+      case 'bool':
+        return { type: 'bool', value: value as boolean };
+    }
+  };
+  const compileMaterialApplicationOverrides = (
+    parametersByName: MaterialApplication['parameters'],
+    texturesByName: MaterialApplication['textures'],
+  ) => {
+    const parameters: CompiledMaterialApplicationParameter[] = Object.entries(parametersByName)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, override]) => ({
+        name,
+        type: override.type,
+        source:
+          override.source.kind === 'literal'
+            ? { kind: 'literal' as const, value: compileMaterialApplicationValue(override) }
+            : override.source.kind === 'property'
+              ? { kind: 'property' as const, property: override.source.property }
+              : { kind: 'standard-facet' as const, facet: override.source.facet },
+      }));
+    const textures: CompiledMaterialApplicationTexture[] = Object.entries(texturesByName)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, override]) => ({ name, source: assetRef(override.source)! }));
+    return {
+      ...(parameters.length > 0 ? { materialParameters: parameters } : {}),
+      ...(textures.length > 0 ? { materialTextures: textures } : {}),
+    };
+  };
+  const compileMaterialApplication = (application: MaterialApplication | null) => ({
+    material: application ? materialRef(application.material) : null,
+    ...compileMaterialApplicationOverrides(
+      application?.parameters ?? {},
+      application?.textures ?? {},
+    ),
+  });
+
   const characters: SharedCharacterDefinition[] = [];
   for (const [id, record] of sortedEntries(project.characters)) {
     const effectiveRecord = resolveGameplayInstanceRecord(project, 'character', record);
@@ -641,7 +696,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           layers: pose.layers.map((layer) => ({
             layerId: layer.layerId,
             sprite: assetRef(layer.sprite),
-            material: materialRef(layer.material),
+            ...compileMaterialApplication(layer.materialApplication),
             offset: { ...layer.offset },
             scale: layer.scale,
             anchor: { ...layer.anchor },
@@ -658,8 +713,8 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                   layers: frame.layers.map((layer) => ({
                     layerId: layer.layerId,
                     ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
-                    ...(layer.material !== undefined
-                      ? { material: materialRef(layer.material) }
+                    ...(layer.materialApplication !== undefined
+                      ? compileMaterialApplication(layer.materialApplication)
                       : {}),
                     ...(layer.offset !== undefined ? { offset: { ...layer.offset } } : {}),
                     ...(layer.scale !== undefined ? { scale: layer.scale } : {}),
@@ -690,7 +745,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           layers: profile.layers.map((layer) => ({
             layerId: layer.layerId,
             ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
-            ...(layer.material !== undefined ? { material: materialRef(layer.material) } : {}),
+            ...(layer.materialApplication !== undefined
+              ? compileMaterialApplication(layer.materialApplication)
+              : {}),
             ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
           })),
         })),
@@ -702,7 +759,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           layers: profile.layers.map((layer) => ({
             layerId: layer.layerId,
             ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
-            ...(layer.material !== undefined ? { material: materialRef(layer.material) } : {}),
+            ...(layer.materialApplication !== undefined
+              ? compileMaterialApplication(layer.materialApplication)
+              : {}),
             ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
           })),
         })),
@@ -775,7 +834,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       displayName: compileStructuredString(data.displayName, `/rooms/${id}/data/displayName`),
       background: {
         asset: assetRef(data.background.asset),
-        material: materialRef(data.background.material),
+        ...compileMaterialApplication(data.background.materialApplication),
         fit: data.background.fit,
         color: data.background.color,
       },
@@ -849,7 +908,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         condition: compileCondition(entry.condition),
         placementId: entry.placementId,
         asset: assetRef(entry.asset),
-        material: materialRef(entry.material),
+        ...compileMaterialApplication(entry.materialApplication),
         visible: entry.visible,
         order: entry.order,
       })),
@@ -868,7 +927,8 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
               id: entry.id,
               condition: compileCondition(entry.condition),
               asset: assetRef(entry.asset),
-              material: materialRef(entry.material)!,
+              ...compileMaterialApplication(entry.materialApplication),
+              material: materialRef(entry.materialApplication.material)!,
               bounds: { ...entry.bounds },
               plane: entry.plane,
               order: entry.order,
@@ -910,61 +970,6 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       },
     });
   }
-
-  const compileMaterialApplicationValue = (
-    override: MaterialApplicationParameterOverride,
-  ): Extract<CompiledMaterialApplicationParameter['source'], { kind: 'literal' }>['value'] => {
-    if (override.source.kind !== 'literal' || override.source.value === null)
-      throw new Error('Validated Material Application literal cannot lower a null value.');
-    const value = override.source.value;
-    switch (override.type) {
-      case 'float':
-        return { type: 'float', value: value as number };
-      case 'vec2':
-        return { type: 'vec2', value: value as [number, number] };
-      case 'vec3':
-        return { type: 'vec3', value: value as [number, number, number] };
-      case 'vec4':
-        return { type: 'vec4', value: value as [number, number, number, number] };
-      case 'color':
-        return { type: 'color', value: value as { r: number; g: number; b: number; a: number } };
-      case 'int':
-        return { type: 'int', value: value as number };
-      case 'bool':
-        return { type: 'bool', value: value as boolean };
-    }
-  };
-  const compileMaterialApplicationOverrides = (
-    parametersByName: MaterialApplication['parameters'],
-    texturesByName: MaterialApplication['textures'],
-  ) => {
-    const parameters: CompiledMaterialApplicationParameter[] = Object.entries(parametersByName)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([name, override]) => ({
-        name,
-        type: override.type,
-        source:
-          override.source.kind === 'literal'
-            ? { kind: 'literal' as const, value: compileMaterialApplicationValue(override) }
-            : override.source.kind === 'property'
-              ? { kind: 'property' as const, property: override.source.property }
-              : { kind: 'standard-facet' as const, facet: override.source.facet },
-      }));
-    const textures: CompiledMaterialApplicationTexture[] = Object.entries(texturesByName)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([name, override]) => ({ name, source: assetRef(override.source)! }));
-    return {
-      ...(parameters.length > 0 ? { materialParameters: parameters } : {}),
-      ...(textures.length > 0 ? { materialTextures: textures } : {}),
-    };
-  };
-  const compileMaterialApplication = (application: MaterialApplication | null) => ({
-    material: application ? materialRef(application.material) : null,
-    ...compileMaterialApplicationOverrides(
-      application?.parameters ?? {},
-      application?.textures ?? {},
-    ),
-  });
 
   const interactables: SharedInteractableDefinition[] = [];
   for (const [id, record] of sortedEntries(project.interactables)) {
@@ -1129,7 +1134,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                 kind: 'blank' as const,
                 background: {
                   asset: assetRef(data.stage.background.asset),
-                  material: materialRef(data.stage.background.material),
+                  ...compileMaterialApplication(data.stage.background.materialApplication),
                   color: data.stage.background.color,
                   fit: data.stage.background.fit,
                 },
@@ -1246,7 +1251,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         ),
         background: {
           asset: assetRef(data.background.asset),
-          material: materialRef(data.background.material),
+          ...compileMaterialApplication(data.background.materialApplication),
           fit: data.background.fit,
           color: data.background.color,
         },
@@ -1317,7 +1322,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           condition: compileCondition(entry.condition),
           placementId: entry.placementId,
           asset: assetRef(entry.asset),
-          material: materialRef(entry.material),
+          ...compileMaterialApplication(entry.materialApplication),
           visible: entry.visible,
           order: entry.order,
         })),
@@ -1334,7 +1339,8 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           id: entry.id,
           condition: compileCondition(entry.condition),
           asset: assetRef(entry.asset),
-          material: materialRef(entry.material)!,
+          ...compileMaterialApplication(entry.materialApplication),
+          material: materialRef(entry.materialApplication.material)!,
           bounds: { ...entry.bounds },
           plane: entry.plane,
           order: entry.order,
@@ -1413,7 +1419,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
               layers: pose.layers.map((layer) => ({
                 layerId: layer.layerId,
                 sprite: assetRef(layer.sprite),
-                material: materialRef(layer.material),
+                ...compileMaterialApplication(layer.materialApplication),
                 offset: { ...layer.offset },
                 scale: layer.scale,
                 anchor: { ...layer.anchor },
@@ -1430,8 +1436,8 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                       layers: frame.layers.map((layer) => ({
                         layerId: layer.layerId,
                         ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
-                        ...(layer.material !== undefined
-                          ? { material: materialRef(layer.material) }
+                        ...(layer.materialApplication !== undefined
+                          ? compileMaterialApplication(layer.materialApplication)
                           : {}),
                         ...(layer.offset !== undefined ? { offset: { ...layer.offset } } : {}),
                         ...(layer.scale !== undefined ? { scale: layer.scale } : {}),
@@ -1462,7 +1468,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
               layers: profile.layers.map((layer) => ({
                 layerId: layer.layerId,
                 ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
-                ...(layer.material !== undefined ? { material: materialRef(layer.material) } : {}),
+                ...(layer.materialApplication !== undefined
+                  ? compileMaterialApplication(layer.materialApplication)
+                  : {}),
                 ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
               })),
             })),
@@ -1474,7 +1482,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
               layers: profile.layers.map((layer) => ({
                 layerId: layer.layerId,
                 ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
-                ...(layer.material !== undefined ? { material: materialRef(layer.material) } : {}),
+                ...(layer.materialApplication !== undefined
+                  ? compileMaterialApplication(layer.materialApplication)
+                  : {}),
                 ...(layer.visible !== undefined ? { visible: layer.visible } : {}),
               })),
             })),

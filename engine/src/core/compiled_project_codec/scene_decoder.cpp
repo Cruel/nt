@@ -444,13 +444,15 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         return std::nullopt;
 #define SCENE_FIELDS(...) decoder.object(value, pointer, {"condition", "id", "kind", __VA_ARGS__})
     if (*kind == "set-background") {
-        SCENE_FIELDS("asset", "color", "durationMs", "fit", "material", "owner", "skippable",
-                     "transition", "waitForCompletion");
+        SCENE_FIELDS("asset", "color", "durationMs", "fit", "material", "materialParameters",
+                     "materialTextures", "owner", "skippable", "transition", "waitForCompletion");
         const auto* asset_value = decoder.member(value, "asset", pointer);
         const auto* color_value = decoder.member(value, "color", pointer);
         const auto* duration_value = decoder.member(value, "durationMs", pointer);
         const auto* fit_value = decoder.member(value, "fit", pointer);
         const auto* material_value = decoder.member(value, "material", pointer);
+        const auto* material_parameters_value = json_access::member(value, "materialParameters");
+        const auto* material_textures_value = json_access::member(value, "materialTextures");
         const auto* owner_value = decoder.member(value, "owner", pointer);
         const auto* skippable_value = decoder.member(value, "skippable", pointer);
         const auto* transition_value = decoder.member(value, "transition", pointer);
@@ -477,11 +479,30 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                                       {"center", BackgroundFit::Center}})
                 : std::nullopt;
         std::optional<MaterialId> material;
+        std::vector<MaterialApplicationParameterOverride> material_parameters;
+        std::vector<MaterialApplicationTextureOverride> material_textures;
         bool material_ok = material_value != nullptr;
         if (material_value && !material_value->is_null()) {
-            material = decode_reference<MaterialId>(decoder, *material_value,
-                                                    pointer_child(pointer, "material"), "material");
-            material_ok = material.has_value();
+            nlohmann::json application{
+                {"material", *material_value},
+                {"parameters", material_parameters_value ? *material_parameters_value
+                                                          : nlohmann::json::array()},
+                {"textures", material_textures_value ? *material_textures_value
+                                                      : nlohmann::json::array()},
+            };
+            auto decoded = decode_material_application(decoder, application, pointer);
+            material_ok = decoded.has_value();
+            if (decoded) {
+                material = std::move(decoded->material);
+                material_parameters = std::move(decoded->parameters);
+                material_textures = std::move(decoded->textures);
+            }
+        } else if ((material_parameters_value && !material_parameters_value->empty()) ||
+                   (material_textures_value && !material_textures_value->empty())) {
+            decoder.error(k_code_variant,
+                          "Material Application overrides require a selected Material.",
+                          std::string(pointer));
+            material_ok = false;
         }
         auto transition = transition_value
                               ? decoder.enumeration<BackgroundTransition>(
@@ -523,7 +544,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                    ? std::optional<SceneInstruction>(SetBackgroundInstruction{
                          std::move(*id), std::move(condition), *owner,
                          BackgroundPresentation{std::move(asset), std::move(color), *fit,
-                                                std::move(material)},
+                                                std::move(material),
+                                                std::move(material_parameters),
+                                                std::move(material_textures)},
                          *transition, *duration, std::move(wait), *skippable})
                    : std::nullopt;
     }
@@ -1699,7 +1722,8 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                           if (*child_kind == "set-background") {
                               if (!decoder.object(
                                       child, child_pointer,
-                                      {"asset", "color", "fit", "id", "kind", "material"}))
+                                      {"asset", "color", "fit", "id", "kind", "material",
+                                       "materialParameters", "materialTextures"}))
                                   return std::nullopt;
                               const auto* asset_value =
                                   decoder.member(child, "asset", child_pointer);
@@ -1708,6 +1732,10 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                               const auto* fit_value = decoder.member(child, "fit", child_pointer);
                               const auto* material_value =
                                   decoder.member(child, "material", child_pointer);
+                              const auto* material_parameters_value =
+                                  json_access::member(child, "materialParameters");
+                              const auto* material_textures_value =
+                                  json_access::member(child, "materialTextures");
                               std::optional<AssetId> asset;
                               bool asset_ok = asset_value != nullptr;
                               if (asset_value && !asset_value->is_null()) {
@@ -1732,19 +1760,45 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                                     {"center", BackgroundFit::Center}})
                                              : std::nullopt;
                               std::optional<MaterialId> material;
+                              std::vector<MaterialApplicationParameterOverride> material_parameters;
+                              std::vector<MaterialApplicationTextureOverride> material_textures;
                               bool material_ok = material_value != nullptr;
                               if (material_value && !material_value->is_null()) {
-                                  material = decode_reference<MaterialId>(
-                                      decoder, *material_value,
-                                      pointer_child(child_pointer, "material"), "material");
-                                  material_ok = material.has_value();
+                                  nlohmann::json application{
+                                      {"material", *material_value},
+                                      {"parameters", material_parameters_value
+                                                         ? *material_parameters_value
+                                                         : nlohmann::json::array()},
+                                      {"textures", material_textures_value
+                                                       ? *material_textures_value
+                                                       : nlohmann::json::array()},
+                                  };
+                                  auto decoded =
+                                      decode_material_application(decoder, application, child_pointer);
+                                  material_ok = decoded.has_value();
+                                  if (decoded) {
+                                      material = std::move(decoded->material);
+                                      material_parameters = std::move(decoded->parameters);
+                                      material_textures = std::move(decoded->textures);
+                                  }
+                              } else if ((material_parameters_value &&
+                                          !material_parameters_value->empty()) ||
+                                         (material_textures_value &&
+                                          !material_textures_value->empty())) {
+                                  decoder.error(
+                                      k_code_variant,
+                                      "Material Application overrides require a selected Material.",
+                                      child_pointer);
+                                  material_ok = false;
                               }
                               if (!asset_ok || !child_color_ok || !fit || !material_ok)
                                   return std::nullopt;
                               return TransitionGroupSetBackgroundMutation{
                                   std::move(*child_id),
-                                  BackgroundPresentation{std::move(asset), std::move(child_color),
-                                                         *fit, std::move(material)}};
+                                  BackgroundPresentation{
+                                      std::move(asset), std::move(child_color), *fit,
+                                      std::move(material), std::move(material_parameters),
+                                      std::move(material_textures)}};
                           }
                           if (*child_kind == "actor-cue") {
                               if (!decoder.object(child, child_pointer,

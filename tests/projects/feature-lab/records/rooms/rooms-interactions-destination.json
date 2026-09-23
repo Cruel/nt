@@ -10,7 +10,7 @@
     "displayName": "Rooms & Interactions Destination",
     "background": {
       "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },
-      "material": null,
+      "materialApplication": null,
       "fit": "cover",
       "color": "#172f3d"
     },

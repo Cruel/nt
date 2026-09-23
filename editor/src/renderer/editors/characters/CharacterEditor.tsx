@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
+import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import {
@@ -30,7 +31,6 @@ import {
 import {
   characterAssetRef,
   characterIdleKindValues,
-  characterMaterialRef,
   defaultCharacterData,
   parseCharacterData,
   presentationClockValues,
@@ -45,6 +45,7 @@ import {
   type CharacterPoseData,
   type CharacterPresentationProfileData,
 } from '../../../shared/project-schema/authoring-characters';
+import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
 import {
@@ -193,7 +194,11 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
         .map(([id, asset]) => ({ id, label: asset.label }))
     : [];
   const materials = project
-    ? Object.entries(project.materials).map(([id, material]) => ({ id, label: material.label }))
+    ? Object.entries(project.materials).flatMap(([id, material]) =>
+        resolveMaterialData(project, id).data?.role === 'engine-2d'
+          ? [{ id, label: material.label }]
+          : [],
+      )
     : [];
   const rooms = project
     ? Object.entries(project.rooms).map(([roomId, room]) => ({ roomId, roomLabel: room.label }))
@@ -228,6 +233,29 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   const activeCharacterId = characterId;
   const activeRecord = record;
   const activeProject = project;
+  const materialPropertyOptionsById = new Map<
+    string,
+    { id: string; contract: { type: string; label?: string | null } }
+  >();
+  for (const property of inheritedPropertyConfiguration?.defaultProperties ?? [])
+    materialPropertyOptionsById.set(property.id, {
+      id: property.id,
+      contract: { type: property.type, label: property.label ?? property.id },
+    });
+  for (const traitId of effectiveRecord?.traits ?? activeRecord.traits ?? [])
+    for (const property of activeProject.traits[traitId]?.properties ?? [])
+      materialPropertyOptionsById.set(property.id, {
+        id: property.id,
+        contract: { type: property.type, label: property.label ?? property.id },
+      });
+  for (const property of activeRecord.localProperties ?? [])
+    materialPropertyOptionsById.set(property.id, {
+      id: property.id,
+      contract: { type: property.type, label: property.label ?? property.id },
+    });
+  const characterMaterialProperties = [...materialPropertyOptionsById.values()].sort(
+    (left, right) => left.id.localeCompare(right.id),
+  );
   const revision = characterPreviewRevision(activeProject, activeCharacterId);
   const previewDocument = {
     kind: 'character-preview' as const,
@@ -660,7 +688,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                   {
                     layerId: 'body',
                     sprite: null,
-                    material: null,
+                    materialApplication: null,
                     offset: { x: 0, y: 0 },
                     scale: 1,
                     anchor: { x: 0.5, y: 1 },
@@ -718,7 +746,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           {
             layerId: id,
             sprite: null,
-            material: null,
+            materialApplication: null,
             offset: { x: 0, y: 0 },
             scale: 1,
             anchor: { x: 0.5, y: 1 },
@@ -803,7 +831,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           layers: profile.layers.map((layer) => ({
             layerId: layer.id,
             sprite: null,
-            material: null,
+            materialApplication: null,
             offset: { x: 0, y: 0 },
             scale: 1,
             anchor: { x: 0.5, y: 1 },
@@ -1398,26 +1426,21 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                               ))}
                             </Select>
                           </div>
-                          <div className="space-y-1">
+                          <div className="space-y-1 @3xl:col-span-2 @7xl:col-span-3">
                             <Label>Material</Label>
-                            <Select
-                              value={refValue(layer.material)}
-                              onValueChange={(value) =>
+                            <MaterialApplicationEditor
+                              project={activeProject}
+                              value={layer.materialApplication}
+                              expectedRole="engine-2d"
+                              properties={characterMaterialProperties}
+                              ariaLabel={`Character pose ${pose.id} layer ${layer.layerId} Material`}
+                              overrideLabel="Layer override"
+                              onChange={(materialApplication) =>
                                 replacePoseLayer(profile.id, pose.id, layer.layerId, {
-                                  material:
-                                    value === '__none__'
-                                      ? null
-                                      : characterMaterialRef(String(value)),
+                                  materialApplication,
                                 })
                               }
-                            >
-                              <SelectItem value="__none__">No override</SelectItem>
-                              {materials.map((material) => (
-                                <SelectItem key={material.id} value={material.id}>
-                                  {material.label} ({material.id})
-                                </SelectItem>
-                              ))}
-                            </Select>
+                            />
                           </div>
                           <div className="space-y-1">
                             <Label>Scale</Label>
@@ -1613,35 +1636,52 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                                       ))}
                                     </Select>
                                   </div>
-                                  <div className="space-y-1">
-                                    <Label>Material override</Label>
-                                    <Select
-                                      disabled={!override}
-                                      value={refValue(override?.material)}
-                                      onValueChange={(value) =>
-                                        replaceAnimationFrameLayer(
-                                          profile.id,
-                                          clip.id,
-                                          frameIndex,
-                                          layerDefinition.id,
-                                          {
-                                            material:
-                                              value === '__none__'
-                                                ? null
-                                                : characterMaterialRef(String(value)),
-                                          },
-                                        )
-                                      }
-                                    >
-                                      <SelectItem value="__none__">
-                                        Keep / clear material
-                                      </SelectItem>
-                                      {materials.map((material) => (
-                                        <SelectItem key={material.id} value={material.id}>
-                                          {material.label} ({material.id})
-                                        </SelectItem>
-                                      ))}
-                                    </Select>
+                                  <div className="space-y-1 @3xl:col-span-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <Label>Material override</Label>
+                                      {override?.materialApplication !== undefined ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          disabled={!override}
+                                          onClick={() =>
+                                            replaceAnimationFrameLayer(
+                                              profile.id,
+                                              clip.id,
+                                              frameIndex,
+                                              layerDefinition.id,
+                                              { materialApplication: undefined },
+                                            )
+                                          }
+                                        >
+                                          Reset
+                                        </Button>
+                                      ) : null}
+                                    </div>
+                                    {override ? (
+                                      <MaterialApplicationEditor
+                                        project={activeProject}
+                                        value={override.materialApplication ?? null}
+                                        expectedRole="engine-2d"
+                                        properties={characterMaterialProperties}
+                                        ariaLabel={`Character animation ${clip.id} layer ${layerDefinition.id} Material`}
+                                        overrideLabel="Animation override"
+                                        onChange={(materialApplication) =>
+                                          replaceAnimationFrameLayer(
+                                            profile.id,
+                                            clip.id,
+                                            frameIndex,
+                                            layerDefinition.id,
+                                            { materialApplication },
+                                          )
+                                        }
+                                      />
+                                    ) : (
+                                      <p className="text-xs text-muted-foreground">
+                                        Enable this layer override to specialize its Material.
+                                      </p>
+                                    )}
                                   </div>
                                   <label className="flex items-end gap-2 pb-2 text-xs">
                                     <input
@@ -1891,39 +1931,45 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                                 ))}
                               </Select>
                             </div>
-                            <div className="space-y-1">
-                              <Label>Material</Label>
-                              <Select
-                                value={
-                                  override?.material === undefined
-                                    ? '__inherit__'
-                                    : refValue(override.material)
-                                }
-                                onValueChange={(value) =>
+                            <div className="space-y-1 @3xl:col-span-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label>Material</Label>
+                                {override?.materialApplication !== undefined ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() =>
+                                      replaceSemanticOverride(
+                                        'expression',
+                                        expression.id,
+                                        profile.id,
+                                        layer.id,
+                                        { materialApplication: undefined },
+                                      )
+                                    }
+                                  >
+                                    Reset
+                                  </Button>
+                                ) : null}
+                              </div>
+                              <MaterialApplicationEditor
+                                project={activeProject}
+                                value={override?.materialApplication ?? null}
+                                expectedRole="engine-2d"
+                                properties={characterMaterialProperties}
+                                ariaLabel={`Character expression ${expression.id} layer ${layer.id} Material`}
+                                overrideLabel="Expression override"
+                                onChange={(materialApplication) =>
                                   replaceSemanticOverride(
                                     'expression',
                                     expression.id,
                                     profile.id,
                                     layer.id,
-                                    {
-                                      material:
-                                        value === '__inherit__'
-                                          ? undefined
-                                          : value === '__none__'
-                                            ? null
-                                            : characterMaterialRef(String(value)),
-                                    },
+                                    { materialApplication },
                                   )
                                 }
-                              >
-                                <SelectItem value="__inherit__">Inherit</SelectItem>
-                                <SelectItem value="__none__">No material</SelectItem>
-                                {materials.map((material) => (
-                                  <SelectItem key={material.id} value={material.id}>
-                                    {material.label} ({material.id})
-                                  </SelectItem>
-                                ))}
-                              </Select>
+                              />
                             </div>
                             <div className="space-y-1">
                               <Label>Visibility</Label>
@@ -2052,37 +2098,46 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                                 </SelectItem>
                               ))}
                             </Select>
-                            <Select
-                              value={
-                                override?.material === undefined
-                                  ? '__inherit__'
-                                  : refValue(override.material)
-                              }
-                              onValueChange={(value) =>
-                                replaceSemanticOverride(
-                                  'appearance',
-                                  appearance.id,
-                                  profile.id,
-                                  layer.id,
-                                  {
-                                    material:
-                                      value === '__inherit__'
-                                        ? undefined
-                                        : value === '__none__'
-                                          ? null
-                                          : characterMaterialRef(String(value)),
-                                  },
-                                )
-                              }
-                            >
-                              <SelectItem value="__inherit__">Inherit material</SelectItem>
-                              <SelectItem value="__none__">No material</SelectItem>
-                              {materials.map((material) => (
-                                <SelectItem key={material.id} value={material.id}>
-                                  {material.label} ({material.id})
-                                </SelectItem>
-                              ))}
-                            </Select>
+                            <div className="space-y-1 @3xl:col-span-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label>Material</Label>
+                                {override?.materialApplication !== undefined ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() =>
+                                      replaceSemanticOverride(
+                                        'appearance',
+                                        appearance.id,
+                                        profile.id,
+                                        layer.id,
+                                        { materialApplication: undefined },
+                                      )
+                                    }
+                                  >
+                                    Reset
+                                  </Button>
+                                ) : null}
+                              </div>
+                              <MaterialApplicationEditor
+                                project={activeProject}
+                                value={override?.materialApplication ?? null}
+                                expectedRole="engine-2d"
+                                properties={characterMaterialProperties}
+                                ariaLabel={`Character appearance ${appearance.id} layer ${layer.id} Material`}
+                                overrideLabel="Appearance override"
+                                onChange={(materialApplication) =>
+                                  replaceSemanticOverride(
+                                    'appearance',
+                                    appearance.id,
+                                    profile.id,
+                                    layer.id,
+                                    { materialApplication },
+                                  )
+                                }
+                              />
+                            </div>
                             <Select
                               value={
                                 override?.visible === undefined

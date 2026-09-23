@@ -99,7 +99,7 @@ describe('asset operations', () => {
         displayName: 'Foyer',
         background: {
           asset: { $ref: { collection: 'assets', id: 'click' } },
-          material: null,
+          materialApplication: null,
           fit: 'cover',
           color: null,
         },

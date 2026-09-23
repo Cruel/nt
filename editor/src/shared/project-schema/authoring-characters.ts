@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
-import { parseMaterialData } from './authoring-materials';
+import { resolveMaterialData } from './authoring-materials';
+import { materialApplicationSchema } from './authoring-material-applications';
 import { entityIdSchema } from './authoring-common';
 import { roomRefSchema } from './authoring-flow';
 import { inventoryDefinitionSchema } from './authoring-inventories';
@@ -47,7 +48,7 @@ export const characterLayerCompositionDataSchema = z
   .object({
     layerId: entityIdSchema,
     sprite: characterAssetRefSchema.nullable().default(null),
-    material: characterMaterialRefSchema.nullable().default(null),
+    materialApplication: materialApplicationSchema.nullable().default(null),
     offset: characterVector2Schema.default({ x: 0, y: 0 }),
     scale: z.number().finite().positive().default(1),
     anchor: characterVector2Schema.default({ x: 0.5, y: 1 }),
@@ -88,7 +89,7 @@ export const characterPresentationProfileDataSchema = z
                           .object({
                             layerId: entityIdSchema,
                             sprite: characterAssetRefSchema.nullable().optional(),
-                            material: characterMaterialRefSchema.nullable().optional(),
+                            materialApplication: materialApplicationSchema.nullable().optional(),
                             offset: characterVector2Schema.optional(),
                             scale: z.number().finite().positive().optional(),
                             anchor: characterVector2Schema.optional(),
@@ -170,7 +171,7 @@ export const characterLayerOverrideDataSchema = z
   .object({
     layerId: entityIdSchema,
     sprite: characterAssetRefSchema.nullable().optional(),
-    material: characterMaterialRefSchema.nullable().optional(),
+    materialApplication: materialApplicationSchema.nullable().optional(),
     visible: z.boolean().optional(),
   })
   .strict();
@@ -336,7 +337,7 @@ export function defaultCharacterData(label = 'Character'): CharacterData {
               {
                 layerId: 'body',
                 sprite: null,
-                material: null,
+                materialApplication: null,
                 offset: { x: 0, y: 0 },
                 scale: 1,
                 anchor: { x: 0.5, y: 1 },
@@ -410,23 +411,47 @@ function validateSpriteRef(
     );
 }
 
-function validateMaterialRef(
+function validateMaterialApplication(
   project: AuthoringProject,
-  ref: CharacterMaterialRef | null,
+  application: z.infer<typeof materialApplicationSchema> | null,
   path: string,
   diagnostics: CharacterSchemaDiagnostic[],
 ) {
-  const id = refId(ref);
-  if (!id) return;
+  if (!application) return;
+  const id = application.material.$ref.id;
   const material = project.materials[id];
   if (!material) {
-    diagnostics.push(diagnostic(`${path}/$ref`, `Missing material '${id}'.`));
+    diagnostics.push(diagnostic(`${path}/material/$ref`, `Missing material '${id}'.`));
     return;
   }
-  if (!parseMaterialData(material.data))
+  const resolved = resolveMaterialData(project, id).data;
+  if (!resolved) {
     diagnostics.push(
-      diagnostic(`${path}/$ref`, `Material '${id}' has invalid material data.`, 'warning'),
+      diagnostic(`${path}/material/$ref`, `Material '${id}' has invalid material data.`, 'warning'),
     );
+    return;
+  }
+  if (resolved.role !== 'engine-2d')
+    diagnostics.push(
+      diagnostic(`${path}/material/$ref`, 'Character layer Material must use the engine-2d role.'),
+    );
+  for (const [name, texture] of Object.entries(application.textures)) {
+    const asset = project.assets[texture.source.$ref.id];
+    if (!asset)
+      diagnostics.push(
+        diagnostic(
+          `${path}/textures/${name}/source/$ref`,
+          `Missing texture asset '${texture.source.$ref.id}'.`,
+        ),
+      );
+    else if (parseAssetData(asset.data)?.kind !== 'image')
+      diagnostics.push(
+        diagnostic(
+          `${path}/textures/${name}/source/$ref`,
+          `Material texture override '${name}' must reference an image asset.`,
+        ),
+      );
+  }
 }
 
 function validateAudioRef(
@@ -552,8 +577,13 @@ export function validateCharacterData(
             diagnostics.push(diagnostic(`${path}/layerId`, `Missing layer '${layer.layerId}'.`));
           if (layer.sprite !== undefined)
             validateSpriteRef(project, layer.sprite, `${path}/sprite`, diagnostics);
-          if (layer.material !== undefined)
-            validateMaterialRef(project, layer.material, `${path}/material`, diagnostics);
+          if (layer.materialApplication !== undefined)
+            validateMaterialApplication(
+              project,
+              layer.materialApplication,
+              `${path}/materialApplication`,
+              diagnostics,
+            );
         });
       });
     });
@@ -599,7 +629,12 @@ export function validateCharacterData(
         if (!layerIds.has(layer.layerId))
           diagnostics.push(diagnostic(`${path}/layerId`, `Missing layer '${layer.layerId}'.`));
         validateSpriteRef(project, layer.sprite, `${path}/sprite`, diagnostics);
-        validateMaterialRef(project, layer.material, `${path}/material`, diagnostics);
+        validateMaterialApplication(
+          project,
+          layer.materialApplication,
+          `${path}/materialApplication`,
+          diagnostics,
+        );
       });
     });
     profile.animationClips.forEach((clip, clipIndex) => {
@@ -618,8 +653,13 @@ export function validateCharacterData(
             diagnostics.push(diagnostic(`${path}/layerId`, `Missing layer '${layer.layerId}'.`));
           if (layer.sprite !== undefined)
             validateSpriteRef(project, layer.sprite, `${path}/sprite`, diagnostics);
-          if (layer.material !== undefined)
-            validateMaterialRef(project, layer.material, `${path}/material`, diagnostics);
+          if (layer.materialApplication !== undefined)
+            validateMaterialApplication(
+              project,
+              layer.materialApplication,
+              `${path}/materialApplication`,
+              diagnostics,
+            );
         });
       });
     });

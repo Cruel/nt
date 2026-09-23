@@ -30,7 +30,7 @@
               {
                 "layerId": "body",
                 "sprite": { "$ref": { "collection": "assets", "id": "pilot-character-neutral" } },
-                "material": null,
+                "materialApplication": null,
                 "offset": { "x": 0, "y": 0 },
                 "scale": 1,
                 "anchor": { "x": 0.5, "y": 1 },
