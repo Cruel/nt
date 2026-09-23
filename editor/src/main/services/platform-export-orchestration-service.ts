@@ -196,6 +196,7 @@ export async function exportProjectToPlatform(
     exportPackage: typeof defaultNativeTools.exportPackage;
   }> = defaultNativeTools,
   beforePublish?: () => Promise<string | null>,
+  registerRecoveryPath?: (path: string) => Promise<void>,
 ): Promise<PlatformStageResult> {
   let request: ProjectPlatformExportRequest;
   try {
@@ -638,7 +639,7 @@ export async function exportProjectToPlatform(
               templateRootForToken(resolved.token),
               beforePublish,
             )
-          : await stagePlatformExport(stageRequest, beforePublish);
+          : await stagePlatformExport(stageRequest, beforePublish, registerRecoveryPath);
       progress('finalizing', 'Finalizing platform artifacts');
       progress('verifying', 'Verifying generated artifacts and manifests');
       return result.success

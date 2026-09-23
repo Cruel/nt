@@ -2956,6 +2956,16 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       (await readdir(path.dirname(output))).filter((name) =>
         name.startsWith(`${path.basename(output)}.tmp-`),
       );
+    const publicationDebris = async (output) => {
+      const parent = path.dirname(output);
+      const basename = path.basename(output);
+      return (await readdir(parent)).filter(
+        (name) =>
+          name.startsWith(`${basename}.tmp-`) ||
+          name === `${basename}.noveltea-publication-backup` ||
+          name === `${basename}.noveltea-publication-transaction.json`,
+      );
+    };
     const cancellationEnvironment = {
       ...traceEnvironment,
       NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS: '10000',
@@ -3003,6 +3013,14 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     const crashRoot = await resetFeatureLab('disposable-output-crash');
     const crashOutput = path.join(tempRoot, 'disposable-crash.ntpkg');
     await rm(crashOutput, { force: true });
+    requireSuccess(
+      'Disposable output crash previous publication',
+      runNative(packageArguments(crashRoot, crashOutput), {
+        cwd: crashRoot,
+        env: traceEnvironment,
+      }),
+    );
+    const crashPreviousBytes = await readFile(crashOutput);
     const crashResult = runNative(packageArguments(crashRoot, crashOutput), {
       cwd: crashRoot,
       env: {
@@ -3012,14 +3030,15 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     });
     if (crashResult.status === 0)
       fail('Disposable package worker crash unexpectedly reported success.');
-    if (await stat(crashOutput).catch(() => null))
-      fail('Crashed disposable package export published a final output.');
+    const crashRecoveredBytes = await readFile(crashOutput).catch(() => null);
+    if (!crashRecoveredBytes?.equals(crashPreviousBytes))
+      fail('Crashed disposable package export did not preserve the previous complete output.');
     await waitForStatus(
       'Disposable output crash standby replenishment',
       (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
     );
-    if ((await stagedOutputs(crashOutput)).length !== 0)
-      fail('Crashed disposable package export leaked staging files.');
+    if ((await publicationDebris(crashOutput)).length !== 0)
+      fail('Crashed disposable package export leaked staging/recovery state.');
     requireSuccess(
       'Disposable output crash isolation owner validation',
       runNative(['--project', crashRoot, '--json', 'validate'], {
@@ -3027,6 +3046,15 @@ async function certifyDisposableOutputScheduling(tempRoot) {
         env: traceEnvironment,
       }),
     );
+    requireSuccess(
+      'Disposable output post-crash recovery publication',
+      runNative(packageArguments(crashRoot, crashOutput), {
+        cwd: crashRoot,
+        env: traceEnvironment,
+      }),
+    );
+    if ((await publicationDebris(crashOutput)).length !== 0)
+      fail('Post-crash disposable package export left recovery debris.');
 
     return {
       portableProjectExportPinned: true,
@@ -3038,6 +3066,8 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       assetDriftBlocksPublication: true,
       cancellationBlocksPublication: true,
       crashBlocksPublication: true,
+      crashPreservesPreviousPublication: true,
+      postCrashPublicationRecovers: true,
     };
   } finally {
     runNative(['daemon', 'stop'], { env: environment });
@@ -4842,7 +4872,9 @@ function canonicalComfyUiResult(result) {
     if (Array.isArray(item)) return item.map(normalize);
     if (!item || typeof item !== 'object') return item;
     const normalized = {};
-    for (const [key, next] of Object.entries(item)) {
+    for (const [key, next] of Object.entries(item).sort(([left], [right]) =>
+      left.localeCompare(right),
+    )) {
       if (
         ['clientId', 'promptId', 'assetId', 'importedAt', 'createdAt', 'checkedAt'].includes(key)
       ) {
@@ -5143,7 +5175,12 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
           node.result.status !== candidate.result.status ||
           node.result.stderr !== candidate.result.stderr
         )
-          fail(`ComfyUI differential '${test.name}' ${label} exit/stderr differs.`);
+          fail(
+            `ComfyUI differential '${test.name}' ${label} exit/stderr differs.\n` +
+              `Node status=${node.result.status} stderr=${JSON.stringify(node.result.stderr)}\n` +
+              `Candidate status=${candidate.result.status} stderr=${JSON.stringify(candidate.result.stderr)} ` +
+              `stdout=${JSON.stringify(candidate.result.stdout)}`,
+          );
         if (canonicalComfyUiResult(node.result) !== canonicalComfyUiResult(candidate.result))
           fail(
             `ComfyUI differential '${test.name}' ${label} stdout differs.\nNode: ${node.result.stdout}\nCandidate: ${candidate.result.stdout}`,

@@ -758,11 +758,193 @@ struct DisposableWorker {
     bool retirement_started = false;
 };
 
+constexpr std::string_view publication_transaction_suffix =
+    ".noveltea-publication-transaction.json";
+
+bool is_publication_transaction_path(const std::filesystem::path& path)
+{
+    const auto filename = path.filename().string();
+    return filename.size() >= publication_transaction_suffix.size() &&
+           filename.ends_with(publication_transaction_suffix);
+}
+
+std::optional<Json> read_publication_transaction(const std::filesystem::path& transaction_path)
+{
+    std::ifstream input(transaction_path, std::ios::binary);
+    if (!input)
+        return std::nullopt;
+    const std::string text((std::istreambuf_iterator<char>(input)),
+                           std::istreambuf_iterator<char>());
+    auto record = Json::parse(text, nullptr, false);
+    if (record.is_discarded())
+        return std::nullopt;
+    return record;
+}
+
+bool recover_publication_transaction(const std::filesystem::path& transaction_path)
+{
+    const auto loaded = read_publication_transaction(transaction_path);
+    if (!loaded)
+        return false;
+    const auto& record = *loaded;
+    if (!record.is_object() ||
+        record.value("format", std::string{}) != "noveltea.output-publication-transaction" ||
+        record.value("version", 0) != 1 || !record.contains("entries") ||
+        !record["entries"].is_array())
+        return false;
+    const auto accepted = record.value("state", std::string{}) == "accepted";
+    const auto remove_path = [](const std::filesystem::path& path) {
+        std::error_code error;
+        std::filesystem::remove_all(path, error);
+    };
+    const auto recover_entry = [&](const Json& entry) {
+        if (!entry.is_object() || !entry.contains("finalPath") ||
+            !entry["finalPath"].is_string() || !entry.contains("backupPath") ||
+            !entry["backupPath"].is_string() || !entry.contains("hadPrevious") ||
+            !entry["hadPrevious"].is_boolean())
+            return;
+#if defined(_WIN32)
+        const auto final_path = utf8_to_wide(entry["finalPath"].get<std::string>());
+        const auto backup_path = utf8_to_wide(entry["backupPath"].get<std::string>());
+#else
+        const std::filesystem::path final_path = entry["finalPath"].get<std::string>();
+        const std::filesystem::path backup_path = entry["backupPath"].get<std::string>();
+#endif
+        std::optional<std::filesystem::path> staged_path;
+        if (entry.contains("stagedPath") && entry["stagedPath"].is_string()) {
+#if defined(_WIN32)
+            staged_path = utf8_to_wide(entry["stagedPath"].get<std::string>());
+#else
+            staged_path = entry["stagedPath"].get<std::string>();
+#endif
+        }
+        std::error_code error;
+        if (accepted) {
+            remove_path(backup_path);
+            if (staged_path)
+                remove_path(*staged_path);
+            return;
+        }
+        const auto backup_exists = std::filesystem::exists(backup_path, error) && !error;
+        if (entry["hadPrevious"].get<bool>()) {
+            if (backup_exists) {
+                remove_path(final_path);
+                std::filesystem::rename(backup_path, final_path, error);
+            }
+        } else {
+            remove_path(final_path);
+        }
+        if (staged_path)
+            remove_path(*staged_path);
+    };
+    if (accepted) {
+        for (const auto& entry : record["entries"])
+            recover_entry(entry);
+    } else {
+        for (auto entry = record["entries"].rbegin(); entry != record["entries"].rend(); ++entry)
+            recover_entry(*entry);
+    }
+    remove_path(transaction_path);
+    return true;
+}
+
+bool activate_publication_transaction(const std::filesystem::path& transaction_path)
+{
+    const auto loaded = read_publication_transaction(transaction_path);
+    if (!loaded)
+        return false;
+    const auto& record = *loaded;
+    if (!record.is_object() ||
+        record.value("format", std::string{}) != "noveltea.output-publication-transaction" ||
+        record.value("version", 0) != 1 || record.value("state", std::string{}) != "prepared" ||
+        !record.contains("entries") || !record["entries"].is_array())
+        return false;
+    try {
+        for (const auto& entry : record["entries"]) {
+            if (!entry.is_object() || !entry.contains("finalPath") ||
+                !entry["finalPath"].is_string() || !entry.contains("backupPath") ||
+                !entry["backupPath"].is_string() || !entry.contains("hadPrevious") ||
+                !entry["hadPrevious"].is_boolean())
+                throw std::runtime_error("publication transaction entry is malformed");
+#if defined(_WIN32)
+            const auto final_path = utf8_to_wide(entry["finalPath"].get<std::string>());
+            const auto backup_path = utf8_to_wide(entry["backupPath"].get<std::string>());
+#else
+            const std::filesystem::path final_path = entry["finalPath"].get<std::string>();
+            const std::filesystem::path backup_path = entry["backupPath"].get<std::string>();
+#endif
+            if (entry["hadPrevious"].get<bool>())
+                std::filesystem::rename(final_path, backup_path);
+        }
+        for (const auto& entry : record["entries"]) {
+            if (!entry.contains("stagedPath") || entry["stagedPath"].is_null())
+                continue;
+            if (!entry["stagedPath"].is_string() || !entry["finalPath"].is_string())
+                throw std::runtime_error("publication transaction staged path is malformed");
+#if defined(_WIN32)
+            const auto staged_path = utf8_to_wide(entry["stagedPath"].get<std::string>());
+            const auto final_path = utf8_to_wide(entry["finalPath"].get<std::string>());
+#else
+            const std::filesystem::path staged_path = entry["stagedPath"].get<std::string>();
+            const std::filesystem::path final_path = entry["finalPath"].get<std::string>();
+#endif
+            std::filesystem::rename(staged_path, final_path);
+        }
+    } catch (...) {
+        (void)recover_publication_transaction(transaction_path);
+        return false;
+    }
+    return true;
+}
+
+bool accept_publication_transaction(const std::filesystem::path& transaction_path)
+{
+    const auto loaded = read_publication_transaction(transaction_path);
+    if (!loaded)
+        return false;
+    auto record = *loaded;
+    if (!record.is_object() ||
+        record.value("format", std::string{}) != "noveltea.output-publication-transaction" ||
+        record.value("version", 0) != 1 || record.value("state", std::string{}) != "prepared" ||
+        !record.contains("entries") || !record["entries"].is_array())
+        return false;
+    record["state"] = "accepted";
+    {
+        std::ofstream output(transaction_path, std::ios::binary | std::ios::trunc);
+        if (!output)
+            return false;
+        output << record.dump() << '\n';
+        output.flush();
+        if (!output)
+            return false;
+    }
+    return recover_publication_transaction(transaction_path);
+}
+
+void recover_owner_publication_transaction(const Json& payload)
+{
+    if (!payload.is_object() ||
+        payload.value("internalOperation", std::string{}) != "comfyui-asset-publication" ||
+        !payload.contains("publicationTransactionPath") ||
+        !payload["publicationTransactionPath"].is_string())
+        return;
+#if defined(_WIN32)
+    const auto transaction_path =
+        utf8_to_wide(payload["publicationTransactionPath"].get<std::string>());
+#else
+    const std::filesystem::path transaction_path =
+        payload["publicationTransactionPath"].get<std::string>();
+#endif
+    (void)recover_publication_transaction(transaction_path);
+}
+
 void cleanup_staged_outputs(const std::vector<std::filesystem::path>& paths)
 {
     for (const auto& path : paths) {
+        if (is_publication_transaction_path(path) && recover_publication_transaction(path))
+            continue;
         std::error_code error;
-        std::filesystem::remove(path, error);
+        std::filesystem::remove_all(path, error);
     }
 }
 
@@ -902,6 +1084,20 @@ public:
             }
             const auto client = queued.client.lock();
             if (!client || client->current() == invalid_connection) {
+                if (queued.payload.is_object() &&
+                    queued.payload.value("internalOperation", std::string{}) ==
+                        "comfyui-asset-publication" &&
+                    queued.payload.contains("publicationTransactionPath") &&
+                    queued.payload["publicationTransactionPath"].is_string()) {
+#if defined(_WIN32)
+                    const auto transaction_path = utf8_to_wide(
+                        queued.payload["publicationTransactionPath"].get<std::string>());
+#else
+                    const std::filesystem::path transaction_path =
+                        queued.payload["publicationTransactionPath"].get<std::string>();
+#endif
+                    (void)recover_publication_transaction(transaction_path);
+                }
                 std::scoped_lock lock(queue_mutex_);
                 const auto owner = project_owners_.find(owner_worker_id);
                 if (owner != project_owners_.end())
@@ -1006,7 +1202,31 @@ public:
             disposable_cv_.notify_all();
             return {{"ok", true}, {"delivered", false}, {"queuedDisposable", true}};
         }
-        auto completed = complete_request(token, ok, result, error);
+        bool completion_ok = ok;
+        std::string completion_error(error);
+        if (active.payload.is_object() &&
+            active.payload.value("internalOperation", std::string{}) ==
+                "comfyui-asset-publication" &&
+            active.payload.contains("publicationTransactionPath") &&
+            active.payload["publicationTransactionPath"].is_string()) {
+#if defined(_WIN32)
+            const auto transaction_path = utf8_to_wide(
+                active.payload["publicationTransactionPath"].get<std::string>());
+#else
+            const std::filesystem::path transaction_path =
+                active.payload["publicationTransactionPath"].get<std::string>();
+#endif
+            if (completion_ok) {
+                if (!accept_publication_transaction(transaction_path)) {
+                    completion_ok = false;
+                    completion_error =
+                        "ComfyUI Project publication completed but filesystem acceptance failed";
+                }
+            } else {
+                (void)recover_publication_transaction(transaction_path);
+            }
+        }
+        auto completed = complete_request(token, completion_ok, result, completion_error);
         if (completed.value("ok", false))
             touch_owner(owner_worker_id);
         return completed;
@@ -2522,10 +2742,12 @@ private:
         owner_cv_.notify_all();
         disposable_cv_.notify_all();
         for (const auto& request : queued) {
+            recover_owner_publication_transaction(request.payload);
             if (const auto client = request.client.lock())
                 client->send(result_event_json(request.request_id, false, "null", reason));
         }
         for (const auto& request : active) {
+            recover_owner_publication_transaction(request.payload);
             if (const auto client = request.client.lock())
                 client->send(result_event_json(request.request_id, false, "null", reason));
         }
@@ -3437,6 +3659,22 @@ private:
                                           "disposable owner mutation request is malformed"));
                     continue;
                 }
+                std::optional<std::filesystem::path> publication_transaction_path;
+                if (owner_request.contains("publicationTransactionPath")) {
+                    if (!owner_request["publicationTransactionPath"].is_string()) {
+                        client->send(result_event_json(
+                            request_id, false, "null",
+                            "disposable owner mutation publication transaction is malformed"));
+                        continue;
+                    }
+#if defined(_WIN32)
+                    publication_transaction_path = utf8_to_wide(
+                        owner_request["publicationTransactionPath"].get<std::string>());
+#else
+                    publication_transaction_path =
+                        owner_request["publicationTransactionPath"].get<std::string>();
+#endif
+                }
                 {
                     std::scoped_lock lock(queue_mutex_);
                     const auto token = message_payload["token"].get<std::uint64_t>();
@@ -3453,6 +3691,33 @@ private:
                     }
                     canonical_root = active->second.pinned_project_root;
                     original_payload = active->second.payload;
+                    if (publication_transaction_path) {
+                        const auto worker = disposable_workers_.find(worker_id);
+                        if (worker == disposable_workers_.end()) {
+                            client->send(result_event_json(
+                                request_id, false, "null",
+                                "disposable publication transaction has no active worker"));
+                            continue;
+                        }
+                        const auto found = std::find(worker->second.staged_outputs.begin(),
+                                                     worker->second.staged_outputs.end(),
+                                                     *publication_transaction_path);
+                        if (found == worker->second.staged_outputs.end()) {
+                            client->send(result_event_json(
+                                request_id, false, "null",
+                                "disposable publication transaction was not registered"));
+                            continue;
+                        }
+                        worker->second.staged_outputs.erase(found);
+                    }
+                }
+                if (publication_transaction_path &&
+                    !activate_publication_transaction(*publication_transaction_path)) {
+                    (void)recover_publication_transaction(*publication_transaction_path);
+                    client->send(result_event_json(
+                        request_id, false, "null",
+                        "disposable publication transaction could not be activated"));
+                    continue;
                 }
                 Json owner_payload = {
                     {"argv", Json::array({"comfyui", "__owner-asset-publication"})},
@@ -3469,16 +3734,24 @@ private:
                     {"internalOperation", "comfyui-asset-publication"},
                     {"internalRequestText", owner_request.dump()},
                 };
+                if (publication_transaction_path)
+                    owner_payload["publicationTransactionPath"] =
+                        owner_request["publicationTransactionPath"];
                 const auto routed =
                     queue_project_owner_request(client, request_id, "invoke", owner_payload);
                 if (!routed)
                     continue;
-                if (!routed->empty())
+                if (!routed->empty()) {
+                    if (publication_transaction_path)
+                        (void)recover_publication_transaction(*publication_transaction_path);
                     client->send(result_event_json(request_id, false, "null", *routed));
-                else
+                } else {
+                    if (publication_transaction_path)
+                        (void)recover_publication_transaction(*publication_transaction_path);
                     client->send(result_event_json(
                         request_id, false, "null",
                         "disposable owner mutation could not resolve a Project owner"));
+                }
                 continue;
             }
             if (method == "owner-internal-complete") {

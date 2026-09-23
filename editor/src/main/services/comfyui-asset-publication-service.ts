@@ -19,6 +19,10 @@ import type {
   ComfyUiRunPlan,
   ComfyUiRunnableWorkflowEntry,
 } from './comfyui-run-service';
+import {
+  prepareOutputPublicationTransaction,
+  recoverOutputPublicationTransaction,
+} from './output-publication-transaction';
 
 export interface ComfyUiPublishedAssetOutput extends Omit<ComfyUiGeneratedImage, 'bytes'> {
   target: 'asset';
@@ -102,6 +106,7 @@ async function stageFilesystemOutputs(options: {
   plan: ComfyUiRunPlan;
   outputs: Record<string, ComfyUiGeneratedImage[]>;
   force: boolean;
+  registerStagedOutput?: (path: string) => Promise<void>;
 }): Promise<StagedFile[]> {
   const staged: StagedFile[] = [];
   const finalPaths = new Set<string>();
@@ -155,6 +160,7 @@ async function stageFilesystemOutputs(options: {
           path.dirname(finalPath),
           `.${path.basename(finalPath)}.${randomUUID()}.noveltea-stage`,
         );
+        await options.registerStagedOutput?.(temporaryPath);
         await fs.writeFile(temporaryPath, output.bytes, { flag: 'wx' });
         staged.push({
           outputId,
@@ -313,6 +319,7 @@ export interface ComfyUiStagedAssetPublicationRequest {
   projectRoot: string;
   workflow: { id: string; label: string };
   promptId: string;
+  publicationTransactionPath?: string;
   assets: Array<{
     outputId: string;
     stagedPath: string;
@@ -432,11 +439,12 @@ export async function publishComfyUiOutputs(options: {
     plan: options.plan,
     outputs: options.outputs,
     force: options.force,
+    registerStagedOutput: options.registerStagedOutput,
   });
   let delegatedAssets: Record<string, ComfyUiPublishedAssetOutput[]> = {};
   const delegatedAssetPaths: string[] = [];
+  let mixedPublicationTransactionPath: string | null = null;
   try {
-    await commitFilesystem(staged);
     if (options.projectRoot && hasAssetRoutes && options.commitStagedProjectAssets) {
       if (!options.registerStagedOutput)
         throw new ComfyUiRunError(
@@ -459,12 +467,38 @@ export async function publishComfyUiOutputs(options: {
           assets.push({ outputId, stagedPath, output: metadata });
         }
       }
+      if (staged.length > 0) {
+        mixedPublicationTransactionPath = path.join(
+          os.tmpdir(),
+          `noveltea-comfyui-${randomUUID()}.noveltea-publication-transaction.json`,
+        );
+        await prepareOutputPublicationTransaction({
+          transactionPath: mixedPublicationTransactionPath,
+          entries: staged.map((item) => ({
+            finalPath: item.finalPath,
+            stagedPath: item.temporaryPath,
+            backupPath:
+              item.backupPath ??
+              path.join(
+                path.dirname(item.finalPath),
+                `.${path.basename(item.finalPath)}.${randomUUID()}.noveltea-backup`,
+              ),
+            hadPrevious: item.backupPath !== null,
+          })),
+          registerRecoveryPath: options.registerStagedOutput,
+        });
+      }
       delegatedAssets = await options.commitStagedProjectAssets({
         projectRoot: options.projectRoot,
         workflow: { id: options.workflow.id, label: options.workflow.label },
         promptId: options.promptId,
+        ...(mixedPublicationTransactionPath
+          ? { publicationTransactionPath: mixedPublicationTransactionPath }
+          : {}),
         assets,
       });
+    } else {
+      await commitFilesystem(staged);
     }
     if (assetPlan && options.projectRoot) {
       await commitAssetPlan({
@@ -474,9 +508,13 @@ export async function publishComfyUiOutputs(options: {
         assetPlan,
       });
     }
-    await finalizeFilesystem(staged);
+    if (!options.commitStagedProjectAssets || !hasAssetRoutes) await finalizeFilesystem(staged);
   } catch (error) {
-    await rollbackFilesystem(staged);
+    if (mixedPublicationTransactionPath)
+      await recoverOutputPublicationTransaction(mixedPublicationTransactionPath).catch(
+        () => undefined,
+      );
+    else await rollbackFilesystem(staged);
     throw error;
   } finally {
     for (const stagedPath of delegatedAssetPaths)

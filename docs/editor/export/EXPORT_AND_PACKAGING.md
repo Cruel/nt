@@ -150,11 +150,14 @@ the package to a sibling staging path. External Asset bytes remain file-backed; 
 file identity, size, and exact mtime (or fallback hash where exact mtime is unavailable) travel with
 the pinned snapshot. Immediately before replacing the requested `.ntpkg`, the worker verifies those
 expectations again. Input drift, cancellation, package failure, or worker failure never publishes the
-staged file as the requested output; an existing output is replaced through backup/atomic rename only
-after those checks pass. Before creating a Runtime Package staging file, a disposable worker registers
-its new absolute path with the native broker. The broker removes registered staging files only after
-the worker has exited or been terminated, including cancellation, crash, and daemon shutdown; cleanup
-does not depend on the worker reaching a JavaScript `finally`. Published final paths are not registered.
+staged file as the requested output. Final replacement is recorded as a recoverable output transaction
+covering the staged package, previous-output backup, final path, and accepted state before any rename
+can make the old package unavailable. Both the staging file and transaction record are registered with
+the native broker. If the disposable process exits during backup or activation, broker cleanup reads
+the transaction and restores the previous complete package; if acceptance was already recorded, it
+keeps the new package and removes obsolete backup/staging debris. Recovery therefore does not depend
+on the worker reaching a JavaScript `catch`/`finally`, and published final paths themselves are never
+registered as disposable files.
 
 ## Platform Export
 
@@ -176,6 +179,15 @@ final destination, the CLI re-verifies the pinned external Asset identities/meta
 Project owner may advance while this work runs. `platform export --check` remains a write-free
 owner-short preflight. The successful-export identity written under `.noveltea/editor/state.json` is
 machine/editor-local execution metadata rather than authored Project state.
+
+The complete planned platform artifact set is activated through one recoverable publication record.
+That record covers the output directory plus every applicable archive, symbols archive, AppImage,
+DMG, and signing report, including deliberate removal of an obsolete artifact when the new export no
+longer produces it. Previous outputs are backed up before activation; acceptance is recorded only
+after the entire set is in place. Disposable-worker termination before acceptance causes broker
+recovery to restore the previous complete set, while termination after acceptance retains the new set
+and removes transaction debris. A partially renamed mixture is therefore never treated as a completed
+platform export.
 
 `platform export` produces the normal packaged artifact by default. Reusable signing configurations
 are machine-level NovelTea user settings shared by the editor and CLI, not project-profile fields.

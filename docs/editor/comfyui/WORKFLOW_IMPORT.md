@@ -105,8 +105,15 @@ not transcode.
 
 NovelTea does not hold the workspace writer lock during verification, upload, queueing, polling, or download. After all
 remote results validate, it reopens the latest Project, stages all filesystem outputs with atomic rename/backup primitives,
-and writes all generated Asset records and bytes in one short normal workspace transaction. Mixed publication failures
-roll back staged filesystem results as far as those primitives allow and do not intentionally commit a partial Asset set.
+and writes all generated Asset records and bytes in one short normal workspace transaction. In the standalone daemon,
+mixed filesystem-plus-Asset publication also hands a prepared filesystem transaction record to the broker with the
+owner-mutation request. The broker activates the corresponding staged filesystem set while that record remains prepared
+and rollback-capable, then dispatches the Project mutation. The live Project owner remains the only semantic writer for
+generated Assets. If the owner reports success, the broker accepts the filesystem transaction and removes its backups;
+if the owner rejects the mutation or the handoff is lost, the broker restores the previous filesystem set. Mixed
+publication therefore has one accepted result rather than a filesystem result whose success depends on the disposable
+worker surviving the Project commit. Non-daemon publication retains the same short workspace transaction and rollback
+behavior.
 Generated Assets retain normal hashing and image metadata; lightweight `originalPath` provenance identifies ComfyUI, the
 logical workflow, and prompt without storing prompt text or local source filenames.
 
