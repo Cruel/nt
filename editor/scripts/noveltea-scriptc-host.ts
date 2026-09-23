@@ -601,8 +601,8 @@ type DaemonRequestContext = Readonly<{
   ownerProjectRoot: string | null;
   ownerProjectRootExplicit: boolean;
   environment: Readonly<Record<string, string>>;
-  stdinText: string | null;
-  terminal: Readonly<{
+  stdinText?: string | null;
+  terminal?: Readonly<{
     stdin: boolean;
     stdout: boolean;
     stderr: boolean;
@@ -1395,6 +1395,7 @@ function requestEnvironment(): Record<string, string> {
     NOVELTEA_CLI_CERTIFICATION: '',
     NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH: '',
     NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '',
+    NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '',
     NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_CRASH: '',
     NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS: '',
     NOVELTEA_CLI_SCHEDULER_PROFILE: '',

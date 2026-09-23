@@ -253,6 +253,69 @@ export async function runNovelTeaCli(
     (globals.command[1] === 'export' || globals.command[1] === 'import')
   ) {
     const services = await workspaceServices();
+    if (
+      globals.command[1] === 'export' &&
+      options.prepareResidentSnapshotOnly &&
+      options.residentWorkspace
+    ) {
+      const projectRoot = globals.project
+        ? path.resolve(cwd, globals.project)
+        : await (async () => {
+            const { discoverProjectRoot } =
+              await import('../shared/project-workspace/project-workspace-discovery');
+            const discovered = await discoverProjectRoot(services.fileSystem, cwd);
+            return discovered.ok ? discovered.projectRoot : null;
+          })();
+      if (!projectRoot)
+        return failure(
+          NOVELTEA_CLI_EXIT_CODES.workspace,
+          [
+            cliDiagnostic(
+              'WORKSPACE_PROJECT_NOT_FOUND',
+              '/',
+              'No NovelTea Project could be discovered from the current directory.',
+            ),
+          ],
+          globals.json,
+        );
+      const opened = await options.residentWorkspace.open(projectRoot);
+      if (!opened.ok)
+        return failure(
+          workspaceOpenExitCode(opened.diagnostics),
+          opened.diagnostics,
+          globals.json,
+          { projectRoot },
+        );
+      if (
+        !options.trustPinnedResidentSnapshot &&
+        !(await options.residentWorkspace.verifyReadAuthority(opened.snapshot))
+      ) {
+        const retry = options.residentReadAttempt ?? 0;
+        if (retry < 2) return runNovelTeaCli(argv, { ...options, residentReadAttempt: retry + 1 });
+        return failure(
+          NOVELTEA_CLI_EXIT_CODES.workspace,
+          [
+            cliDiagnostic(
+              'WORKSPACE_REVISION_CONFLICT',
+              '/',
+              'Project files changed while preparing the resident Project generation.',
+            ),
+          ],
+          globals.json,
+          { projectRoot },
+        );
+      }
+      return formatCliResult(
+        {
+          success: true,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+          diagnostics: opened.diagnostics,
+          projectRoot,
+        },
+        globals.json,
+        { success: 'NovelTea resident Project snapshot preparation succeeded.' },
+      );
+    }
     const { runNovelTeaProjectBundleCli } = await import('./project-bundle-cli');
     const bundleWorkspace =
       routing.projectAccess === 'read' && options.residentWorkspace
@@ -706,10 +769,27 @@ export async function runNovelTeaCli(
       !options.trustPinnedResidentSnapshot
     ) {
       certificationDelay('NOVELTEA_CLI_CERTIFICATION_BEFORE_READ_PROOF_DELAY_MS');
-      if (!(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))) {
+      const forceCertificationMismatch =
+        process.env.NOVELTEA_CLI_CERTIFICATION === '1' &&
+        process.env.NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH === '1';
+      if (
+        forceCertificationMismatch ||
+        !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))
+      ) {
         const retry = options.residentReadAttempt ?? 0;
         if (retry < 2) return runNovelTeaCli(argv, { ...options, residentReadAttempt: retry + 1 });
-        throw new AuthoringValidationAuthorityMismatchError();
+        return failure(
+          NOVELTEA_CLI_EXIT_CODES.workspace,
+          [
+            cliDiagnostic(
+              'WORKSPACE_REVISION_CONFLICT',
+              '/',
+              'Project authority changed repeatedly while the read result was being proven.',
+            ),
+          ],
+          globals.json,
+          { projectRoot: discovery.projectRoot },
+        );
       }
     }
 

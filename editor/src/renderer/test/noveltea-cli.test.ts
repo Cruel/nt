@@ -423,6 +423,48 @@ describe('NovelTea headless CLI', () => {
     expect(latest.usefulWork.sourceAnalysesRecomputed).toBe(latest.dependencyWork.analyzedOwners);
   });
 
+  it('fails a resident read after three consecutive authority-proof races', async () => {
+    const value = fixture(validProject(), true);
+    class RacingAuthorityWorkspace extends ResidentProjectWorkspaceService {
+      proofs = 0;
+
+      override async verifyReadAuthority(): Promise<boolean> {
+        this.proofs += 1;
+        return false;
+      }
+    }
+    const residentWorkspace = new RacingAuthorityWorkspace(value.fileSystem);
+
+    const result = await runNovelTeaCli(['--json', 'usages', 'rooms', 'start'], {
+      ...options(value),
+      residentWorkspace,
+    });
+
+    expect(result.exitCode).toBe(3);
+    expect(JSON.parse(result.stdout).diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'WORKSPACE_REVISION_CONFLICT' }),
+    );
+    expect(residentWorkspace.proofs).toBe(3);
+  });
+
+  it('prepares project export from the resident generation without publishing the bundle', async () => {
+    const value = fixture();
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    const outputPath = `${root}/portable.ntproject`;
+
+    const prepared = await runNovelTeaCli(
+      ['--project', root, '--json', 'project', 'export', '--output', outputPath],
+      {
+        ...options(value),
+        residentWorkspace,
+        prepareResidentSnapshotOnly: true,
+      },
+    );
+
+    expect(prepared.exitCode).toBe(0);
+    expect(await value.fileSystem.inspect(outputPath)).toBe('missing');
+  });
+
   it('reconstructs a cold resident Project instead of hydrating persisted semantic contributions', async () => {
     const value = fixture(validProject(), true);
     const nativeTools = validationNativeTools();
