@@ -1482,6 +1482,181 @@ TEST_CASE(
     REQUIRE(invoke_daemon(request)["ok"] == true);
 }
 
+TEST_CASE("daemon disposable crash recovers registered output publication transactions")
+{
+    auto request = scheduler_context(unique_build("publication-recovery"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    REQUIRE(wait_until([&] { return daemon_status(request)["disposableStandbyWorkers"] == 1; }));
+
+    auto root = temp_runtime_root("publication-recovery-files");
+    const auto output = root.path / "artifact.bin";
+    const auto staged = root.path / "artifact.stage";
+    const auto backup = root.path / "artifact.backup";
+    const auto unrelated_staged = root.path / "artifact.ntpkg";
+    const auto transaction = root.path / "artifact.noveltea-publication-transaction.json";
+    const auto read_text = [](const std::filesystem::path& value) {
+        std::ifstream input(value, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(input),
+                           std::istreambuf_iterator<char>());
+    };
+
+    const auto run_phase = [&](std::string_view phase, bool accepted) {
+        write_project_file(output, "previous");
+        write_project_file(staged, "replacement");
+        std::error_code error;
+        std::filesystem::remove(backup, error);
+        std::filesystem::remove(transaction, error);
+
+        auto status = daemon_status(request);
+        auto ids = disposable_worker_ids(status);
+        REQUIRE(!ids.empty());
+        auto ready = request;
+        ready["action"] = "disposable-ready";
+        ready["disposableWorkerId"] = ids.front();
+        REQUIRE(invoke_daemon(ready)["ok"] == true);
+
+        auto work_request =
+            disposable_request(request, std::string("publication-") + std::string(phase));
+        auto result = std::async(std::launch::async,
+                                 [work_request] { return invoke_daemon(work_request); });
+        REQUIRE(wait_until([&] { return daemon_status(request)["disposableBusyWorkers"] == 1; }));
+        status = daemon_status(request);
+        std::uint64_t worker_id = 0;
+        for (const auto& worker : status["engineeringDisposableWorkers"])
+            if (worker["state"] == "busy") {
+                worker_id = worker["workerId"].get<std::uint64_t>();
+                break;
+            }
+        REQUIRE(worker_id != 0);
+        auto next = request;
+        next["action"] = "disposable-next";
+        next["disposableWorkerId"] = worker_id;
+        const auto work = invoke_daemon(next);
+        REQUIRE(work["ok"] == true);
+
+        auto register_output = request;
+        register_output["action"] = "disposable-register-staged-output";
+        register_output["disposableWorkerId"] = worker_id;
+        register_output["token"] = work["token"];
+        register_output["stagedOutputPath"] = unrelated_staged.string();
+        REQUIRE(invoke_daemon(register_output)["ok"] == true);
+        write_project_file(unrelated_staged, "not-json-package-bytes");
+        register_output["stagedOutputPath"] = transaction.string();
+        REQUIRE(invoke_daemon(register_output)["ok"] == true);
+
+        Json journal = {
+            {"format", "noveltea.output-publication-transaction"},
+            {"version", 1},
+            {"state", accepted ? "accepted" : "prepared"},
+            {"entries",
+             Json::array({{{"finalPath", output.string()},
+                           {"stagedPath", staged.string()},
+                           {"backupPath", backup.string()},
+                           {"hadPrevious", true}}})},
+        };
+        write_project_file(transaction, journal.dump());
+        std::filesystem::rename(output, backup);
+        if (phase == "activated" || accepted)
+            std::filesystem::rename(staged, output);
+
+        auto crash = request;
+        crash["action"] = "serve-simulate-worker-exit-for-tests";
+        crash["workerKind"] = "disposable";
+        crash["workerId"] = worker_id;
+        REQUIRE(invoke_daemon(crash)["ok"] == true);
+        REQUIRE(result.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+        CHECK(result.get()["ok"] == false);
+        REQUIRE(wait_until([&] { return !std::filesystem::exists(transaction); }));
+        CHECK(std::filesystem::exists(output));
+        CHECK(read_text(output) == (accepted ? "replacement" : "previous"));
+        CHECK_FALSE(std::filesystem::exists(backup));
+        CHECK_FALSE(std::filesystem::exists(staged));
+        CHECK_FALSE(std::filesystem::exists(unrelated_staged));
+        REQUIRE(wait_until([&] { return daemon_status(request)["disposableStandbyWorkers"] >= 1; }));
+    };
+
+    run_phase("backed-up", false);
+    run_phase("activated", false);
+    run_phase("accepted", true);
+
+    request["action"] = "serve-abort";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+
+TEST_CASE("daemon Project owner crash rolls back an activated mixed publication")
+{
+    auto request = scheduler_context(unique_build("mixed-owner-crash"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    auto files = temp_runtime_root("mixed-owner-crash-files");
+    const auto root = files.path / "project";
+    write_project_file(root / "project.json", "{}\n");
+    const auto output = files.path / "mixed.png";
+    const auto staged = files.path / "mixed.stage";
+    const auto backup = files.path / "mixed.backup";
+    const auto transaction =
+        files.path / "mixed.noveltea-publication-transaction.json";
+    write_project_file(output, "previous");
+    write_project_file(staged, "replacement");
+    write_project_file(
+        transaction,
+        Json{{"format", "noveltea.output-publication-transaction"},
+             {"version", 1},
+             {"state", "prepared"},
+             {"entries",
+              Json::array({{{"finalPath", output.string()},
+                            {"stagedPath", staged.string()},
+                            {"backupPath", backup.string()},
+                            {"hadPrevious", true}}})}}
+            .dump());
+    std::filesystem::rename(output, backup);
+    std::filesystem::rename(staged, output);
+
+    auto mutation_request = owner_request(request, "mixed-owner-mutation", root, "owner-mutation");
+    mutation_request["payload"]["argv"] =
+        Json::array({"comfyui", "__owner-asset-publication"});
+    mutation_request["payload"]["internalOperation"] = "comfyui-asset-publication";
+    mutation_request["payload"]["internalRequestText"] = "{}";
+    mutation_request["payload"]["publicationTransactionPath"] = transaction.string();
+    auto mutation = std::async(std::launch::async,
+                               [mutation_request] { return invoke_daemon(mutation_request); });
+    REQUIRE(wait_until(
+        [&] { return owner_worker_for_root(daemon_status(request), root).has_value(); }));
+    const auto owner_id = owner_worker_for_root(daemon_status(request), root);
+    REQUIRE(owner_id);
+    auto next = request;
+    next["action"] = "owner-next";
+    next["ownerWorkerId"] = *owner_id;
+    const auto work = invoke_daemon(next);
+    REQUIRE(work["ok"] == true);
+    REQUIRE(work["payload"]["internalOperation"] == "comfyui-asset-publication");
+
+    auto crash = request;
+    crash["action"] = "serve-simulate-worker-exit-for-tests";
+    crash["workerKind"] = "owner";
+    crash["workerId"] = *owner_id;
+    REQUIRE(invoke_daemon(crash)["ok"] == true);
+    REQUIRE(mutation.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    CHECK(mutation.get()["ok"] == false);
+    REQUIRE(wait_until([&] { return !std::filesystem::exists(transaction); }));
+    REQUIRE(std::filesystem::exists(output));
+    std::ifstream input(output, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(input)),
+                               std::istreambuf_iterator<char>());
+    CHECK(contents == "previous");
+    CHECK_FALSE(std::filesystem::exists(backup));
+    CHECK_FALSE(std::filesystem::exists(staged));
+
+    request["action"] = "serve-abort";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+}
+
 TEST_CASE("queued daemon request IDs are scoped to each client connection")
 {
     auto request = context(unique_build("request-id-scope"));

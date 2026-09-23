@@ -39,6 +39,7 @@ import {
   platformFileMode,
   runPlatformProcess,
 } from './platform-host-service';
+import { commitOutputPublicationTransaction } from './output-publication-transaction';
 
 const cancellations = new Set<string>();
 const descriptorName = 'template.json';
@@ -961,6 +962,7 @@ ${serviceWorker ? `if('serviceWorker' in navigator) navigator.serviceWorker.regi
 export async function stagePlatformExport(
   request: PlatformStageRequest,
   beforePublish?: () => Promise<string | null>,
+  registerRecoveryPath?: (path: string) => Promise<void>,
 ): Promise<PlatformStageResult> {
   const diagnostics: PlatformStageDiagnostic[] = [];
   const temp = `${request.outputDirectory}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
@@ -1024,12 +1026,6 @@ export async function stagePlatformExport(
   const signingReportBackup = signingReportPath
     ? `${signingReportPath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`
     : undefined;
-  let backedUp = false;
-  let archiveBackedUp = false;
-  let symbolArchiveBackedUp = false;
-  let appImageBackedUp = false;
-  let dmgBackedUp = false;
-  let signingReportBackedUp = false;
   try {
     checkPlatformExportCancelled(request.operationId);
     if (
@@ -1180,6 +1176,7 @@ export async function stagePlatformExport(
       };
     await rm(temp, { recursive: true, force: true });
     await rm(backup, { recursive: true, force: true });
+    await registerRecoveryPath?.(temp);
     await mkdir(temp, { recursive: true });
     const files: StagedFileEntry[] = [];
     const dependencyKinds = new Map(
@@ -1393,6 +1390,7 @@ export async function stagePlatformExport(
         mode: 0o644,
       });
       await rm(symbolArchiveTemp, { force: true });
+      await registerRecoveryPath?.(symbolArchiveTemp);
       await createPlatformArchive({
         outputPath: symbolArchiveTemp,
         format: request.profile.target === 'linux' ? 'tar.gz' : 'zip',
@@ -1403,6 +1401,8 @@ export async function stagePlatformExport(
       checkPlatformExportCancelled(request.operationId);
     }
     if (linux && appImageTemp) {
+      await rm(appImageTemp, { force: true });
+      await registerRecoveryPath?.(appImageTemp);
       await buildLinuxAppImage(temp, appImageTemp, request, linux);
       checkPlatformExportCancelled(request.operationId);
     }
@@ -1447,6 +1447,8 @@ export async function stagePlatformExport(
       }
     }
     if (macos && request.macosSigning && signingReportTemp) {
+      await rm(signingReportTemp, { force: true });
+      await registerRecoveryPath?.(signingReportTemp);
       const subjects = [...macos.frameworkPaths, macos.executablePath].sort().map((subject) => ({
         path: subject,
         sha256: files.find((item) => item.path === subject)?.sha256 ?? null,
@@ -1474,6 +1476,7 @@ export async function stagePlatformExport(
     }
     if (archivePath && archiveTemp) {
       await rm(archiveTemp, { force: true });
+      await registerRecoveryPath?.(archiveTemp);
       const archivePrefix =
         request.profile.target === 'macos' ? path.basename(request.outputDirectory) : '';
       const archiveEntries = await platformArchiveEntries(temp, files, archivePrefix);
@@ -1496,6 +1499,7 @@ export async function stagePlatformExport(
     }
     if (macos && dmgTemp && request.macosDmg) {
       await rm(dmgTemp, { force: true });
+      await registerRecoveryPath?.(dmgTemp);
       await run(request.macosDmg.command, [...request.macosDmg.args, temp, dmgTemp]);
       checkPlatformExportCancelled(request.operationId);
     }
@@ -1508,66 +1512,69 @@ export async function stagePlatformExport(
       throw new Error('NOVELTEA_EXPORT_INPUT_DRIFT');
     }
     checkPlatformExportCancelled(request.operationId);
-    if (existsSync(request.outputDirectory)) {
-      await rename(request.outputDirectory, backup);
-      backedUp = true;
-    }
-    if (archivePath && archiveBackup && existsSync(archivePath)) {
-      await rename(archivePath, archiveBackup);
-      archiveBackedUp = true;
-    }
-    if (symbolArchivePath && symbolArchiveBackup && existsSync(symbolArchivePath)) {
-      await rename(symbolArchivePath, symbolArchiveBackup);
-      symbolArchiveBackedUp = true;
-    }
-    if (appImagePath && appImageBackup && existsSync(appImagePath)) {
-      await rename(appImagePath, appImageBackup);
-      appImageBackedUp = true;
-    }
-    if (dmgPath && dmgBackup && existsSync(dmgPath)) {
-      await rename(dmgPath, dmgBackup);
-      dmgBackedUp = true;
-    }
-    if (signingReportPath && signingReportBackup && existsSync(signingReportPath)) {
-      await rename(signingReportPath, signingReportBackup);
-      signingReportBackedUp = true;
-    }
-    try {
-      await rename(temp, request.outputDirectory);
-      if (archivePath && archiveTemp) await rename(archiveTemp, archivePath);
-      if (symbolArchivePath && symbolArchiveTemp && existsSync(symbolArchiveTemp))
-        await rename(symbolArchiveTemp, symbolArchivePath);
-      if (appImagePath && appImageTemp) await rename(appImageTemp, appImagePath);
-      if (dmgPath && dmgTemp) await rename(dmgTemp, dmgPath);
-      if (signingReportPath && signingReportTemp)
-        await rename(signingReportTemp, signingReportPath);
-    } catch (error) {
-      await rm(request.outputDirectory, { recursive: true, force: true });
-      if (archivePath) await rm(archivePath, { force: true });
-      if (symbolArchivePath) await rm(symbolArchivePath, { force: true });
-      if (appImagePath) await rm(appImagePath, { force: true });
-      if (dmgPath) await rm(dmgPath, { force: true });
-      if (signingReportPath) await rm(signingReportPath, { force: true });
-      if (backedUp && existsSync(backup)) await rename(backup, request.outputDirectory);
-      if (archiveBackedUp && archiveBackup && existsSync(archiveBackup))
-        await rename(archiveBackup, archivePath!);
-      if (symbolArchiveBackedUp && symbolArchiveBackup && existsSync(symbolArchiveBackup))
-        await rename(symbolArchiveBackup, symbolArchivePath!);
-      if (appImageBackedUp && appImageBackup && existsSync(appImageBackup))
-        await rename(appImageBackup, appImagePath!);
-      if (dmgBackedUp && dmgBackup && existsSync(dmgBackup)) await rename(dmgBackup, dmgPath!);
-      if (signingReportBackedUp && signingReportBackup && existsSync(signingReportBackup))
-        await rename(signingReportBackup, signingReportPath!);
-      throw error;
-    }
-    if (backedUp) await rm(backup, { recursive: true, force: true });
-    if (archiveBackedUp && archiveBackup) await rm(archiveBackup, { force: true });
-    if (symbolArchiveBackedUp && symbolArchiveBackup)
-      await rm(symbolArchiveBackup, { force: true });
-    if (appImageBackedUp && appImageBackup) await rm(appImageBackup, { force: true });
-    if (dmgBackedUp && dmgBackup) await rm(dmgBackup, { force: true });
-    if (signingReportBackedUp && signingReportBackup)
-      await rm(signingReportBackup, { force: true });
+    const publicationEntries = [
+      {
+        finalPath: request.outputDirectory,
+        stagedPath: temp,
+        backupPath: backup,
+        hadPrevious: existsSync(request.outputDirectory),
+      },
+      ...(archivePath && archiveTemp && archiveBackup
+        ? [
+            {
+              finalPath: archivePath,
+              stagedPath: archiveTemp,
+              backupPath: archiveBackup,
+              hadPrevious: existsSync(archivePath),
+            },
+          ]
+        : []),
+      ...(symbolArchivePath && symbolArchiveTemp && symbolArchiveBackup
+        ? [
+            {
+              finalPath: symbolArchivePath,
+              stagedPath: existsSync(symbolArchiveTemp) ? symbolArchiveTemp : null,
+              backupPath: symbolArchiveBackup,
+              hadPrevious: existsSync(symbolArchivePath),
+            },
+          ]
+        : []),
+      ...(appImagePath && appImageTemp && appImageBackup
+        ? [
+            {
+              finalPath: appImagePath,
+              stagedPath: appImageTemp,
+              backupPath: appImageBackup,
+              hadPrevious: existsSync(appImagePath),
+            },
+          ]
+        : []),
+      ...(dmgPath && dmgTemp && dmgBackup
+        ? [
+            {
+              finalPath: dmgPath,
+              stagedPath: dmgTemp,
+              backupPath: dmgBackup,
+              hadPrevious: existsSync(dmgPath),
+            },
+          ]
+        : []),
+      ...(signingReportPath && signingReportTemp && signingReportBackup
+        ? [
+            {
+              finalPath: signingReportPath,
+              stagedPath: signingReportTemp,
+              backupPath: signingReportBackup,
+              hadPrevious: existsSync(signingReportPath),
+            },
+          ]
+        : []),
+    ];
+    await commitOutputPublicationTransaction({
+      transactionPath: `${request.outputDirectory}.noveltea-publication-transaction.json`,
+      entries: publicationEntries,
+      registerRecoveryPath,
+    });
     const artifacts: NonNullable<PlatformStageResult['artifacts']> = [
       { kind: 'directory', path: request.outputDirectory },
     ];
@@ -1630,42 +1637,6 @@ export async function stagePlatformExport(
     if (appImageTemp) await rm(appImageTemp, { force: true });
     if (dmgTemp) await rm(dmgTemp, { force: true });
     if (signingReportTemp) await rm(signingReportTemp, { force: true });
-    if (backedUp && !existsSync(request.outputDirectory) && existsSync(backup))
-      await rename(backup, request.outputDirectory);
-    if (
-      archivePath &&
-      archiveBackedUp &&
-      archiveBackup &&
-      !existsSync(archivePath) &&
-      existsSync(archiveBackup)
-    )
-      await rename(archiveBackup, archivePath);
-    if (
-      symbolArchivePath &&
-      symbolArchiveBackedUp &&
-      symbolArchiveBackup &&
-      !existsSync(symbolArchivePath) &&
-      existsSync(symbolArchiveBackup)
-    )
-      await rename(symbolArchiveBackup, symbolArchivePath);
-    if (
-      appImagePath &&
-      appImageBackedUp &&
-      appImageBackup &&
-      !existsSync(appImagePath) &&
-      existsSync(appImageBackup)
-    )
-      await rename(appImageBackup, appImagePath);
-    if (dmgPath && dmgBackedUp && dmgBackup && !existsSync(dmgPath) && existsSync(dmgBackup))
-      await rename(dmgBackup, dmgPath);
-    if (
-      signingReportPath &&
-      signingReportBackedUp &&
-      signingReportBackup &&
-      !existsSync(signingReportPath) &&
-      existsSync(signingReportBackup)
-    )
-      await rename(signingReportBackup, signingReportPath);
     return {
       ok: false,
       success: false,

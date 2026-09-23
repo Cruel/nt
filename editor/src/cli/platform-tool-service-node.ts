@@ -68,6 +68,9 @@ export function createNovelTeaCliPlatformToolService(
               }
             : undefined,
           beforePublish,
+          nativeTools?.registerStagedOutput
+            ? (recoveryPath) => nativeTools.registerStagedOutput!(recoveryPath)
+            : undefined,
         );
       } finally {
         process.off('SIGINT', cancel);
