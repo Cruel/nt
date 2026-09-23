@@ -9,7 +9,11 @@ import { featureDataSchema, interactableHotspotTargetSchema } from './authoring-
 import { inventoryDefinitionSchema, inventoryReferenceSchema } from './authoring-inventories';
 import { authoredPropertyValueSchema, ownerLocalPropertiesSchema } from './authoring-properties';
 import { cursorTargetSchema } from './authoring-cursor-vocabulary';
-import { materialApplicationSchema } from './authoring-material-applications';
+import {
+  emptyMaterialApplicationSpecialization,
+  materialApplicationSchema,
+  materialApplicationSpecializationSchema,
+} from './authoring-material-applications';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const interactableAssetRefSchema = assetRefSchema;
@@ -70,6 +74,7 @@ export const interactableInstanceDataSchema = strict({
     remove: z.array(entityIdSchema),
   }),
   localProperties: ownerLocalPropertiesSchema,
+  materialApplication: materialApplicationSpecializationSchema,
   featureOverrides: z.array(interactableFeatureOverrideSchema),
 });
 
@@ -145,6 +150,7 @@ export function defaultInteractableInstanceData(
     quantity: 1,
     traits: { add: [], remove: [] },
     localProperties: [],
+    materialApplication: emptyMaterialApplicationSpecialization(),
     featureOverrides: [],
   };
 }

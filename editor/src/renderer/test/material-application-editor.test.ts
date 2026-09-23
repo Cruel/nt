@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { materialApplicationParameterOverrideCompatible } from '@/components/materials/MaterialApplicationEditor';
 import type { EffectiveInteractableProperty } from '../../shared/project-schema/authoring-interactable-properties';
+import { effectiveMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 
 function property(
   id: string,
@@ -13,6 +14,39 @@ function property(
     traitIds: [],
   };
 }
+
+describe('Material Application specialization', () => {
+  it('resolves sparse Instance entries over Definition entries and reveals inherited values when reset', () => {
+    const inherited = {
+      material: { $ref: { collection: 'materials' as const, id: 'base' } },
+      parameters: {
+        u_amount: { type: 'float' as const, source: { kind: 'literal' as const, value: 0.25 } },
+        u_definition: { type: 'float' as const, source: { kind: 'literal' as const, value: 0.5 } },
+      },
+      textures: {},
+    };
+    const specialized = effectiveMaterialApplication(inherited, {
+      material: { $ref: { collection: 'materials', id: 'special' } },
+      parameters: {
+        u_amount: { type: 'float', source: { kind: 'literal', value: 0.75 } },
+      },
+      textures: {},
+    });
+    expect(specialized?.material.$ref.id).toBe('special');
+    expect(specialized?.parameters.u_amount).toEqual({
+      type: 'float',
+      source: { kind: 'literal', value: 0.75 },
+    });
+    expect(specialized?.parameters.u_definition).toEqual(inherited.parameters.u_definition);
+
+    const reset = effectiveMaterialApplication(inherited, {
+      material: null,
+      parameters: {},
+      textures: {},
+    });
+    expect(reset).toEqual(inherited);
+  });
+});
 
 describe('MaterialApplicationEditor parameter compatibility', () => {
   const properties = [

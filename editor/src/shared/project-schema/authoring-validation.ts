@@ -40,7 +40,7 @@ import {
   messagePatternSelectorSignatures,
   messagePlaceholderNames,
 } from './authoring-localization';
-import { validateMaterialData } from './authoring-materials';
+import { resolveMaterialData, validateMaterialData } from './authoring-materials';
 import { validateMapData } from './authoring-maps';
 import {
   arePropertySchemasCompatible,
@@ -1382,6 +1382,65 @@ function validateInteractableProperties(
     const effectiveDefinition = resolveGameplayInstanceRecord(project, 'interactable', definition);
     const definitionData = parseInteractableData(effectiveDefinition?.data ?? definition.data);
     if (definitionData) {
+      const materialId =
+        instance.materialApplication.material?.$ref.id ??
+        definitionData.presentation.materialApplication?.material.$ref.id ??
+        null;
+      if (instance.materialApplication.material) {
+        const material = project.materials[instance.materialApplication.material.$ref.id];
+        if (!material)
+          diagnostics.push(
+            instanceDiagnostic(
+              'error',
+              `${base}/materialApplication/material/$ref`,
+              `Missing material '${instance.materialApplication.material.$ref.id}'.`,
+            ),
+          );
+        else {
+          const resolved = resolveMaterialData(
+            project,
+            instance.materialApplication.material.$ref.id,
+          ).data;
+          if (resolved && resolved.role !== 'engine-2d')
+            diagnostics.push(
+              instanceDiagnostic(
+                'error',
+                `${base}/materialApplication/material/$ref`,
+                `Interactable Instance Material must use the engine-2d role, not '${resolved.role}'.`,
+              ),
+            );
+        }
+      }
+      for (const [name, texture] of Object.entries(instance.materialApplication.textures)) {
+        const asset = project.assets[texture.source.$ref.id];
+        if (!asset)
+          diagnostics.push(
+            instanceDiagnostic(
+              'error',
+              `${base}/materialApplication/textures/${name}/source/$ref`,
+              `Missing texture asset '${texture.source.$ref.id}'.`,
+            ),
+          );
+        else if (parseAssetData(asset.data)?.kind !== 'image')
+          diagnostics.push(
+            instanceDiagnostic(
+              'error',
+              `${base}/materialApplication/textures/${name}/source/$ref`,
+              `Material texture override '${name}' must reference an image asset.`,
+            ),
+          );
+      }
+      if (materialId) {
+        const resolved = resolveMaterialData(project, materialId).data;
+        if (resolved && resolved.role !== 'engine-2d')
+          diagnostics.push(
+            instanceDiagnostic(
+              'error',
+              `${base}/materialApplication`,
+              `Effective Interactable Instance Material must use the engine-2d role, not '${resolved.role}'.`,
+            ),
+          );
+      }
       if (!definitionData.stackable && instance.quantity !== 1)
         diagnostics.push(
           instanceDiagnostic(

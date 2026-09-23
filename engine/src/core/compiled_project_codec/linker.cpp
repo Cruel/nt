@@ -673,7 +673,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             std::move(value.id), std::move(value.definition), std::move(value.location),
             value.enabled, value.visible, value.quantity, std::move(value.trait_adds),
             std::move(value.trait_removes), std::move(property_overrides),
-            std::move(local_properties), std::move(feature_overrides)});
+            std::move(local_properties), std::move(value.material_override),
+            std::move(value.material_parameters), std::move(value.material_textures),
+            std::move(feature_overrides)});
     }
 
     std::vector<compiled::ArchetypeDefinition> archetypes;

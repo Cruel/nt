@@ -35,7 +35,7 @@ Interactable, a label, compatible Trait attachments, and compatible Property ass
 Feature subject is always referenced as `(InteractableInstanceId, FeatureId)`; a bare Feature ID is not a
 runtime identity.
 
-Definition presentation may select an Engine2D Material through a shared Material Application. The application contains the Material selection plus sparse typed parameter sources and sparse author-owned texture sources. Parameters may use literals, compatible Interactable Property bindings, or supported scalar standard facets; renderer-owned inputs remain read-only. Changing the selected Material does not delete incompatible saved entries: they remain dormant until a compatible Material is selected again. This Definition-level application is inherited by all Instances; concrete Instance Material specialization is reserved for the separate, more-specific Instance authoring layer.
+Definition presentation may select an Engine2D Material through a shared Material Application. The application contains the Material selection plus sparse typed parameter sources and sparse author-owned texture sources. Parameters may use literals, compatible Interactable Property bindings, or supported scalar standard facets; renderer-owned inputs remain read-only. Changing the selected Material does not delete incompatible saved entries: they remain dormant until a compatible Material is selected again. Every concrete Instance inherits this application and may author a more-specific sparse specialization: an optional Material-selection replacement plus parameter and author-owned texture deltas. Instance names override matching Definition names; absent Instance entries continue to inherit the Definition application, and Reset removes only the Instance delta. Dormant incompatible Instance entries are retained across Material switching and can reactivate when their compatible Material is selected again.
 
 Presentation chooses one of three explicit Hotspot modes: `none`, `sprite-alpha`, or `custom`.
 `none` performs no pointer hit testing and does not require a sprite. `sprite-alpha` provides one
@@ -57,10 +57,12 @@ non-clickable Interactable.
 
 Declared Instances live in the project-level `interactableInstances` registry. Each entry owns its
 stable exact ID, Definition reference, optional editor label, authoritative Location, enabled/visible
-state, positive quantity, Trait additions/removals, sparse inherited Property overrides, and ordered completely
-Instance-local typed Properties. Multiple Instances may reference the same Definition and remain
-independent identities. Effective Values resolve by specificity: Instance-local/override Value,
-Definition Default, inherited Archetype Default, Trait Default, then missing. Resetting an inherited
+state, positive quantity, Trait additions/removals, sparse inherited Property overrides, ordered
+Instance-local typed Properties, and one sparse Material Application specialization. Multiple Instances
+may reference the same Definition and remain independent identities. Effective Property Values resolve
+by specificity: Instance-local/override Value, Definition Default, inherited Archetype Default, Trait
+Default, then missing. Effective authored Material state resolves Instance selection and named deltas
+over Definition selection and named deltas, then Material/preset defaults. Resetting an Instance
 override reveals the lower layer instead of copying that lower Value into the Instance.
 
 Room geometry belongs to nested `RoomPlacement`, not the Definition. A mutable `InteractableState`

@@ -1076,8 +1076,10 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                       -> std::optional<InteractableInstanceDeclaration> {
                       if (!decoder.object(item, pointer,
                                           {"definition", "enabled", "featureOverrides", "id",
-                                           "location", "localProperties", "propertyOverrides",
-                                           "quantity", "traitAdds", "traitRemoves", "visible"}))
+                                           "location", "localProperties", "materialOverride",
+                                           "materialParameters", "materialTextures",
+                                           "propertyOverrides", "quantity", "traitAdds",
+                                           "traitRemoves", "visible"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(item, "id", pointer);
                       const auto* definition_value = decoder.member(item, "definition", pointer);
@@ -1091,6 +1093,17 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                           decoder.member(item, "propertyOverrides", pointer);
                       const auto* local_properties_value =
                           decoder.member(item, "localProperties", pointer);
+                      const auto material_override_entry = item.find("materialOverride");
+                      const auto* material_override_value =
+                          material_override_entry != item.end() ? &*material_override_entry : nullptr;
+                      const auto material_parameters_entry = item.find("materialParameters");
+                      const auto* material_parameters_value = material_parameters_entry != item.end()
+                                                                  ? &*material_parameters_entry
+                                                                  : nullptr;
+                      const auto material_textures_entry = item.find("materialTextures");
+                      const auto* material_textures_value = material_textures_entry != item.end()
+                                                                ? &*material_textures_entry
+                                                                : nullptr;
                       const auto* feature_overrides_value =
                           decoder.member(item, "featureOverrides", pointer);
                       auto id = id_value ? decoder.id<InteractableInstanceId>(
@@ -1200,6 +1213,33 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                                    : std::nullopt;
                                     })
                               : std::nullopt;
+                      std::optional<MaterialId> material_override;
+                      bool material_override_ok = true;
+                      if (material_override_value) {
+                          material_override = decode_reference<MaterialId>(
+                              decoder, *material_override_value,
+                              pointer_child(pointer, "materialOverride"), "material");
+                          material_override_ok = material_override.has_value();
+                      }
+                      std::vector<MaterialApplicationParameterOverride> material_parameters;
+                      std::vector<MaterialApplicationTextureOverride> material_textures;
+                      bool material_specialization_ok = true;
+                      if (material_parameters_value || material_textures_value) {
+                          nlohmann::json application = {
+                              {"material", {{"kind", "material"}, {"id", "instance-specialization"}}},
+                              {"parameters", material_parameters_value ? *material_parameters_value
+                                                                        : nlohmann::json::array()},
+                              {"textures", material_textures_value ? *material_textures_value
+                                                                    : nlohmann::json::array()},
+                          };
+                          auto decoded_application =
+                              decode_material_application(decoder, application, pointer);
+                          material_specialization_ok = decoded_application.has_value();
+                          if (decoded_application) {
+                              material_parameters = std::move(decoded_application->parameters);
+                              material_textures = std::move(decoded_application->textures);
+                          }
+                      }
                       auto feature_overrides =
                           feature_overrides_value
                               ? decoder.array<InteractableFeatureOverride>(
@@ -1301,7 +1341,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                               : std::nullopt;
                       if (!id || !definition || !location || !enabled || !visible || !quantity ||
                           !trait_adds || !trait_removes || !property_overrides ||
-                          !local_properties || !feature_overrides)
+                          !local_properties || !material_override_ok || !material_specialization_ok ||
+                          !feature_overrides)
                           return std::nullopt;
                       return InteractableInstanceDeclaration{std::move(*id),
                                                              std::move(*definition),
@@ -1313,6 +1354,9 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                                              std::move(*trait_removes),
                                                              std::move(*property_overrides),
                                                              std::move(*local_properties),
+                                                             std::move(material_override),
+                                                             std::move(material_parameters),
+                                                             std::move(material_textures),
                                                              std::move(*feature_overrides)};
                   })
             : std::nullopt;

@@ -8,6 +8,7 @@ import {
 } from '@/components/image-stage/hotspot-view-state';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
+import { MaterialApplicationSpecializationEditor } from '@/components/materials/MaterialApplicationSpecializationEditor';
 import {
   InteractableDefinitionPropertiesEditor,
   InteractableInstanceFeatureOverridesEditor,
@@ -40,7 +41,10 @@ import {
   type InteractableData,
 } from '../../../shared/project-schema/authoring-interactables';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { effectiveInteractableDefinitionProperties } from '../../../shared/project-schema/authoring-interactable-properties';
+import {
+  effectiveInteractableDefinitionProperties,
+  effectiveInteractableInstanceProperties,
+} from '../../../shared/project-schema/authoring-interactable-properties';
 import { entityIdSchema } from '../../../shared/project-schema/authoring-common';
 import { systemCursorNames } from '../../../shared/project-schema/authoring-cursor-vocabulary';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -582,6 +586,22 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
                     </p>
                   ) : null}
                 </div>
+                <MaterialApplicationSpecializationEditor
+                  project={project}
+                  inheritedValue={data.presentation.materialApplication}
+                  value={instance.materialApplication}
+                  properties={effectiveInteractableInstanceProperties(project, instance)}
+                  ariaLabel={`Choose ${instance.editorLabel ?? instanceId} material`}
+                  onChange={(materialApplication) =>
+                    applyProjectPatches('Update Interactable Instance Material Application', [
+                      {
+                        op: 'replace',
+                        path: `/interactableInstances/${escapePointerSegment(instanceId)}/materialApplication`,
+                        value: materialApplication,
+                      },
+                    ])
+                  }
+                />
                 <InteractableInstancePropertiesEditor
                   compact
                   project={project}

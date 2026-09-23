@@ -104,6 +104,9 @@ export function MaterialApplicationEditor({
   properties = [],
   onChange,
   ariaLabel,
+  inheritedValue = null,
+  overrideLabel = 'Definition override',
+  hideMaterialSelector = false,
 }: {
   project: AuthoringProject;
   value: MaterialApplication | null;
@@ -111,6 +114,9 @@ export function MaterialApplicationEditor({
   properties?: readonly EffectiveInteractableProperty[];
   onChange: (value: MaterialApplication | null) => void;
   ariaLabel?: string;
+  inheritedValue?: MaterialApplication | null;
+  overrideLabel?: string;
+  hideMaterialSelector?: boolean;
 }) {
   const materialId = value?.material.$ref.id ?? null;
   const resource = useMaterialPreviewResource(materialId);
@@ -128,14 +134,15 @@ export function MaterialApplicationEditor({
   const occurrenceOverrides = useMemo<MaterialSelectorOccurrenceOverrides>(
     () => ({
       parameters: Object.fromEntries(
-        Object.entries(value?.parameters ?? {}).flatMap(([name, override]) =>
-          override.source.kind === 'literal'
-            ? [[name, { type: override.type, value: override.source.value }]]
-            : [],
+        Object.entries({ ...inheritedValue?.parameters, ...value?.parameters }).flatMap(
+          ([name, override]) =>
+            override.source.kind === 'literal'
+              ? [[name, { type: override.type, value: override.source.value }]]
+              : [],
         ),
       ),
     }),
-    [value?.parameters],
+    [inheritedValue?.parameters, value?.parameters],
   );
   const uniforms = resource?.derivedInterface?.uniforms ?? {};
   const samplers = resource?.derivedInterface?.samplers ?? {};
@@ -174,36 +181,38 @@ export function MaterialApplicationEditor({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-stretch gap-1">
-        <MaterialSelector
-          project={project}
-          value={materialId}
-          expectedRole={expectedRole}
-          occurrenceOverrides={occurrenceOverrides}
-          ariaLabel={ariaLabel}
-          className="min-w-0 flex-1"
-          onValueChange={(nextMaterialId) =>
-            onChange(
-              value
-                ? {
-                    ...value,
-                    material: { $ref: { collection: 'materials', id: nextMaterialId } },
-                  }
-                : emptyMaterialApplication(nextMaterialId),
-            )
-          }
-        />
-        {value ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="h-auto shrink-0 px-3"
-            onClick={() => onChange(null)}
-          >
-            Clear
-          </Button>
-        ) : null}
-      </div>
+      {!hideMaterialSelector ? (
+        <div className="flex items-stretch gap-1">
+          <MaterialSelector
+            project={project}
+            value={materialId}
+            expectedRole={expectedRole}
+            occurrenceOverrides={occurrenceOverrides}
+            ariaLabel={ariaLabel}
+            className="min-w-0 flex-1"
+            onValueChange={(nextMaterialId) =>
+              onChange(
+                value
+                  ? {
+                      ...value,
+                      material: { $ref: { collection: 'materials', id: nextMaterialId } },
+                    }
+                  : emptyMaterialApplication(nextMaterialId),
+              )
+            }
+          />
+          {value ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto shrink-0 px-3"
+              onClick={() => onChange(null)}
+            >
+              Clear
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       {value && resource?.derivedInterface ? (
         <div className="space-y-3 rounded-md border p-2.5">
@@ -211,6 +220,7 @@ export function MaterialApplicationEditor({
             <div className="text-xs font-medium">Parameters</div>
             {Object.entries(uniforms).map(([name, declaration]) => {
               const override = value.parameters[name];
+              const inheritedOverride = inheritedValue?.parameters[name];
               const active =
                 declaration.binding == null &&
                 !!override &&
@@ -219,8 +229,20 @@ export function MaterialApplicationEditor({
                   override,
                   properties,
                 );
+              const inheritedActive =
+                declaration.binding == null &&
+                !!inheritedOverride &&
+                materialApplicationParameterOverrideCompatible(
+                  declaration.type,
+                  inheritedOverride,
+                  properties,
+                );
               const materialDefault =
                 resource.resolved.parameters[name]?.value ?? declaration.default;
+              const effectiveInheritedLiteral =
+                inheritedActive && inheritedOverride.source.kind === 'literal'
+                  ? inheritedOverride.source.value
+                  : undefined;
               const literal =
                 active && override.source.kind === 'literal' ? override.source.value : undefined;
               const compatibleProperties = properties.filter((property) =>
@@ -244,8 +266,10 @@ export function MaterialApplicationEditor({
                       {declaration.binding != null
                         ? 'Renderer supplied'
                         : active
-                          ? 'Definition override'
-                          : 'Material default'}
+                          ? overrideLabel
+                          : inheritedActive
+                            ? 'Inherited from Definition'
+                            : 'Material default'}
                     </Badge>
                   </div>
                   {declaration.binding != null ? (
@@ -262,7 +286,10 @@ export function MaterialApplicationEditor({
                               type: declaration.type,
                               source: {
                                 kind: 'literal',
-                                value: materialDefault ?? defaultValue(declaration.type),
+                                value:
+                                  effectiveInheritedLiteral ??
+                                  materialDefault ??
+                                  defaultValue(declaration.type),
                               },
                             });
                           else if (kind === 'property') {
@@ -356,7 +383,11 @@ export function MaterialApplicationEditor({
                     </div>
                   ) : (
                     <div className="self-center truncate text-xs text-muted-foreground">
-                      {valueToText(materialDefault)}
+                      {inheritedActive && inheritedOverride
+                        ? inheritedOverride.source.kind === 'literal'
+                          ? valueToText(inheritedOverride.source.value)
+                          : sourceLabel(inheritedOverride)
+                        : valueToText(materialDefault)}
                     </div>
                   )}
                   <Button
@@ -371,7 +402,10 @@ export function MaterialApplicationEditor({
                             type: declaration.type,
                             source: {
                               kind: 'literal',
-                              value: materialDefault ?? defaultValue(declaration.type),
+                              value:
+                                effectiveInheritedLiteral ??
+                                materialDefault ??
+                                defaultValue(declaration.type),
                             },
                           })
                     }
@@ -410,7 +444,9 @@ export function MaterialApplicationEditor({
             <div className="text-xs font-medium">Textures</div>
             {Object.entries(samplers).map(([name, declaration]) => {
               const override = value.textures[name];
+              const inheritedOverride = inheritedValue?.textures[name];
               const active = !!override && declaration.binding == null;
+              const inheritedActive = !!inheritedOverride && declaration.binding == null;
               return (
                 <div
                   key={name}
@@ -425,8 +461,10 @@ export function MaterialApplicationEditor({
                       {declaration.binding != null
                         ? 'Renderer supplied'
                         : active
-                          ? 'Definition override'
-                          : 'Material default'}
+                          ? overrideLabel
+                          : inheritedActive
+                            ? 'Inherited from Definition'
+                            : 'Material default'}
                     </Badge>
                   </div>
                   {declaration.binding != null ? (
@@ -446,7 +484,9 @@ export function MaterialApplicationEditor({
                     </Select>
                   ) : (
                     <div className="self-center text-xs text-muted-foreground">
-                      Inherited Material texture
+                      {inheritedActive && inheritedOverride
+                        ? `Inherited · ${inheritedOverride.source.$ref.id}`
+                        : 'Inherited Material texture'}
                     </div>
                   )}
                   <Button

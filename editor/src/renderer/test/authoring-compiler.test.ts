@@ -3179,6 +3179,81 @@ describe('authoring compiler framework', () => {
     });
   });
 
+  it('lowers sparse Interactable Instance Material specialization independently from its Definition', () => {
+    const project = validProject();
+    project.materials.base = {
+      id: 'base',
+      label: 'Base',
+      data: defaultMaterialData('Base', 'engine-2d'),
+    };
+    project.materials.special = {
+      id: 'special',
+      label: 'Special',
+      data: defaultMaterialData('Special', 'engine-2d'),
+    };
+    project.assets.noise = {
+      id: 'noise',
+      label: 'Noise',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/noise.png',
+        extension: '.png',
+        byteSize: 64,
+        contentHash: 'noise-hash',
+        imageMetadata: { width: 8, height: 8, hasAlpha: false, orientation: 1 },
+      }),
+    };
+    const data = defaultInteractableData('Key');
+    data.presentation.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'base' } },
+      parameters: {
+        u_amount: { type: 'float', source: { kind: 'literal', value: 0.25 } },
+      },
+      textures: {},
+    };
+    project.interactables.key = { id: 'key', label: 'Key', data };
+    const instance = defaultInteractableInstanceData('key-instance', 'key');
+    instance.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'special' } },
+      parameters: {
+        u_amount: { type: 'float', source: { kind: 'literal', value: 0.75 } },
+        dormant: { type: 'vec2', source: { kind: 'literal', value: [1, 2] } },
+      },
+      textures: {
+        s_noise: { source: { $ref: { collection: 'assets', id: 'noise' } } },
+      },
+    };
+    project.interactableInstances['key-instance'] = instance;
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(
+      true,
+    );
+    if (!result.ok) return;
+    expect(result.project.interactableInstances[0]).toMatchObject({
+      id: 'key-instance',
+      materialOverride: { kind: 'material', id: 'special' },
+      materialParameters: [
+        {
+          name: 'dormant',
+          type: 'vec2',
+          source: { kind: 'literal', value: { type: 'vec2', value: [1, 2] } },
+        },
+        {
+          name: 'u_amount',
+          type: 'float',
+          source: { kind: 'literal', value: { type: 'float', value: 0.75 } },
+        },
+      ],
+      materialTextures: [{ name: 's_noise', source: { kind: 'asset', id: 'noise' } }],
+    });
+    expect(result.project.definitions.interactables[0]?.presentation.material?.id).toBe('base');
+    expect(result.project.definitions.interactables[0]?.presentation.materialParameters).toEqual([
+      expect.objectContaining({ name: 'u_amount' }),
+    ]);
+  });
+
   it('blocks compilation when Alpha hotspot mode has no sprite', () => {
     const project = validProject();
     const data = defaultInteractableData('Key');
