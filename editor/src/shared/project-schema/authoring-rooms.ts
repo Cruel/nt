@@ -14,6 +14,8 @@ import {
   textContentSchema,
 } from './authoring-flow';
 import { parseLayoutData } from './authoring-layouts';
+import { materialApplicationSchema } from './authoring-material-applications';
+import { resolveMaterialData } from './authoring-materials';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
@@ -94,7 +96,7 @@ export const roomAnchorDataSchema = strict({
 
 export const roomBackgroundDataSchema = strict({
   asset: roomAssetRefSchema.nullable(),
-  material: roomMaterialRefSchema.nullable(),
+  materialApplication: materialApplicationSchema.nullable(),
   fit: z.enum(roomBackgroundFitValues),
   color: z.string().nullable(),
 });
@@ -138,7 +140,7 @@ export const roomPropDataSchema = strict({
   condition: conditionSchema,
   placementId: entityIdSchema,
   asset: roomAssetRefSchema.nullable(),
-  material: roomMaterialRefSchema.nullable(),
+  materialApplication: materialApplicationSchema.nullable(),
   visible: z.boolean(),
   order: z.number().int(),
 });
@@ -154,7 +156,7 @@ export const roomEnvironmentDataSchema = strict({
   id: entityIdSchema,
   condition: conditionSchema,
   asset: roomAssetRefSchema.nullable(),
-  material: roomMaterialRefSchema,
+  materialApplication: materialApplicationSchema,
   bounds: roomNormalizedRectSchema,
   plane: z.enum(roomEnvironmentPlaneValues),
   order: z.number().int(),
@@ -276,7 +278,7 @@ export function defaultRoomData(label = 'Room'): RoomData {
   return {
     kind: 'room',
     displayName: label,
-    background: { asset: null, material: null, fit: 'cover', color: null },
+    background: { asset: null, materialApplication: null, fit: 'cover', color: null },
     description: inlineTextContent(),
     presentationSpace: {
       size: { width: 1920, height: 1080 },
@@ -408,13 +410,24 @@ export function validateRoomData(
         ),
       );
   }
-  if (data.background.material && !project.materials[data.background.material.$ref.id])
-    diagnostics.push(
-      diagnostic(
-        `${base}/background/material/$ref`,
-        `Missing material '${data.background.material.$ref.id}'.`,
-      ),
-    );
+  if (data.background.materialApplication) {
+    const materialId = data.background.materialApplication.material.$ref.id;
+    const material = project.materials[materialId];
+    if (!material)
+      diagnostics.push(
+        diagnostic(
+          `${base}/background/materialApplication/material/$ref`,
+          `Missing material '${materialId}'.`,
+        ),
+      );
+    else if (resolveMaterialData(project, materialId).data?.role !== 'engine-2d')
+      diagnostics.push(
+        diagnostic(
+          `${base}/background/materialApplication/material/$ref`,
+          'Room background Material must use the engine-2d role.',
+        ),
+      );
+  }
   uniqueIds(
     data.presentationSpace.views,
     `${base}/presentationSpace/views`,
@@ -591,14 +604,27 @@ export function validateRoomData(
       diagnostics.push(
         diagnostic(`${path}/placementId`, `Missing placement '${entry.placementId}'.`),
       );
-    if (!entry.asset && !entry.material)
-      diagnostics.push(diagnostic(path, 'Room prop requires an asset and/or material.'));
+    if (!entry.asset && !entry.materialApplication)
+      diagnostics.push(diagnostic(path, 'Room prop requires an asset and/or Material.'));
     if (entry.asset && !project.assets[entry.asset.$ref.id])
       diagnostics.push(diagnostic(`${path}/asset/$ref`, `Missing asset '${entry.asset.$ref.id}'.`));
-    if (entry.material && !project.materials[entry.material.$ref.id])
-      diagnostics.push(
-        diagnostic(`${path}/material/$ref`, `Missing material '${entry.material.$ref.id}'.`),
-      );
+    if (entry.materialApplication) {
+      const materialId = entry.materialApplication.material.$ref.id;
+      if (!project.materials[materialId])
+        diagnostics.push(
+          diagnostic(
+            `${path}/materialApplication/material/$ref`,
+            `Missing material '${materialId}'.`,
+          ),
+        );
+      else if (resolveMaterialData(project, materialId).data?.role !== 'engine-2d')
+        diagnostics.push(
+          diagnostic(
+            `${path}/materialApplication/material/$ref`,
+            'Room prop Material must use the engine-2d role.',
+          ),
+        );
+    }
     validateCondition(project, entry.condition, `${path}/condition`, diagnostics);
   });
   data.interactables.forEach((entry, index) => {
@@ -644,9 +670,20 @@ export function validateRoomData(
     const path = `${base}/environments/${index}`;
     if (entry.asset && !project.assets[entry.asset.$ref.id])
       diagnostics.push(diagnostic(`${path}/asset/$ref`, `Missing asset '${entry.asset.$ref.id}'.`));
-    if (!project.materials[entry.material.$ref.id])
+    const materialId = entry.materialApplication.material.$ref.id;
+    if (!project.materials[materialId])
       diagnostics.push(
-        diagnostic(`${path}/material/$ref`, `Missing material '${entry.material.$ref.id}'.`),
+        diagnostic(
+          `${path}/materialApplication/material/$ref`,
+          `Missing material '${materialId}'.`,
+        ),
+      );
+    else if (resolveMaterialData(project, materialId).data?.role !== 'engine-2d')
+      diagnostics.push(
+        diagnostic(
+          `${path}/materialApplication/material/$ref`,
+          'Room environment Material must use the engine-2d role.',
+        ),
       );
     validateCondition(project, entry.condition, `${path}/condition`, diagnostics);
   });

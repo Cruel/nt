@@ -1,8 +1,9 @@
 import { assetDataFromImportMetadata } from './authoring-assets';
 import { defaultLayoutData } from './authoring-layouts';
+import { emptyMaterialApplication } from './authoring-material-applications';
 import { defaultMaterialData } from './authoring-materials';
 import { createAuthoringProject } from './authoring-project';
-import { defaultRoomData, roomAssetRef, roomMaterialRef, roomRoomRef } from './authoring-rooms';
+import { defaultRoomData, roomAssetRef, roomRoomRef } from './authoring-rooms';
 import { defaultFragmentShaderSource } from './authoring-shaders';
 
 export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION = '2026-07-11.1' as const;
@@ -59,7 +60,7 @@ export function createPlatformExportAcceptanceFixture() {
   const foyer = defaultRoomData('Foyer');
   foyer.description.source = { kind: 'inline', text: 'A fixture with [b]rich text[/b].' };
   foyer.background.asset = roomAssetRef('backdrop');
-  foyer.background.material = roomMaterialRef('fixture-material');
+  foyer.background.materialApplication = emptyMaterialApplication('fixture-material');
   foyer.scriptHooks = [
     {
       hook: 'after-enter',

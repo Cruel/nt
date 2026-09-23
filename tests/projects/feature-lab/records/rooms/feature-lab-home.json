@@ -8,7 +8,7 @@
   "data": {
     "kind": "room",
     "displayName": "Feature Lab",
-    "background": { "asset": null, "material": null, "fit": "cover", "color": "#071018" },
+    "background": { "asset": null, "materialApplication": null, "fit": "cover", "color": "#071018" },
     "description": {
       "source": { "kind": "inline", "text": "Use the Feature Lab HUD to search checks and launch a scenario. Scenario launch always begins a fresh gameplay session." },
       "markup": "active-text"

@@ -15,6 +15,10 @@ import {
   resolvedMaterialUsesCustomShader,
   resolveMaterialData,
 } from './project-schema/authoring-materials';
+import type {
+  MaterialApplication,
+  MaterialApplicationParameterOverride,
+} from './project-schema/authoring-material-applications';
 import type { ShaderUniformValue } from './project-schema/authoring-shaders';
 import {
   parseSceneData,
@@ -107,6 +111,64 @@ function common(step: Exclude<SceneStepData, { type: 'comment' }>) {
   };
 }
 
+type CompiledSceneBackgroundInstruction = Extract<
+  SceneProgram['events'][number]['instruction'],
+  { kind: 'set-background' }
+>;
+type CompiledMaterialApplicationParameter = NonNullable<
+  CompiledSceneBackgroundInstruction['materialParameters']
+>[number];
+
+function compileMaterialApplicationLiteral(
+  override: MaterialApplicationParameterOverride,
+): Extract<CompiledMaterialApplicationParameter['source'], { kind: 'literal' }>['value'] {
+  if (override.source.kind !== 'literal' || override.source.value === null)
+    throw new Error('Validated Material Application literal cannot lower a null value.');
+  const value = override.source.value;
+  switch (override.type) {
+    case 'float':
+      return { type: 'float', value: value as number };
+    case 'vec2':
+      return { type: 'vec2', value: value as [number, number] };
+    case 'vec3':
+      return { type: 'vec3', value: value as [number, number, number] };
+    case 'vec4':
+      return { type: 'vec4', value: value as [number, number, number, number] };
+    case 'color':
+      return { type: 'color', value: value as { r: number; g: number; b: number; a: number } };
+    case 'int':
+      return { type: 'int', value: value as number };
+    case 'bool':
+      return { type: 'bool', value: value as boolean };
+  }
+}
+
+function compileMaterialApplication(application: MaterialApplication | null) {
+  const parameters = Object.entries(application?.parameters ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, override]) => ({
+      name,
+      type: override.type,
+      source:
+        override.source.kind === 'literal'
+          ? { kind: 'literal' as const, value: compileMaterialApplicationLiteral(override) }
+          : override.source.kind === 'property'
+            ? { kind: 'property' as const, property: override.source.property }
+            : { kind: 'standard-facet' as const, facet: override.source.facet },
+    }));
+  const textures = Object.entries(application?.textures ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, override]) => ({
+      name,
+      source: { kind: 'asset' as const, id: override.source.$ref.id },
+    }));
+  return {
+    material: application ? materialRef(application.material) : null,
+    ...(parameters.length > 0 ? { materialParameters: parameters } : {}),
+    ...(textures.length > 0 ? { materialTextures: textures } : {}),
+  };
+}
+
 type CompiledMaterialParameterValue = Extract<
   SceneProgram['events'][number]['instruction'],
   { kind: 'material-parameter' }
@@ -168,7 +230,7 @@ function compileTransitionGroupChild(
         id: child.id,
         kind: 'set-background',
         asset: assetRef(child.asset),
-        material: materialRef(child.material),
+        ...compileMaterialApplication(child.materialApplication),
         color: child.color,
         fit: child.fit,
       };
@@ -354,7 +416,7 @@ function compileSceneStep(
         kind: 'set-background',
         owner: step.owner,
         asset: assetRef(step.asset),
-        material: materialRef(step.material),
+        ...compileMaterialApplication(step.materialApplication),
         color: step.color,
         fit: step.fit,
         transition: step.transition,

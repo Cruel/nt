@@ -24,6 +24,7 @@ import {
   layoutKindValues,
   type LayoutKind,
 } from '../../../../shared/project-schema/authoring-layouts';
+import { emptyMaterialApplication } from '../../../../shared/project-schema/authoring-material-applications';
 import {
   defaultMaterialData,
   materialPreviewBackgroundValues,
@@ -447,7 +448,7 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
       const materialId = selected(draft.options.materialId);
       const layer = data.profiles[0]?.poses[0]?.layers[0];
       if (layer && spriteId) layer.sprite = ref('assets', spriteId);
-      if (layer && materialId) layer.material = ref('materials', materialId);
+      if (layer && materialId) layer.materialApplication = emptyMaterialApplication(materialId);
       return { data };
     },
   },
@@ -528,7 +529,7 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
       const assetId = selected(draft.options.backgroundAssetId);
       const materialId = selected(draft.options.materialId);
       if (assetId) data.background.asset = ref('assets', assetId);
-      if (materialId) data.background.material = ref('materials', materialId);
+      if (materialId) data.background.materialApplication = emptyMaterialApplication(materialId);
       data.background.fit = String(draft.options.fit ?? 'cover') as typeof data.background.fit;
       data.description.source = { kind: 'inline', text: String(draft.options.description ?? '') };
       return { data };
@@ -636,7 +637,8 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
       const layoutId = selected(draft.options.layoutId);
       if (data.stage.kind === 'blank') {
         if (assetId) data.stage.background.asset = ref('assets', assetId);
-        if (materialId) data.stage.background.material = ref('materials', materialId);
+        if (materialId)
+          data.stage.background.materialApplication = emptyMaterialApplication(materialId);
         if (layoutId) data.stage.layout = ref('layouts', layoutId);
       }
       return { data };

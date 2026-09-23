@@ -168,6 +168,8 @@ PresentationActor actor(ActorPresentationKey key, std::int32_t order = 0)
                                std::string{"body"},
                                id<AssetId>("pose"),
                                id<core::MaterialId>("pose-material"),
+                               {},
+                               {},
                                {0.5, 1.0},
                                {0.0, 0.0},
                                1.0,
@@ -176,6 +178,8 @@ PresentationActor actor(ActorPresentationKey key, std::int32_t order = 0)
                                std::string{"face"},
                                id<AssetId>("expression"),
                                id<core::MaterialId>("expression-material"),
+                               {},
+                               {},
                                {0.5, 1.0},
                                {0.0, 0.0},
                                1.0,
@@ -324,9 +328,12 @@ TEST_CASE("world backend realizes canonical family order and every actor key fam
     snapshot.environments.push_back(
         {id<PresentationEnvironmentInstanceId>("weather"),
          SessionPresentationOwner{PresentationSessionId::from_number(1)},
+         std::nullopt,
          id<PresentationEnvironmentStopKey>("weather"),
          std::nullopt,
          id<core::MaterialId>("rain"),
+         {},
+         {},
          {0.0, 0.0, 1.0, 1.0},
          PresentationPlane::WorldContent,
          50,
@@ -337,8 +344,11 @@ TEST_CASE("world backend realizes canonical family order and every actor key fam
     snapshot.props.push_back(
         {ScopedPropPresentationKey{id<PresentationPropInstanceId>("foreground-prop")},
          SessionPresentationOwner{PresentationSessionId::from_number(1)},
+         std::nullopt,
          id<AssetId>("prop"),
          std::nullopt,
+         {},
+         {},
          std::nullopt,
          {0.2, 0.3, 0.1, 0.2},
          PresentationPlane::WorldContent,
@@ -436,6 +446,124 @@ TEST_CASE("Interactable Material Application overrides reach the draw command")
     CHECK(rendered->material_texture_overrides.front().source == "project:/assets/noise.png");
 }
 
+TEST_CASE("Engine2D Material Applications reach background prop environment and actor draws")
+{
+    FakeWorldResources resources;
+    resources.add_texture("background", 10, 100, 50);
+    resources.add_texture("prop", 11, 32, 32);
+    resources.add_texture("environment", 12, 64, 64);
+    resources.add_texture("pose", 13, 80, 160);
+    resources.add_texture("expression", 14, 80, 160);
+    WorldPresentationBackend backend(resources);
+
+    auto snapshot = base_snapshot();
+    const auto room = id<RoomId>("atrium");
+    const PresentationOwner owner = RoomPresentationOwner{room};
+    const auto background_material = id<core::MaterialId>("background-material");
+    const auto prop_material = id<core::MaterialId>("prop-material");
+    const auto environment_material = id<core::MaterialId>("environment-material");
+    const auto actor_material = id<core::MaterialId>("pose-material");
+
+    snapshot.background = PresentationBackground{
+        .material_owner = owner,
+        .material_property_owner = PropertyOwnerRef{room},
+        .asset = id<AssetId>("background"),
+        .color = std::nullopt,
+        .fit = compiled::BackgroundFit::Cover,
+        .material = background_material,
+        .material_parameters = {},
+        .material_texture_overrides = {{"s_noise", "project:/assets/background-noise.png"}},
+    };
+
+    const auto prop_instance = id<PresentationPropInstanceId>("room-6-atrium-prop-banner");
+    snapshot.props.push_back(PresentationProp{
+        .key = RoomPropPresentationKey{room, id<RoomPropId>("banner")},
+        .owner = owner,
+        .material_property_owner = PropertyOwnerRef{room},
+        .asset = id<AssetId>("prop"),
+        .material = prop_material,
+        .material_parameters = {},
+        .material_texture_overrides = {{"s_noise", "project:/assets/prop-noise.png"}},
+        .placement = std::nullopt,
+        .bounds = {0.1, 0.1, 0.2, 0.2},
+        .plane = PresentationPlane::WorldContent,
+        .order = 10,
+        .visible = true,
+    });
+
+    const auto environment_instance = id<PresentationEnvironmentInstanceId>("fog");
+    snapshot.environments.push_back(PresentationEnvironment{
+        .instance = environment_instance,
+        .owner = owner,
+        .material_property_owner = PropertyOwnerRef{room},
+        .stop_key = id<PresentationEnvironmentStopKey>("fog-stop"),
+        .asset = id<AssetId>("environment"),
+        .material = environment_material,
+        .material_parameters = {},
+        .material_texture_overrides = {{"s_noise", "project:/assets/environment-noise.png"}},
+        .bounds = {0.0, 0.0, 1.0, 1.0},
+        .plane = PresentationPlane::WorldBackground,
+        .order = 5,
+        .clock = LayoutClockDomain::Gameplay,
+        .scroll_per_second = {0.0, 0.0},
+        .opacity = 1.0,
+        .visible = true,
+    });
+
+    auto hero = actor(CharacterActorKey{id<CharacterId>("hero")}, 20);
+    hero.material_owner = owner;
+    hero.layers.front().material_texture_overrides = {
+        {"s_noise", "project:/assets/actor-noise.png"}};
+    snapshot.actors.push_back(hero);
+
+    snapshot.material_parameters.push_back(
+        {owner, BackgroundMaterialOccurrence{}, background_material, "u_amount",
+         compiled::MaterialParameterValue{0.1}, std::nullopt, MaterialClockPolicy::Gameplay});
+    snapshot.material_parameters.push_back(
+        {owner, PropMaterialOccurrence{prop_instance}, prop_material, "u_amount",
+         compiled::MaterialParameterValue{0.2}, std::nullopt, MaterialClockPolicy::Gameplay});
+    snapshot.material_parameters.push_back(
+        {owner, EnvironmentMaterialOccurrence{environment_instance}, environment_material,
+         "u_amount", compiled::MaterialParameterValue{0.3}, std::nullopt,
+         MaterialClockPolicy::Gameplay});
+    snapshot.material_parameters.push_back(
+        {owner,
+         ActorMaterialOccurrence{hero.key, hero.layers.front().id}, actor_material, "u_amount",
+         compiled::MaterialParameterValue{0.4}, std::nullopt, MaterialClockPolicy::Gameplay});
+
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    REQUIRE(backend.frame());
+    const auto& frame = *backend.frame();
+
+    const auto check_draw = [&](std::string_view identity, std::uint8_t sublayer,
+                                std::string_view texture_source) {
+        const auto* draw = find_draw(frame, identity, sublayer);
+        REQUIRE(draw != nullptr);
+        REQUIRE(draw->command.material_texture_overrides.size() == 1);
+        CHECK(draw->command.material_texture_overrides.front().source == texture_source);
+    };
+    check_draw("background", 1, "project:/assets/background-noise.png");
+    check_draw("room/atrium/banner", 0, "project:/assets/prop-noise.png");
+    check_draw("room/atrium/environment/fog", 0, "project:/assets/environment-noise.png");
+    check_draw("character/hero", 0, "project:/assets/actor-noise.png");
+
+    const auto check_uniform = [&](const core::MaterialId& material, float expected) {
+        const auto rendered = std::ranges::find_if(
+            frame.base_batch.commands(), [&](const QuadCommand& command) {
+                return command.material.string() == material.text();
+            });
+        REQUIRE(rendered != frame.base_batch.commands().end());
+        REQUIRE(rendered->material_uniform_overrides.size() == 1);
+        CHECK(rendered->material_uniform_overrides.front().name == "u_amount");
+        CHECK(std::get<float>(rendered->material_uniform_overrides.front().value) ==
+              Catch::Approx(expected));
+    };
+    check_uniform(background_material, 0.1f);
+    check_uniform(prop_material, 0.2f);
+    check_uniform(environment_material, 0.3f);
+    check_uniform(actor_material, 0.4f);
+}
+
 TEST_CASE("world reconciliation is failure atomic and identical snapshots do no work")
 {
     FakeWorldResources resources;
@@ -446,8 +574,11 @@ TEST_CASE("world reconciliation is failure atomic and identical snapshots do no 
     auto snapshot = base_snapshot(1);
     snapshot.props.push_back({ScopedPropPresentationKey{id<PresentationPropInstanceId>("prop")},
                               SessionPresentationOwner{PresentationSessionId::from_number(1)},
+                              std::nullopt,
                               id<AssetId>("prop"),
                               std::nullopt,
+                              {},
+                              {},
                               std::nullopt,
                               {0.0, 0.0, 0.2, 0.2},
                               PresentationPlane::WorldContent,
@@ -522,9 +653,12 @@ TEST_CASE("reconstructible environment loops restart from phase zero after backe
     snapshot.environments.push_back(
         {id<PresentationEnvironmentInstanceId>("rain-loop"),
          SessionPresentationOwner{PresentationSessionId::from_number(1)},
+         std::nullopt,
          id<PresentationEnvironmentStopKey>("weather"),
          std::nullopt,
          id<core::MaterialId>("rain"),
+         {},
+         {},
          {0.0, 0.0, 1.0, 1.0},
          PresentationPlane::WorldOverlay,
          0,
@@ -576,6 +710,8 @@ TEST_CASE("automatic speaking and blink animation phase is disposable and recons
            {{id<CharacterPresentationLayerId>("face"),
              {},
              {true, id<core::MaterialId>("mouth-open")},
+             {},
+             {},
              std::nullopt,
              std::nullopt,
              std::nullopt,
@@ -584,6 +720,8 @@ TEST_CASE("automatic speaking and blink animation phase is disposable and recons
            {{id<CharacterPresentationLayerId>("face"),
              {},
              {true, id<core::MaterialId>("mouth-closed")},
+             {},
+             {},
              std::nullopt,
              std::nullopt,
              std::nullopt,
@@ -594,6 +732,8 @@ TEST_CASE("automatic speaking and blink animation phase is disposable and recons
            {{id<CharacterPresentationLayerId>("face"),
              {},
              {true, id<core::MaterialId>("eyes-closed")},
+             {},
+             {},
              std::nullopt,
              std::nullopt,
              std::nullopt,

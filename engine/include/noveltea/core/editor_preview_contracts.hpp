@@ -228,6 +228,8 @@ struct TypedFocusedCharacterVisual {
         std::optional<std::string> role;
         std::optional<std::string> sprite_asset_id;
         std::optional<std::string> material_id;
+        std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+        std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
         TypedFocusedVector2 offset;
         double scale = 1.0;
         TypedFocusedVector2 anchor;
@@ -264,6 +266,8 @@ struct TypedFocusedRoomWorldDefinition {
     struct Background {
         std::optional<std::string> asset_id;
         std::optional<std::string> material_id;
+        std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+        std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
         std::string fit;
         std::optional<std::string> color;
     };
@@ -310,6 +314,8 @@ struct TypedFocusedRoomWorldDefinition {
         std::string placement_id;
         std::optional<std::string> asset_id;
         std::optional<std::string> material_id;
+        std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+        std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
         bool visible = false;
         std::int32_t order = 0;
     };
@@ -318,6 +324,8 @@ struct TypedFocusedRoomWorldDefinition {
         TypedFocusedCondition condition;
         std::optional<std::string> asset_id;
         std::string material_id;
+        std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+        std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
         TypedFocusedNormalizedRect bounds;
         std::string plane;
         std::int32_t order = 0;

@@ -6,7 +6,6 @@ import {
   sceneAssetRef,
   sceneDataSchema,
   sceneDialogueRef,
-  sceneMaterialRef,
   sceneStepDataSchema,
   sceneVariableRef,
   validateSceneData,
@@ -298,7 +297,11 @@ describe('authoring scenes', () => {
     const data = defaultSceneData();
     if (data.stage.kind !== 'blank') throw new Error('default Scene Stage must be blank');
     data.stage.background.asset = sceneAssetRef('missing-asset');
-    data.stage.background.material = sceneMaterialRef('missing-material');
+    data.stage.background.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'missing-material' } },
+      parameters: {},
+      textures: {},
+    };
     data.events = [
       {
         ...defaultSceneStep('set-variable'),
@@ -336,7 +339,9 @@ describe('authoring scenes', () => {
     expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ path: '/scenes/opening/data/stage/background/asset' }),
-        expect.objectContaining({ path: '/scenes/opening/data/stage/background/material' }),
+        expect.objectContaining({
+          path: '/scenes/opening/data/stage/background/materialApplication/material',
+        }),
         expect.objectContaining({ path: '/scenes/opening/data/events/0/value' }),
         expect.objectContaining({ path: '/scenes/opening/data/events/1/options/1/id' }),
         expect.objectContaining({

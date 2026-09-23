@@ -59,6 +59,25 @@ GameLayer layer_for_plane(core::PresentationPlane plane)
     }
 }
 
+std::optional<core::PresentationPropInstanceId>
+prop_material_instance(const core::PresentationPropKey& key)
+{
+    return std::visit(
+        [](const auto& value) -> std::optional<core::PresentationPropInstanceId> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::RoomPropPresentationKey>) {
+                auto id = core::PresentationPropInstanceId::create(
+                    "room-" + std::to_string(value.room.text().size()) + "-" + value.room.text() +
+                    "-prop-" + value.prop.text());
+                return id ? std::optional<core::PresentationPropInstanceId>{*id.value_if()}
+                          : std::nullopt;
+            } else {
+                return value.instance;
+            }
+        },
+        key);
+}
+
 std::string prop_identity(const core::PresentationPropKey& key)
 {
     return std::visit(
@@ -639,6 +658,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         } else if (const auto* visual = resolved.value_if(); visual->texture || visual->material) {
             const WorldFittedRect fitted = WorldPresentationLayoutPolicy::fit_background(
                 viewport, visual_size(*visual), background.fit);
+            const auto draw_index = candidate.draws.size();
             append_visual_draw(
                 candidate.draws, core::PresentationPlane::WorldBackground,
                 WorldDrawFamily::Background, 0, "background", 1, fitted.rect, fitted.uv, *visual,
@@ -646,6 +666,12 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                 background.material_owner
                     ? std::optional<core::MaterialOccurrence>{core::BackgroundMaterialOccurrence{}}
                     : std::nullopt);
+            if (candidate.draws.size() != draw_index) {
+                auto& command = candidate.draws.back().command;
+                for (const auto& texture : background.material_texture_overrides)
+                    command.material_texture_overrides.push_back(
+                        MaterialTextureOverride{texture.name, texture.source});
+            }
         }
     }
 
@@ -666,6 +692,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         } else {
             auto visual = *resolved.value_if();
             visual.tint.a *= static_cast<float>(environment.opacity);
+            const auto draw_index = candidate.draws.size();
             append_visual_draw(
                 candidate.draws, environment.plane, WorldDrawFamily::Environment, environment.order,
                 environment_identity(environment), 0,
@@ -674,6 +701,12 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                 environment.owner,
                 core::MaterialOccurrence{
                     core::EnvironmentMaterialOccurrence{environment.instance}});
+            if (candidate.draws.size() != draw_index) {
+                auto& command = candidate.draws.back().command;
+                for (const auto& texture : environment.material_texture_overrides)
+                    command.material_texture_overrides.push_back(
+                        MaterialTextureOverride{texture.name, texture.source});
+            }
         }
     }
 
@@ -693,14 +726,22 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             continue;
         }
         const auto* visual = resolved.value_if();
+        const auto material_instance = prop_material_instance(prop.key);
+        const auto draw_index = candidate.draws.size();
         append_visual_draw(
             candidate.draws, prop.plane, WorldDrawFamily::Prop, prop.order, identity, 0,
             WorldPresentationLayoutPolicy::normalized_rect(prop.bounds, viewport), full_uv, *visual,
             std::nullopt, std::nullopt, {0.0, 0.0}, prop.owner,
-            std::holds_alternative<core::ScopedPropPresentationKey>(prop.key)
-                ? std::optional<core::MaterialOccurrence>{core::PropMaterialOccurrence{
-                      std::get<core::ScopedPropPresentationKey>(prop.key).instance}}
+            material_instance
+                ? std::optional<core::MaterialOccurrence>{
+                      core::PropMaterialOccurrence{*material_instance}}
                 : std::nullopt);
+        if (candidate.draws.size() != draw_index) {
+            auto& command = candidate.draws.back().command;
+            for (const auto& texture : prop.material_texture_overrides)
+                command.material_texture_overrides.push_back(
+                    MaterialTextureOverride{texture.name, texture.source});
+        }
     }
 
     for (const auto& interactable : snapshot.interactables) {
@@ -773,6 +814,9 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             if (candidate.draws.size() == draw_index)
                 continue;
             auto& draw = candidate.draws.back();
+            for (const auto& texture : layer.material_texture_overrides)
+                draw.command.material_texture_overrides.push_back(
+                    MaterialTextureOverride{texture.name, texture.source});
             draw.actor_automatic_animations = actor.automatic_animations;
             draw.actor_speaking = actor.speaking;
             draw.actor_animation_clips.reserve(actor.animation_clips.size());
@@ -788,8 +832,11 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                     if (patch != frame.layers.end()) {
                         if (patch->sprite.specified)
                             animated.sprite = patch->sprite.value;
-                        if (patch->material.specified)
+                        if (patch->material.specified) {
                             animated.material = patch->material.value;
+                            animated.material_parameters = patch->material_parameters;
+                            animated.material_texture_overrides.clear();
+                        }
                         if (patch->offset)
                             animated.offset = *patch->offset;
                         if (patch->scale)
@@ -815,6 +862,10 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                                 WorldPresentationLayoutPolicy::actor_rect(
                                     actor, animated, viewport, visual_size(*resolved_frame)),
                                 full_uv, *resolved_frame);
+                            if (prepared_frame.command)
+                                for (const auto& texture : animated.material_texture_overrides)
+                                    prepared_frame.command->material_texture_overrides.push_back(
+                                        MaterialTextureOverride{texture.name, texture.source});
                             prepared_frame.texture_lease = resolved_frame->texture_lease;
                             prepared_frame.material_lease = resolved_frame->material_lease;
                         }

@@ -10,7 +10,7 @@
     "displayName": "Dialogue & Presentation Stage",
     "background": {
       "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },
-      "material": null,
+      "materialApplication": null,
       "fit": "cover",
       "color": "#151827"
     },

@@ -14,6 +14,7 @@ import {
 } from '../../shared/project-schema/authoring-interactables';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { buildFocusedRoomPreview } from '../preview/room-focused-preview-builder';
@@ -95,9 +96,7 @@ function fixtureWithRoomMaterial() {
     label: 'Room Material',
     data: defaultMaterialData('Room Material', 'engine-2d'),
   };
-  project.rooms.bedroom!.data.background.material = {
-    $ref: { collection: 'materials', id: 'room' },
-  };
+  project.rooms.bedroom!.data.background.materialApplication = emptyMaterialApplication('room');
   return project;
 }
 

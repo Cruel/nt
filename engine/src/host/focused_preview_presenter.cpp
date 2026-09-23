@@ -237,31 +237,57 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
                                             std::string(path) + "' outside the manifest.",
                                         std::move(pointer)));
     };
+    const auto require_material_textures =
+        [&](const std::vector<core::compiled::MaterialApplicationTextureOverride>& textures,
+            std::string path) {
+            for (std::size_t index = 0; index < textures.size(); ++index)
+                require_asset(std::optional<std::string>{textures[index].source.text()},
+                              path + "/" + std::to_string(index) + "/source/id");
+        };
 
     require_asset(document.world.background.asset_id, "/world/background/assetId");
+    require_material_textures(document.world.background.material_textures,
+                              "/world/background/materialTextures");
     for (std::size_t index = 0; index < document.world.persistent_characters.size(); ++index) {
         const auto& value = document.world.persistent_characters[index];
-        for (std::size_t layer = 0; layer < value.visual.layers.size(); ++layer)
+        for (std::size_t layer = 0; layer < value.visual.layers.size(); ++layer) {
             require_asset(value.visual.layers[layer].sprite_asset_id,
                           "/world/persistentCharacters/" + std::to_string(index) +
                               "/visual/layers/" + std::to_string(layer) + "/spriteAssetId");
+            require_material_textures(
+                value.visual.layers[layer].material_textures,
+                "/world/persistentCharacters/" + std::to_string(index) + "/visual/layers/" +
+                    std::to_string(layer) + "/materialTextures");
+        }
     }
     for (std::size_t index = 0; index < document.world.cast.size(); ++index) {
         const auto& value = document.world.cast[index];
-        for (std::size_t layer = 0; layer < value.visual.layers.size(); ++layer)
+        for (std::size_t layer = 0; layer < value.visual.layers.size(); ++layer) {
             require_asset(value.visual.layers[layer].sprite_asset_id,
                           "/world/cast/" + std::to_string(index) + "/visual/layers/" +
                               std::to_string(layer) + "/spriteAssetId");
+            require_material_textures(value.visual.layers[layer].material_textures,
+                                      "/world/cast/" + std::to_string(index) +
+                                          "/visual/layers/" + std::to_string(layer) +
+                                          "/materialTextures");
+        }
     }
     for (std::size_t index = 0; index < document.world.interactables.size(); ++index)
         require_asset(document.world.interactables[index].sprite_asset_id,
                       "/world/interactables/" + std::to_string(index) + "/spriteAssetId");
-    for (std::size_t index = 0; index < document.world.props.size(); ++index)
+    for (std::size_t index = 0; index < document.world.props.size(); ++index) {
         require_asset(document.world.props[index].asset_id,
                       "/world/props/" + std::to_string(index) + "/assetId");
-    for (std::size_t index = 0; index < document.world.environments.size(); ++index)
+        require_material_textures(document.world.props[index].material_textures,
+                                  "/world/props/" + std::to_string(index) + "/materialTextures");
+    }
+    for (std::size_t index = 0; index < document.world.environments.size(); ++index) {
         require_asset(document.world.environments[index].asset_id,
                       "/world/environments/" + std::to_string(index) + "/assetId");
+        require_material_textures(
+            document.world.environments[index].material_textures,
+            "/world/environments/" + std::to_string(index) + "/materialTextures");
+    }
 
     for (std::size_t index = 0; index < document.layouts.size(); ++index) {
         const auto& layout = document.layouts[index];
@@ -820,7 +846,9 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
                        .material = document.world.background.material_id
                                        ? std::optional{decoded_id<core::MaterialId>(
                                              *document.world.background.material_id)}
-                                       : std::nullopt},
+                                       : std::nullopt,
+                       .material_parameters = document.world.background.material_parameters,
+                       .material_textures = document.world.background.material_textures},
         .description = 0,
         .description_markup =
             document.ui.description.markup == core::editor::TypedFocusedText::Markup::ActiveText
@@ -912,7 +940,7 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
                            : std::nullopt,
              prop.material_id ? std::optional{decoded_id<core::MaterialId>(*prop.material_id)}
                               : std::nullopt,
-             prop.visible, prop.order});
+             prop.material_parameters, prop.material_textures, prop.visible, prop.order});
     for (const auto& environment : document.world.environments)
         definition.environments.push_back(
             {decoded_id<core::RoomEnvironmentId>(environment.environment_id),
@@ -920,6 +948,7 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
              environment.asset_id ? std::optional{decoded_id<core::AssetId>(*environment.asset_id)}
                                   : std::nullopt,
              decoded_id<core::MaterialId>(environment.material_id),
+             environment.material_parameters, environment.material_textures,
              {environment.bounds.x, environment.bounds.y, environment.bounds.width,
               environment.bounds.height},
              environment.plane == "world-background" ? core::PresentationPlane::WorldBackground
@@ -1167,8 +1196,25 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
                                                      std::move(mounted)});
 }
 
-core::RoomPresentationVisualCatalog
-focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& document)
+std::vector<core::PresentationMaterialTextureOverride> focused_material_textures(
+    const std::vector<core::compiled::MaterialApplicationTextureOverride>& textures,
+    const std::vector<core::editor::FocusedEditorManifestProjection>& resources)
+{
+    std::vector<core::PresentationMaterialTextureOverride> result;
+    result.reserve(textures.size());
+    for (const auto& texture : textures) {
+        const auto found = std::ranges::find_if(resources, [&](const auto& resource) {
+            return resource.asset_id && *resource.asset_id == texture.source.text();
+        });
+        if (found != resources.end())
+            result.push_back({texture.name, found->logical_path});
+    }
+    return result;
+}
+
+core::RoomPresentationVisualCatalog focused_visual_catalog(
+    const core::editor::TypedEditorRoomPreviewDocument& document,
+    const std::vector<core::editor::FocusedEditorManifestProjection>& resources)
 {
     core::RoomPresentationVisualCatalog result;
     for (const auto& placement : document.world.placements)
@@ -1201,6 +1247,8 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
                               layer.material_id
                                   ? std::optional{decoded_id<core::MaterialId>(*layer.material_id)}
                                   : std::nullopt,
+                              layer.material_parameters,
+                              focused_material_textures(layer.material_textures, resources),
                               {layer.anchor.x, layer.anchor.y},
                               {layer.offset.x, layer.offset.y},
                               layer.scale,
@@ -1465,7 +1513,7 @@ FocusedPreviewPresenter::prepare_room_state(
     state.room_resolution = std::move(resolution.value_if()->first);
     mounted_layouts = std::move(resolution.value_if()->second);
     auto snapshot = core::RoomPresentationSnapshotProjector::project(
-        *state.room_resolution, focused_visual_catalog(document));
+        *state.room_resolution, focused_visual_catalog(document, request.resources));
     if (!snapshot) {
         release_state(state);
         return core::Result<FocusedState, core::Diagnostics>::failure(std::move(snapshot).error());
@@ -1479,6 +1527,165 @@ FocusedPreviewPresenter::prepare_room_state(
                                   .default_view = document.world.presentation_space.view,
                                   .views = {}},
                                  document.world.presentation_space.view};
+
+    if (snapshot.value_if()->background)
+        snapshot.value_if()->background->material_texture_overrides =
+            focused_material_textures(document.world.background.material_textures,
+                                      request.resources);
+    for (auto& prop : snapshot.value_if()->props) {
+        const auto* key = std::get_if<core::RoomPropPresentationKey>(&prop.key);
+        if (key == nullptr)
+            continue;
+        const auto source = std::ranges::find_if(document.world.props, [&](const auto& candidate) {
+            return candidate.prop_id == key->prop.text();
+        });
+        if (source != document.world.props.end())
+            prop.material_texture_overrides =
+                focused_material_textures(source->material_textures, request.resources);
+    }
+    for (auto& environment : snapshot.value_if()->environments) {
+        const auto source = std::ranges::find_if(document.world.environments, [&](const auto& candidate) {
+            return environment.instance.text() ==
+                   "room-" + std::to_string(document.room_id.size()) + "-" + document.room_id + "-" +
+                       candidate.environment_id;
+        });
+        if (source != document.world.environments.end())
+            environment.material_texture_overrides =
+                focused_material_textures(source->material_textures, request.resources);
+    }
+
+    const auto focused_property_value =
+        [&](std::string_view owner_kind, std::string_view owner_id,
+            const core::PropertyId& property) -> const core::editor::TypedFocusedScalar* {
+        const auto found = std::ranges::find_if(document.query_state.properties, [&](const auto& item) {
+            return !item.missing && item.identity.owner_kind == owner_kind &&
+                   item.identity.owner_id == owner_id &&
+                   item.identity.property_id == property.text();
+        });
+        return found == document.query_state.properties.end() ? nullptr : &found->value;
+    };
+    const auto append_authored_parameter =
+        [&](const core::compiled::MaterialApplicationParameterOverride& parameter,
+            const core::PresentationOwner& owner, const core::MaterialOccurrence& occurrence,
+            const core::MaterialId& material, std::string_view property_owner_kind,
+            std::string_view property_owner_id) {
+        core::PresentationMaterialParameter projected{owner, occurrence, material, parameter.name,
+                                                      std::nullopt, std::nullopt,
+                                                      core::MaterialClockPolicy::Gameplay};
+        bool resolved = true;
+        std::visit(
+            [&](const auto& source) {
+                using Source = std::decay_t<decltype(source)>;
+                if constexpr (std::is_same_v<Source,
+                                             core::compiled::MaterialApplicationLiteralSource>) {
+                    projected.value = source.value;
+                } else if constexpr (std::is_same_v<
+                                         Source,
+                                         core::compiled::MaterialApplicationStandardFacetSource>) {
+                    if (parameter.type != core::compiled::MaterialParameterType::Float) {
+                        resolved = false;
+                        return;
+                    }
+                    switch (source.facet) {
+                    case core::compiled::MaterialApplicationStandardFacet::OccurrenceTime:
+                        projected.standard_facet = core::MaterialStandardFacet::OccurrenceTime;
+                        break;
+                    case core::compiled::MaterialApplicationStandardFacet::PaintWidth:
+                        projected.standard_facet = core::MaterialStandardFacet::PaintWidth;
+                        break;
+                    case core::compiled::MaterialApplicationStandardFacet::PaintHeight:
+                        projected.standard_facet = core::MaterialStandardFacet::PaintHeight;
+                        break;
+                    case core::compiled::MaterialApplicationStandardFacet::ViewportWidth:
+                        projected.standard_facet = core::MaterialStandardFacet::ViewportWidth;
+                        break;
+                    case core::compiled::MaterialApplicationStandardFacet::ViewportHeight:
+                        projected.standard_facet = core::MaterialStandardFacet::ViewportHeight;
+                        break;
+                    case core::compiled::MaterialApplicationStandardFacet::CameraZoom:
+                        projected.standard_facet = core::MaterialStandardFacet::CameraZoom;
+                        break;
+                    }
+                } else {
+                    const auto* value =
+                        focused_property_value(property_owner_kind, property_owner_id, source.property);
+                    if (value == nullptr) {
+                        resolved = false;
+                        return;
+                    }
+                    if (parameter.type == core::compiled::MaterialParameterType::Float) {
+                        if (const auto* number = std::get_if<double>(value))
+                            projected.value = core::compiled::MaterialParameterValue{*number};
+                        else if (const auto* integer = std::get_if<std::int64_t>(value))
+                            projected.value = core::compiled::MaterialParameterValue{
+                                static_cast<double>(*integer)};
+                        else
+                            resolved = false;
+                    } else if (parameter.type == core::compiled::MaterialParameterType::Int) {
+                        if (const auto* integer = std::get_if<std::int64_t>(value))
+                            projected.value = core::compiled::MaterialParameterValue{*integer};
+                        else
+                            resolved = false;
+                    } else if (parameter.type == core::compiled::MaterialParameterType::Bool) {
+                        if (const auto* flag = std::get_if<bool>(value))
+                            projected.value = core::compiled::MaterialParameterValue{*flag};
+                        else
+                            resolved = false;
+                    } else {
+                        resolved = false;
+                    }
+                }
+            },
+            parameter.source);
+        if (resolved && (projected.value || projected.standard_facet))
+            snapshot.value_if()->material_parameters.push_back(std::move(projected));
+    };
+
+    if (const auto& background = snapshot.value_if()->background;
+        background && background->material && background->material_owner) {
+        for (const auto& parameter : background->material_parameters)
+            append_authored_parameter(
+                parameter, *background->material_owner,
+                core::MaterialOccurrence{core::BackgroundMaterialOccurrence{}}, *background->material,
+                "room", document.room_id);
+    }
+    for (const auto& actor : snapshot.value_if()->actors) {
+        if (!actor.material_owner)
+            continue;
+        for (const auto& layer : actor.layers) {
+            if (!layer.material)
+                continue;
+            for (const auto& parameter : layer.material_parameters)
+                append_authored_parameter(
+                    parameter, *actor.material_owner,
+                    core::MaterialOccurrence{core::ActorMaterialOccurrence{actor.key, layer.id}},
+                    *layer.material, "character", actor.character.text());
+        }
+    }
+    for (const auto& prop : snapshot.value_if()->props) {
+        if (!prop.material)
+            continue;
+        const auto* key = std::get_if<core::RoomPropPresentationKey>(&prop.key);
+        if (key == nullptr)
+            continue;
+        auto occurrence = core::PresentationPropInstanceId::create(
+            "room-" + std::to_string(key->room.text().size()) + "-" + key->room.text() +
+            "-prop-" + key->prop.text());
+        if (!occurrence)
+            continue;
+        for (const auto& parameter : prop.material_parameters)
+            append_authored_parameter(
+                parameter, prop.owner,
+                core::MaterialOccurrence{core::PropMaterialOccurrence{*occurrence.value_if()}},
+                *prop.material, "room", key->room.text());
+    }
+    for (const auto& environment : snapshot.value_if()->environments) {
+        for (const auto& parameter : environment.material_parameters)
+            append_authored_parameter(
+                parameter, environment.owner,
+                core::MaterialOccurrence{core::EnvironmentMaterialOccurrence{environment.instance}},
+                environment.material, "room", document.room_id);
+    }
     state.snapshot = std::move(*snapshot.value_if());
     state.static_gameplay_values.mode = "room";
     state.static_gameplay_values.room = state.room_resolution->view;

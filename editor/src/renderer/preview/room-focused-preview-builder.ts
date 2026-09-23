@@ -56,6 +56,10 @@ import {
 import { authoredLayoutSourceUrl } from '../../shared/project-schema/layout-source-url';
 import type { AuthoringSourceAnalysisArtifact } from '../../shared/project-schema/authoring-lua-analysis';
 import { resolveMaterialData } from '../../shared/project-schema/authoring-materials';
+import type {
+  MaterialApplication,
+  MaterialApplicationParameterOverride,
+} from '../../shared/project-schema/authoring-material-applications';
 import { parseRoomData, type RoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   roomPreviewDocumentSchema,
@@ -74,6 +78,54 @@ type FocusedCondition = RoomPreviewDocument['world']['cast'][number]['condition'
 type FocusedText = RoomPreviewDocument['ui']['description'];
 type FocusedVisual = RoomPreviewDocument['world']['cast'][number]['visual'];
 type FocusedHotspotTarget = RoomPreviewDocument['world']['hotspots'][number]['target'];
+type FocusedMaterialParameter =
+  RoomPreviewDocument['world']['background']['materialParameters'][number];
+
+function focusedMaterialLiteral(
+  override: MaterialApplicationParameterOverride,
+): Extract<FocusedMaterialParameter['source'], { kind: 'literal' }>['value'] {
+  if (override.source.kind !== 'literal' || override.source.value === null)
+    throw new Error('Validated focused-preview Material Application literal cannot be null.');
+  const value = override.source.value;
+  switch (override.type) {
+    case 'float':
+      return { type: 'float', value: value as number };
+    case 'vec2':
+      return { type: 'vec2', value: value as [number, number] };
+    case 'vec3':
+      return { type: 'vec3', value: value as [number, number, number] };
+    case 'vec4':
+      return { type: 'vec4', value: value as [number, number, number, number] };
+    case 'color':
+      return { type: 'color', value: value as { r: number; g: number; b: number; a: number } };
+    case 'int':
+      return { type: 'int', value: value as number };
+    case 'bool':
+      return { type: 'bool', value: value as boolean };
+  }
+}
+
+function focusedMaterialApplication(application: MaterialApplication | null) {
+  const materialParameters = Object.entries(application?.parameters ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, override]) => ({
+      name,
+      type: override.type,
+      source:
+        override.source.kind === 'literal'
+          ? { kind: 'literal' as const, value: focusedMaterialLiteral(override) }
+          : override.source.kind === 'property'
+            ? { kind: 'property' as const, property: override.source.property }
+            : { kind: 'standard-facet' as const, facet: override.source.facet },
+    }));
+  const materialTextures = Object.entries(application?.textures ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, override]) => ({
+      name,
+      source: { kind: 'asset' as const, id: override.source.$ref.id },
+    }));
+  return { materialParameters, materialTextures };
+}
 
 export interface BuildFocusedRoomPreviewOptions {
   project: AuthoringProject;
@@ -351,7 +403,8 @@ function characterVisual(
       id: layer.id,
       role: layer.role,
       spriteAssetId: layer.sprite?.$ref.id ?? null,
-      materialId: layer.material?.$ref.id ?? null,
+      materialId: layer.materialApplication?.material.$ref.id ?? null,
+      ...focusedMaterialApplication(layer.materialApplication),
       offset: layer.offset,
       scale: layer.scale,
       anchor: layer.anchor,
@@ -1155,7 +1208,8 @@ export async function buildFocusedRoomPreview(
       anchors: room.anchors.map((anchor) => ({ id: anchor.id, bounds: { ...anchor.bounds } })),
       background: {
         assetId: room.background.asset?.$ref.id ?? null,
-        materialId: room.background.material?.$ref.id ?? null,
+        materialId: room.background.materialApplication?.material.$ref.id ?? null,
+        ...focusedMaterialApplication(room.background.materialApplication),
         fit: room.background.fit,
         color: room.background.color,
       },
@@ -1220,7 +1274,8 @@ export async function buildFocusedRoomPreview(
         condition: focusedCondition(item.condition),
         placementId: item.placementId,
         assetId: item.asset?.$ref.id ?? null,
-        materialId: item.material?.$ref.id ?? null,
+        materialId: item.materialApplication?.material.$ref.id ?? null,
+        ...focusedMaterialApplication(item.materialApplication),
         visible: item.visible,
         order: item.order,
       })),
@@ -1228,7 +1283,8 @@ export async function buildFocusedRoomPreview(
         environmentId: item.id,
         condition: focusedCondition(item.condition),
         assetId: item.asset?.$ref.id ?? null,
-        materialId: item.material.$ref.id,
+        materialId: item.materialApplication.material.$ref.id,
+        ...focusedMaterialApplication(item.materialApplication),
         bounds: item.bounds,
         plane: item.plane,
         order: item.order,

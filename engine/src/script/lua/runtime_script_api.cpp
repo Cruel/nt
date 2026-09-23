@@ -686,7 +686,7 @@ RuntimeScriptApi::set_background(BackgroundCommandOptions options)
     return gateway->upsert_background_override(core::DesiredBackgroundOverride{
         std::move(*owner.value_if()),
         core::compiled::BackgroundPresentation{std::move(options.asset), std::move(options.color),
-                                               options.fit, std::move(options.material)}});
+                                               options.fit, std::move(options.material), {}, {}}});
 }
 
 core::Result<void, core::Diagnostics>

@@ -159,13 +159,16 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
              interactable.placement_id, interactable.visible, interactable.order});
     for (const auto& prop : room->props)
         definition.props.push_back({prop.id, condition_token(prop.condition), prop.placement_id,
-                                    prop.asset, prop.material, prop.visible, prop.order});
+                                    prop.asset, prop.material, prop.material_parameters,
+                                    prop.material_textures, prop.visible, prop.order});
     for (const auto& environment : room->environments)
         definition.environments.push_back({environment.id, condition_token(environment.condition),
                                            environment.asset, environment.material,
-                                           environment.bounds, environment.plane, environment.order,
-                                           environment.clock, environment.scroll_per_second,
-                                           environment.opacity, environment.visible});
+                                           environment.material_parameters,
+                                           environment.material_textures, environment.bounds,
+                                           environment.plane, environment.order, environment.clock,
+                                           environment.scroll_per_second, environment.opacity,
+                                           environment.visible});
     for (const auto& placement : room->placements) {
         std::optional<RoomPresentationTextToken> label;
         TextMarkup markup = TextMarkup::Plain;
@@ -589,8 +592,9 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
         if (!enabled)
             return Result<RoomPresentationResolution, Diagnostics>::failure(enabled.error());
         if (*enabled.value_if())
-            draft.props.push_back(
-                {prop.id, prop.placement, prop.asset, prop.material, prop.visible, prop.order});
+            draft.props.push_back({prop.id, prop.placement, prop.asset, prop.material,
+                                   prop.material_parameters, prop.material_textures, prop.visible,
+                                   prop.order});
     }
     for (const auto& environment : room.environments) {
         auto enabled = evaluate(environment.condition);
@@ -598,9 +602,11 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
             return Result<RoomPresentationResolution, Diagnostics>::failure(enabled.error());
         if (*enabled.value_if())
             draft.environments.push_back({environment.id, environment.asset, environment.material,
-                                          environment.bounds, environment.plane, environment.order,
-                                          environment.clock, environment.scroll_per_second,
-                                          environment.opacity, environment.visible});
+                                          environment.material_parameters,
+                                          environment.material_textures, environment.bounds,
+                                          environment.plane, environment.order, environment.clock,
+                                          environment.scroll_per_second, environment.opacity,
+                                          environment.visible});
     }
     if (composition != nullptr) {
         auto composed = composition->compose(visit, draft);

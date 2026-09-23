@@ -477,6 +477,26 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     /^\/interactables\/\*\/data\/presentation\/materialApplication\/(?:parameters|textures)(?:\/|$)/,
     OWNER,
   ],
+  // #346 applies the same Material Application contract to the remaining Engine2D hosts. Sparse
+  // parameter and texture specialization changes only the owning compiled presentation.
+  [
+    /^\/rooms\/\*\/data\/(?:background|props\/\*|environments\/\*)\/materialApplication\/(?:parameters|textures)(?:\/|$)/,
+    OWNER,
+  ],
+  [
+    /^\/characters\/\*\/data\/(?:profiles\/\*\/(?:poses\/\*\/layers\/\*|animationClips\/\*\/frames\/\*\/layers\/\*)|(?:expressions|appearances)\/\*\/profiles\/\*\/layers\/\*)\/materialApplication\/(?:parameters|textures)(?:\/|$)/,
+    OWNER,
+  ],
+  [
+    /^\/scenes\/\*\/data\/(?:stage\/background|events\/\*(?:\/children\/\*)?|defaultBackground|steps\/\*(?:\/children\/\*)?)\/materialApplication\/(?:parameters|textures)(?:\/|$)/,
+    OWNER,
+  ],
+  // Transition-group background children postdate the reviewed direct Scene Material leaf set, so
+  // their replacement Material selection is an explicit owner contribution rather than a legacy slot.
+  [
+    /^\/scenes\/\*\/data\/(?:events|steps)\/\*\/children\/\*\/(?:material|materialApplication\/material)\/\$ref\/(?:collection|id)$/,
+    OWNER,
+  ],
   [/^\/interactables\/\*\/data\/presentation\/hotspots\/hotspots\/\*\/cursor(?:\/|$)/, OWNER],
 ]);
 
@@ -615,7 +635,7 @@ function roomLifecycleGameplayCommandEffect(
 
 function preservedReviewedPath(path: JsonPointer): JsonPointer {
   if (
-    /^\/interactables\/\*\/data\/presentation\/materialApplication\/material\/\$ref\/(?:collection|id)$/.test(
+    /^\/(?:interactables\/\*\/data\/presentation|rooms\/\*\/data\/(?:background|props\/\*|environments\/\*)|characters\/\*\/data\/(?:profiles\/\*\/(?:poses\/\*\/layers\/\*|animationClips\/\*\/frames\/\*\/layers\/\*)|(?:expressions|appearances)\/\*\/profiles\/\*\/layers\/\*)|scenes\/\*\/data\/(?:stage\/background|events\/\*(?:\/children\/\*)?|defaultBackground|steps\/\*(?:\/children\/\*)?))\/materialApplication\/material\/\$ref\/(?:collection|id)$/.test(
       path,
     )
   )
@@ -1092,7 +1112,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     archetypes: 'f71e0c56',
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
-    characters: '5e8f854a',
+    characters: 'aa17bdc4',
     dialogues: '81f2a616',
     entrypoint: 'a61673d4',
     export: '0ba5bfbc',
@@ -1106,8 +1126,8 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: 'f3aa8039',
     prefetchHints: 'b985056c',
     project: 'da3be83d',
-    rooms: 'de4ff2d7',
-    scenes: '9d060243',
+    rooms: '5db8903d',
+    scenes: '2855e8e0',
     schema: '63fb9bb9',
     scripts: '278134b5',
     settings: '7ffea374',

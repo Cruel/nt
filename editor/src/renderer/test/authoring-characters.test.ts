@@ -3,10 +3,10 @@ import { validateAuthoringProject } from '../../shared/project-schema/authoring-
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   characterAssetRef,
-  characterMaterialRef,
   defaultCharacterData,
   validateCharacterData,
 } from '../../shared/project-schema/authoring-characters';
+import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import {
   buildCharacterPreviewDocumentData,
@@ -83,7 +83,7 @@ describe('authoring characters schema', () => {
     profile.poses[0]!.layers.push({
       layerId: 'face',
       sprite: null,
-      material: null,
+      materialApplication: null,
       offset: { x: 0, y: 0 },
       scale: 1,
       anchor: { x: 0.5, y: 1 },
@@ -198,7 +198,7 @@ describe('authoring characters schema', () => {
                   {
                     ...defaultCharacterData('Iris').profiles[0]!.poses[0]!.layers[0]!,
                     sprite: characterAssetRef('theme'),
-                    material: characterMaterialRef('glow'),
+                    materialApplication: emptyMaterialApplication('glow'),
                   },
                 ],
               },
@@ -288,7 +288,7 @@ describe('authoring characters schema', () => {
     profile.poses[0]!.layers.push({
       layerId: 'face',
       sprite: null,
-      material: null,
+      materialApplication: null,
       offset: { x: 0, y: 0 },
       scale: 1,
       anchor: { x: 0.5, y: 1 },
