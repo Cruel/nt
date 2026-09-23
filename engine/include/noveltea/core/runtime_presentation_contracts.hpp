@@ -23,6 +23,13 @@ struct PresentationMaterialTextureOverride {
     bool operator==(const PresentationMaterialTextureOverride&) const = default;
 };
 
+struct PresentationMaterialTextureBinding {
+    MaterialId material;
+    std::string name;
+    std::string source;
+    bool operator==(const PresentationMaterialTextureBinding&) const = default;
+};
+
 struct PresentationBackground {
     std::optional<PresentationOwner> material_owner;
     std::optional<PropertyOwnerRef> material_property_owner;
@@ -158,6 +165,7 @@ struct PresentationMountedLayout {
     std::vector<LayoutSignalId> connected_signals;
     std::optional<LayoutStateShape> state_shape;
     std::vector<PresentationLayoutStateValue> state_values;
+    std::vector<PresentationMaterialTextureBinding> material_textures;
     std::optional<TriggerContext> trigger_context;
     bool operator==(const PresentationMountedLayout&) const = default;
 };
@@ -198,6 +206,14 @@ struct AlphaHotspotShape {
     bool operator==(const AlphaHotspotShape&) const = default;
 };
 
+struct PresentationHotspotMaterialParameter {
+    std::string name;
+    std::optional<compiled::MaterialParameterValue> value;
+    std::optional<MaterialStandardFacet> standard_facet;
+    MaterialClockPolicy clock = MaterialClockPolicy::Gameplay;
+    bool operator==(const PresentationHotspotMaterialParameter&) const = default;
+};
+
 struct PresentationHotspot {
     compiled::HotspotRef ref;
     std::string label;
@@ -215,6 +231,8 @@ struct PresentationHotspot {
     PresentationPlane owner_plane = PresentationPlane::WorldBackground;
     std::int32_t owner_order = 0;
     std::optional<compiled::CursorTarget> cursor;
+    std::vector<PresentationHotspotMaterialParameter> material_parameters{};
+    std::vector<PresentationMaterialTextureOverride> material_texture_overrides{};
     bool operator==(const PresentationHotspot&) const = default;
 };
 

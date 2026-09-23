@@ -746,19 +746,10 @@ function compileSceneStep(
         owner: step.owner,
         action: step.action,
         instanceId: step.instanceId,
-        material: materialRef(step.material),
+        ...compileMaterialApplication(step.materialApplication),
         scope: step.scope,
         order: step.order,
         clock: step.clock,
-        parameters: step.parameters.map((parameter) => ({
-          name: parameter.name,
-          value: compileMaterialParameterValue(
-            project,
-            step.material!.$ref.id,
-            parameter.name,
-            parameter.value,
-          ),
-        })),
       };
     case 'transition-group':
       return {

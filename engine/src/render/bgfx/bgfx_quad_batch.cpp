@@ -313,7 +313,7 @@ bool Renderer::prepare_postprocess_surface(bool full_world_transition)
             return false;
         }
         tooling_pass.push_back(RuntimePostprocessPass{
-            "tooling", *m_postprocess_material, m_postprocess_material_scope, {}});
+            "tooling", *m_postprocess_material, m_postprocess_material_scope, {}, {}});
         passes = &tooling_pass;
     }
 
@@ -435,7 +435,7 @@ void Renderer::composite_postprocess_surface(PostprocessScope scope)
         if (!material)
             return;
         tooling_pass.push_back(RuntimePostprocessPass{
-            "tooling", *m_postprocess_material, m_postprocess_material_scope, {}});
+            "tooling", *m_postprocess_material, m_postprocess_material_scope, {}, {}});
         all_passes = &tooling_pass;
     }
     std::vector<const RuntimePostprocessPass*> passes;
@@ -469,6 +469,7 @@ void Renderer::composite_postprocess_surface(PostprocessScope scope)
         if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
             command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
         command.color = {1.0f, 1.0f, 1.0f, 1.0f};
+        command.material_texture_overrides = pass.textures;
         for (const auto& parameter : pass.uniforms) {
             std::optional<ShaderUniformValue> value = parameter.value;
             if (!value && parameter.facet) {

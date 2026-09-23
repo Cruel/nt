@@ -226,6 +226,8 @@ struct DesiredPostprocessEffect {
     compiled::MaterialPostprocessScope scope = compiled::MaterialPostprocessScope::World;
     std::int32_t order = 0;
     MaterialClockPolicy clock = MaterialClockPolicy::Gameplay;
+    std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+    std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
     bool visible = true;
     bool operator==(const DesiredPostprocessEffect&) const = default;
 };

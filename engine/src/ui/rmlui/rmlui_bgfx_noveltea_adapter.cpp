@@ -494,12 +494,23 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
 
             const MaterialTextureAssignment* assignment =
                 find_texture_assignment(*material, sampler.name);
-            if (!assignment) {
+            const auto occurrence_texture = std::find_if(
+                material_textures.begin(), material_textures.end(), [&](const auto& value) {
+                    return value.material.text() == record_it->second.material_id.string() &&
+                           value.name == sampler.name;
+                });
+            if (!assignment && occurrence_texture == material_textures.end()) {
                 error("RmlUi decorator Material sampler '" + sampler.name +
                       "' has no texture source");
                 return false;
             }
-            const bgfx::TextureHandle texture = texture_for_assignment(*assignment, context);
+            MaterialTextureAssignment effective{
+                sampler.name,
+                occurrence_texture != material_textures.end()
+                    ? occurrence_texture->source
+                    : assignment->source,
+                assignment ? assignment->filtering : MaterialTextureSampler::ClampLinear};
+            const bgfx::TextureHandle texture = texture_for_assignment(effective, context);
             if (!bgfx::isValid(texture)) {
                 error("RmlUi decorator Material sampler '" + sampler.name +
                       "' texture is unavailable");
@@ -618,10 +629,13 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
             static_cast<float>(presentation.ui_raster.size.height)};
     }
 
-    void set_material_parameters(std::span<const core::PresentationMaterialParameter> parameters,
-                                 const core::RuntimeClockUpdate& clocks, double camera_zoom)
+    void set_material_parameters(
+        std::span<const core::PresentationMaterialParameter> parameters,
+        std::span<const core::PresentationMaterialTextureBinding> textures,
+        const core::RuntimeClockUpdate& clocks, double camera_zoom)
     {
         material_parameters.assign(parameters.begin(), parameters.end());
+        material_textures.assign(textures.begin(), textures.end());
         gameplay_time_seconds = std::chrono::duration<double>(clocks.gameplay_time).count();
         unscaled_time_seconds =
             std::chrono::duration<double>(clocks.unscaled_presentation_time).count();
@@ -649,6 +663,7 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
     std::uint64_t next_material_shader_id = 0;
     std::unordered_map<std::uint64_t, MaterialShaderRecord> material_shader_records;
     std::vector<core::PresentationMaterialParameter> material_parameters;
+    std::vector<core::PresentationMaterialTextureBinding> material_textures;
     std::unordered_map<std::string, double> material_parameter_epochs;
     double gameplay_time_seconds = 0.0;
     double unscaled_time_seconds = 0.0;
@@ -843,9 +858,10 @@ void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebu
 
 void BgfxRenderInterface::set_material_parameters(
     std::span<const core::PresentationMaterialParameter> parameters,
+    std::span<const core::PresentationMaterialTextureBinding> textures,
     const core::RuntimeClockUpdate& clocks, double camera_zoom)
 {
-    m_adapter->set_material_parameters(parameters, clocks, camera_zoom);
+    m_adapter->set_material_parameters(parameters, textures, clocks, camera_zoom);
 }
 
 Rml::CompiledGeometryHandle

@@ -1153,7 +1153,7 @@ RuntimeScriptApi::set_postprocess_effect(core::PostprocessEffectInstanceId insta
         return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
     return gateway->upsert_postprocess_effect(core::DesiredPostprocessEffect{
         std::move(instance), std::move(*owner.value_if()), std::move(material), options.scope,
-        options.order, options.clock, options.visible});
+        options.order, options.clock, {}, {}, options.visible});
 }
 
 core::Result<void, core::Diagnostics>

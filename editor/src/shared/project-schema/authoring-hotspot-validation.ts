@@ -109,13 +109,13 @@ function validateHighlight(
   path: string,
 ): HotspotAuthoringDiagnostic[] {
   if (highlight.kind !== 'material') return [];
-  const materialId = highlight.material.$ref.id;
+  const materialId = highlight.materialApplication.material.$ref.id;
   const material = resolveMaterialData(project, materialId).data;
   if (!material)
     return [
       diagnostic(
         category,
-        `${path}/material/$ref`,
+        `${path}/materialApplication/material/$ref`,
         `Missing or invalid hotspot highlight Material '${materialId}'.`,
         'hotspot.authoring.highlight.material-missing',
       ),
@@ -124,11 +124,35 @@ function validateHighlight(
     return [
       diagnostic(
         category,
-        `${path}/material/$ref`,
+        `${path}/materialApplication/material/$ref`,
         `Hotspot highlight Material '${materialId}' must use role 'hotspot-overlay'.`,
         'hotspot.authoring.highlight.material-role',
       ),
     ];
+  const diagnostics: HotspotAuthoringDiagnostic[] = [];
+  for (const [name, texture] of Object.entries(highlight.materialApplication.textures)) {
+    if (name === 's_hotspotImage' || name === 's_hotspotMask') {
+      diagnostics.push(
+        diagnostic(
+          category,
+          `${path}/materialApplication/textures/${name}`,
+          `Hotspot renderer-owned sampler '${name}' cannot be overridden by a Material Application.`,
+          'hotspot.authoring.highlight.renderer-texture-override',
+        ),
+      );
+      continue;
+    }
+    const asset = project.assets[texture.source.$ref.id];
+    if (!asset || parseAssetData(asset.data)?.kind !== 'image')
+      diagnostics.push(
+        diagnostic(
+          category,
+          `${path}/materialApplication/textures/${name}/source/$ref`,
+          `Hotspot Material texture '${name}' must reference an image Asset.`,
+          'hotspot.authoring.highlight.texture-invalid',
+        ),
+      );
+  }
   const preset = materialContractRegistry.presets.find(
     (candidate) => candidate.id === material.preset.id,
   );
@@ -137,18 +161,18 @@ function validateHighlight(
   const samplerCompatible =
     imageState === 'required' &&
     (mode === 'sprite-alpha' ? maskState === 'disabled' : maskState === 'required');
-  return samplerCompatible
-    ? []
-    : [
-        diagnostic(
-          category,
-          `${path}/material/$ref`,
-          mode === 'sprite-alpha'
-            ? 'Default-alpha hotspot highlights require the alpha hotspot Material contract.'
-            : 'Custom hotspot highlights require the custom-mask hotspot Material contract.',
-          'hotspot.authoring.highlight.sampler-interface',
-        ),
-      ];
+  if (!samplerCompatible)
+    diagnostics.push(
+      diagnostic(
+        category,
+        `${path}/materialApplication/material/$ref`,
+        mode === 'sprite-alpha'
+          ? 'Default-alpha hotspot highlights require the alpha hotspot Material contract.'
+          : 'Custom hotspot highlights require the custom-mask hotspot Material contract.',
+        'hotspot.authoring.highlight.sampler-interface',
+      ),
+    );
+  return diagnostics;
 }
 
 function validateSourceImage(

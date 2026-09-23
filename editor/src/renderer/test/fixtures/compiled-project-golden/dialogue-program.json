@@ -3089,8 +3089,10 @@
           ],
           "materials": [
             {
-              "id": "sprite-material",
-              "kind": "material"
+              "material": {
+                "id": "layout-material",
+                "kind": "material"
+              }
             }
           ],
           "scripts": [
@@ -3154,8 +3156,10 @@
           ],
           "materials": [
             {
-              "id": "sprite-material",
-              "kind": "material"
+              "material": {
+                "id": "layout-material",
+                "kind": "material"
+              }
             }
           ],
           "scripts": [
@@ -3200,6 +3204,11 @@
     ],
     "materialInterfaces": [
       {
+        "id": "layout-material",
+        "parameters": [],
+        "role": "rmlui-decorator"
+      },
+      {
         "id": "sprite-material",
         "parameters": [],
         "role": "engine-2d"
@@ -3229,7 +3238,7 @@
       }
     ]
   },
-  "saveContract": "sc1:31b019487002a2f25e2255d8103fbafe",
+  "saveContract": "sc1:96975e7a40d339a4c67d5faa118dcd98",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

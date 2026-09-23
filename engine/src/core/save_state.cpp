@@ -440,7 +440,9 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         if (*owner.value_if())
             save.postprocess_effects.push_back(
                 SavedPostprocessEffect{effect.instance, **owner.value_if(), effect.material,
-                                       effect.scope, effect.order, effect.clock, effect.visible});
+                                       effect.scope, effect.order, effect.clock,
+                                       effect.material_parameters, effect.material_textures,
+                                       effect.visible});
     }
     for (const auto& layout : session.m_mounted_layouts) {
         if (is_authored_room_overlay_default(project, layout))

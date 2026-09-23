@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useTranslation } from 'react-i18next';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
+import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
 import { resolveEditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -52,22 +53,16 @@ import {
   type LayoutAssetRef,
   type LayoutContractData,
   type LayoutData,
-  type LayoutMaterialRef,
   type LayoutSourceData,
 } from '../../../shared/project-schema/authoring-layouts';
 import {
   isAuthoringProject,
   type AuthoringProject,
 } from '../../../shared/project-schema/authoring-project';
-import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 import { parseScriptModuleData } from '../../../shared/project-schema/authoring-script-modules';
 
 function assetRef(assetId: string): LayoutAssetRef {
   return { $ref: { collection: 'assets', id: assetId } };
-}
-
-function materialRef(materialId: string): LayoutMaterialRef {
-  return { $ref: { collection: 'materials', id: materialId } };
 }
 
 function refIds<T extends { $ref: { id: string } }>(refs: T[]): string[] {
@@ -366,17 +361,6 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
         : [],
     [project],
   );
-  const materialOptions = useMemo(
-    () =>
-      project
-        ? Object.entries(project.materials).map(([id, material]) => ({
-            id,
-            label: material.label,
-            detail: resolveMaterialData(project, id).data?.role ?? null,
-          }))
-        : [],
-    [project],
-  );
   if (!layoutId || !record || !project)
     return <div className="p-4 text-sm text-muted-foreground">Layout record not found.</div>;
   const activeLayoutId: string = layoutId;
@@ -447,11 +431,13 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     setMessage(failure?.message ?? null);
   }
 
-  function setDependency(kind: keyof LayoutData['dependencies'], ids: string[]) {
+  function setDependency(
+    kind: Exclude<keyof LayoutData['dependencies'], 'materials'>,
+    ids: string[],
+  ) {
     const dependencies = {
       ...data.dependencies,
-      [kind]:
-        kind === 'materials' ? ids.map(materialRef) : kind === 'scripts' ? ids : ids.map(assetRef),
+      [kind]: kind === 'scripts' ? ids : ids.map(assetRef),
     } as LayoutData['dependencies'];
     commit({ ...data, dependencies }, 'Update layout dependencies');
   }
@@ -968,17 +954,58 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                 )
               }
             />
-            <DependencySelector
-              title="Materials"
-              options={materialOptions}
-              selectedIds={refIds(data.dependencies.materials)}
-              onToggle={(id) =>
-                setDependency(
-                  'materials',
-                  toggleRef(data.dependencies.materials, materialRef(id)).map((ref) => ref.$ref.id),
-                )
-              }
-            />
+            <section className="space-y-3 rounded border p-3">
+              <div>
+                <h3 className="text-sm font-medium">RmlUi Material Applications</h3>
+                <p className="text-xs text-muted-foreground">
+                  Configure the Materials referenced by <code>shader()</code> decorators, including
+                  sparse author-owned parameter and texture overrides.
+                </p>
+              </div>
+              {data.dependencies.materials.map((application, index) => (
+                <div
+                  key={`${application.material.$ref.id}-${index}`}
+                  className="rounded border p-2"
+                >
+                  <MaterialApplicationEditor
+                    project={project}
+                    value={application}
+                    expectedRole="rmlui-decorator"
+                    onChange={(next) => {
+                      const materials = [...data.dependencies.materials];
+                      if (next) materials[index] = next;
+                      else materials.splice(index, 1);
+                      commit(
+                        { ...data, dependencies: { ...data.dependencies, materials } },
+                        'Update Layout Material Application',
+                      );
+                    }}
+                  />
+                </div>
+              ))}
+              <div className="rounded border border-dashed p-2">
+                <MaterialApplicationEditor
+                  project={project}
+                  value={null}
+                  expectedRole="rmlui-decorator"
+                  allowClear={false}
+                  ariaLabel="Add Layout Material"
+                  onChange={(application) => {
+                    if (!application) return;
+                    commit(
+                      {
+                        ...data,
+                        dependencies: {
+                          ...data.dependencies,
+                          materials: [...data.dependencies.materials, application],
+                        },
+                      },
+                      'Add Layout Material Application',
+                    );
+                  }}
+                />
+              </div>
+            </section>
 
             {validationDiagnostics.length ? (
               <section

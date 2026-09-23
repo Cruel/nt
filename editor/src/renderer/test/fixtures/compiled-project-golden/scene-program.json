@@ -1808,22 +1808,26 @@
                   "id": "scene-postprocess-material",
                   "kind": "material"
                 },
-                "order": 2,
-                "owner": "invocation",
-                "parameters": [
+                "materialParameters": [
                   {
                     "name": "u_tint",
-                    "value": {
-                      "type": "color",
+                    "source": {
+                      "kind": "literal",
                       "value": {
-                        "a": 1,
-                        "b": 0.4,
-                        "g": 0.4,
-                        "r": 0.4
+                        "type": "color",
+                        "value": {
+                          "a": 1,
+                          "b": 0.4,
+                          "g": 0.4,
+                          "r": 0.4
+                        }
                       }
-                    }
+                    },
+                    "type": "color"
                   }
                 ],
+                "order": 2,
+                "owner": "invocation",
                 "scope": "world"
               },
               "timeline": {
@@ -1907,7 +1911,6 @@
                 "material": null,
                 "order": 0,
                 "owner": "invocation",
-                "parameters": [],
                 "scope": "world"
               },
               "timeline": {
@@ -3972,8 +3975,10 @@
           ],
           "materials": [
             {
-              "id": "sprite-material",
-              "kind": "material"
+              "material": {
+                "id": "layout-material",
+                "kind": "material"
+              }
             }
           ],
           "scripts": [
@@ -4037,8 +4042,10 @@
           ],
           "materials": [
             {
-              "id": "sprite-material",
-              "kind": "material"
+              "material": {
+                "id": "layout-material",
+                "kind": "material"
+              }
             }
           ],
           "scripts": [
@@ -4083,6 +4090,11 @@
     ],
     "materialInterfaces": [
       {
+        "id": "layout-material",
+        "parameters": [],
+        "role": "rmlui-decorator"
+      },
+      {
         "id": "scene-postprocess-material",
         "parameters": [
           {
@@ -4123,7 +4135,7 @@
       }
     ]
   },
-  "saveContract": "sc1:c7d68da90e907f5b2a21de19e394f927",
+  "saveContract": "sc1:913ef1d7879305116d167047bed4bc25",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

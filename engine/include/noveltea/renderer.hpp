@@ -86,6 +86,7 @@ struct RuntimePostprocessPass {
     MaterialId material;
     PostprocessScope scope = PostprocessScope::World;
     std::vector<RuntimeMaterialUniform> uniforms;
+    std::vector<MaterialTextureOverride> textures;
     bool operator==(const RuntimePostprocessPass&) const = default;
 };
 

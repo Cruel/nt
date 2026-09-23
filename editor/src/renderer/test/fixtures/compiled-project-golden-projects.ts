@@ -471,6 +471,11 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     label: 'Sprite Material',
     data: material,
   };
+  project.materials['layout-material'] = {
+    id: 'layout-material',
+    label: 'Layout Material',
+    data: defaultMaterialData('Layout Material', 'rmlui-decorator'),
+  };
 
   const inlineLayout = goldenDocumentLayoutData('Inline HUD');
   inlineLayout.target = 'default-ui';
@@ -478,7 +483,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     images: [assetReference('image-main')],
     fonts: [assetReference('font-main')],
     stylesheets: [assetReference('text-rcss')],
-    materials: [{ $ref: { collection: 'materials', id: 'sprite-material' } }],
+    materials: [emptyMaterialApplication('layout-material')],
     scripts: ['scripts/layout.lua'],
   };
   project.layouts['hud-inline'] = { id: 'hud-inline', label: 'Inline HUD', data: inlineLayout };
@@ -499,7 +504,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     images: [assetReference('image-main')],
     fonts: [assetReference('font-main')],
     stylesheets: [assetReference('text-rcss')],
-    materials: [{ $ref: { collection: 'materials', id: 'sprite-material' } }],
+    materials: [emptyMaterialApplication('layout-material')],
     scripts: ['scripts/layout.lua'],
   };
   project.layouts['hud-assets'] = { id: 'hud-assets', label: 'Asset HUD', data: assetLayout };
@@ -1308,11 +1313,18 @@ export function sceneProgramGoldenProject(): AuthoringProject {
       id: 'postprocess-add',
       action: 'upsert',
       instanceId: 'scene-grade',
-      material: sceneMaterialRef('scene-postprocess-material'),
+      materialApplication: {
+        ...emptyMaterialApplication('scene-postprocess-material'),
+        parameters: {
+          u_tint: {
+            type: 'color',
+            source: { kind: 'literal', value: { r: 0.4, g: 0.4, b: 0.4, a: 1 } },
+          },
+        },
+      },
       scope: 'world',
       order: 2,
       clock: 'unscaled-presentation',
-      parameters: [{ name: 'u_tint', value: { r: 0.4, g: 0.4, b: 0.4, a: 1 } }],
     },
     {
       ...defaultSceneStep('set-background'),
@@ -1338,11 +1350,10 @@ export function sceneProgramGoldenProject(): AuthoringProject {
       id: 'postprocess-remove',
       action: 'remove',
       instanceId: 'scene-grade',
-      material: null,
+      materialApplication: null,
       scope: 'world',
       order: 0,
       clock: 'gameplay',
-      parameters: [],
     },
     {
       ...defaultSceneStep('transition-group'),
@@ -1808,7 +1819,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         inputOrder: 1,
         highlight: {
           kind: 'material',
-          material: { $ref: { collection: 'materials', id: 'hotspot-overlay' } },
+          materialApplication: emptyMaterialApplication('hotspot-overlay'),
         },
         target: { kind: 'owner-feature', featureId: 'face' },
         shape: { kind: 'rect', bounds: { x: 0.1, y: 0.1, width: 0.7, height: 0.7 } },

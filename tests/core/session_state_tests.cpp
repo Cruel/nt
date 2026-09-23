@@ -1160,7 +1160,7 @@ TEST_CASE("occurrence Material Parameters enforce binding authority and bounded 
             DesiredPostprocessEffect{
                 instance, owner, postprocess_material, compiled::MaterialPostprocessScope::World,
                 static_cast<std::int32_t>(max_postprocess_effects_per_scope - index),
-                MaterialClockPolicy::Gameplay, true}));
+                MaterialClockPolicy::Gameplay, {}, {}, true}));
     }
     const auto bound_instance = id<PostprocessEffectInstanceId>("fx-0");
     const MaterialOccurrence postprocess = PostprocessMaterialOccurrence{bound_instance};
@@ -1186,5 +1186,5 @@ TEST_CASE("occurrence Material Parameters enforce binding authority and bounded 
         compiled_project,
         DesiredPostprocessEffect{id<PostprocessEffectInstanceId>("fx-overflow"), owner,
                                  postprocess_material, compiled::MaterialPostprocessScope::World,
-                                 99, MaterialClockPolicy::Gameplay, true}));
+                                 99, MaterialClockPolicy::Gameplay, {}, {}, true}));
 }

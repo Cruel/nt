@@ -3,8 +3,13 @@ import { parseAssetData } from './authoring-assets';
 import { systemCursorNames } from './authoring-cursor-vocabulary';
 import { layoutContractIdSchema } from './authoring-common';
 import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
+import { resolveMaterialData } from './authoring-materials';
 import { authoredRuntimeValueSchema } from './authoring-properties';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import {
+  materialApplicationSchema,
+  type MaterialApplication,
+} from './authoring-material-applications';
 
 export const layoutKindValues = ['document', 'fragment'] as const;
 
@@ -125,7 +130,7 @@ export const layoutDependencyDataSchema = z
     images: z.array(layoutAssetRefSchema).default([]),
     fonts: z.array(layoutAssetRefSchema).default([]),
     stylesheets: z.array(layoutAssetRefSchema).default([]),
-    materials: z.array(layoutMaterialRefSchema).default([]),
+    materials: z.array(materialApplicationSchema).default([]),
     scripts: z.array(layoutScriptPathSchema).default([]),
     templates: z.array(layoutAssetRefSchema).optional(),
     data: z.array(layoutAssetRefSchema).optional(),
@@ -827,18 +832,44 @@ function validateRcssCursors(
 
 function validateMaterialRefs(
   project: AuthoringProject,
-  refs: LayoutMaterialRef[],
+  applications: MaterialApplication[],
   path: string,
   diagnostics: LayoutSchemaDiagnostic[],
 ) {
   const seen = new Set<string>();
-  refs.forEach((ref, index) => {
-    const id = refId(ref);
-    const refPath = `${path}/${index}/$ref`;
+  applications.forEach((application, index) => {
+    const id = application.material.$ref.id;
+    const refPath = `${path}/${index}/material/$ref`;
     if (seen.has(id))
-      diagnostics.push(diagnostic(refPath, `Duplicate material dependency '${id}'.`, 'warning'));
+      diagnostics.push(diagnostic(refPath, `Duplicate Material Application '${id}'.`, 'warning'));
     seen.add(id);
-    if (!project.materials[id]) diagnostics.push(diagnostic(refPath, `Missing material '${id}'.`));
+    const material = project.materials[id];
+    if (!material) {
+      diagnostics.push(diagnostic(refPath, `Missing material '${id}'.`));
+      return;
+    }
+    const resolved = resolveMaterialData(project, id).data;
+    if (resolved && resolved.role !== 'rmlui-decorator')
+      diagnostics.push(
+        diagnostic(refPath, `Layout Material '${id}' must use role 'rmlui-decorator'.`),
+      );
+    for (const [name, texture] of Object.entries(application.textures)) {
+      const asset = project.assets[texture.source.$ref.id];
+      if (!asset)
+        diagnostics.push(
+          diagnostic(
+            `${path}/${index}/textures/${name}/source/$ref`,
+            `Missing texture asset '${texture.source.$ref.id}'.`,
+          ),
+        );
+      else if (parseAssetData(asset.data)?.kind !== 'image')
+        diagnostics.push(
+          diagnostic(
+            `${path}/${index}/textures/${name}/source/$ref`,
+            `Material texture override '${name}' must reference an image asset.`,
+          ),
+        );
+    }
   });
 }
 

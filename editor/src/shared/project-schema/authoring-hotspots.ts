@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
-import { conditionSchema, materialRefSchema } from './authoring-flow';
+import { conditionSchema } from './authoring-flow';
+import { materialApplicationSchema } from './authoring-material-applications';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -26,7 +27,7 @@ export const imageNormalizedRectSchema = strict({
 
 export const hotspotHighlightSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('default') }),
-  strict({ kind: z.literal('material'), material: materialRefSchema }),
+  strict({ kind: z.literal('material'), materialApplication: materialApplicationSchema }),
   strict({ kind: z.literal('none') }),
 ]);
 

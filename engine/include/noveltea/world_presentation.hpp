@@ -137,6 +137,7 @@ struct WorldPresentationDraw {
     std::vector<ActorAnimationClip> actor_animation_clips;
     core::compiled::CharacterAutomaticAnimations actor_automatic_animations;
     bool actor_speaking = false;
+    std::vector<core::PresentationHotspotMaterialParameter> authored_hotspot_parameters{};
 };
 
 struct WorldPreparedHotspotSurface {

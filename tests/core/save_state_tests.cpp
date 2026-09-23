@@ -1612,7 +1612,7 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
     REQUIRE(state.upsert_postprocess_effect(
         project, DesiredPostprocessEffect{effect_id, owner, postprocess_material,
                                           compiled::MaterialPostprocessScope::World, 4,
-                                          MaterialClockPolicy::UnscaledPresentation, true}));
+                                          MaterialClockPolicy::UnscaledPresentation, {}, {}, true}));
     const MaterialOccurrence effect = PostprocessMaterialOccurrence{effect_id};
     REQUIRE(state.upsert_material_parameter(
         project,

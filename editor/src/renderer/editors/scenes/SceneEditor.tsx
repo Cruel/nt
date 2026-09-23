@@ -43,6 +43,7 @@ import {
 } from '../../../shared/project-schema/authoring-scenes';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
+import { emptyMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import type {
   ShaderUniformData,
   ShaderUniformValue,
@@ -474,7 +475,7 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
       return {
         ...step,
         action: 'upsert',
-        material: sceneMaterialRef(materialId),
+        materialApplication: emptyMaterialApplication(materialId),
         scope: 'world',
       };
     }
@@ -2946,10 +2947,6 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                 const postprocessMaterials = Object.keys(project.materials).filter(
                   (id) => resolveMaterialData(project, id).data?.role === 'postprocess',
                 );
-                const materialId = selected.material?.$ref.id ?? '';
-                const uniforms = materialId
-                  ? materialUniforms(project, materialId, materialInterfaces[materialId])
-                  : [];
                 return (
                   <>
                     <Label>
@@ -2959,14 +2956,20 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                         onValueChange={(value) => {
                           const action = value === 'upsert' ? 'upsert' : 'remove';
                           if (action === 'remove') {
-                            replaceStep({ ...selected, action, material: null, parameters: [] });
+                            replaceStep({ ...selected, action, materialApplication: null });
                             return;
                           }
-                          const nextMaterial = materialId || postprocessMaterials[0] || '';
+                          const nextMaterial =
+                            selected.materialApplication?.material.$ref.id ??
+                            postprocessMaterials[0] ??
+                            '';
                           replaceStep({
                             ...selected,
                             action,
-                            material: nextMaterial ? sceneMaterialRef(nextMaterial) : null,
+                            materialApplication: nextMaterial
+                              ? (selected.materialApplication ??
+                                emptyMaterialApplication(nextMaterial))
+                              : null,
                           });
                         }}
                       >
@@ -2985,26 +2988,16 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                     </Label>
                     {selected.action === 'upsert' && (
                       <>
-                        <Label>
-                          Material
-                          <Select
-                            value={materialId}
-                            onValueChange={(id) => {
-                              if (!id) return;
-                              replaceStep({
-                                ...selected,
-                                material: sceneMaterialRef(id),
-                                parameters: [],
-                              });
-                            }}
-                          >
-                            {postprocessMaterials.map((id) => (
-                              <SelectItem key={id} value={id}>
-                                {project.materials[id]?.label ?? id}
-                              </SelectItem>
-                            ))}
-                          </Select>
-                        </Label>
+                        <MaterialApplicationEditor
+                          project={project}
+                          value={selected.materialApplication}
+                          expectedRole="postprocess"
+                          allowClear={false}
+                          ariaLabel="Postprocess Material"
+                          onChange={(materialApplication) =>
+                            replaceStep({ ...selected, materialApplication })
+                          }
+                        />
                         <Label>
                           Scope
                           <Select
@@ -3045,130 +3038,6 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
                             </SelectItem>
                           </Select>
                         </Label>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <Label>Initial parameters</Label>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={
-                                uniforms.length === 0 ||
-                                selected.parameters.length >= uniforms.length
-                              }
-                              onClick={() => {
-                                const available = uniforms.find(
-                                  (uniform) =>
-                                    !selected.parameters.some(
-                                      (parameter) => parameter.name === uniform.name,
-                                    ),
-                                );
-                                if (!available) return;
-                                replaceStep({
-                                  ...selected,
-                                  parameters: [
-                                    ...selected.parameters,
-                                    { name: available.name, value: defaultUniformValue(available) },
-                                  ],
-                                });
-                              }}
-                            >
-                              Add parameter
-                            </Button>
-                          </div>
-                          {selected.parameters.map((parameter, index) => {
-                            const parameterUniform = uniforms.find(
-                              (uniform) => uniform.name === parameter.name,
-                            );
-                            return (
-                              <div
-                                key={`${parameter.name}-${index}`}
-                                className="grid gap-2 rounded border p-2"
-                              >
-                                <Select
-                                  value={parameter.name}
-                                  onValueChange={(name) => {
-                                    if (!name) return;
-                                    const nextUniform = uniforms.find(
-                                      (uniform) => uniform.name === name,
-                                    );
-                                    replaceStep({
-                                      ...selected,
-                                      parameters: selected.parameters.map((current, currentIndex) =>
-                                        currentIndex === index
-                                          ? {
-                                              name,
-                                              value: defaultUniformValue(nextUniform),
-                                            }
-                                          : current,
-                                      ),
-                                    });
-                                  }}
-                                >
-                                  {uniforms.map((uniform) => (
-                                    <SelectItem key={uniform.name} value={uniform.name}>
-                                      {uniform.label ?? uniform.name} ({uniform.type})
-                                    </SelectItem>
-                                  ))}
-                                </Select>
-                                {parameterUniform?.type === 'bool' ? (
-                                  <Select
-                                    value={parameter.value === true ? 'true' : 'false'}
-                                    onValueChange={(value) =>
-                                      replaceStep({
-                                        ...selected,
-                                        parameters: selected.parameters.map(
-                                          (current, currentIndex) =>
-                                            currentIndex === index
-                                              ? { ...current, value: value === 'true' }
-                                              : current,
-                                        ),
-                                      })
-                                    }
-                                  >
-                                    <SelectItem value="false">False</SelectItem>
-                                    <SelectItem value="true">True</SelectItem>
-                                  </Select>
-                                ) : (
-                                  <Input
-                                    value={uniformValueText(parameter.value)}
-                                    onChange={(event) => {
-                                      const value = parseUniformValue(
-                                        event.target.value,
-                                        parameterUniform,
-                                      );
-                                      if (value === null) return;
-                                      replaceStep({
-                                        ...selected,
-                                        parameters: selected.parameters.map(
-                                          (current, currentIndex) =>
-                                            currentIndex === index
-                                              ? { ...current, value }
-                                              : current,
-                                        ),
-                                      });
-                                    }}
-                                  />
-                                )}
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    replaceStep({
-                                      ...selected,
-                                      parameters: selected.parameters.filter(
-                                        (_, currentIndex) => currentIndex !== index,
-                                      ),
-                                    })
-                                  }
-                                >
-                                  Remove parameter
-                                </Button>
-                              </div>
-                            );
-                          })}
-                        </div>
                       </>
                     )}
                   </>

@@ -1628,14 +1628,23 @@ nlohmann::json encode_presentation_records(const CompiledProject& project, const
              {"clock", encode_enum(value.clock)}});
 
     nlohmann::json postprocess_effects = nlohmann::json::array();
-    for (const auto& value : save.postprocess_effects)
+    for (const auto& value : save.postprocess_effects) {
+        nlohmann::json parameters = nlohmann::json::array();
+        for (const auto& parameter : value.material_parameters)
+            parameters.push_back(encode_material_application_parameter(parameter));
+        nlohmann::json textures = nlohmann::json::array();
+        for (const auto& texture : value.material_textures)
+            textures.push_back({{"name", texture.name}, {"source", texture.source.text()}});
         postprocess_effects.push_back({{"instance", value.instance.text()},
                                        {"owner", encode_presentation_owner(value.owner)},
                                        {"material", value.material.text()},
                                        {"scope", encode_enum(value.scope)},
                                        {"order", value.order},
                                        {"clock", encode_enum(value.clock)},
+                                       {"materialParameters", std::move(parameters)},
+                                       {"materialTextures", std::move(textures)},
                                        {"visible", value.visible}});
+    }
 
     nlohmann::json layouts = nlohmann::json::array();
     for (const auto& value : save.mounted_layouts) {
@@ -2122,13 +2131,17 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                   [&d](const nlohmann::json& entry,
                        const std::string& entry_pointer) -> std::optional<SavedPostprocessEffect> {
                       if (!d.object(entry, entry_pointer,
-                                    {"clock", "instance", "material", "order", "owner", "scope",
-                                     "visible"}))
+                                    {"clock", "instance", "material", "materialParameters",
+                                     "materialTextures", "order", "owner", "scope", "visible"}))
                           return std::nullopt;
                       const auto* instance_value = d.member(entry, "instance", entry_pointer);
                       const auto* owner_value = d.member(entry, "owner", entry_pointer);
                       const auto* material_value = d.member(entry, "material", entry_pointer);
                       const auto* scope_value = d.member(entry, "scope", entry_pointer);
+                      const auto* material_parameters_value =
+                          d.member(entry, "materialParameters", entry_pointer);
+                      const auto* material_textures_value =
+                          d.member(entry, "materialTextures", entry_pointer);
                       const auto* order_value = d.member(entry, "order", entry_pointer);
                       const auto* clock_value = d.member(entry, "clock", entry_pointer);
                       const auto* visible_value = d.member(entry, "visible", entry_pointer);
@@ -2155,13 +2168,57 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                                        ? decode_enum(d, *clock_value, child(entry_pointer, "clock"),
                                                      MaterialClockPolicy::UnscaledPresentation)
                                        : std::nullopt;
+                      auto material_parameters =
+                          material_parameters_value
+                              ? d.array<compiled::MaterialApplicationParameterOverride>(
+                                    *material_parameters_value,
+                                    child(entry_pointer, "materialParameters"),
+                                    [&](const nlohmann::json& item,
+                                        const std::string& item_pointer) {
+                                        return decode_material_application_parameter(
+                                            d, item, item_pointer);
+                                    })
+                              : std::nullopt;
+                      auto material_textures =
+                          material_textures_value
+                              ? d.array<compiled::MaterialApplicationTextureOverride>(
+                                    *material_textures_value,
+                                    child(entry_pointer, "materialTextures"),
+                                    [&](const nlohmann::json& item,
+                                        const std::string& item_pointer)
+                                        -> std::optional<
+                                            compiled::MaterialApplicationTextureOverride> {
+                                        if (!d.object(item, item_pointer, {"name", "source"}))
+                                            return std::nullopt;
+                                        const auto* name_value = d.member(item, "name", item_pointer);
+                                        const auto* source_value =
+                                            d.member(item, "source", item_pointer);
+                                        auto name = name_value
+                                                        ? d.string(*name_value,
+                                                                   child(item_pointer, "name"))
+                                                        : std::nullopt;
+                                        auto source = source_value
+                                                          ? d.id<AssetId>(
+                                                                *source_value,
+                                                                child(item_pointer, "source"))
+                                                          : std::nullopt;
+                                        return name && source
+                                                   ? std::optional<compiled::
+                                                                       MaterialApplicationTextureOverride>{
+                                                         {std::move(*name), std::move(*source)}}
+                                                   : std::nullopt;
+                                    })
+                              : std::nullopt;
                       auto visible =
                           visible_value ? d.boolean(*visible_value, child(entry_pointer, "visible"))
                                         : std::nullopt;
-                      return instance && owner && material && scope && order && clock && visible
+                      return instance && owner && material && scope && order && clock &&
+                                     material_parameters && material_textures && visible
                                  ? std::optional<SavedPostprocessEffect>{SavedPostprocessEffect{
                                        std::move(*instance), std::move(*owner),
-                                       std::move(*material), *scope, *order, *clock, *visible}}
+                                       std::move(*material), *scope, *order, *clock,
+                                       std::move(*material_parameters), std::move(*material_textures),
+                                       *visible}}
                                  : std::nullopt;
                   })
             : std::nullopt;

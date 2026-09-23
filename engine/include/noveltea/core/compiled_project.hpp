@@ -240,10 +240,11 @@ enum class LayoutTarget : std::uint8_t {
     MenuUi,
     CustomOverlay
 };
+struct MaterialApplication;
 struct LayoutDependencies {
     std::vector<AssetId> fonts;
     std::vector<AssetId> images;
-    std::vector<MaterialId> materials;
+    std::vector<MaterialApplication> materials;
     std::vector<std::string> scripts;
     std::vector<AssetId> stylesheets;
     std::vector<AssetId> data;
@@ -761,6 +762,8 @@ struct NoHotspotHighlight {
 };
 struct MaterialHotspotHighlight {
     MaterialId material;
+    std::vector<MaterialApplicationParameterOverride> material_parameters;
+    std::vector<MaterialApplicationTextureOverride> material_textures;
     auto operator<=>(const MaterialHotspotHighlight&) const = default;
 };
 using HotspotHighlight =
@@ -1529,11 +1532,6 @@ enum class PostprocessEffectAction : std::uint8_t {
     Upsert,
     Remove,
 };
-struct PostprocessEffectParameter {
-    std::string name;
-    MaterialParameterValue value;
-    bool operator==(const PostprocessEffectParameter&) const = default;
-};
 struct PostprocessEffectInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
@@ -1544,7 +1542,8 @@ struct PostprocessEffectInstruction {
     MaterialPostprocessScope scope = MaterialPostprocessScope::World;
     std::int32_t order = 0;
     MaterialClock clock = MaterialClock::Gameplay;
-    std::vector<PostprocessEffectParameter> parameters;
+    std::vector<MaterialApplicationParameterOverride> material_parameters;
+    std::vector<MaterialApplicationTextureOverride> material_textures;
 };
 struct TransitionGroupSetBackgroundMutation {
     TransitionGroupChildId id;

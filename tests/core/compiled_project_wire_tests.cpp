@@ -460,7 +460,14 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(postprocess_add.instance.text() == "scene-grade");
         CHECK(postprocess_add.action == PostprocessEffectAction::Upsert);
         CHECK(postprocess_add.order == 2);
-        CHECK(postprocess_add.parameters.size() == 1);
+        REQUIRE(postprocess_add.material.has_value());
+        CHECK(postprocess_add.material->text() == "scene-postprocess-material");
+        REQUIRE(postprocess_add.material_parameters.size() == 1);
+        CHECK(postprocess_add.material_parameters.front().name == "u_tint");
+        CHECK(postprocess_add.material_parameters.front().type == MaterialParameterType::Color);
+        CHECK(std::holds_alternative<MaterialApplicationLiteralSource>(
+            postprocess_add.material_parameters.front().source));
+        CHECK(postprocess_add.material_textures.empty());
         const auto& background_material =
             std::get<SetBackgroundInstruction>(opening.program.instructions[15]);
         REQUIRE(background_material.background.material.has_value());
@@ -1181,7 +1188,10 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
     CHECK(complete.find_dialogue(DialogueId::create("intro").value()) != nullptr);
     CHECK(complete.find_map(MapId::create("house").value()) != nullptr);
     REQUIRE(complete.layouts().front().dependencies.materials.size() == 1);
-    CHECK(complete.layouts().front().dependencies.materials.front().text() == "sprite-material");
+    const auto& layout_material = complete.layouts().front().dependencies.materials.front();
+    CHECK(layout_material.material.text() == "layout-material");
+    CHECK(layout_material.parameters.empty());
+    CHECK(layout_material.textures.empty());
 
     auto scene = noveltea::core::decode_compiled_project(fixture("scene-program"), "scene.json");
     REQUIRE(scene);

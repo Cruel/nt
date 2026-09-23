@@ -2471,22 +2471,10 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                             value.clock == core::compiled::MaterialClock::Gameplay
                                 ? core::MaterialClockPolicy::Gameplay
                                 : core::MaterialClockPolicy::UnscaledPresentation,
-                            true});
-                    if (!changed)
+                            value.material_parameters, value.material_textures, true});
+                    if (!changed) {
+                        m_state = source_state;
                         return fault(changed.error());
-                    for (const auto& parameter : value.parameters) {
-                        auto assigned = m_state.upsert_material_parameter(
-                            m_project,
-                            core::DesiredMaterialParameter{
-                                owner, core::PostprocessMaterialOccurrence{value.instance},
-                                *value.material, parameter.name, parameter.value, std::nullopt,
-                                value.clock == core::compiled::MaterialClock::Gameplay
-                                    ? core::MaterialClockPolicy::Gameplay
-                                    : core::MaterialClockPolicy::UnscaledPresentation});
-                        if (!assigned) {
-                            m_state = source_state;
-                            return fault(assigned.error());
-                        }
                     }
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T,

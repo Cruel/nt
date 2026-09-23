@@ -1539,11 +1539,11 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         [&](const compiled::MaterialApplicationParameterOverride& parameter,
             const PresentationOwner& owner, const MaterialOccurrence& occurrence,
             const MaterialId& material,
-            const std::optional<PropertyOwnerRef>& property_owner)
+            const std::optional<PropertyOwnerRef>& property_owner,
+            MaterialClockPolicy clock = MaterialClockPolicy::Gameplay)
         -> std::optional<PresentationMaterialParameter> {
         PresentationMaterialParameter projected{owner,          occurrence, material,
-                                                parameter.name, std::nullopt, std::nullopt,
-                                                MaterialClockPolicy::Gameplay};
+                                                parameter.name, std::nullopt, std::nullopt, clock};
         bool resolved = true;
         std::visit(
             [&](const auto& source) {
@@ -1743,7 +1743,8 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         [&](const PresentationOwner& owner, const MaterialOccurrence& occurrence,
             const MaterialId& material,
             const std::vector<compiled::MaterialApplicationParameterOverride>& parameters,
-            const std::optional<PropertyOwnerRef>& property_owner) {
+            const std::optional<PropertyOwnerRef>& property_owner,
+            MaterialClockPolicy clock = MaterialClockPolicy::Gameplay) {
             const auto* interface = project.find_material_interface(material);
             if (interface == nullptr)
                 return;
@@ -1761,7 +1762,7 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                 });
                 if (authored != parameters.end()) {
                     if (auto projected = project_authored_parameter(*authored, owner, occurrence,
-                                                                    material, property_owner))
+                                                                    material, property_owner, clock))
                         result.material_parameters.push_back(std::move(*projected));
                 }
             }
@@ -1813,6 +1814,38 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             MaterialOccurrence{EnvironmentMaterialOccurrence{environment.instance}},
             environment.material, environment.material_parameters,
             environment.material_property_owner);
+
+    for (auto& hotspot : result.hotspots) {
+        const auto* application =
+            std::get_if<compiled::MaterialHotspotHighlight>(&hotspot.highlight);
+        if (application == nullptr)
+            continue;
+        const std::optional<PropertyOwnerRef> property_owner = std::visit(
+            [](const auto& ref) -> std::optional<PropertyOwnerRef> {
+                using T = std::decay_t<decltype(ref)>;
+                if constexpr (std::is_same_v<T, compiled::RoomHotspotRef>)
+                    return PropertyOwnerRef{ref.room};
+                else
+                    return PropertyOwnerRef{ref.interactable};
+            },
+            hotspot.ref);
+        for (const auto& parameter : application->material_parameters) {
+            auto projected = project_authored_parameter(
+                parameter, state.session_presentation_owner(),
+                MaterialOccurrence{MaterialWideMaterialOccurrence{}}, application->material,
+                property_owner);
+            if (projected)
+                hotspot.material_parameters.push_back(PresentationHotspotMaterialParameter{
+                    projected->parameter, projected->value, projected->standard_facet,
+                    projected->clock});
+        }
+        for (const auto& texture : application->material_textures) {
+            const auto* asset = project.find_asset(texture.source);
+            if (asset != nullptr)
+                hotspot.material_texture_overrides.push_back(
+                    PresentationMaterialTextureOverride{texture.name, "project:/" + asset->path});
+        }
+    }
 
     const auto append_materialwide =
         [&](const DesiredMaterialParameter& desired, const PresentationOwner& owner,
@@ -1908,8 +1941,12 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
     }
 
     for (const auto& desired : state.postprocess_effects()) {
-        if (state.presentation_owner_is_active(desired.owner) && desired.visible)
-            result.postprocess_effects.push_back(desired);
+        if (!state.presentation_owner_is_active(desired.owner) || !desired.visible)
+            continue;
+        append_authored_application_parameters(
+            desired.owner, MaterialOccurrence{PostprocessMaterialOccurrence{desired.instance}},
+            desired.material, desired.material_parameters, std::nullopt, desired.clock);
+        result.postprocess_effects.push_back(desired);
     }
     for (const auto scope : {compiled::MaterialPostprocessScope::World,
                              compiled::MaterialPostprocessScope::FullGameViewport}) {
@@ -1984,11 +2021,24 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             if (!state_valid)
                 continue;
         }
+        std::vector<PresentationMaterialTextureBinding> material_textures;
+        for (const auto& application : layout_definition->dependencies.materials) {
+            append_authored_application_parameters(
+                mount.owner,
+                MaterialOccurrence{LayoutMaterialOccurrence{mount.key, application.material}},
+                application.material, application.parameters, std::nullopt);
+            for (const auto& texture : application.textures) {
+                const auto* asset = project.find_asset(texture.source);
+                if (asset != nullptr)
+                    material_textures.push_back(PresentationMaterialTextureBinding{
+                        application.material, texture.name, "project:/" + asset->path});
+            }
+        }
         result.layouts.push_back(PresentationMountedLayout{
             mount.key, mount.owner, mount.layout, mount.policy, mount.scale_overrides,
             mount.composition_group, mount.occurrence, std::move(*inputs.value_if()),
             mount.connected_signals, layout_definition->contract.state, std::move(state_values),
-            mount.trigger_context});
+            std::move(material_textures), mount.trigger_context});
     }
     for (const auto& stage_layout : stage_layouts) {
         const auto* layout_definition = project.find_layout(stage_layout.layout);
@@ -2022,6 +2072,7 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                                                            {},
                                                            {},
                                                            layout_definition->contract.state,
+                                                           {},
                                                            {},
                                                            std::nullopt});
     }
