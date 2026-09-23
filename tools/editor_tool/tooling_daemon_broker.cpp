@@ -1694,18 +1694,39 @@ public:
     ProjectObservation observe_owner_project(std::uint64_t owner_worker_id,
                                              const ProjectAuthorityRequest& request)
     {
-#if defined(_WIN32)
-        const auto requested_root =
-            canonical_project_owner_root(wide_to_utf8(request.project_root.wstring()), false);
-#else
-        const auto requested_root =
-            canonical_project_owner_root(request.project_root.string(), false);
-#endif
+        std::string owner_root;
         {
             std::scoped_lock lock(queue_mutex_);
             const auto owner = project_owners_.find(owner_worker_id);
-            if (owner == project_owners_.end() || owner->second.retiring ||
-                owner->second.canonical_root != requested_root)
+            if (owner == project_owners_.end() || owner->second.retiring)
+                throw std::runtime_error(
+                    "Project authority request does not belong to this owner worker");
+            owner_root = owner->second.canonical_root;
+        }
+
+        // Owner workers are handed their canonical root at admission and use that exact path for
+        // normal authority calls. Avoid repeating exists/canonical/is-directory filesystem work on
+        // every hot-path observation. A logical alias still falls back to full canonicalization so
+        // aliases retain the existing physical-owner semantics.
+        std::error_code lexical_error;
+        const auto absolute_requested = std::filesystem::absolute(request.project_root, lexical_error);
+#if defined(_WIN32)
+        const auto lexical_requested_root =
+            lexical_error ? std::string{}
+                          : wide_to_utf8(absolute_requested.lexically_normal().wstring());
+#else
+        const auto lexical_requested_root =
+            lexical_error ? std::string{} : absolute_requested.lexically_normal().string();
+#endif
+        if (lexical_requested_root != owner_root) {
+#if defined(_WIN32)
+            const auto requested_root =
+                canonical_project_owner_root(wide_to_utf8(request.project_root.wstring()), false);
+#else
+            const auto requested_root =
+                canonical_project_owner_root(request.project_root.string(), false);
+#endif
+            if (requested_root != owner_root)
                 throw std::runtime_error(
                     "Project authority request does not belong to this owner worker");
         }
@@ -2362,6 +2383,14 @@ private:
 #else
         const std::filesystem::path root = canonical_root;
 #endif
+        // A watcher-marked dirty authority cannot match the retained exact result for the prior
+        // proven generation. Let the resident owner reconcile that known change directly instead
+        // of paying for a redundant whole-Project exact-result proof first. Unknown/untracked
+        // authority still performs the proof because watcher delivery is never correctness
+        // authority and a full scan may legitimately recover an exact hit.
+        if (const auto authority_status = project_authority_.status(root);
+            authority_status && authority_status->state == ProjectAuthorityState::dirty)
+            return std::nullopt;
         bool active_owner = false;
         {
             std::scoped_lock lock(queue_mutex_);

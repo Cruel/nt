@@ -535,9 +535,14 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
   }
 
   private async canonicalProjectRoot(projectRoot: string): Promise<string | null> {
+    const resolvedRoot = this.residentFileSystem.resolvePath(projectRoot);
+    // Once a live resident session has been admitted under this exact canonical path, repeating
+    // realpath() on every warm request is redundant. Logical aliases are not session keys, so they
+    // still resolve through realpath() and continue to converge on the canonical physical owner.
+    if (this.sessions.has(resolvedRoot)) return resolvedRoot;
     try {
       return this.residentFileSystem.resolvePath(
-        await this.residentFileSystem.realpath(projectRoot),
+        await this.residentFileSystem.realpath(resolvedRoot),
       );
     } catch {
       return null;

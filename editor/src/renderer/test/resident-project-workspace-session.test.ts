@@ -1840,6 +1840,31 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(await workspace.hasResidentSession(alias)).toBe(true);
   });
 
+  it('reuses an already-known canonical resident root without another realpath lookup', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const originalRealpath = fileSystem.realpath.bind(fileSystem);
+    let projectRootRealpathCalls = 0;
+    fileSystem.realpath = async (value) => {
+      if (fileSystem.resolvePath(value) === ROOT) projectRootRealpathCalls += 1;
+      return originalRealpath(value);
+    };
+    const workspace = new ResidentProjectWorkspaceService(fileSystem);
+
+    const first = await workspace.open(ROOT);
+    expect(first.ok).toBe(true);
+    const admissionRealpathCalls = projectRootRealpathCalls;
+
+    expect(await workspace.hasResidentSession(ROOT)).toBe(true);
+    expect(projectRootRealpathCalls).toBe(admissionRealpathCalls);
+  });
+
   it('evicts resident Project sessions after their idle cutoff', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     const files = Object.fromEntries(
