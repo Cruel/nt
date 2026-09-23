@@ -52,6 +52,18 @@ export const platformProfilesProjectPreparationIntent: CliProjectPreparationInte
   validationBoundary: 'required-domains',
 });
 
+export function projectPreparationSemanticPaths(
+  intent: CliProjectPreparationIntent,
+): readonly string[] {
+  const paths = new Set<string>();
+  for (const domain of intent.domains) {
+    if (domain === 'project-identity') paths.add('/project');
+    else if (domain === 'export') paths.add('/export');
+    else if (domain === 'assets' || domain === 'filesystem-inventory') paths.add('/assets');
+  }
+  return Object.freeze([...paths]);
+}
+
 export interface CliScopedProjectPreparation {
   readonly intent: CliProjectPreparationIntent;
   readonly projectRoot: string;

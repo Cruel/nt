@@ -6,6 +6,12 @@ import type {
 } from '../src/shared/localization-font-coverage';
 import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
 import { NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY } from '../src/cli/static-contracts';
+import type { ProjectWorkspaceFileSystem } from '../src/shared/project-workspace/project-workspace-file-system';
+import {
+  scopedAuthorityRelevantDeltaPaths,
+  scopedAuthoritySignature,
+  type ScopedReadAuthorityToken,
+} from '../src/shared/scoped-read-authority';
 import type { ScriptcHostInvoke } from './noveltea-scriptc-path-metadata';
 
 let residentInvokeHost: ScriptcHostInvoke | null = null;
@@ -154,6 +160,70 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/res
     },
     release(projectRoot) {
       invokeResidentHost('daemon-project-release', JSON.stringify({ projectRoot }));
+    },
+  };
+}
+
+function scopedResidentReadAuthority(
+  fileSystem: ProjectWorkspaceFileSystem,
+): import('../src/cli/application').CliScopedReadAuthority {
+  const authority = residentProjectAuthority();
+  const emptyAssetSourcePaths = new Set<string>();
+  const capture = async (
+    projectRoot: string,
+    requiredSemanticPaths: readonly string[],
+    configure: boolean,
+  ): Promise<ScopedReadAuthorityToken> => {
+    const canonicalRoot = await fileSystem.realpath(projectRoot);
+    const assetsRequired = requiredSemanticPaths.some(
+      (path) => path === '/assets' || path.startsWith('/assets/'),
+    );
+    const observation = await authority.observe({
+      projectRoot: canonicalRoot,
+      ...(configure
+        ? {
+            authoritativePaths: ['project.json', 'editor.json', 'traits.json'],
+            discoveryScopes: [
+              { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
+              {
+                root: 'records',
+                extensions: ['.json', '.lua', '.rcss', '.rml'],
+                excludedPrefixes: [],
+              },
+              { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
+              ...(assetsRequired
+                ? [{ root: 'assets', extensions: ['*'], excludedPrefixes: [] }]
+                : []),
+            ],
+          }
+        : {}),
+      includeManifestEntries: true,
+    });
+    return Object.freeze({
+      canonicalRoot,
+      requiredSemanticPaths: Object.freeze([...requiredSemanticPaths]),
+      authoritySignature: scopedAuthoritySignature(
+        observation,
+        requiredSemanticPaths,
+        emptyAssetSourcePaths,
+      ),
+      relevantDeltaPaths: scopedAuthorityRelevantDeltaPaths(
+        observation,
+        requiredSemanticPaths,
+        emptyAssetSourcePaths,
+      ),
+    });
+  };
+  return {
+    captureScopedReadAuthority(projectRoot, requiredSemanticPaths) {
+      return capture(projectRoot, requiredSemanticPaths, true);
+    },
+    async verifyScopedReadAuthority(token) {
+      const current = await capture(token.canonicalRoot, token.requiredSemanticPaths, false);
+      return (
+        current.relevantDeltaPaths.length === 0 &&
+        current.authoritySignature === token.authoritySignature
+      );
     },
   };
 }
@@ -730,6 +800,12 @@ async function runNovelTeaScriptcIslandScoped(
           : invocationContext.pinnedProjectSnapshot && residentWorkspace
             ? { residentWorkspace, trustPinnedResidentSnapshot: true }
             : {}),
+        ...(scopedProjectPreparation &&
+        invocationContext.residentProjectSessions &&
+        fileSystem &&
+        !residentWorkspace
+          ? { scopedReadAuthority: scopedResidentReadAuthority(fileSystem) }
+          : {}),
         nativeTools,
         ...(platformTools ? { platformTools } : {}),
         ...(embeddedBuiltInFiles

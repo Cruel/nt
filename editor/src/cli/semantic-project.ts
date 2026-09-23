@@ -89,7 +89,13 @@ export interface CliSemanticResult {
 
 const localizationCoveragePreparationCache = new WeakMap<
   ProjectWorkspaceService,
-  Map<string, readonly LocalizationFontCoverageLocale[]>
+  Map<
+    string,
+    Readonly<{
+      dependencyRevision: `sha256:${string}`;
+      locales: readonly LocalizationFontCoverageLocale[];
+    }>
+  >
 >();
 
 function preparedLocalizationCoverageLocales(
@@ -103,9 +109,13 @@ function preparedLocalizationCoverageLocales(
     localizationCoveragePreparationCache.set(workspace, byProject);
   }
   const cached = byProject.get(snapshot.projectRoot);
-  if (cached && !sourceWork.localizationCoverageInputsChanged) return cached;
+  if (cached?.dependencyRevision === sourceWork.localizationCoverageDependencyRevision)
+    return cached.locales;
   const prepared = localizationFontCoverageLocales(snapshot.project);
-  byProject.set(snapshot.projectRoot, prepared);
+  byProject.set(snapshot.projectRoot, {
+    dependencyRevision: sourceWork.localizationCoverageDependencyRevision,
+    locales: prepared,
+  });
   return prepared;
 }
 

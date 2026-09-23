@@ -270,6 +270,51 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(third.sourceWork.localizationCoverageInputsChanged).toBe(true);
   }, 15_000);
 
+  it('keeps localization coverage dependency identity advanced across a later presentation edit', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    if (!first.ok) throw new Error('Initial Project open failed.');
+
+    const relativePath = 'records/rooms/foyer.json';
+    const semanticEdit = cloneAuthoringProject(project);
+    semanticEdit.rooms.foyer.data.displayName = 'Coverage Relevant';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${relativePath}`,
+      projectWorkspaceFiles(semanticEdit, semanticEdit.editor)[relativePath]!,
+    );
+    probe.change(relativePath);
+    const second = await workspace.open(ROOT);
+    if (!second.ok) throw new Error('Coverage-relevant reconciliation failed.');
+    expect(second.sourceWork.localizationCoverageInputsChanged).toBe(true);
+    expect(second.sourceWork.localizationCoverageDependencyRevision).not.toBe(
+      first.sourceWork.localizationCoverageDependencyRevision,
+    );
+
+    const presentationEdit = cloneAuthoringProject(second.snapshot.project);
+    presentationEdit.rooms.foyer.label = 'Presentation Only';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${relativePath}`,
+      projectWorkspaceFiles(presentationEdit, presentationEdit.editor)[relativePath]!,
+    );
+    probe.change(relativePath);
+    const third = await workspace.open(ROOT);
+    if (!third.ok) throw new Error('Presentation-only reconciliation failed.');
+    expect(third.sourceWork.localizationCoverageInputsChanged).toBe(false);
+    expect(third.sourceWork.localizationCoverageDependencyRevision).toBe(
+      second.sourceWork.localizationCoverageDependencyRevision,
+    );
+  });
+
   it('does not enumerate the Asset registry for an unrelated native freshness check', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.rooms.foyer = {
@@ -277,7 +322,7 @@ describe('ResidentProjectWorkspaceSession', () => {
       label: 'Foyer',
       data: defaultRoomData('Foyer'),
     };
-    for (let index = 0; index < 160; index += 1) {
+    for (let index = 0; index < 640; index += 1) {
       const id = `image-${String(index).padStart(3, '0')}`;
       project.assets[id] = {
         id,
@@ -356,6 +401,14 @@ describe('ResidentProjectWorkspaceSession', () => {
     if (!third.ok) throw new Error('Asset source-path reconciliation failed.');
     expect(probe.requests.at(-1)).toContain('assets/replaced.png');
     expect(probe.requests.at(-1)).not.toContain('assets/image-000.png');
+
+    probe.change('assets/image-319.png');
+    expect(await workspace.verifyReadAuthority(third.snapshot)).toBe(false);
+    const fourth = await workspace.open(ROOT);
+    expect(fourth.ok).toBe(true);
+    if (!fourth.ok) throw new Error('External Asset authority reconciliation failed.');
+    expect(fourth.sourceWork.authoredFilesReread).toBe(third.sourceWork.authoredFilesReread);
+    expect(probe.requests.at(-1)).toBeNull();
   });
 
   it('refreshes native authority after adopting a committed Asset relocation', async () => {
@@ -551,6 +604,7 @@ describe('ResidentProjectWorkspaceSession', () => {
   it('admits a mutation candidate before publishing its transaction', async () => {
     const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
     trackSemanticTransactionWrites(fileSystem, probe);
+    await workspace.buildDependencyGraphAnalysis(first.snapshot);
     const changed = cloneAuthoringProject(project);
     changed.assets.image.label = 'Changed Image';
     const recordPath = 'records/assets/image.json';
@@ -577,6 +631,18 @@ describe('ResidentProjectWorkspaceSession', () => {
     const reopened = await workspace.open(ROOT);
     if (!reopened.ok) throw new Error('Committed candidate did not remain resident.');
     expect(reopened.snapshot.project.assets.image.label).toBe('Changed Image');
+    expect(reopened.sourceWork).toMatchObject({
+      authoredFilesReread: 0,
+      parsedJsonSources: 1,
+      projectedJsonSources: 1,
+      fullProjectTraversals: 0,
+      fullProjectProjections: 0,
+      foregroundSerializations: 0,
+      foregroundSerializedBytes: 0,
+    });
+    const dependency = await workspace.buildDependencyGraphAnalysis(reopened.snapshot);
+    expect(dependency.work.fullProjectTraversals).toBe(0);
+    expect(dependency.work.derivedContributions).toBeLessThan(8);
   });
 
   it('does not promote a candidate when the transactional write fails', async () => {
@@ -1244,6 +1310,38 @@ describe('ResidentProjectWorkspaceSession', () => {
     if (!reopened.ok) throw new Error('Repaired Project open failed.');
     expect(reopened.snapshot.project.rooms.foyer.label).toBe('Repaired Foyer');
     expect(reopened.sourceWork.authoredFilesReread).toBe(1);
+  });
+
+  it('admits a narrow resident read around an unrelated malformed overlay but blocks its required domain', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    if (!first.ok) throw new Error('Initial Project open failed.');
+
+    const malformedPath = 'records/rooms/foyer.json';
+    await fileSystem.writeTextAtomic(`${ROOT}/${malformedPath}`, '{');
+    probe.change(malformedPath);
+
+    const unrelated = await workspace.openForRead(ROOT, ['/rooms/hall']);
+    expect(unrelated.ok).toBe(true);
+    if (!unrelated.ok) throw new Error('Unrelated semantic-domain read was blocked.');
+    expect(unrelated.snapshot.project.rooms.hall.label).toBe('Hall');
+    expect(unrelated.snapshot.project.rooms.foyer.label).toBe('Foyer');
+
+    const required = await workspace.openForRead(ROOT, ['/rooms/foyer']);
+    expect(required.ok).toBe(false);
+    if (required.ok) throw new Error('Malformed required domain was admitted.');
+    expect(required.diagnostics.some((diagnostic) => diagnostic.path.includes('foyer'))).toBe(true);
   });
 
   it('widens native reconciliation for structural add and remove deltas', async () => {

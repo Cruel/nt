@@ -14,6 +14,12 @@ import {
   type EditorProjectState,
 } from '../project-schema/editor-project-state';
 import { sha256PrefixedBytes } from '../web-crypto';
+import {
+  physicalPathRequiredBySemanticPaths,
+  scopedAuthorityRelevantDeltaPaths,
+  scopedAuthoritySignature,
+  type ScopedReadAuthorityToken,
+} from '../scoped-read-authority';
 import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
 import {
   assetSourcePaths,
@@ -253,6 +259,7 @@ type ResidentEntry = {
   pendingNativeStructuralChange: boolean;
   pendingNativeExternalAssetChange: boolean;
   nativeAssetSourcePaths: readonly string[];
+  nativeAssetSourcePathSet: ReadonlySet<string>;
   lastUsedAtMilliseconds: number;
   portableSnapshot: PreparedPortableResidentProjectSnapshot | null;
   pinnedPhysicalAuthority: readonly PortableResidentProjectAuthorityEntry[] | null;
@@ -460,12 +467,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     observation: ResidentProjectAuthorityObservation,
   ): ReturnType<typeof semanticObservationDelta> {
     const delta = semanticObservationDelta(observation);
-    const assetPaths = new Set(entry.nativeAssetSourcePaths);
     const externalAssetChanged = [
       ...observation.delta.added,
       ...observation.delta.changed,
       ...observation.delta.removed,
-    ].some((path) => assetPaths.has(path));
+    ].some((path) => entry.nativeAssetSourcePathSet.has(path));
     if (externalAssetChanged) {
       entry.portableSnapshot = null;
       entry.pendingNativeExternalAssetChange = true;
@@ -568,6 +574,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           pendingNativeStructuralChange: false,
           pendingNativeExternalAssetChange: false,
           nativeAssetSourcePaths,
+          nativeAssetSourcePathSet: new Set(nativeAssetSourcePaths),
           lastUsedAtMilliseconds: Date.now(),
           portableSnapshot: null,
           pinnedPhysicalAuthority: null,
@@ -604,6 +611,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         pendingNativeStructuralChange: false,
         pendingNativeExternalAssetChange: false,
         nativeAssetSourcePaths: Object.freeze([]),
+        nativeAssetSourcePathSet: new Set(),
         lastUsedAtMilliseconds: Date.now(),
         portableSnapshot: null,
         pinnedPhysicalAuthority: null,
@@ -749,6 +757,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       entry.pendingNativeStructuralChange = false;
       entry.pendingNativeExternalAssetChange = false;
       entry.nativeAssetSourcePaths = candidateAssetSourcePaths;
+      entry.nativeAssetSourcePathSet = new Set(candidateAssetSourcePaths);
       this.bindSnapshot(entry, candidate.snapshot);
       return candidate;
     }
@@ -906,6 +915,104 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     return coherent ? this.logicalView(entry, coherent, logicalRoot) : reconciled;
   }
 
+  async openForRead(
+    projectRoot: string,
+    requiredSemanticPaths: readonly string[],
+    options: ProjectWorkspaceOpenOptions = {},
+  ): Promise<ProjectWorkspaceOpenResult> {
+    const logicalRoot = this.residentFileSystem.resolvePath(projectRoot);
+    const canonicalRoot = await this.canonicalProjectRoot(logicalRoot);
+    if (!canonicalRoot)
+      return this.createSessionWorkspace(this.residentFileSystem).open(logicalRoot, options);
+
+    let entry = this.sessions.get(canonicalRoot);
+    if (!entry) {
+      const cold = await this.openCold(canonicalRoot, options);
+      if (!cold.ok) return cold;
+      entry = this.sessions.get(canonicalRoot);
+      return entry ? this.logicalView(entry, cold, logicalRoot) : cold;
+    }
+    if (entry.immutablePinned) {
+      const pinned = entry.session.openedGeneration();
+      if (!pinned) throw new Error('Pinned Project generation is unavailable.');
+      return this.logicalView(entry, pinned, logicalRoot);
+    }
+
+    const reconciled = await this.reconcile(entry, options);
+    if (reconciled.ok) {
+      entry = this.sessions.get(canonicalRoot) ?? entry;
+      return this.logicalView(entry, reconciled, logicalRoot);
+    }
+    if (entry.session.coherenceState() !== 'invalid') return reconciled;
+    const invalidBlock = entry.session.invalidSourceBlockForSemanticPaths(requiredSemanticPaths);
+    if (invalidBlock) return reconciled;
+    const coherent = entry.session.openedGeneration();
+    return coherent ? this.logicalView(entry, coherent, logicalRoot) : reconciled;
+  }
+
+  async captureScopedReadAuthority(
+    projectRoot: string,
+    requiredSemanticPaths: readonly string[],
+  ): Promise<ScopedReadAuthorityToken | null> {
+    const canonicalRoot = await this.canonicalProjectRoot(
+      this.residentFileSystem.resolvePath(projectRoot),
+    );
+    if (!canonicalRoot) return null;
+    const entry = this.sessions.get(canonicalRoot);
+    if (this.nativeAuthority) {
+      const assetPaths = entry?.nativeAssetSourcePaths ?? Object.freeze([]);
+      const assetPathSet = entry?.nativeAssetSourcePathSet ?? new Set<string>();
+      const observation = await this.observeNativeAuthority(canonicalRoot, assetPaths, true);
+      if (entry) this.recordNativeObservation(entry, observation);
+      return Object.freeze({
+        canonicalRoot,
+        requiredSemanticPaths: Object.freeze([...requiredSemanticPaths]),
+        authoritySignature: scopedAuthoritySignature(
+          observation,
+          requiredSemanticPaths,
+          assetPathSet,
+        ),
+        relevantDeltaPaths: scopedAuthorityRelevantDeltaPaths(
+          observation,
+          requiredSemanticPaths,
+          assetPathSet,
+        ),
+      });
+    }
+    if (!entry) return null;
+    const inventory = await this.captureInventory(entry.session.snapshot());
+    if (!inventory) return null;
+    const assetPathSet = new Set(assetSourcePaths(entry.session.project()));
+    return Object.freeze({
+      canonicalRoot,
+      requiredSemanticPaths: Object.freeze([...requiredSemanticPaths]),
+      authoritySignature: JSON.stringify(
+        inventory.entries
+          .filter((candidate) =>
+            physicalPathRequiredBySemanticPaths(
+              candidate.path,
+              requiredSemanticPaths,
+              assetPathSet,
+            ),
+          )
+          .map((candidate) => [candidate.path, candidate.byteSize, candidate.mtimeNanoseconds]),
+      ),
+      relevantDeltaPaths: Object.freeze([]),
+    });
+  }
+
+  async verifyScopedReadAuthority(token: ScopedReadAuthorityToken): Promise<boolean> {
+    const current = await this.captureScopedReadAuthority(
+      token.canonicalRoot,
+      token.requiredSemanticPaths,
+    );
+    return (
+      current !== null &&
+      current.relevantDeltaPaths.length === 0 &&
+      current.authoritySignature === token.authoritySignature
+    );
+  }
+
   private changedCanonicalPaths(
     before: LoadedProjectWorkspaceSnapshot,
     after: LoadedProjectWorkspaceSnapshot,
@@ -1022,6 +1129,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         );
       }
       entry.nativeAssetSourcePaths = candidateAssetSourcePaths;
+      entry.nativeAssetSourcePathSet = new Set(candidateAssetSourcePaths);
     } else {
       if (!prewriteAuthority)
         throw new Error('Resident mutation fallback authority is unavailable.');
@@ -1313,10 +1421,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           this.bindSnapshot(entry, advanced.snapshot);
           opened = advanced;
         }
-        const assetPaths = new Set(entry.nativeAssetSourcePaths);
         physicalAuthority = Object.freeze([...proof.manifest.entries]);
         externalAssets = Object.freeze(
-          proof.manifest.entries.filter((candidate) => assetPaths.has(candidate.path)),
+          proof.manifest.entries.filter((candidate) =>
+            entry.nativeAssetSourcePathSet.has(candidate.path),
+          ),
         );
       } else if (entry.authority) {
         const assetPaths = new Set(assetSourcePaths(opened.snapshot.project));
@@ -1371,10 +1480,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         );
         this.recordNativeObservation(entry, postSourceProof);
         if (!postSourceProof.unchanged) return null;
-        const assetPaths = new Set(entry.nativeAssetSourcePaths);
         physicalAuthority = Object.freeze([...postSourceProof.manifest.entries]);
         externalAssets = Object.freeze(
-          postSourceProof.manifest.entries.filter((candidate) => assetPaths.has(candidate.path)),
+          postSourceProof.manifest.entries.filter((candidate) =>
+            entry.nativeAssetSourcePathSet.has(candidate.path),
+          ),
         );
       }
 
@@ -1451,6 +1561,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     if (!entry) return false;
     entry.immutablePinned = false;
     entry.nativeAssetSourcePaths = Object.freeze([...ownerMetadata.nativeAssetSourcePaths]);
+    entry.nativeAssetSourcePathSet = new Set(entry.nativeAssetSourcePaths);
     entry.portableSnapshot = Object.freeze({
       projectRoot: canonicalRoot,
       identity: entry.session.generationIdentity(),
@@ -1523,6 +1634,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         pendingNativeStructuralChange: false,
         pendingNativeExternalAssetChange: false,
         nativeAssetSourcePaths: Object.freeze([]),
+        nativeAssetSourcePathSet: new Set(),
         lastUsedAtMilliseconds: Date.now(),
         portableSnapshot: null,
         pinnedPhysicalAuthority: Object.freeze([...portable.physicalAuthority]),

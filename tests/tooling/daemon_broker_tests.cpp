@@ -305,6 +305,27 @@ TEST_CASE("Project authority batches unchanged and add-change-remove observation
     CHECK(authority.tracked_project_count() == 1);
 }
 
+TEST_CASE("Project authority wildcard discovery tracks arbitrary Asset files and additions")
+{
+    using namespace noveltea::tooling::daemon;
+    auto root = temp_project_root("asset-wildcard");
+    write_project_file(root.path / "assets/portrait.custom", "first\n");
+    auto request = project_authority_request(root.path);
+    request.discovery_scopes.push_back(
+        ProjectSourceDiscoveryScope{.root = "assets", .extensions = {"*"}});
+    ProjectAuthorityManager authority({.enable_native_watcher = false});
+
+    const auto first = authority.observe(request);
+    const auto first_paths = manifest_paths(first.manifest);
+    CHECK(std::find(first_paths.begin(), first_paths.end(), "assets/portrait.custom") !=
+          first_paths.end());
+
+    write_project_file(root.path / "assets/new.extension-without-registry", "second\n");
+    const auto changed = authority.observe(request);
+    CHECK(changed.delta.added ==
+          std::vector<std::string>{"assets/new.extension-without-registry"});
+}
+
 TEST_CASE("Project authority detects same-path same-metadata physical source replacement")
 {
     using namespace noveltea::tooling::daemon;

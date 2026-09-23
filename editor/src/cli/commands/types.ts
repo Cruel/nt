@@ -62,6 +62,8 @@ export interface CliCommandInvocation {
   readonly dryRun: boolean;
   readonly mutation: boolean;
   readonly projectPreparation?: undefined;
+  /** Semantic Project paths that must reflect current disk state for a resident read. */
+  readonly requiredSemanticPaths?: readonly string[];
   run(context: CliCommandContext): Promise<CliSemanticResult> | CliSemanticResult;
 }
 

@@ -868,6 +868,12 @@ export class ResidentProjectWorkspaceSession {
     return null;
   }
 
+  invalidSourceBlockForSemanticPaths(
+    requiredPaths: readonly string[],
+  ): InvalidAuthoringSourceBlock | null {
+    return this.invalidSourceBlockForMutation([], requiredPaths);
+  }
+
   async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
     const prior = this.mutationTail;
     let release!: () => void;
