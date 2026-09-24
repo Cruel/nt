@@ -2,6 +2,19 @@ import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { NovelTeaCliPlatformToolService } from './platform-tool-service';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
+import type { RuntimeArtifactPathAdapter } from '../shared/runtime-artifact-preparation';
+import type { PreparedRuntimePackageOptions } from '../shared/project-schema/prepared-runtime-artifact';
+import type { ShaderCompileOptions } from '../shared/editor-tooling';
+import type { PinnedProjectTextSources } from './pinned-project-text-sources';
+import {
+  packageOptionsWithPinnedProjectTextSources,
+  pinnedShaderSourceOverlays,
+} from './pinned-project-text-sources';
+
+export interface NovelTeaCliPlatformToolServiceOptions {
+  readonly runtimeArtifactPaths?: RuntimeArtifactPathAdapter;
+  readonly pinnedProjectTextSources?: PinnedProjectTextSources;
+}
 
 function internalToken(token: string): string {
   const match = /^([a-zA-Z0-9._-]+)@([a-zA-Z0-9._-]+)$/.exec(token);
@@ -20,6 +33,7 @@ async function pathKind(value: string): Promise<'missing' | 'symlink' | 'other'>
 
 export function createNovelTeaCliPlatformToolService(
   nativeTools?: NovelTeaCliNativeToolService,
+  options: NovelTeaCliPlatformToolServiceOptions = {},
 ): NovelTeaCliPlatformToolService {
   return {
     async listTemplates() {
@@ -61,16 +75,32 @@ export function createNovelTeaCliPlatformToolService(
           onProgress,
           nativeTools
             ? {
-                compileShaders: (shaderProject, options) =>
-                  nativeTools.compileShaders(shaderProject, options ?? {}),
-                exportPackage: (project, outputPath, options) =>
-                  nativeTools.exportPackage({ project, outputPath, options: options ?? {} }),
+                compileShaders: (shaderProject, compileOptions) => {
+                  const shaderOptions = (compileOptions ?? {}) as ShaderCompileOptions;
+                  return nativeTools.compileShaders(shaderProject, {
+                    ...shaderOptions,
+                    sourceOverlays: {
+                      ...shaderOptions.sourceOverlays,
+                      ...pinnedShaderSourceOverlays(options.pinnedProjectTextSources),
+                    },
+                  });
+                },
+                exportPackage: (project, outputPath, packageOptions) =>
+                  nativeTools.exportPackage({
+                    project,
+                    outputPath,
+                    options: packageOptionsWithPinnedProjectTextSources(
+                      (packageOptions ?? {}) as PreparedRuntimePackageOptions,
+                      options.pinnedProjectTextSources,
+                    ),
+                  }),
               }
             : undefined,
           beforePublish,
           nativeTools?.registerStagedOutput
             ? (recoveryPath) => nativeTools.registerStagedOutput!(recoveryPath)
             : undefined,
+          options.runtimeArtifactPaths,
         );
       } finally {
         process.off('SIGINT', cancel);

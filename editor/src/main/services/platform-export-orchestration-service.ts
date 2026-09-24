@@ -28,6 +28,7 @@ import {
   prepareRuntimeArtifact,
   verifyPreparedRuntimeArtifact,
   type PreparedRuntimeArtifact,
+  type RuntimeArtifactPathAdapter,
 } from '../../shared/runtime-artifact-preparation';
 import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
@@ -197,6 +198,7 @@ export async function exportProjectToPlatform(
   }> = defaultNativeTools,
   beforePublish?: () => Promise<string | null>,
   registerRecoveryPath?: (path: string) => Promise<void>,
+  runtimeArtifactPaths: RuntimeArtifactPathAdapter = nodeRuntimeArtifactPaths,
 ): Promise<PlatformStageResult> {
   let request: ProjectPlatformExportRequest;
   try {
@@ -327,7 +329,7 @@ export async function exportProjectToPlatform(
         projectRoot,
         profile: targetRuntimeProfile,
         recoveryFingerprint: request.preparedRuntimeArtifact.recoveryFingerprint,
-        paths: nodeRuntimeArtifactPaths,
+        paths: runtimeArtifactPaths,
       });
       if (verified.status === 'rejected')
         return failure(operationId, collectProjectValidationDiagnostics(verified.diagnostics));
@@ -347,7 +349,7 @@ export async function exportProjectToPlatform(
           (shaderProject, options) =>
             nativeTools.compileShaders(shaderProject, options) as Promise<ShaderCompileResponse>,
         ),
-        paths: nodeRuntimeArtifactPaths,
+        paths: runtimeArtifactPaths,
         isCancelled: () => {
           try {
             checkPlatformExportCancelled(operationId);

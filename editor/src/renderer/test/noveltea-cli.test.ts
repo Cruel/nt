@@ -423,12 +423,12 @@ describe('NovelTea headless CLI', () => {
     expect(latest.usefulWork.sourceAnalysesRecomputed).toBe(latest.dependencyWork.analyzedOwners);
   });
 
-  it('fails a resident read after three consecutive authority-proof races', async () => {
+  it('fails a scoped resident read after three consecutive authority-proof races', async () => {
     const value = fixture(validProject(), true);
     class RacingAuthorityWorkspace extends ResidentProjectWorkspaceService {
       proofs = 0;
 
-      override async verifyReadAuthority(): Promise<boolean> {
+      override async verifyScopedReadAuthority(): Promise<boolean> {
         this.proofs += 1;
         return false;
       }
@@ -445,6 +445,30 @@ describe('NovelTea headless CLI', () => {
       expect.objectContaining({ code: 'WORKSPACE_REVISION_CONFLICT' }),
     );
     expect(residentWorkspace.proofs).toBe(3);
+  });
+
+  it('keeps targeted usages readable through an unrelated invalid resident overlay', async () => {
+    const value = fixture(validProject(), true);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    const admitted = await runNovelTeaCli(['--json', 'usages', 'rooms', 'start'], {
+      ...options(value),
+      residentWorkspace,
+    });
+    expect(admitted.exitCode).toBe(0);
+
+    await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.json`, '{"id":');
+    const unrelated = await runNovelTeaCli(['--json', 'usages', 'rooms', 'start'], {
+      ...options(value),
+      residentWorkspace,
+    });
+    expect(unrelated.exitCode).toBe(0);
+
+    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.json`, '{"id":');
+    const required = await runNovelTeaCli(['--json', 'usages', 'rooms', 'start'], {
+      ...options(value),
+      residentWorkspace,
+    });
+    expect(required.exitCode).toBe(3);
   });
 
   it('prepares project export from the resident generation without publishing the bundle', async () => {
@@ -2441,6 +2465,51 @@ describe('NovelTea headless CLI', () => {
         fragmentSource: 'project:/shaders/basic.fs.sc',
       }),
     ]);
+  });
+
+  it('passes pinned Project shader sources to disposable shader compilation', async () => {
+    const project = validProject();
+    project.materials.basic = {
+      id: 'basic',
+      label: 'Basic',
+      data: {
+        ...defaultMaterialData('Basic', 'engine-2d'),
+        shader: { fragment: { kind: 'project', path: 'shaders/basic.fs.sc' } },
+      },
+    };
+    const value = fixture(project);
+    let receivedOptions: import('../../shared/editor-tooling').ShaderCompileOptions | undefined;
+    const nativeTools: NovelTeaCliNativeToolService = {
+      ...validationNativeTools(),
+      async compileShaders(_shaderProject, compileOptions) {
+        receivedOptions = compileOptions;
+        return { ok: true, success: true, diagnostics: [], outputs: [] };
+      },
+    };
+
+    const result = await runNovelTeaCli(['--json', 'shaders', 'compile'], {
+      ...options(value, root, nativeTools),
+      pinnedProjectTextSources: {
+        'shaders/basic.fs.sc': {
+          text: 'void main() { /* pinned */ }\n',
+          contentHash: `sha256:${'0'.repeat(64)}`,
+        },
+        'shaders/common.sc': {
+          text: '#define PINNED 1\n',
+          contentHash: `sha256:${'1'.repeat(64)}`,
+        },
+        'scripts/bootstrap.lua': {
+          text: 'return true\n',
+          contentHash: `sha256:${'2'.repeat(64)}`,
+        },
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(receivedOptions?.sourceOverlays).toEqual({
+      'shaders/basic.fs.sc': 'void main() { /* pinned */ }\n',
+      'shaders/common.sc': '#define PINNED 1\n',
+    });
   });
 
   it('uses the shared authoring pipeline and exact shader variants through the native service abstraction', async () => {

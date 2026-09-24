@@ -627,6 +627,7 @@ export async function runNovelTeaCli(
           process.env.NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH === '1';
         if (
           forceCertificationMismatch ||
+          scopedAuthority.relevantDeltaPaths.length > 0 ||
           !(await scopedReadAuthority.verifyScopedReadAuthority(scopedAuthority))
         ) {
           const retry = options.residentReadAttempt ?? 0;
@@ -757,6 +758,19 @@ export async function runNovelTeaCli(
 
   try {
     const activeOpened = opened;
+    const scopedReadAuthority =
+      routing.projectAccess === 'read' &&
+      command.requiredSemanticPaths &&
+      activeWorkspace === options.residentWorkspace &&
+      !options.trustPinnedResidentSnapshot
+        ? options.residentWorkspace
+        : null;
+    const scopedAuthority = scopedReadAuthority
+      ? await scopedReadAuthority.captureScopedReadAuthority(
+          discovery.projectRoot,
+          command.requiredSemanticPaths!,
+        )
+      : null;
     const freshnessProofStarted = Date.now();
     // Resident owners already use the daemon's batched native authority proof. Re-inventorying the
     // complete Project in TypeScript here would defeat the resident change-proportional path. The
@@ -783,7 +797,10 @@ export async function runNovelTeaCli(
         routing.projectAccess === 'read' &&
         activeWorkspace === options.residentWorkspace &&
         !options.trustPinnedResidentSnapshot &&
-        !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))
+        (scopedAuthority
+          ? scopedAuthority.relevantDeltaPaths.length > 0 ||
+            !(await scopedReadAuthority!.verifyScopedReadAuthority(scopedAuthority))
+          : !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot)))
       ) {
         const retry = options.residentReadAttempt ?? 0;
         if (retry < 2) return runNovelTeaCli(argv, { ...options, residentReadAttempt: retry + 1 });
@@ -840,7 +857,10 @@ export async function runNovelTeaCli(
         process.env.NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH === '1';
       if (
         forceCertificationMismatch ||
-        !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot))
+        (scopedAuthority
+          ? scopedAuthority.relevantDeltaPaths.length > 0 ||
+            !(await scopedReadAuthority!.verifyScopedReadAuthority(scopedAuthority))
+          : !(await options.residentWorkspace.verifyReadAuthority(activeOpened.opened.snapshot)))
       ) {
         const retry = options.residentReadAttempt ?? 0;
         if (retry < 2) return runNovelTeaCli(argv, { ...options, residentReadAttempt: retry + 1 });

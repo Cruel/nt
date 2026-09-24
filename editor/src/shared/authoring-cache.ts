@@ -20,6 +20,7 @@ export const AUTHORING_VALIDATION_DISCOVERY_SCOPES = Object.freeze([
   { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
   { root: 'records', extensions: ['.json', '.lua', '.rcss', '.rml'], excludedPrefixes: [] },
   { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
+  { root: 'shaders', extensions: ['.sc'], excludedPrefixes: [] },
 ]);
 
 const diagnosticSchema = z
