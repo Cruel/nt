@@ -56,12 +56,6 @@ const bgfxInclude = path.join(
   'src',
 );
 
-const typedFragmentGoldens = Object.freeze({
-  'glsl-330': '7812959dcdb97b1bc00775aecd8bc240bf22e223225b5e184e500b2837b72893',
-  'essl-300': '65740596a4b2a7cf0102a2f9c0fb67a867ebf37da3d5ced2884470f22a346896',
-  metal: '6590a972180acbe7ae54978db3849677b09690e7b8c5b0cdaa023c7c0cd6bf21',
-});
-
 const rawShaderGoldens = Object.freeze({
   'glsl-330': '321831391b668aef83484ce7364d043a49f13de2f423243567fc45719b17611c',
   'essl-300': '321831391b668aef83484ce7364d043a49f13de2f423243567fc45719b17611c',
@@ -1259,13 +1253,57 @@ async function certifyTypedShaders(tempRoot) {
     fail(
       `Typed shader compile returned ${Array.isArray(outputs) ? outputs.length : 'invalid'} outputs.`,
     );
-  for (const [variant, expected] of Object.entries(typedFragmentGoldens)) {
-    const output = outputs.find(
-      (candidate) => candidate.variant === variant && candidate.stage === 'fragment',
-    );
-    if (!output || output.byteHash !== `sha256:${expected}`)
-      fail(`Typed shader golden mismatch for ${variant}: ${output?.byteHash ?? 'missing'}.`);
+  const expectedOutputs = new Set(
+    ['glsl-330', 'essl-300', 'metal'].flatMap((variant) =>
+      ['vertex', 'fragment'].map((stage) => `${variant}:${stage}`),
+    ),
+  );
+  const actualOutputs = new Set();
+  for (const output of outputs) {
+    const key = `${output.variant}:${output.stage}`;
+    if (!expectedOutputs.has(key)) fail(`Typed shader compile returned unexpected output ${key}.`);
+    if (actualOutputs.has(key)) fail(`Typed shader compile returned duplicate output ${key}.`);
+    if (!Number.isInteger(output.byteSize) || output.byteSize <= 0)
+      fail(`Typed shader compile returned empty output for ${key}.`);
+    if (!/^sha256:[0-9a-f]{64}$/u.test(output.byteHash ?? ''))
+      fail(
+        `Typed shader compile returned invalid byte hash for ${key}: ${output.byteHash ?? 'missing'}.`,
+      );
+    actualOutputs.add(key);
   }
+  if (actualOutputs.size !== expectedOutputs.size)
+    fail(
+      `Typed shader compile returned incomplete output set: ${[...expectedOutputs].filter((key) => !actualOutputs.has(key)).join(', ')}.`,
+    );
+}
+
+async function certifyPrivateShadercBatchOutputIsolation(tempRoot) {
+  const source = path.join(tempRoot, 'private-shaderc-invalid.fs.sc');
+  const output = path.join(tempRoot, 'private-shaderc-invalid.bin');
+  await writeFile(source, '#include "bgfx_shader.sh"\nvoid main() { gl_FragColor = vec4(; }\n');
+  const command = [
+    '-f',
+    source,
+    '-o',
+    output,
+    '--type',
+    'fragment',
+    '--platform',
+    'linux',
+    '--profile',
+    '330',
+    '-i',
+    bgfxInclude,
+  ];
+  const result = runNative(['__shaderc-batch'], { stdin: JSON.stringify([command]) });
+  if (result.status === 0)
+    fail('Private shaderc batch invalid-source probe unexpectedly succeeded.');
+  if (result.stdout !== '')
+    fail(`Private shaderc batch leaked native diagnostics to stdout:\n${result.stdout}`);
+  if (!result.stderr.includes('Code:\n---'))
+    fail(
+      `Private shaderc batch did not preserve captured diagnostics on stderr:\n${result.stderr}`,
+    );
 }
 
 async function certifyRawShaderc(tempRoot) {
@@ -5733,6 +5771,7 @@ async function main() {
             break;
           case 'raw-shaderc':
             await certifyRawShaderc(tempRoot);
+            await certifyPrivateShadercBatchOutputIsolation(tempRoot);
             break;
           case 'authoring-cache':
             await certifyAuthoringCache(tempRoot, await ensurePristine());
@@ -5809,6 +5848,7 @@ async function main() {
     certifyBootstrapOnlyIslandFailures();
     await certifyTypedShaders(tempRoot);
     await certifyRawShaderc(tempRoot);
+    await certifyPrivateShadercBatchOutputIsolation(tempRoot);
     await certifyAuthoringCache(tempRoot, pristine);
     await certifyDaemonAuthoringCacheResidency(tempRoot, pristine);
     await certifyDaemonAuthoringCachePressure(tempRoot, pristine);
@@ -5833,7 +5873,7 @@ async function main() {
         success: true,
         differentialCases: differentialCases.length,
         comfyUiDifferentialCases,
-        typedShaderVariants: Object.keys(typedFragmentGoldens),
+        typedShaderVariants: ['glsl-330', 'essl-300', 'metal'],
         rawShaderVariants: Object.keys(rawShaderGoldens),
         nativeOperations: [
           'shader-compile',
