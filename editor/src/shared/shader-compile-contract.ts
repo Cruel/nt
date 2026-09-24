@@ -49,6 +49,8 @@ const shaderCompileOutputSchema = z
           kind: z.enum(['uniform', 'sampled-image']),
           type: z.string().min(1),
           arraySize: z.number().int().positive(),
+          registerIndex: z.number().int().nonnegative().refine(Number.isSafeInteger).optional(),
+          registerCount: z.number().int().nonnegative().refine(Number.isSafeInteger).optional(),
         })
         .strict(),
     ),

@@ -4,11 +4,20 @@ import { emptyMaterialApplication } from './authoring-material-applications';
 import { defaultMaterialData } from './authoring-materials';
 import { createAuthoringProject } from './authoring-project';
 import { defaultRoomData, roomAssetRef, roomRoomRef } from './authoring-rooms';
-import { defaultFragmentShaderSource } from './authoring-shaders';
-
 export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION = '2026-07-11.1' as const;
 export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_PATH = 'shaders/fixture.fs.sc' as const;
-export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_SOURCE = defaultFragmentShaderSource;
+export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_SOURCE = `$input v_texcoord0, v_color0
+
+#include "bgfx_shader.sh"
+
+SAMPLER2D(s_texColor, 0);
+
+void main()
+{
+    vec4 color = v_color0 * texture2D(s_texColor, v_texcoord0);
+    gl_FragColor = vec4(color.rgb * color.a, color.a);
+}
+`;
 
 export function createPlatformExportAcceptanceFixture() {
   const project = createAuthoringProject({
