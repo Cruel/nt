@@ -2865,14 +2865,15 @@ void RuntimeUI::set_layout_mount_context(const std::string& id,
         }
         if (m_state->host && m_state->document_registry) {
             m_state->host->set_context_material_parameters(
-                m_state->document_registry->document_context(id), context->material_parameters,
-                context->material_textures, context->material_camera_zoom);
+                m_state->document_registry->document_context(id), context->occurrence,
+                context->material_parameters, context->material_textures,
+                context->material_camera_zoom);
         }
         m_state->layout_mount_contexts.insert_or_assign(id, std::move(*context));
     } else {
         if (m_state->host && m_state->document_registry) {
             m_state->host->set_context_material_parameters(
-                m_state->document_registry->document_context(id), {}, {}, 1.0);
+                m_state->document_registry->document_context(id), std::nullopt, {}, {}, 1.0);
         }
         m_state->layout_mount_contexts.erase(id);
     }

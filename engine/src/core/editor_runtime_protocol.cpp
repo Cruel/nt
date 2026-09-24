@@ -3021,7 +3021,14 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         }
         if (type == "int") {
             const auto parsed = json_access::get<std::int64_t>(*payload);
-            return parsed ? std::optional<compiled::MaterialParameterValue>{*parsed} : std::nullopt;
+            if (!parsed || !compiled::material_int_is_exact(*parsed)) {
+                diagnostics.push_back(error(
+                    "editor_preview.invalid_value",
+                    "Material integer must be within the exact Shader range [-16777216, 16777216].",
+                    std::string(path) + "/value"));
+                return std::nullopt;
+            }
+            return compiled::MaterialParameterValue{*parsed};
         }
         if (type == "bool") {
             const auto parsed = json_access::get<bool>(*payload);

@@ -872,6 +872,11 @@ decode_material_parameter_value(Decoder& d, const nlohmann::json& value, std::st
             d.error(k_type, "Expected a signed 64-bit Material integer.", child(pointer, "value"));
             return std::nullopt;
         }
+        if (!compiled::material_int_is_exact(*integer)) {
+            d.error(k_value, "Material integer is outside the exact Shader range.",
+                    child(pointer, "value"));
+            return std::nullopt;
+        }
         return compiled::MaterialParameterValue{*integer};
     }
     if (*type == "bool") {

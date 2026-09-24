@@ -307,6 +307,11 @@ struct MaterialColorValue {
 using MaterialParameterValue =
     std::variant<double, std::array<double, 2>, std::array<double, 3>, std::array<double, 4>,
                  MaterialColorValue, std::int64_t, bool>;
+inline constexpr std::int64_t material_int_exact_limit = 16'777'216;
+[[nodiscard]] inline constexpr bool material_int_is_exact(std::int64_t value) noexcept
+{
+    return value >= -material_int_exact_limit && value <= material_int_exact_limit;
+}
 struct MaterialParameterDeclaration {
     std::string name;
     MaterialParameterType type = MaterialParameterType::Float;

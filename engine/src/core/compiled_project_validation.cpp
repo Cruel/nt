@@ -168,8 +168,10 @@ private:
             return std::holds_alternative<std::array<double, 4>>(value);
         case MaterialParameterType::Color:
             return std::holds_alternative<MaterialColorValue>(value);
-        case MaterialParameterType::Int:
-            return std::holds_alternative<std::int64_t>(value);
+        case MaterialParameterType::Int: {
+            const auto* integer = std::get_if<std::int64_t>(&value);
+            return integer != nullptr && material_int_is_exact(*integer);
+        }
         case MaterialParameterType::Bool:
             return std::holds_alternative<bool>(value);
         }

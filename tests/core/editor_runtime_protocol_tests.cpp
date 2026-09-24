@@ -108,6 +108,33 @@ TEST_CASE("focused Room decoder admits the strict native contract")
     CHECK_FALSE(decode_editor_room_preview_document_text(open.dump()));
 }
 
+TEST_CASE("focused Room decoder enforces exact Material integer literals")
+{
+    const auto parameter = [](std::int64_t value) {
+        return nlohmann::json{{"name", "u_index"},
+                              {"type", "int"},
+                              {"source",
+                               {{"kind", "literal"},
+                                {"value", {{"type", "int"}, {"value", value}}}}}};
+    };
+
+    auto boundary = focused_room_document();
+    boundary["world"]["background"]["materialId"] = "indexed";
+    boundary["world"]["background"]["materialParameters"] = nlohmann::json::array(
+        {parameter(noveltea::core::compiled::material_int_exact_limit)});
+    CHECK(decode_editor_room_preview_document_text(boundary.dump()));
+
+    auto overflow = boundary;
+    overflow["world"]["background"]["materialParameters"] = nlohmann::json::array(
+        {parameter(noveltea::core::compiled::material_int_exact_limit + 1)});
+    CHECK_FALSE(decode_editor_room_preview_document_text(overflow.dump()));
+
+    auto underflow = boundary;
+    underflow["world"]["background"]["materialParameters"] = nlohmann::json::array(
+        {parameter(-noveltea::core::compiled::material_int_exact_limit - 1)});
+    CHECK_FALSE(decode_editor_room_preview_document_text(underflow.dump()));
+}
+
 TEST_CASE("focused Room decoder admits project-file composition and rejects Asset spelling")
 {
     auto project_file = focused_room_document();

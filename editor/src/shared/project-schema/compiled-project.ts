@@ -87,7 +87,10 @@ const compiledMaterialParameterValueSchema = z.discriminatedUnion('type', [
       a: z.number().finite(),
     }),
   }),
-  strict({ type: z.literal('int'), value: z.number().int() }),
+  strict({
+    type: z.literal('int'),
+    value: z.number().int().min(-16_777_216).max(16_777_216),
+  }),
   strict({ type: z.literal('bool'), value: z.boolean() }),
 ]);
 const compiledMaterialParameterSchema = strict({

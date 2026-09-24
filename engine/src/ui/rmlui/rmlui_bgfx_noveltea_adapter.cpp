@@ -208,8 +208,7 @@ to_shader_uniform_value(const core::compiled::MaterialParameterValue& value) noe
                     ShaderColor{static_cast<float>(item.r), static_cast<float>(item.g),
                                 static_cast<float>(item.b), static_cast<float>(item.a)}};
             else if constexpr (std::is_same_v<T, std::int64_t>) {
-                if (item < std::numeric_limits<int>::min() ||
-                    item > std::numeric_limits<int>::max())
+                if (!core::compiled::material_int_is_exact(item))
                     return std::nullopt;
                 return ShaderUniformValue{static_cast<int>(item)};
             } else
@@ -219,6 +218,58 @@ to_shader_uniform_value(const core::compiled::MaterialParameterValue& value) noe
 }
 
 } // namespace
+
+std::optional<RmlUiResolvedMaterialTexture>
+resolve_rmlui_material_texture(const MaterialTextureAssignment* assignment,
+                               const core::PresentationMaterialTextureBinding* occurrence)
+{
+    if (assignment == nullptr && occurrence == nullptr)
+        return std::nullopt;
+    return RmlUiResolvedMaterialTexture{
+        occurrence != nullptr ? occurrence->source : assignment->source,
+        assignment != nullptr ? assignment->filtering : MaterialTextureSampler::ClampLinear};
+}
+
+double RmlUiMaterialOccurrenceEpochs::elapsed(
+    std::string_view scope, const core::PresentationMaterialParameter& parameter, double now_seconds)
+{
+    auto& scope_epochs = m_epochs[std::string(scope)].entries;
+    const auto matches = [&](const Entry& entry) {
+        return entry.owner == parameter.owner && entry.occurrence == parameter.occurrence &&
+               entry.material == parameter.material && entry.parameter == parameter.parameter &&
+               entry.clock == parameter.clock;
+    };
+    const auto found = std::find_if(scope_epochs.begin(), scope_epochs.end(), matches);
+    if (found != scope_epochs.end())
+        return std::max(0.0, now_seconds - found->epoch_seconds);
+
+    scope_epochs.push_back({parameter.owner, parameter.occurrence, parameter.material,
+                            parameter.parameter, parameter.clock, now_seconds});
+    return 0.0;
+}
+
+void RmlUiMaterialOccurrenceEpochs::retain(
+    std::string_view scope, std::optional<core::LayoutMountOccurrenceId> occurrence,
+    std::span<const core::PresentationMaterialParameter> parameters)
+{
+    const auto scope_key = std::string(scope);
+    auto& state = m_epochs[scope_key];
+    if (state.occurrence != occurrence) {
+        state.occurrence = occurrence;
+        state.entries.clear();
+    }
+
+    std::erase_if(state.entries, [&](const Entry& entry) {
+        return std::none_of(parameters.begin(), parameters.end(), [&](const auto& parameter) {
+            return parameter.standard_facet == core::MaterialStandardFacet::OccurrenceTime &&
+                   entry.owner == parameter.owner && entry.occurrence == parameter.occurrence &&
+                   entry.material == parameter.material && entry.parameter == parameter.parameter &&
+                   entry.clock == parameter.clock;
+        });
+    });
+    if (!occurrence && state.entries.empty())
+        m_epochs.erase(scope_key);
+}
 
 struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
                                             rmlui_bgfx::TextureLoader,
@@ -437,11 +488,8 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
                         const double now = parameter->clock == core::MaterialClockPolicy::Gameplay
                                                ? gameplay_time_seconds
                                                : unscaled_time_seconds;
-                        const std::string key =
-                            record_it->second.material_id.string() + "/" + parameter->parameter +
-                            "/" + std::to_string(static_cast<unsigned>(parameter->clock));
-                        const auto [epoch, _] = material_parameter_epochs.try_emplace(key, now);
-                        value = static_cast<float>(std::max(0.0, now - epoch->second));
+                        value = static_cast<float>(material_parameter_epochs.elapsed(
+                            material_parameter_scope, *parameter, now));
                         break;
                     }
                     case core::MaterialStandardFacet::PaintWidth:
@@ -499,25 +547,24 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
                     return value.material.text() == record_it->second.material_id.string() &&
                            value.name == sampler.name;
                 });
-            if (!assignment && occurrence_texture == material_textures.end()) {
+            const core::PresentationMaterialTextureBinding* occurrence =
+                occurrence_texture == material_textures.end() ? nullptr : &*occurrence_texture;
+            const auto effective = resolve_rmlui_material_texture(assignment, occurrence);
+            if (!effective) {
                 error("RmlUi decorator Material sampler '" + sampler.name +
                       "' has no texture source");
                 return false;
             }
-            MaterialTextureAssignment effective{
-                sampler.name,
-                occurrence_texture != material_textures.end()
-                    ? occurrence_texture->source
-                    : assignment->source,
-                assignment ? assignment->filtering : MaterialTextureSampler::ClampLinear};
-            const bgfx::TextureHandle texture = texture_for_assignment(effective, context);
+            const MaterialTextureAssignment texture_assignment{sampler.name, effective->source,
+                                                               effective->filtering};
+            const bgfx::TextureHandle texture = texture_for_assignment(texture_assignment, context);
             if (!bgfx::isValid(texture)) {
                 error("RmlUi decorator Material sampler '" + sampler.name +
                       "' texture is unavailable");
                 return false;
             }
             bgfx::setTexture(sampler.stage, sampler_handle(sampler.name), texture,
-                             bgfx_backend::bgfx_sampler_flags(assignment->filtering));
+                             bgfx_backend::bgfx_sampler_flags(effective->filtering));
         }
 
         bgfx::setState(context.premultiplied_blend_state);
@@ -630,25 +677,20 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
     }
 
     void set_material_parameters(
+        std::string_view occurrence_scope,
+        std::optional<core::LayoutMountOccurrenceId> occurrence,
         std::span<const core::PresentationMaterialParameter> parameters,
         std::span<const core::PresentationMaterialTextureBinding> textures,
         const core::RuntimeClockUpdate& clocks, double camera_zoom)
     {
+        material_parameter_scope = occurrence_scope;
         material_parameters.assign(parameters.begin(), parameters.end());
         material_textures.assign(textures.begin(), textures.end());
         gameplay_time_seconds = std::chrono::duration<double>(clocks.gameplay_time).count();
         unscaled_time_seconds =
             std::chrono::duration<double>(clocks.unscaled_presentation_time).count();
         material_camera_zoom = camera_zoom;
-        std::unordered_set<std::string> active_epoch_keys;
-        for (const auto& parameter : material_parameters) {
-            if (parameter.standard_facet != core::MaterialStandardFacet::OccurrenceTime)
-                continue;
-            active_epoch_keys.insert(parameter.material.text() + "/" + parameter.parameter + "/" +
-                                     std::to_string(static_cast<unsigned>(parameter.clock)));
-        }
-        std::erase_if(material_parameter_epochs,
-                      [&](const auto& entry) { return !active_epoch_keys.contains(entry.first); });
+        material_parameter_epochs.retain(material_parameter_scope, occurrence, material_parameters);
     }
 
     struct MaterialShaderRecord {
@@ -664,7 +706,8 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
     std::unordered_map<std::uint64_t, MaterialShaderRecord> material_shader_records;
     std::vector<core::PresentationMaterialParameter> material_parameters;
     std::vector<core::PresentationMaterialTextureBinding> material_textures;
-    std::unordered_map<std::string, double> material_parameter_epochs;
+    std::string material_parameter_scope;
+    RmlUiMaterialOccurrenceEpochs material_parameter_epochs;
     double gameplay_time_seconds = 0.0;
     double unscaled_time_seconds = 0.0;
     double material_camera_zoom = 1.0;
@@ -857,11 +900,13 @@ void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebu
 }
 
 void BgfxRenderInterface::set_material_parameters(
+    std::string_view occurrence_scope, std::optional<core::LayoutMountOccurrenceId> occurrence,
     std::span<const core::PresentationMaterialParameter> parameters,
     std::span<const core::PresentationMaterialTextureBinding> textures,
     const core::RuntimeClockUpdate& clocks, double camera_zoom)
 {
-    m_adapter->set_material_parameters(parameters, textures, clocks, camera_zoom);
+    m_adapter->set_material_parameters(occurrence_scope, occurrence, parameters, textures, clocks,
+                                       camera_zoom);
 }
 
 Rml::CompiledGeometryHandle

@@ -4421,6 +4421,31 @@ TEST_CASE("runtime Lua Material Parameters support Material Definition and Inter
         "typed-scoped-material-parameters-cleared-query"));
 }
 
+TEST_CASE("runtime Lua Material integers enforce the exact float-backed ABI boundary")
+{
+    Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
+        auto& interfaces = document["resources"]["materialInterfaces"];
+        auto material = std::ranges::find_if(
+            interfaces, [](const auto& value) { return value["id"] == "sprite-material"; });
+        REQUIRE(material != interfaces.end());
+        (*material)["parameters"].push_back(
+            {{"name", "u_index"}, {"type", "int"}, {"rendererBinding", nullptr}});
+    });
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local opts = {owner='session'}\n"
+        "local ok, err = noveltea.presentation.set_material_parameter({kind='material'}, "
+        "'sprite-material', 'u_index', 16777216, opts); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_material_parameter({kind='material'}, "
+        "'sprite-material', 'u_index', 16777217, opts); assert(not ok and err ~= nil)\n"
+        "ok, err = noveltea.presentation.set_material_parameter({kind='material'}, "
+        "'sprite-material', 'u_index', -16777217, opts); assert(not ok and err ~= nil)",
+        "typed-material-integer-range"));
+}
+
 TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner and identity")
 {
     Fixture fixture;

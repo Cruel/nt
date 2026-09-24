@@ -214,8 +214,7 @@ render_material_parameter_value(const core::compiled::MaterialParameterValue& va
                     ShaderColor{static_cast<float>(item.r), static_cast<float>(item.g),
                                 static_cast<float>(item.b), static_cast<float>(item.a)}};
             } else if constexpr (std::is_same_v<T, std::int64_t>) {
-                if (item < std::numeric_limits<int>::min() ||
-                    item > std::numeric_limits<int>::max())
+                if (!core::compiled::material_int_is_exact(item))
                     return std::nullopt;
                 return ShaderUniformValue{static_cast<int>(item)};
             } else {
