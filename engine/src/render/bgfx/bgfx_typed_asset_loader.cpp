@@ -1,6 +1,7 @@
 #include "render/bgfx/bgfx_typed_asset_loader.hpp"
 
 #include "assets/asset_preparation_io.hpp"
+#include "noveltea/render/material_contract.hpp"
 #include "render/bgfx/bgfx_material_binder.hpp"
 
 #include <bimg/bimg.h>
@@ -1120,7 +1121,16 @@ ShaderMaterialPreparationTask<assets::MaterialAsset>::step(jobs::JobContext& con
     }
     if (m_impl->texture_index < m_impl->material->textures.size()) {
         const auto& texture = m_impl->material->textures[m_impl->texture_index++];
-        if (texture.sampler.empty() || texture.source.empty()) {
+        bool renderer_owned = false;
+        if (const auto* contract = material_role_contract(to_string(m_impl->material->role));
+            contract != nullptr) {
+            const auto slot = std::ranges::find_if(contract->samplers, [&](const auto& candidate) {
+                return candidate.name == texture.sampler;
+            });
+            renderer_owned =
+                slot != contract->samplers.end() && slot->source_ownership == "renderer";
+        }
+        if (texture.sampler.empty() || (texture.source.empty() && !renderer_owned)) {
             return {.status = jobs::JobStepStatus::Failed,
                     .diagnostics = {{.code = "assets.material_preparation.invalid_texture",
                                      .message = "material '" + m_impl->request.id +

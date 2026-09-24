@@ -113,27 +113,37 @@ uint64_t bgfx_sampler_flags(MaterialTextureSampler sampler) noexcept
 }
 
 MaterialTextureSampler resolve_draw_texture_sampler(MaterialTextureSampler material_sampler,
+                                                    bool inherit_filter,
                                                     MaterialTextureSampler image_sampler) noexcept
 {
     const bool repeat = material_sampler == MaterialTextureSampler::RepeatLinear ||
                         material_sampler == MaterialTextureSampler::RepeatNearest;
-    const bool nearest = image_sampler == MaterialTextureSampler::ClampNearest ||
-                         image_sampler == MaterialTextureSampler::RepeatNearest;
+    const bool nearest = inherit_filter
+                             ? image_sampler == MaterialTextureSampler::ClampNearest ||
+                                   image_sampler == MaterialTextureSampler::RepeatNearest
+                             : material_sampler == MaterialTextureSampler::ClampNearest ||
+                                   material_sampler == MaterialTextureSampler::RepeatNearest;
     if (repeat)
         return nearest ? MaterialTextureSampler::RepeatNearest
                        : MaterialTextureSampler::RepeatLinear;
     return nearest ? MaterialTextureSampler::ClampNearest : MaterialTextureSampler::ClampLinear;
 }
 
-ResolvedDrawTexture resolve_renderer_draw_texture(const QuadCommand* command,
-                                                  bgfx::TextureHandle neutral_texture) noexcept
+ResolvedDrawTexture
+resolve_renderer_draw_texture(const QuadCommand* command, bgfx::TextureHandle neutral_texture,
+                              const MaterialTextureAssignment* assignment) noexcept
 {
     ResolvedDrawTexture resolved{.texture = neutral_texture};
+    const auto material_sampler =
+        assignment != nullptr ? assignment->filtering : MaterialTextureSampler::ClampLinear;
+    const bool inherit_filter = assignment == nullptr || assignment->inherit_filter;
+    const auto image_sampler =
+        command != nullptr ? command->texture_sampler : MaterialTextureSampler::ClampLinear;
+    resolved.sampler =
+        resolve_draw_texture_sampler(material_sampler, inherit_filter, image_sampler);
     if (command == nullptr)
         return resolved;
 
-    resolved.sampler =
-        resolve_draw_texture_sampler(MaterialTextureSampler::ClampLinear, command->texture_sampler);
     const auto draw_texture = bgfx::TextureHandle{command->texture.handle};
     if (command->texture.valid() && bgfx::isValid(draw_texture))
         resolved.texture = draw_texture;
@@ -354,8 +364,9 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
     for (const auto& sampler : resolution.samplers) {
         if (const auto* slot = find_contract_sampler(inputs.role, sampler.name);
             slot != nullptr && slot->semantic == engine_draw_texture_semantic) {
-            const auto draw =
-                resolve_renderer_draw_texture(inputs.quad_command, m_neutral_draw_texture);
+            const auto* assignment = find_texture_assignment(material, sampler.name);
+            const auto draw = resolve_renderer_draw_texture(inputs.quad_command,
+                                                            m_neutral_draw_texture, assignment);
             if (!bgfx::isValid(draw.texture)) {
                 add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
                                material_context(material_id, inputs.role),

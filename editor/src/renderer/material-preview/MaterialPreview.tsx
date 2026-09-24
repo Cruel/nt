@@ -5,9 +5,14 @@ import {
   useMaterialPreviewGroupStatus,
   useMaterialPreviewProjectResources,
 } from './material-preview-provider';
-import type { ShaderUniformValue } from '../../shared/project-schema/authoring-shaders';
-import type { MaterialPreviewProjectResources } from './material-preview-resources';
-import type { MaterialPreviewPointerState } from './material-preview-renderer';
+import type {
+  MaterialPreviewProjectResources,
+  MaterialPreviewTextureResource,
+} from './material-preview-resources';
+import type {
+  MaterialPreviewParameterOverride,
+  MaterialPreviewPointerState,
+} from './material-preview-renderer';
 import { useOptionalWorkbenchEditorLocation } from '@/workbench/workbench-editor-location';
 
 const OUTSIDE_POINTER: MaterialPreviewPointerState = { x: -1, y: -1, pressed: false };
@@ -17,12 +22,14 @@ export function MaterialPreview({
   className,
   resources: explicitResources,
   parameterOverrides,
+  textureOverrides,
   compact = false,
 }: {
   materialId: string;
   className?: string;
   resources?: MaterialPreviewProjectResources;
-  parameterOverrides?: Readonly<Record<string, ShaderUniformValue>>;
+  parameterOverrides?: Readonly<Record<string, MaterialPreviewParameterOverride>>;
+  textureOverrides?: Readonly<Record<string, string>>;
   compact?: boolean;
 }) {
   const { t } = useTranslation('workspace');
@@ -32,6 +39,9 @@ export function MaterialPreview({
   const projectResources = useMaterialPreviewProjectResources();
   const resources = explicitResources ?? projectResources;
   const [resourceStatus, setResourceStatus] = useState<{ stale: boolean } | null>(null);
+  const [resolvedTextureOverrides, setResolvedTextureOverrides] = useState<
+    Readonly<Record<string, MaterialPreviewTextureResource>>
+  >({});
   const [shaderProgramStatus, setShaderProgramStatus] = useState<{
     stale: boolean;
     message: string | null;
@@ -91,6 +101,23 @@ export function MaterialPreview({
   }, [materialId, resources, resources.generation, surfaceVisible]);
 
   useEffect(() => {
+    let active = true;
+    const entries = Object.entries(textureOverrides ?? {});
+    if (!surfaceVisible || entries.length === 0) {
+      setResolvedTextureOverrides({});
+      return () => void (active = false);
+    }
+    void Promise.all(
+      entries.map(async ([name, assetId]) => [name, await resources.getTexture(assetId)] as const),
+    ).then((resolved) => {
+      if (active) setResolvedTextureOverrides(Object.fromEntries(resolved));
+    });
+    return () => {
+      active = false;
+    };
+  }, [resources, resources.generation, surfaceVisible, textureOverrides]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const state = {
@@ -102,6 +129,7 @@ export function MaterialPreview({
       pointer: pointerRef.current,
       resources,
       parameterOverrides,
+      textureOverrides: resolvedTextureOverrides,
       onShaderProgramStatus: updateShaderProgramStatus,
     };
     if (!registrationRef.current) registrationRef.current = renderer.registerSurface(state);
@@ -110,6 +138,7 @@ export function MaterialPreview({
     materialId,
     parameterOverrides,
     renderer,
+    resolvedTextureOverrides,
     resources,
     resources.generation,
     size.height,
@@ -142,6 +171,7 @@ export function MaterialPreview({
       pointer: pointerRef.current,
       resources,
       parameterOverrides,
+      textureOverrides: resolvedTextureOverrides,
       onShaderProgramStatus: updateShaderProgramStatus,
     });
   }
@@ -170,6 +200,11 @@ export function MaterialPreview({
             ? Object.keys(parameterOverrides).sort().join(',')
             : undefined
         }
+        data-material-preview-texture-overrides={
+          textureOverrides && Object.keys(textureOverrides).length > 0
+            ? Object.keys(textureOverrides).sort().join(',')
+            : undefined
+        }
         onPointerDown={(event) => updatePointer(event, true)}
         onPointerMove={(event) => updatePointer(event, pointerRef.current.pressed)}
         onPointerUp={(event) => updatePointer(event, false)}
@@ -184,6 +219,7 @@ export function MaterialPreview({
             pointer: OUTSIDE_POINTER,
             resources,
             parameterOverrides,
+            textureOverrides: resolvedTextureOverrides,
             onShaderProgramStatus: updateShaderProgramStatus,
           });
         }}

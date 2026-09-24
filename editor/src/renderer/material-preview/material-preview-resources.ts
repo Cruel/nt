@@ -20,6 +20,7 @@ import {
 export interface MaterialPreviewTextureResource {
   key: string;
   image: TexImageSource | null;
+  sampling: 'nearest' | 'linear';
 }
 
 export interface MaterialPreviewResource {
@@ -216,6 +217,10 @@ export class MaterialPreviewProjectResources {
     return promise;
   }
 
+  getTexture(assetId: string): Promise<MaterialPreviewTextureResource> {
+    return this.getDecodedAsset(assetId);
+  }
+
   private async getProjectSnapshot(
     project: AuthoringProject,
     generation: number,
@@ -315,7 +320,14 @@ export class MaterialPreviewProjectResources {
         Object.entries(resolution.data.textures).map(async ([name, texture]) => {
           const assetId = textureAssetId(project, texture.source);
           if (!assetId) {
-            return [name, { key: `${materialId}:${name}:representative`, image: null }];
+            return [
+              name,
+              {
+                key: `${materialId}:${name}:representative`,
+                image: null,
+                sampling: 'linear' as const,
+              },
+            ];
           }
           return [name, await this.getDecodedAsset(assetId)];
         }),
@@ -340,10 +352,16 @@ export class MaterialPreviewProjectResources {
   private getDecodedAsset(assetId: string) {
     const cached = this.decodedTextures.get(assetId);
     if (cached) return cached;
+    const asset = parseAssetData(this.project?.assets[assetId]?.data);
+    const sampling = asset?.kind === 'image' && asset.sampling === 'nearest' ? 'nearest' : 'linear';
     const promise = (async (): Promise<MaterialPreviewTextureResource> => {
       const url = await this.dependencies.resolveAssetUrl(assetId);
-      if (!url) return { key: `asset:${assetId}:missing`, image: null };
-      return { key: `asset:${assetId}:${url}`, image: await this.dependencies.decodeImage(url) };
+      if (!url) return { key: `asset:${assetId}:missing`, image: null, sampling };
+      return {
+        key: `asset:${assetId}:${url}`,
+        image: await this.dependencies.decodeImage(url),
+        sampling,
+      };
     })();
     this.decodedTextures.set(assetId, promise);
     return promise;

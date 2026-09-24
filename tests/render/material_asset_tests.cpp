@@ -170,12 +170,12 @@ TEST_CASE("project shader and material records parse")
           "role":"rmlui-decorator",
           "shader":"soft_noise",
           "uniforms":{"u_amount":0.5,"u_tint":"#ffffffff"},
-          "textures":{"s_noise":{"source":"project:/textures/noise.png","sampler":"clamp-linear"}}
+          "textures":{"s_noise":{"source":"project:/textures/noise.png","address":"clamp","filter":"linear"}}
         },
         "world/water":{
           "role":"engine-2d",
           "shader":"soft_noise",
-          "textures":{"s_noise":"project:/textures/water-noise.png"}
+          "textures":{"s_noise":{"source":"project:/textures/water-noise.png","address":"clamp","filter":"linear"}}
         }
       }
     })json");
@@ -231,6 +231,41 @@ TEST_CASE("project shader and material records parse")
     CHECK(world_material->textures[0].source == "project:/textures/water-noise.png");
 }
 
+TEST_CASE("Engine2D renderer sampler accepts source-less independent policy")
+{
+    const auto parsed = noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials",
+      "shaders":{
+        "fx":{
+          "interface_contract":"noveltea.material-preset:engine-2d:1",
+          "interface_fingerprint":"sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9",
+          "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
+          "samplers":{"s_texColor":{"type":"texture2d","stage":0,"binding":null}},
+          "roles":["engine-2d"],
+          "role_bindings":{}
+        }
+      },
+      "materials":{
+        "panel":{
+          "role":"engine-2d",
+          "shader":"fx",
+          "textures":{"s_texColor":{"address":"repeat","filter":"nearest"}}
+        }
+      }
+    })json");
+
+    REQUIRE(parsed.ok());
+    REQUIRE(parsed.project);
+    const auto* material =
+        noveltea::find_material(*parsed.project, *noveltea::parse_material_id("panel").id);
+    REQUIRE(material != nullptr);
+    REQUIRE(material->textures.size() == 1);
+    CHECK(material->textures[0].sampler == "s_texColor");
+    CHECK(material->textures[0].source.empty());
+    CHECK(material->textures[0].filtering == noveltea::MaterialTextureSampler::RepeatNearest);
+    CHECK_FALSE(material->textures[0].inherit_filter);
+}
+
 TEST_CASE("retired Material blend and draw-texture compatibility shapes are rejected")
 {
     const auto authored_blend = noveltea::parse_shader_material_project_json(R"json({
@@ -255,10 +290,26 @@ TEST_CASE("retired Material blend and draw-texture compatibility shapes are reje
         }
       },
       "materials":{
-        "bad":{"role":"engine-2d","shader":"fx","textures":{"s_noise":"$draw.texture"}}
+        "bad":{"role":"engine-2d","shader":"fx","textures":{"s_noise":{"source":"$draw.texture","address":"clamp","filter":"linear"}}}
       }
     })json");
     CHECK(has_code(draw_texture_alias, MaterialDiagnosticCode::InvalidTextureSource));
+
+    const auto combined_sampler_policy = noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials",
+      "shaders":{
+        "fx":{
+          "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
+          "samplers":{"s_noise":{"type":"texture2d","stage":3,"binding":null}},
+          "roles":["engine-2d"],
+          "role_bindings":{}
+        }
+      },
+      "materials":{
+        "bad":{"role":"engine-2d","shader":"fx","textures":{"s_noise":{"source":"project:/noise.png","sampler":"repeat-nearest"}}}
+      }
+    })json");
+    CHECK(has_code(combined_sampler_policy, MaterialDiagnosticCode::InvalidSchema));
 }
 
 TEST_CASE("duplicate RmlUi standard semantic aliases are rejected")
@@ -522,7 +573,7 @@ TEST_CASE("material validation reports refs values and roles")
         }
       },
       "materials":{
-        "bad":{"role":"engine-2d","shader":"soft_noise","textures":{"s_noise":"project://bad.png"}}
+        "bad":{"role":"engine-2d","shader":"soft_noise","textures":{"s_noise":{"source":"project://bad.png","address":"clamp","filter":"linear"}}}
       }
     })json"),
                    MaterialDiagnosticCode::InvalidTextureSource));
@@ -542,7 +593,7 @@ TEST_CASE("material validation reports refs values and roles")
         "bad":{
           "role":"engine-2d",
           "shader":"soft_noise",
-          "textures":{"s_missing":"project:/textures/noise.png"}
+          "textures":{"s_missing":{"source":"project:/textures/noise.png","address":"clamp","filter":"linear"}}
         }
       }
     })json"),
@@ -602,7 +653,7 @@ TEST_CASE("postprocess scope belongs to the effect occurrence and source texture
         "bad":{
           "role":"postprocess",
           "shader":"fx",
-          "textures":{"s_texColor":"project:/textures/source.png"}
+          "textures":{"s_texColor":{"source":"project:/textures/source.png","address":"clamp","filter":"linear"}}
         }
       }
     })json"),
@@ -682,7 +733,7 @@ TEST_CASE("RmlUi decorator renderer texture cannot be authored")
         "ui/panel":{
           "role":"rmlui-decorator",
           "shader":"ui/decorator",
-          "textures":{"s_texColor":"project:/textures/panel.png"}
+          "textures":{"s_texColor":{"source":"project:/textures/panel.png","address":"clamp","filter":"linear"}}
         }
       }
     })json");
@@ -916,7 +967,7 @@ TEST_CASE("material documents reject authored sources for contract-owned hotspot
         "hotspot/test":{
           "role":"hotspot-overlay",
           "shader":"hotspot/test",
-          "textures":{"s_hotspotImage":{"source":"project:/image.png","sampler":"clamp-linear"}}
+          "textures":{"s_hotspotImage":{"source":"project:/image.png","address":"clamp","filter":"inherit"}}
         }
       }
     })json");

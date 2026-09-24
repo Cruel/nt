@@ -25,7 +25,7 @@ struct PackedMaterialUniform {
 
 [[nodiscard]] uint64_t bgfx_sampler_flags(MaterialTextureSampler sampler) noexcept;
 [[nodiscard]] MaterialTextureSampler
-resolve_draw_texture_sampler(MaterialTextureSampler material_sampler,
+resolve_draw_texture_sampler(MaterialTextureSampler material_sampler, bool inherit_filter,
                              MaterialTextureSampler image_sampler) noexcept;
 
 struct ResolvedDrawTexture {
@@ -34,8 +34,8 @@ struct ResolvedDrawTexture {
 };
 
 [[nodiscard]] ResolvedDrawTexture
-resolve_renderer_draw_texture(const QuadCommand* command,
-                              bgfx::TextureHandle neutral_texture) noexcept;
+resolve_renderer_draw_texture(const QuadCommand* command, bgfx::TextureHandle neutral_texture,
+                              const MaterialTextureAssignment* assignment = nullptr) noexcept;
 [[nodiscard]] PackedMaterialUniform pack_material_uniform(const ShaderUniformValue& value) noexcept;
 [[nodiscard]] std::optional<uint64_t> material_pipeline_state(ShaderRole role) noexcept;
 [[nodiscard]] std::array<float, 4>

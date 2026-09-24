@@ -346,7 +346,7 @@ nlohmann::json shader_material_manifest()
           "uniforms":{},
           "textures":{
             "s_static":{"source":"project:/assets/images/main.png",
-                        "sampler":"repeat-nearest"}
+                        "address":"repeat","filter":"nearest"}
           }
         },
         "scene-postprocess-material":{

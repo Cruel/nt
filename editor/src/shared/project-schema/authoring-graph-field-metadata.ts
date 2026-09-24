@@ -437,7 +437,7 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/materials\/\*\/data\/base(?:\/|$)/, OWNER],
   [/^\/materials\/\*\/data\/parameters(?:\/|$)/, OWNER],
   [/^\/materials\/\*\/data\/shader\/(?:vertex|fragment|varying)(?:\/|$)/, OWNER],
-  [/^\/materials\/\*\/data\/textures\/\*\/(?:binding|editor)(?:\/|$)/, OWNER],
+  [/^\/materials\/\*\/data\/textures\/\*\/(?:address|binding|editor)(?:\/|$)/, OWNER],
   [/^\/scripts\/\*\/data\/source\/path$/, SOURCE],
   [/^\/layouts\/\*\/data\/dependencies\/scripts\/\*$/, SOURCE],
   // #136 introduces ordered owner-local Property declarations on migrated Room/Character owners.
@@ -643,6 +643,8 @@ function roomLifecycleGameplayCommandEffect(
 }
 
 function preservedReviewedPath(path: JsonPointer): JsonPointer {
+  if (/^\/materials\/\*\/data\/textures\/\*\/filter$/.test(path))
+    return path.replace(/\/filter$/, '/filtering') as JsonPointer;
   if (
     /^\/layouts\/\*\/data\/dependencies\/materials\/\*\/material\/\$ref\/(?:collection|id)$/.test(
       path,
@@ -1142,7 +1144,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     layouts: 'b9fb12f6',
     localization: '3cedd4cb',
     maps: '9d711bea',
-    materials: 'c8d72fde',
+    materials: '60045c56',
     prefetchHints: 'b985056c',
     project: 'da3be83d',
     rooms: 'cf6cc747',

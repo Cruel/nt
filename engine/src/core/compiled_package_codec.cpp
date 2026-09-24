@@ -372,7 +372,7 @@ void validate_shader_manifest_shape(Decoder& decoder, const nlohmann::json& root
                 for (auto texture = textures->begin(); texture != textures->end(); ++texture) {
                     if (texture->is_object())
                         decoder.object(*texture, Decoder::child(base + "/textures", texture.key()),
-                                       {"source", "sampler"});
+                                       {"source", "address", "filter"});
                 }
             }
         }

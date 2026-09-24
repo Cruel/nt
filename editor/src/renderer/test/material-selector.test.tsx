@@ -1,7 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { MaterialSelector } from '@/components/materials/MaterialSelector';
+import {
+  MaterialSelector,
+  transferMaterialSelectorOverrides,
+} from '@/components/materials/MaterialSelector';
 import {
   MaterialPreviewGroupProvider,
   MaterialPreviewProjectProvider,
@@ -9,6 +12,7 @@ import {
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import type { MaterialPreviewResource } from '@/material-preview/material-preview-resources';
 
 const noWebGlBackend = () => null;
 
@@ -56,6 +60,42 @@ beforeEach(() => {
 });
 
 describe('MaterialSelector', () => {
+  it('counts previewable parameters and author-owned textures while excluding renderer-owned texture sources', () => {
+    const resource = {
+      resolved: { role: 'engine-2d' },
+      derivedInterface: {
+        uniforms: {
+          u_literal: { type: 'float' },
+          u_time: { type: 'float' },
+        },
+        samplers: {
+          s_texColor: { type: 'texture2d', stage: 0, binding: null },
+          s_noise: { type: 'texture2d', stage: 3, binding: null },
+        },
+      },
+    } as unknown as MaterialPreviewResource;
+
+    const transfer = transferMaterialSelectorOverrides(resource, {
+      parameters: {
+        u_literal: { type: 'float', value: 0.5 },
+        u_time: { type: 'float', standardFacet: 'occurrence-time' },
+        u_missing: { type: 'float', value: 1 },
+      },
+      textures: {
+        s_noise: { assetId: 'noise' },
+        s_texColor: { assetId: 'wrong-source' },
+      },
+    });
+
+    expect(transfer.values).toEqual({
+      u_literal: 0.5,
+      u_time: { kind: 'standard-facet', facet: 'occurrence-time' },
+    });
+    expect(transfer.textures).toEqual({ s_noise: 'noise' });
+    expect(transfer.appliedCount).toBe(3);
+    expect(transfer.totalCount).toBe(5);
+  });
+
   it('does not preview obsolete renderer-owned Engine2D overrides as authored parameters', async () => {
     const user = userEvent.setup();
     const onValueChange = vi.fn();

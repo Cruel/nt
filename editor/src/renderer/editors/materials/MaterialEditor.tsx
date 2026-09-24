@@ -23,7 +23,8 @@ import {
   defaultMaterialData,
   materialCanInheritFrom,
   materialDataWithBase,
-  materialTextureFilteringValues,
+  materialTextureAddressValues,
+  materialTextureFilterValues,
   parseMaterialData,
   resolvedMaterialUsesCustomShader,
   resolveMaterialData,
@@ -529,6 +530,125 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             })}
           </section>
 
+          {roleContract ? (
+            <section
+              className="space-y-2 rounded border p-2.5"
+              data-workbench-anchor="material.renderer-inputs"
+            >
+              <h3 className="text-sm font-medium">{t('materialEditor.rendererInputs')}</h3>
+              <p className="text-[11px] text-muted-foreground">
+                {t('materialEditor.rendererInputsHelp')}
+              </p>
+              {[...roleContract.reservedInterface.attributes].map((slot) => (
+                <div
+                  key={`attribute:${slot.name}`}
+                  className="grid items-center gap-2 rounded border p-1.5 text-xs @3xl:grid-cols-[150px_120px_minmax(160px,1fr)]"
+                >
+                  <span className="font-mono">{slot.name}</span>
+                  <Badge variant="outline">{t('materialEditor.attribute')}</Badge>
+                  <span className="text-muted-foreground">
+                    {slot.physicalType} · {slot.semantic}
+                  </span>
+                </div>
+              ))}
+              {[
+                ...roleContract.reservedInterface.predefinedUniforms.map((slot) => ({
+                  ...slot,
+                  kind: t('materialEditor.predefinedUniform'),
+                })),
+                ...roleContract.reservedInterface.rendererUniforms.map((slot) => ({
+                  ...slot,
+                  kind: t('materialEditor.rendererUniform'),
+                })),
+              ].map((slot) => (
+                <div
+                  key={`uniform:${slot.name}`}
+                  className="grid items-center gap-2 rounded border p-1.5 text-xs @3xl:grid-cols-[150px_120px_minmax(160px,1fr)]"
+                >
+                  <span className="font-mono">{slot.name}</span>
+                  <Badge variant="outline">{slot.kind}</Badge>
+                  <span className="text-muted-foreground">
+                    {slot.physicalType} · {slot.semantic}
+                  </span>
+                </div>
+              ))}
+              {roleContract.reservedInterface.samplers.map((slot) => {
+                const local = data.textures[slot.name];
+                const current = effective?.textures[slot.name];
+                const canEditAddress = slot.addressPolicy.length > 1;
+                const canEditFilter = slot.filterPolicy.length > 1;
+                return (
+                  <div
+                    key={`sampler:${slot.name}`}
+                    className="grid items-center gap-2 rounded border p-1.5 text-xs @3xl:grid-cols-[150px_minmax(150px,1fr)_110px_110px_auto]"
+                  >
+                    <div>
+                      <div className="font-mono">{slot.name}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {slot.physicalType} ·{' '}
+                        {t('materialEditor.samplerStage', { stage: slot.stage })}
+                      </div>
+                    </div>
+                    <div className="text-muted-foreground">
+                      {slot.semantic} · {t('materialEditor.runtimeSupplied')}
+                    </div>
+                    <Select
+                      value={current?.address ?? slot.addressPolicy[0] ?? 'clamp'}
+                      disabled={!canEditAddress}
+                      onValueChange={(address) =>
+                        setTexture(slot.name, {
+                          ...local,
+                          address: address as MaterialTextureData['address'],
+                        })
+                      }
+                    >
+                      <SelectTrigger size="sm" className="w-full min-w-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start">
+                        {slot.addressPolicy.map((address) => (
+                          <SelectItem key={address} value={address}>
+                            {address}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={current?.filter ?? slot.filterPolicy[0] ?? 'linear'}
+                      disabled={!canEditFilter}
+                      onValueChange={(filter) =>
+                        setTexture(slot.name, {
+                          ...local,
+                          filter: filter as MaterialTextureData['filter'],
+                        })
+                      }
+                    >
+                      <SelectTrigger size="sm" className="w-full min-w-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start">
+                        {slot.filterPolicy.map((filter) => (
+                          <SelectItem key={filter} value={filter}>
+                            {filter}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs"
+                      disabled={!local}
+                      onClick={() => clearTexture(slot.name)}
+                    >
+                      {t('materialEditor.reset')}
+                    </Button>
+                  </div>
+                );
+              })}
+            </section>
+          ) : null}
+
           <section
             className="space-y-2 rounded border p-2.5"
             data-workbench-anchor="material.parameters"
@@ -715,12 +835,13 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                 return (
                   <div
                     key={name}
-                    className="grid items-center gap-1.5 rounded border p-1.5 @3xl:grid-cols-[140px_minmax(180px,1fr)_130px_auto]"
+                    className="grid items-center gap-1.5 rounded border p-1.5 @3xl:grid-cols-[140px_minmax(180px,1fr)_100px_100px_auto]"
                   >
                     <div>
                       <div className="font-mono text-xs">{name}</div>
                       <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                        {provenanceLabel(project, materialId, provenance, t)}
+                        {provenanceLabel(project, materialId, provenance, t)} ·{' '}
+                        {t('materialEditor.samplerStage', { stage: declaration.stage })}
                       </div>
                       {declaration.binding ? (
                         <div className="text-[10px] text-muted-foreground">
@@ -774,12 +895,12 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                       </Select>
                     )}
                     <Select
-                      value={current?.filtering ?? 'clamp-linear'}
+                      value={current?.address ?? 'clamp'}
                       disabled={rendererBound}
-                      onValueChange={(value) =>
+                      onValueChange={(address) =>
                         setTexture(name, {
                           ...local,
-                          filtering: value as MaterialTextureData['filtering'],
+                          address: address as MaterialTextureData['address'],
                         })
                       }
                     >
@@ -787,7 +908,28 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent align="start">
-                        {materialTextureFilteringValues.map((filter) => (
+                        {materialTextureAddressValues.map((address) => (
+                          <SelectItem key={address} value={address}>
+                            {address}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={current?.filter ?? 'linear'}
+                      disabled={rendererBound}
+                      onValueChange={(filter) =>
+                        setTexture(name, {
+                          ...local,
+                          filter: filter as MaterialTextureData['filter'],
+                        })
+                      }
+                    >
+                      <SelectTrigger size="sm" className="w-full min-w-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start">
+                        {materialTextureFilterValues.map((filter) => (
                           <SelectItem key={filter} value={filter}>
                             {filter}
                           </SelectItem>
@@ -808,6 +950,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
               })}
             {Object.keys(data.textures)
               .filter((name) => {
+                if (rendererOwnedSamplerNames.has(name)) return false;
                 const declaration = textureDeclarations[name];
                 const local = data.textures[name];
                 return (

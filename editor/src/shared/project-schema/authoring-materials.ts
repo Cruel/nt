@@ -23,15 +23,12 @@ import {
   type ShaderUniformValue,
 } from './authoring-shaders';
 
-export const materialTextureFilteringValues = [
-  'clamp-nearest',
-  'clamp-linear',
-  'repeat-nearest',
-  'repeat-linear',
-] as const;
+export const materialTextureAddressValues = ['clamp', 'repeat'] as const;
+export const materialTextureFilterValues = ['inherit', 'nearest', 'linear'] as const;
 export const materialPreviewGeometryValues = ['quad', 'rounded-rect', 'sprite', 'glyphs'] as const;
 export const materialPreviewBackgroundValues = ['transparent', 'checker', 'dark', 'light'] as const;
-export type MaterialTextureFiltering = (typeof materialTextureFilteringValues)[number];
+export type MaterialTextureAddress = (typeof materialTextureAddressValues)[number];
+export type MaterialTextureFilter = (typeof materialTextureFilterValues)[number];
 
 export const assetTextureRefSchema = z
   .object({ $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict() })
@@ -100,7 +97,8 @@ export const materialParameterOverrideSchema = z
 export const materialTextureDataSchema = z
   .object({
     source: materialTextureSourceSchema.optional(),
-    filtering: z.enum(materialTextureFilteringValues).optional(),
+    address: z.enum(materialTextureAddressValues).optional(),
+    filter: z.enum(materialTextureFilterValues).optional(),
     binding: z.enum(shaderSamplerBindingValues).nullable().optional(),
     editor: z.object({ label: z.string().optional() }).strict().optional(),
   })
@@ -108,7 +106,8 @@ export const materialTextureDataSchema = z
   .refine(
     (value) =>
       value.source !== undefined ||
-      value.filtering !== undefined ||
+      value.address !== undefined ||
+      value.filter !== undefined ||
       value.binding !== undefined ||
       value.editor !== undefined,
     { message: 'Material texture override cannot be empty.' },
@@ -147,7 +146,8 @@ export interface EffectiveMaterialParameter {
 }
 export interface EffectiveMaterialTexture {
   source?: MaterialTextureSource;
-  filtering: MaterialTextureFiltering;
+  address: MaterialTextureAddress;
+  filter: MaterialTextureFilter;
   binding?: ShaderSamplerBinding | null;
   editor?: MaterialTextureData['editor'];
 }
@@ -244,6 +244,22 @@ function presetUniform(
   return preset.uniforms[name] ?? presetStandardUniform(preset, name);
 }
 
+function defaultSamplerPolicy(
+  role: ShaderRole,
+  name: string,
+): Pick<EffectiveMaterialTexture, 'address' | 'filter'> {
+  const sampler = materialContractRegistry.roles
+    .find((candidate) => candidate.id === role)
+    ?.reservedInterface.samplers.find((candidate) => candidate.name === name);
+  const address = sampler?.addressPolicy.includes('clamp')
+    ? 'clamp'
+    : ((sampler?.addressPolicy[0] ?? 'clamp') as MaterialTextureAddress);
+  const filter = sampler?.filterPolicy.includes('inherit')
+    ? 'inherit'
+    : ((sampler?.filterPolicy[0] ?? 'linear') as MaterialTextureFilter);
+  return { address, filter };
+}
+
 function resolvedFromPreset(preset: MaterialPresetDefinition): ResolvedMaterialData {
   const provenance: Record<string, MaterialProvenance> = {};
   const parameters: Record<string, EffectiveMaterialParameter> = {};
@@ -271,11 +287,17 @@ function resolvedFromPreset(preset: MaterialPresetDefinition): ResolvedMaterialD
     parameters[name] = { type: value.type, binding: value.binding };
   }
   const textures: Record<string, EffectiveMaterialTexture> = {};
-  for (const [name, value] of Object.entries(preset.samplers)) {
+  const roleContract = materialContractRegistry.roles.find((role) => role.id === preset.role);
+  for (const [name, capability] of Object.entries(preset.samplerCapabilities)) {
+    if (capability === 'disabled') continue;
+    const sampler = roleContract?.reservedInterface.samplers.find(
+      (candidate) => candidate.name === name,
+    );
+    const binding = sampler?.semantic as ShaderSamplerBinding | undefined;
     provenance[`textures.${name}`] = { kind: 'preset', id: preset.id };
     textures[name] = {
-      filtering: 'clamp-linear',
-      ...(value.binding ? { binding: value.binding } : {}),
+      ...defaultSamplerPolicy(preset.role, name),
+      ...(binding && shaderSamplerBindingValues.includes(binding) ? { binding } : {}),
     };
   }
   for (const key of [
@@ -315,11 +337,8 @@ function applyMaterialOverrides(
     provenance[`parameters.${name}`] = source;
   }
   for (const [name, override] of Object.entries(data.textures)) {
-    textures[name] = {
-      ...textures[name],
-      ...override,
-      filtering: override.filtering ?? textures[name]?.filtering ?? 'clamp-linear',
-    };
+    const inherited = textures[name] ?? { address: 'clamp' as const, filter: 'linear' as const };
+    textures[name] = { ...inherited, ...override };
     provenance[`textures.${name}`] = source;
   }
   let vertexSource = base.vertexSource;
@@ -531,11 +550,39 @@ export function validateMaterialData(
         );
     }
     for (const [name, texture] of Object.entries(data.textures)) {
-      if (texture.binding != null && texture.source !== undefined)
+      const contractSampler = materialContractRegistry.roles
+        .find((role) => role.id === resolved.role)
+        ?.reservedInterface.samplers.find((sampler) => sampler.name === name);
+      if (
+        texture.source !== undefined &&
+        (texture.binding != null || contractSampler?.sourceOwnership === 'renderer')
+      )
         diagnostics.push(
           diagnostic(
             `${base}/textures/${name}/source`,
             `Renderer-bound texture '${name}' cannot have an authored source.`,
+          ),
+        );
+      if (
+        texture.address !== undefined &&
+        contractSampler &&
+        !contractSampler.addressPolicy.includes(texture.address)
+      )
+        diagnostics.push(
+          diagnostic(
+            `${base}/textures/${name}/address`,
+            `Texture address '${texture.address}' is not permitted by the '${resolved.role}' renderer contract.`,
+          ),
+        );
+      if (
+        texture.filter !== undefined &&
+        contractSampler &&
+        !contractSampler.filterPolicy.includes(texture.filter)
+      )
+        diagnostics.push(
+          diagnostic(
+            `${base}/textures/${name}/filter`,
+            `Texture filter '${texture.filter}' is not permitted by the '${resolved.role}' renderer contract.`,
           ),
         );
       if (texture.source)
@@ -618,6 +665,28 @@ export function validateMaterialData(
           diagnostic(
             `${base}/textures/${name}/binding`,
             `Texture binding does not match the '${preset.id}' preset contract.`,
+          ),
+        );
+      if (
+        texture.address !== undefined &&
+        contractSampler &&
+        !contractSampler.addressPolicy.includes(texture.address)
+      )
+        diagnostics.push(
+          diagnostic(
+            `${base}/textures/${name}/address`,
+            `Texture address '${texture.address}' is not permitted by the '${preset.role}' renderer contract.`,
+          ),
+        );
+      if (
+        texture.filter !== undefined &&
+        contractSampler &&
+        !contractSampler.filterPolicy.includes(texture.filter)
+      )
+        diagnostics.push(
+          diagnostic(
+            `${base}/textures/${name}/filter`,
+            `Texture filter '${texture.filter}' is not permitted by the '${preset.role}' renderer contract.`,
           ),
         );
     }
