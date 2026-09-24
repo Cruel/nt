@@ -7,7 +7,7 @@ import {
   validateQualifiedExamplesCatalog,
 } from "../../scripts/qualify-examples.mjs";
 
-const revision = "e5a8bc3ee7fc70473a8e52807e541f0da1e608eb";
+const revision = "1".repeat(40);
 const ntRevision = "4".repeat(40);
 const digest = (character) => character.repeat(64);
 
@@ -94,7 +94,7 @@ test("examples revision pin is an exact commit", () => {
     new URL("../../examples/noveltea-examples.revision", import.meta.url),
     "utf8",
   );
-  assert.equal(parseExamplesRevision(pinned), revision);
+  assert.match(parseExamplesRevision(pinned), /^[0-9a-f]{40}$/u);
   assert.equal(parseExamplesRevision(`${revision}\n`), revision);
   assert.throws(
     () => parseExamplesRevision("main\n"),

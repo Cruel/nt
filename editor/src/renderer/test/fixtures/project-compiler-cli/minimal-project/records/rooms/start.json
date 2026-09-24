@@ -6,7 +6,7 @@
     "displayName": "Start",
     "background": {
       "asset": null,
-      "material": null,
+      "materialApplication": null,
       "fit": "cover",
       "color": null
     },
