@@ -68,6 +68,10 @@ public:
     void bind_project(const core::CompiledProject& project, std::string_view active_locale = {});
     void bind_catalog(WorldPresentationResourceCatalog catalog);
     void clear();
+    void set_asset_lease_lookup_scope(assets::AssetLeaseLookupScope scope) noexcept
+    {
+        m_lookup_scope = scope;
+    }
 
     [[nodiscard]] core::Result<WorldPreparedVisual, core::Diagnostics>
     resolve(std::optional<core::AssetId> asset, std::optional<core::MaterialId> material,

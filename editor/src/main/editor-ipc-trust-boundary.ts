@@ -47,6 +47,7 @@ import { userExportConfigSchema } from '../shared/project-schema/platform-export
 import { novelTeaUserPreferencesSchema } from '../shared/user-config';
 import { completeDesktopProjectImportRequestSchema } from '../shared/project-import-handoff';
 import { TERMINAL_LIMITS } from '../shared/terminal';
+import { shaderVariantSchema } from '../shared/shader-variants';
 
 const PACKAGED_EDITOR_DOCUMENT = 'noveltea-editor://app/index.html';
 const MAX_DIALOG_TITLE_LENGTH = 512;
@@ -618,6 +619,7 @@ export const prepareEditorRuntimeArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   authoringProjectSchema,
   runtimeRecoveryFingerprintSchema,
+  shaderVariantSchema,
 ]);
 export const runPlaybackTestArgumentsSchema = z.tuple([
   projectSessionIdSchema.nullable(),

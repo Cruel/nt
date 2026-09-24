@@ -39,6 +39,7 @@ vi.mock('@/components/engine-preview', async () => {
     const context = React.useMemo(
       () => ({
         connectionState: 'ready',
+        activeShaderVariant: 'glsl-330',
         fpsCap: 0,
         setFpsCap: vi.fn(),
         reload: vi.fn(),

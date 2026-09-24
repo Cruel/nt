@@ -80,6 +80,7 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     project: unknown,
     recoveryFingerprint: unknown,
+    shaderVariant: import('./shader-variants').ShaderVariant,
   ): Promise<import('./editor-runtime-cache').EditorRuntimePreparationResult>;
   runPlaybackTest(
     projectSessionId: string | null,

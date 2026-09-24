@@ -13,13 +13,16 @@ import {
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { PSEUDO_PREVIEW_LOCALE } from '../../shared/pseudo-localization';
 import { projectWorkspaceFiles } from '../../shared/project-workspace';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 
 const roots: string[] = [];
 
-async function createWorkspace(options: Readonly<{ withAsset?: boolean }> = {}) {
+async function createWorkspace(
+  options: Readonly<{ withAsset?: boolean; withMaterial?: boolean }> = {},
+) {
   const root = await mkdtemp(path.join(tmpdir(), 'noveltea-editor-runtime-cache-'));
   roots.push(root);
   const project = createAuthoringProject({ id: 'editor-cache', name: 'Editor Cache' });
@@ -29,6 +32,12 @@ async function createWorkspace(options: Readonly<{ withAsset?: boolean }> = {}) 
   ) as (typeof project.rooms)['start'];
   project.entrypoint = { kind: 'room', id: 'start' };
   project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
+  if (options.withMaterial)
+    project.materials.basic = {
+      id: 'basic',
+      label: 'Basic',
+      data: defaultMaterialData('Basic', 'engine-2d'),
+    };
   if (options.withAsset) {
     project.assets.unused = {
       id: 'unused',
@@ -74,6 +83,14 @@ async function previewIndex(root: string) {
     schema: string;
     entries: Array<{ variant: string; generation: string; lastUsedAtMs: number }>;
   };
+}
+
+async function playPreviewGeneration(root: string, variant = 'play:canonical:glsl-330') {
+  const entry = (await previewIndex(root)).entries.find(
+    (candidate) => candidate.variant === variant,
+  );
+  if (!entry) throw new Error(`Missing preview cache variant '${variant}'.`);
+  return entry.generation;
 }
 
 function serviceWithNativeLog(log: Array<{ operation: string; request: unknown }> = []) {
@@ -178,7 +195,7 @@ describe('editor persistent runtime cache', () => {
     expect(result).toMatchObject({
       status: 'prepared',
       cache: {
-        scope: 'persistent-canonical',
+        scope: 'persistent-preview',
         observation: {
           published: false,
           publicationReason: 'workspace-source-changed-during-preparation',
@@ -192,14 +209,14 @@ describe('editor persistent runtime cache', () => {
     const service = serviceWithNativeLog();
 
     const first = await service.preparePlay(workspace, project, {});
-    const generation = await currentGeneration(root);
+    const generation = await playPreviewGeneration(root);
     const second = await service.preparePlay(workspace, project, {});
 
     expect(first).toMatchObject({
       status: 'prepared',
-      buildContext: { kind: 'canonical' },
+      buildContext: { kind: 'canonical', shaderVariant: 'glsl-330' },
       cache: {
-        scope: 'persistent-canonical',
+        scope: 'persistent-preview',
         status: 'prepared',
         observation: { status: 'miss', published: true },
       },
@@ -207,12 +224,29 @@ describe('editor persistent runtime cache', () => {
     expect(second).toMatchObject({
       status: 'prepared',
       cache: {
-        scope: 'persistent-canonical',
+        scope: 'persistent-preview',
         status: 'hit',
         observation: { status: 'hit', testCatalogStatus: 'hit' },
       },
     });
-    expect(await currentGeneration(root)).toBe(generation);
+    expect(await playPreviewGeneration(root)).toBe(generation);
+  });
+
+  it('prepares Play shaders only for the active preview renderer variant', async () => {
+    const { project, workspace } = await createWorkspace({ withMaterial: true });
+    const nativeCalls: Array<{ operation: string; request: unknown }> = [];
+    const service = serviceWithNativeLog(nativeCalls);
+
+    const result = await service.preparePlay(workspace, project, {}, 'metal');
+
+    expect(result).toMatchObject({
+      buildContext: { kind: 'canonical', shaderVariant: 'metal' },
+    });
+    expect(nativeCalls.find((call) => call.operation === 'compile-shaders')?.request).toMatchObject(
+      {
+        options: { shaderVariants: ['metal'] },
+      },
+    );
   });
 
   it('rebuilds stale clean inputs and republishes without treating them as editor dirtiness', async () => {
@@ -220,7 +254,7 @@ describe('editor persistent runtime cache', () => {
     const service = serviceWithNativeLog();
     const first = await service.preparePlay(workspace, project, {});
     expect(first.status).toBe('prepared');
-    const originalGeneration = await currentGeneration(root);
+    const originalGeneration = await playPreviewGeneration(root);
 
     await writeFile(path.join(root, 'assets/unused.png'), new Uint8Array([4, 3, 2, 1, 0]));
     const rebuilt = await service.preparePlay(workspace, project, {});
@@ -228,19 +262,19 @@ describe('editor persistent runtime cache', () => {
     expect(rebuilt).toMatchObject({
       status: 'prepared',
       cache: {
-        scope: 'persistent-canonical',
+        scope: 'persistent-preview',
         status: 'prepared',
         observation: { status: 'stale', published: true },
       },
     });
-    expect(await currentGeneration(root)).not.toBe(originalGeneration);
+    expect(await playPreviewGeneration(root)).not.toBe(originalGeneration);
   });
 
   it('keeps compilation-relevant dirty Project state session-local and never republishes it', async () => {
     const { root, project, workspace } = await createWorkspace();
     const service = serviceWithNativeLog();
     await service.preparePlay(workspace, project, {});
-    const generation = await currentGeneration(root);
+    const generation = await playPreviewGeneration(root);
     const dirty = cloneProject(project);
     dirty.project.name = 'Unsaved name';
 
@@ -248,10 +282,10 @@ describe('editor persistent runtime cache', () => {
 
     expect(result).toEqual({
       status: 'session-local',
-      buildContext: { kind: 'canonical' },
+      buildContext: { kind: 'canonical', shaderVariant: 'glsl-330' },
       reason: 'project-content-dirty',
     });
-    expect(await currentGeneration(root)).toBe(generation);
+    expect(await playPreviewGeneration(root)).toBe(generation);
   });
 
   it('ignores editor/Test-only dirtiness for Play but rejects pending runtime compilation input', async () => {
@@ -281,21 +315,22 @@ describe('editor persistent runtime cache', () => {
     });
 
     expect(editorOnlyResult.status).toBe('prepared');
-    expect(editorOnlyResult).toMatchObject({ cache: { scope: 'persistent-canonical' } });
+    expect(editorOnlyResult).toMatchObject({ cache: { scope: 'persistent-preview' } });
     expect(testOnlyResult.status).toBe('prepared');
-    expect(testOnlyResult).toMatchObject({ cache: { scope: 'persistent-canonical' } });
+    expect(testOnlyResult).toMatchObject({ cache: { scope: 'persistent-preview' } });
     expect(pendingResult).toEqual({
       status: 'session-local',
-      buildContext: { kind: 'canonical' },
+      buildContext: { kind: 'canonical', shaderVariant: 'glsl-330' },
       reason: 'pending-compilation-input',
     });
   });
 
-  it('isolates preview locale variants from the canonical persistent generation and caps the LRU', async () => {
+  it('isolates Play variants from the canonical persistent generation and caps the preview LRU', async () => {
     const { root, project, workspace } = await createWorkspace({ withAsset: true });
     const service = serviceWithNativeLog();
-    await service.preparePlay(workspace, project, {});
+    await service.runPlaybackTest(workspace, project, 'smoke', {});
     const canonicalGeneration = await currentGeneration(root);
+    await service.preparePlay(workspace, project, {});
 
     const locales = ['fr', 'de', 'es', 'it', 'pt'];
     for (const locale of locales)
@@ -315,8 +350,13 @@ describe('editor persistent runtime cache', () => {
     const reopened = await createNodeProjectWorkspaceService().open(root);
     if (!reopened.ok) throw new Error('workspace reopen failed');
     workspace.adopt(reopened.snapshot, reopened.editorState);
-    const refreshedCanonical = await service.preparePlay(workspace, workspace.project(), {});
-    expect(refreshedCanonical.status).toBe('prepared');
+    const refreshedCanonical = await service.runPlaybackTest(
+      workspace,
+      workspace.project(),
+      'smoke',
+      {},
+    );
+    expect(refreshedCanonical).toMatchObject({ ok: true });
     const refreshedCanonicalGeneration = await currentGeneration(root);
     expect(refreshedCanonicalGeneration).not.toBe(canonicalGeneration);
 
@@ -326,7 +366,7 @@ describe('editor persistent runtime cache', () => {
       const result = await service.preparePlay(workspace, preview, {});
       expect(result).toMatchObject({
         status: 'prepared',
-        buildContext: { kind: 'preview-locale', locale },
+        buildContext: { kind: 'preview-locale', locale, shaderVariant: 'glsl-330' },
         cache: { scope: 'persistent-preview', status: 'prepared' },
       });
       if (result.status === 'prepared')
@@ -334,7 +374,7 @@ describe('editor persistent runtime cache', () => {
           true,
         );
       expect((await previewIndex(root)).entries).toHaveLength(
-        Math.min(locales.indexOf(locale) + 1, 4),
+        Math.min(locales.indexOf(locale) + 2, 4),
       );
     }
     const pseudo = cloneProject(workspace.project());
@@ -342,7 +382,11 @@ describe('editor persistent runtime cache', () => {
     const pseudoResult = await service.preparePlay(workspace, pseudo, {});
     expect(pseudoResult).toMatchObject({
       status: 'prepared',
-      buildContext: { kind: 'pseudo-preview-locale', locale: PSEUDO_PREVIEW_LOCALE },
+      buildContext: {
+        kind: 'pseudo-preview-locale',
+        locale: PSEUDO_PREVIEW_LOCALE,
+        shaderVariant: 'glsl-330',
+      },
       cache: { scope: 'persistent-preview' },
     });
     expect((await previewIndex(root)).entries).toHaveLength(4);
@@ -421,16 +465,16 @@ describe('editor persistent runtime cache', () => {
     const reused = await service.preparePlay(workspace, project, {});
     expect(reused).toMatchObject({
       status: 'prepared',
-      cache: { scope: 'persistent-canonical', status: 'hit' },
+      cache: { scope: 'persistent-preview', status: 'prepared' },
     });
     expect(await currentGeneration(root)).toBe(generation);
   });
 
-  it('publishes a canonical generation that the CLI immediately reuses', async () => {
+  it('publishes a canonical test generation that the CLI immediately reuses', async () => {
     const { root, project, workspace } = await createWorkspace();
     const service = serviceWithNativeLog();
-    const prepared = await service.preparePlay(workspace, project, {});
-    expect(prepared.status).toBe('prepared');
+    const prepared = await service.runPlaybackTest(workspace, project, 'smoke', {});
+    expect(prepared).toMatchObject({ ok: true });
 
     const projects: unknown[] = [];
     const result = await runNovelTeaCli(['--json', 'test', 'run', 'smoke'], {

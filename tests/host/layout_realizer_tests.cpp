@@ -1771,6 +1771,42 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(focused_textures.requests.back().path == "project:/images/alpha-sprite-two.png");
     CHECK(focused_textures.requests.back().retain_alpha_coverage);
 
+    auto renderer_owned_texture_room = room;
+    renderer_owned_texture_room["shaderMaterials"] = {
+        {"schema", "noveltea.shader-materials"},
+        {"shaders",
+         {{"fx",
+           {{"interface_contract", "noveltea.material-preset:engine-2d:1"},
+            {"interface_fingerprint",
+             "sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9"},
+            {"stages",
+             {{"vertex",
+               {{"compiled",
+                 {{"glsl-330", {{"runtimePath", "system:/shaders/test.vs.bin"}}}}}}},
+              {"fragment",
+               {{"compiled",
+                 {{"glsl-330", {{"runtimePath", "system:/shaders/test.fs.bin"}}}}}}}}},
+            {"samplers",
+             {{"s_texColor", {{"type", "texture2d"}, {"stage", 0}, {"binding", nullptr}}}}},
+            {"roles", nlohmann::json::array({"engine-2d"})},
+            {"role_bindings", nlohmann::json::object()}}}}},
+        {"materials",
+         {{"panel",
+           {{"role", "engine-2d"},
+            {"shader", "fx"},
+            {"textures",
+             {{"s_texColor", {{"address", "repeat"}, {"filter", "nearest"}}}}}}}}}};
+    auto renderer_owned_texture_request =
+        make_request(core::editor::FocusedEditorDocumentKind::Room,
+                     "room-renderer-owned-texture", renderer_owned_texture_room, 19);
+    renderer_owned_texture_request.resources = {
+        {.resource_id = "shader:variant-marker",
+         .source_kind = "shader-compiled-output",
+         .logical_path = "project:/shaders/variant-marker.bin",
+         .shader_variant = core::editor::EditorPreviewShaderVariant::Glsl330},
+    };
+    REQUIRE(presenter.apply(std::move(renderer_owned_texture_request)));
+
     const auto changes_before_clear = world_presentation_changes;
     presenter.clear();
     CHECK(world_presentation_changes == changes_before_clear + 1);

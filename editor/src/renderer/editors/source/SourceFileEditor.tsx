@@ -120,10 +120,11 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
   }, [buffer, isShaderSource, usages.affectedMaterialIds]);
 
   useEffect(() => {
+    if (!project || !sourceId || !isShaderSource) return;
     setAttachedMaterialIds((current) =>
       current.filter((materialId) => usages.affectedMaterialIds.includes(materialId)),
     );
-  }, [usages.affectedMaterialIds]);
+  }, [isShaderSource, project, sourceId, usages.affectedMaterialIds]);
 
   const debouncedCompilerRef = useRef<DebouncedShaderPreviewCompiler<
     Awaited<ReturnType<ReturnType<typeof useShaderCompileStore.getState>['runCompile']>>

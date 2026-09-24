@@ -77,6 +77,23 @@ function nowOr(value: number | undefined): number {
   return value ?? Date.now();
 }
 
+function samePreviewDiagnostic(
+  diagnostic: PreviewDiagnosticRecord,
+  options: RecordDiagnosticOptions,
+): boolean {
+  return (
+    diagnostic.sessionId === options.sessionId &&
+    diagnostic.severity === options.severity &&
+    diagnostic.source === options.source &&
+    diagnostic.message === options.message &&
+    diagnostic.path === options.path &&
+    diagnostic.target?.collection === options.target?.collection &&
+    diagnostic.target?.entityId === options.target?.entityId &&
+    diagnostic.target?.kind === options.target?.kind &&
+    diagnostic.target?.label === options.target?.label
+  );
+}
+
 function initialReplay(): PreviewReplayState {
   return {
     documentsBySessionId: {},
@@ -247,6 +264,10 @@ export const usePreviewManagerStore = create<PreviewManagerState>()((set, get) =
   },
 
   recordPreviewDiagnostic: (options) => {
+    const existing = get()
+      .diagnosticOrder.map((id) => get().diagnosticsById[id])
+      .find((diagnostic) => diagnostic && samePreviewDiagnostic(diagnostic, options));
+    if (existing) return existing;
     const timestamp = nowOr(options.timestamp);
     const id = createDiagnosticId(timestamp, get().diagnosticOrder.length);
     const diagnostic: PreviewDiagnosticRecord = { ...options, id, timestamp };

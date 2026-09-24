@@ -1018,6 +1018,10 @@ void PreviewHost::clear_focused_preview() noexcept
     m_focused_presenter->clear();
     m_dependencies.runtime_ui.clear_focused_preview_cursors();
     m_dependencies.renderer.set_asset_lease_lookup_scope(assets::AssetLeaseLookupScope::Runtime);
+    auto& world_resources = m_dependencies.world_resources != nullptr
+                                ? *m_dependencies.world_resources
+                                : m_fallback_world_resources;
+    world_resources.set_asset_lease_lookup_scope(assets::AssetLeaseLookupScope::Runtime);
 }
 
 void PreviewHost::route_focused_runtime_input(core::RuntimeInputMessage input)

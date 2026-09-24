@@ -401,6 +401,14 @@ describe('FullGamePreviewEditor', () => {
 
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
+      expect(window.noveltea.prepareEditorRuntime).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.anything(),
+        expect.anything(),
+        'glsl-330',
+      ),
+    );
+    await waitFor(() =>
       expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
     );
     const request = latestRequest(editorPort, 'runtime-load-compiled-project') as

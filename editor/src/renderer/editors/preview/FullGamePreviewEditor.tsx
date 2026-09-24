@@ -59,6 +59,7 @@ import {
   isAuthoringCollectionKey,
 } from '../../../shared/project-schema/authoring-collections';
 import { selectedExportProfile } from '../../../shared/project-schema/authoring-export';
+import type { ShaderVariant } from '../../../shared/shader-variants';
 import {
   assetMemoryProfileSchema,
   resolveAssetMemoryPolicy,
@@ -474,6 +475,7 @@ async function compiledProjectDiagnosticEntries(
   project: AuthoringProject | null,
   recoveryFingerprint: unknown,
   projectSessionId: string | null,
+  activeShaderVariant: ShaderVariant,
 ): Promise<{
   compiledProject: unknown;
   shaderMaterialMetadata: unknown;
@@ -505,6 +507,7 @@ async function compiledProjectDiagnosticEntries(
       projectSessionId,
       project,
       recoveryFingerprint,
+      activeShaderVariant,
     );
     if (shared.status === 'prepared') {
       const diagnostics = collectProjectValidationDiagnostics(shared.artifact.diagnostics);
@@ -531,7 +534,9 @@ async function compiledProjectDiagnosticEntries(
         shaderMaterialMetadata: null,
         previewAssets: [],
         sourceFingerprint: null,
-        blockers: shared.diagnostics,
+        blockers: shared.diagnostics.filter((diagnostic) =>
+          projectValidationBlocksBoundary(diagnostic, 'runtime-package'),
+        ),
         entries: shared.diagnostics.slice(0, 6).map((diagnostic) => ({
           label: diagnostic.message,
           detail: diagnostic.path,
@@ -544,7 +549,7 @@ async function compiledProjectDiagnosticEntries(
   const prepared = await prepareRuntimeArtifact({
     project: projectWithPreviewLocale(project),
     projectRoot: null,
-    profile: selectedExportProfile(project),
+    profile: { ...selectedExportProfile(project), shaderVariants: [activeShaderVariant] },
     intent: 'play',
     recoveryFingerprint,
     paths: rendererRuntimeArtifactPaths,
@@ -556,7 +561,9 @@ async function compiledProjectDiagnosticEntries(
       shaderMaterialMetadata: null,
       previewAssets: [],
       sourceFingerprint: null,
-      blockers: prepared.diagnostics,
+      blockers: prepared.diagnostics.filter((diagnostic) =>
+        projectValidationBlocksBoundary(diagnostic, 'runtime-package'),
+      ),
       entries: prepared.diagnostics.map((diagnostic) => ({
         label: diagnostic.message,
         detail: diagnostic.path,
@@ -1949,8 +1956,8 @@ function CompiledProjectStaleWarning({
           <span className="min-w-0 truncate font-medium">
             {blockerCount > 0
               ? hasLoadedRuntime
-                ? `Project changed; ${blockerCount} error${blockerCount === 1 ? '' : 's'} block restart.`
-                : `${blockerCount} project error${blockerCount === 1 ? '' : 's'} block Play.`
+                ? `Project changed; ${blockerCount} Play blocker${blockerCount === 1 ? '' : 's'} prevent restart.`
+                : `${blockerCount} Play blocker${blockerCount === 1 ? '' : 's'}.`
               : hasLoadedRuntime
                 ? 'Project changed since this Play session was loaded.'
                 : 'Project is ready to load for Play.'}
@@ -1990,7 +1997,35 @@ function CompiledProjectStaleWarning({
                   );
                 })}
                 {blockerCount > 6 ? (
-                  <span className="pl-0.5 text-[10px] font-medium">+{blockerCount - 6}</span>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          className="rounded px-1 text-[10px] font-medium hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-500"
+                          aria-label={`Show ${blockerCount - 6} more Play blockers`}
+                        >
+                          +{blockerCount - 6}
+                        </button>
+                      }
+                    />
+                    <TooltipContent
+                      side="bottom"
+                      align="end"
+                      className="max-h-64 max-w-96 space-y-2 overflow-auto"
+                    >
+                      {distinctBlockers.slice(6).map((diagnostic) => (
+                        <div key={`${diagnostic.code}:${diagnostic.path}:${diagnostic.message}`}>
+                          <div>{diagnostic.message}</div>
+                          {diagnostic.path ? (
+                            <div className="break-all font-mono text-[10px] opacity-75">
+                              {diagnostic.path}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </TooltipContent>
+                  </Tooltip>
                 ) : null}
               </div>
             </TooltipProvider>
@@ -2418,21 +2453,29 @@ export function FullGamePreviewEditor({
     entries: [],
   });
   const [compiledProjectPreparationPending, setCompiledProjectPreparationPending] = useState(true);
+  const activeShaderVariant = previewControls?.activeShaderVariant ?? null;
   useEffect(() => {
+    if (!activeShaderVariant) {
+      setCompiledProjectPreparationPending(true);
+      return undefined;
+    }
     let current = true;
     setCompiledProjectPreparationPending(true);
-    void compiledProjectDiagnosticEntries(project, pendingInputEntries, projectSessionId).then(
-      (result) => {
-        if (current) {
-          setExportedCompiledProject(result);
-          setCompiledProjectPreparationPending(false);
-        }
-      },
-    );
+    void compiledProjectDiagnosticEntries(
+      project,
+      pendingInputEntries,
+      projectSessionId,
+      activeShaderVariant,
+    ).then((result) => {
+      if (current) {
+        setExportedCompiledProject(result);
+        setCompiledProjectPreparationPending(false);
+      }
+    });
     return () => {
       current = false;
     };
-  }, [project, pendingInputEntries, projectSessionId]);
+  }, [activeShaderVariant, project, pendingInputEntries, projectSessionId]);
   const canReloadLatestProject =
     exportedCompiledProject.ok && !!exportedCompiledProject.compiledProject;
 

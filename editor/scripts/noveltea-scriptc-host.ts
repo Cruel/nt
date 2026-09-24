@@ -96,7 +96,11 @@ function invokeHost(operation: string, requestText: string): string {
   }
 }
 
-function invokePrivateInternalHost(operation: string, requestText: string): string {
+function invokePrivateInternalHost(
+  operation: string,
+  requestText: string,
+  forwardCapturedOutput = true,
+): string {
   if (operation === 'process-alive' || operation === 'read-stdin' || operation === 'run-process')
     return invokeHost(operation, requestText);
 
@@ -105,8 +109,8 @@ function invokePrivateInternalHost(operation: string, requestText: string): stri
   ) as CapturedNativeEnvelope;
   if (envelope.captureOk !== true)
     throw new Error(`failed to capture private native operation '${operation}' output`);
-  if (envelope.stdout) process.stderr.write(envelope.stdout);
-  if (envelope.stderr) process.stderr.write(envelope.stderr);
+  if (forwardCapturedOutput && envelope.stdout) process.stderr.write(envelope.stdout);
+  if (forwardCapturedOutput && envelope.stderr) process.stderr.write(envelope.stderr);
   return envelope.response;
 }
 
@@ -2369,9 +2373,16 @@ async function runLocalIsland(argv: readonly string[]): Promise<HostResult> {
   if (cancellation.ok === false)
     throw new Error(cancellation.error ?? 'failed to initialize local cancellation handling');
   try {
+    const hostInvoke =
+      argv[0] === '__editor-native'
+        ? (operation: string, requestText: string) =>
+            invokePrivateInternalHost(operation, requestText, false)
+        : privateInternalInvocation(argv)
+          ? invokePrivateInternalHost
+          : invokeHost;
     const responseText = await runNovelTeaScriptcIsland(
       JSON.stringify(argv),
-      privateInternalInvocation(argv) ? invokePrivateInternalHost : invokeHost,
+      hostInvoke,
       forceRuntimeCacheRebuild,
       {
         terminal: currentTerminalContext(),

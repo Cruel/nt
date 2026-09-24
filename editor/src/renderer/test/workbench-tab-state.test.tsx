@@ -20,6 +20,7 @@ import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { ROOT_GROUP_ID } from '@/workbench/workbench-model';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useProjectStore } from '@/project/project-store';
+import { parseShaderSourceTabState, shaderSourceTabState } from '@/shaders/shader-source-tab-state';
 import type { JsonValue } from '@/project/json-value';
 import type {
   WorkbenchGroup as WorkbenchGroupModel,
@@ -52,6 +53,21 @@ function rawTab(id: string): WorkbenchTab {
       stableId: `record:rooms:${id}`,
       collection: 'rooms',
       entityId: id,
+    },
+  };
+}
+
+function sourceTab(id: string): WorkbenchTab {
+  const projectRelativePath = `shaders/materials/${id}.fs.sc`;
+  return {
+    id: `source:${id}`,
+    title: `${id}.fs.sc`,
+    editorType: 'source-file',
+    resource: {
+      kind: 'source',
+      stableId: `source:${projectRelativePath}`,
+      sourceId: projectRelativePath,
+      projectRelativePath,
     },
   };
 }
@@ -526,12 +542,19 @@ describe('workbench tab-state project snapshots', () => {
       projectFilePath: '/mock/project.json',
     });
     const tab = rawTab('one');
+    const shaderTab = sourceTab('hologram-scanlines');
     useWorkbenchStore.getState().openTab(tab);
+    useWorkbenchStore.getState().openTab(shaderTab);
     setWorkbenchTabState(tab.id, state('project-state'));
+    setWorkbenchTabState(shaderTab.id, shaderSourceTabState(['hologram-panel']));
 
     const snapshot = buildEditorProjectStateSnapshot();
     expect(snapshot.workbench?.tabsById[tab.id]).toBeTruthy();
+    expect(snapshot.workbench?.tabsById[shaderTab.id]).toEqual(shaderTab);
     expect(payloadValue(snapshot.tabStatesById[tab.id])).toBe('project-state');
+    expect(parseShaderSourceTabState(snapshot.tabStatesById[shaderTab.id])?.materialIds).toEqual([
+      'hologram-panel',
+    ]);
 
     clearWorkbenchTabStates();
     useWorkbenchStore.getState().resetWorkbench();
@@ -545,6 +568,7 @@ describe('workbench tab-state project snapshots', () => {
           ...snapshot,
           tabStatesById: {
             [tab.id]: state('restored'),
+            [shaderTab.id]: shaderSourceTabState(['hologram-panel']),
             'tab:missing': state('missing'),
           },
         },
@@ -553,9 +577,14 @@ describe('workbench tab-state project snapshots', () => {
     restoreEditorProjectState(restoredProject, '/mock/project.json');
 
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeTruthy();
+    expect(useWorkbenchStore.getState().tabsById[shaderTab.id]).toEqual(shaderTab);
     expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[tab.id])).toBe(
       'restored',
     );
+    expect(
+      parseShaderSourceTabState(useWorkbenchTabStateStore.getState().tabStatesById[shaderTab.id])
+        ?.materialIds,
+    ).toEqual(['hologram-panel']);
     expect(useWorkbenchTabStateStore.getState().tabStatesById['tab:missing']).toBeUndefined();
   });
 });
