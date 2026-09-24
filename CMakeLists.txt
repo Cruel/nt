@@ -343,6 +343,7 @@ if(NOVELTEA_FETCH_BGFX)
             URL_HASH SHA256=${NOVELTEA_BGFX_ARCHIVE_SHA256}
             SOURCE_SUBDIR .
             PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bgfx-emscripten.cmake
+            COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bgfx-shaderc-preprocess-leak.cmake
             COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bimg-texturec-entry.cmake
         )
     else()
@@ -352,6 +353,7 @@ if(NOVELTEA_FETCH_BGFX)
             URL_HASH SHA256=${NOVELTEA_BGFX_ARCHIVE_SHA256}
             SOURCE_SUBDIR .
             PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bgfx-miniz.cmake
+            COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bgfx-shaderc-preprocess-leak.cmake
             COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bimg-texturec-entry.cmake
         )
     endif()
