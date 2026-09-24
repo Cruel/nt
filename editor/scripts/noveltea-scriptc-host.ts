@@ -96,6 +96,20 @@ function invokeHost(operation: string, requestText: string): string {
   }
 }
 
+function invokePrivateInternalHost(operation: string, requestText: string): string {
+  if (operation === 'process-alive' || operation === 'read-stdin' || operation === 'run-process')
+    return invokeHost(operation, requestText);
+
+  const envelope = JSON.parse(
+    invokeHost(`capture:${operation}`, requestText),
+  ) as CapturedNativeEnvelope;
+  if (envelope.captureOk !== true)
+    throw new Error(`failed to capture private native operation '${operation}' output`);
+  if (envelope.stdout) process.stderr.write(envelope.stdout);
+  if (envelope.stderr) process.stderr.write(envelope.stderr);
+  return envelope.response;
+}
+
 function nativeShaderc(arguments_: readonly string[]): number {
   const response = invokeHost('shaderc', JSON.stringify(arguments_));
   const prefix = '{"exitCode":';
@@ -2357,7 +2371,7 @@ async function runLocalIsland(argv: readonly string[]): Promise<HostResult> {
   try {
     const responseText = await runNovelTeaScriptcIsland(
       JSON.stringify(argv),
-      invokeHost,
+      privateInternalInvocation(argv) ? invokePrivateInternalHost : invokeHost,
       forceRuntimeCacheRebuild,
       {
         terminal: currentTerminalContext(),
