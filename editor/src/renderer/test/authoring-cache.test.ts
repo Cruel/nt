@@ -232,6 +232,27 @@ describe('narrow exact validation cache', () => {
     ).resolves.toBeNull();
   });
 
+  it('retains discovered shader compiler inputs as exact validation authority', async () => {
+    const root = await fixture();
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    await mkdir(path.join(root, 'shaders'), { recursive: true });
+    await writeFile(path.join(root, 'shaders/common.sc'), '#define COMMON 1\n');
+    const opened = await new ProjectWorkspaceService(fileSystem).open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error('Fixture failed to open');
+
+    const inputs = await captureAuthoringValidationAuthorityInputs(fileSystem, opened.snapshot);
+    expect(inputs?.entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'shaders/common.sc' })]),
+    );
+    if (!inputs) throw new Error('Shader authority inputs were not captured');
+    await publishAuthoringCache(fileSystem, root, inputs, exactResult);
+    await expect(readAuthoringCache(fileSystem, root)).resolves.toEqual(exactResult);
+
+    await writeFile(path.join(root, 'shaders/common.sc'), '#define COMMON 2\n');
+    await expect(readAuthoringCache(fileSystem, root)).resolves.toBeNull();
+  });
+
   it('does not publish an old validation result after source membership changes', async () => {
     const root = await fixture();
     const fileSystem = new NodeProjectWorkspaceFileSystem();

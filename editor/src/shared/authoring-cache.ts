@@ -244,6 +244,15 @@ export interface AuthoringValidationAuthorityInputs {
   readonly entries: readonly z.infer<typeof manifestSchema>['inputs'][number][];
 }
 
+function isAuthoringValidationAuthorityOnlyPath(relativePath: string): boolean {
+  // Shader includes are resolved by the native compiler from the Project shader tree rather than
+  // by ProjectWorkspaceService, so they are not necessarily canonical workspace sources. They are
+  // still physical inputs to authoring validation and therefore belong in the exact-result
+  // authority manifest. Other newly discovered authored sources must remain inadmissible until a
+  // workspace open has actually parsed them.
+  return /^shaders\/.+\.sc$/u.test(relativePath);
+}
+
 export async function captureAuthoringValidationAuthorityInputs(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: LoadedProjectWorkspaceSnapshot,
@@ -261,8 +270,17 @@ export async function captureAuthoringValidationAuthorityInputs(
       authoritativePaths: [...validatedPaths],
       discoveryScopes: AUTHORING_VALIDATION_DISCOVERY_SCOPES,
     });
-    // Discovery must not attach an unparsed addition to an older validation result.
-    if (inputs.entries.some((entry) => !validatedPaths.has(entry.path))) return null;
+    // Discovery must not attach an unparsed authored addition to an older validation result.
+    // Shader compiler inputs are the exception: transitive #include files can be physically read
+    // without becoming ProjectWorkspaceService canonical sources, so retain them as authority-only
+    // inputs and prove their metadata again before publication.
+    if (
+      inputs.entries.some(
+        (entry) =>
+          !validatedPaths.has(entry.path) && !isAuthoringValidationAuthorityOnlyPath(entry.path),
+      )
+    )
+      return null;
     const inputByPath = new Map(inputs.entries.map((entry) => [entry.path, entry]));
     for (const relative of snapshot.canonicalSourceFiles) {
       const captured = snapshot.fileRevisions[relative];
