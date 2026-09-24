@@ -73,6 +73,37 @@ export interface MaterialApplicationPropertyBindingOption {
     type: string;
     label?: string | null;
   };
+  defaultValue?: unknown;
+  value?: unknown;
+}
+
+export function materialApplicationPreviewOverrides(
+  application: MaterialApplication | null,
+  properties: readonly MaterialApplicationPropertyBindingOption[],
+): MaterialSelectorOccurrenceOverrides {
+  const propertyValues = new Map(
+    properties.map((property) => [
+      property.id,
+      property.value !== undefined ? property.value : property.defaultValue,
+    ]),
+  );
+  return {
+    parameters: Object.fromEntries(
+      Object.entries(application?.parameters ?? {}).map(([name, override]) => {
+        if (override.source.kind === 'literal')
+          return [name, { type: override.type, value: override.source.value }];
+        if (override.source.kind === 'standard-facet')
+          return [name, { type: override.type, standardFacet: override.source.facet }];
+        return [name, { type: override.type, value: propertyValues.get(override.source.property) }];
+      }),
+    ),
+    textures: Object.fromEntries(
+      Object.entries(application?.textures ?? {}).map(([name, override]) => [
+        name,
+        { assetId: override.source.$ref.id },
+      ]),
+    ),
+  };
 }
 
 function propertyCompatible(
@@ -143,19 +174,17 @@ export function MaterialApplicationEditor({
         ),
     [project.assets],
   );
-  const occurrenceOverrides = useMemo<MaterialSelectorOccurrenceOverrides>(
-    () => ({
-      parameters: Object.fromEntries(
-        Object.entries({ ...inheritedValue?.parameters, ...value?.parameters }).flatMap(
-          ([name, override]) =>
-            override.source.kind === 'literal'
-              ? [[name, { type: override.type, value: override.source.value }]]
-              : [],
-        ),
-      ),
-    }),
-    [inheritedValue?.parameters, value?.parameters],
-  );
+  const occurrenceOverrides = useMemo<MaterialSelectorOccurrenceOverrides>(() => {
+    if (!value && !inheritedValue) return { parameters: {}, textures: {} };
+    const effectiveApplication: MaterialApplication | null = value
+      ? {
+          ...value,
+          parameters: { ...inheritedValue?.parameters, ...value.parameters },
+          textures: { ...inheritedValue?.textures, ...value.textures },
+        }
+      : inheritedValue;
+    return materialApplicationPreviewOverrides(effectiveApplication, properties);
+  }, [inheritedValue, properties, value]);
   const uniforms = resource?.derivedInterface?.uniforms ?? {};
   const samplers = resource?.derivedInterface?.samplers ?? {};
   const activeParameterNames = new Set(

@@ -102,20 +102,26 @@ TEST_CASE("renderer system shader registry names both hotspot overlay programs")
     CHECK(std::string_view{system_shader_name(SystemShader::HotspotCustom)} == "hotspot_custom");
 }
 
-TEST_CASE("draw texture sampling overrides filtering while preserving address mode")
+TEST_CASE("draw texture sampling applies independent Material address and filter policy")
 {
     using noveltea::MaterialTextureSampler;
     using noveltea::bgfx_backend::resolve_draw_texture_sampler;
 
-    CHECK(resolve_draw_texture_sampler(MaterialTextureSampler::ClampLinear,
+    CHECK(resolve_draw_texture_sampler(MaterialTextureSampler::ClampLinear, true,
                                        MaterialTextureSampler::ClampNearest) ==
           MaterialTextureSampler::ClampNearest);
-    CHECK(resolve_draw_texture_sampler(MaterialTextureSampler::RepeatLinear,
+    CHECK(resolve_draw_texture_sampler(MaterialTextureSampler::RepeatLinear, true,
                                        MaterialTextureSampler::ClampNearest) ==
           MaterialTextureSampler::RepeatNearest);
-    CHECK(resolve_draw_texture_sampler(MaterialTextureSampler::RepeatNearest,
+    CHECK(resolve_draw_texture_sampler(MaterialTextureSampler::RepeatNearest, true,
                                        MaterialTextureSampler::ClampLinear) ==
           MaterialTextureSampler::RepeatLinear);
+    CHECK(resolve_draw_texture_sampler(MaterialTextureSampler::RepeatNearest, false,
+                                       MaterialTextureSampler::ClampLinear) ==
+          MaterialTextureSampler::RepeatNearest);
+    CHECK(resolve_draw_texture_sampler(MaterialTextureSampler::ClampLinear, false,
+                                       MaterialTextureSampler::ClampNearest) ==
+          MaterialTextureSampler::ClampLinear);
 }
 
 TEST_CASE("renderer draw texture resolves the current quad texture or neutral source")
@@ -134,6 +140,16 @@ TEST_CASE("renderer draw texture resolves the current quad texture or neutral so
         noveltea::bgfx_backend::resolve_renderer_draw_texture(&untextured, bgfx::TextureHandle{77});
     CHECK(neutral.texture.idx == 77);
     CHECK(neutral.sampler == noveltea::MaterialTextureSampler::ClampLinear);
+
+    const noveltea::MaterialTextureAssignment explicit_policy{
+        .sampler = "s_texColor",
+        .filtering = noveltea::MaterialTextureSampler::RepeatNearest,
+        .inherit_filter = false,
+    };
+    const auto specialized = noveltea::bgfx_backend::resolve_renderer_draw_texture(
+        &textured, bgfx::TextureHandle{77}, &explicit_policy);
+    CHECK(specialized.texture.idx == 42);
+    CHECK(specialized.sampler == noveltea::MaterialTextureSampler::RepeatNearest);
 }
 
 TEST_CASE("linear texture uploads build a complete averaged RGBA8 mip chain")

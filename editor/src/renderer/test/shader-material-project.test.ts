@@ -81,6 +81,27 @@ describe('canonical Material shader lowering', () => {
     });
   });
 
+  it('lowers source-less Engine2D draw-texture sampler policy independently from renderer source ownership', async () => {
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: {
+        ...defaultMaterialData('Panel', 'engine-2d'),
+        textures: { s_texColor: { address: 'repeat', filter: 'nearest' } },
+      },
+    };
+
+    expect(validateMaterialData(project, 'panel', project.materials.panel)).toEqual([]);
+    const built = await buildShaderMaterialProject(project);
+
+    expect(built.diagnostics).toEqual([]);
+    expect(built.project.materials.panel?.textures.s_texColor).toEqual({
+      address: 'repeat',
+      filter: 'nearest',
+    });
+  });
+
   it('lowers ActiveText Materials with only the canonical renderer-owned glyph atlas', async () => {
     const project = createAuthoringProject();
     project.materials.dialogue = {
@@ -609,7 +630,8 @@ describe('canonical Material shader lowering', () => {
         textures: {
           s_noise: {
             source: { $ref: { collection: 'assets', id: 'noise-texture' } },
-            filtering: 'clamp-linear',
+            address: 'clamp',
+            filter: 'linear',
           },
         },
       },
@@ -683,7 +705,12 @@ describe('canonical Material shader lowering', () => {
       shader: shaderId,
       uniforms: { u_amount: 0.75 },
       textures: {
-        s_noise: { source: 'project:/assets/images/noise.png', sampler: 'clamp-linear' },
+        s_texColor: { address: 'clamp', filter: 'inherit' },
+        s_noise: {
+          source: 'project:/assets/images/noise.png',
+          address: 'clamp',
+          filter: 'linear',
+        },
       },
     });
     expect(built.project.shaders[shaderId!]).toMatchObject({

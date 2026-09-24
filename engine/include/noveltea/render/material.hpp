@@ -112,6 +112,7 @@ struct MaterialTextureAssignment {
     std::string sampler;
     std::string source;
     MaterialTextureSampler filtering = MaterialTextureSampler::ClampLinear;
+    bool inherit_filter = false;
 };
 
 struct MaterialDefinition {

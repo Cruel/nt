@@ -185,16 +185,26 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
     return std::nullopt;
 }
 
-[[nodiscard]] std::optional<MaterialTextureSampler> parse_texture_sampler(std::string_view sampler)
+[[nodiscard]] bool policy_contains(const MaterialContractPolicyValues& policy,
+                                   std::string_view value) noexcept
 {
-    if (sampler == "clamp-nearest")
-        return MaterialTextureSampler::ClampNearest;
-    if (sampler == "clamp-linear")
-        return MaterialTextureSampler::ClampLinear;
-    if (sampler == "repeat-nearest")
-        return MaterialTextureSampler::RepeatNearest;
-    if (sampler == "repeat-linear")
-        return MaterialTextureSampler::RepeatLinear;
+    for (std::uint8_t index = 0; index < policy.count; ++index)
+        if (policy.values[index] == value)
+            return true;
+    return false;
+}
+
+[[nodiscard]] std::optional<MaterialTextureSampler>
+material_texture_sampler(std::string_view address, std::string_view filter)
+{
+    const bool repeat = address == "repeat";
+    if (address != "clamp" && !repeat)
+        return std::nullopt;
+    if (filter == "nearest")
+        return repeat ? MaterialTextureSampler::RepeatNearest
+                      : MaterialTextureSampler::ClampNearest;
+    if (filter == "linear" || filter == "inherit")
+        return repeat ? MaterialTextureSampler::RepeatLinear : MaterialTextureSampler::ClampLinear;
     return std::nullopt;
 }
 
@@ -1058,71 +1068,116 @@ void parse_material_textures(const nlohmann::json& material_json, const ShaderDe
                            "material assigns undeclared shader sampler: " + name);
             continue;
         }
-        if (material.role == ShaderRole::Engine2D || material.role == ShaderRole::RmlUiDecorator ||
-            material.role == ShaderRole::Postprocess ||
-            material.role == ShaderRole::HotspotOverlay) {
-            if (const auto* role_contract = material_role_contract(to_string(material.role));
-                role_contract != nullptr) {
-                const auto contract_sampler = std::find_if(
-                    role_contract->samplers.begin(), role_contract->samplers.end(),
-                    [&](const MaterialContractSamplerSlot& slot) { return slot.name == name; });
-                if (contract_sampler != role_contract->samplers.end() &&
-                    contract_sampler->source_ownership == "renderer") {
-                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource, path,
-                                   "material cannot assign a texture to renderer-owned sampler: " +
-                                       name);
-                    continue;
-                }
-            }
-        }
-        if (declaration->binding) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource, path,
-                           "material cannot assign a texture to engine-bound sampler: " + name);
+        if (!texture_json.is_object()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, path,
+                           "material texture configuration must be an object");
             continue;
         }
+        bool unknown_field = false;
+        for (const auto& [field, _] : texture_json.items()) {
+            if (field != "source" && field != "address" && field != "filter") {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidSchema,
+                               field_path(path, field),
+                               "unknown material texture configuration field: " + field);
+                unknown_field = true;
+            }
+        }
+        if (unknown_field)
+            continue;
+
+        const MaterialContractSamplerSlot* contract_sampler = nullptr;
+        if (const auto* role_contract = material_role_contract(to_string(material.role));
+            role_contract != nullptr) {
+            const auto found = std::find_if(
+                role_contract->samplers.begin(), role_contract->samplers.end(),
+                [&](const MaterialContractSamplerSlot& slot) { return slot.name == name; });
+            if (found != role_contract->samplers.end())
+                contract_sampler = &*found;
+        }
+        const bool renderer_owned =
+            contract_sampler != nullptr && contract_sampler->source_ownership == "renderer";
 
         MaterialTextureAssignment assignment;
         assignment.sampler = name;
-        const nlohmann::json* source_json = &texture_json;
-        if (texture_json.is_object()) {
-            const auto source_it = texture_json.find("source");
-            if (source_it == texture_json.end()) {
-                add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+        const auto source_it = texture_json.find("source");
+        if (source_it != texture_json.end()) {
+            if (renderer_owned || declaration->binding) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource,
                                field_path(path, "source"),
-                               "material texture assignment is missing source");
+                               "material cannot assign a source to renderer-owned sampler: " +
+                                   name);
                 continue;
             }
-            source_json = &*source_it;
-            const auto sampler_it = texture_json.find("sampler");
-            if (sampler_it != texture_json.end()) {
-                if (!sampler_it->is_string()) {
-                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
-                                   field_path(path, "sampler"),
-                                   "material texture sampler must be a string");
-                    continue;
-                }
-                const auto sampler = parse_texture_sampler(sampler_it->get<std::string_view>());
-                if (!sampler) {
-                    add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedSampler,
-                                   field_path(path, "sampler"),
-                                   "unsupported material texture sampler: " +
-                                       sampler_it->get<std::string>());
-                    continue;
-                }
-                assignment.filtering = *sampler;
+            if (!source_it->is_string()) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource,
+                               field_path(path, "source"),
+                               "material texture source must be a string");
+                continue;
             }
-        }
-        if (!source_json->is_string()) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource, path,
-                           "material texture source must be a string");
+            assignment.source = source_it->get<std::string>();
+            if (assignment.source == "$draw.texture" || !valid_asset_ref(assignment.source)) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource,
+                               field_path(path, "source"),
+                               "invalid material texture source: " + assignment.source);
+                continue;
+            }
+        } else if (!renderer_owned && !declaration->binding) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+                           field_path(path, "source"),
+                           "author-owned material texture configuration is missing source");
             continue;
         }
-        assignment.source = source_json->get<std::string>();
-        if (assignment.source == "$draw.texture" || !valid_asset_ref(assignment.source)) {
-            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource, path,
-                           "invalid material texture source: " + assignment.source);
+
+        const auto address_it = texture_json.find("address");
+        if (address_it == texture_json.end()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+                           field_path(path, "address"),
+                           "material texture configuration is missing address policy");
             continue;
         }
+        if (!address_it->is_string()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                           field_path(path, "address"),
+                           "material texture address policy must be a string");
+            continue;
+        }
+        const std::string address = address_it->get<std::string>();
+        const auto filter_it = texture_json.find("filter");
+        if (filter_it == texture_json.end()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+                           field_path(path, "filter"),
+                           "material texture configuration is missing filter policy");
+            continue;
+        }
+        if (!filter_it->is_string()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                           field_path(path, "filter"),
+                           "material texture filter policy must be a string");
+            continue;
+        }
+        const std::string filter = filter_it->get<std::string>();
+        if (contract_sampler != nullptr &&
+            (!policy_contains(contract_sampler->address_policy, address) ||
+             !policy_contains(contract_sampler->filter_policy, filter))) {
+            add_diagnostic(
+                diagnostics, MaterialDiagnosticCode::UnsupportedSampler, path,
+                "material texture sampling policy is not permitted by the renderer contract");
+            continue;
+        }
+        if (!renderer_owned && filter == "inherit") {
+            add_diagnostic(
+                diagnostics, MaterialDiagnosticCode::UnsupportedSampler, field_path(path, "filter"),
+                "author-owned runtime textures require a concrete nearest or linear filter");
+            continue;
+        }
+        const auto sampler = material_texture_sampler(address, filter);
+        if (!sampler) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedSampler, path,
+                           "unsupported material texture sampling policy");
+            continue;
+        }
+        assignment.filtering = *sampler;
+        assignment.inherit_filter = filter == "inherit";
         material.textures.push_back(std::move(assignment));
     }
 }

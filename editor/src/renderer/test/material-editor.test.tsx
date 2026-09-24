@@ -12,8 +12,10 @@ vi.mock('@/material-preview/MaterialPreview', () => ({
   MaterialPreview: ({ materialId }: { materialId: string }) => <div>{`preview:${materialId}`}</div>,
 }));
 
+const previewResourceState = vi.hoisted(() => ({ value: null as unknown }));
+
 vi.mock('@/material-preview/material-preview-provider', () => ({
-  useMaterialPreviewResource: () => null,
+  useMaterialPreviewResource: () => previewResourceState.value,
 }));
 
 function materialTab(id: string): WorkbenchTab {
@@ -31,6 +33,7 @@ function materialTab(id: string): WorkbenchTab {
 }
 
 beforeEach(() => {
+  previewResourceState.value = null;
   useProjectStore.getState().clearProject();
   useProjectSourceStore.getState().clear();
   useWorkbenchStore.getState().resetWorkbench();
@@ -70,12 +73,15 @@ describe('focused Material editor', () => {
     ).toMatchObject({ editorType: 'engine-shader-source' });
   });
 
-  it('does not expose the renderer-owned Engine2D draw texture as authored configuration', () => {
+  it('shows the renderer-owned Engine2D draw texture as a read-only Renderer Input with policy controls', () => {
     const project = createAuthoringProject();
     project.materials.panel = {
       id: 'panel',
       label: 'Panel',
-      data: defaultMaterialData('Panel', 'engine-2d'),
+      data: {
+        ...defaultMaterialData('Panel', 'engine-2d'),
+        textures: { s_texColor: { address: 'repeat', filter: 'nearest' } },
+      },
     };
     project.assets['texture-one'] = {
       id: 'texture-one',
@@ -111,7 +117,39 @@ describe('focused Material editor', () => {
     expect(screen.queryByText('Texture Two (texture-two)')).not.toBeInTheDocument();
 
     expect(screen.queryByText('No texture')).not.toBeInTheDocument();
-    expect(screen.queryByText('s_texColor')).not.toBeInTheDocument();
+    expect(screen.getByText('Renderer Inputs')).toBeInTheDocument();
+    expect(screen.getByText('s_texColor')).toBeInTheDocument();
+    expect(screen.getByText(/engine\.draw_texture/)).toBeInTheDocument();
+    expect(screen.getByText(/stage 0/)).toBeInTheDocument();
+    expect(screen.queryByText('Orphaned texture: s_texColor')).not.toBeInTheDocument();
+  });
+
+  it('shows the reflected stage for an author-owned custom sampler', () => {
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: {
+        ...defaultMaterialData('Panel', 'engine-2d'),
+        shader: { fragment: { kind: 'project', path: 'shaders/panel.fs.sc' } },
+        textures: { s_noise: { source: { uri: 'project:/assets/noise.png' } } },
+      },
+    };
+    previewResourceState.value = {
+      derivedInterface: {
+        uniforms: {},
+        samplers: {
+          s_texColor: { type: 'texture2d', stage: 0, binding: null },
+          s_noise: { type: 'texture2d', stage: 3, binding: null },
+        },
+      },
+    };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    render(<MaterialEditor tab={materialTab('panel')} />);
+
+    expect(screen.getByText('s_noise')).toBeInTheDocument();
+    expect(screen.getByText(/This Material · stage 3/)).toBeInTheDocument();
   });
 
   it('keeps engine-bound inputs read-only and exposes orphan cleanup/rebind UI', () => {

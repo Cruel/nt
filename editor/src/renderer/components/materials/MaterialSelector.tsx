@@ -6,7 +6,9 @@ import { MaterialPreview } from '@/material-preview/MaterialPreview';
 import { useMaterialPreviewResource } from '@/material-preview/material-preview-provider';
 import type { MaterialPreviewResource } from '@/material-preview/material-preview-resources';
 import { cn } from '@/lib/utils';
+import type { MaterialStandardFacet } from '../../../shared/project-schema/authoring-material-applications';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { materialContractRegistry } from '../../../shared/project-schema/material-contract-registry.generated';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 import {
   isUniformValueCompatible,
@@ -17,11 +19,17 @@ import {
 
 export interface MaterialSelectorParameterOverride {
   type: ShaderUniformType;
-  value: ShaderUniformValue;
+  value?: ShaderUniformValue;
+  standardFacet?: MaterialStandardFacet;
+}
+
+export interface MaterialSelectorTextureOverride {
+  assetId: string;
 }
 
 export interface MaterialSelectorOccurrenceOverrides {
   parameters: Readonly<Record<string, MaterialSelectorParameterOverride>>;
+  textures?: Readonly<Record<string, MaterialSelectorTextureOverride>>;
 }
 
 export interface MaterialSelectorCompatibilityResult {
@@ -56,7 +64,10 @@ interface CandidateDescriptor {
 }
 
 export interface MaterialSelectorOverrideTransfer {
-  values: Readonly<Record<string, ShaderUniformValue>>;
+  values: Readonly<
+    Record<string, ShaderUniformValue | { kind: 'standard-facet'; facet: MaterialStandardFacet }>
+  >;
+  textures: Readonly<Record<string, string>>;
   appliedCount: number;
   totalCount: number;
 }
@@ -65,22 +76,44 @@ export function transferMaterialSelectorOverrides(
   resource: MaterialPreviewResource | null,
   overrides: MaterialSelectorOccurrenceOverrides | undefined,
 ): MaterialSelectorOverrideTransfer {
-  const entries = Object.entries(overrides?.parameters ?? {});
-  const values: Record<string, ShaderUniformValue> = {};
+  const parameterEntries = Object.entries(overrides?.parameters ?? {});
+  const textureEntries = Object.entries(overrides?.textures ?? {});
+  const values: Record<
+    string,
+    ShaderUniformValue | { kind: 'standard-facet'; facet: MaterialStandardFacet }
+  > = {};
+  const textures: Record<string, string> = {};
   if (resource?.derivedInterface) {
-    for (const [name, override] of entries) {
+    const rendererOwnedSamplers = new Set(
+      materialContractRegistry.roles
+        .find((role) => role.id === resource.resolved.role)
+        ?.reservedInterface.samplers.filter((sampler) => sampler.sourceOwnership === 'renderer')
+        .map((sampler) => sampler.name) ?? [],
+    );
+    for (const [name, override] of parameterEntries) {
       const declaration = resource.derivedInterface.uniforms[name];
-      if (
-        declaration &&
-        declaration.binding == null &&
-        declaration.type === override.type &&
+      if (!declaration || declaration.binding != null || declaration.type !== override.type)
+        continue;
+      if (override.standardFacet && declaration.type === 'float')
+        values[name] = { kind: 'standard-facet', facet: override.standardFacet };
+      else if (
+        override.value !== undefined &&
         isUniformValueCompatible(declaration.type, override.value)
-      ) {
+      )
         values[name] = override.value;
-      }
+    }
+    for (const [name, override] of textureEntries) {
+      const declaration = resource.derivedInterface.samplers[name];
+      if (declaration && declaration.binding == null && !rendererOwnedSamplers.has(name))
+        textures[name] = override.assetId;
     }
   }
-  return { values, appliedCount: Object.keys(values).length, totalCount: entries.length };
+  return {
+    values,
+    textures,
+    appliedCount: Object.keys(values).length + Object.keys(textures).length,
+    totalCount: parameterEntries.length + textureEntries.length,
+  };
 }
 
 function MaterialSelectorPreview({
@@ -102,6 +135,7 @@ function MaterialSelectorPreview({
       compact
       className={className}
       parameterOverrides={applyOverrides ? transfer.values : undefined}
+      textureOverrides={applyOverrides ? transfer.textures : undefined}
     />
   );
 }
@@ -148,6 +182,7 @@ function MaterialCandidate({
           materialId={candidate.id}
           compact
           parameterOverrides={applyOverrides ? transfer.values : undefined}
+          textureOverrides={applyOverrides ? transfer.textures : undefined}
         />
       </div>
       <div className="min-w-0 space-y-0.5 px-2 py-1.5">
@@ -186,7 +221,9 @@ export function MaterialSelector({
   const incompatibleId = useId();
   const overridesId = useId();
   const selected = value ? project.materials[value] : null;
-  const overrideCount = Object.keys(occurrenceOverrides?.parameters ?? {}).length;
+  const overrideCount =
+    Object.keys(occurrenceOverrides?.parameters ?? {}).length +
+    Object.keys(occurrenceOverrides?.textures ?? {}).length;
   const candidates = useMemo<CandidateDescriptor[]>(
     () =>
       Object.entries(project.materials)

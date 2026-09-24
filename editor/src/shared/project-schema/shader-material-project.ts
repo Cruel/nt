@@ -5,7 +5,8 @@ import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject } from './authoring-project';
 import { materialContractRegistry } from './material-contract-registry.generated';
 import {
-  materialTextureFilteringValues,
+  materialTextureAddressValues,
+  materialTextureFilterValues,
   resolvedMaterialUsesCustomShader,
   resolveMaterialAuthoredOverrides,
   resolveMaterialData,
@@ -117,7 +118,11 @@ export const runtimeMaterialDefinitionSchema = strict({
   uniforms: z.record(z.string().min(1), shaderUniformValueSchema),
   textures: z.record(
     z.string().min(1),
-    strict({ source: z.string().min(1), sampler: z.enum(materialTextureFilteringValues) }),
+    strict({
+      source: z.string().min(1).optional(),
+      address: z.enum(materialTextureAddressValues),
+      filter: z.enum(materialTextureFilterValues),
+    }),
   ),
 });
 export const shaderMaterialProjectWireSchema = strict({
@@ -214,6 +219,29 @@ function runtimeTextureSource(
   }
   if ('alias' in source) return `alias:${source.alias}`;
   return source.uri;
+}
+function runtimeTextureFilter(
+  project: AuthoringProject,
+  source: MaterialTextureSource | undefined,
+  filter: ResolvedMaterialData['textures'][string]['filter'],
+): 'inherit' | 'nearest' | 'linear' {
+  if (filter !== 'inherit' || !source) return filter;
+  let assetId: string | null = null;
+  if ('$ref' in source) assetId = source.$ref.id;
+  else if ('alias' in source) {
+    assetId =
+      Object.entries(project.assets).find(([, record]) =>
+        parseAssetData(record.data)?.aliases.includes(source.alias),
+      )?.[0] ?? null;
+  } else if (source.uri.startsWith('project:/')) {
+    const path = source.uri.slice('project:/'.length);
+    assetId =
+      Object.entries(project.assets).find(
+        ([, record]) => parseAssetData(record.data)?.source.path === path,
+      )?.[0] ?? null;
+  }
+  const asset = assetId ? parseAssetData(project.assets[assetId]?.data) : null;
+  return asset?.kind === 'image' && asset.sampling === 'nearest' ? 'nearest' : 'linear';
 }
 function runtimeUniformValue(
   value: ShaderUniformValue | undefined,
@@ -313,24 +341,33 @@ export async function buildShaderMaterialProject(
         uniforms[name] = value;
     }
     const textures: RuntimeMaterialDefinition['textures'] = {};
-    for (const [name, texture] of Object.entries(
-      custom ? authoredOverrides.textures : resolved.textures,
-    )) {
+    for (const [name, texture] of Object.entries(resolved.textures)) {
       const declaration = shader?.samplers[name];
-      if (!declaration || declaration.binding != null || !texture.source) continue;
-      const source = runtimeTextureSource(project, texture.source);
-      if (source)
-        textures[name] = {
-          source,
-          sampler: resolved.textures[name]?.filtering ?? 'clamp-linear',
-        };
-      else
+      if (!declaration) continue;
+      const rendererOwned =
+        materialContractRegistry.roles
+          .find((role) => role.id === resolved.role)
+          ?.reservedInterface.samplers.some(
+            (sampler) => sampler.name === name && sampler.sourceOwnership === 'renderer',
+          ) ?? false;
+      const source = texture.source ? runtimeTextureSource(project, texture.source) : null;
+      if (texture.source && !source) {
         diagnostics.push(
           diagnostic(
             `/materials/${materialId}/data/textures/${name}/source`,
             'Material texture source could not be lowered.',
           ),
         );
+        continue;
+      }
+      if (!source && !rendererOwned) continue;
+      textures[name] = {
+        ...(source ? { source } : {}),
+        address: texture.address,
+        filter: source
+          ? runtimeTextureFilter(project, texture.source, texture.filter)
+          : texture.filter,
+      };
     }
     const parsedMaterial = runtimeMaterialDefinitionSchema.safeParse({
       display_name: record.label,

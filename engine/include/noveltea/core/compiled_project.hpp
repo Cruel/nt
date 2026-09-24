@@ -764,7 +764,7 @@ struct MaterialHotspotHighlight {
     MaterialId material;
     std::vector<MaterialApplicationParameterOverride> material_parameters;
     std::vector<MaterialApplicationTextureOverride> material_textures;
-    auto operator<=>(const MaterialHotspotHighlight&) const = default;
+    bool operator==(const MaterialHotspotHighlight&) const = default;
 };
 using HotspotHighlight =
     std::variant<DefaultHotspotHighlight, MaterialHotspotHighlight, NoHotspotHighlight>;

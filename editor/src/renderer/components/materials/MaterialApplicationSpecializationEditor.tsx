@@ -1,7 +1,10 @@
 import { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { MaterialApplicationEditor } from './MaterialApplicationEditor';
+import {
+  MaterialApplicationEditor,
+  materialApplicationPreviewOverrides,
+} from './MaterialApplicationEditor';
 import { MaterialSelector, type MaterialSelectorOccurrenceOverrides } from './MaterialSelector';
 import type { EffectiveInteractableProperty } from '../../../shared/project-schema/authoring-interactable-properties';
 import {
@@ -31,16 +34,8 @@ export function MaterialApplicationSpecializationEditor({
   const effectiveMaterialId = effective?.material.$ref.id ?? null;
   const hasMaterialOverride = value.material !== null;
   const occurrenceOverrides = useMemo<MaterialSelectorOccurrenceOverrides>(
-    () => ({
-      parameters: Object.fromEntries(
-        Object.entries(effective?.parameters ?? {}).flatMap(([name, override]) =>
-          override.source.kind === 'literal'
-            ? [[name, { type: override.type, value: override.source.value }]]
-            : [],
-        ),
-      ),
-    }),
-    [effective?.parameters],
+    () => materialApplicationPreviewOverrides(effective, properties),
+    [effective, properties],
   );
   const localApplication = effective
     ? {

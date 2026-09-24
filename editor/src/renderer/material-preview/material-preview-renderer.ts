@@ -1,8 +1,10 @@
 import { materialContractRegistry } from '../../shared/project-schema/material-contract-registry.generated';
+import type { MaterialStandardFacet } from '../../shared/project-schema/authoring-material-applications';
 import type { ShaderUniformValue } from '../../shared/project-schema/authoring-shaders';
 import type {
   MaterialPreviewProjectResources,
   MaterialPreviewResource,
+  MaterialPreviewTextureResource,
 } from './material-preview-resources';
 
 export interface MaterialPreviewPointerState {
@@ -10,6 +12,10 @@ export interface MaterialPreviewPointerState {
   y: number;
   pressed: boolean;
 }
+
+export type MaterialPreviewParameterOverride =
+  | ShaderUniformValue
+  | { kind: 'standard-facet'; facet: MaterialStandardFacet };
 
 export interface MaterialPreviewSurfaceState {
   canvas: HTMLCanvasElement;
@@ -19,7 +25,8 @@ export interface MaterialPreviewSurfaceState {
   visible: boolean;
   pointer: MaterialPreviewPointerState;
   resources?: MaterialPreviewProjectResources;
-  parameterOverrides?: Readonly<Record<string, ShaderUniformValue>>;
+  parameterOverrides?: Readonly<Record<string, MaterialPreviewParameterOverride>>;
+  textureOverrides?: Readonly<Record<string, MaterialPreviewTextureResource>>;
   onShaderProgramStatus?: (status: { stale: boolean; message: string | null }) => void;
 }
 
@@ -64,6 +71,44 @@ const browserScheduler: MaterialPreviewScheduler = {
   request: (callback) => window.requestAnimationFrame(callback),
   cancel: (id) => window.cancelAnimationFrame(id),
 };
+
+type PreviewTextureSampling = 'clamp-nearest' | 'clamp-linear' | 'repeat-nearest' | 'repeat-linear';
+
+function combinedTextureSampling(
+  address: string,
+  filter: string,
+  inheritedFilter: 'nearest' | 'linear',
+): PreviewTextureSampling {
+  const resolvedFilter =
+    filter === 'inherit' ? inheritedFilter : filter === 'nearest' ? 'nearest' : 'linear';
+  return `${address === 'repeat' ? 'repeat' : 'clamp'}-${resolvedFilter}`;
+}
+
+function isStandardFacetOverride(
+  value: MaterialPreviewParameterOverride,
+): value is { kind: 'standard-facet'; facet: MaterialStandardFacet } {
+  return !!value && typeof value === 'object' && !Array.isArray(value) && 'kind' in value;
+}
+
+function previewStandardFacetValue(
+  facet: MaterialStandardFacet,
+  timeSeconds: number,
+  width: number,
+  height: number,
+): number {
+  switch (facet) {
+    case 'occurrence-time':
+      return timeSeconds;
+    case 'paint-width':
+    case 'viewport-width':
+      return width;
+    case 'paint-height':
+    case 'viewport-height':
+      return height;
+    case 'camera-zoom':
+      return 1;
+  }
+}
 
 const FALLBACK_VERTEX_SOURCE = `#version 300 es
 precision mediump float;
@@ -346,10 +391,12 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
       0,
     );
     for (const rendererSampler of rendererSamplers) {
-      const filtering =
-        rendererSampler.filterPolicy.length === 1 && rendererSampler.filterPolicy[0] === 'nearest'
-          ? 'clamp-nearest'
-          : 'clamp-linear';
+      const policy = resource.resolved.textures[rendererSampler.name];
+      const filtering = combinedTextureSampling(
+        policy?.address ?? rendererSampler.addressPolicy[0] ?? 'clamp',
+        policy?.filter ?? rendererSampler.filterPolicy[0] ?? 'linear',
+        'linear',
+      );
       const fixtureKey = `__renderer_fixture_${rendererSampler.semantic}__`;
       const premultiplyAlpha = rendererSampler.semantic !== 'engine.draw_texture';
       const representativeTexture = this.textureFor(fixtureKey, null, filtering, premultiplyAlpha);
@@ -359,11 +406,17 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
       const sampler = gl.getUniformLocation(program, rendererSampler.name);
       if (sampler) gl.uniform1i(sampler, rendererSampler.stage);
     }
-    const textureEntries = Object.entries(resource.textures).filter(
-      ([name]) => !rendererSamplerNames.has(name),
-    );
+    const textureEntries = Object.entries({
+      ...resource.textures,
+      ...surface.textureOverrides,
+    }).filter(([name]) => !rendererSamplerNames.has(name));
     for (const [name, textureResource] of textureEntries) {
-      const filtering = resource.resolved.textures[name]?.filtering ?? 'clamp-linear';
+      const policy = resource.resolved.textures[name];
+      const filtering = combinedTextureSampling(
+        policy?.address ?? 'clamp',
+        policy?.filter ?? 'linear',
+        textureResource.sampling,
+      );
       const texture = this.textureFor(textureResource.key, textureResource.image, filtering);
       if (!texture) continue;
       gl.activeTexture(gl.TEXTURE0 + textureUnit);
@@ -372,11 +425,6 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
       if (sampler) gl.uniform1i(sampler, textureUnit);
       textureUnit += 1;
     }
-    for (const [name, parameter] of Object.entries(resource.resolved.parameters)) {
-      if (parameter.value !== undefined) setUniformValue(gl, program, name, parameter.value);
-    }
-    for (const [name, value] of Object.entries(surface.parameterOverrides ?? {}))
-      setUniformValue(gl, program, name, value);
     setUniformValue(gl, program, 'u_time', timeSeconds);
     setUniformValue(
       gl,
@@ -388,6 +436,18 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
     setUniformValue(gl, program, 'u_hotspotBounds', [0, 0, width, height]);
     setUniformValue(gl, program, 'u_hotspotImageDimensions', [width, height]);
     setUniformValue(gl, program, 'u_hotspotMaskDimensions', [width, height]);
+    for (const [name, parameter] of Object.entries(resource.resolved.parameters)) {
+      if (parameter.value !== undefined) setUniformValue(gl, program, name, parameter.value);
+    }
+    for (const [name, override] of Object.entries(surface.parameterOverrides ?? {}))
+      setUniformValue(
+        gl,
+        program,
+        name,
+        isStandardFacetOverride(override)
+          ? previewStandardFacetValue(override.facet, timeSeconds, width, height)
+          : override,
+      );
 
     if (!roleContract || roleContract.pipelineState.outputAlpha !== 'premultiplied')
       throw new Error('Material contract has an unsupported output alpha convention.');
@@ -497,7 +557,7 @@ class WebGlMaterialPreviewBackend implements MaterialPreviewBackend {
   private textureFor(
     key: string,
     image: TexImageSource | null,
-    filtering: MaterialPreviewResource['resolved']['textures'][string]['filtering'],
+    filtering: PreviewTextureSampling,
     premultiplyAlpha = true,
   ) {
     const cacheKey = `${key}:${filtering}:${premultiplyAlpha ? 'premultiplied' : 'straight'}`;
