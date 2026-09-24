@@ -532,7 +532,8 @@ public:
         stopping_.store(true);
         if (stop_descriptor_ >= 0) {
             const std::uint64_t value = 1;
-            (void)::write(stop_descriptor_, &value, sizeof(value));
+            [[maybe_unused]] const auto written =
+                ::write(stop_descriptor_, &value, sizeof(value));
         }
         if (thread_.joinable())
             thread_.join();

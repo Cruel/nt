@@ -489,6 +489,29 @@ describe('NovelTea headless CLI', () => {
     expect(await value.fileSystem.inspect(outputPath)).toBe('missing');
   });
 
+  it('classifies invalid resident project export preparation as a semantic failure', async () => {
+    const project = validProject();
+    (project.rooms.start.data as Record<string, unknown>).background = 'project:/legacy.png';
+    const value = fixture(project);
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    const outputPath = `${root}/portable.ntproject`;
+
+    const prepared = await runNovelTeaCli(
+      ['--project', root, '--json', 'project', 'export', '--output', outputPath],
+      {
+        ...options(value),
+        residentWorkspace,
+        prepareResidentSnapshotOnly: true,
+      },
+    );
+
+    expect(prepared.exitCode).toBe(4);
+    expect(JSON.parse(prepared.stdout).diagnostics).toContainEqual(
+      expect.objectContaining({ code: expect.stringMatching(/^authoring\.schema\./) }),
+    );
+    expect(await value.fileSystem.inspect(outputPath)).toBe('missing');
+  });
+
   it('reconstructs a cold resident Project instead of hydrating persisted semantic contributions', async () => {
     const value = fixture(validProject(), true);
     const nativeTools = validationNativeTools();

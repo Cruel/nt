@@ -299,13 +299,24 @@ export async function runNovelTeaCli(
           globals.json,
         );
       const opened = await options.residentWorkspace.open(projectRoot);
-      if (!opened.ok)
+      if (!opened.ok) {
+        const diagnostic =
+          opened.diagnostics.find((candidate) => candidate.severity === 'error') ??
+          opened.diagnostics[0];
+        const message = diagnostic?.message ?? 'Project Workspace is invalid.';
         return failure(
-          workspaceOpenExitCode(opened.diagnostics),
-          opened.diagnostics,
+          projectPreparationExitCode(opened.diagnostics),
+          [
+            cliDiagnostic(
+              diagnostic?.code ?? 'PROJECT_BUNDLE_PROJECT_INVALID',
+              diagnostic?.path ?? '/',
+              message,
+              diagnostic?.severity ?? 'error',
+            ),
+          ],
           globals.json,
-          { projectRoot },
         );
+      }
       if (
         !options.trustPinnedResidentSnapshot &&
         !(await options.residentWorkspace.verifyReadAuthority(opened.snapshot))
