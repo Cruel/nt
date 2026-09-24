@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LoaderCircle } from 'lucide-react';
 import {
   PreviewPane,
   type PreviewHostLease,
@@ -95,6 +96,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
   );
   const [lease, setLease] = useState<PreviewHostLease | null>(null);
   const [readyRevision, setReadyRevision] = useState(0);
+  const [focusedLoading, setFocusedLoading] = useState(props.root?.kind === 'room-preview');
   const coordinatorRef = useRef<FocusedPreviewFreshnessCoordinator | null>(null);
   if (!coordinatorRef.current) coordinatorRef.current = new FocusedPreviewFreshnessCoordinator();
 
@@ -157,6 +159,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
       root,
       inputs: effectiveInputs,
       lease,
+      onLoadingChange: root.kind === 'room-preview' ? setFocusedLoading : undefined,
       reportBuildFailure: (message) =>
         usePreviewManagerStore.getState().recordPreviewDiagnostic({
           severity: 'error',
@@ -244,6 +247,16 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
       enabled={enabled}
       className={className}
       onLease={handleLease}
-    />
+    >
+      {root?.kind === 'room-preview' && focusedLoading ? (
+        <div
+          className="flex h-full w-full items-center justify-center"
+          role="status"
+          aria-label="Loading room preview"
+        >
+          <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : null}
+    </PreviewPane>
   );
 }

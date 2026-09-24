@@ -768,6 +768,18 @@ describe('EnginePreview', () => {
     expect(screen.queryByLabelText('Cap')).not.toBeInTheDocument();
   });
 
+  it('does not report startup transport errors from a stale ready state before handshake', async () => {
+    useWorkspaceStore.setState({ previewConnectionState: 'ready' });
+
+    render(<EnginePreview />);
+    await screen.findByTitle('NovelTea engine preview');
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().previewConnectionState).toBe('loading'),
+    );
+
+    expect(usePreviewManagerStore.getState().diagnosticOrder).toEqual([]);
+  });
+
   it('sends engine rendering settings from editor preferences', async () => {
     usePreferencesStore.setState({
       showPreviewFpsCounter: true,

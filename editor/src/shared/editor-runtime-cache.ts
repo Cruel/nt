@@ -14,7 +14,7 @@ export type EditorRuntimePreparationResult =
       artifact: PreparedRuntimeArtifact;
       buildContext: EditorRuntimeBuildContext;
       cache: {
-        scope: 'persistent-canonical' | 'persistent-preview';
+        scope: 'persistent-canonical' | 'persistent-preview' | 'session-local';
         status: 'hit' | 'prepared';
         observation?: RuntimeBuildCacheObservation;
       };
@@ -24,7 +24,7 @@ export type EditorRuntimePreparationResult =
       diagnostics: ProjectValidationDiagnostic[];
       buildContext: EditorRuntimeBuildContext;
       cache: {
-        scope: 'persistent-canonical' | 'persistent-preview';
+        scope: 'persistent-canonical' | 'persistent-preview' | 'session-local';
         status: 'prepared';
         observation?: RuntimeBuildCacheObservation;
       };

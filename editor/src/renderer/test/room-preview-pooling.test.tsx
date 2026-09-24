@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useCommandStore } from '@/commands/command-store';
@@ -244,6 +244,27 @@ describe('RoomEditor persistent room preview', () => {
       'room-a',
       'room-b',
     ]);
+  });
+
+  it('shows a loading indicator until the focused Room preview finishes applying', async () => {
+    const releaseApplyRef: { current: (() => void) | null } = { current: null };
+    previewControllers.nextApplyFocusedPromise = new Promise<void>((resolve) => {
+      releaseApplyRef.current = resolve;
+    });
+
+    renderGroup(group(roomATab.id));
+
+    expect(screen.getByRole('status', { name: 'Loading room preview' })).toBeInTheDocument();
+    await waitFor(() => expect(previewControllers.applyFocusedDocumentCalls).toHaveLength(1));
+    expect(screen.getByRole('status', { name: 'Loading room preview' })).toBeInTheDocument();
+
+    releaseApplyRef.current?.();
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('status', { name: 'Loading room preview' }),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it('sends a complete room preview payload to Room B on claim', async () => {

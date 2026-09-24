@@ -201,11 +201,17 @@ export function usePreviewTransport({
       options?: {
         expectedPayload?: PendingRequest['expectedPayload'];
         timeoutMs?: number;
+        disconnectedMessage?: string;
       },
     ) => {
       const port = portRef.current;
       if (!port) {
-        return Promise.reject(new Error('Engine preview is not connected.'));
+        return Promise.reject(
+          new Error(
+            options?.disconnectedMessage ??
+              `Engine preview is not connected; cannot send '${message.type}'.`,
+          ),
+        );
       }
       const requestId = crypto.randomUUID();
       const payload = {
@@ -241,12 +247,18 @@ export function usePreviewTransport({
         assets?: Array<{ sourcePath: string; runtimePath: string }>,
         shaderMaterialMetadata?: unknown,
       ) =>
-        send({
-          type: 'runtime-load-compiled-project',
-          compiledProject,
-          assets,
-          shaderMaterialMetadata,
-        }),
+        send(
+          {
+            type: 'runtime-load-compiled-project',
+            compiledProject,
+            assets,
+            shaderMaterialMetadata,
+          },
+          {
+            disconnectedMessage:
+              'Engine preview is not connected while loading the prepared runtime project.',
+          },
+        ),
       startRuntime: () => send({ type: 'runtime-start' }),
       stopRuntime: () => send({ type: 'runtime-stop' }),
       stepRuntime: (deltaSeconds?: number) =>

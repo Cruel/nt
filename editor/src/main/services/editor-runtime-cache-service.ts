@@ -305,14 +305,32 @@ export class EditorRuntimeCacheService {
     shaderVariant: ShaderVariant = 'glsl-330',
   ): Promise<EditorRuntimePreparationResult> {
     const context = buildContext(project, shaderVariant);
-    if (!this.currentRuntimeProjectMatchesSaved(workspace, project)) {
-      return { status: 'session-local', buildContext: context, reason: 'project-content-dirty' };
-    }
     if (pendingCompilationInput(recoveryFingerprint, { ignoreTests: true })) {
       return {
         status: 'session-local',
         buildContext: context,
         reason: 'pending-compilation-input',
+      };
+    }
+    if (!this.currentRuntimeProjectMatchesSaved(workspace, project)) {
+      const prepared = await this.preparePreviewArtifact(
+        projectWithPreviewLocale(project),
+        workspace.projectRoot(),
+        shaderVariant,
+      );
+      if (prepared.status !== 'prepared') {
+        return {
+          status: 'blocked',
+          diagnostics: prepared.diagnostics,
+          buildContext: context,
+          cache: { scope: 'session-local', status: 'prepared' },
+        };
+      }
+      return {
+        status: 'prepared',
+        artifact: prepared.artifact,
+        buildContext: context,
+        cache: { scope: 'session-local', status: 'prepared' },
       };
     }
 
