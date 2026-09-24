@@ -18,6 +18,8 @@ declare function nativeInvokeToFile(
   requestText: string,
   responsePath: string,
 ): void;
+declare function nativeRunQuickJsGc(): void;
+declare function nativeSetQuickJsGcThreshold(thresholdBytes: number): void;
 
 type HostResult = readonly [exitCode: number, stdout: string, stderr: string];
 type RequestOutputCapture = { stdout: string; stderr: string };
@@ -43,6 +45,11 @@ let nativeResponseRoot: string | null = null;
 let cachedStdin: string | null = null;
 let forceRuntimeCacheRebuild = false;
 let daemonRequestSequence = 0;
+// QuickJS defaults to a tiny automatic-GC threshold that can put a full collection on a
+// foreground owner request. This is an emergency trigger, not reserved memory: active owners
+// collect explicitly after 200 ms of real idle, while a sustained no-idle burst still falls back
+// to automatic GC once allocation pressure reaches this threshold.
+const residentQuickJsGcThresholdBytes = 1024 * 1024 * 1024;
 const residentProjectAuthorityRequests = new Map<string, DaemonProjectAuthorityConfiguration>();
 
 function trace(message: string): void {
@@ -646,6 +653,7 @@ type DaemonNativeResponse = Readonly<{
   active?: boolean;
   cancelled?: boolean;
   delivered?: boolean;
+  allowed?: boolean;
   projectSessions?: number;
   disposableWorkers?: number;
   disposableQueuedJobs?: number;
@@ -1906,6 +1914,8 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
   );
   const startupState = ownerProjectStartupState(invocation);
   let retainedSnapshotPending = startupState.retainedSnapshot;
+  let foregroundWorkSinceGc = false;
+  nativeSetQuickJsGcThreshold(residentQuickJsGcThresholdBytes);
   for (;;) {
     const next = hiddenDaemonPayloadNativeRequest('owner-next', invocation, {
       ownerWorkerId: invocation.ownerWorkerId,
@@ -1924,11 +1934,29 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
         let advanced = false;
         try {
           advanced = (await reconcileNovelTeaResidentProjects()) > 0;
+          if (advanced) foregroundWorkSinceGc = true;
         } finally {
           hiddenDaemonPayloadNativeRequest('owner-reconcile-complete', invocation, {
             ownerWorkerId: invocation.ownerWorkerId,
             advanced,
           });
+        }
+      }
+      if (foregroundWorkSinceGc) {
+        if (novelTeaResidentProjectSessionCount() === 0) {
+          foregroundWorkSinceGc = false;
+        } else {
+          const permit = hiddenDaemonPayloadNativeRequest('owner-maintenance-permit', invocation, {
+            ownerWorkerId: invocation.ownerWorkerId,
+          });
+          if (permit.ok === true && permit.allowed === true) {
+            nativeRunQuickJsGc();
+            nativeSetQuickJsGcThreshold(residentQuickJsGcThresholdBytes);
+            foregroundWorkSinceGc = false;
+            trace(
+              `daemon Project owner ${String(invocation.ownerWorkerId)} completed idle QuickJS GC`,
+            );
+          }
         }
       }
       // Whole-Project serialization is required handoff work only, never idle maintenance that
@@ -1953,6 +1981,7 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
       });
       continue;
     }
+    foregroundWorkSinceGc = true;
     try {
       const residentProjectSnapshot = retainedSnapshotPending;
       const prepareDisposable = next.prepareDisposable === true;

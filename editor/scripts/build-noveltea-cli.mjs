@@ -499,6 +499,18 @@ try {
             params: ['string', 'string', 'string'],
             returns: 'void',
           },
+          {
+            name: 'nativeRunQuickJsGc',
+            symbol: 'noveltea_tooling_scriptc_run_gc',
+            params: [],
+            returns: 'void',
+          },
+          {
+            name: 'nativeSetQuickJsGcThreshold',
+            symbol: 'noveltea_tooling_scriptc_set_gc_threshold',
+            params: ['u32'],
+            returns: 'void',
+          },
         ],
         libraries,
         system_libraries: isWindows

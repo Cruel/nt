@@ -51,6 +51,7 @@ add_library(noveltea_tooling_native STATIC
     tooling_native.hpp
     tooling_native_c.h
     tooling_native_scriptc.cpp
+    tooling_scriptc_gc.cpp
     tooling_image.cpp
     tooling_filesystem.cpp
     tooling_runtime_cache.cpp

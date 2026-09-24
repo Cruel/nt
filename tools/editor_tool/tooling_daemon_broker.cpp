@@ -1499,6 +1499,22 @@ public:
         return completed;
     }
 
+    Json owner_idle_maintenance_permit(std::uint64_t owner_worker_id)
+    {
+        std::scoped_lock lock(queue_mutex_);
+        const auto owner = project_owners_.find(owner_worker_id);
+        if (owner == project_owners_.end() || owner->second.retiring)
+            return {{"ok", false}, {"error", "daemon Project owner is not active"}};
+        const bool active = std::any_of(active_.begin(), active_.end(), [&](const auto& item) {
+            return item.second.owner_worker_id == owner_worker_id;
+        });
+        const bool allowed = state_.load() == State::ready && owner->second.queued.empty() &&
+                             !owner->second.dispatching && !active &&
+                             owner->second.critical_sections == 0 && !owner->second.reconciling &&
+                             !exact_validation_probe_roots_.contains(owner->second.canonical_root);
+        return {{"ok", true}, {"allowed", allowed}};
+    }
+
     Json owner_reconciliation_status(std::uint64_t owner_worker_id)
     {
         std::string root;
@@ -3491,6 +3507,20 @@ private:
                     owner_cancellation_status(message_payload["ownerWorkerId"].get<std::uint64_t>(),
                                               message_payload["token"].get<std::uint64_t>());
                 client->send(result_event_json(request_id, true, result.dump()));
+                continue;
+            }
+            if (method == "owner-maintenance-permit") {
+                if (!message_payload.contains("ownerWorkerId") ||
+                    !message_payload["ownerWorkerId"].is_number_unsigned()) {
+                    client->send(
+                        result_event_json(request_id, false, "null",
+                                          "Project-owner maintenance permit requires worker"));
+                    continue;
+                }
+                const auto result = owner_idle_maintenance_permit(
+                    message_payload["ownerWorkerId"].get<std::uint64_t>());
+                client->send(result_event_json(request_id, result.value("ok", false), result.dump(),
+                                               result.value("error", std::string{})));
                 continue;
             }
             if (method == "owner-needs-reconcile" || method == "owner-reconcile-complete") {
@@ -6415,6 +6445,8 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = owner_client_request(*context, "owner-event", parsed);
     else if (action == "owner-cancelled")
         result = owner_client_request(*context, "owner-cancelled", parsed);
+    else if (action == "owner-maintenance-permit")
+        result = owner_client_request(*context, "owner-maintenance-permit", parsed);
     else if (action == "owner-needs-reconcile")
         result = owner_client_request(*context, "owner-needs-reconcile", parsed);
     else if (action == "owner-reconcile-complete")
