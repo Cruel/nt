@@ -2494,7 +2494,12 @@ export function FullGamePreviewEditor({
   );
 
   useEffect(() => {
-    if (!previewControls || previewControls.connectionState !== 'ready') return;
+    if (
+      !previewControls ||
+      previewControls.connectionState !== 'ready' ||
+      !previewControls.activeShaderVariant
+    )
+      return;
     void previewControls.controller
       .setEngineSettings({
         assetMemoryPolicy: {

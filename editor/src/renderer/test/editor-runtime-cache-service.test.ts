@@ -93,6 +93,43 @@ async function playPreviewGeneration(root: string, variant = 'play:canonical:gls
   return entry.generation;
 }
 
+function successfulShaderCompileResponse(request: unknown) {
+  const payload = request as {
+    shaderProject?: {
+      programs?: Record<string, { vertexSource: string; fragmentSource: string }>;
+    };
+    options?: { shaderVariants?: string[] };
+  };
+  const variants = payload.options?.shaderVariants ?? ['glsl-330'];
+  const programs = Object.entries(payload.shaderProject?.programs ?? {});
+  return {
+    ok: true,
+    success: true,
+    diagnostics: [],
+    outputs: programs.flatMap(([program, source], programIndex) =>
+      variants.flatMap((variant) => {
+        const programIdentity = `program-${programIndex}`;
+        return (['vertex', 'fragment'] as const).map((stage) => ({
+          program,
+          programIdentity,
+          stage,
+          variant,
+          sourceIdentity: stage === 'vertex' ? source.vertexSource : source.fragmentSource,
+          dependencies: [],
+          dependencyRevisions: [],
+          outputPath: `/project/.noveltea/build/shaders/derived/${variant}/${programIdentity}.${stage}.bin`,
+          runtimePath: `project:/shaders/derived/${variant}/${programIdentity}.${stage}.bin`,
+          cacheKey: `${program}:${stage}:${variant}`,
+          byteHash: `sha256:${(stage === 'vertex' ? 'a' : 'b').repeat(64)}` as const,
+          byteSize: 4,
+          reflectedInputs: [],
+          cacheHit: false,
+        }));
+      }),
+    ),
+  };
+}
+
 function serviceWithNativeLog(log: Array<{ operation: string; request: unknown }> = []) {
   return new EditorRuntimeCacheService(async (operation, request) => {
     log.push({ operation, request });
@@ -270,21 +307,45 @@ describe('editor persistent runtime cache', () => {
     expect(await playPreviewGeneration(root)).not.toBe(originalGeneration);
   });
 
-  it('keeps compilation-relevant dirty Project state session-local and never republishes it', async () => {
-    const { root, project, workspace } = await createWorkspace();
-    const service = serviceWithNativeLog();
+  it('prepares compilation-relevant dirty Project state session-locally without republishing it', async () => {
+    const { root, project, workspace } = await createWorkspace({ withMaterial: true });
+    const nativeCalls: Array<{ operation: string; request: unknown }> = [];
+    const service = new EditorRuntimeCacheService(async (operation, request) => {
+      nativeCalls.push({ operation, request });
+      if (operation === 'compile-shaders') return successfulShaderCompileResponse(request);
+      throw new Error(`Unexpected native operation '${operation}'.`);
+    });
     await service.preparePlay(workspace, project, {});
     const generation = await playPreviewGeneration(root);
     const dirty = cloneProject(project);
-    dirty.project.name = 'Unsaved name';
+    dirty.rooms.start!.data.background.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'basic' } },
+      parameters: {},
+      textures: {},
+    };
 
     const result = await service.preparePlay(workspace, dirty, {});
 
-    expect(result).toEqual({
-      status: 'session-local',
+    expect(result).toMatchObject({
+      status: 'prepared',
       buildContext: { kind: 'canonical', shaderVariant: 'glsl-330' },
-      reason: 'project-content-dirty',
+      cache: { scope: 'session-local', status: 'prepared' },
+      artifact: {
+        compiledProject: {
+          definitions: {
+            rooms: [
+              expect.objectContaining({
+                id: 'start',
+                background: expect.objectContaining({
+                  material: { kind: 'material', id: 'basic' },
+                }),
+              }),
+            ],
+          },
+        },
+      },
     });
+    expect(nativeCalls.some((call) => call.operation === 'compile-shaders')).toBe(true);
     expect(await playPreviewGeneration(root)).toBe(generation);
   });
 
@@ -505,7 +566,8 @@ describe('editor persistent runtime cache', () => {
     expect(dirtyResult).toMatchObject({ ok: true, report: { passed: true } });
     expect(nativeCalls.filter((call) => call.operation === 'run-test')).toHaveLength(2);
     expect(await service.preparePlay(workspace, dirty, {})).toMatchObject({
-      status: 'session-local',
+      status: 'prepared',
+      cache: { scope: 'session-local', status: 'prepared' },
     });
   });
 

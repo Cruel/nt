@@ -283,7 +283,7 @@ function sameHostRect(left: PreviewHostRect | undefined, right: PreviewHostRect 
 }
 
 function isPreviewNotConnectedError(error: unknown) {
-  return error instanceof Error && error.message === 'Engine preview is not connected.';
+  return error instanceof Error && error.message.startsWith('Engine preview is not connected');
 }
 
 function PreviewHostSlot({

@@ -235,13 +235,14 @@ export function EnginePreview({
   ]);
 
   useEffect(() => {
-    if (connectionState !== 'ready') return;
+    if (connectionState !== 'ready' || !activeShaderVariant) return;
     void setEngineSettings({
       showFpsCounter: showPreviewFpsCounter,
       fpsCap,
       rmluiRasterSnap,
     }).catch((error: Error) => recordTransportError(error.message));
   }, [
+    activeShaderVariant,
     connectionState,
     fpsCap,
     recordTransportError,
@@ -251,7 +252,7 @@ export function EnginePreview({
   ]);
 
   useEffect(() => {
-    if (connectionState !== 'ready') return;
+    if (connectionState !== 'ready' || !activeShaderVariant) return;
     const previousActivity = previewActivityStateRef.current;
     const becameVisible = previousActivity.published && !previousActivity.visible && previewVisible;
     previewActivityStateRef.current = { published: true, visible: previewVisible };
@@ -266,6 +267,7 @@ export function EnginePreview({
     };
     void sendActivity().catch((error: Error) => recordTransportError(error.message));
   }, [
+    activeShaderVariant,
     connectionState,
     controller,
     previewActivityRefreshOnVisible,
@@ -274,7 +276,7 @@ export function EnginePreview({
   ]);
 
   useEffect(() => {
-    if (connectionState !== 'ready') return;
+    if (connectionState !== 'ready' || !activeShaderVariant) return;
     if (previewDocument) {
       const environment = environmentFor(previewDocument);
       void setPreviewMode(previewMode)
@@ -314,6 +316,7 @@ export function EnginePreview({
         });
       });
   }, [
+    activeShaderVariant,
     connectionState,
     embedded,
     environmentFor,

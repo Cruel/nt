@@ -34,6 +34,7 @@ export interface FocusedPreviewDesiredState {
   root: PreviewRootKey;
   inputs: unknown;
   lease: PreviewHostLease;
+  onLoadingChange?(loading: boolean): void;
   reportBuildFailure?(message: string): void;
 }
 
@@ -61,16 +62,21 @@ export class FocusedPreviewFreshnessCoordinator {
     this.desired = next;
     this.desiredGeneration += 1;
     this.pending = true;
+    next.onLoadingChange?.(true);
     this.schedule();
   }
 
   release(leaseId: string): void {
-    if (this.desired?.lease.leaseId === leaseId) this.desired = null;
+    if (this.desired?.lease.leaseId === leaseId) {
+      this.desired.onLoadingChange?.(false);
+      this.desired = null;
+    }
     if (this.lastApplied?.leaseId === leaseId) this.lastApplied = null;
   }
 
   dispose(): void {
     this.disposed = true;
+    this.desired?.onLoadingChange?.(false);
     this.desired = null;
     if (this.scheduledFrame) cancelAnimationFrame(this.scheduledFrame);
   }
@@ -214,6 +220,7 @@ export class FocusedPreviewFreshnessCoordinator {
         state.reportBuildFailure?.(
           error instanceof Error ? error.message : 'Focused preview document construction failed.',
         );
+        state.onLoadingChange?.(false);
         return;
       }
       if (this.disposed || this.desired !== state || desiredGeneration !== this.desiredGeneration)
@@ -236,16 +243,22 @@ export class FocusedPreviewFreshnessCoordinator {
           activeShaderVariant,
         };
         state.lease.reveal();
+        state.onLoadingChange?.(false);
         return;
       }
       const impactedResult = replay || this.impacted(state, inputRevision, activeShaderVariant);
-      if (!impactedResult) return;
+      if (!impactedResult) {
+        state.onLoadingChange?.(false);
+        return;
+      }
       if (
         !replay &&
         this.lastApplied?.leaseId === state.lease.leaseId &&
         this.lastApplied.revision === document.revision
-      )
+      ) {
+        state.onLoadingChange?.(false);
         return;
+      }
 
       const sequence = state.lease.nextFocusedApplySequence();
       this.currentApplySequence = sequence;
@@ -271,6 +284,7 @@ export class FocusedPreviewFreshnessCoordinator {
         };
         state.lease.commitContent(contentKey);
         state.lease.reveal();
+        state.onLoadingChange?.(false);
       } catch (error) {
         if (
           this.desired?.lease.leaseId === state.lease.leaseId &&
@@ -279,6 +293,7 @@ export class FocusedPreviewFreshnessCoordinator {
           state.reportBuildFailure?.(
             error instanceof Error ? error.message : 'Focused preview application failed.',
           );
+          state.onLoadingChange?.(false);
         }
       }
     } finally {
