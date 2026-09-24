@@ -28,50 +28,14 @@ import type { CliCommandContext, CliCommandDefinition, CliCommandInvocation } fr
 import { CliCommandUsageError } from './types';
 import { executeCachedRuntimeArtifactWithRecovery } from '../../shared/runtime-cache-native-consumer';
 import { verifyPinnedExternalAssets } from '../pinned-external-assets';
-import type { PreparedRuntimePackageOptions } from '../../shared/project-schema/prepared-runtime-artifact';
+import {
+  packageOptionsWithPinnedProjectTextSources,
+  pinnedProjectTextSourceRequest,
+  pinnedShaderSourceOverlays,
+} from '../pinned-project-text-sources';
 
 const shaderVariantIds = new Set(['glsl-330', 'essl-300', 'metal']);
 const runtimeBuildCacheProcessLiveness = new NodeProjectWorkspaceProcessLiveness();
-
-function pinnedProjectTextSourceRequest(context: CliCommandContext) {
-  if (!context.pinnedProjectTextSources) return {};
-  return {
-    projectTextSources: Object.fromEntries(
-      Object.entries(context.pinnedProjectTextSources).map(([relativePath, source]) => [
-        relativePath.replaceAll('\\', '/').replace(/^\/+/, ''),
-        source.text,
-      ]),
-    ),
-  };
-}
-
-function packageOptionsWithPinnedProjectTextSources(
-  options: PreparedRuntimePackageOptions,
-  sources: CliCommandContext['pinnedProjectTextSources'],
-): PreparedRuntimePackageOptions {
-  if (!sources) return options;
-  const byPath = new Map(
-    Object.entries(sources).map(([relativePath, source]) => [
-      relativePath.replaceAll('\\', '/').replace(/^\/+/, ''),
-      source,
-    ]),
-  );
-  const pinnedEntries = options.fileEntries.filter((entry) => byPath.has(entry.packagePath));
-  if (pinnedEntries.length === 0) return options;
-  const pinnedPaths = new Set(pinnedEntries.map((entry) => entry.packagePath));
-  return {
-    ...options,
-    fileEntries: options.fileEntries.filter((entry) => !pinnedPaths.has(entry.packagePath)),
-    textEntries: [
-      ...options.textEntries.filter((entry) => !pinnedPaths.has(entry.packagePath)),
-      ...pinnedEntries.map((entry) => ({
-        text: byPath.get(entry.packagePath)!.text,
-        packagePath: entry.packagePath,
-        storage: entry.storage,
-      })),
-    ],
-  };
-}
 
 function nativeFailure(code: string, pathValue: string, response: unknown): CliSemanticResult {
   const record =
@@ -253,6 +217,7 @@ export const shadersCompileCommand: CliCommandDefinition = {
           shaderVariants:
             variants.length > 0 ? [...new Set(variants)] : ['glsl-330', 'essl-300', 'metal'],
           forceRebuild,
+          sourceOverlays: pinnedShaderSourceOverlays(context.pinnedProjectTextSources),
         });
         const result = nativeSuccess(response);
         return { ...result, diagnostics: [...schemaDiagnostics, ...result.diagnostics] };
@@ -499,7 +464,7 @@ export const testRunCommand: CliCommandDefinition = {
               project: runtime.artifact.compiledProject,
               catalog: runtime.testCatalog,
               projectRoot: context.snapshot.projectRoot,
-              ...pinnedProjectTextSourceRequest(context),
+              ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),
               shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
             });
           };
@@ -556,7 +521,7 @@ export const testRunCommand: CliCommandDefinition = {
             project: runtime.artifact.compiledProject,
             spec: runtimeEntry.spec,
             projectRoot: context.snapshot.projectRoot,
-            ...pinnedProjectTextSourceRequest(context),
+            ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),
             shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
           };
           return runtimeEntry.runner === 'runtime-ui'
@@ -615,14 +580,14 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
                   project: runtime.artifact.compiledProject,
                   spec,
                   projectRoot: context.snapshot.projectRoot,
-                  ...pinnedProjectTextSourceRequest(context),
+                  ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),
                   shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
                 })
               : context.nativeTools.runHeadlessTest({
                   project: runtime.artifact.compiledProject,
                   spec,
                   projectRoot: context.snapshot.projectRoot,
-                  ...pinnedProjectTextSourceRequest(context),
+                  ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),
                   shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
                 });
           const response = await executeCachedRuntimeArtifactWithRecovery({

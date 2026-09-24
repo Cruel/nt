@@ -1,4 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import type { NovelTeaCliNativeToolService } from '../src/cli/native-tool-service';
 import type {
   LocalizationFontCoverageRequest,
@@ -287,9 +290,48 @@ function createNativeTools(
         }
       : {}),
     async compileShaders(shaderProject, options) {
-      return call('compile-shaders', { shaderProject, options }) as Awaited<
-        ReturnType<NovelTeaCliNativeToolService['compileShaders']>
-      >;
+      const { sourceOverlays, ...nativeOptions } = options;
+      const invokeCompile = (projectRoot = nativeOptions.projectRoot) =>
+        call('compile-shaders', {
+          shaderProject,
+          options: { ...nativeOptions, projectRoot },
+        }) as Awaited<ReturnType<NovelTeaCliNativeToolService['compileShaders']>>;
+      if (!sourceOverlays || Object.keys(sourceOverlays).length === 0 || !nativeOptions.projectRoot)
+        return invokeCompile();
+
+      const overlayRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-pinned-shaders-'));
+      try {
+        for (const [relativePath, text] of Object.entries(sourceOverlays)) {
+          const normalized = path.posix.normalize(relativePath.replaceAll('\\', '/'));
+          if (
+            !normalized.startsWith('shaders/') ||
+            normalized !== relativePath.replaceAll('\\', '/') ||
+            normalized.split('/').includes('..')
+          )
+            throw new Error(`Invalid pinned shader source path: ${relativePath}`);
+          const destination = path.join(overlayRoot, normalized);
+          await mkdir(path.dirname(destination), { recursive: true });
+          await writeFile(destination, text, 'utf8');
+        }
+        const response = invokeCompile(overlayRoot);
+        const remap = (value: string | undefined) => {
+          if (!value) return value;
+          const relative = path.relative(overlayRoot, value);
+          return !relative.startsWith('..') && !path.isAbsolute(relative)
+            ? path.join(nativeOptions.projectRoot!, relative)
+            : value;
+        };
+        return {
+          ...response,
+          diagnostics: response.diagnostics.map((diagnostic) => ({
+            ...diagnostic,
+            sourcePath: remap(diagnostic.sourcePath),
+            path: remap(diagnostic.path),
+          })),
+        };
+      } finally {
+        await rm(overlayRoot, { recursive: true, force: true });
+      }
     },
     async runHeadlessTest(request) {
       return call('run-test', request);
@@ -472,23 +514,24 @@ async function createPinnedRuntimeArtifactPaths(
       const external = [] as (typeof entries)[number][];
       for (const entry of entries) {
         const relative = entry.projectRelativePath.replaceAll('\\', '/').replace(/^\/+/, '');
-        if (entry.expectedContentHash !== null) {
-          external.push(entry);
+        const source = inputs.projectTextSources[relative];
+        if (source) {
+          results.set(
+            entry.assetId,
+            entry.expectedContentHash === null || source.contentHash === entry.expectedContentHash
+              ? {
+                  status: 'ready',
+                  assetId: entry.assetId,
+                  projectRelativePath: relative,
+                  contentHash: source.contentHash,
+                  text: source.text,
+                }
+              : { status: 'unavailable', assetId: entry.assetId },
+          );
           continue;
         }
-        const source = inputs.projectTextSources[relative];
-        results.set(
-          entry.assetId,
-          source
-            ? {
-                status: 'ready',
-                assetId: entry.assetId,
-                projectRelativePath: relative,
-                contentHash: source.contentHash,
-                text: source.text,
-              }
-            : { status: 'unavailable', assetId: entry.assetId },
-        );
+        if (entry.expectedContentHash !== null) external.push(entry);
+        else results.set(entry.assetId, { status: 'unavailable', assetId: entry.assetId });
       }
       if (external.length > 0) {
         const expectations = external
@@ -585,13 +628,6 @@ async function runNovelTeaScriptcIslandScoped(
   const operation = command[1];
 
   let platformTools: NovelTeaCliPlatformToolService | undefined;
-  if (family === 'platform') {
-    trace('platform tools import starting');
-    const { createNovelTeaCliPlatformToolService } =
-      await import('../src/cli/platform-tool-service-node');
-    trace('platform tools import completed');
-    platformTools = createNovelTeaCliPlatformToolService(nativeTools);
-  }
 
   const platformNeedsHost =
     family === 'platform' &&
@@ -754,6 +790,17 @@ async function runNovelTeaScriptcIslandScoped(
         trace(`pinned Project snapshot hydrated: ${pinned.projectRoot}`);
       }
     }
+  }
+
+  if (family === 'platform') {
+    trace('platform tools import starting');
+    const { createNovelTeaCliPlatformToolService } =
+      await import('../src/cli/platform-tool-service-node');
+    trace('platform tools import completed');
+    platformTools = createNovelTeaCliPlatformToolService(nativeTools, {
+      runtimeArtifactPaths: pinnedRuntimeArtifactPaths,
+      pinnedProjectTextSources,
+    });
   }
 
   let agentKitPayload: import('../src/cli/agent-kit').NovelTeaAgentKitPayload | undefined;

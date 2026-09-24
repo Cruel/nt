@@ -7,6 +7,7 @@ import {
   defaultInteractableInstanceData,
 } from '../../shared/project-schema/authoring-interactables';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   InMemoryProjectWorkspaceFileSystem,
@@ -102,6 +103,7 @@ function trackSemanticTransactionWrites(
       relative === 'traits.json' ||
       /^records\/[^/]+\/.+\.(?:json|lua|rml|rcss)$/u.test(relative) ||
       /^scripts\/.+\.lua$/u.test(relative) ||
+      /^shaders\/.+\.sc$/u.test(relative) ||
       /^i18n\/.+\.json$/u.test(relative)
       ? relative
       : null;
@@ -2139,6 +2141,47 @@ describe('ResidentProjectWorkspaceSession', () => {
     });
     expect(inputs?.projectTextSources['scripts/layout-helper.lua']).toMatchObject({
       text: 'return "generation-one-layout"\n',
+    });
+  });
+
+  it('retains all observed Project shader source bytes in the pinned generation', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.materials.basic = {
+      id: 'basic',
+      label: 'Basic',
+      data: {
+        ...defaultMaterialData('Basic', 'engine-2d'),
+        shader: { fragment: { kind: 'project', path: 'shaders/basic.fs.sc' } },
+      },
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    files[`${ROOT}/shaders/basic.fs.sc`] = '#include "common.sc"\nvoid main() {}\n';
+    files[`${ROOT}/shaders/common.sc`] = '#define PINNED_VALUE 1\n';
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    probe.setManifestEntries([{ path: 'shaders/basic.fs.sc' }, { path: 'shaders/common.sc' }]);
+    const owner = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const opened = await owner.open(ROOT);
+    expect(opened.ok).toBe(true);
+    const prepared = await owner.preparePortableSnapshot(ROOT);
+    if (!prepared) throw new Error('Portable Project snapshot was not prepared.');
+
+    await fileSystem.writeTextAtomic(`${ROOT}/shaders/basic.fs.sc`, 'void main() { /* live */ }\n');
+    await fileSystem.writeTextAtomic(`${ROOT}/shaders/common.sc`, '#define PINNED_VALUE 2\n');
+
+    const disposable = new ResidentProjectWorkspaceService(fileSystem);
+    expect(await disposable.hydratePortableSnapshot(ROOT, prepared.snapshotText)).toBe(true);
+    const inputs = await disposable.pinnedPortableInputs(ROOT);
+    expect(inputs?.projectTextSources['shaders/basic.fs.sc']).toMatchObject({
+      text: '#include "common.sc"\nvoid main() {}\n',
+    });
+    expect(inputs?.projectTextSources['shaders/common.sc']).toMatchObject({
+      text: '#define PINNED_VALUE 1\n',
     });
   });
 

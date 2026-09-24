@@ -83,6 +83,7 @@ const residentDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = Object.f
   { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
   { root: 'records', extensions: ['.json', '.lua', '.rcss', '.rml'], excludedPrefixes: [] },
   { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
+  { root: 'shaders', extensions: ['.sc'], excludedPrefixes: [] },
 ]);
 
 function certificationDelay(name: string): void {
@@ -102,6 +103,7 @@ function isResidentSemanticSourcePath(path: string): boolean {
     path === 'traits.json' ||
     /^records\/[^/]+\/.+\.(?:json|lua|rml|rcss)$/u.test(path) ||
     /^scripts\/.+\.lua$/u.test(path) ||
+    /^shaders\/.+\.sc$/u.test(path) ||
     /^i18n\/.+\.json$/u.test(path)
   );
 }
@@ -1477,8 +1479,12 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         );
       }
 
+      const portableTextPaths = new Set(portableProjectTextSourcePaths(opened.snapshot.project));
+      for (const candidate of physicalAuthority)
+        if (/^(?:scripts\/.+\.lua|shaders\/.+\.sc)$/u.test(candidate.path))
+          portableTextPaths.add(candidate.path);
       const projectTextSources: Record<string, PortableResidentProjectTextSource> = {};
-      for (const relativePath of portableProjectTextSourcePaths(opened.snapshot.project)) {
+      for (const relativePath of [...portableTextPaths].sort()) {
         const contribution = opened.sourceContributions[relativePath];
         if (contribution?.kind === 'text') {
           projectTextSources[relativePath] = Object.freeze({

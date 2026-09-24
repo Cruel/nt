@@ -185,6 +185,20 @@ describe('narrow exact validation cache', () => {
     await expect(readAuthoringCache(fileSystem, root)).resolves.toBeNull();
   });
 
+  it('invalidates exact validation reuse when a Project shader source changes', async () => {
+    const root = await fixture();
+    const shaderPath = path.join(root, 'shaders/effect.sc');
+    await mkdir(path.dirname(shaderPath), { recursive: true });
+    await writeFile(shaderPath, 'void main() { /* generation one */ }\n');
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    await publishAuthoringCache(fileSystem, root, await inventory(fileSystem, root), exactResult);
+    await expect(readAuthoringCache(fileSystem, root)).resolves.toEqual(exactResult);
+
+    await writeFile(shaderPath, 'void main() { /* generation two */ }\n');
+
+    await expect(readAuthoringCache(fileSystem, root)).resolves.toBeNull();
+  });
+
   it('treats corrupt and unsafe persistence as a cache miss', async () => {
     const root = await fixture();
     const fileSystem = new NodeProjectWorkspaceFileSystem();

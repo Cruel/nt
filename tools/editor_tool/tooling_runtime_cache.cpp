@@ -740,6 +740,9 @@ Json probe_authoring(const Json& request)
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "scripts"},
                       {"extensions", Json::array({".lua"})},
+                      {"excludedPrefixes", Json::array()}},
+                     {{"root", "shaders"},
+                      {"extensions", Json::array({".sc"})},
                       {"excludedPrefixes", Json::array()}}});
     if (manifest["discoveryScopes"] != scopes)
         return response("stale", "discovery-contract-changed");
