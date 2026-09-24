@@ -3405,16 +3405,32 @@ export class ProjectWorkspaceService {
               let parsed: unknown;
               if (reused?.kind === 'json') parsed = reused.parsed;
               else {
-                sourceWork.projectedJsonSources++;
-                const normalizedText = projectWorkspaceFile(
-                  decodedProject,
-                  decodedProject.editor,
-                  scriptSourcePaths,
-                  file,
-                );
-                if (normalizedText === undefined)
-                  return fail(`Authoritative source file '${file}' was not projected.`, `/${file}`);
-                parsed = JSON.parse(normalizedText) as unknown;
+                const recordMatch = /^records\/([^/]+)\/([^/]+)\.json$/u.exec(file);
+                const collection = recordMatch?.[1];
+                const recordId = recordMatch?.[2];
+                if (
+                  collection &&
+                  recordId &&
+                  isAuthoringCollectionKey(collection) &&
+                  collection !== 'layouts' &&
+                  collection !== 'scripts'
+                )
+                  parsed = decodedProject[collection][recordId];
+                else {
+                  sourceWork.projectedJsonSources++;
+                  const normalizedText = projectWorkspaceFile(
+                    decodedProject,
+                    decodedProject.editor,
+                    scriptSourcePaths,
+                    file,
+                  );
+                  if (normalizedText === undefined)
+                    return fail(
+                      `Authoritative source file '${file}' was not projected.`,
+                      `/${file}`,
+                    );
+                  parsed = JSON.parse(normalizedText) as unknown;
+                }
               }
               sourceContributions[file] = Object.freeze({
                 path: file,

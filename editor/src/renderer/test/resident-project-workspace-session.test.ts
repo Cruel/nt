@@ -179,6 +179,50 @@ async function createResidentSession() {
 }
 
 describe('ResidentProjectWorkspaceSession', () => {
+  it('seeds an opened session from admitted source contributions without reprojecting the Project', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Snapshot Foyer',
+      data: defaultRoomData('Snapshot Foyer'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files);
+    const opened = await new ProjectWorkspaceService(fileSystem).open(ROOT);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error(opened.diagnostics[0]?.message ?? 'Project open failed.');
+
+    const roomPath = 'records/rooms/foyer.json';
+    const contribution = opened.sourceContributions[roomPath];
+    expect(contribution?.kind).toBe('json');
+    if (contribution?.kind !== 'json') throw new Error('Room contribution was not JSON.');
+    const parsed = structuredClone(contribution.parsed) as {
+      label: string;
+      data: { label?: string };
+    };
+    parsed.label = 'Contribution Foyer';
+    const contributionSeededOpen = {
+      ...opened,
+      sourceContributions: Object.freeze({
+        ...opened.sourceContributions,
+        [roomPath]: Object.freeze({ ...contribution, parsed }),
+      }),
+    };
+
+    const session = ResidentProjectWorkspaceSession.fromOpenedWithHost(contributionSeededOpen, {
+      fileSystem,
+    });
+    const reopened = await session.service().open(ROOT);
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error(reopened.diagnostics[0]?.message ?? 'Project reopen failed.');
+    expect(reopened.snapshot.project.rooms.foyer?.label).toBe('Contribution Foyer');
+  });
+
   it('uses native Project authority deltas for change-proportional reconciliation', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     for (let index = 0; index < 320; index += 1) {
