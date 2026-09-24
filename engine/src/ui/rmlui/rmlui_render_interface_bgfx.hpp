@@ -4,6 +4,7 @@
 #include "noveltea/core/presentation_contracts.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/runtime_presentation_contracts.hpp"
+#include "noveltea/render/material.hpp"
 #include "noveltea/surface.hpp"
 #include <rmlui_bgfx/config.hpp>
 #include <rmlui_bgfx/render_interface.hpp>
@@ -13,7 +14,11 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace noveltea {
 struct ShaderMaterialProject;
@@ -30,6 +35,42 @@ snap_rmlui_submission_translation(Rml::Vector2f translation,
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range();
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_plane_view_range(core::PresentationPlane plane);
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_world_source_overlay_view_range();
+
+struct RmlUiResolvedMaterialTexture {
+    std::string source;
+    MaterialTextureSampler filtering = MaterialTextureSampler::ClampLinear;
+    bool operator==(const RmlUiResolvedMaterialTexture&) const = default;
+};
+
+[[nodiscard]] std::optional<RmlUiResolvedMaterialTexture>
+resolve_rmlui_material_texture(const MaterialTextureAssignment* assignment,
+                               const core::PresentationMaterialTextureBinding* occurrence);
+
+class RmlUiMaterialOccurrenceEpochs final {
+public:
+    [[nodiscard]] double elapsed(std::string_view scope,
+                                 const core::PresentationMaterialParameter& parameter,
+                                 double now_seconds);
+    void retain(std::string_view scope, std::optional<core::LayoutMountOccurrenceId> occurrence,
+                std::span<const core::PresentationMaterialParameter> parameters);
+
+private:
+    struct Entry {
+        core::PresentationOwner owner;
+        core::MaterialOccurrence occurrence;
+        core::MaterialId material;
+        std::string parameter;
+        core::MaterialClockPolicy clock = core::MaterialClockPolicy::Gameplay;
+        double epoch_seconds = 0.0;
+    };
+
+    struct ScopeState {
+        std::optional<core::LayoutMountOccurrenceId> occurrence;
+        std::vector<Entry> entries;
+    };
+
+    std::unordered_map<std::string, ScopeState> m_epochs;
+};
 
 class BgfxRenderInterface final : public Rml::RenderInterface {
 public:
@@ -55,6 +96,8 @@ public:
     void set_output_framebuffer(bgfx::FrameBufferHandle framebuffer,
                                 const PresentationMetrics& presentation, bool local_viewport);
     void set_material_parameters(
+        std::string_view occurrence_scope,
+        std::optional<core::LayoutMountOccurrenceId> occurrence,
         std::span<const core::PresentationMaterialParameter> parameters,
         std::span<const core::PresentationMaterialTextureBinding> textures,
         const core::RuntimeClockUpdate& clocks, double camera_zoom);

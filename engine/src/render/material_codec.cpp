@@ -1,6 +1,7 @@
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/material_codec.hpp"
 #include "noveltea/render/material_contract.hpp"
+#include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/json_access.hpp"
 
 #include <nlohmann/json.hpp>
@@ -379,11 +380,15 @@ material_texture_sampler(std::string_view address, std::string_view filter)
             return true;
         }
         return false;
-    case ShaderUniformType::Int:
+    case ShaderUniformType::Int: {
         if (!value.is_number_integer())
             return false;
-        out = core::json_access::get_or<int>(value, 0);
+        const auto parsed = core::json_access::get<int>(value);
+        if (!parsed || !core::compiled::material_int_is_exact(*parsed))
+            return false;
+        out = *parsed;
         return true;
+    }
     case ShaderUniformType::Bool:
         if (!value.is_boolean())
             return false;

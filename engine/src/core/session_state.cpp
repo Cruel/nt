@@ -48,8 +48,10 @@ bool material_parameter_value_matches(compiled::MaterialParameterType type,
         return std::holds_alternative<std::array<double, 4>>(value);
     case compiled::MaterialParameterType::Color:
         return std::holds_alternative<compiled::MaterialColorValue>(value);
-    case compiled::MaterialParameterType::Int:
-        return std::holds_alternative<std::int64_t>(value);
+    case compiled::MaterialParameterType::Int: {
+        const auto* integer = std::get_if<std::int64_t>(&value);
+        return integer != nullptr && compiled::material_int_is_exact(*integer);
+    }
     case compiled::MaterialParameterType::Bool:
         return std::holds_alternative<bool>(value);
     }

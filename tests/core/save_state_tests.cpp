@@ -1684,3 +1684,40 @@ TEST_CASE("Material Parameter and postprocess Desired State round-trips through 
     REQUIRE(dormant->value);
     CHECK(std::get<double>(*dormant->value) == 0.8);
 }
+
+TEST_CASE("saved Material integers reject values outside the exact Shader range")
+{
+    const auto project = load_fixture("scene-program.json", [](nlohmann::json& document) {
+        auto& interfaces = document["resources"]["materialInterfaces"];
+        auto material = std::ranges::find_if(
+            interfaces, [](const auto& value) { return value["id"] == "sprite-material"; });
+        REQUIRE(material != interfaces.end());
+        (*material)["parameters"].push_back(
+            {{"name", "u_index"}, {"type", "int"}, {"rendererBinding", nullptr}});
+    });
+    auto state = make_state(project);
+    const PresentationOwner owner{state.session_presentation_owner()};
+    const MaterialOccurrence occurrence = MaterialWideMaterialOccurrence{};
+    const auto material = id<MaterialId>("sprite-material");
+    REQUIRE(state.upsert_material_parameter(
+        project, DesiredMaterialParameter{owner, occurrence, material, "u_index",
+                                          compiled::material_int_exact_limit, std::nullopt,
+                                          MaterialClockPolicy::Gameplay}));
+
+    auto saved = make_save_state(project, state);
+    REQUIRE(saved);
+    auto encoded = encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    REQUIRE(decode_save_state(project, encoded.value(), "material-int-boundary.json"));
+
+    auto overflow = encoded.value();
+    REQUIRE(overflow["presentation"]["materialParameters"].size() == 1);
+    overflow["presentation"]["materialParameters"][0]["value"]["value"] =
+        compiled::material_int_exact_limit + 1;
+    CHECK_FALSE(decode_save_state(project, overflow, "material-int-overflow.json"));
+
+    auto underflow = encoded.value();
+    underflow["presentation"]["materialParameters"][0]["value"]["value"] =
+        -compiled::material_int_exact_limit - 1;
+    CHECK_FALSE(decode_save_state(project, underflow, "material-int-underflow.json"));
+}

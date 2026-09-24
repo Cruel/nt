@@ -6,6 +6,12 @@
 namespace noveltea::ui::rmlui {
 namespace {
 
+template<class Id> Id id(std::string value)
+{
+    auto result = Id::create(std::move(value));
+    return std::move(result).value();
+}
+
 PresentationMetrics presentation_at(IntegerSize ui_size)
 {
     auto presentation = make_presentation_metrics(
@@ -23,6 +29,22 @@ ResolvedContextMetrics context_at(IntegerSize logical_size, AxisScale ui_raster_
     context.ui_raster_scale = ui_raster_scale;
     context.font_raster_scale = ui_raster_scale.x;
     return context;
+}
+
+core::PresentationMaterialParameter occurrence_time_parameter(std::uint64_t session,
+                                                              core::compiled::LayoutSlot slot)
+{
+    const auto material = id<core::MaterialId>("ui-material");
+    return {
+        core::PresentationOwner{
+            core::SessionPresentationOwner{core::PresentationSessionId::from_number(session)}},
+        core::LayoutMaterialOccurrence{core::ReservedLayoutMountKey{slot}, material},
+        material,
+        "u_time",
+        std::nullopt,
+        core::MaterialStandardFacet::OccurrenceTime,
+        core::MaterialClockPolicy::Gameplay,
+    };
 }
 
 } // namespace
@@ -106,6 +128,56 @@ TEST_CASE("RmlUi adapter snaps submission origins only after logical-to-raster t
     const Rml::Vector2f fractional_advance{two_x_origin.x + 0.375f, two_x_origin.y + 0.625f};
     CHECK_THAT(fractional_advance.x - two_x_origin.x, Catch::Matchers::WithinAbs(0.375f, 0.0001f));
     CHECK_THAT(fractional_advance.y - two_x_origin.y, Catch::Matchers::WithinAbs(0.625f, 0.0001f));
+}
+
+TEST_CASE("RmlUi Material textures support occurrence-only author-owned sources")
+{
+    const auto material = id<core::MaterialId>("ui-material");
+    const core::PresentationMaterialTextureBinding occurrence{
+        material, "s_detail", "project:/images/detail.png"};
+
+    const auto occurrence_only = resolve_rmlui_material_texture(nullptr, &occurrence);
+    REQUIRE(occurrence_only);
+    CHECK(occurrence_only->source == "project:/images/detail.png");
+    CHECK(occurrence_only->filtering == MaterialTextureSampler::ClampLinear);
+
+    const MaterialTextureAssignment authored{"s_detail", "project:/images/base.png",
+                                             MaterialTextureSampler::RepeatNearest};
+    const auto overridden = resolve_rmlui_material_texture(&authored, &occurrence);
+    REQUIRE(overridden);
+    CHECK(overridden->source == "project:/images/detail.png");
+    CHECK(overridden->filtering == MaterialTextureSampler::RepeatNearest);
+
+    const auto authored_only = resolve_rmlui_material_texture(&authored, nullptr);
+    REQUIRE(authored_only);
+    CHECK(authored_only->source == "project:/images/base.png");
+    CHECK(authored_only->filtering == MaterialTextureSampler::RepeatNearest);
+    CHECK_FALSE(resolve_rmlui_material_texture(nullptr, nullptr));
+}
+
+TEST_CASE("RmlUi occurrence-time epochs are isolated by context and semantic occurrence")
+{
+    RmlUiMaterialOccurrenceEpochs epochs;
+    const auto first = occurrence_time_parameter(1, core::compiled::LayoutSlot::Hud);
+    const auto same_semantic_mount = occurrence_time_parameter(1, core::compiled::LayoutSlot::Hud);
+    const auto occurrence_one = core::LayoutMountOccurrenceId::from_number(1);
+    const auto occurrence_two = core::LayoutMountOccurrenceId::from_number(2);
+
+    epochs.retain("context-a", occurrence_one, std::span{&first, 1});
+    CHECK(epochs.elapsed("context-a", first, 10.0) == 0.0);
+    CHECK(epochs.elapsed("context-a", first, 12.5) == 2.5);
+
+    epochs.retain("context-b", occurrence_one, std::span{&first, 1});
+    CHECK(epochs.elapsed("context-b", first, 12.5) == 0.0);
+    CHECK(epochs.elapsed("context-a", first, 13.0) == 3.0);
+
+    epochs.retain("context-a", occurrence_two, std::span{&same_semantic_mount, 1});
+    CHECK(epochs.elapsed("context-a", same_semantic_mount, 13.0) == 0.0);
+    CHECK(epochs.elapsed("context-a", same_semantic_mount, 14.0) == 1.0);
+
+    epochs.retain("context-a", std::nullopt, {});
+    epochs.retain("context-a", occurrence_two, std::span{&same_semantic_mount, 1});
+    CHECK(epochs.elapsed("context-a", same_semantic_mount, 20.0) == 0.0);
 }
 
 } // namespace noveltea::ui::rmlui

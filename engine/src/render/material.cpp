@@ -1,5 +1,7 @@
 #include "noveltea/render/material.hpp"
 
+#include "noveltea/core/compiled_project.hpp"
+
 #include "noveltea/render/material_contract.hpp"
 
 #include "noveltea/core/rich_text.hpp"
@@ -236,7 +238,7 @@ parse_material_override_value(ShaderUniformType type, std::string_view value)
         int parsed = 0;
         const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
         if (result.ec == std::errc{} && result.ptr == value.data() + value.size() &&
-            parsed >= -16777216 && parsed <= 16777216) {
+            core::compiled::material_int_is_exact(parsed)) {
             return core::RichTextMaterialValue{parsed};
         }
         break;

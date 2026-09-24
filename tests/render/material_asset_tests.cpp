@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/rich_text.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/material_codec.hpp"
@@ -598,6 +599,43 @@ TEST_CASE("material validation reports refs values and roles")
       }
     })json"),
                    MaterialDiagnosticCode::UndeclaredSampler));
+}
+
+TEST_CASE("runtime Material manifest integers preserve the exact Shader range")
+{
+    const auto document_for = [](std::int64_t value) {
+        return nlohmann::json{
+            {"schema", "noveltea.shader-materials"},
+            {"shaders",
+             {{"indexed",
+               {{"stages", {{"fragment", {{"source", "project:/indexed.fs.sc"}}}}},
+                {"uniforms", {{"u_index", {{"type", "int"}}}}},
+                {"roles", {"engine-2d"}},
+                {"role_bindings", nlohmann::json::object()}}}}},
+            {"materials",
+             {{"indexed",
+               {{"role", "engine-2d"},
+                {"shader", "indexed"},
+                {"uniforms", {{"u_index", value}}}}}}},
+        };
+    };
+
+    CHECK_FALSE(has_code(
+        noveltea::parse_shader_material_project_json(
+            document_for(noveltea::core::compiled::material_int_exact_limit).dump()),
+        MaterialDiagnosticCode::InvalidUniformValue));
+    CHECK_FALSE(has_code(
+        noveltea::parse_shader_material_project_json(
+            document_for(-noveltea::core::compiled::material_int_exact_limit).dump()),
+        MaterialDiagnosticCode::InvalidUniformValue));
+    CHECK(has_code(
+        noveltea::parse_shader_material_project_json(
+            document_for(noveltea::core::compiled::material_int_exact_limit + 1).dump()),
+        MaterialDiagnosticCode::InvalidUniformValue));
+    CHECK(has_code(
+        noveltea::parse_shader_material_project_json(
+            document_for(-noveltea::core::compiled::material_int_exact_limit - 1).dump()),
+        MaterialDiagnosticCode::InvalidUniformValue));
 }
 
 TEST_CASE("postprocess scope belongs to the effect occurrence and source texture is renderer-owned")
