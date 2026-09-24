@@ -239,6 +239,7 @@ interface NovelTeaElectronApiContract {
   readProjectTextSources(
     request: import('./project-text-sources').ReadProjectTextSourcesRequest,
   ): Promise<import('./project-text-sources').ReadProjectTextSourcesResponse>;
+  readEngineShaderSource(sourceIdentity: string): Promise<string | null>;
   loadComfyUiUserConfig(): Promise<ComfyUiSharedUserConfig>;
   saveComfyUiUserConfig(config: ComfyUiSharedUserConfig): Promise<ComfyUiSharedUserConfig>;
   checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus>;

@@ -3,7 +3,6 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { parseMaterialData } from '../../shared/project-schema/authoring-materials';
-import { builtInMaterialShaderSource } from '../../shared/project-schema/authoring-material-preset-sources';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../../shared/project-text-sources';
 import type {
   ProjectSourceExpectedRevision,
@@ -100,11 +99,35 @@ function materialShaderCopyPath(materialId: string, stage: 'vertex' | 'fragment'
   return `shaders/materials/${materialId}/${suffix}.sc`;
 }
 
+export async function readEngineShaderSource(sourceIdentity: string): Promise<string | null> {
+  const filename = /^engine:\/([A-Za-z0-9_.-]+\.sc)$/u.exec(sourceIdentity)?.[1] ?? null;
+  if (!filename) return null;
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const candidates = [
+    resourcesPath
+      ? path.join(resourcesPath, 'editor-assets', 'system', 'shaders', 'bgfx', filename)
+      : null,
+    path.resolve(process.cwd(), 'engine', 'shaders', 'bgfx', filename),
+    path.resolve(process.cwd(), '..', 'engine', 'shaders', 'bgfx', filename),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of candidates) {
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isFile() && stat.size <= PROJECT_TEXT_SOURCE_LIMITS.maxSourceBytes)
+        return await fs.readFile(candidate, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+  return null;
+}
+
 async function materialShaderSourceText(
   root: string,
   sourceIdentity: string,
 ): Promise<string | null> {
-  if (sourceIdentity.startsWith('engine:/')) return builtInMaterialShaderSource(sourceIdentity);
+  if (sourceIdentity.startsWith('engine:/')) return readEngineShaderSource(sourceIdentity);
   if (!sourceIdentity.startsWith('project:/')) return null;
   const relative = sourceIdentity.slice('project:/'.length);
   if (!relative.startsWith('shaders/')) return null;

@@ -1,6 +1,7 @@
 $input v_texcoord0, v_color0
 
 #include "bgfx_shader.sh"
+#include "noveltea_shader.sc"
 
 SAMPLER2D(s_textAtlas, 0);
 uniform vec4 u_time;
@@ -15,5 +16,5 @@ void main()
     vec3 color = fill_color * (1.0 + pulse * 0.35);
 
     float output_alpha = alpha * v_color0.a;
-    gl_FragColor = vec4(color * output_alpha, output_alpha);
+    gl_FragColor = noveltea_premultiply_alpha(vec4(color, output_alpha));
 }

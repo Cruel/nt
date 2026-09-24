@@ -86,6 +86,7 @@ export const IPC_CHANNELS = {
   MUTATE_PROJECT_SOURCES: 'noveltea:mutate-project-sources',
   WRITE_PROJECT_SOURCE: 'noveltea:write-project-source',
   READ_PROJECT_TEXT_SOURCES: 'noveltea:read-project-text-sources',
+  READ_ENGINE_SHADER_SOURCE: 'noveltea:read-engine-shader-source',
   COMFYUI_LOAD_USER_CONFIG: 'noveltea:comfyui-load-user-config',
   COMFYUI_SAVE_USER_CONFIG: 'noveltea:comfyui-save-user-config',
   COMFYUI_CHECK_CONNECTION: 'noveltea:comfyui-check-connection',

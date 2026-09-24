@@ -211,6 +211,13 @@ Object.defineProperty(window, 'noveltea', {
           message: 'Project text source is unavailable in the renderer test harness.',
         })),
       })),
+    readEngineShaderSource: vi
+      .fn()
+      .mockImplementation(async (sourceIdentity: string) =>
+        sourceIdentity === 'engine:/vs_quad.sc'
+          ? '#include "bgfx_shader.sh"\nvoid main() { gl_Position = mul(u_modelViewProj, vec4(1.0)); }\n'
+          : null,
+      ),
     listPlaybackTests: vi
       .fn()
       .mockResolvedValue({ ok: true, tests: [{ id: 'smoke', steps: 1 }], diagnostics: [] }),

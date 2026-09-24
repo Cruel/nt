@@ -63,6 +63,7 @@ import {
   resolveProjectOriginalAssetUrl,
 } from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
+import { readEngineShaderSource } from './main/services/project-source-file-service';
 import { TerminalNotificationService } from './main/services/terminal-notification-service';
 import { EditorAuthoringValidationService } from './main/services/editor-authoring-validation-service';
 import { EditorRuntimeCacheService } from './main/services/editor-runtime-cache-service';
@@ -192,6 +193,7 @@ import {
   projectAssetPathsArgumentsSchema,
   projectSessionArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
+  readEngineShaderSourceArgumentsSchema,
   reimportAssetArgumentsSchema,
   removePlayerTemplateArgumentsSchema,
   resolvePlayerTemplateArgumentsSchema,
@@ -1726,6 +1728,12 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES,
     (arguments_) => readProjectTextSourcesArgumentsSchema.parse(arguments_),
     (request: ReadProjectTextSourcesRequest) => activeProjectSessions.read(request),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.READ_ENGINE_SHADER_SOURCE,
+    (arguments_) => readEngineShaderSourceArgumentsSchema.parse(arguments_),
+    (sourceIdentity: string) => readEngineShaderSource(sourceIdentity),
   );
 
   const comfyUiProjectFilePath = (projectSessionId: string | null) =>

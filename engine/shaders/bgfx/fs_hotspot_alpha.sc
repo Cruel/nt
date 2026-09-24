@@ -1,6 +1,7 @@
 $input v_texcoord0, v_color0
 
 #include "bgfx_shader.sh"
+#include "noveltea_shader.sc"
 
 SAMPLER2D(s_hotspotImage, 0);
 uniform vec4 u_time;
@@ -26,7 +27,7 @@ void main()
     float alpha = coverage * interaction * intensity;
     vec3 color = mix(vec3(0.08, 0.58, 0.92), vec3(0.48, 0.94, 1.0),
                      clamp(border + sweep * 0.35, 0.0, 1.0));
-    vec4 premultiplied = vec4(color * alpha, alpha);
+    vec4 premultiplied = noveltea_premultiply_alpha(vec4(color, alpha));
     gl_FragColor = vec4(premultiplied.rgb * v_color0.rgb * v_color0.a,
                         premultiplied.a * v_color0.a);
 }
