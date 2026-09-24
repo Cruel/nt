@@ -44,6 +44,27 @@ shader: {
 
 Project shader paths are contained project-relative files beneath `shaders/`. Engine paths use the explicit `engine:/` namespace. Preset-backed Materials require no project shader source.
 
+## Alpha output contract
+
+All current Material roles require fragment shader output in **premultiplied RGBA** form. For a straight-alpha color `(r, g, b, a)`, the value written to `gl_FragColor` must be `(r*a, g*a, b*a, a)`. The role contract owns the pipeline state: ordinary composited roles use premultiplied-alpha blending, while postprocess uses replacement blending but still requires premultiplied output.
+
+Project shaders should include the engine helper and use it at the point where a straight-alpha result becomes fragment output:
+
+```glsl
+#include "bgfx_shader.sh"
+#include "noveltea_shader.sc"
+
+void main()
+{
+    vec4 color = /* straight RGBA computation */;
+    gl_FragColor = noveltea_premultiply_alpha(color);
+}
+```
+
+`noveltea_premultiply_alpha(vec4 straight_rgba)` is supplied from the engine shader include root and is available to Project custom shaders through normal source compilation, including the standalone CLI/export toolchain. The helper is intentionally explicit rather than automatically rewriting shader output, because not every input is straight alpha. In particular, `engine.postprocess_source` is already premultiplied; postprocess shaders should transform that premultiplied value without applying the helper again unless they first reconstruct a new straight-alpha color. Likewise, any value already documented as premultiplied must not be premultiplied a second time.
+
+When authoring custom shaders, perform color/effect math in the representation appropriate to the inputs, then ensure the final output satisfies the role's premultiplied contract. Using the helper for straight-alpha final colors is the preferred authoring pattern and avoids dark/bright edge artifacts caused by feeding straight RGB into premultiplied blending.
+
 ## Interface ownership
 
 The shader compiler's reflected interface is the structural source of truth for custom-source programs. Reflection reports uniforms and sampled images from compiled stage output, including normalized sampler stage/register metadata. Runtime shader metadata is generated from that reflected interface rather than from an authored Shader declaration.

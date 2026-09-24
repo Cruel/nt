@@ -366,6 +366,13 @@ export const readProjectTextSourcesArgumentsSchema = z.tuple([
     .strict(),
 ]);
 
+export const readEngineShaderSourceArgumentsSchema = z.tuple([
+  z
+    .string()
+    .regex(/^engine:\/[A-Za-z0-9_.-]+\.sc$/u)
+    .max(MAX_PROJECT_PATH_LENGTH),
+]);
+
 const projectSessionIdSchema = z.string().uuid().max(MAX_PROJECT_SESSION_ID_LENGTH);
 const projectRelativePathSchema = z
   .string()

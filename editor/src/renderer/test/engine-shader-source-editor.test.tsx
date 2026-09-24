@@ -33,7 +33,7 @@ beforeEach(() => {
 });
 
 describe('built-in Material shader source editor', () => {
-  it('shows preset source read-only outside the Project Files tree', () => {
+  it('shows preset source read-only outside the Project Files tree', async () => {
     const tab: WorkbenchTab = {
       id: 'tab:engine-source',
       title: 'vs_quad.sc',
@@ -49,8 +49,9 @@ describe('built-in Material shader source editor', () => {
 
     render(<EngineShaderSourceEditor tab={tab} />);
 
-    expect(screen.getByTestId('source-editor')).toHaveAttribute('data-read-only', 'true');
-    expect(screen.getByTestId('source-editor')).toHaveTextContent('u_modelViewProj');
+    const sourceEditor = await screen.findByTestId('source-editor');
+    expect(sourceEditor).toHaveAttribute('data-read-only', 'true');
+    expect(sourceEditor).toHaveTextContent('u_modelViewProj');
     expect(useProjectSourceStore.getState().files).toEqual([]);
   });
 
@@ -89,6 +90,7 @@ describe('built-in Material shader source editor', () => {
     };
 
     render(<EngineShaderSourceEditor tab={tab} />);
+    await screen.findByTestId('source-editor');
     fireEvent.click(screen.getByRole('button', { name: 'Customize Shader' }));
 
     await waitFor(() =>

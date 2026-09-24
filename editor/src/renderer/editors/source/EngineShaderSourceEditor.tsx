@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { SourceEditor } from '@/components/source/SourceEditor';
@@ -6,7 +6,6 @@ import { useProjectSourceStore } from '@/project/project-source-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildProjectSourceTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { builtInMaterialShaderSource } from '../../../shared/project-schema/authoring-material-preset-sources';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 
@@ -20,7 +19,34 @@ export function EngineShaderSourceEditor({ tab }: WorkbenchEditorProps) {
   const openTab = useWorkbenchStore((state) => state.openTab);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const text = sourceId ? builtInMaterialShaderSource(sourceId) : null;
+  const [text, setText] = useState<string | null>(null);
+  const [loading, setLoading] = useState(Boolean(sourceId));
+  useEffect(() => {
+    let cancelled = false;
+    if (!sourceId) {
+      setText(null);
+      setLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setText(null);
+    setLoading(true);
+    void window.noveltea
+      .readEngineShaderSource(sourceId)
+      .then((source) => {
+        if (!cancelled) setText(source);
+      })
+      .catch(() => {
+        if (!cancelled) setText(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceId]);
   const stage = useMemo(() => {
     if (!project || !materialId || !sourceId) return null;
     const effective = resolveMaterialData(project, materialId).data;
@@ -31,7 +57,7 @@ export function EngineShaderSourceEditor({ tab }: WorkbenchEditorProps) {
     return null;
   }, [materialId, project, sourceId]);
 
-  if (!sourceId || text === null)
+  if (!sourceId || (!loading && text === null))
     return (
       <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
         {t('materialEditor.builtInSourceUnavailable')}
@@ -62,6 +88,9 @@ export function EngineShaderSourceEditor({ tab }: WorkbenchEditorProps) {
       setBusy(false);
     }
   }
+
+  if (loading || text === null)
+    return <div className="flex h-full items-center justify-center p-6" />;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">

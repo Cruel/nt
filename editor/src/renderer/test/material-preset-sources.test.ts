@@ -1,14 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
+import { readEngineShaderSource } from '../../main/services/project-source-file-service';
 import { materialPresets } from '../../shared/project-schema/authoring-material-presets';
-import {
-  builtInMaterialShaderSource,
-  builtInMaterialShaderSources,
-} from '../../shared/project-schema/authoring-material-preset-sources';
 
-describe('built-in Material shader source catalog', () => {
-  it('matches the engine shader sources used by Material Presets', async () => {
+describe('built-in Material shader sources', () => {
+  it('loads preset shader text from the canonical engine source files', async () => {
     const referenced = new Set<string>();
     for (const preset of Object.values(materialPresets)) {
       referenced.add(preset.vertexSource);
@@ -17,9 +14,8 @@ describe('built-in Material shader source catalog', () => {
     }
 
     for (const sourceIdentity of referenced) {
-      const source = builtInMaterialShaderSource(sourceIdentity);
-      expect(source, sourceIdentity).not.toBeNull();
-      const filename = sourceIdentity.replace(/^engine:\//u, '');
+      const source = await readEngineShaderSource(sourceIdentity);
+      const filename = sourceIdentity.slice('engine:/'.length);
       const engineSource = await readFile(
         path.resolve('..', 'engine', 'shaders', 'bgfx', filename),
         'utf8',
@@ -28,12 +24,8 @@ describe('built-in Material shader source catalog', () => {
     }
   });
 
-  it('does not expose unrelated engine files through the built-in source catalog', () => {
-    expect(builtInMaterialShaderSource('engine:/not-a-material-source.sc')).toBeNull();
-    expect(
-      Object.keys(builtInMaterialShaderSources).every((identity) =>
-        identity.startsWith('engine:/'),
-      ),
-    ).toBe(true);
+  it('rejects non-engine and nested source identities', async () => {
+    await expect(readEngineShaderSource('project:/shaders/example.sc')).resolves.toBeNull();
+    await expect(readEngineShaderSource('engine:/nested/example.sc')).resolves.toBeNull();
   });
 });

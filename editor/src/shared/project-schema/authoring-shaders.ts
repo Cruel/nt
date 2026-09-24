@@ -99,12 +99,13 @@ void main()
 export const defaultFragmentShaderSource = `$input v_texcoord0, v_color0
 
 #include "bgfx_shader.sh"
+#include "noveltea_shader.sc"
 
 uniform vec4 u_tint;
 
 void main()
 {
-    gl_FragColor = v_color0 * u_tint;
+    gl_FragColor = noveltea_premultiply_alpha(v_color0 * u_tint);
 }
 `;
 

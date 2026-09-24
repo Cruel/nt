@@ -416,6 +416,11 @@ async function copyResources(resourcesRoot) {
     recursive: true,
     dereference: true,
   });
+  await cp(
+    path.join(repositoryRoot, 'engine', 'shaders', 'bgfx'),
+    path.join(resourcesRoot, 'editor-assets', 'system', 'shaders', 'bgfx'),
+    { recursive: true, dereference: true },
+  );
   const systemFontSource = path.join(
     repositoryRoot,
     'engine',
