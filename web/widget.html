@@ -1178,14 +1178,14 @@ thead, tbody, tfoot {
       if (!nativeExportAvailable('noveltea_runtime_debug_snapshot')) {
         const reason = 'Preview widget build does not export noveltea_runtime_debug_snapshot. Rebuild the editor preview.';
         if (failOnError) failCommand(message, reason, { category: 'preview-export' });
-        else emitDiagnostic(message, { severity: 'warning', category: 'preview-export', message: reason });
+        else if (message) emitDiagnostic(message, { severity: 'warning', category: 'preview-export', message: reason });
         return null;
       }
       const json = Module.ccall('noveltea_runtime_debug_snapshot', 'string', [], []);
       if (typeof json !== 'string' || json.length === 0) {
         const reason = 'Runtime debug snapshot is unavailable for the current preview session.';
         if (failOnError) failCommand(message, reason, { category: 'runtime-debug-snapshot' });
-        else emitDiagnostic(message, { severity: 'warning', category: 'runtime-debug-snapshot', message: reason });
+        else if (message) emitDiagnostic(message, { severity: 'warning', category: 'runtime-debug-snapshot', message: reason });
         return null;
       }
       try {
@@ -1195,7 +1195,7 @@ thead, tbody, tfoot {
       } catch (error) {
         const reason = `Runtime debug snapshot JSON could not be parsed: ${error && error.message ? error.message : String(error)}`;
         if (failOnError) failCommand(message, reason, { category: 'runtime-debug-snapshot' });
-        else emitDiagnostic(message, { severity: 'warning', category: 'runtime-debug-snapshot', message: reason });
+        else if (message) emitDiagnostic(message, { severity: 'warning', category: 'runtime-debug-snapshot', message: reason });
         return null;
       }
     }

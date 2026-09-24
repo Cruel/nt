@@ -317,10 +317,13 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
                       "Focused Material references a missing Shader.",
                       "/shaderMaterials/materials/" + std::to_string(material_index) + "/shader"));
         for (std::size_t texture_index = 0; texture_index < material.textures.size();
-             ++texture_index)
-            require_path(material.textures[texture_index].source,
-                         "/shaderMaterials/materials/" + std::to_string(material_index) +
-                             "/textures/" + std::to_string(texture_index) + "/source");
+             ++texture_index) {
+            const auto& source = material.textures[texture_index].source;
+            if (source.empty())
+                continue;
+            require_path(source, "/shaderMaterials/materials/" + std::to_string(material_index) +
+                                     "/textures/" + std::to_string(texture_index) + "/source");
+        }
     }
     if (!diagnostics.empty())
         return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
@@ -2134,6 +2137,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     if (m_dependencies.retire_legacy_preview)
         m_dependencies.retire_legacy_preview();
     m_dependencies.layouts.commit_focused_preview();
+    m_dependencies.world_resources.set_asset_lease_lookup_scope(
+        assets::AssetLeaseLookupScope::FocusedPreview);
     m_dependencies.world_resources.bind_catalog(candidate.state.world_catalog);
     m_dependencies.world.swap_prepared(*candidate.prepared_world);
     if (m_dependencies.world_presentation_changed)

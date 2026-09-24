@@ -3,7 +3,10 @@ import type {
   EditorRuntimePreparationResult,
 } from '../../shared/editor-runtime-cache';
 import { canonicalProjectContentJson } from '../../shared/project-schema/editor-project-state';
-import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
+import {
+  selectedExportProfile,
+  type ExportProfileData,
+} from '../../shared/project-schema/authoring-export';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { buildRuntimePlaybackSpecFromAuthoringTest } from '../../shared/project-schema/test-playback-project';
 import { PSEUDO_PREVIEW_LOCALE } from '../../shared/pseudo-localization';
@@ -42,6 +45,7 @@ import {
   nodeShaderCompilerAdapter,
 } from './node-runtime-artifact-adapters';
 import type { ShaderCompileResponse } from '../../shared/editor-tooling';
+import type { ShaderVariant } from '../../shared/shader-variants';
 
 type CanonicalRuntimeResult =
   | {
@@ -89,15 +93,25 @@ function previewProjectFromSaved(
   });
 }
 
-function buildContext(project: AuthoringProject): EditorRuntimeBuildContext {
+function buildContext(
+  project: AuthoringProject,
+  shaderVariant: ShaderVariant,
+): EditorRuntimeBuildContext {
   const locale = effectivePreviewLocale(project);
-  if (locale === project.localization.defaultLocale) return { kind: 'canonical' };
-  if (locale === PSEUDO_PREVIEW_LOCALE) return { kind: 'pseudo-preview-locale', locale };
-  return { kind: 'preview-locale', locale };
+  if (locale === project.localization.defaultLocale) return { kind: 'canonical', shaderVariant };
+  if (locale === PSEUDO_PREVIEW_LOCALE)
+    return { kind: 'pseudo-preview-locale', locale, shaderVariant };
+  return { kind: 'preview-locale', locale, shaderVariant };
 }
 
 function contextKey(context: EditorRuntimeBuildContext): string {
-  return context.kind === 'canonical' ? 'canonical-runtime' : `${context.kind}:${context.locale}`;
+  const localeKey =
+    context.kind === 'canonical' ? 'canonical' : `${context.kind}:${context.locale}`;
+  return `play:${localeKey}:${context.shaderVariant}`;
+}
+
+function playProfile(project: AuthoringProject, shaderVariant: ShaderVariant): ExportProfileData {
+  return { ...selectedExportProfile(project), shaderVariants: [shaderVariant] };
 }
 
 function observationWithPublication(
@@ -162,11 +176,12 @@ export class EditorRuntimeCacheService {
     project: AuthoringProject,
     projectRoot: string,
     artifact: PreparedRuntimeArtifact,
+    profile: ExportProfileData = selectedExportProfile(project),
   ) {
     return verifyPreparedRuntimeArtifact(artifact, {
       project,
       projectRoot,
-      profile: selectedExportProfile(project),
+      profile,
       paths: this.runtimePaths(projectRoot),
     });
   }
@@ -186,11 +201,15 @@ export class EditorRuntimeCacheService {
     });
   }
 
-  private async preparePreviewArtifact(project: AuthoringProject, projectRoot: string) {
+  private async preparePreviewArtifact(
+    project: AuthoringProject,
+    projectRoot: string,
+    shaderVariant: ShaderVariant,
+  ) {
     return prepareRuntimeArtifact({
       project,
       projectRoot,
-      profile: selectedExportProfile(project),
+      profile: playProfile(project, shaderVariant),
       intent: 'play',
       shaderCompiler: this.shaderCompiler(),
       paths: this.runtimePaths(projectRoot),
@@ -283,8 +302,9 @@ export class EditorRuntimeCacheService {
     workspace: ActiveProjectWorkspaceSession,
     project: AuthoringProject,
     recoveryFingerprint: unknown,
+    shaderVariant: ShaderVariant = 'glsl-330',
   ): Promise<EditorRuntimePreparationResult> {
-    const context = buildContext(project);
+    const context = buildContext(project, shaderVariant);
     if (!this.currentRuntimeProjectMatchesSaved(workspace, project)) {
       return { status: 'session-local', buildContext: context, reason: 'project-content-dirty' };
     }
@@ -296,41 +316,17 @@ export class EditorRuntimeCacheService {
       };
     }
 
-    if (context.kind === 'canonical') {
-      const result = await this.obtainCanonical(workspace, workspace.project(), 'play');
-      if (result.status === 'blocked') {
-        return {
-          status: 'blocked',
-          diagnostics: result.diagnostics,
-          buildContext: context,
-          cache: {
-            scope: 'persistent-canonical',
-            status: 'prepared',
-            observation: result.observation,
-          },
-        };
-      }
-      return {
-        status: 'prepared',
-        artifact: result.artifact,
-        buildContext: context,
-        cache: {
-          scope: 'persistent-canonical',
-          status: result.observation.status === 'hit' ? 'hit' : 'prepared',
-          observation: result.observation,
-        },
-      };
-    }
-
     const snapshot = workspace.snapshot();
     const variant = contextKey(context);
     const lookup = await lookupRuntimeBuildCacheVariant(this.fileSystem, snapshot, variant);
     const previewProject = previewProjectFromSaved(workspace.project(), project);
+    const profile = playProfile(previewProject, shaderVariant);
     if (lookup.enabled && lookup.artifact) {
       const verified = await this.verifyCachedArtifact(
         previewProject,
         workspace.projectRoot(),
         lookup.artifact,
+        profile,
       );
       if (verified.status === 'verified') {
         return {
@@ -346,7 +342,11 @@ export class EditorRuntimeCacheService {
       }
     }
 
-    const prepared = await this.preparePreviewArtifact(previewProject, workspace.projectRoot());
+    const prepared = await this.preparePreviewArtifact(
+      previewProject,
+      workspace.projectRoot(),
+      shaderVariant,
+    );
     if (prepared.status !== 'prepared') {
       return {
         status: 'blocked',

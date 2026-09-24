@@ -1242,11 +1242,12 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.PREPARE_EDITOR_RUNTIME,
     (arguments_) => prepareEditorRuntimeArgumentsSchema.parse(arguments_),
-    (projectSessionId, project, recoveryFingerprint) =>
+    (projectSessionId, project, recoveryFingerprint, shaderVariant) =>
       editorRuntimeCache.preparePlay(
         activeProjectSessions.requireActiveWorkspace(projectSessionId),
         project,
         recoveryFingerprint,
+        shaderVariant,
       ),
   );
 

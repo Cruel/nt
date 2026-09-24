@@ -95,12 +95,14 @@ const api: NovelTeaElectronApi = {
     projectSessionId: string,
     project: unknown,
     recoveryFingerprint: unknown,
+    shaderVariant: import('./shared/shader-variants').ShaderVariant,
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.PREPARE_EDITOR_RUNTIME,
       projectSessionId,
       project,
       recoveryFingerprint,
+      shaderVariant,
     ),
   runPlaybackTest: (
     projectSessionId: string | null,

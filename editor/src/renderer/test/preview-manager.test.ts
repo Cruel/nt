@@ -136,6 +136,28 @@ describe('preview manager store', () => {
     expect(diagnostics[0]?.message).toContain('Entity preview pool is full');
   });
 
+  it('dedupes identical preview diagnostics', () => {
+    const first = usePreviewManagerStore.getState().recordPreviewDiagnostic({
+      sessionId: PRIMARY_PREVIEW_SESSION_ID,
+      severity: 'error',
+      source: 'transport',
+      message: 'Engine preview is not connected.',
+      target: { kind: 'preview' },
+      timestamp: 1,
+    });
+    const second = usePreviewManagerStore.getState().recordPreviewDiagnostic({
+      sessionId: PRIMARY_PREVIEW_SESSION_ID,
+      severity: 'error',
+      source: 'transport',
+      message: 'Engine preview is not connected.',
+      target: { kind: 'preview' },
+      timestamp: 2,
+    });
+
+    expect(second).toBe(first);
+    expect(usePreviewManagerStore.getState().diagnosticOrder).toEqual([first.id]);
+  });
+
   it('dedupes and invalidates thumbnail cache entries', () => {
     const input: ThumbnailRequestInput = {
       target: { collection: 'materials', entityId: 'mat-a' },

@@ -62,7 +62,59 @@ function createRuntimeLoadHarness() {
   return { context, messages, loadCompiledProject: context.loadCompiledProject };
 }
 
+function createRuntimeDebugHarness() {
+  const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
+  const start = widget.indexOf('function readRuntimeDebugSnapshot(message, failOnError) {');
+  const end = widget.indexOf('\n    function canonicalUnsignedDecimal', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const implementation = widget.slice(start, end);
+  const diagnostics: Record<string, unknown>[] = [];
+  const context = {
+    nativeExportAvailable: () => true,
+    Module: { ccall: () => '' },
+    failCommand() {},
+    emitDiagnostic(_message: unknown, diagnostic: Record<string, unknown>) {
+      diagnostics.push(diagnostic);
+    },
+    port: {},
+    engineReady: true,
+    runtimeReady: true,
+    previewActivityActive: true,
+    previewActivityVisible: true,
+    lastRuntimeDebugFingerprint: '',
+    runtimeDebugFingerprint: () => '',
+    send() {},
+    readRuntimeDebugSnapshot: null as null | ((message: unknown, failOnError: boolean) => unknown),
+    publishRuntimeDebugSnapshotIfChanged: null as null | (() => void),
+  };
+  vm.runInNewContext(
+    `${implementation}\nthis.readRuntimeDebugSnapshot = readRuntimeDebugSnapshot; this.publishRuntimeDebugSnapshotIfChanged = publishRuntimeDebugSnapshotIfChanged;`,
+    context,
+  );
+  if (!context.readRuntimeDebugSnapshot || !context.publishRuntimeDebugSnapshotIfChanged)
+    throw new Error('Runtime debug harness did not load.');
+  return { context, diagnostics };
+}
+
 describe('preview widget runtime project loading', () => {
+  it('does not spam diagnostics when passive runtime-debug polling has no snapshot yet', () => {
+    const harness = createRuntimeDebugHarness();
+
+    harness.context.publishRuntimeDebugSnapshotIfChanged!();
+    harness.context.publishRuntimeDebugSnapshotIfChanged!();
+
+    expect(harness.diagnostics).toEqual([]);
+    harness.context.readRuntimeDebugSnapshot!({ requestId: 'explicit' }, false);
+    expect(harness.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        category: 'runtime-debug-snapshot',
+        message: 'Runtime debug snapshot is unavailable for the current preview session.',
+      }),
+    ]);
+  });
+
   it('shows the native load diagnostic instead of replacing it with a generic failure', async () => {
     const harness = createRuntimeLoadHarness();
 

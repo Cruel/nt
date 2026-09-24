@@ -434,7 +434,8 @@ function cloneTabForProjectPersistence(tab: WorkbenchTab): WorkbenchTab | null {
 function projectHasResource(project: unknown, tab: WorkbenchTab): boolean {
   const resource = tab.resource;
   if (!resource) return false;
-  if (resource.kind === 'preview' || resource.kind === 'project') return true;
+  if (resource.kind === 'preview' || resource.kind === 'project' || resource.kind === 'source')
+    return true;
   if (
     (resource.kind === 'record' || resource.kind === 'raw') &&
     resource.collection &&

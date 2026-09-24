@@ -23,6 +23,7 @@ import { PackageExportPanel } from '@/export/PackageExportPanel';
 import { TestPlaybackPanel } from './TestPlaybackPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { AssetPerformancePanel } from '@/asset-profiler/AssetPerformancePanel';
+import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { terminalHasUnreadAttention, useTerminalAttentionStore } from './terminal-attention-store';
 import { selectWindowTerminalSession } from './terminal-window-host';
 
@@ -177,6 +178,12 @@ export function BottomPanel() {
   const resolvedActivePanelId = resolveAvailableBottomPanelId(activePanelId, availabilityContext);
   const terminalAttention = useTerminalAttentionStore((state) => state.attentionBySession);
   const terminalHasUnread = terminalHasUnreadAttention(terminalAttention);
+  const previewErrorCount = usePreviewManagerStore((state) =>
+    state.diagnosticOrder.reduce(
+      (count, id) => count + (state.diagnosticsById[id]?.severity === 'error' ? 1 : 0),
+      0,
+    ),
+  );
   const terminalVisible = visible && resolvedActivePanelId === 'terminal';
 
   useEffect(() => {
@@ -238,6 +245,15 @@ export function BottomPanel() {
             {panel.id === 'problems' && diagnostics.length > 0 ? (
               <span className="ml-1 rounded bg-muted px-1 font-mono text-[10px]">
                 {diagnostics.length}
+              </span>
+            ) : null}
+            {panel.id === 'preview-diagnostics' && previewErrorCount > 0 ? (
+              <span
+                className="ml-1 rounded bg-destructive px-1 font-mono text-[10px] text-destructive-foreground"
+                aria-label={`${previewErrorCount} preview error${previewErrorCount === 1 ? '' : 's'}`}
+                data-preview-diagnostics-error-count
+              >
+                {previewErrorCount}
               </span>
             ) : null}
             {panel.id === 'terminal' && terminalHasUnread ? (

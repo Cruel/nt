@@ -11,6 +11,7 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import {
@@ -29,6 +30,7 @@ beforeEach(() => {
     projectFilePath: '/mock/project/game.json',
   });
   useWorkspaceStore.getState().setDiagnostics([]);
+  usePreviewManagerStore.getState().resetPreviewManager();
   usePreferencesStore.setState({ developerMode: false });
   useBottomPanelStore.getState().hydrate({ visible: true, activePanelId: 'problems' });
   useWorkbenchStore.getState().resetWorkbench();
@@ -61,6 +63,22 @@ describe('BottomPanel', () => {
     expect(screen.getByRole('button', { name: /Problems/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Output' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Preview Events' })).toBeInTheDocument();
+  });
+
+  it('shows an error indicator on Preview Diagnostics when preview errors exist', () => {
+    usePreviewManagerStore.getState().recordPreviewDiagnostic({
+      severity: 'error',
+      source: 'manager',
+      message: 'Focused Room preview failed.',
+      target: { kind: 'record', collection: 'rooms', entityId: 'foyer' },
+    });
+
+    render(<BottomPanel />);
+
+    expect(screen.getByLabelText('1 preview error')).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: /Preview Diagnostics/ })).toContainElement(
+      screen.getByLabelText('1 preview error'),
+    );
   });
 
   it('opens resolvable problem diagnostics through workbench navigation', () => {

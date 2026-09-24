@@ -27,6 +27,7 @@ import type {
   PreviewMode,
   PreviewToEditorMessage,
 } from '../../shared/preview-protocol';
+import type { ShaderVariant } from '../../shared/shader-variants';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { authoredPreviewEnvironment, effectivePreviewDisplay } from '../../shared/preview-display';
@@ -40,6 +41,7 @@ export type EnginePreviewConnectionState = PreviewConnectionState;
 export interface EnginePreviewControlsContext {
   controller: EnginePreviewController;
   connectionState: EnginePreviewConnectionState;
+  activeShaderVariant: ShaderVariant | null;
   fpsCap: number;
   setFpsCap: (value: number) => void;
   reload: () => void;
@@ -124,6 +126,7 @@ export function EnginePreview({
   const [localConnectionState, setLocalConnectionState] =
     useState<EnginePreviewConnectionState>('loading');
   const [previewVisible, setPreviewVisible] = useState(true);
+  const [activeShaderVariant, setActiveShaderVariant] = useState<ShaderVariant | null>(null);
   const previewActivityStateRef = useRef({ published: false, visible: true });
   const connectionState = embedded ? localConnectionState : globalConnectionState;
   const setConnectionState = useCallback(
@@ -156,6 +159,7 @@ export function EnginePreview({
 
   const handlePreviewMessage = useCallback(
     (message: PreviewToEditorMessage) => {
+      if (message.type === 'ready') setActiveShaderVariant(message.activeShaderVariant);
       bridgePreviewMessage(message, {
         activateContainingWorkbenchGroup,
         setConnectionState,
@@ -325,6 +329,7 @@ export function EnginePreview({
 
   const reload = useCallback(() => {
     setConnectionState('loading');
+    setActiveShaderVariant(null);
     setSessionStatus(sessionId, 'loading');
     void loadSession(true)
       .then((nextSession) => {
@@ -361,12 +366,21 @@ export function EnginePreview({
     () => ({
       controller,
       connectionState,
+      activeShaderVariant,
       fpsCap,
       setFpsCap: setSanitizedFpsCap,
       reload,
       sendRuntimeCommand,
     }),
-    [connectionState, controller, fpsCap, reload, sendRuntimeCommand, setSanitizedFpsCap],
+    [
+      activeShaderVariant,
+      connectionState,
+      controller,
+      fpsCap,
+      reload,
+      sendRuntimeCommand,
+      setSanitizedFpsCap,
+    ],
   );
 
   useLayoutEffect(() => {
