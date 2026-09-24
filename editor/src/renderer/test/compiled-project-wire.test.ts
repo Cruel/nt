@@ -14,14 +14,18 @@ it('limits compiled Material integers to the exactly representable Shader range'
     source: { kind: 'literal' as const, value: { type: 'int' as const, value } },
   });
 
-  expect(compiledMaterialApplicationParameterOverrideSchema.safeParse(parameter(-16_777_216)).success)
-    .toBe(true);
-  expect(compiledMaterialApplicationParameterOverrideSchema.safeParse(parameter(16_777_216)).success)
-    .toBe(true);
-  expect(compiledMaterialApplicationParameterOverrideSchema.safeParse(parameter(-16_777_217)).success)
-    .toBe(false);
-  expect(compiledMaterialApplicationParameterOverrideSchema.safeParse(parameter(16_777_217)).success)
-    .toBe(false);
+  expect(
+    compiledMaterialApplicationParameterOverrideSchema.safeParse(parameter(-16_777_216)).success,
+  ).toBe(true);
+  expect(
+    compiledMaterialApplicationParameterOverrideSchema.safeParse(parameter(16_777_216)).success,
+  ).toBe(true);
+  expect(
+    compiledMaterialApplicationParameterOverrideSchema.safeParse(parameter(-16_777_217)).success,
+  ).toBe(false);
+  expect(
+    compiledMaterialApplicationParameterOverrideSchema.safeParse(parameter(16_777_217)).success,
+  ).toBe(false);
 });
 
 function representativeWireFixture() {
