@@ -213,9 +213,12 @@ public:
 
     [[nodiscard]] bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values) override
     {
+        if (!accept_gameplay_values || values.revision == 0 ||
+            (gameplay_values && values.revision < gameplay_values->revision))
+            return false;
         gameplay_values = values;
         startup_context = values.startup_context;
-        return accept_gameplay_values;
+        return true;
     }
 
     void clear_gameplay_ui_values() override

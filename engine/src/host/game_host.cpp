@@ -1004,6 +1004,7 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
     }
 
     if (runtime_replaced) {
+        m_dependencies.runtime_ui.clear_gameplay_ui_values();
         advance_session_generation();
         advance_backend_generation();
         if (m_dependencies.runtime_session_replaced)
