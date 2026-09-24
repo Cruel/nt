@@ -42,16 +42,35 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
   }
 
   seed(snapshot: LoadedProjectWorkspaceSnapshot): void {
-    this.textByPath.clear();
-    this.revisionByPath.clear();
-    this.inspectByPath.clear();
-    this.directoryEntriesByPath.clear();
-    this.realpathByPath.clear();
     const projected = projectWorkspaceFiles(
       snapshot.project,
       snapshot.project.editor,
       snapshot.scriptSourcePaths,
     );
+    this.seedEntries(snapshot, Object.entries(projected));
+  }
+
+  seedOpened(opened: Extract<ProjectWorkspaceOpenResult, { ok: true }>): void {
+    this.seedEntries(
+      opened.snapshot,
+      Object.entries(opened.sourceContributions).map(([relativePath, contribution]) => [
+        relativePath,
+        contribution.kind === 'json'
+          ? `${JSON.stringify(contribution.parsed, null, 2)}\n`
+          : contribution.text,
+      ]),
+    );
+  }
+
+  private seedEntries(
+    snapshot: LoadedProjectWorkspaceSnapshot,
+    entries: readonly (readonly [string, string])[],
+  ): void {
+    this.textByPath.clear();
+    this.revisionByPath.clear();
+    this.inspectByPath.clear();
+    this.directoryEntriesByPath.clear();
+    this.realpathByPath.clear();
     const root = this.key(snapshot.projectRoot);
     const childrenByDirectory = new Map<string, Set<string>>();
     const registerDirectory = (absolute: string) => {
@@ -60,7 +79,7 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
       if (!childrenByDirectory.has(key)) childrenByDirectory.set(key, new Set());
     };
     registerDirectory(root);
-    for (const [relative, text] of Object.entries(projected)) {
+    for (const [relative, text] of entries) {
       const absolute = this.key(this.joinPath(root, relative));
       this.textByPath.set(absolute, text);
       this.inspectByPath.set(absolute, 'file');
@@ -353,7 +372,8 @@ export class ResidentProjectWorkspaceSession {
     this.workspace = host.createWorkspaceService
       ? host.createWorkspaceService(this.fileSystem)
       : new ProjectWorkspaceService(this.fileSystem);
-    this.fileSystem.seed(snapshot);
+    if (opened) this.fileSystem.seedOpened(opened);
+    else this.fileSystem.seed(snapshot);
   }
 
   static fromOpenedWithHost(
