@@ -5187,6 +5187,15 @@ bool spawn_daemon_process(const std::string& executable_path, const BrokerContex
         return false;
     if (child == 0) {
         ::setsid();
+        // The resident daemon must not retain the invoking command's working directory. CLI
+        // callers are free to remove or replace their cwd after the request completes; if the
+        // broker inherits that directory, later owner/disposable children can start from an
+        // unlinked cwd and fail during host initialization. Anchor the daemon to the installed
+        // executable directory instead. Individual requests carry their own cwd explicitly.
+        const auto daemon_working_directory =
+            std::filesystem::path(executable_path).parent_path();
+        if (!daemon_working_directory.empty() && ::chdir(daemon_working_directory.c_str()) != 0)
+            _exit(127);
         const int devnull = ::open("/dev/null", O_RDWR);
         if (devnull >= 0) {
             ::dup2(devnull, STDIN_FILENO);
@@ -5446,8 +5455,13 @@ bool spawn_daemon_process(const std::string& executable_path, const BrokerContex
     PROCESS_INFORMATION process{};
     std::vector<wchar_t> mutable_command(command_line.begin(), command_line.end());
     mutable_command.push_back(L'\0');
+    const auto daemon_working_directory =
+        std::filesystem::path(utf8_to_wide(executable_path)).parent_path();
+    const wchar_t* current_directory =
+        daemon_working_directory.empty() ? nullptr : daemon_working_directory.c_str();
     if (!CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr, FALSE,
-                        CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, nullptr, &startup, &process))
+                        CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, current_directory, &startup,
+                        &process))
         return false;
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
