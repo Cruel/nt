@@ -100,6 +100,7 @@ function(noveltea_configure_embedded_shaderc)
             URL "${NOVELTEA_BGFX_SHADERC_ARCHIVE_URL}"
             URL_HASH "SHA256=${NOVELTEA_BGFX_SHADERC_ARCHIVE_SHA256}"
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+            PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bgfx-shaderc-preprocess-leak.cmake
         )
         FetchContent_MakeAvailable(noveltea_bgfx_shaderc_source)
         if(NOT TARGET texturec)
