@@ -229,28 +229,28 @@ jobs:
       - name: Set up vcpkg
         uses: ./.github/actions/setup-linux-vcpkg
         with:
-          installed-dir: build/linux-release/vcpkg_installed
-          scope: linux-release
-          binary-scope: linux-release
+          installed-dir: build/linux-authoring-release/vcpkg_installed
+          scope: linux-authoring-release
+          binary-scope: linux-authoring-release
           binary-fallback-scope: linux-debug
 
       - name: Cache embedded bgfx host-tool build
         uses: actions/cache@v5
         with:
           path: |
-            build/linux-release/_deps/bgfx.cmake-src
-            build/linux-release/_deps/bgfx.cmake-build
-            build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
-            build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-            build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bimg_texturec_embedded.dir
-            build/linux-release/tools/editor_tool/libnoveltea_bimg_texturec_embedded.a
+            build/linux-authoring-release/_deps/bgfx.cmake-src
+            build/linux-authoring-release/_deps/bgfx.cmake-build
+            build/linux-authoring-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
+            build/linux-authoring-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
+            build/linux-authoring-release/tools/editor_tool/CMakeFiles/noveltea_bimg_texturec_embedded.dir
+            build/linux-authoring-release/tools/editor_tool/libnoveltea_bimg_texturec_embedded.a
           key: ${{ runner.os }}-x64-embedded-bgfx-tools-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
 
       - name: Set up compiler cache
         id: ccache
         uses: ./.github/actions/setup-ccache
         with:
-          scope: linux-release
+          scope: linux-authoring-release
 
       - name: Download shader assets
         uses: actions/download-artifact@v7
@@ -293,7 +293,7 @@ jobs:
             -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" \
             -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/cli-shader-assets" \
             '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' \
-            -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-release/_deps/bgfx.cmake-src/bgfx/src" \
+            -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-authoring-release/_deps/bgfx.cmake-src/bgfx/src" \
             -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
           diff --recursive --brief \
             build/prebuilt-shader-assets/shaders \
@@ -303,7 +303,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-cli-certification-shader-headers
-          path: build/linux-release/_deps/bgfx.cmake-src/bgfx/src
+          path: build/linux-authoring-release/_deps/bgfx.cmake-src/bgfx/src
           if-no-files-found: error
 
       - name: Upload NovelTea host CLI
@@ -347,7 +347,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: noveltea-cli-certification-shader-headers
-          path: build/linux-release/_deps/bgfx.cmake-src/bgfx/src
+          path: build/linux-authoring-release/_deps/bgfx.cmake-src/bgfx/src
 
       - name: Download NovelTea host CLI
         uses: actions/download-artifact@v7

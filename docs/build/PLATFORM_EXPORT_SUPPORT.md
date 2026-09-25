@@ -12,8 +12,8 @@ separate certification workflow as described below.
 | Target | Architecture / ABI | Initial artifact | Graphics and shaders | Assembly host | Compatibility floor |
 | --- | --- | --- | --- | --- | --- |
 | Windows | x64 | Portable ZIP | OpenGL; `glsl-330` | Any host for template assembly; Windows tooling for resource/signing work | Windows 10 1809 |
-| Linux | x64 | tar archive; AppImage optional | OpenGL; `glsl-330` | Any host for template assembly; Linux for AppImage/tool-assisted audits | Ubuntu 24.04 / glibc 2.39 |
-| macOS | arm64 | `.app` bundle | Metal; `metal` | macOS required for signing/notarization | macOS 13 |
+| Linux | x64 | tar archive; AppImage optional | OpenGL; `glsl-330` | Any host for template assembly; Linux for AppImage/tool-assisted audits | glibc 2.28 |
+| macOS | arm64 | `.app` bundle | Metal; `metal` | macOS required for signing/notarization | macOS 11 |
 | Web | wasm32; threaded canonical, single-threaded compatibility artifact | Deployment directory/ZIP | WebGL 2; `essl-300` | Any host with an installed matching template | Supported browser floor provisional; threaded Web requires `SharedArrayBuffer` plus COOP/COEP cross-origin isolation |
 | Android release | arm64-v8a | APK/AAB | OpenGL ES/Vulkan as declared by template; `essl-300` | Template assembly may be host-independent; APK/AAB generation requires Android tooling | min API 24; compile API 35 |
 | Android debug/emulator | x86_64 | APK | OpenGL ES/Vulkan as declared by template; `essl-300` | Android JDK/SDK/NDK/Gradle required | min API 24; compile API 35 |
@@ -23,8 +23,23 @@ Verified template file modes are part of `template.json`. POSIX hosts verify ext
 modes against those declarations; Windows hosts use the verified descriptor modes as authoritative
 because NTFS archive extraction cannot preserve POSIX permission bits. Staging carries those verified
 modes forward so a Linux or macOS template assembled on Windows does not lose executable metadata.
-The standalone CLI is certified independently on Linux x64 and Windows x64; additional host
-binaries require their own scriptc/native-link certification before release.
+
+Player compatibility is deliberately independent from editor/CLI compatibility. Exported games do
+not link ScriptC or the authoring tooling closure, so authoring dependencies must never raise the
+runtime floor of a player template. Current desktop compatibility contracts are:
+
+| Platform | Player runtime floor | Authoring CLI/editor floor | Release enforcement |
+| --- | --- | --- | --- |
+| Linux x64 | glibc 2.28; GNU C++ runtime linked into the player | glibc 2.36 / GLIBCXX 3.4.30 | Player builds in the pinned `manylinux_2_28_x86_64` environment and receives an ELF ABI audit. The release CLI builds in a pinned Debian 12/glibc 2.36 container, and packaged editor ELF files are audited against the same ABI ceiling. |
+| Windows x64 | Windows 10 1809 | Windows 10; exact Windows 10 build remains provisional | Player and vcpkg target compilation define `WINVER=0x0A00`, `_WIN32_WINNT=0x0A00`, and `NTDDI_VERSION=0x0A000006` (RS5/1809). Authoring remains on upstream ScriptC's Windows 10 contract until a narrower floor is qualified. |
+| macOS arm64 | macOS 11 | macOS 14 | Player CMake/vcpkg deployment targets are 11.0. Authoring CMake/vcpkg targets and the packaged editor minimum are 14.0; release builds run on the newer macOS/Xcode host required by the toolchain. |
+
+The Linux release runner version is intentionally not part of either compatibility contract. The
+player userspace is a digest-pinned glibc 2.28 container, while Linux authoring is built in a
+digest-pinned Debian 12 container. This prevents GitHub-hosted runner image upgrades from silently
+raising either ABI floor. The standalone CLI is fully certified independently on Linux x64 and
+Windows x64; the macOS host CLI is built for and package-smoked with the macOS editor, while complete
+standalone CLI differential certification remains a separate admission gate.
 
 Current release automation uses Emscripten 6.0.0 and an Android set certified together: Gradle 8.9,
 Android Gradle Plugin 8.7.3, Java 17, API/target/compile SDK 35, build-tools 35.0.0,

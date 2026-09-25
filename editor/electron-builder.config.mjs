@@ -189,6 +189,7 @@ export default {
   },
   mac: {
     icon: path.join(buildResourcesRoot, 'icon.svg'),
+    minimumSystemVersion: '14.0',
     target: [
       { target: 'dmg', arch: ['arm64'] },
       { target: 'zip', arch: ['arm64'] },

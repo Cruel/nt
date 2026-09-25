@@ -31,9 +31,9 @@ receive the policy directly on their CMake targets.
 
 ## Platform build policy
 
-- Linux uses `x64-linux-noveltea` for target libraries and `x64-linux` for host tools.
-- Windows desktop player/editor builds use `x64-windows-static-noveltea` for target libraries and `x64-windows` for host tools. The standalone Windows CLI is a separate GNU-ABI artifact: its native FFI closure uses `x64-mingw-static-noveltea` with `x64-mingw-static-host`, then ScriptC/Zig links the final `x86_64-windows-gnu` executable.
-- macOS arm64 uses `arm64-osx-noveltea` for target libraries and `arm64-osx` for host tools.
+- Linux players use `x64-linux-noveltea` inside the pinned glibc 2.28 release environment and statically link libstdc++/libgcc so the host C++ runtime cannot raise the player floor. Linux authoring uses the separate `x64-linux-authoring-noveltea` triplet inside the pinned Debian 12/glibc 2.36 environment.
+- Windows desktop players use `x64-windows-static-noveltea`, with the player and dependency closure compiled for Windows 10 1809 (`WINVER`/`_WIN32_WINNT` 0x0A00 and `NTDDI_VERSION` 0x0A000006). The standalone Windows CLI is a separate GNU-ABI artifact: its native FFI closure uses `x64-mingw-static-noveltea` with `x64-mingw-static-host`, then ScriptC/Zig links the final `x86_64-windows-gnu` executable under the broader upstream Windows 10 authoring contract.
+- macOS arm64 players use `arm64-osx-noveltea` with deployment target 11.0. Authoring uses `arm64-osx-authoring-noveltea` with deployment target 14.0 so ScriptC/editor requirements do not raise the player floor.
 - Web and Android apply `-fno-exceptions -fno-rtti` to every source-built C++ dependency target.
 - MSVC desktop target libraries use `/GR- /EHs-c- /D_HAS_EXCEPTIONS=0`; the Windows CLI GNU triplet applies the corresponding `-fno-exceptions -fno-rtti` dependency policy.
 

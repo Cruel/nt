@@ -1,5 +1,5 @@
 name: Setup Linux native dependencies
-description: Install the shared Ubuntu packages used by NovelTea CI jobs.
+description: Install the shared Debian/Ubuntu apt packages used by NovelTea CI jobs.
 inputs:
   ccache:
     description: Install ccache.
@@ -93,5 +93,13 @@ runs:
           packages+=("${extra_packages[@]}")
         fi
 
-        sudo apt-get update
-        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
+        if [[ "$(id -u)" -eq 0 ]]; then
+          apt-get update
+          env DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
+        elif command -v sudo >/dev/null 2>&1; then
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
+        else
+          echo "Linux dependency setup requires root or sudo." >&2
+          exit 1
+        fi

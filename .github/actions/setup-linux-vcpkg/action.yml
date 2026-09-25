@@ -14,6 +14,10 @@ inputs:
     description: Optional compatible binary-package cache scope to seed this writer.
     required: false
     default: ""
+  cache-prefix:
+    description: ABI-environment cache prefix. Keep distinct compatibility environments isolated.
+    required: false
+    default: "ubuntu-24.04-x64"
 runs:
   using: composite
   steps:
@@ -21,28 +25,28 @@ runs:
       uses: actions/cache@v5
       with:
         path: .cache/vcpkg
-        key: ubuntu-24.04-x64-vcpkg-sdk-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+        key: ${{ inputs['cache-prefix'] }}-vcpkg-sdk-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
         restore-keys: |
-          ubuntu-24.04-x64-vcpkg-sdk-
+          ${{ inputs['cache-prefix'] }}-vcpkg-sdk-
 
     # Separate writers can retain newly built packages without racing for one immutable key.
     - name: Cache vcpkg binaries
       uses: actions/cache@v5
       with:
         path: .cache/vcpkg-binary
-        key: ubuntu-24.04-x64-vcpkg-binary-${{ inputs['binary-scope'] }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}-${{ github.sha }}
+        key: ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}-${{ github.sha }}
         restore-keys: |
-          ubuntu-24.04-x64-vcpkg-binary-${{ inputs['binary-scope'] }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}-
-          ubuntu-24.04-x64-vcpkg-binary-${{ inputs['binary-scope'] }}-
-          ${{ inputs['binary-fallback-scope'] != '' && format('ubuntu-24.04-x64-vcpkg-binary-{0}-', inputs['binary-fallback-scope']) || '' }}
+          ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}-
+          ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-
+          ${{ inputs['binary-fallback-scope'] != '' && format('{0}-vcpkg-binary-{1}-', inputs['cache-prefix'], inputs['binary-fallback-scope']) || '' }}
 
     - name: Cache vcpkg installed tree
       uses: actions/cache@v5
       with:
         path: ${{ inputs['installed-dir'] }}
-        key: ubuntu-24.04-x64-vcpkg-installed-${{ inputs.scope }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}
+        key: ${{ inputs['cache-prefix'] }}-vcpkg-installed-${{ inputs.scope }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}
         restore-keys: |
-          ubuntu-24.04-x64-vcpkg-installed-${{ inputs.scope }}-
+          ${{ inputs['cache-prefix'] }}-vcpkg-installed-${{ inputs.scope }}-
 
     - name: Bootstrap vcpkg
       shell: bash

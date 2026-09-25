@@ -85,7 +85,7 @@ function installLinuxTemplate(root: string, shaderVariants: string[]) {
     engineVersion: '1',
     platform: 'linux',
     architecture: 'x64',
-    minimumPlatformVersion: 'glibc 2.39',
+    minimumPlatformVersion: 'glibc 2.28',
     graphicsBackends: ['opengl'],
     shaderVariants,
     compiledProjectFormatVersion: 1,

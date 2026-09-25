@@ -60,11 +60,11 @@ jobs:
           path: |
             .cache/vcpkg
             .cache/vcpkg-binary
-            build/linux-release/vcpkg_installed
-            build/linux-release/_deps/bgfx.cmake-src
-            build/linux-release/_deps/bgfx.cmake-build
-            build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
-            build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
+            build/linux-authoring-release/vcpkg_installed
+            build/linux-authoring-release/_deps/bgfx.cmake-src
+            build/linux-authoring-release/_deps/bgfx.cmake-build
+            build/linux-authoring-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
+            build/linux-authoring-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
           key: ubuntu-24.04-x64-arm64-cert-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
           restore-keys: |
             ubuntu-24.04-x64-arm64-cert-shader-host-
@@ -77,7 +77,7 @@ jobs:
 
       - name: Build arm64 release player template source
         working-directory: android
-        run: ./gradlew --no-daemon :app:assembleRelease -PnovelteaAbi=arm64-v8a -PnovelteaCli="${{ github.workspace }}/build/cli/linux/noveltea" -PbgfxShaderInclude="${{ github.workspace }}/build/linux-release/_deps/bgfx.cmake-src/bgfx/src"
+        run: ./gradlew --no-daemon :app:assembleRelease -PnovelteaAbi=arm64-v8a -PnovelteaCli="${{ github.workspace }}/build/cli/linux/noveltea" -PbgfxShaderInclude="${{ github.workspace }}/build/linux-authoring-release/_deps/bgfx.cmake-src/bgfx/src"
       - name: Package immutable arm64 release template
         run: cmake -DNOVELTEA_RELEASE_TAG=arm64-cert-${GITHUB_SHA} -DNOVELTEA_ANDROID_ABI=arm64-v8a -DNOVELTEA_ANDROID_FLAVOR=release -DNOVELTEA_BUNDLETOOL_JAR="${{ github.workspace }}/build/tools/bundletool-all-1.18.1.jar" -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
       - name: Export two arm64 APK+AAB package revisions through public CLI

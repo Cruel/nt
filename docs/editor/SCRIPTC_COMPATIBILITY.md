@@ -1,6 +1,6 @@
 # scriptc CLI Compatibility
 
-NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.1.3. The release architecture intentionally uses scriptc's dynamic tier for the shared TypeScript authoring implementation and a very small statically compiled host for capabilities that require exact host/native behavior.
+NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.1.4. The release architecture intentionally uses scriptc's dynamic tier for the shared TypeScript authoring implementation and a very small statically compiled host for capabilities that require exact host/native behavior.
 
 ## Release architecture
 
@@ -85,11 +85,12 @@ Built-in ComfyUI packages are handled the same way. The checked-in manifests and
 
 ## Build pin and admitted host
 
-- scriptc: exact `0.1.3`; the resident-owner GC adapter also pins the runtime exports `scr_island_lre_opaque`, `JS_GetRuntime`, `JS_RunGC`, and `JS_SetGCThreshold`, so a scriptc upgrade must re-certify that ABI rather than silently falling back to foreground collection
-- pnpm's 24-hour minimum-release-age policy explicitly exempts the pinned `scriptc@0.1.3`, `@scriptc/compiler@0.1.3`, `@scriptc/runtime@0.1.3`, and the matching platform-specific LLVM/runtime packages required by supported targets; future scriptc versions must either age normally or receive a new explicit reviewed exemption
+- scriptc: exact `0.1.4`; the resident-owner GC adapter also pins the runtime exports `scr_island_lre_opaque`, `JS_GetRuntime`, `JS_RunGC`, and `JS_SetGCThreshold`, so a scriptc upgrade must re-certify that ABI rather than silently falling back to foreground collection
 - Node used to drive release builds/reference certification: exact `24.18.0`
-- Linux release builds require host `clang`; Windows release builds require MinGW `gcc`/`g++` plus Zig 0.16.0 and target ScriptC as `x86_64-windows-gnu`
-- admitted standalone targets: Linux x64 and Windows x64
+- Linux authoring releases are built inside the pinned Debian 12/glibc 2.36 environment. The produced CLI is audited for `GLIBC <= 2.36` and `GLIBCXX <= 3.4.30`, matching the official ScriptC 0.1.4 GNU compatibility floor instead of inheriting the GitHub runner's userspace.
+- macOS authoring builds use the dedicated `macos-authoring-release` CMake/vcpkg target at macOS 14.0. The newer macOS/Xcode release runner is a build-host requirement and does not raise the shipped authoring minimum.
+- Windows release builds require MinGW `gcc`/`g++` plus Zig 0.16.0 and target ScriptC as `x86_64-windows-gnu`; the upstream compatibility contract is Windows 10, with the exact Windows 10 build still provisional.
+- fully differential-certified standalone targets: Linux x64 and Windows x64; macOS arm64 is built as the editor's host CLI at a macOS 14 floor and is package-smoked with the editor, but does not yet claim the complete standalone differential-certification gate
 
 `editor/scripts/build-noveltea-cli.mjs` verifies the installed scriptc version, builds the native
 tooling archive closure for the current admitted host, produces the minified/no-sourcemap code-split
@@ -116,9 +117,12 @@ ComfyUI transport stays in the shared TypeScript island and uses HTTP(S) `fetch`
 
 OS signal delivery remains a host boundary. A standalone client interrupted by Ctrl-C or disconnected mid-request drops its framed broker connection; the broker marks that active request cancelled, and the executing owner/disposable island polls that request-local cancellation state to drive command abort signals where the shared command already supports cooperative cancellation. Transaction commits remain serialized inside the Project Workspace transaction boundary, so cancellation never turns a partially started transaction into a replayable client operation; mutating daemon requests are not automatically replayed after an ambiguous transport failure. The daemon passes caller cwd into the shared CLI explicitly. Existing-Project short reads and direct Project mutations run in one long-lived ScriptC owner process per canonical physical Project root. Commands classified as disposable-heavy, including Project-backed ComfyUI, run their long phase outside the owner against a generation-pinned snapshot; any authored Project result is returned immutably to the owner for proof and commit. Genuinely Project-independent QuickJS work likewise runs in a one-job disposable process without a Project snapshot. Each owner has its own QuickJS runtime, scopes caller environment to one request, and serializes only that Project's resident reconciliation, reads, and mutation advancement; separate active Projects can execute independently. Native watcher dirtiness wakes an idle owner only into reconciliation, and the owner's idle clock advances only when reconciliation observes a real Project change rather than watcher noise. Reads build changes against the prior coherent generation and perform a final authority check after semantic execution. Transactional writes advance from the committed projection and perform their own post-commit physical proof. Owner eviction stops native watcher coverage and the worker together. When the broker retains that owner's latest portable snapshot within its RAM budget, it keeps the native manifest/configuration as dormant authority; a replacement owner rehydrates the exact retained generation, recreates watcher coverage, and performs a full native proof so unchanged disk resumes immediately while changed disk reconciles from the retained generation. Each retained snapshot also carries its matching native authority checkpoint separately from the opaque Project bytes. If an owner crashes after consuming newer physical deltas but before preparing a newer snapshot, the broker restores that older snapshot-specific authority baseline before replacement-owner admission, allowing the next full proof to rediscover those already-consumed changes safely instead of discarding an otherwise reusable snapshot. Snapshot pressure may discard dormant unpinned generations at any time, in which case the replacement owner follows normal cold admission. Exact-validation pressure independently discards dormant exact results; if no retained snapshot still needs that Project's authority checkpoint, the broker releases the native authority entry at the same time. Pinned historical generations remain alive only while jobs reference them and are removed after their final pin drops. An owner-process crash fails only that Project's current work and leaves the broker plus other Project owners alive so later work can re-admit a replacement. Filesystem discovery is authoritative; watcher-driven invalidation remains only an acceleration hint until the owner performs the semantic reconciliation. Pending transaction recovery or any uncertain structural/path authority causes conservative re-admission rather than promotion from guessed state. Node-reference certification still exercises the public Ctrl-C path directly, while standalone certification exercises the resident request cancellation path. The shared ComfyUI runner never uses the global `/interrupt` endpoint.
 
-The admitted standalone release hosts are Linux x64 and Windows x64. macOS standalone artifacts
-must not be advertised until scriptc/native-link certification is added there. A certified CLI may
-assemble any compatible installed target template regardless of its host platform.
+The fully admitted standalone release hosts are Linux x64 and Windows x64. The macOS arm64 host CLI
+is a release input for the editor and targets macOS 14, but must not be advertised as independently
+standalone-certified until the same scriptc/native-link differential certification is admitted there.
+A certified CLI may assemble any compatible installed target template regardless of its host
+platform. These authoring floors are intentionally separate from player floors: ScriptC never enters
+an exported game, so players remain free to target glibc 2.28, macOS 11, and Windows 10 1809.
 
 ## Certification gate
 
