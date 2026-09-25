@@ -185,7 +185,7 @@ describe('Terminal bottom panel', () => {
     });
     expect(screen.queryByLabelText('Terminal needs attention')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }));
     expect(listeners.size).toBeGreaterThan(0);
     act(() => {
       for (const listener of listeners) {
@@ -248,7 +248,7 @@ describe('Terminal bottom panel', () => {
     useBottomPanelStore.getState().setActivePanelId('terminal');
     render(<BottomPanel />);
     await screen.findByText('Terminal 1');
-    fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }));
     act(() => {
       for (const listener of listeners) {
         listener({
@@ -275,7 +275,7 @@ describe('Terminal bottom panel', () => {
       'unread',
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }));
     act(() => {
       vi.advanceTimersByTime(1_000);
     });
@@ -314,7 +314,7 @@ describe('Terminal bottom panel', () => {
     useBottomPanelStore.getState().setActivePanelId('terminal');
     render(<BottomPanel />);
     await screen.findByText('Terminal 2');
-    fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }));
     act(() => {
       for (const sessionId of [terminal1.id, terminal2.id]) {
         for (const listener of listeners) {
@@ -446,7 +446,7 @@ describe('Terminal bottom panel', () => {
     expect(terminalMock.writes).toContain('hello\r\n');
   });
 
-  it('creates and selects multiple left-aligned terminal tabs without coupling selection to Project changes', async () => {
+  it('creates and selects multiple terminal sessions from a vertical tab rail without coupling selection to Project changes', async () => {
     const terminal2 = session(2, {
       initialCwd: '/mock/second-project',
       lastKnownCwd: '/mock/second-project',
@@ -461,6 +461,10 @@ describe('Terminal bottom panel', () => {
     useBottomPanelStore.getState().setActivePanelId('terminal');
     const view = render(<BottomPanel />);
     await screen.findByText('Terminal 1');
+    expect(screen.getByRole('tablist', { name: 'Terminal' })).toHaveAttribute(
+      'aria-orientation',
+      'vertical',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'New Terminal' }));
     expect(await screen.findByText('Terminal 2')).toBeInTheDocument();
@@ -575,7 +579,7 @@ describe('Terminal bottom panel', () => {
         listener({ kind: 'output', sessionId: terminal1.id, data: 'before hide\r\n' });
       }
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }));
     act(() => {
       for (const listener of listeners) {
         listener({ kind: 'output', sessionId: terminal1.id, data: '\u001b[2Jbackground TUI\r\n' });

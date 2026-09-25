@@ -152,77 +152,9 @@ export function TerminalPanel() {
     requestError ?? (selectedSession?.status === 'error' ? selectedSession.error : null);
 
   return (
-    <div className="flex h-full min-h-[180px] flex-col bg-background" data-terminal-panel>
-      <div
-        className="flex h-9 shrink-0 items-center gap-1 border-b px-1"
-        data-terminal-tabs
-        role="tablist"
-        aria-label={t('bottomPanel.labels.terminal')}
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
-          {terminalState?.sessions.map((session) => {
-            const selected = session.id === terminalState.selectedSessionId;
-            const attention = attentionBySession[session.id];
-            return (
-              <div
-                key={session.id}
-                className={
-                  selected
-                    ? 'flex h-7 shrink-0 items-center rounded-sm bg-muted text-foreground'
-                    : 'flex h-7 shrink-0 items-center rounded-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-                }
-                data-terminal-tab={session.id}
-                data-selected={selected ? 'true' : 'false'}
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={selected}
-                  className="h-full px-2 text-xs"
-                  onClick={() => void selectSession(session.id)}
-                >
-                  <span>{session.label}</span>
-                  {attention ? (
-                    <span
-                      className={`ml-1 inline-block size-1.5 rounded-full bg-current transition-opacity duration-300 ${attention.state === 'fading' ? 'opacity-0' : 'opacity-100'}`}
-                      aria-label={t('terminal.tabNeedsAttention', { label: session.label })}
-                      data-terminal-unread-state={attention.state}
-                    />
-                  ) : session.commandState === 'running' ? (
-                    <span
-                      className="ml-1 inline-block size-1.5 rounded-full border border-current"
-                      aria-label={t('terminal.tabRunning', { label: session.label })}
-                      data-terminal-running
-                    />
-                  ) : null}
-                </button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="mr-0.5 size-6"
-                  aria-label={t('terminal.close', { label: session.label })}
-                  onClick={() => void closeSession(session)}
-                >
-                  <X className="size-3" />
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0"
-          aria-label={t('terminal.new')}
-          onClick={() => void createSession()}
-        >
-          <Plus className="size-4" />
-        </Button>
-      </div>
-      <div className="relative min-h-0 flex-1">
-        <div ref={hostRef} className="h-full w-full p-2" data-terminal-viewport />
+    <div className="flex h-full min-h-[180px] bg-background" data-terminal-panel>
+      <div className="relative min-h-0 min-w-0 flex-1">
+        <div ref={hostRef} className="h-full w-full p-1" data-terminal-viewport />
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 text-xs text-muted-foreground">
             {t('terminal.starting')}
@@ -256,6 +188,76 @@ export function TerminalPanel() {
             </Button>
           </div>
         ) : null}
+      </div>
+      <div
+        className="flex w-40 shrink-0 flex-col border-l p-1"
+        data-terminal-tabs
+        role="tablist"
+        aria-orientation="vertical"
+        aria-label={t('bottomPanel.labels.terminal')}
+      >
+        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+          {terminalState?.sessions.map((session) => {
+            const selected = session.id === terminalState.selectedSessionId;
+            const attention = attentionBySession[session.id];
+            return (
+              <div
+                key={session.id}
+                className={
+                  selected
+                    ? 'flex h-8 w-full items-center rounded-sm bg-muted text-foreground'
+                    : 'flex h-8 w-full items-center rounded-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                }
+                data-terminal-tab={session.id}
+                data-selected={selected ? 'true' : 'false'}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  className="flex h-full min-w-0 flex-1 items-center px-2 text-left text-xs"
+                  onClick={() => void selectSession(session.id)}
+                >
+                  <span className="truncate">{session.label}</span>
+                  {attention ? (
+                    <span
+                      className={`ml-1 inline-block size-1.5 shrink-0 rounded-full bg-current transition-opacity duration-300 ${attention.state === 'fading' ? 'opacity-0' : 'opacity-100'}`}
+                      aria-label={t('terminal.tabNeedsAttention', { label: session.label })}
+                      data-terminal-unread-state={attention.state}
+                    />
+                  ) : session.commandState === 'running' ? (
+                    <span
+                      className="ml-1 inline-block size-1.5 shrink-0 rounded-full border border-current"
+                      aria-label={t('terminal.tabRunning', { label: session.label })}
+                      data-terminal-running
+                    />
+                  ) : null}
+                </button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="mr-0.5 size-6 shrink-0"
+                  aria-label={t('terminal.close', { label: session.label })}
+                  onClick={() => void closeSession(session)}
+                >
+                  <X className="size-3" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mt-1 w-full justify-start px-2 text-xs"
+          aria-label={t('terminal.new')}
+          onClick={() => void createSession()}
+        >
+          <Plus className="size-4" />
+          <span className="truncate">{t('terminal.new')}</span>
+        </Button>
       </div>
     </div>
   );

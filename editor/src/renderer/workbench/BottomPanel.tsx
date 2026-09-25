@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useProjectStore } from '@/project/project-store';
+import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -20,23 +21,14 @@ import { ReferencesPanel } from './ReferencesPanel';
 import { PreviewDiagnosticsPanel } from './PreviewDiagnosticsPanel';
 import { ShaderCompilePanel } from '@/shaders/ShaderCompilePanel';
 import { PackageExportPanel } from '@/export/PackageExportPanel';
+import { usePackageExportStore } from '@/export/package-export-store';
 import { TestPlaybackPanel } from './TestPlaybackPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { AssetPerformancePanel } from '@/asset-profiler/AssetPerformancePanel';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { terminalHasUnreadAttention, useTerminalAttentionStore } from './terminal-attention-store';
 import { selectWindowTerminalSession } from './terminal-window-host';
-
-function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
-  if (value === null || value === undefined) {
-    return <p className="p-3 text-xs text-muted-foreground">{empty}</p>;
-  }
-  return (
-    <pre className="overflow-auto p-3 font-mono text-[11px] leading-relaxed">
-      {JSON.stringify(value, null, 2)}
-    </pre>
-  );
-}
+import { useWorkbenchStore } from './workbench-store';
 
 function ProblemsPanel() {
   const { t } = useTranslation('workspace');
@@ -82,10 +74,39 @@ function OutputPanel() {
   );
 }
 
-function PreviewEventsPanel() {
+function RuntimeEventsPanel() {
   const { t } = useTranslation('workspace');
-  const lastPreviewEvent = useWorkspaceStore((state) => state.lastPreviewEvent);
-  return <JsonBlock value={lastPreviewEvent} empty={t('bottomPanel.empty.previewEvents')} />;
+  const events = useWorkspaceStore((state) => state.runtimeEvents);
+  if (events.length === 0) {
+    return (
+      <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.previewEvents')}</p>
+    );
+  }
+  return (
+    <div className="space-y-1 p-2">
+      {events.map((entry) => (
+        <div key={entry.id} className="rounded border bg-card/40 px-2 py-1.5 text-xs">
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={
+                entry.severity === 'error'
+                  ? 'destructive'
+                  : entry.severity === 'warning'
+                    ? 'secondary'
+                    : 'outline'
+              }
+            >
+              {entry.severity}
+            </Badge>
+            <span className="font-medium">{entry.label}</span>
+          </div>
+          {entry.detail ? (
+            <div className="mt-1 font-mono text-[11px] text-muted-foreground">{entry.detail}</div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function CommandHistoryPanel() {
@@ -144,7 +165,7 @@ function PanelContent({ panelId }: { panelId: BottomPanelId }) {
     case 'output':
       return <OutputPanel />;
     case 'preview-events':
-      return <PreviewEventsPanel />;
+      return <RuntimeEventsPanel />;
     case 'preview-diagnostics':
       return <PreviewDiagnosticsPanel />;
     case 'test-playback':
@@ -172,9 +193,36 @@ export function BottomPanel() {
   const setVisible = useBottomPanelStore((state) => state.setVisible);
   const toggleVisible = useBottomPanelStore((state) => state.toggleVisible);
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
+  const hasPlaybackReport = useWorkspaceStore((state) => state.lastPlaybackReport !== null);
+  const hasRetainedPackageExport = useWorkspaceStore((state) => state.lastExportResult !== null);
   const hasProject = useProjectStore((state) => state.document !== null);
-  const availabilityContext = { hasProject };
+  const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
+  const previousProjectInstanceId = useRef(projectInstanceId);
+  const hasReferencesResult = useEntityUsagesStore((state) => state.result !== null);
+  const packageExportRunning = usePackageExportStore((state) => state.running);
+  const developerMode = usePreferencesStore((state) => state.developerMode);
+  const hasPreviewTab = useWorkbenchStore((state) =>
+    Object.values(state.tabsById).some((tab) => tab.resource?.kind === 'preview'),
+  );
+  const activeTabResourceKind = useWorkbenchStore((state) => {
+    const group = state.groupsById[state.activeGroupId];
+    const activeTabId = group?.activeTabId;
+    return activeTabId ? (state.tabsById[activeTabId]?.resource?.kind ?? null) : null;
+  });
+  const hasPreviewDiagnostics = usePreviewManagerStore((state) => state.diagnosticOrder.length > 0);
+  const availabilityContext = {
+    hasProject,
+    hasPreviewTab,
+    hasPreviewDiagnostics,
+    hasPlaybackReport,
+    hasReferencesResult,
+    hasPackageExport: packageExportRunning || hasRetainedPackageExport,
+    developerMode,
+    activeTabResourceKind,
+  };
   const availablePanels = availableBottomPanelDefinitions(availabilityContext);
+  const previewPanels = availablePanels.filter((panel) => panel.group === 'preview');
+  const ordinaryPanels = availablePanels.filter((panel) => panel.group !== 'preview');
   const resolvedActivePanelId = resolveAvailableBottomPanelId(activePanelId, availabilityContext);
   const terminalAttention = useTerminalAttentionStore((state) => state.attentionBySession);
   const terminalHasUnread = terminalHasUnreadAttention(terminalAttention);
@@ -185,6 +233,17 @@ export function BottomPanel() {
     ),
   );
   const terminalVisible = visible && resolvedActivePanelId === 'terminal';
+
+  useEffect(() => {
+    if (previousProjectInstanceId.current !== projectInstanceId) {
+      useEntityUsagesStore.getState().clearUsages();
+      previousProjectInstanceId.current = projectInstanceId;
+    }
+  }, [projectInstanceId]);
+
+  useEffect(() => {
+    if (!hasPreviewTab) useWorkspaceStore.getState().clearRuntimeEvents();
+  }, [hasPreviewTab]);
 
   useEffect(() => {
     useTerminalAttentionStore.getState().setPanelVisible(terminalVisible);
@@ -227,44 +286,68 @@ export function BottomPanel() {
     setActivePanelId(panelId);
   }
 
-  return (
-    <div className="@container flex h-full min-h-0 flex-col border-t bg-background">
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b px-2">
-        {availablePanels.map((panel) => (
-          <button
-            key={panel.id}
-            type="button"
-            onClick={() => selectPanel(panel.id)}
-            className={`rounded px-2 py-1 text-xs transition-colors hover:bg-accent ${
-              resolvedActivePanelId === panel.id
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground'
+  function renderPanelTab(panel: (typeof availablePanels)[number]) {
+    const selected = resolvedActivePanelId === panel.id;
+    const relevant = panel.isRelevant?.(availabilityContext) ?? false;
+    return (
+      <button
+        key={panel.id}
+        type="button"
+        onClick={() => selectPanel(panel.id)}
+        data-bottom-panel-tab={panel.id}
+        data-relevant={relevant ? 'true' : 'false'}
+        className={`h-full border-t px-2.5 text-xs transition-colors hover:bg-muted/70 hover:text-foreground ${
+          relevant ? 'border-t-primary' : 'border-t-transparent'
+        } ${selected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'}`}
+      >
+        {t(panel.labelKey)}
+        {panel.id === 'problems' && diagnostics.length > 0 ? (
+          <span
+            className={`ml-1 rounded px-1 font-mono text-[10px] ${
+              selected ? 'bg-background text-foreground' : 'bg-muted text-muted-foreground'
             }`}
           >
-            {t(panel.labelKey)}
-            {panel.id === 'problems' && diagnostics.length > 0 ? (
-              <span className="ml-1 rounded bg-muted px-1 font-mono text-[10px]">
-                {diagnostics.length}
-              </span>
-            ) : null}
-            {panel.id === 'preview-diagnostics' && previewErrorCount > 0 ? (
-              <span
-                className="ml-1 rounded bg-destructive px-1 font-mono text-[10px] text-destructive-foreground"
-                aria-label={`${previewErrorCount} preview error${previewErrorCount === 1 ? '' : 's'}`}
-                data-preview-diagnostics-error-count
-              >
-                {previewErrorCount}
-              </span>
-            ) : null}
-            {panel.id === 'terminal' && terminalHasUnread ? (
-              <span
-                className="ml-1 inline-block size-1.5 rounded-full bg-current align-middle"
-                aria-label={t('terminal.needsAttention')}
-                data-terminal-aggregate-unread
-              />
-            ) : null}
-          </button>
-        ))}
+            {diagnostics.length}
+          </span>
+        ) : null}
+        {panel.id === 'preview-diagnostics' && previewErrorCount > 0 ? (
+          <span
+            className="ml-1 rounded bg-destructive px-1 font-mono text-[10px] text-destructive-foreground"
+            aria-label={`${previewErrorCount} preview error${previewErrorCount === 1 ? '' : 's'}`}
+            data-preview-diagnostics-error-count
+          >
+            {previewErrorCount}
+          </span>
+        ) : null}
+        {panel.id === 'terminal' && terminalHasUnread ? (
+          <span
+            className="ml-1 inline-block size-1.5 rounded-full bg-current align-middle"
+            aria-label={t('terminal.needsAttention')}
+            data-terminal-aggregate-unread
+          />
+        ) : null}
+      </button>
+    );
+  }
+
+  return (
+    <div className="@container flex h-full min-h-0 flex-col border-t bg-background">
+      <div className="flex h-8 shrink-0 items-center gap-0 border-b pr-2">
+        {ordinaryPanels.slice(0, 3).map(renderPanelTab)}
+        {previewPanels.length > 0 ? (
+          <div
+            className="relative flex h-full items-center gap-0"
+            data-bottom-panel-group="preview"
+          >
+            {previewPanels.map(renderPanelTab)}
+            <span
+              className="pointer-events-none absolute inset-x-0 bottom-0 border-b border-border"
+              aria-hidden="true"
+              data-bottom-panel-group-line
+            />
+          </div>
+        ) : null}
+        {ordinaryPanels.slice(3).map(renderPanelTab)}
         <Button
           size="sm"
           variant="ghost"

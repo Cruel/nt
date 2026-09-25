@@ -92,7 +92,7 @@ beforeEach(() => {
   useWorkspaceStore.setState({
     previewConnectionState: 'disconnected',
     selectedRuntimeObjectId: null,
-    lastPreviewEvent: null,
+    runtimeEvents: [],
     statusMessage: 'Preview disconnected',
   });
   usePendingInputStore.getState().resetPendingInputs();

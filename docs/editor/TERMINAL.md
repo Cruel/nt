@@ -27,9 +27,11 @@ in this order:
    directory; and
 3. NovelTea's effective default Project directory (`Documents/NovelTea` by built-in default).
 
-Existing sessions keep their original cwd when Project context changes. Each session captures immutable
-creation metadata: initial cwd, creation time, and the Project's durable id/name when a Project was the
-creation context. The opaque active-Project session capability is never stored as terminal origin
+Existing sessions keep their original cwd when Project context changes. The Terminal surface presents
+session tabs as a vertical rail on the right side of the terminal viewport so session chrome does not
+consume terminal height; the rail scrolls independently when many sessions are open. Each session
+captures immutable creation metadata: initial cwd, creation time, and the Project's durable id/name when
+a Project was the creation context. The opaque active-Project session capability is never stored as terminal origin
 metadata. New sessions after a Project switch use the new current Project context, while existing
 sessions are never implicitly moved, restarted, renamed, or terminated. On POSIX, main prefers the
 user's existing `SHELL` when it resolves to an executable path, then zsh/bash/sh fallbacks. On Windows,

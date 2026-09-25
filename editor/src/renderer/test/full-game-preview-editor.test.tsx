@@ -60,7 +60,7 @@ beforeEach(() => {
   useWorkspaceStore.setState({
     previewConnectionState: 'disconnected',
     selectedRuntimeObjectId: null,
-    lastPreviewEvent: null,
+    runtimeEvents: [],
     statusMessage: 'Preview disconnected',
   });
   usePreferencesStore.setState({ showPreviewFpsCounter: false });
@@ -886,7 +886,6 @@ describe('FullGamePreviewEditor', () => {
   });
 
   it('logs fast-forward stop diagnostics and uses the final snapshot', async () => {
-    const user = userEvent.setup();
     useProjectStore.getState().loadUnsavedProjectDocument(projectWithEntrypoint());
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
@@ -959,10 +958,13 @@ describe('FullGamePreviewEditor', () => {
       });
     });
 
-    await user.click(screen.getByText('Events & diagnostics'));
-    await waitFor(() => expect(screen.getByText('Fast-forward stopped')).toBeInTheDocument());
-    expect(screen.getByText(/budget-exhausted/)).toBeInTheDocument();
-    expect(screen.getByText('continue')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().runtimeEvents[0]).toMatchObject({
+        label: 'Fast-forward stopped',
+        severity: 'warning',
+      }),
+    );
+    expect(useWorkspaceStore.getState().runtimeEvents[0]?.detail).toContain('budget-exhausted');
   });
 
   it('renders runtime debug snapshots with authoring metadata labels', async () => {
@@ -1069,8 +1071,6 @@ describe('FullGamePreviewEditor', () => {
     expect(screen.getByText('Has Key')).toBeInTheDocument();
     expect(screen.getAllByText('Brass Key').length).toBeGreaterThan(0);
     expect(screen.getByText('Inspect (1/1)')).toBeInTheDocument();
-    await user.click(screen.getByText('Events & diagnostics'));
-    expect(screen.getByText('Runtime snapshot refreshed')).toBeInTheDocument();
   });
 
   it('shows and filters the variable search when more than three variables exist', async () => {
@@ -1327,8 +1327,5 @@ describe('FullGamePreviewEditor', () => {
       expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined(),
     );
     await resolveLatest(editorPort, previewPort, 'runtime-request-debug-snapshot');
-
-    await user.click(screen.getByText('Events & diagnostics'));
-    expect(screen.getByText('Replaying 1 recorded action')).toBeInTheDocument();
   });
 });
