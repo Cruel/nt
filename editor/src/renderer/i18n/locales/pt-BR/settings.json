@@ -212,6 +212,8 @@
     "fontFamilyDescription": "Família ou pilha de fontes CSS usada pelas visualizações de terminal abertas.",
     "fontSize": "Tamanho da fonte",
     "fontSizeDescription": "Tamanho do texto do terminal entre 8 e 32 pixels.",
+    "lineHeight": "Altura da linha",
+    "lineHeightDescription": "Multiplicador da altura das linhas do xterm entre 1 e 3.",
     "fallbackCwd": "Diretório de trabalho alternativo",
     "fallbackCwdDescription": "Usado somente por novos terminais criados quando nenhum Projeto está aberto.",
     "fallbackCwdAutomatic": "Automático (diretório padrão de Projetos do NovelTea)",

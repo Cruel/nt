@@ -212,6 +212,8 @@
     "fontFamilyDescription": "CSS font-family or font stack used by mounted terminal views.",
     "fontSize": "Font size",
     "fontSizeDescription": "Terminal text size from 8 to 32 pixels.",
+    "lineHeight": "Line height",
+    "lineHeightDescription": "xterm row-height multiplier from 1 to 3.",
     "fallbackCwd": "Fallback working directory",
     "fallbackCwdDescription": "Used only for new terminals created when no Project is open.",
     "fallbackCwdAutomatic": "Automatic (NovelTea default Project directory)",

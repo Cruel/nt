@@ -214,6 +214,7 @@ function ensureView(sessionId: string): TerminalView {
     cursorBlink: true,
     fontFamily: preferences.fontFamily,
     fontSize: preferences.fontSize,
+    lineHeight: preferences.lineHeight,
     scrollback: preferences.scrollback,
   });
   const fitAddon = new FitAddon();
@@ -271,6 +272,7 @@ function applyPreferences(view: TerminalView): void {
   const preferences = usePreferencesStore.getState().terminal;
   view.terminal.options.fontFamily = preferences.fontFamily;
   view.terminal.options.fontSize = preferences.fontSize;
+  view.terminal.options.lineHeight = preferences.lineHeight;
   view.terminal.options.scrollback = preferences.scrollback;
   if (view.container.isConnected) fitAndResize(view);
 }
