@@ -316,7 +316,11 @@ export function PackageExportPanel() {
   const result = storeResult ?? normalizeResult(workspaceResult);
 
   if (!result) {
-    return <p className="p-3 text-xs text-muted-foreground">No package export result yet.</p>;
+    return (
+      <p className="p-3 text-xs text-muted-foreground">
+        {running ? `Package export in progress: ${stage}.` : 'No package export result yet.'}
+      </p>
+    );
   }
 
   async function previewPackage() {

@@ -8,6 +8,51 @@ import type {
   PreviewToEditorMessage,
 } from '../../shared/preview-protocol';
 
+function runtimeEventFromPreviewMessage(message: PreviewToEditorMessage) {
+  if (message.type === 'runtime-debug-event') {
+    const detail = [
+      message.event.kind,
+      message.event.target?.id,
+      message.event.oldValue !== undefined ? `old=${JSON.stringify(message.event.oldValue)}` : null,
+      message.event.newValue !== undefined ? `new=${JSON.stringify(message.event.newValue)}` : null,
+      message.event.message,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    return {
+      label: message.event.label,
+      detail: detail || undefined,
+      severity: message.event.rejected ? ('warning' as const) : ('info' as const),
+    };
+  }
+  if (message.type === 'runtime-fast-forward-result') {
+    const detail = [
+      `reason=${message.result.reason}`,
+      `steps=${message.result.stepsApplied}`,
+      `ticks=${message.result.ticksApplied}`,
+      message.result.lastInput ? `last=${message.result.lastInput}` : null,
+      message.result.diagnostic,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    return {
+      label: 'Fast-forward stopped',
+      detail,
+      severity:
+        message.result.reason === 'error'
+          ? ('error' as const)
+          : message.result.reason === 'budget-exhausted' ||
+              message.result.reason === 'stabilization-limit'
+            ? ('warning' as const)
+            : ('info' as const),
+    };
+  }
+  if (message.type === 'runtime-error') {
+    return { label: message.message, severity: 'error' as const };
+  }
+  return null;
+}
+
 export function previewDocumentTarget(document: PreviewDocument) {
   if (document.kind === 'symbolic') return document.target;
   const collection =
@@ -52,7 +97,7 @@ export function useEnginePreviewStatusBridge({
   const setSessionCapabilities = usePreviewManagerStore((s) => s.setSessionCapabilities);
   const recordPreviewDiagnostic = usePreviewManagerStore((s) => s.recordPreviewDiagnostic);
   const setSelectedRuntimeObjectId = useWorkspaceStore((s) => s.setSelectedRuntimeObjectId);
-  const setLastPreviewEvent = useWorkspaceStore((s) => s.setLastPreviewEvent);
+  const addRuntimeEvent = useWorkspaceStore((s) => s.addRuntimeEvent);
   const setStatusMessage = useWorkspaceStore((s) => s.setStatusMessage);
 
   const recordTransportError = useCallback(
@@ -74,7 +119,10 @@ export function useEnginePreviewStatusBridge({
       },
     ) => {
       onPreviewMessage?.(message);
-      if (!embedded) setLastPreviewEvent(message);
+      if (!embedded) {
+        const runtimeEvent = runtimeEventFromPreviewMessage(message);
+        if (runtimeEvent) addRuntimeEvent(runtimeEvent);
+      }
       if (message.type === 'ready' || message.type === 'capabilities') {
         setSessionCapabilities(sessionId, message.capabilities);
       }
@@ -87,6 +135,25 @@ export function useEnginePreviewStatusBridge({
           path: message.diagnostic.path,
           target: message.diagnostic.target,
         });
+      }
+      if (message.type === 'runtime-debug-snapshot') {
+        for (const diagnostic of message.snapshot.diagnostics) {
+          recordPreviewDiagnostic({
+            sessionId,
+            severity: diagnostic.severity,
+            source: 'runtime',
+            message: diagnostic.message,
+            path: diagnostic.path,
+            target: diagnostic.source
+              ? {
+                  collection: diagnostic.source.collection,
+                  entityId: diagnostic.source.id,
+                  kind: diagnostic.source.type,
+                  label: diagnostic.source.label,
+                }
+              : undefined,
+          });
+        }
       }
       if (message.type === 'preview-interacted') {
         // Handles iframe-to-iframe focus changes that parent DOM pointer/focus events cannot observe.
@@ -112,7 +179,7 @@ export function useEnginePreviewStatusBridge({
       onPreviewMessage,
       recordPreviewDiagnostic,
       sessionId,
-      setLastPreviewEvent,
+      addRuntimeEvent,
       setSelectedRuntimeObjectId,
       setSessionCapabilities,
       setSessionStatus,

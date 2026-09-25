@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
@@ -38,17 +37,20 @@ export function PreviewDiagnosticsPanel() {
   }
 
   return (
-    <div className="space-y-2 p-3 text-xs">
-      <div className="flex items-center gap-2">
-        <Badge variant="outline">Preview diagnostics</Badge>
-        <span className="text-muted-foreground">
-          {diagnostics.length} issue{diagnostics.length === 1 ? '' : 's'}
-        </span>
-        <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={clearPreviewDiagnostics}>
+    <div className="relative text-xs">
+      <div className="pointer-events-none sticky top-1 z-10 h-0">
+        <Button
+          size="sm"
+          variant="ghost"
+          className="pointer-events-auto absolute right-1 top-0 h-6 bg-background/90 px-2 text-[11px] backdrop-blur-sm"
+          onClick={clearPreviewDiagnostics}
+        >
           Clear
         </Button>
       </div>
-      <DiagnosticList items={diagnosticItems} />
+      <div className="px-3 pb-3 pr-16 pt-1">
+        <DiagnosticList items={diagnosticItems} compact showPath={false} />
+      </div>
     </div>
   );
 }

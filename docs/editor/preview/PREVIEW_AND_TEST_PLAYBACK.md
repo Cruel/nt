@@ -83,6 +83,15 @@ Interaction subjects include Characters, exact live Interactable Instances, and 
 Features. Hotspot identity is not a runtime command surface. Gameplay publication carries exact Room
 and live Interactable entries; any editor grouping is derived and non-authoritative.
 
+Play keeps current-state debugger controls in its right-side tooling inspector. Runtime activity and
+preview diagnostics are workbench bottom-panel concerns instead of a duplicate "Events & diagnostics"
+inspector section. `Runtime Events` is intentionally semantic: it records explicit runtime debug events,
+fast-forward outcomes, and runtime failures, while continuous debug snapshots, FPS/profiler telemetry,
+command acknowledgements, pointer/focus traffic, and other preview-protocol plumbing remain hidden.
+Runtime debug snapshots continue to drive the inspector's current-state views, and diagnostics carried
+by those snapshots are projected into `Preview Diagnostics`, which may remain available after Play
+closes while retained diagnostics exist.
+
 The interactive Player Input panel does not enumerate authored Hotspot definitions. Runtime debug
 snapshots publish semantic clickable targets that are currently presented and eligible: either an
 Interaction subject plus label or a Room Exit plus label. A pointer Hotspot and a non-pointer control

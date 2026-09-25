@@ -1685,62 +1685,6 @@ function SaveSnapshotPanel({ snapshot }: { snapshot: RuntimeDebugSnapshot | null
   );
 }
 
-function EventLogPanel({
-  entries,
-  diagnostics,
-}: {
-  entries: RuntimeLogEntry[];
-  diagnostics: RuntimeDebugSnapshot['diagnostics'];
-}) {
-  return (
-    <Panel title="Events & diagnostics" summary={`${diagnostics.length + entries.length}`}>
-      {diagnostics.slice(0, 8).map((diagnostic, index) => (
-        <div key={`${diagnostic.message}-${index}`} className="rounded-md border p-2 text-xs">
-          <Badge
-            variant={
-              diagnostic.severity === 'error'
-                ? 'destructive'
-                : diagnostic.severity === 'warning'
-                  ? 'secondary'
-                  : 'outline'
-            }
-          >
-            {diagnostic.severity}
-          </Badge>
-          <div className="mt-1">{diagnostic.message}</div>
-          {diagnostic.path ? (
-            <div className="font-mono text-[11px] text-muted-foreground">{diagnostic.path}</div>
-          ) : null}
-        </div>
-      ))}
-      {entries.length === 0 ? (
-        <div className="text-xs text-muted-foreground">No runtime events captured yet.</div>
-      ) : null}
-      {entries.map((entry) => (
-        <div key={entry.id} className="rounded-md border p-2 text-xs">
-          <div className="flex items-center gap-2">
-            <Badge
-              variant={
-                entry.severity === 'error'
-                  ? 'destructive'
-                  : entry.severity === 'warning'
-                    ? 'secondary'
-                    : 'outline'
-              }
-            >
-              {entry.severity}
-            </Badge>
-            <span>{entry.label}</span>
-          </div>
-          {entry.detail ? (
-            <div className="mt-1 font-mono text-[11px] text-muted-foreground">{entry.detail}</div>
-          ) : null}
-        </div>
-      ))}
-    </Panel>
-  );
-}
-
 function RecorderPanel({
   draft,
   targetTestId,
@@ -2197,7 +2141,6 @@ function RuntimeInspector({
             <SaveSnapshotPanel snapshot={state.snapshot} />
           </>
         ) : null}
-        <EventLogPanel entries={state.eventLog} diagnostics={state.snapshot?.diagnostics ?? []} />
       </div>
     </aside>
   );

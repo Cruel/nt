@@ -49,7 +49,7 @@ beforeEach(() => {
   useWorkspaceStore.setState({
     previewConnectionState: 'disconnected',
     selectedRuntimeObjectId: null,
-    lastPreviewEvent: null,
+    runtimeEvents: [],
     statusMessage: 'Preview disconnected',
   });
   usePreferencesStore.setState({ showPreviewFpsCounter: false });
@@ -875,6 +875,49 @@ describe('EnginePreview', () => {
     expect(useWorkspaceStore.getState().statusMessage).toBe(
       'Selected demo-triangle from engine preview',
     );
+  });
+
+  it('records only semantic runtime activity in Runtime Events', async () => {
+    const { previewPort } = await renderConnectedPreview();
+    const before = useWorkspaceStore.getState().runtimeEvents.length;
+
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'fps-counter',
+        fps: 60,
+        frameTimeMs: 16.7,
+        fpsCap: 60,
+      });
+      previewPort.postMessage({
+        version: 1,
+        type: 'command-result',
+        requestId: 'poll-result',
+        ok: true,
+      });
+    });
+
+    expect(useWorkspaceStore.getState().runtimeEvents).toHaveLength(before);
+
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'runtime-debug-event',
+        event: {
+          kind: 'variable-set',
+          debugOnly: true,
+          label: 'Set trust',
+          oldValue: 2,
+          newValue: 3,
+        },
+      });
+    });
+
+    expect(useWorkspaceStore.getState().runtimeEvents[0]).toMatchObject({
+      label: 'Set trust',
+      detail: 'variable-set · old=2 · new=3',
+      severity: 'info',
+    });
   });
 
   it('runtime errors are recorded as preview diagnostics', async () => {

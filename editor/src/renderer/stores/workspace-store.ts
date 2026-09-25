@@ -8,7 +8,7 @@ import {
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import type { ToolDiagnostic, PlaybackTestSummary } from '../../shared/editor-tooling';
-import type { PreviewConnectionState, PreviewToEditorMessage } from '../../shared/preview-protocol';
+import type { PreviewConnectionState } from '../../shared/preview-protocol';
 
 export interface AssetNode {
   id: string;
@@ -41,6 +41,14 @@ export interface TimelineEntry {
   source: 'preview' | 'playback' | 'export' | 'validation' | 'command';
   message: string;
   detail?: unknown;
+}
+
+export interface RuntimeEventEntry {
+  id: string;
+  timestamp: number;
+  label: string;
+  detail?: string;
+  severity: 'info' | 'warning' | 'error';
 }
 
 export function buildAuthoringProjectTree(project: AuthoringProject): AssetNode[] {
@@ -83,7 +91,7 @@ interface WorkspaceState {
   selectedAssetId: string | null;
   previewConnectionState: PreviewConnectionState;
   selectedRuntimeObjectId: string | null;
-  lastPreviewEvent: PreviewToEditorMessage | null;
+  runtimeEvents: RuntimeEventEntry[];
   timeline: TimelineEntry[];
   lastPlaybackReport: unknown;
   lastExportResult: unknown;
@@ -99,7 +107,8 @@ interface WorkspaceState {
   setSelectedAssetId: (id: string | null) => void;
   setPreviewConnectionState: (state: PreviewConnectionState) => void;
   setSelectedRuntimeObjectId: (id: string | null) => void;
-  setLastPreviewEvent: (event: PreviewToEditorMessage | null) => void;
+  addRuntimeEvent: (event: Omit<RuntimeEventEntry, 'id' | 'timestamp'>) => void;
+  clearRuntimeEvents: () => void;
   addTimelineEntry: (entry: Omit<TimelineEntry, 'id'>) => void;
   setLastPlaybackReport: (report: unknown) => void;
   setLastExportResult: (result: unknown) => void;
@@ -118,7 +127,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   selectedAssetId: null,
   previewConnectionState: 'disconnected',
   selectedRuntimeObjectId: null,
-  lastPreviewEvent: null,
+  runtimeEvents: [],
   timeline: [],
   lastPlaybackReport: null,
   lastExportResult: null,
@@ -134,7 +143,17 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
   setPreviewConnectionState: (previewConnectionState) => set({ previewConnectionState }),
   setSelectedRuntimeObjectId: (selectedRuntimeObjectId) => set({ selectedRuntimeObjectId }),
-  setLastPreviewEvent: (lastPreviewEvent) => set({ lastPreviewEvent }),
+  addRuntimeEvent: (event) =>
+    set((state) => {
+      const timestamp = Date.now();
+      return {
+        runtimeEvents: [
+          { ...event, id: `${timestamp}-${state.runtimeEvents.length}`, timestamp },
+          ...state.runtimeEvents,
+        ].slice(0, 100),
+      };
+    }),
+  clearRuntimeEvents: () => set({ runtimeEvents: [] }),
   addTimelineEntry: (entry) =>
     set((state) => ({
       timeline: [

@@ -63,17 +63,17 @@
   "bottomPanel": {
     "empty": {
       "commandHistory": "Ainda não há comandos de projeto.",
-      "output": "Ainda não há entradas de saída.",
-      "previewEvents": "Ainda não há eventos de visualização.",
+      "output": "Ainda não há entradas de atividade.",
+      "previewEvents": "Ainda não há eventos de execução.",
       "problems": "Nenhum diagnóstico de validação."
     },
     "labels": {
       "commandHistory": "Histórico de comandos",
       "assetPerformance": "Desempenho de recursos",
-      "output": "Saída",
+      "output": "Atividade",
       "packageExport": "Exportação de pacote",
       "previewDiagnostics": "Diagnósticos da visualização",
-      "previewEvents": "Eventos da visualização",
+      "previewEvents": "Eventos de execução",
       "problems": "Problemas",
       "references": "Referências",
       "shaderCompile": "Compilação de shaders",
