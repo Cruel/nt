@@ -55,12 +55,17 @@ jobs:
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
 
   shader-assets:
-    name: Shader assets
-    runs-on: ubuntu-24.04
+    name: Shader assets and Linux authoring CLI
+    runs-on: ubuntu-latest
+    container:
+      image: node:24.18.0-bookworm@sha256:4e9cb555d708e0829c9d93e5eeae9dfab0617b832ca436a690680e0fca735ef5
+    defaults:
+      run:
+        shell: bash
     needs: release-metadata
     env:
       RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
-    timeout-minutes: 45
+    timeout-minutes: 90
     permissions:
       contents: read
       id-token: write
@@ -79,16 +84,13 @@ jobs:
           autotools: "true"
           graphics: "true"
           clang: "true"
+          extra-packages: zstd
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+      - name: Verify pinned Node.js
+        run: test "$(node --version)" = "v24.18.0"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -96,21 +98,22 @@ jobs:
       - name: Set up vcpkg
         uses: ./.github/actions/setup-linux-vcpkg
         with:
-          installed-dir: build/linux-release/vcpkg_installed
-          scope: linux-release
-          binary-scope: linux-release
+          installed-dir: build/linux-authoring-release/vcpkg_installed
+          scope: linux-authoring-release
+          binary-scope: linux-authoring-release
+          cache-prefix: debian-12-glibc-2.36-x64
 
       - name: Cache embedded shaderc build outputs
         uses: actions/cache@v5
         with:
           path: |
-            build/linux-release/_deps/bgfx.cmake-src
-            build/linux-release/_deps/bgfx.cmake-build
-            build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
-            build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-          key: ${{ runner.os }}-x64-release-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
+            build/linux-authoring-release/_deps/bgfx.cmake-src
+            build/linux-authoring-release/_deps/bgfx.cmake-build
+            build/linux-authoring-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
+            build/linux-authoring-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
+          key: debian-12-glibc-2.36-x64-release-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/patch-bimg-texturec-entry.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
           restore-keys: |
-            ${{ runner.os }}-x64-release-shader-host-
+            debian-12-glibc-2.36-x64-release-shader-host-
 
       - name: Build NovelTea host CLI
         run: pnpm -C editor run noveltea:build
@@ -118,9 +121,17 @@ jobs:
       - name: Certify NovelTea host CLI
         run: pnpm -C editor run noveltea:certify
 
+      - name: Audit Linux authoring ABI floor
+        run: |
+          cmake \
+            -DNOVELTEA_BINARY="${{ github.workspace }}/build/cli/linux/noveltea" \
+            -DNOVELTEA_MAX_GLIBC_VERSION=2.36 \
+            -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.30 \
+            -P cmake/AuditNovelTeaLinuxCompatibility.cmake
+
       - name: Compile and verify shader assets
         run: |
-          cmake -DNOVELTEA_CLI_EXECUTABLE="${{ github.workspace }}/build/cli/linux/noveltea" -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-release/_deps/bgfx.cmake-src/bgfx/src" -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
+          cmake -DNOVELTEA_CLI_EXECUTABLE="${{ github.workspace }}/build/cli/linux/noveltea" -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-authoring-release/_deps/bgfx.cmake-src/bgfx/src" -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
           cmake -DNOVELTEA_VERIFY_ONLY=ON -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
 
       - name: Upload shader assets
@@ -265,7 +276,7 @@ jobs:
         include:
           - platform: linux
             arch: x64
-            runner: ubuntu-24.04
+            runner: ubuntu-latest
             preset: linux-release
             triplet: x64-linux-noveltea
             host_triplet: x64-linux
@@ -277,7 +288,7 @@ jobs:
             host_triplet: x64-windows
           - platform: macos
             arch: arm64
-            runner: macos-15
+            runner: macos-26
             preset: macos-release
             triplet: arm64-osx-noveltea
             host_triplet: arm64-osx
@@ -303,13 +314,18 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja ccache
 
-      - name: Set up Linux vcpkg
-        if: runner.os == 'Linux'
-        uses: ./.github/actions/setup-linux-vcpkg
+      - name: Cache Linux player compatibility build state
+        if: matrix.platform == 'linux'
+        uses: actions/cache@v5
         with:
-          installed-dir: build/linux-release/vcpkg_installed
-          scope: linux-release
-          binary-scope: linux-release
+          path: |
+            .cache/vcpkg-player-glibc228
+            .cache/vcpkg-binary-player-glibc228
+            build/linux-release/vcpkg_installed
+          key: manylinux-2.28-x64-player-${{ hashFiles('.github/containers/linux-player-glibc228.Dockerfile', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/x64-linux-noveltea.cmake', 'cmake/NovelTeaLua.cmake') }}-${{ github.sha }}
+          restore-keys: |
+            manylinux-2.28-x64-player-${{ hashFiles('.github/containers/linux-player-glibc228.Dockerfile', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/x64-linux-noveltea.cmake', 'cmake/NovelTeaLua.cmake') }}-
+            manylinux-2.28-x64-player-
 
       - name: Cache shared vcpkg SDK and binaries
         if: runner.os != 'Linux'
@@ -330,6 +346,15 @@ jobs:
           key: ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
           restore-keys: |
             ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-
+
+      - name: Cache macOS authoring vcpkg installed
+        if: matrix.platform == 'macos'
+        uses: actions/cache@v5
+        with:
+          path: build/macos-authoring-release/vcpkg_installed
+          key: macos-26-arm64-vcpkg-installed-macos-authoring-release-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/vcpkg-triplets/arm64-osx-authoring-noveltea.cmake') }}
+          restore-keys: |
+            macos-26-arm64-vcpkg-installed-macos-authoring-release-
 
       - name: Bootstrap vcpkg
         if: runner.os != 'Linux'
@@ -381,13 +406,63 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.arch }}-ccache-${{ matrix.preset }}-
 
-      - name: Build desktop player and tools
+      - name: Build pinned glibc 2.28 Linux player environment
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: docker build --tag noveltea-linux-player-glibc228 --file .github/containers/linux-player-glibc228.Dockerfile .
+
+      - name: Build Linux player against glibc 2.28
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/container-home .cache/vcpkg-player-glibc228 .cache/vcpkg-binary-player-glibc228
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/workspace/.cache/container-home \
+            --env VCPKG_ROOT=/workspace/.cache/vcpkg-player-glibc228 \
+            --env 'VCPKG_BINARY_SOURCES=clear;files,/workspace/.cache/vcpkg-binary-player-glibc228,readwrite' \
+            --env CCACHE_DIR=/workspace/.cache/ccache \
+            --env CCACHE_MAXSIZE=500M \
+            --env CCACHE_BASEDIR=/workspace \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            noveltea-linux-player-glibc228 \
+            bash -lc '
+              set -euo pipefail
+              if [[ ! -d "$VCPKG_ROOT/.git" ]]; then
+                git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+              fi
+              "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+              cmake --preset linux-release -G Ninja \
+                -DNOVELTEA_BUILD_HOST_TOOLS=OFF \
+                -DNOVELTEA_COMPILE_SHADERS=OFF \
+                -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT=/workspace/build/prebuilt-shader-assets \
+                -DNOVELTEA_PROJECT_ASSET_SOURCE=/workspace/apps/sandbox/assets \
+                -DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=ON \
+                -DBUILD_TESTING=OFF \
+                -DVCPKG_TARGET_TRIPLET=x64-linux-noveltea \
+                -DVCPKG_HOST_TRIPLET=x64-linux \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+              cmake --build --preset linux-release --target noveltea-player cxx-policy
+              closure="$(ldd build/linux-release/apps/player/noveltea-player)"
+              printf "%s\n" "$closure"
+              if grep -q "not found" <<<"$closure"; then
+                echo "glibc 2.28 compatibility environment cannot load the player dependency closure" >&2
+                exit 1
+              fi
+            '
+
+      - name: Build non-Linux desktop player
+        if: matrix.platform != 'linux'
         shell: pwsh
         run: |
           $ccacheArgs = @()
           if ("${{ runner.os }}" -ne "Windows") { $ccacheArgs = @("-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache") }
+          $hostTools = if ("${{ matrix.platform }}" -eq "windows") { "ON" } else { "OFF" }
           cmake --preset ${{ matrix.preset }} -G Ninja `
-            -DNOVELTEA_BUILD_HOST_TOOLS=ON `
+            -DNOVELTEA_BUILD_HOST_TOOLS=$hostTools `
             -DNOVELTEA_COMPILE_SHADERS=OFF `
             -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" `
             -DNOVELTEA_PROJECT_ASSET_SOURCE="${{ github.workspace }}/apps/sandbox/assets" `
@@ -396,7 +471,9 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
             -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
             @ccacheArgs
-          cmake --build --preset ${{ matrix.preset }} --target noveltea-player noveltea-tooling-bridge cxx-policy
+          $targets = @("noveltea-player", "cxx-policy")
+          if ("${{ matrix.platform }}" -eq "windows") { $targets += "noveltea-tooling-bridge" }
+          cmake --build --preset ${{ matrix.preset }} --target @targets
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify SDL3 X11 backend is present
@@ -419,7 +496,8 @@ jobs:
           cmake \
             "-DNOVELTEA_PLAYER=${{ github.workspace }}/build/${{ matrix.preset }}/apps/player/noveltea-player" \
             "-DNOVELTEA_AUDIT_REPORT=${{ github.workspace }}/dist/noveltea-dependency-audit-${{ matrix.platform }}-${{ matrix.arch }}.json" \
-            "-DNOVELTEA_MAX_GLIBC_VERSION=2.39" \
+            "-DNOVELTEA_MAX_GLIBC_VERSION=2.28" \
+            -DNOVELTEA_REQUIRE_STATIC_GNU_CXX_RUNTIME=ON \
             -P cmake/AuditNovelTeaPlayerDependencies.cmake
 
       - name: Audit non-Linux player dependency closure
@@ -447,6 +525,14 @@ jobs:
       - name: Build NovelTea macOS host CLI
         if: matrix.platform == 'macos'
         run: pnpm -C editor run noveltea:build
+
+      - name: Audit macOS host CLI deployment target
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          minos="$(otool -l build/cli/macos/noveltea | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { build=1; next } build && $1 == "minos" { print $2; exit }')"
+          test "$minos" = "14.0"
 
       - name: Upload NovelTea macOS host CLI
         if: matrix.platform == 'macos'
@@ -495,7 +581,7 @@ jobs:
           NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-linux-export
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-linux-fixture-evidence.json
           NOVELTEA_NATIVE_SMOKE_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/noveltea-native-smoke-linux-x11.json
-          NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}/build/linux-release/tools/editor_tool/noveltea-tooling-bridge
+          NOVELTEA_CLI: ${{ github.workspace }}/build/cli/linux/noveltea
         run: xvfb-run -a pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Finalize and launch Linux portable export on Wayland
@@ -510,6 +596,7 @@ jobs:
           WAYLAND_DISPLAY: wayland-noveltea
           XDG_RUNTIME_DIR: ${{ runner.temp }}/noveltea-weston-runtime
           NOVELTEA_NATIVE_SMOKE_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/noveltea-native-smoke-linux-wayland.json
+          NOVELTEA_CLI: ${{ github.workspace }}/build/cli/linux/noveltea
         run: |
           mkdir -p "$XDG_RUNTIME_DIR"
           chmod 700 "$XDG_RUNTIME_DIR"
@@ -535,7 +622,7 @@ jobs:
           NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/Platform Export Acceptance.app
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-macos-fixture-evidence.json
           NOVELTEA_NATIVE_SMOKE_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/noveltea-native-smoke-macos-arm64.json
-          NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}/build/macos-release/tools/editor_tool/noveltea-tooling-bridge
+          NOVELTEA_CLI: ${{ github.workspace }}/build/cli/macos/noveltea
         run: pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Generate desktop platform certification report
@@ -1132,7 +1219,7 @@ jobs:
             cli_executable: build/cli/windows/noveltea.exe
           - platform: macos
             arch: arm64
-            runner: macos-15
+            runner: macos-26
             cli_artifact: noveltea-release-host-cli-macos-arm64
             cli_path: build/cli/macos
             cli_executable: build/cli/macos/noveltea
@@ -1199,6 +1286,24 @@ jobs:
         env:
           NOVELTEA_CLI_PATH: ${{ github.workspace }}/${{ matrix.cli_executable }}
         run: pnpm -C editor run artifact -- --release-tag "$env:RELEASE_TAG"
+
+      - name: Audit packaged Linux authoring ABI floor
+        if: matrix.platform == 'linux'
+        run: |
+          cmake \
+            -DNOVELTEA_TREE="${{ github.workspace }}/editor/out/electron-builder" \
+            -DNOVELTEA_MAX_GLIBC_VERSION=2.36 \
+            -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.30 \
+            -P cmake/AuditNovelTeaLinuxCompatibility.cmake
+
+      - name: Verify packaged macOS authoring minimum
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          plist="$(find editor/out/electron-builder -path '*/NovelTea Editor.app/Contents/Info.plist' -print -quit)"
+          test -n "$plist"
+          test "$(plutil -extract LSMinimumSystemVersion raw -o - "$plist")" = "14.0"
 
       - name: Run permanent packaged-application smoke
         shell: pwsh

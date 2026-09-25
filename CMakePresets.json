@@ -84,10 +84,23 @@
                 "VCPKG_HOST_TRIPLET": "x64-linux",
                 "NOVELTEA_ENABLE_THREADS": "ON",
                 "NOVELTEA_JOB_WORKER_COUNT": "0",
+                "CMAKE_EXE_LINKER_FLAGS": "-static-libstdc++ -static-libgcc",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
                 "NOVELTEA_BUILD_SANDBOX": "OFF",
                 "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF"
+            }
+        },
+        {
+            "name": "linux-authoring-release",
+            "displayName": "Linux Authoring Release",
+            "description": "Release build for Linux authoring tools; release CI builds this preset in the glibc 2.36 authoring environment",
+            "inherits": "linux-release",
+            "binaryDir": "${sourceDir}/build/linux-authoring-release",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-authoring-release/vcpkg_installed",
+                "VCPKG_TARGET_TRIPLET": "x64-linux-authoring-noveltea",
+                "CMAKE_EXE_LINKER_FLAGS": ""
             }
         },
         {
@@ -118,6 +131,8 @@
                 "NOVELTEA_ENABLE_THREADS": "ON",
                 "NOVELTEA_JOB_WORKER_COUNT": "0",
                 "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded",
+                "CMAKE_C_FLAGS": "/DWINVER=0x0A00 /D_WIN32_WINNT=0x0A00 /DNTDDI_VERSION=0x0A000006",
+                "CMAKE_CXX_FLAGS": "/DWINVER=0x0A00 /D_WIN32_WINNT=0x0A00 /DNTDDI_VERSION=0x0A000006",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
                 "NOVELTEA_BUILD_SANDBOX": "OFF",
@@ -160,12 +175,25 @@
                 "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/vcpkg-triplets",
                 "VCPKG_TARGET_TRIPLET": "arm64-osx-noveltea",
                 "VCPKG_HOST_TRIPLET": "arm64-osx",
+                "CMAKE_OSX_DEPLOYMENT_TARGET": "11.0",
                 "NOVELTEA_ENABLE_THREADS": "ON",
                 "NOVELTEA_JOB_WORKER_COUNT": "0",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
                 "NOVELTEA_BUILD_SANDBOX": "OFF",
                 "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF"
+            }
+        },
+        {
+            "name": "macos-authoring-release",
+            "displayName": "macOS Authoring Release",
+            "description": "Release build for macOS authoring tools targeting macOS 14",
+            "inherits": "macos-release",
+            "binaryDir": "${sourceDir}/build/macos-authoring-release",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/macos-authoring-release/vcpkg_installed",
+                "VCPKG_TARGET_TRIPLET": "arm64-osx-authoring-noveltea",
+                "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0"
             }
         },
         {
@@ -285,6 +313,10 @@
             "configurePreset": "linux-release"
         },
         {
+            "name": "linux-authoring-release",
+            "configurePreset": "linux-authoring-release"
+        },
+        {
             "name": "linux-release-editor-profiler",
             "configurePreset": "linux-release-editor-profiler"
         },
@@ -299,6 +331,10 @@
         {
             "name": "macos-release",
             "configurePreset": "macos-release"
+        },
+        {
+            "name": "macos-authoring-release",
+            "configurePreset": "macos-authoring-release"
         },
         {
             "name": "web-debug",

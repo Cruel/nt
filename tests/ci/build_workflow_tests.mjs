@@ -42,7 +42,7 @@ test('CLI certification receives same-run shader headers without depending on ca
   const cliUpload = step(producer, 'Upload NovelTea host CLI');
   const cliDownload = step(consumer, 'Download NovelTea host CLI');
   const artifact = 'noveltea-cli-certification-shader-headers';
-  const includePath = 'build/linux-release/_deps/bgfx.cmake-src/bgfx/src';
+  const includePath = 'build/linux-authoring-release/_deps/bgfx.cmake-src/bgfx/src';
   assert.match(upload, /uses: actions\/upload-artifact@/);
   assert.match(download, /uses: actions\/download-artifact@/);
   assert.ok(upload.includes(`name: ${artifact}`));
@@ -65,9 +65,10 @@ test('vcpkg binary caches have independent configuration writers and refresh on 
   assert.equal(field(binaries, 'path'), '.cache/vcpkg-binary');
   assert.ok(field(binaries, 'key').includes("${{ inputs['binary-scope'] }}"));
   assert.ok(field(binaries, 'key').endsWith('${{ github.sha }}'));
+  assert.ok(field(binaries, 'key').includes("${{ inputs['cache-prefix'] }}"));
   assert.ok(
     binaries.includes(
-      "restore-keys: |\n          ubuntu-24.04-x64-vcpkg-binary-${{ inputs['binary-scope'] }}-",
+      "restore-keys: |\n          ${{ inputs['cache-prefix'] }}-vcpkg-binary-${{ inputs['binary-scope'] }}-",
     ),
   );
   assert.match(binaries, /binary-fallback-scope/);
@@ -75,7 +76,7 @@ test('vcpkg binary caches have independent configuration writers and refresh on 
 
   const expectedWriters = new Map([
     ['linux', 'linux-debug'],
-    ['linux-cli', 'linux-release'],
+    ['linux-cli', 'linux-authoring-release'],
     ['linux-cooperative', 'linux-no-threads'],
     ['linux-sanitize', 'linux-sanitize'],
   ]);
@@ -91,6 +92,24 @@ test('vcpkg binary caches have independent configuration writers and refresh on 
     field(step(job('linux-cooperative'), 'Set up vcpkg'), 'binary-fallback-scope'),
     'linux-debug',
   );
+});
+
+test('desktop player and authoring presets keep compatibility floors separate', () => {
+  const presets = new Map(cmakePresets.configurePresets.map((preset) => [preset.name, preset]));
+  const linuxPlayer = presets.get('linux-release');
+  const linuxAuthoring = presets.get('linux-authoring-release');
+  const windowsPlayer = presets.get('windows-release');
+  const macPlayer = presets.get('macos-release');
+  const macAuthoring = presets.get('macos-authoring-release');
+  assert.ok(linuxPlayer && linuxAuthoring && windowsPlayer && macPlayer && macAuthoring);
+  assert.equal(linuxPlayer.cacheVariables.VCPKG_TARGET_TRIPLET, 'x64-linux-noveltea');
+  assert.match(linuxPlayer.cacheVariables.CMAKE_EXE_LINKER_FLAGS, /-static-libstdc\+\+ -static-libgcc/);
+  assert.equal(linuxAuthoring.cacheVariables.VCPKG_TARGET_TRIPLET, 'x64-linux-authoring-noveltea');
+  assert.equal(linuxAuthoring.cacheVariables.CMAKE_EXE_LINKER_FLAGS, '');
+  assert.match(windowsPlayer.cacheVariables.CMAKE_CXX_FLAGS, /NTDDI_VERSION=0x0A000006/);
+  assert.equal(macPlayer.cacheVariables.CMAKE_OSX_DEPLOYMENT_TARGET, '11.0');
+  assert.equal(macAuthoring.cacheVariables.CMAKE_OSX_DEPLOYMENT_TARGET, '14.0');
+  assert.equal(macAuthoring.cacheVariables.VCPKG_TARGET_TRIPLET, 'arm64-osx-authoring-noveltea');
 });
 
 test('shader tool consumers use the pinned bgfx-matched nt-tools bundle', () => {

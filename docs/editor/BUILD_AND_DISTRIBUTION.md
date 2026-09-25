@@ -249,18 +249,24 @@ Artifacts are native-host only:
 
 Linux packaging requires the ordinary Electron desktop libraries plus `rpm` and `fakeroot`.
 Windows NSIS validation must run on Windows, and DMG/ZIP validation must run on Apple Silicon macOS.
-CI owns the targets unavailable on the current development host. Desktop release certification also
-builds the host-native `noveltea-tooling-bridge`; the canonical export fixture uses that bridge to
-exercise the real native shader/package operations without assuming a Linux CLI can execute on
-Windows or macOS. Native-player smoke tests may set `NOVELTEA_PLAYER_HEADLESS_ERRORS=1` so startup
-failures are reported on stderr instead of blocking CI behind a modal error dialog; shipped players
-retain the normal dialog behavior when that variable is absent.
+CI owns the targets unavailable on the current development host. Desktop release certification keeps
+player and authoring ABI contracts separate. Linux and macOS canonical export fixtures use the
+host-native standalone `noveltea` CLI built under the authoring compatibility contract; the Windows
+fixture continues to use `noveltea-tooling-bridge` until the Windows standalone daemon path is fully
+qualified. None of those authoring binaries are linked into a player template. Native-player smoke
+tests may set `NOVELTEA_PLAYER_HEADLESS_ERRORS=1` so startup failures are reported on stderr instead
+of blocking CI behind a modal error dialog; shipped players retain the normal dialog behavior when
+that variable is absent.
 
-Tagged and manually qualified releases require Linux x64 and Windows x64 editor artifacts. The
-standalone Linux and Windows CLIs are built and certified once per host; the exact same bytes are
-published independently and embedded in that host's editor. Release aggregation rejects a missing
-or unexpected CLI, editor, or player-template platform artifact before a GitHub Release can be
-created.
+Tagged and manually qualified releases require Linux x64 and Windows x64 editor artifacts. Linux
+authoring binaries are built in a digest-pinned Debian 12 container (glibc 2.36) and audited before
+the exact CLI bytes are published and embedded in the editor. The macOS editor and host CLI target
+macOS 14 even though exported macOS players target macOS 11. Linux players are built separately in a
+digest-pinned glibc 2.28 environment and statically link the GNU C++ runtime, so neither ScriptC nor
+the editor build host can raise the game-runtime floor. Windows players target Windows 10 1809 while
+Windows authoring follows the broader upstream ScriptC Windows 10 contract. Release aggregation
+rejects a missing or unexpected CLI, editor, or player-template platform artifact before a GitHub
+Release can be created.
 
 The editor does not bundle player templates. When the selected export profile has no compatible
 installed template, the Export surface can explicitly download the one matching the running

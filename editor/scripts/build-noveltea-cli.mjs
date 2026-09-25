@@ -21,16 +21,20 @@ const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
-const scriptcVersion = '0.1.3';
+const scriptcVersion = '0.1.4';
 const isWindows = process.platform === 'win32';
 const isMac = process.platform === 'darwin';
 const releasePlatform = isWindows ? 'windows' : isMac ? 'macos' : 'linux';
-const releasePreset = isWindows ? 'windows-cli-gnu' : isMac ? 'macos-release' : 'linux-release';
+const releasePreset = isWindows
+  ? 'windows-cli-gnu'
+  : isMac
+    ? 'macos-authoring-release'
+    : 'linux-authoring-release';
 const releaseTriplet = isWindows
   ? 'x64-mingw-static-noveltea'
   : isMac
-    ? 'arm64-osx-noveltea'
-    : 'x64-linux-noveltea';
+    ? 'arm64-osx-authoring-noveltea'
+    : 'x64-linux-authoring-noveltea';
 const buildRoot = path.join(repositoryRoot, 'build', releasePreset);
 const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
 const uiTestRunnerName = isWindows ? 'noveltea-ui-test-runner.exe' : 'noveltea-ui-test-runner';

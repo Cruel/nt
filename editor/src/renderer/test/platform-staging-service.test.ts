@@ -827,7 +827,10 @@ describe('platform staging service', () => {
         codepage: 1200,
       }).ProductName,
     ).toBe('Tea Game');
-    expect(resources.getResourceEntriesAsString(24, 1)[0]?.[1]).toContain('longPathAware');
+    const applicationManifest = resources.getResourceEntriesAsString(24, 1)[0]?.[1] ?? '';
+    expect(applicationManifest).toContain('longPathAware');
+    expect(applicationManifest).toContain('{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}');
+    expect(applicationManifest).not.toContain('{4f476546-9377-4f76-855a-22e1bb7d2ce6}');
     expect(
       fs
         .readFileSync(path.join(windowsRequest.outputDirectory, 'Tea Game.exe'))
@@ -907,7 +910,7 @@ describe('platform staging service', () => {
       engineVersion: '1',
       platform: 'macos',
       architecture: 'arm64',
-      minimumPlatformVersion: 'macOS 13',
+      minimumPlatformVersion: 'macOS 11',
       graphicsBackends: ['metal'],
       shaderVariants: ['metal'],
       compiledProjectFormatVersion: 1,
@@ -1006,6 +1009,7 @@ describe('platform staging service', () => {
       'utf8',
     );
     expect(plist).toContain('<string>com.example.game</string>');
+    expect(plist).toContain('<key>LSMinimumSystemVersion</key>\n  <string>11.0</string>');
     expect(plist).not.toContain('NSMicrophoneUsageDescription');
     expect(
       fs.existsSync(
@@ -1062,7 +1066,7 @@ describe('platform staging service', () => {
       engineVersion: '1',
       platform: 'macos',
       architecture: 'arm64',
-      minimumPlatformVersion: 'macOS 13',
+      minimumPlatformVersion: 'macOS 11',
       graphicsBackends: ['metal'],
       shaderVariants: ['metal'],
       compiledProjectFormatVersion: 1,
