@@ -96,10 +96,10 @@ function invokeHost(operation: string, requestText: string): string {
   }
 }
 
-function invokePrivateInternalHost(
+function invokeCapturedHost(
   operation: string,
   requestText: string,
-  forwardCapturedOutput = true,
+  forwardCapturedOutput: boolean,
 ): string {
   if (operation === 'process-alive' || operation === 'read-stdin' || operation === 'run-process')
     return invokeHost(operation, requestText);
@@ -108,10 +108,18 @@ function invokePrivateInternalHost(
     invokeHost(`capture:${operation}`, requestText),
   ) as CapturedNativeEnvelope;
   if (envelope.captureOk !== true)
-    throw new Error(`failed to capture private native operation '${operation}' output`);
+    throw new Error(`failed to capture native operation '${operation}' output`);
   if (forwardCapturedOutput && envelope.stdout) process.stderr.write(envelope.stdout);
   if (forwardCapturedOutput && envelope.stderr) process.stderr.write(envelope.stderr);
   return envelope.response;
+}
+
+function invokePrivateInternalHost(
+  operation: string,
+  requestText: string,
+  forwardCapturedOutput = true,
+): string {
+  return invokeCapturedHost(operation, requestText, forwardCapturedOutput);
 }
 
 function nativeShaderc(arguments_: readonly string[]): number {
@@ -301,7 +309,7 @@ function cachedPayloadAdmissionFailure(response: any, includeCatalog: boolean): 
 }
 
 function parseNativeResponse(operation: string, request: any): any {
-  const parsed: any = JSON.parse(invokeHost(operation, JSON.stringify(request)));
+  const parsed: any = JSON.parse(invokeCapturedHost(operation, JSON.stringify(request), false));
   return parsed && typeof parsed === 'object' ? parsed : null;
 }
 
@@ -1794,22 +1802,20 @@ function requestInvokeHost(
       emitEvent({ type: 'progress', message: `[${event.stage}] ${event.message}` });
       return '';
     }
-    if (
-      operation === 'process-alive' ||
-      operation === 'run-process' ||
-      operation === 'font-coverage'
-    )
+    if (operation === 'process-alive' || operation === 'run-process')
       return invokeHost(operation, requestText);
     const envelope = JSON.parse(
       invokeHost(`capture:${operation}`, requestText),
     ) as CapturedNativeEnvelope;
     if (envelope.captureOk !== true) throw new Error('failed to capture daemon native output');
-    if (context.streamedEvents && context.outputMode === 'human') {
-      if (envelope.stdout) emitEvent({ type: 'stdout', text: envelope.stdout });
-      if (envelope.stderr) emitEvent({ type: 'stderr', text: envelope.stderr });
-    } else {
-      output.stdout += envelope.stdout;
-      output.stderr += envelope.stderr;
+    if (context.outputMode === 'human') {
+      if (context.streamedEvents) {
+        if (envelope.stdout) emitEvent({ type: 'stdout', text: envelope.stdout });
+        if (envelope.stderr) emitEvent({ type: 'stderr', text: envelope.stderr });
+      } else {
+        output.stdout += envelope.stdout;
+        output.stderr += envelope.stderr;
+      }
     }
     if (
       operation === 'export-package' &&
@@ -2379,7 +2385,10 @@ async function runLocalIsland(argv: readonly string[]): Promise<HostResult> {
             invokePrivateInternalHost(operation, requestText, false)
         : privateInternalInvocation(argv)
           ? invokePrivateInternalHost
-          : invokeHost;
+          : argv.includes('--json')
+            ? (operation: string, requestText: string) =>
+                invokeCapturedHost(operation, requestText, false)
+            : invokeHost;
     const responseText = await runNovelTeaScriptcIsland(
       JSON.stringify(argv),
       hostInvoke,
