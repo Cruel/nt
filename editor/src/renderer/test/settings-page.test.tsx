@@ -171,12 +171,32 @@ describe('SettingsPage code editor theme selector', () => {
     selectSettingsCategory('Terminal');
 
     const fontSize = screen.getByRole('spinbutton', { name: 'Font size' });
+    fireEvent.change(fontSize, { target: { value: '1' } });
+    expect(fontSize).toHaveValue(1);
+    expect(fontSize).toHaveAttribute('aria-invalid', 'true');
+    expect(usePreferencesStore.getState().terminal.fontSize).toBe(13);
+    fireEvent.change(fontSize, { target: { value: '12' } });
+    expect(fontSize).toHaveValue(12);
+    expect(fontSize).toHaveAttribute('aria-invalid', 'false');
+    expect(usePreferencesStore.getState().terminal.fontSize).toBe(12);
     fireEvent.change(fontSize, { target: { value: '99' } });
-    expect(usePreferencesStore.getState().terminal.fontSize).toBe(32);
+    expect(fontSize).toHaveValue(99);
+    expect(fontSize).toHaveAttribute('aria-invalid', 'true');
+    expect(usePreferencesStore.getState().terminal.fontSize).toBe(12);
+    fireEvent.change(fontSize, { target: { value: '' } });
+    expect(fontSize).toHaveValue(null);
+    expect(fontSize).toHaveAttribute('aria-invalid', 'true');
+    expect(usePreferencesStore.getState().terminal.fontSize).toBe(12);
 
     const scrollback = screen.getByRole('spinbutton', { name: 'Scrollback lines' });
     fireEvent.change(scrollback, { target: { value: '1' } });
-    expect(usePreferencesStore.getState().terminal.scrollback).toBe(100);
+    expect(scrollback).toHaveValue(1);
+    expect(scrollback).toHaveAttribute('aria-invalid', 'true');
+    expect(usePreferencesStore.getState().terminal.scrollback).toBe(10_000);
+    fireEvent.change(scrollback, { target: { value: '1200' } });
+    expect(scrollback).toHaveValue(1200);
+    expect(scrollback).toHaveAttribute('aria-invalid', 'false');
+    expect(usePreferencesStore.getState().terminal.scrollback).toBe(1200);
 
     const fallback = screen.getByRole('textbox', { name: 'Fallback working directory' });
     fireEvent.change(fallback, { target: { value: '/tmp/Terminal Work' } });
@@ -257,6 +277,7 @@ describe('SettingsPage code editor theme selector', () => {
       terminal: {
         fontFamily: 'Fira Code',
         fontSize: 18,
+        lineHeight: 1.2,
         fallbackCwd: '/tmp/Terminal Work',
         scrollback: 20000,
         desktopNotifications: false,
@@ -290,6 +311,7 @@ describe('SettingsPage code editor theme selector', () => {
         terminal: {
           fontFamily: 'JetBrains Mono, monospace',
           fontSize: 13,
+          lineHeight: 1,
           fallbackCwd: null,
           scrollback: 10000,
           desktopNotifications: true,

@@ -435,6 +435,33 @@ export function SettingsPage({
   const [defaultProjectDirectoryError, setDefaultProjectDirectoryError] = useState<string | null>(
     null,
   );
+  const [terminalFontSizeDraft, setTerminalFontSizeDraft] = useState(
+    String(terminalPreferences.fontSize),
+  );
+  const terminalFontSizeDraftValue = Number(terminalFontSizeDraft);
+  const terminalFontSizeDraftValid =
+    terminalFontSizeDraft.trim().length > 0 &&
+    Number.isInteger(terminalFontSizeDraftValue) &&
+    terminalFontSizeDraftValue >= 8 &&
+    terminalFontSizeDraftValue <= 32;
+  const [terminalLineHeightDraft, setTerminalLineHeightDraft] = useState(
+    String(terminalPreferences.lineHeight),
+  );
+  const terminalLineHeightDraftValue = Number(terminalLineHeightDraft);
+  const terminalLineHeightDraftValid =
+    terminalLineHeightDraft.trim().length > 0 &&
+    Number.isFinite(terminalLineHeightDraftValue) &&
+    terminalLineHeightDraftValue >= 1 &&
+    terminalLineHeightDraftValue <= 3;
+  const [terminalScrollbackDraft, setTerminalScrollbackDraft] = useState(
+    String(terminalPreferences.scrollback),
+  );
+  const terminalScrollbackDraftValue = Number(terminalScrollbackDraft);
+  const terminalScrollbackDraftValid =
+    terminalScrollbackDraft.trim().length > 0 &&
+    Number.isInteger(terminalScrollbackDraftValue) &&
+    terminalScrollbackDraftValue >= 100 &&
+    terminalScrollbackDraftValue <= 100_000;
   const [terminalFallbackCwdDraft, setTerminalFallbackCwdDraft] = useState(
     terminalPreferences.fallbackCwd ?? '',
   );
@@ -1337,10 +1364,52 @@ export function SettingsPage({
                 min="8"
                 max="32"
                 step="1"
-                value={terminalPreferences.fontSize}
-                onChange={(event) =>
-                  setTerminalPreferences({ fontSize: Number(event.currentTarget.value) })
-                }
+                value={terminalFontSizeDraft}
+                aria-invalid={!terminalFontSizeDraftValid}
+                onChange={(event) => {
+                  const draft = event.currentTarget.value;
+                  setTerminalFontSizeDraft(draft);
+                  const value = Number(draft);
+                  if (
+                    draft.trim().length > 0 &&
+                    Number.isInteger(value) &&
+                    value >= 8 &&
+                    value <= 32
+                  ) {
+                    setTerminalPreferences({ fontSize: value });
+                  }
+                }}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label htmlFor="terminal-line-height">{t('settings:terminal.lineHeight')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:terminal.lineHeightDescription')}
+                </p>
+              </div>
+              <Input
+                id="terminal-line-height"
+                className="w-24"
+                type="number"
+                min="1"
+                max="3"
+                step="0.05"
+                value={terminalLineHeightDraft}
+                aria-invalid={!terminalLineHeightDraftValid}
+                onChange={(event) => {
+                  const draft = event.currentTarget.value;
+                  setTerminalLineHeightDraft(draft);
+                  const value = Number(draft);
+                  if (
+                    draft.trim().length > 0 &&
+                    Number.isFinite(value) &&
+                    value >= 1 &&
+                    value <= 3
+                  ) {
+                    setTerminalPreferences({ lineHeight: value });
+                  }
+                }}
               />
             </div>
             <div className="grid gap-2">
@@ -1401,10 +1470,21 @@ export function SettingsPage({
                 min="100"
                 max="100000"
                 step="100"
-                value={terminalPreferences.scrollback}
-                onChange={(event) =>
-                  setTerminalPreferences({ scrollback: Number(event.currentTarget.value) })
-                }
+                value={terminalScrollbackDraft}
+                aria-invalid={!terminalScrollbackDraftValid}
+                onChange={(event) => {
+                  const draft = event.currentTarget.value;
+                  setTerminalScrollbackDraft(draft);
+                  const value = Number(draft);
+                  if (
+                    draft.trim().length > 0 &&
+                    Number.isInteger(value) &&
+                    value >= 100 &&
+                    value <= 100_000
+                  ) {
+                    setTerminalPreferences({ scrollback: value });
+                  }
+                }}
               />
             </div>
             <div className="flex items-center justify-between gap-6">

@@ -26,6 +26,7 @@ describe('preferences-store', () => {
     expect(state.terminal).toEqual({
       fontFamily: 'JetBrains Mono, monospace',
       fontSize: 13,
+      lineHeight: 1,
       fallbackCwd: null,
       scrollback: 10_000,
       desktopNotifications: true,
@@ -107,6 +108,7 @@ describe('preferences-store', () => {
     usePreferencesStore.getState().setTerminalPreferences({
       fontFamily: 'Fira Code',
       fontSize: 99,
+      lineHeight: 9,
       fallbackCwd: '/tmp/Terminal Work',
       scrollback: 1,
       desktopNotifications: false,
@@ -114,12 +116,14 @@ describe('preferences-store', () => {
     expect(usePreferencesStore.getState().terminal).toEqual({
       fontFamily: 'Fira Code',
       fontSize: 32,
+      lineHeight: 3,
       fallbackCwd: '/tmp/Terminal Work',
       scrollback: 100,
       desktopNotifications: false,
     });
     usePreferencesStore.getState().resetToDefaults();
     expect(usePreferencesStore.getState().terminal.fontSize).toBe(13);
+    expect(usePreferencesStore.getState().terminal.lineHeight).toBe(1);
     expect(usePreferencesStore.getState().terminal.scrollback).toBe(10_000);
     expect(usePreferencesStore.getState().terminal.desktopNotifications).toBe(true);
   });
@@ -179,6 +183,7 @@ describe('preferences-store', () => {
     usePreferencesStore.getState().setTerminalPreferences({
       fontFamily: 'Iosevka, monospace',
       fontSize: 17,
+      lineHeight: 1.25,
       fallbackCwd: '/tmp/Terminal Work',
       scrollback: 20000,
       desktopNotifications: false,
@@ -189,6 +194,7 @@ describe('preferences-store', () => {
         terminal: {
           fontFamily: 'Iosevka, monospace',
           fontSize: 17,
+          lineHeight: 1.25,
           fallbackCwd: '/tmp/Terminal Work',
           scrollback: 20000,
           desktopNotifications: false,
