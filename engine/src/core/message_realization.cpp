@@ -6,6 +6,12 @@
 #include <cmath>
 #include <limits>
 
+#ifdef __APPLE__
+#include <cstdio>
+#include <cstdlib>
+#include <xlocale.h>
+#endif
+
 namespace noveltea::core {
 namespace {
 
@@ -199,6 +205,40 @@ std::string group_ascii_number(std::string_view ascii, const compiled::Localizat
     return result;
 }
 
+bool format_ascii_double(double value, char* buffer, std::size_t capacity,
+                         std::size_t& length) noexcept
+{
+#ifdef __APPLE__
+    // libc++'s floating-point std::to_chars is only available starting in macOS 13.3. Use the
+    // long-standing Darwin xlocale APIs to retain locale-independent, shortest-roundtrip %g output
+    // for the macOS 11 player target.
+    locale_t c_locale = newlocale(LC_NUMERIC_MASK, "C", nullptr);
+    if (c_locale == nullptr)
+        return false;
+    for (int precision = 1; precision <= std::numeric_limits<double>::max_digits10; ++precision) {
+        const int written = snprintf_l(buffer, capacity, c_locale, "%.*g", precision, value);
+        if (written <= 0 || static_cast<std::size_t>(written) >= capacity)
+            continue;
+        char* parsed_end = nullptr;
+        const double parsed = strtod_l(buffer, &parsed_end, c_locale);
+        if (parsed_end == buffer + written && parsed == value) {
+            length = static_cast<std::size_t>(written);
+            freelocale(c_locale);
+            return true;
+        }
+    }
+    freelocale(c_locale);
+    return false;
+#else
+    const auto converted =
+        std::to_chars(buffer, buffer + capacity, value, std::chars_format::general);
+    if (converted.ec != std::errc{})
+        return false;
+    length = static_cast<std::size_t>(converted.ptr - buffer);
+    return true;
+#endif
+}
+
 std::optional<std::string> format_value(const MessageArgumentValue& value,
                                         compiled::MessageArgumentType type,
                                         const compiled::Localization& localization,
@@ -233,11 +273,10 @@ std::optional<std::string> format_value(const MessageArgumentValue& value,
         if (!number || !std::isfinite(*number))
             return std::nullopt;
         char buffer[128];
-        const auto converted =
-            std::to_chars(buffer, buffer + sizeof(buffer), *number, std::chars_format::general);
-        if (converted.ec != std::errc{})
+        std::size_t length = 0;
+        if (!format_ascii_double(*number, buffer, sizeof(buffer), length))
             return std::nullopt;
-        return group_ascii_number(std::string_view(buffer, converted.ptr), localization, locale);
+        return group_ascii_number(std::string_view(buffer, length), localization, locale);
     }
 
     if (const auto* text = std::get_if<std::string>(&value))
@@ -255,11 +294,10 @@ std::optional<std::string> format_value(const MessageArgumentValue& value,
     if (!number || !std::isfinite(*number))
         return std::nullopt;
     char buffer[128];
-    const auto converted =
-        std::to_chars(buffer, buffer + sizeof(buffer), *number, std::chars_format::general);
-    if (converted.ec != std::errc{})
+    std::size_t length = 0;
+    if (!format_ascii_double(*number, buffer, sizeof(buffer), length))
         return std::nullopt;
-    return group_ascii_number(std::string_view(buffer, converted.ptr), localization, locale);
+    return group_ascii_number(std::string_view(buffer, length), localization, locale);
 }
 
 std::optional<std::string> interpolate(const compiled::LocalizationEntry& entry,

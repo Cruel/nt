@@ -3,6 +3,7 @@ FROM quay.io/pypa/manylinux_2_28_x86_64@sha256:2394d7b597cb186bc1e9da06543ec1e2a
 RUN dnf -y install \
       autoconf-archive \
       ccache \
+      curl \
       flex \
       libtool \
       libtool-ltdl-devel \
@@ -14,8 +15,11 @@ RUN dnf -y install \
       libxkbcommon-devel \
       mesa-libEGL-devel \
       ninja-build \
+      tar \
+      unzip \
       wayland-devel \
       wayland-protocols-devel \
+      zip \
     && dnf clean all
 
 # The base image supplies glibc 2.28, GCC 14, CMake, Git, pkg-config, and the

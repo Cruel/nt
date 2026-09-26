@@ -272,6 +272,7 @@ async function runAsync(command, args, options = {}) {
     stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     detached: options.detached ?? false,
     windowsHide: options.windowsHide ?? false,
+    timeout: options.timeout,
   });
   let stdout = '';
   let stderr = '';
@@ -576,27 +577,31 @@ function assertIslandBoundaryTrace(label, result, marker, expected) {
 }
 
 function certifyBootstrapOnlyIslandFailures() {
-  const env = { ...process.env, NOVELTEA_CLI_TRACE: '1', NOVELTEA_NO_DAEMON: '1' };
+  const traceEnvironment = { ...process.env, NOVELTEA_CLI_TRACE: '1' };
   for (const test of [
     {
       label: 'repeated global help',
       args: ['--help', '--help'],
       expectedStatus: 0,
       expectedIsland: false,
+      environment: { ...traceEnvironment, NOVELTEA_NO_DAEMON: '1' },
     },
     {
       label: 'unknown global option',
       args: ['--not-a-global-option'],
       expectedStatus: 2,
       expectedIsland: true,
+      environment: traceEnvironment,
     },
   ]) {
-    const result = runNative(test.args, { env });
+    const result = runNative(test.args, { env: test.environment, timeout: 15_000 });
     if (result.status !== test.expectedStatus)
       fail(
         `${test.label} returned ${result.status ?? 'no status'} instead of ${test.expectedStatus}.`,
       );
     assertIslandTrace(test.label, result, test.expectedIsland);
+    if (result.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+      fail(`${test.label} unexpectedly entered resident daemon routing.`);
     assertIslandBoundaryTrace(test.label, result, 'platform host configuration starting', false);
     assertIslandBoundaryTrace(test.label, result, 'workspace services import starting', false);
   }
@@ -1150,6 +1155,7 @@ async function runDifferential(tempRoot) {
   };
 
   for (const test of differentialCases) {
+    process.stdout.write(`[differential] ${test.name}: START\n`);
     runNative(['daemon', 'stop'], { env: daemonEnvironment });
     await Promise.all(
       Object.values(roots).map(async (root) => {
@@ -1166,16 +1172,18 @@ async function runDifferential(tempRoot) {
     const daemonLane = lane(roots.daemon);
     const noDaemonLane = lane(roots.noDaemon);
     const [nodeResultRaw, scriptcResultRaw, noDaemonResultRaw] = await Promise.all([
-      runNodeAsync(nodeLane.args, { cwd: nodeLane.cwd, stdin: test.stdin }),
+      runNodeAsync(nodeLane.args, { cwd: nodeLane.cwd, stdin: test.stdin, timeout: 120_000 }),
       runNativeAsync(daemonLane.args, {
         cwd: daemonLane.cwd,
         env: daemonEnvironment,
         stdin: test.stdin,
+        timeout: 120_000,
       }),
       runNativeAsync(noDaemonLane.args, {
         cwd: noDaemonLane.cwd,
         env: { ...daemonEnvironment, NOVELTEA_NO_DAEMON: '1' },
         stdin: test.stdin,
+        timeout: 120_000,
       }),
     ]);
     const normalizeResult = (result, root) => ({
@@ -5844,8 +5852,8 @@ async function main() {
       return;
     }
 
-    const { pristine } = await runDifferential(tempRoot);
     certifyBootstrapOnlyIslandFailures();
+    const { pristine } = await runDifferential(tempRoot);
     await certifyTypedShaders(tempRoot);
     await certifyRawShaderc(tempRoot);
     await certifyPrivateShadercBatchOutputIsolation(tempRoot);
