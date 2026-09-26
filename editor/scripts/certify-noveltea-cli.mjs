@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, openSync } from 'node:fs';
+import { closeSync, openSync, readFileSync } from 'node:fs';
 import {
   cp,
   lstat,
@@ -20,12 +20,13 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-import { readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
+import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
 import { resolvePnpmInvocation } from './pnpm-invocation.mjs';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
+const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
 const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-authoring-release';
@@ -163,6 +164,14 @@ function describeTreeDifference(expectedJson, actualJson) {
 
 async function materializeFixture(root) {
   await rm(root, { recursive: true, force: true });
+  const prematerialized = process.env.NOVELTEA_CLI_CERTIFICATION_FIXTURE_ROOT;
+  if (prematerialized) {
+    const source = path.resolve(prematerialized);
+    if (!(await stat(source)).isDirectory())
+      fail(`Pre-materialized certification fixture is missing: ${source}`);
+    await cp(source, root, { recursive: true });
+    return;
+  }
   const result = run(process.execPath, [fixtureTool, '--root', root, '--target', 'web']);
   requireSuccess('fixture materialization', result);
 }
@@ -1111,6 +1120,56 @@ const differentialCases = [
   },
 ];
 
+async function certifyNativeProjectExportSmoke(tempRoot) {
+  const projectRoot = path.join(tempRoot, 'native-project-export-smoke');
+  const outputPath = path.join(projectRoot, 'portable.ntproject');
+  const environment = {
+    ...process.env,
+    NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `native-project-export-${process.pid}-${Date.now()}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(
+      tempRoot,
+      'native-project-export-daemon',
+    ),
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '5000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '5000',
+    NOVELTEA_CLI_TRACE: '1',
+  };
+  runNative(['daemon', 'stop'], { env: environment });
+  if (process.env.NOVELTEA_CLI_CERTIFICATION_FIXTURE_ROOT) {
+    await materializeFixture(projectRoot);
+    await makeShaderFree(projectRoot);
+  } else {
+    requireSuccess(
+      'native Project creation',
+      runNative(['--json', 'project', 'create', projectRoot, '--name', 'Native Export Smoke'], {
+        env: environment,
+      }),
+    );
+  }
+  const args = ['--project', projectRoot, '--json', 'project', 'export', '--output', outputPath];
+  const exported = runNative(args, {
+    cwd: projectRoot,
+    env: environment,
+    timeout: 120_000,
+  });
+  requireSuccess('native resident Project export', exported);
+  const output = await stat(outputPath);
+  if (!output.isFile() || output.size === 0)
+    fail('Native resident Project export did not produce a non-empty bundle.');
+
+  await rm(outputPath, { force: true });
+  const noDaemon = runNative(args, {
+    cwd: projectRoot,
+    env: { ...environment, NOVELTEA_NO_DAEMON: '1' },
+    timeout: 120_000,
+  });
+  requireSuccess('native no-daemon Project export', noDaemon);
+  const noDaemonOutput = await stat(outputPath);
+  if (!noDaemonOutput.isFile() || noDaemonOutput.size === 0)
+    fail('Native no-daemon Project export did not produce a non-empty bundle.');
+}
+
 async function runDifferential(tempRoot) {
   const pristine = path.join(tempRoot, 'pristine');
   await materializeFixture(pristine);
@@ -1463,7 +1522,31 @@ async function certifyAuthoringCache(tempRoot, pristine) {
       env: { ...process.env, NOVELTEA_CLI_TRACE: '1', NOVELTEA_NO_DAEMON: '1' },
     });
     if (island !== null) assertIslandTrace(label, result, island);
+    let nativeSemanticKey = null;
+    if (label === 'authoring cold validation') {
+      try {
+        nativeSemanticKey = JSON.parse(
+          readFileSync(path.join(cacheRoot, 'current.json'), 'utf8'),
+        ).semanticKey;
+      } catch {
+        // The cache publication itself is verified by the subsequent warm-cache assertions.
+      }
+    }
     const reference = runNode(args, { cwd: root });
+    if (nativeSemanticKey !== null) {
+      try {
+        const referenceSemanticKey = JSON.parse(
+          readFileSync(path.join(cacheRoot, 'current.json'), 'utf8'),
+        ).semanticKey;
+        if (referenceSemanticKey !== nativeSemanticKey)
+          fail(
+            'Standalone CLI and Node reference use different authoring-validation semantic identities. Rebuild the standalone CLI from the current checkout before certification.',
+          );
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Standalone CLI and Node reference'))
+          throw error;
+      }
+    }
     assertPublicCommandParity(label, reference, {
       ...result,
       stderr: result.stderr
@@ -5674,6 +5757,7 @@ async function certifyRelocation(tempRoot) {
 async function main() {
   const sectionNames = Object.freeze([
     'differential',
+    'native-project-export-smoke',
     'bootstrap-island',
     'typed-shaders',
     'raw-shaderc',
@@ -5735,15 +5819,32 @@ async function main() {
       `CLI certification is admitted on Linux and Windows x64; received ${process.platform}/${process.arch}.`,
     );
   if (!(await stat(nativeCli)).isFile()) fail(`NovelTea CLI is missing: ${nativeCli}`);
-  if (!(await stat(path.join(bgfxInclude, 'bgfx_shader.sh'))).isFile())
-    fail(`bgfx shader include is missing: ${bgfxInclude}`);
+  const reusableBundledSections =
+    onlySections?.size === 1 &&
+    (onlySections.has('native-project-export-smoke') || onlySections.has('differential'));
+  if (!reusableBundledSections) {
+    if (!(await stat(path.join(bgfxInclude, 'bgfx_shader.sh'))).isFile())
+      fail(`bgfx shader include is missing: ${bgfxInclude}`);
+  }
 
   const windowsPeStackReserve = await verifyWindowsPeStackReserve();
 
-  requireSuccess(
-    'Node-reference bundle build',
-    runPnpm(['exec', 'vp', 'pack'], { cwd: editorRoot }),
-  );
+  if (onlySections?.size === 1 && onlySections.has('differential')) {
+    if (!(await stat(nodeCli)).isFile())
+      fail(`Bundled Node CLI is missing: ${nodeCli}. Run the editor bundle build first.`);
+    if (!(await stat(fixtureTool)).isFile())
+      fail(
+        `Bundled fixture materializer is missing: ${fixtureTool}. Run the editor bundle build first.`,
+      );
+  } else if (!reusableBundledSections) {
+    requireSuccess(
+      'Node-reference bundle build',
+      runPnpm(['exec', 'vp', 'pack'], {
+        cwd: editorRoot,
+        env: { ...process.env, NOVELTEA_BUILD_IDENTITY: buildIdentity },
+      }),
+    );
+  }
 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-cli-certification-'));
   Object.assign(process.env, {
@@ -5771,6 +5872,9 @@ async function main() {
             ({ pristine } = await runDifferential(tempRoot));
             break;
           }
+          case 'native-project-export-smoke':
+            await certifyNativeProjectExportSmoke(tempRoot);
+            break;
           case 'bootstrap-island':
             certifyBootstrapOnlyIslandFailures();
             break;

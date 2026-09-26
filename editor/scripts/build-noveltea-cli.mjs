@@ -604,14 +604,7 @@ try {
         ],
         libraries,
         system_libraries: isWindows
-          ? [
-              'advapi32',
-              'bcrypt',
-              'ole32',
-              'shell32',
-              'user32',
-              'ws2_32',
-            ]
+          ? ['advapi32', 'bcrypt', 'ole32', 'shell32', 'user32', 'ws2_32']
           : isMac
             ? ['c++']
             : ['m', 'dl', 'rt', 'stdc++'],
