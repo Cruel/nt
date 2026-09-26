@@ -2481,9 +2481,13 @@ async function main(): Promise<void> {
     if (fastPath !== null) {
       emit(fastPath);
       exitCode = fastPath[0];
-    } else if (privateInternalInvocation(argv) || daemonDisabled(argv)) {
+    } else if (privateInternalInvocation(argv) || daemonDisabled(argv) || routing === null) {
       trace(
-        privateInternalInvocation(argv) ? 'private internal invocation' : 'daemon routing bypassed',
+        privateInternalInvocation(argv)
+          ? 'private internal invocation'
+          : routing === null
+            ? 'unclassified invocation bypassed daemon'
+            : 'daemon routing bypassed',
       );
       const response = await runLocalIsland(argv);
       emit(response);

@@ -210,17 +210,16 @@ if (process.env.NOVELTEA_DOCS_RELEASE_VERSION) {
           assert.equal(await frame.evaluate(() => crossOriginIsolated), true);
           await startPlayer(frame);
 
+          const verbsFramePromise = page.waitForEvent("framenavigated", {
+            predicate: (candidate) =>
+              candidate.url().includes("/examples/assets/playable/verbs/index.html"),
+          });
           await page.locator('[data-example-select="verbs"]').click();
           await page.waitForFunction(
             () => document.querySelector("[data-example-title]")?.textContent === "Verbs",
           );
           assert.equal(await frameElement.evaluate((element) => element.isConnected), false);
-          const verbsFrame = page
-            .frames()
-            .find((candidate) =>
-              candidate.url().includes("/examples/assets/playable/verbs/index.html"),
-            );
-          assert.ok(verbsFrame, "release Verbs player frame should load");
+          const verbsFrame = await verbsFramePromise;
           await startPlayer(verbsFrame);
         } finally {
           await browser.close();
@@ -265,6 +264,9 @@ test(
         await startPlayer(materialsFrame);
 
         const navigationUrl = page.url();
+        const verbsFramePromise = page.waitForEvent("framenavigated", {
+          predicate: (frame) => frame.url().includes("/playable/verbs/index.html"),
+        });
         await page.locator('[data-example-select="verbs"]').click();
         await page.waitForFunction(
           () => document.querySelector("[data-example-title]")?.textContent === "Verbs",
@@ -276,10 +278,7 @@ test(
         );
         assert.equal(await materialsFrameElement.evaluate((element) => element.isConnected), false);
 
-        const verbsFrame = page
-          .frames()
-          .find((frame) => frame.url().includes("/playable/verbs/index.html"));
-        assert.ok(verbsFrame, "Verbs player frame should load");
+        const verbsFrame = await verbsFramePromise;
         assert.equal(await verbsFrame.evaluate(() => crossOriginIsolated), true);
         await startPlayer(verbsFrame);
 

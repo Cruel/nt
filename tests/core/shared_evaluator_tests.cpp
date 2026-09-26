@@ -300,6 +300,11 @@ TEST_CASE("Message realization validates typed arguments and formats values for 
     CHECK(realized->text == "1.234,5 Punkte für Ada; Anzahl 12.345");
     CHECK(realized->locale == "de");
 
+    const auto fractional = realizer.realize(
+        {7, "de", {{"name", std::string{"Ada"}}, {"count", std::int64_t{1}}, {"score", 0.1}}});
+    REQUIRE(fractional);
+    CHECK(fractional->text == "0,1 Punkte für Ada; Anzahl 1");
+
     CHECK_FALSE(
         realizer.realize({7, "de", {{"name", std::string{"Ada"}}, {"count", std::int64_t{1}}}}));
     CHECK_FALSE(realizer.realize(

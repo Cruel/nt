@@ -6,6 +6,10 @@ const releaseWorkflow = readFileSync(
   new URL("../../.github/workflows/release.yml", import.meta.url),
   "utf8",
 );
+const linuxPlayerDockerfile = readFileSync(
+  new URL("../../.github/containers/linux-player-glibc228.Dockerfile", import.meta.url),
+  "utf8",
+);
 
 function job(name) {
   const marker = `\n  ${name}:\n`;
@@ -69,6 +73,9 @@ test("release Linux compatibility environments are isolated and reject SDL witho
   assert.match(desktopHosts, /NOVELTEA_REQUIRE_STATIC_GNU_CXX_RUNTIME=ON/);
   assert.match(desktopHosts, /name: Verify SDL3 X11 backend is present/);
   assert.match(desktopHosts, /SDL_x11video\\\.c\\\.o/);
+  for (const tool of ["curl", "tar", "unzip", "zip"]) {
+    assert.match(linuxPlayerDockerfile, new RegExp(`\\b${tool}\\b`));
+  }
 });
 
 test("release inventory cannot publish before release examples qualify", () => {

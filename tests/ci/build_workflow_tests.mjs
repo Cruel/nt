@@ -10,6 +10,7 @@ const releaseWorkflow = readFileSync(
 const cmakePresets = JSON.parse(
   readFileSync(new URL('../../CMakePresets.json', import.meta.url), 'utf8'),
 );
+const rootCmake = readFileSync(new URL('../../CMakeLists.txt', import.meta.url), 'utf8');
 const vcpkg = readFileSync(
   new URL('../../.github/actions/setup-linux-vcpkg/action.yml', import.meta.url),
   'utf8',
@@ -110,7 +111,11 @@ test('desktop player and authoring presets keep compatibility floors separate', 
   assert.match(linuxPlayer.cacheVariables.CMAKE_EXE_LINKER_FLAGS, /-static-libstdc\+\+ -static-libgcc/);
   assert.equal(linuxAuthoring.cacheVariables.VCPKG_TARGET_TRIPLET, 'x64-linux-authoring-noveltea');
   assert.equal(linuxAuthoring.cacheVariables.CMAKE_EXE_LINKER_FLAGS, '');
-  assert.match(windowsPlayer.cacheVariables.CMAKE_CXX_FLAGS, /NTDDI_VERSION=0x0A000006/);
+  assert.equal(windowsPlayer.cacheVariables.NOVELTEA_TARGET_WINDOWS_10_1809, 'ON');
+  assert.equal(windowsPlayer.cacheVariables.CMAKE_C_FLAGS, undefined);
+  assert.equal(windowsPlayer.cacheVariables.CMAKE_CXX_FLAGS, undefined);
+  assert.match(rootCmake, /if\(NOVELTEA_TARGET_WINDOWS_10_1809\)/);
+  assert.match(rootCmake, /NTDDI_VERSION=0x0A000006/);
   assert.equal(macPlayer.cacheVariables.CMAKE_OSX_DEPLOYMENT_TARGET, '11.0');
   assert.equal(macAuthoring.cacheVariables.CMAKE_OSX_DEPLOYMENT_TARGET, '14.0');
   assert.equal(macAuthoring.cacheVariables.VCPKG_TARGET_TRIPLET, 'arm64-osx-authoring-noveltea');

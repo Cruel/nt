@@ -170,6 +170,9 @@ endif()
 option(NOVELTEA_ENABLE_RENDER_PERF "Compile renderer performance counters and optional perf logging" ON)
 option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader binaries with the NovelTea host CLI's embedded shaderc" ON)
 option(NOVELTEA_ENABLE_THREADS "Enable NovelTea job worker creation" ON)
+option(NOVELTEA_TARGET_WINDOWS_10_1809
+    "Compile NovelTea sources against the Windows 10 1809 (RS5) API floor"
+    OFF)
 set(NOVELTEA_JOB_WORKER_COUNT "0" CACHE STRING
     "NovelTea job worker count (0 selects the native auto policy)")
 set(NOVELTEA_MINIAUDIO_RESOURCE_MANAGER_JOB_THREAD_COUNT 1)
@@ -189,6 +192,19 @@ set(NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS "JSON_NOEXCEPTION=1" CACHE STRING
 set(NOVELTEA_RMLUI_BGFX_GIT_REPOSITORY "https://github.com/Cruel/rmlui-bgfx.git" CACHE STRING "rmlui-bgfx Git repository used when NOVELTEA_FETCH_RMLUI_BGFX is enabled")
 set(NOVELTEA_RMLUI_BGFX_GIT_TAG "master" CACHE STRING "rmlui-bgfx Git ref used when NOVELTEA_FETCH_RMLUI_BGFX is enabled")
 set(NOVELTEA_LOCAL_RMLUI_BGFX_DIR "${CMAKE_SOURCE_DIR}/rmlui-bgfx" CACHE PATH "Local rmlui-bgfx checkout used when NOVELTEA_USE_LOCAL_RMLUI_BGFX is enabled")
+
+if(NOVELTEA_TARGET_WINDOWS_10_1809)
+    if(NOT WIN32)
+        message(FATAL_ERROR "NOVELTEA_TARGET_WINDOWS_10_1809 requires a Windows target")
+    endif()
+    # Keep the Windows API floor out of CMAKE_<LANG>_FLAGS: replacing those cache values discards
+    # toolchain defaults such as MSVC's /EHsc and can break host/tooling targets that intentionally
+    # retain the standard-library exception model.
+    add_compile_definitions(
+        WINVER=0x0A00
+        _WIN32_WINNT=0x0A00
+        NTDDI_VERSION=0x0A000006)
+endif()
 
 # These definitions are ABI/configuration policy, not optional feature switches. They must be visible
 # while header-only dependencies and the complete RmlUi family are compiled.
