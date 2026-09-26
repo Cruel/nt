@@ -26,6 +26,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     target_link_options(noveltea-player PRIVATE
         "LINKER:-z,max-page-size=16384"
     )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Keep the packaged player dependency closure independent of distro linker defaults.
+    # Debian/Ubuntu GCC enables --as-needed by default, while RHEL-family GCC does not.
+    target_link_options(noveltea-player PRIVATE "LINKER:--as-needed")
 endif()
 if(EMSCRIPTEN)
     set(NOVELTEA_PLAYER_BUILD_ASSETS "${CMAKE_BINARY_DIR}/runtime-assets")
