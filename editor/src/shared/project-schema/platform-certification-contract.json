@@ -19,6 +19,7 @@
       "linux-wayland-launch",
       "linux-dependency-closure",
       "linux-rpath",
+      "linux-abi-baseline",
       "linux-desktop-integration",
       "linux-appimage-launch"
     ],
