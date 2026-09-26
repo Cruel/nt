@@ -10,6 +10,14 @@ const linuxPlayerDockerfile = readFileSync(
   new URL("../../.github/containers/linux-player-glibc228.Dockerfile", import.meta.url),
   "utf8",
 );
+const vcpkgManifest = JSON.parse(
+  readFileSync(new URL("../../vcpkg.json", import.meta.url), "utf8"),
+);
+const rootCMake = readFileSync(new URL("../../CMakeLists.txt", import.meta.url), "utf8");
+const bgfxGlibcPatch = readFileSync(
+  new URL("../../cmake/patch-bgfx-glibc228.cmake", import.meta.url),
+  "utf8",
+);
 
 function job(name) {
   const marker = `\n  ${name}:\n`;
@@ -76,6 +84,20 @@ test("release Linux compatibility environments are isolated and reject SDL witho
   for (const tool of ["curl", "tar", "unzip", "zip"]) {
     assert.match(linuxPlayerDockerfile, new RegExp(`\\b${tool}\\b`));
   }
+});
+
+test("Linux player keeps DBus systemd-free and patches bx to the glibc 2.28 floor", () => {
+  const dbusDependency = vcpkgManifest.dependencies.find(
+    (dependency) => typeof dependency === "object" && dependency.name === "dbus",
+  );
+  assert.deepEqual(dbusDependency, {
+    name: "dbus",
+    "default-features": false,
+    platform: "linux",
+  });
+  assert.match(rootCMake, /patch-bgfx-glibc228\.cmake/g);
+  assert.match(bgfxGlibcPatch, /BX_CRT_GLIBC >= 22800/);
+  assert.match(bgfxGlibcPatch, /BX_CRT_GLIBC >= 23100/);
 });
 
 test("release inventory cannot publish before release examples qualify", () => {
