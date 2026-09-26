@@ -59,6 +59,7 @@ test("release Linux compatibility environments are isolated and reject SDL witho
   assert.match(shaderAssets, /binary-scope: linux-authoring-release/);
   assert.match(shaderAssets, /cache-prefix: debian-12-glibc-2\.36-x64/);
   assert.match(shaderAssets, /NOVELTEA_MAX_GLIBC_VERSION=2\.36/);
+  assert.doesNotMatch(shaderAssets, /\$\{\{ github\.workspace \}\}/);
   assert.doesNotMatch(shaderAssets, /vcpkg-common/);
 
   const desktopHosts = job("desktop-hosts");

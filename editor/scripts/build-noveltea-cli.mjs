@@ -300,12 +300,63 @@ function compilerLibrary(command, argument, label) {
   return candidate;
 }
 
+function compilerProgram(command, argument, label) {
+  const result = spawnSync(command, [argument], { encoding: 'utf8' });
+  if (result.error) throw result.error;
+  const candidate = result.stdout.trim();
+  if (result.status !== 0 || !candidate)
+    throw new Error(`MinGW ${label} tool is unavailable from ${command} ${argument}.`);
+  return candidate;
+}
+
+async function stageScriptcCompatibleWinpthread() {
+  const source = compilerLibrary('gcc', '-print-file-name=libwinpthread.a', 'libwinpthread.a');
+  const objcopy = compilerProgram('gcc', '-print-prog-name=objcopy', 'objcopy');
+  const nm = compilerProgram('gcc', '-print-prog-name=nm', 'nm');
+  const runtimeRoot = path.join(scriptcRoot, 'windows-gnu-runtime');
+  const destination = path.join(runtimeRoot, 'libwinpthread-scriptc.a');
+  const scriptcTimeSymbols = ['clock_gettime32', 'clock_gettime64', 'nanosleep32', 'nanosleep64'];
+
+  await rm(runtimeRoot, { recursive: true, force: true });
+  await mkdir(runtimeRoot, { recursive: true });
+  await cp(source, destination);
+
+  // ScriptC 0.1.4 supplies these public Windows time shims itself. Keep the rest
+  // of static winpthreads for MinGW libstdc++, but make its colliding definitions
+  // private to the archive rather than asking the linker to accept duplicates.
+  run(
+    objcopy,
+    [
+      ...scriptcTimeSymbols.map(
+        (symbol) => `--redefine-sym=${symbol}=noveltea_winpthread_${symbol}`,
+      ),
+      destination,
+    ],
+    { env: buildEnv },
+  );
+
+  const symbols = spawnSync(nm, ['-g', '--defined-only', destination], {
+    encoding: 'utf8',
+    env: buildEnv,
+  });
+  if (symbols.error) throw symbols.error;
+  if (symbols.status !== 0)
+    throw new Error(`MinGW nm failed while verifying staged winpthreads archive.`);
+  for (const symbol of scriptcTimeSymbols) {
+    if (new RegExp(`\\b${symbol}$`, 'mu').test(symbols.stdout))
+      throw new Error(`Staged winpthreads archive still exports ScriptC-owned symbol '${symbol}'.`);
+    if (!new RegExp(`\\bnoveltea_winpthread_${symbol}$`, 'mu').test(symbols.stdout))
+      throw new Error(`Staged winpthreads archive is missing renamed symbol '${symbol}'.`);
+  }
+  return destination;
+}
+
 const windowsGnuRuntimeLibraries = isWindows
   ? [
       compilerLibrary('g++', '-print-file-name=libstdc++.a', 'libstdc++.a'),
       compilerLibrary('gcc', '-print-libgcc-file-name', 'libgcc.a'),
       compilerLibrary('gcc', '-print-file-name=libgcc_eh.a', 'libgcc_eh.a'),
-      compilerLibrary('gcc', '-print-file-name=libwinpthread.a', 'libwinpthread.a'),
+      await stageScriptcCompatibleWinpthread(),
     ]
   : [];
 

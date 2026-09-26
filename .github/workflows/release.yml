@@ -84,7 +84,7 @@ jobs:
           autotools: "true"
           graphics: "true"
           clang: "true"
-          extra-packages: zstd
+          extra-packages: zstd python3-venv
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -124,15 +124,15 @@ jobs:
       - name: Audit Linux authoring ABI floor
         run: |
           cmake \
-            -DNOVELTEA_BINARY="${{ github.workspace }}/build/cli/linux/noveltea" \
+            -DNOVELTEA_BINARY="$PWD/build/cli/linux/noveltea" \
             -DNOVELTEA_MAX_GLIBC_VERSION=2.36 \
             -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.30 \
             -P cmake/AuditNovelTeaLinuxCompatibility.cmake
 
       - name: Compile and verify shader assets
         run: |
-          cmake -DNOVELTEA_CLI_EXECUTABLE="${{ github.workspace }}/build/cli/linux/noveltea" -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-authoring-release/_deps/bgfx.cmake-src/bgfx/src" -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
-          cmake -DNOVELTEA_VERIFY_ONLY=ON -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
+          cmake -DNOVELTEA_CLI_EXECUTABLE="$PWD/build/cli/linux/noveltea" -DNOVELTEA_SHADER_SOURCE_DIR="$PWD/engine/shaders/bgfx" -DNOVELTEA_SHADER_OUTPUT_ROOT="$PWD/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="$PWD/build/linux-authoring-release/_deps/bgfx.cmake-src/bgfx/src" -P "$PWD/cmake/CompileNovelTeaShaders.cmake"
+          cmake -DNOVELTEA_VERIFY_ONLY=ON -DNOVELTEA_SHADER_OUTPUT_ROOT="$PWD/build/generated-assets/shaders" '-DNOVELTEA_SHADER_VARIANTS=glsl-330;essl-300;metal' -P "$PWD/cmake/CompileNovelTeaShaders.cmake"
 
       - name: Upload shader assets
         uses: actions/upload-artifact@v7

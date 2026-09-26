@@ -98,7 +98,11 @@ QuickJS package. During packing, `editor/scripts/cli-startup-policy.ts` walks th
 `--dynamic` and the platform-specific FFI manifest, strips the resulting ELF or PE executable, and
 removes the staging directory. Windows deliberately uses the dedicated `windows-cli-gnu` CMake
 preset and `x64-mingw-static-noveltea` target triplet so every FFI archive shares ScriptC's supported
-GNU ABI instead of mixing MSVC objects into the Zig/MinGW final link.
+GNU ABI instead of mixing MSVC objects into the Zig/MinGW final link. MinGW's static libstdc++ uses
+winpthreads, while ScriptC 0.1.4 also provides the public `clock_gettime32`, `clock_gettime64`,
+`nanosleep32`, and `nanosleep64` Windows shims. The release build therefore stages a private copy of
+`libwinpthread.a` with only those four definitions renamed before passing the archive to ScriptC; this
+keeps the static pthread closure without allowing duplicate public symbols or modifying ScriptC.
 
 The final executable must not depend on Node, a separate shaderc executable, or any project-local JavaScript files at runtime.
 

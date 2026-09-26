@@ -14,6 +14,10 @@ const vcpkg = readFileSync(
   new URL('../../.github/actions/setup-linux-vcpkg/action.yml', import.meta.url),
   'utf8',
 );
+const cliBuildScript = readFileSync(
+  new URL('../../editor/scripts/build-noveltea-cli.mjs', import.meta.url),
+  'utf8',
+);
 
 function job(name) {
   const match = workflow.match(new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [\\w-]+:|$(?![\\s\\S]))`, 'm'));
@@ -110,6 +114,17 @@ test('desktop player and authoring presets keep compatibility floors separate', 
   assert.equal(macPlayer.cacheVariables.CMAKE_OSX_DEPLOYMENT_TARGET, '11.0');
   assert.equal(macAuthoring.cacheVariables.CMAKE_OSX_DEPLOYMENT_TARGET, '14.0');
   assert.equal(macAuthoring.cacheVariables.VCPKG_TARGET_TRIPLET, 'arm64-osx-authoring-noveltea');
+});
+
+test('Windows CLI preserves static winpthreads without colliding with ScriptC time shims', () => {
+  assert.match(cliBuildScript, /libwinpthread-scriptc\.a/);
+  for (const symbol of ['clock_gettime32', 'clock_gettime64', 'nanosleep32', 'nanosleep64']) {
+    assert.match(cliBuildScript, new RegExp(`--redefine-sym=\\$\\{symbol\\}=`));
+  }
+  assert.doesNotMatch(
+    cliBuildScript,
+    /compilerLibrary\('gcc', '-print-file-name=libwinpthread\.a', 'libwinpthread\.a'\),\n\s*\]/,
+  );
 });
 
 test('shader tool consumers use the pinned bgfx-matched nt-tools bundle', () => {
