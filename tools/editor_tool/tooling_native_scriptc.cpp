@@ -3,6 +3,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -16,6 +17,7 @@
 #include <vector>
 
 #if defined(_WIN32)
+#include <fcntl.h>
 #include <io.h>
 #include <windows.h>
 #else
@@ -180,6 +182,41 @@ int file_fd(std::FILE* file)
 #endif
 }
 
+std::FILE* open_capture_file()
+{
+#if defined(_WIN32)
+    wchar_t temp_path[MAX_PATH + 1]{};
+    const DWORD path_length = GetTempPathW(static_cast<DWORD>(std::size(temp_path)), temp_path);
+    if (path_length == 0 || path_length >= std::size(temp_path))
+        return nullptr;
+    wchar_t temp_file[MAX_PATH + 1]{};
+    if (GetTempFileNameW(temp_path, L"ntc", 0, temp_file) == 0)
+        return nullptr;
+    const HANDLE handle =
+        CreateFileW(temp_file, GENERIC_READ | GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, CREATE_ALWAYS,
+                    FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        DeleteFileW(temp_file);
+        return nullptr;
+    }
+    const int descriptor = _open_osfhandle(reinterpret_cast<intptr_t>(handle), _O_RDWR | _O_BINARY);
+    if (descriptor < 0) {
+        CloseHandle(handle);
+        DeleteFileW(temp_file);
+        return nullptr;
+    }
+    std::FILE* file = _fdopen(descriptor, "w+b");
+    if (file == nullptr) {
+        _close(descriptor);
+        return nullptr;
+    }
+    return file;
+#else
+    return std::tmpfile();
+#endif
+}
+
 std::string read_capture(std::FILE* file)
 {
     if (file == nullptr)
@@ -198,6 +235,7 @@ std::string read_capture(std::FILE* file)
 
 struct CapturedNativeResponse {
     bool ok = false;
+    std::string error;
     std::string response;
     std::string stdout_text;
     std::string stderr_text;
@@ -208,24 +246,68 @@ CapturedNativeResponse invoke_captured(NativeOperation operation, const std::uin
 {
     std::fflush(stdout);
     std::fflush(stderr);
-    std::FILE* stdout_capture = std::tmpfile();
-    std::FILE* stderr_capture = std::tmpfile();
-    const int stdout_copy = duplicate_fd(file_fd(stdout));
-    const int stderr_copy = duplicate_fd(file_fd(stderr));
-    const bool resources_ready = stdout_capture != nullptr && stderr_capture != nullptr &&
-                                 stdout_copy >= 0 && stderr_copy >= 0;
-    bool stdout_redirected = false;
-    bool stderr_redirected = false;
-    if (resources_ready) {
-        stdout_redirected = replace_fd(file_fd(stdout_capture), file_fd(stdout));
-        if (stdout_redirected)
-            stderr_redirected = replace_fd(file_fd(stderr_capture), file_fd(stderr));
+    std::FILE* stdout_capture = open_capture_file();
+    std::FILE* stderr_capture = open_capture_file();
+#if defined(_WIN32)
+    constexpr int stdout_fd = 1;
+    constexpr int stderr_fd = 2;
+#else
+    const int stdout_fd = file_fd(stdout);
+    const int stderr_fd = file_fd(stderr);
+#endif
+    CapturedNativeResponse failed;
+    if (stdout_capture == nullptr || stderr_capture == nullptr) {
+        failed.error = std::string("capture file creation failed: stdout=") +
+                       (stdout_capture == nullptr ? "null" : "ok") +
+                       " stderr=" + (stderr_capture == nullptr ? "null" : "ok");
+        if (stdout_capture != nullptr)
+            std::fclose(stdout_capture);
+        if (stderr_capture != nullptr)
+            std::fclose(stderr_capture);
+        return failed;
     }
+
+    errno = 0;
+    const int stdout_copy = duplicate_fd(stdout_fd);
+    const int stdout_dup_error = errno;
+    errno = 0;
+    const int stderr_copy = duplicate_fd(stderr_fd);
+    const int stderr_dup_error = errno;
+    const bool stdout_absent = stdout_copy < 0 && stdout_dup_error == EBADF;
+    const bool stderr_absent = stderr_copy < 0 && stderr_dup_error == EBADF;
+    if ((stdout_copy < 0 && !stdout_absent) || (stderr_copy < 0 && !stderr_absent)) {
+        failed.error = std::string("fd duplicate failed: stdoutError=") +
+                       std::to_string(stdout_dup_error) +
+                       " stderrError=" + std::to_string(stderr_dup_error);
+        if (stdout_copy >= 0)
+            close_fd(stdout_copy);
+        if (stderr_copy >= 0)
+            close_fd(stderr_copy);
+        std::fclose(stdout_capture);
+        std::fclose(stderr_capture);
+        return failed;
+    }
+    const bool stdout_redirected = replace_fd(file_fd(stdout_capture), stdout_fd);
+    const bool stderr_redirected =
+        stdout_redirected && replace_fd(file_fd(stderr_capture), stderr_fd);
     if (!stdout_redirected || !stderr_redirected) {
-        if (stdout_redirected)
-            replace_fd(stdout_copy, file_fd(stdout));
-        if (stderr_redirected)
-            replace_fd(stderr_copy, file_fd(stderr));
+        failed.error = std::string("fd redirect failed: stdout=") +
+                       (stdout_redirected ? "ok" : "failed") +
+                       " stderr=" + (stderr_redirected ? "ok" : "failed") +
+                       " stdoutCopy=" + std::to_string(stdout_copy) +
+                       " stderrCopy=" + std::to_string(stderr_copy);
+        if (stdout_redirected) {
+            if (stdout_copy >= 0)
+                replace_fd(stdout_copy, stdout_fd);
+            else
+                close_fd(stdout_fd);
+        }
+        if (stderr_redirected) {
+            if (stderr_copy >= 0)
+                replace_fd(stderr_copy, stderr_fd);
+            else
+                close_fd(stderr_fd);
+        }
         if (stdout_copy >= 0)
             close_fd(stdout_copy);
         if (stderr_copy >= 0)
@@ -234,7 +316,7 @@ CapturedNativeResponse invoke_captured(NativeOperation operation, const std::uin
             std::fclose(stdout_capture);
         if (stderr_capture != nullptr)
             std::fclose(stderr_capture);
-        return {};
+        return failed;
     }
 
     const auto required =
@@ -244,10 +326,18 @@ CapturedNativeResponse invoke_captured(NativeOperation operation, const std::uin
                                    response.data(), response.size());
     std::fflush(stdout);
     std::fflush(stderr);
-    replace_fd(stdout_copy, file_fd(stdout));
-    replace_fd(stderr_copy, file_fd(stderr));
-    close_fd(stdout_copy);
-    close_fd(stderr_copy);
+    if (stdout_copy >= 0)
+        replace_fd(stdout_copy, stdout_fd);
+    else
+        close_fd(stdout_fd);
+    if (stderr_copy >= 0)
+        replace_fd(stderr_copy, stderr_fd);
+    else
+        close_fd(stderr_fd);
+    if (stdout_copy >= 0)
+        close_fd(stdout_copy);
+    if (stderr_copy >= 0)
+        close_fd(stderr_copy);
 
     CapturedNativeResponse captured;
     captured.ok = true;
@@ -287,6 +377,7 @@ extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* oper
     if (capture_output && operation != "daemon") {
         const auto captured = invoke_captured(native_operation, request_bytes, request_size);
         const auto envelope = nlohmann::json{{"captureOk", captured.ok},
+                                             {"captureError", captured.error},
                                              {"response", captured.response},
                                              {"stdout", captured.stdout_text},
                                              {"stderr", captured.stderr_text}}

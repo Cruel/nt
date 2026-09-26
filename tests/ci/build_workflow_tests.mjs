@@ -123,6 +123,15 @@ test('desktop player and authoring presets keep compatibility floors separate', 
   assert.equal(macAuthoring.cacheVariables.VCPKG_TARGET_TRIPLET, 'arm64-osx-authoring-noveltea');
 });
 
+test('Windows C++ policy enables native test dependencies when building tooling tests', () => {
+  const windowsPolicy = job('windows');
+  const configure = step(windowsPolicy, 'Configure Windows release');
+  const build = step(windowsPolicy, 'Build shipped Windows targets');
+  assert.match(configure, /-DVCPKG_MANIFEST_FEATURES=tests/);
+  assert.match(configure, /-DBUILD_TESTING=ON/);
+  assert.match(build, /noveltea_tooling_tests/);
+});
+
 test('Windows CLI preserves static winpthreads without colliding with ScriptC time shims', () => {
   assert.match(cliBuildScript, /libwinpthread-scriptc\.a/);
   for (const symbol of ['clock_gettime32', 'clock_gettime64', 'nanosleep32', 'nanosleep64']) {

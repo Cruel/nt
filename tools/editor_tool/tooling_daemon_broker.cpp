@@ -797,10 +797,9 @@ bool recover_publication_transaction(const std::filesystem::path& transaction_pa
         std::filesystem::remove_all(path, error);
     };
     const auto recover_entry = [&](const Json& entry) {
-        if (!entry.is_object() || !entry.contains("finalPath") ||
-            !entry["finalPath"].is_string() || !entry.contains("backupPath") ||
-            !entry["backupPath"].is_string() || !entry.contains("hadPrevious") ||
-            !entry["hadPrevious"].is_boolean())
+        if (!entry.is_object() || !entry.contains("finalPath") || !entry["finalPath"].is_string() ||
+            !entry.contains("backupPath") || !entry["backupPath"].is_string() ||
+            !entry.contains("hadPrevious") || !entry["hadPrevious"].is_boolean())
             return;
 #if defined(_WIN32)
         const auto final_path = utf8_to_wide(entry["finalPath"].get<std::string>());
@@ -1209,8 +1208,8 @@ public:
             active.payload.contains("publicationTransactionPath") &&
             active.payload["publicationTransactionPath"].is_string()) {
 #if defined(_WIN32)
-            const auto transaction_path = utf8_to_wide(
-                active.payload["publicationTransactionPath"].get<std::string>());
+            const auto transaction_path =
+                utf8_to_wide(active.payload["publicationTransactionPath"].get<std::string>());
 #else
             const std::filesystem::path transaction_path =
                 active.payload["publicationTransactionPath"].get<std::string>();
@@ -1710,7 +1709,8 @@ public:
         // every hot-path observation. A logical alias still falls back to full canonicalization so
         // aliases retain the existing physical-owner semantics.
         std::error_code lexical_error;
-        const auto absolute_requested = std::filesystem::absolute(request.project_root, lexical_error);
+        const auto absolute_requested =
+            std::filesystem::absolute(request.project_root, lexical_error);
 #if defined(_WIN32)
         const auto lexical_requested_root =
             lexical_error ? std::string{}
@@ -3140,8 +3140,8 @@ private:
         return replaced;
     }
 
-    static void wait_for_validation_publication_test_gate(
-        const std::optional<std::filesystem::path>& gate)
+    static void
+    wait_for_validation_publication_test_gate(const std::optional<std::filesystem::path>& gate)
     {
         if (!gate)
             return;
@@ -3348,8 +3348,8 @@ private:
                                WaitForSingleObject(connect_operation.hEvent, INFINITE) ==
                                    WAIT_OBJECT_0) {
                         DWORD transferred = 0;
-                        connected = GetOverlappedResult(
-                            connection, &connect_operation, &transferred, FALSE);
+                        connected = GetOverlappedResult(connection, &connect_operation,
+                                                        &transferred, FALSE);
                     }
                 }
                 CloseHandle(connect_operation.hEvent);
@@ -5223,8 +5223,7 @@ bool spawn_daemon_process(const std::string& executable_path, const BrokerContex
         // broker inherits that directory, later owner/disposable children can start from an
         // unlinked cwd and fail during host initialization. Anchor the daemon to the installed
         // executable directory instead. Individual requests carry their own cwd explicitly.
-        const auto daemon_working_directory =
-            std::filesystem::path(executable_path).parent_path();
+        const auto daemon_working_directory = std::filesystem::path(executable_path).parent_path();
         if (!daemon_working_directory.empty() && ::chdir(daemon_working_directory.c_str()) != 0)
             _exit(127);
         const int devnull = ::open("/dev/null", O_RDWR);

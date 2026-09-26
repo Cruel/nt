@@ -35,6 +35,7 @@ type DaemonProjectAuthorityConfiguration = Readonly<{
 }>;
 type CapturedNativeEnvelope = Readonly<{
   captureOk: boolean;
+  captureError?: string;
   response: string;
   stdout: string;
   stderr: string;
@@ -1807,7 +1808,10 @@ function requestInvokeHost(
     const envelope = JSON.parse(
       invokeHost(`capture:${operation}`, requestText),
     ) as CapturedNativeEnvelope;
-    if (envelope.captureOk !== true) throw new Error('failed to capture daemon native output');
+    if (envelope.captureOk !== true)
+      throw new Error(
+        `failed to capture daemon native output${envelope.captureError ? `: ${envelope.captureError}` : ''}`,
+      );
     if (context.outputMode === 'human') {
       if (context.streamedEvents) {
         if (envelope.stdout) emitEvent({ type: 'stdout', text: envelope.stdout });
