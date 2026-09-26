@@ -10,6 +10,11 @@
       "version>=": "3.5.0"
     },
     "sdl3",
+    {
+      "name": "dbus",
+      "default-features": false,
+      "platform": "linux"
+    },
     "miniaudio",
     "freetype",
     {
