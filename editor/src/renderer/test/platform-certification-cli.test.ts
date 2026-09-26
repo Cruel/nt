@@ -121,6 +121,10 @@ function run(args: string[]) {
 }
 
 describe('platform certification CLI fail-closed behavior', () => {
+  it('requires the Linux ABI baseline certification check', () => {
+    expect(certificationContract.targetChecks.linux).toContain('linux-abi-baseline');
+  });
+
   it('creates and verifies a report only from complete explicit per-check results', () => {
     const value = setup();
     expect(run(value.createArgs).status).toBe(0);
