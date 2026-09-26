@@ -37,6 +37,7 @@ refs/
 android/app/libs/*.aar
 
 .noveltea/
+.cache/
 
 DESLOPPIFY.md
 docs/desloppify/
