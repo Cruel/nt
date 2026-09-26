@@ -62,6 +62,7 @@ using Clock = std::chrono::steady_clock;
 using IoDeadline = std::optional<Clock::time_point>;
 
 volatile std::sig_atomic_t client_interrupt_signal = 0;
+
 std::mutex client_interrupt_mutex;
 std::size_t client_interrupt_users = 0;
 using SignalHandler = void (*)(int);
@@ -505,10 +506,11 @@ DWORD remaining_windows_timeout(Clock::time_point deadline)
 }
 
 bool overlapped_transfer(ConnectionHandle connection, bool reading, std::uint8_t* bytes,
-                         std::size_t size, std::size_t& transferred, Clock::time_point deadline)
+                         std::size_t size, std::size_t& transferred,
+                         IoDeadline deadline = std::nullopt)
 {
     transferred = 0;
-    if (remaining_millis(deadline) == 0)
+    if (deadline && remaining_millis(*deadline) == 0)
         return false;
     OVERLAPPED operation{};
     operation.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -527,7 +529,8 @@ bool overlapped_transfer(ConnectionHandle connection, bool reading, std::uint8_t
         CloseHandle(operation.hEvent);
         return false;
     }
-    const auto wait = WaitForSingleObject(operation.hEvent, remaining_windows_timeout(deadline));
+    const auto wait = WaitForSingleObject(
+        operation.hEvent, deadline ? remaining_windows_timeout(*deadline) : INFINITE);
     if (wait != WAIT_OBJECT_0) {
         CancelIoEx(connection, &operation);
         WaitForSingleObject(operation.hEvent, INFINITE);
@@ -566,17 +569,8 @@ bool read_exact(ConnectionHandle connection, std::uint8_t* target, std::size_t s
     std::size_t offset = 0;
     while (offset < size) {
 #if defined(_WIN32)
-        if (deadline) {
-            std::size_t read = 0;
-            if (!overlapped_transfer(connection, true, target + offset, size - offset, read,
-                                     *deadline))
-                return false;
-            offset += read;
-            continue;
-        }
-        DWORD read = 0;
-        const auto chunk = static_cast<DWORD>(std::min<std::size_t>(size - offset, 64 * 1024));
-        if (!ReadFile(connection, target + offset, chunk, &read, nullptr) || read == 0)
+        std::size_t read = 0;
+        if (!overlapped_transfer(connection, true, target + offset, size - offset, read, deadline))
             return false;
         offset += read;
 #else
@@ -603,19 +597,10 @@ bool write_all(ConnectionHandle connection, std::span<const std::uint8_t> bytes,
     std::size_t offset = 0;
     while (offset < bytes.size()) {
 #if defined(_WIN32)
-        if (deadline) {
-            std::size_t written = 0;
-            if (!overlapped_transfer(connection, false,
-                                     const_cast<std::uint8_t*>(bytes.data()) + offset,
-                                     bytes.size() - offset, written, *deadline))
-                return false;
-            offset += written;
-            continue;
-        }
-        DWORD written = 0;
-        const auto chunk =
-            static_cast<DWORD>(std::min<std::size_t>(bytes.size() - offset, 64 * 1024));
-        if (!WriteFile(connection, bytes.data() + offset, chunk, &written, nullptr) || written == 0)
+        std::size_t written = 0;
+        if (!overlapped_transfer(connection, false,
+                                 const_cast<std::uint8_t*>(bytes.data()) + offset,
+                                 bytes.size() - offset, written, deadline))
             return false;
         offset += written;
 #else
@@ -3324,7 +3309,7 @@ private:
         attributes.lpSecurityDescriptor = security_owner.descriptor;
         attributes.bInheritHandle = FALSE;
         const auto pipe = CreateNamedPipeW(
-            endpoint_.pipe_name.c_str(), PIPE_ACCESS_DUPLEX,
+            endpoint_.pipe_name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
             PIPE_UNLIMITED_INSTANCES, static_cast<DWORD>(max_frame_bytes + 4),
             static_cast<DWORD>(max_frame_bytes + 4), 0, &attributes);
@@ -3349,9 +3334,26 @@ private:
                 std::scoped_lock lock(listener_mutex_);
                 pending_pipe_ = connection;
             }
-            const BOOL connected = ConnectNamedPipe(connection, nullptr)
-                                       ? TRUE
-                                       : (GetLastError() == ERROR_PIPE_CONNECTED);
+            OVERLAPPED connect_operation{};
+            connect_operation.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            BOOL connected = FALSE;
+            if (connect_operation.hEvent != nullptr) {
+                if (ConnectNamedPipe(connection, &connect_operation)) {
+                    connected = TRUE;
+                } else {
+                    const auto error = GetLastError();
+                    if (error == ERROR_PIPE_CONNECTED) {
+                        connected = TRUE;
+                    } else if (error == ERROR_IO_PENDING &&
+                               WaitForSingleObject(connect_operation.hEvent, INFINITE) ==
+                                   WAIT_OBJECT_0) {
+                        DWORD transferred = 0;
+                        connected = GetOverlappedResult(
+                            connection, &connect_operation, &transferred, FALSE);
+                    }
+                }
+                CloseHandle(connect_operation.hEvent);
+            }
             {
                 std::scoped_lock lock(listener_mutex_);
                 if (pending_pipe_ == connection)
@@ -4498,9 +4500,8 @@ ConnectionHandle connect_endpoint(const Endpoint& endpoint, IoDeadline deadline 
     }
     if (!WaitNamedPipeW(endpoint.pipe_name.c_str(), wait_timeout))
         return invalid_connection;
-    const auto flags = deadline ? FILE_FLAG_OVERLAPPED : 0;
     const auto pipe = CreateFileW(endpoint.pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
-                                  nullptr, OPEN_EXISTING, flags, nullptr);
+                                  nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
     return pipe == INVALID_HANDLE_VALUE ? invalid_connection : pipe;
 #else
     const auto socket = ::socket(AF_UNIX, SOCK_STREAM, 0);
@@ -6502,8 +6503,9 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
     else if (action == "status")
         result = client_request(*context, "status", "status");
     else if (action == "stop") {
+        const auto before_stop = client_request(*context, "status", "stop-status-before");
+        const bool was_running = before_stop.value("running", false);
         result = client_request(*context, "stop", "stop");
-        const bool was_running = result.value("running", false);
         if (was_running) {
             const auto deadline = Clock::now() + std::chrono::seconds(2);
             while (Clock::now() < deadline) {

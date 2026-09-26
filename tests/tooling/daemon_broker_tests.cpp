@@ -1099,6 +1099,7 @@ TEST_CASE("daemon broker exposes starting, queues work until ready, and drains o
     REQUIRE(stopped["ok"] == true);
     CHECK(stopped["running"] == false);
     CHECK(stopped["state"] == "stopped");
+    CHECK(stopped["stopped"] == true);
 
     auto wait_request = request;
     wait_request["action"] = "serve-wait";

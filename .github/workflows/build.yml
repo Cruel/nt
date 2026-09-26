@@ -596,11 +596,15 @@ jobs:
 
       - name: Configure Windows release
         shell: pwsh
-        run: cmake --preset windows-release -G Ninja -DNOVELTEA_BUILD_HOST_TOOLS=ON -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake --preset windows-release -G Ninja -DNOVELTEA_BUILD_HOST_TOOLS=ON -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build shipped Windows targets
         shell: pwsh
-        run: cmake --build --preset windows-release --target noveltea-player noveltea-tooling-bridge
+        run: cmake --build --preset windows-release --target noveltea-player noveltea-tooling-bridge noveltea_tooling_tests
+
+      - name: Test Windows daemon duplex transport
+        shell: pwsh
+        run: '& build/windows-release/tests/noveltea_tooling_tests.exe "daemon broker exposes starting, queues work until ready, and drains on stop"'
 
       - name: Save Windows compiler outputs
         if: steps.windows-ccache.outputs.cache-hit != 'true'
