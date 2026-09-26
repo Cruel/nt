@@ -144,6 +144,13 @@ function(noveltea_configure_embedded_shaderc)
     if(_shaderc_includes)
         target_include_directories(noveltea_bgfx_shaderc_embedded PRIVATE ${_shaderc_includes})
     endif()
+    if(WIN32)
+        # Upstream shaderc relies on the Windows SDK for dxcapi.h, but MinGW cross-builds do not
+        # provide it. bgfx vendors compatible DirectX headers, so use those for the embedded copy.
+        target_include_directories(noveltea_bgfx_shaderc_embedded PRIVATE
+            "${noveltea_bgfx_shaderc_source_SOURCE_DIR}/bgfx/3rdparty/directx-headers/include/directx"
+            "${noveltea_bgfx_shaderc_source_SOURCE_DIR}/bgfx/3rdparty/directx-headers/include")
+    endif()
     if(_shaderc_definitions)
         target_compile_definitions(noveltea_bgfx_shaderc_embedded PRIVATE ${_shaderc_definitions})
     endif()

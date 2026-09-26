@@ -22,8 +22,15 @@ const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
 const scriptcVersion = '0.1.4';
-const isWindows = process.platform === 'win32';
-const isMac = process.platform === 'darwin';
+const targetOverride = process.env.NOVELTEA_CLI_TARGET;
+if (targetOverride && targetOverride !== 'windows')
+  throw new Error(`Unsupported NOVELTEA_CLI_TARGET '${targetOverride}'.`);
+const isWindows = process.platform === 'win32' || targetOverride === 'windows';
+const isMac = !isWindows && process.platform === 'darwin';
+const crossCompilingWindows = isWindows && process.platform !== 'win32';
+const windowsCc = crossCompilingWindows ? 'x86_64-w64-mingw32-gcc-posix' : 'gcc';
+const windowsCxx = crossCompilingWindows ? 'x86_64-w64-mingw32-g++-posix' : 'g++';
+const windowsStrip = crossCompilingWindows ? 'x86_64-w64-mingw32-strip' : 'llvm-strip';
 const releasePlatform = isWindows ? 'windows' : isMac ? 'macos' : 'linux';
 const releasePreset = isWindows
   ? 'windows-cli-gnu'
@@ -142,7 +149,7 @@ if (!existsSync(vitePlusEntrypoint))
   throw new Error('Vite+ is not installed. Run pnpm install first.');
 
 if (isWindows) {
-  for (const compiler of ['gcc', 'g++']) {
+  for (const compiler of [windowsCc, windowsCxx]) {
     const check = spawnSync(compiler, ['--version'], { encoding: 'utf8' });
     if (check.error?.code === 'ENOENT' || check.status !== 0)
       throw new Error(`NovelTea Windows CLI release builds require MinGW ${compiler} on PATH.`);
@@ -212,6 +219,15 @@ const prebuiltShadercRoot = process.env.NOVELTEA_PREBUILT_SHADERC_ROOT;
 const shadercProviderArguments = prebuiltShadercRoot
   ? [`-DNOVELTEA_PREBUILT_SHADERC_ROOT=${prebuiltShadercRoot}`]
   : [];
+const windowsCrossArguments = crossCompilingWindows
+  ? [
+      '-DCMAKE_SYSTEM_NAME=Windows',
+      `-DCMAKE_C_COMPILER=${windowsCc}`,
+      `-DCMAKE_CXX_COMPILER=${windowsCxx}`,
+      '-DCMAKE_CXX_FLAGS=-msse4.2',
+      '-DVCPKG_HOST_TRIPLET=x64-linux',
+    ]
+  : [];
 const cmakeCommand = await resolveCmakeCommand();
 
 async function stagePrebuiltShadercLinkClosure() {
@@ -260,6 +276,7 @@ run(
     '-DNOVELTEA_COMPILE_SHADERS=OFF',
     '-DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=OFF',
     ...shadercProviderArguments,
+    ...windowsCrossArguments,
   ],
   { env: buildEnv },
 );
@@ -310,9 +327,9 @@ function compilerProgram(command, argument, label) {
 }
 
 async function stageScriptcCompatibleWinpthread() {
-  const source = compilerLibrary('gcc', '-print-file-name=libwinpthread.a', 'libwinpthread.a');
-  const objcopy = compilerProgram('gcc', '-print-prog-name=objcopy', 'objcopy');
-  const nm = compilerProgram('gcc', '-print-prog-name=nm', 'nm');
+  const source = compilerLibrary(windowsCc, '-print-file-name=libwinpthread.a', 'libwinpthread.a');
+  const objcopy = compilerProgram(windowsCc, '-print-prog-name=objcopy', 'objcopy');
+  const nm = compilerProgram(windowsCc, '-print-prog-name=nm', 'nm');
   const runtimeRoot = path.join(scriptcRoot, 'windows-gnu-runtime');
   const destination = path.join(runtimeRoot, 'libwinpthread-scriptc.a');
   const scriptcTimeSymbols = ['clock_gettime32', 'clock_gettime64', 'nanosleep32', 'nanosleep64'];
@@ -321,19 +338,34 @@ async function stageScriptcCompatibleWinpthread() {
   await mkdir(runtimeRoot, { recursive: true });
   await cp(source, destination);
 
-  // ScriptC 0.1.4 supplies these public Windows time shims itself. Keep the rest
-  // of static winpthreads for MinGW libstdc++, but make its colliding definitions
-  // private to the archive rather than asking the linker to accept duplicates.
-  run(
-    objcopy,
-    [
-      ...scriptcTimeSymbols.map(
-        (symbol) => `--redefine-sym=${symbol}=noveltea_winpthread_${symbol}`,
-      ),
-      destination,
-    ],
-    { env: buildEnv },
+  const sourceSymbols = spawnSync(nm, ['-g', '--defined-only', source], {
+    encoding: 'utf8',
+    env: buildEnv,
+  });
+  if (sourceSymbols.error) throw sourceSymbols.error;
+  if (sourceSymbols.status !== 0)
+    throw new Error(`MinGW nm failed while inspecting winpthreads archive.`);
+  const collidingSymbols = scriptcTimeSymbols.filter((symbol) =>
+    new RegExp(`\\b${symbol}$`, 'mu').test(sourceSymbols.stdout),
   );
+  if (!crossCompilingWindows && collidingSymbols.length !== scriptcTimeSymbols.length)
+    throw new Error('MinGW winpthreads archive is missing the expected ScriptC time shim symbols.');
+
+  // ScriptC 0.1.4 supplies these public Windows time shims itself. Keep the rest
+  // of static winpthreads for MinGW libstdc++, but make any colliding definitions
+  // private to the archive rather than asking the linker to accept duplicates.
+  if (collidingSymbols.length > 0) {
+    run(
+      objcopy,
+      [
+        ...collidingSymbols.map(
+          (symbol) => `--redefine-sym=${symbol}=noveltea_winpthread_${symbol}`,
+        ),
+        destination,
+      ],
+      { env: buildEnv },
+    );
+  }
 
   const symbols = spawnSync(nm, ['-g', '--defined-only', destination], {
     encoding: 'utf8',
@@ -342,7 +374,7 @@ async function stageScriptcCompatibleWinpthread() {
   if (symbols.error) throw symbols.error;
   if (symbols.status !== 0)
     throw new Error(`MinGW nm failed while verifying staged winpthreads archive.`);
-  for (const symbol of scriptcTimeSymbols) {
+  for (const symbol of collidingSymbols) {
     if (new RegExp(`\\b${symbol}$`, 'mu').test(symbols.stdout))
       throw new Error(`Staged winpthreads archive still exports ScriptC-owned symbol '${symbol}'.`);
     if (!new RegExp(`\\bnoveltea_winpthread_${symbol}$`, 'mu').test(symbols.stdout))
@@ -353,9 +385,12 @@ async function stageScriptcCompatibleWinpthread() {
 
 const windowsGnuRuntimeLibraries = isWindows
   ? [
-      compilerLibrary('g++', '-print-file-name=libstdc++.a', 'libstdc++.a'),
-      compilerLibrary('gcc', '-print-libgcc-file-name', 'libgcc.a'),
-      compilerLibrary('gcc', '-print-file-name=libgcc_eh.a', 'libgcc_eh.a'),
+      compilerLibrary(windowsCxx, '-print-file-name=libstdc++.a', 'libstdc++.a'),
+      compilerLibrary(windowsCc, '-print-libgcc-file-name', 'libgcc.a'),
+      compilerLibrary(windowsCc, '-print-file-name=libgcc_eh.a', 'libgcc_eh.a'),
+      ...(crossCompilingWindows
+        ? [compilerLibrary(windowsCc, '-print-file-name=libmsvcrt.a', 'libmsvcrt.a')]
+        : []),
       await stageScriptcCompatibleWinpthread(),
     ]
   : [];
@@ -569,7 +604,14 @@ try {
         ],
         libraries,
         system_libraries: isWindows
-          ? ['advapi32', 'bcrypt', 'ole32', 'shell32', 'user32', 'ws2_32']
+          ? [
+              'advapi32',
+              'bcrypt',
+              'ole32',
+              'shell32',
+              'user32',
+              'ws2_32',
+            ]
           : isMac
             ? ['c++']
             : ['m', 'dl', 'rt', 'stdc++'],
@@ -594,7 +636,7 @@ try {
     ],
     { cwd: stageRoot, env: scriptcBuildEnv },
   );
-  run(isWindows ? 'llvm-strip' : 'strip', [isMac ? '-x' : '--strip-all', outputPath], {
+  run(isWindows ? windowsStrip : 'strip', [isMac ? '-x' : '--strip-all', outputPath], {
     env: buildEnv,
   });
 
@@ -603,7 +645,7 @@ try {
     throw new Error(`NovelTea UI Test runner is missing: ${uiTestRunnerSource}`);
   const uiTestRunnerOutput = path.join(outputDirectory, uiTestRunnerName);
   await cp(uiTestRunnerSource, uiTestRunnerOutput);
-  run(isWindows ? 'llvm-strip' : 'strip', [isMac ? '-x' : '--strip-all', uiTestRunnerOutput], {
+  run(isWindows ? windowsStrip : 'strip', [isMac ? '-x' : '--strip-all', uiTestRunnerOutput], {
     env: buildEnv,
   });
   if (!isWindows) await chmod(uiTestRunnerOutput, 0o755);
