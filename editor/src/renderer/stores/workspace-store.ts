@@ -8,7 +8,7 @@ import {
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import type { ToolDiagnostic, PlaybackTestSummary } from '../../shared/editor-tooling';
-import type { PreviewConnectionState } from '../../shared/preview-protocol';
+import type { DevtoolsConsoleRecord, PreviewConnectionState } from '../../shared/preview-protocol';
 
 export interface AssetNode {
   id: string;
@@ -49,6 +49,12 @@ export interface RuntimeEventEntry {
   label: string;
   detail?: string;
   severity: 'info' | 'warning' | 'error';
+  category?: string;
+  sequence?: string;
+  hostGeneration?: string | null;
+  runtimeGeneration?: string | null;
+  source?: DevtoolsConsoleRecord['source'];
+  generationMarker?: boolean;
 }
 
 export function buildAuthoringProjectTree(project: AuthoringProject): AssetNode[] {
@@ -92,6 +98,7 @@ interface WorkspaceState {
   previewConnectionState: PreviewConnectionState;
   selectedRuntimeObjectId: string | null;
   runtimeEvents: RuntimeEventEntry[];
+  runtimeConsoleClearHandler: (() => Promise<void>) | null;
   timeline: TimelineEntry[];
   lastPlaybackReport: unknown;
   lastExportResult: unknown;
@@ -108,7 +115,9 @@ interface WorkspaceState {
   setPreviewConnectionState: (state: PreviewConnectionState) => void;
   setSelectedRuntimeObjectId: (id: string | null) => void;
   addRuntimeEvent: (event: Omit<RuntimeEventEntry, 'id' | 'timestamp'>) => void;
+  addDevtoolsConsoleRecords: (records: DevtoolsConsoleRecord[]) => void;
   clearRuntimeEvents: () => void;
+  setRuntimeConsoleClearHandler: (handler: (() => Promise<void>) | null) => void;
   addTimelineEntry: (entry: Omit<TimelineEntry, 'id'>) => void;
   setLastPlaybackReport: (report: unknown) => void;
   setLastExportResult: (result: unknown) => void;
@@ -128,6 +137,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   previewConnectionState: 'disconnected',
   selectedRuntimeObjectId: null,
   runtimeEvents: [],
+  runtimeConsoleClearHandler: null,
   timeline: [],
   lastPlaybackReport: null,
   lastExportResult: null,
@@ -150,10 +160,32 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
         runtimeEvents: [
           { ...event, id: `${timestamp}-${state.runtimeEvents.length}`, timestamp },
           ...state.runtimeEvents,
-        ].slice(0, 100),
+        ].slice(0, 1000),
       };
     }),
+  addDevtoolsConsoleRecords: (records) =>
+    set((state) => {
+      const existing = new Set(state.runtimeEvents.map((entry) => entry.sequence).filter(Boolean));
+      const appended = records
+        .filter((record) => !existing.has(record.sequence))
+        .map((record) => ({
+          id: `console:${record.sequence}`,
+          timestamp: Date.now(),
+          label: record.message,
+          severity: record.severity,
+          category: record.category,
+          sequence: record.sequence,
+          hostGeneration: record.hostGeneration,
+          runtimeGeneration: record.runtimeGeneration,
+          source: record.source,
+          generationMarker: record.generationMarker,
+        }))
+        .reverse();
+      return { runtimeEvents: [...appended, ...state.runtimeEvents].slice(0, 1000) };
+    }),
   clearRuntimeEvents: () => set({ runtimeEvents: [] }),
+  setRuntimeConsoleClearHandler: (runtimeConsoleClearHandler) =>
+    set({ runtimeConsoleClearHandler }),
   addTimelineEntry: (entry) =>
     set((state) => ({
       timeline: [

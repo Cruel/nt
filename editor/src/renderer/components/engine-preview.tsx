@@ -113,6 +113,7 @@ export function EnginePreview({
   const setFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
   const globalConnectionState = useWorkspaceStore((s) => s.previewConnectionState);
   const setGlobalConnectionState = useWorkspaceStore((s) => s.setPreviewConnectionState);
+  const setRuntimeConsoleClearHandler = useWorkspaceStore((s) => s.setRuntimeConsoleClearHandler);
   const editorLocation = useOptionalWorkbenchEditorLocation();
   const activateGroup = useWorkbenchStore((s) => s.activateGroup);
   const {
@@ -191,6 +192,12 @@ export function EnginePreview({
     setPreviewMode,
     setEngineSettings,
   } = controller;
+
+  useEffect(() => {
+    if (embedded) return undefined;
+    setRuntimeConsoleClearHandler(() => controller.clearDevtoolsConsole());
+    return () => setRuntimeConsoleClearHandler(null);
+  }, [controller, embedded, setRuntimeConsoleClearHandler]);
 
   useEffect(() => {
     const updateVisibility = () => setPreviewVisible(isPreviewWrapperVisible(wrapperRef.current));

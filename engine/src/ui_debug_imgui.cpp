@@ -164,6 +164,7 @@ void DebugUI::begin_frame(const HostSurfaceMetrics& surface)
 }
 
 host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& snapshot,
+                                            std::span<const devtools::ConsoleRecord> console,
                                             bool submit_draw_data)
 {
     host::DebugUiFrameOutput output;
@@ -211,9 +212,19 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
         }
         ImGui::Separator();
 
-        if (m_log_len > 0) {
-            m_log_buffer[m_log_len] = '\0';
-            ImGui::TextUnformatted(m_log_buffer);
+        if (!console.empty()) {
+            ImGui::TextUnformatted("Console");
+            ImGui::BeginChild("Console", ImVec2(0.0f, 180.0f), true);
+            const auto first = console.size() > 100 ? console.size() - 100 : 0;
+            for (std::size_t index = first; index < console.size(); ++index) {
+                const auto& record = console[index];
+                ImGui::TextWrapped(
+                    "[%llu] [%.*s] [%s] %s", static_cast<unsigned long long>(record.sequence),
+                    static_cast<int>(devtools::console_severity_name(record.severity).size()),
+                    devtools::console_severity_name(record.severity).data(),
+                    record.category.c_str(), record.message.c_str());
+            }
+            ImGui::EndChild();
         }
 
         ImGui::End();
@@ -259,20 +270,6 @@ void DebugUI::shutdown()
     m_web_ini_sync_timer = 0.0f;
     m_initialized = false;
     SDL_Log("[debug_ui] ImGui shutdown");
-}
-
-void DebugUI::log_printf(const char* fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    int n =
-        std::vsnprintf(m_log_buffer + m_log_len, sizeof(m_log_buffer) - m_log_len - 1, fmt, args);
-    if (n > 0)
-        m_log_len += n;
-    if (m_log_len > static_cast<int>(sizeof(m_log_buffer)) - 2) {
-        m_log_len = static_cast<int>(sizeof(m_log_buffer)) - 2;
-    }
-    va_end(args);
 }
 
 } // namespace noveltea

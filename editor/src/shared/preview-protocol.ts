@@ -386,6 +386,28 @@ export interface DevtoolsSnapshot {
   runtime: RuntimeDebugSnapshot | null;
 }
 
+export type DevtoolsConsoleSeverity = 'info' | 'warning' | 'error';
+
+export interface DevtoolsConsoleRecord {
+  sequence: string;
+  hostGeneration: string | null;
+  runtimeGeneration: string | null;
+  severity: DevtoolsConsoleSeverity;
+  category: string;
+  message: string;
+  source: { chunk: string; line: number | null } | null;
+  generationMarker: boolean;
+}
+
+export interface DevtoolsConsoleDelta {
+  afterSequence: string;
+  earliestRetainedSequence: string;
+  latestSequence: string;
+  lostRecordCount: string;
+  historyGap: boolean;
+  records: DevtoolsConsoleRecord[];
+}
+
 export interface RuntimeFastForwardResult {
   reason: RuntimeFastForwardStopReason;
   stepsApplied: number;
@@ -475,6 +497,7 @@ export type EditorToPreviewMessage =
     }
   | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
   | { version: 1; type: 'devtools-request-snapshot'; requestId: string }
+  | { version: 1; type: 'devtools-clear-console'; requestId: string }
   | {
       version: 1;
       type: 'runtime-request-asset-profiler';
@@ -605,6 +628,7 @@ export type PreviewToEditorMessage =
       requestId?: string;
       snapshot: DevtoolsSnapshot;
     }
+  | { version: 1; type: 'devtools-console-delta'; delta: DevtoolsConsoleDelta }
   | {
       version: 1;
       type: 'runtime-asset-profiler';
@@ -1144,8 +1168,13 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
 
 export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
   if (!isRecord(value) || !isRecord(value.host) || !isRecord(value.tooling)) return false;
-  if (!Object.keys(value).every((key) => ['host', 'tooling', 'runtime'].includes(key))) return false;
-  if (!Object.keys(value.host).every((key) => ['platform', 'renderer', 'hostGeneration', 'surface'].includes(key)))
+  if (!Object.keys(value).every((key) => ['host', 'tooling', 'runtime'].includes(key)))
+    return false;
+  if (
+    !Object.keys(value.host).every((key) =>
+      ['platform', 'renderer', 'hostGeneration', 'surface'].includes(key),
+    )
+  )
     return false;
   if (!isRecord(value.host.surface)) return false;
   const surface = value.host.surface;
@@ -1195,6 +1224,41 @@ export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
     typeof value.tooling.nativeDebugUiEnabled === 'boolean' &&
     (value.runtime === null || isRuntimeDebugSnapshot(value.runtime))
   );
+}
+
+export function isDevtoolsConsoleDelta(value: unknown): value is DevtoolsConsoleDelta {
+  if (!isRecord(value) || !Array.isArray(value.records)) return false;
+  if (
+    !isCanonicalUnsignedDecimal(value.afterSequence) ||
+    !isCanonicalUnsignedDecimal(value.earliestRetainedSequence) ||
+    !isCanonicalUnsignedDecimal(value.latestSequence) ||
+    !isCanonicalUnsignedDecimal(value.lostRecordCount) ||
+    typeof value.historyGap !== 'boolean'
+  )
+    return false;
+  return value.records.every((record) => {
+    if (!isRecord(record)) return false;
+    const sourceValid =
+      record.source === null ||
+      (isRecord(record.source) &&
+        typeof record.source.chunk === 'string' &&
+        (record.source.line === null ||
+          (typeof record.source.line === 'number' &&
+            Number.isSafeInteger(record.source.line) &&
+            record.source.line > 0)));
+    return (
+      isCanonicalUnsignedDecimal(record.sequence) &&
+      (record.hostGeneration === null || isCanonicalUnsignedDecimal(record.hostGeneration)) &&
+      (record.runtimeGeneration === null || isCanonicalUnsignedDecimal(record.runtimeGeneration)) &&
+      (record.severity === 'info' ||
+        record.severity === 'warning' ||
+        record.severity === 'error') &&
+      typeof record.category === 'string' &&
+      typeof record.message === 'string' &&
+      sourceValid &&
+      typeof record.generationMarker === 'boolean'
+    );
+  });
 }
 
 function isRuntimeFastForwardStopReason(value: unknown): value is RuntimeFastForwardStopReason {
@@ -1352,6 +1416,7 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-clear-subject-selection':
     case 'runtime-request-debug-snapshot':
     case 'devtools-request-snapshot':
+    case 'devtools-clear-console':
     case 'request-preview-state':
       return true;
     case 'runtime-request-asset-profiler':
@@ -1545,6 +1610,8 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
         (value.requestId === undefined || typeof value.requestId === 'string') &&
         isDevtoolsSnapshot(value.snapshot)
       );
+    case 'devtools-console-delta':
+      return isDevtoolsConsoleDelta(value.delta);
     case 'runtime-asset-profiler':
       return typeof value.requestId === 'string' && isAssetProfilerWirePayload(value.payload);
     case 'runtime-debug-event':

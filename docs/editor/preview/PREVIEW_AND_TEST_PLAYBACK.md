@@ -85,7 +85,7 @@ and live Interactable entries; any editor grouping is derived and non-authoritat
 
 Play keeps current-state debugger controls in its right-side tooling inspector. Runtime activity and
 preview diagnostics are workbench bottom-panel concerns instead of a duplicate "Events & diagnostics"
-inspector section. `Runtime Events` is intentionally semantic: it records explicit runtime debug events,
+inspector section. `Console` is intentionally semantic: it records explicit runtime debug events,
 fast-forward outcomes, and runtime failures, while continuous debug snapshots, FPS/profiler telemetry,
 command acknowledgements, pointer/focus traffic, and other preview-protocol plumbing remain hidden.
 Runtime debug snapshots continue to drive the inspector's current-state views, and diagnostics carried

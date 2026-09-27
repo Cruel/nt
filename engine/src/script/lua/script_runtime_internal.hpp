@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 
 #include "noveltea/core/text_content.hpp"
+#include "noveltea/script/script_runtime.hpp"
 
 struct lua_State;
 
@@ -20,11 +22,16 @@ struct ScriptRuntimeAccess {
     static lua_State* state(ScriptRuntime& runtime);
     static const lua_State* state(const ScriptRuntime& runtime);
     static std::size_t environment_count(const ScriptRuntime& runtime) noexcept;
+    static const std::function<void(const ScriptDebugMessage&)>*
+    debug_sink(const ScriptRuntime& runtime) noexcept;
 };
 } // namespace detail
 
 void bind_noveltea(lua_State* state);
-void install_host_print(lua_State* state);
+void install_host_print(lua_State* state,
+                        const std::function<void(const ScriptDebugMessage&)>* debug_sink);
+void install_debug_api(lua_State* state,
+                       const std::function<void(const ScriptDebugMessage&)>* debug_sink);
 
 } // namespace noveltea::script
 

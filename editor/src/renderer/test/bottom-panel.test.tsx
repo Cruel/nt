@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vite-plus/test';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
@@ -56,7 +56,7 @@ describe('BottomPanel', () => {
     );
     expect(screen.getByText('No activity entries yet.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Problems/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Runtime Events' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Console' })).not.toBeInTheDocument();
     expect(useBottomPanelStore.getState().serialize()).toEqual({
       visible: true,
       activePanelId: 'problems',
@@ -69,7 +69,7 @@ describe('BottomPanel', () => {
 
     expect(screen.getByRole('button', { name: /Problems/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Activity' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Runtime Events' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Console' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Asset Performance' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Preview Diagnostics/ })).not.toBeInTheDocument();
   });
@@ -147,7 +147,7 @@ describe('BottomPanel', () => {
 
     render(<BottomPanel />);
 
-    const runtimeEvents = screen.getByRole('button', { name: 'Runtime Events' });
+    const runtimeEvents = screen.getByRole('button', { name: 'Console' });
     const assetPerformance = screen.getByRole('button', { name: 'Asset Performance' });
     const previewDiagnostics = screen.getByRole('button', { name: /Preview Diagnostics/ });
     const previewGroup = runtimeEvents.closest('[data-bottom-panel-group="preview"]');
@@ -195,6 +195,52 @@ describe('BottomPanel', () => {
     expect(screen.queryByText('runtime-debug-snapshot')).not.toBeInTheDocument();
   });
 
+  it('filters structured Console entries and clears both retained surfaces', async () => {
+    const clearRemote = vi.fn().mockResolvedValue(undefined);
+    act(() => {
+      useWorkbenchStore.getState().openTab(buildFullGamePreviewTab());
+      useWorkspaceStore.getState().addDevtoolsConsoleRecords([
+        {
+          sequence: '8',
+          hostGeneration: '1',
+          runtimeGeneration: '3',
+          severity: 'info',
+          category: 'lua',
+          message: 'hello player',
+          source: { chunk: 'main.lua', line: 4 },
+          generationMarker: false,
+        },
+        {
+          sequence: '9',
+          hostGeneration: '1',
+          runtimeGeneration: '3',
+          severity: 'error',
+          category: 'runtime',
+          message: 'door failed',
+          source: null,
+          generationMarker: false,
+        },
+      ]);
+      useWorkspaceStore.getState().setRuntimeConsoleClearHandler(clearRemote);
+      useBottomPanelStore.getState().setActivePanelId('preview-events');
+    });
+
+    render(<BottomPanel />);
+    fireEvent.change(screen.getByLabelText('Console severity'), { target: { value: 'error' } });
+    expect(screen.getByText('door failed')).toBeInTheDocument();
+    expect(screen.queryByText('hello player')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Console severity'), { target: { value: 'all' } });
+    fireEvent.change(screen.getByLabelText('Console category'), { target: { value: 'lua' } });
+    fireEvent.change(screen.getByLabelText('Console text filter'), { target: { value: 'player' } });
+    expect(screen.getByText('hello player')).toBeInTheDocument();
+    expect(screen.queryByText('door failed')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(useWorkspaceStore.getState().runtimeEvents).toEqual([]);
+    expect(clearRemote).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps Preview Diagnostics available after the Play tab is gone while diagnostics remain', () => {
     usePreviewManagerStore.getState().recordPreviewDiagnostic({
       severity: 'error',
@@ -205,7 +251,7 @@ describe('BottomPanel', () => {
 
     render(<BottomPanel />);
 
-    expect(screen.queryByRole('button', { name: 'Runtime Events' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Console' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Asset Performance' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('1 preview error')).toHaveTextContent('1');
     expect(screen.getByRole('button', { name: /Preview Diagnostics/ })).toContainElement(

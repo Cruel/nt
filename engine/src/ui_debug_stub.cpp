@@ -26,15 +26,15 @@ DebugUiEventResult DebugUI::process_event(const SDL_Event& event, const HostSurf
 void DebugUI::begin_frame(const HostSurfaceMetrics& surface) { (void)surface; }
 
 host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& snapshot,
+                                            std::span<const devtools::ConsoleRecord> console,
                                             bool submit_draw_data)
 {
     (void)snapshot;
+    (void)console;
     (void)submit_draw_data;
     return {};
 }
 
 void DebugUI::shutdown() {}
-
-void DebugUI::log_printf(const char* fmt, ...) { (void)fmt; }
 
 } // namespace noveltea

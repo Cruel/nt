@@ -193,6 +193,14 @@ Engine::Impl::Impl()
           .system_layout_host = *this,
           .world_transitions = &m_world_transitions,
           .script_certifier = m_scripts,
+          .script_debug_sink =
+#if NOVELTEA_ENABLE_DEVTOOLS
+              [this](const script::ScriptDebugMessage& message) {
+                  append_script_debug_message(message);
+              },
+#else
+              {},
+#endif
           .runtime_session_replaced =
               [this]() { m_presentation_layouts.replace_runtime_session(); },
           .diagnostic_sink =
@@ -1695,6 +1703,11 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     }
 
     {
+#if NOVELTEA_ENABLE_DEVTOOLS
+        m_scripts.set_debug_sink([this](const script::ScriptDebugMessage& message) {
+            append_script_debug_message(message);
+        });
+#endif
         auto script_init = m_scripts.initialize({&m_assets});
         if (!script_init) {
             std::fprintf(stderr, "[engine] script runtime init failed: %s\n",
@@ -2703,6 +2716,42 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
 #endif
 }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+void Engine::Impl::sync_devtools_console_generations()
+{
+    const auto preview_host_generation = m_runtime_preview.host_generation();
+    const auto host_generation = preview_host_generation > 0
+                                     ? std::optional<std::uint64_t>{preview_host_generation}
+                                     : std::nullopt;
+    const auto runtime_generation =
+        m_game_host.running_game()
+            ? std::optional<std::uint64_t>{m_game_host.session_generation().number()}
+            : std::nullopt;
+    m_devtools_console.set_generations(host_generation, runtime_generation);
+}
+
+void Engine::Impl::append_script_debug_message(const script::ScriptDebugMessage& message)
+{
+    sync_devtools_console_generations();
+    devtools::ConsoleSeverity severity = devtools::ConsoleSeverity::Info;
+    switch (message.severity) {
+    case script::ScriptDebugSeverity::Info:
+        break;
+    case script::ScriptDebugSeverity::Warning:
+        severity = devtools::ConsoleSeverity::Warning;
+        break;
+    case script::ScriptDebugSeverity::Error:
+        severity = devtools::ConsoleSeverity::Error;
+        break;
+    }
+    std::optional<devtools::ConsoleSource> source;
+    if (!message.source.empty() || message.line) {
+        source = devtools::ConsoleSource{.chunk = message.source, .line = message.line};
+    }
+    m_devtools_console.append(severity, "lua", message.message, std::move(source));
+}
+#endif
+
 host::CheckpointThumbnailCaptureContext Engine::Impl::checkpoint_thumbnail_capture_context() const
 {
     const auto* running_game = m_game_host.running_game();
@@ -2958,7 +3007,13 @@ void Engine::Impl::render()
     if (screenshot_capture_frame)
         m_renderer.finalize_screenshot_capture();
     if (m_debug_ui_enabled) {
-        auto output = m_debug_ui.end_frame(devtools_snapshot(), !screenshot_capture_frame);
+#if NOVELTEA_ENABLE_DEVTOOLS
+        sync_devtools_console_generations();
+        auto output = m_debug_ui.end_frame(devtools_snapshot(), m_devtools_console.records(),
+                                           !screenshot_capture_frame);
+#else
+        auto output = m_debug_ui.end_frame(devtools_snapshot(), {}, !screenshot_capture_frame);
+#endif
         for (auto& command : output.commands)
             m_pending_debug_ui_commands.push_back(std::move(command));
     }
@@ -3270,6 +3325,7 @@ std::span<const std::string_view> EngineTooling::devtools_capabilities() noexcep
 {
     static constexpr std::array capabilities{
         std::string_view{"devtools-snapshot-v1"},
+        std::string_view{"devtools-console-v1"},
         std::string_view{"runtime-debug-snapshot-v1"},
         std::string_view{"runtime-debug-mutations-v1"},
         std::string_view{"runtime-fast-forward-v1"},
@@ -3287,6 +3343,26 @@ EngineTooling::devtools_snapshot(const Engine& engine)
     }
     return core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>::success(
         engine.m_impl->devtools_snapshot());
+}
+
+core::Result<devtools::ConsoleDelta, core::Diagnostic>
+EngineTooling::devtools_console_delta(Engine& engine, std::uint64_t after_sequence)
+{
+    if (!engine.m_impl->m_initialized) {
+        return core::Result<devtools::ConsoleDelta, core::Diagnostic>::failure(
+            {.code = "devtools.engine_uninitialized",
+             .message = "Devtools Console requires an initialized engine."});
+    }
+    engine.m_impl->sync_devtools_console_generations();
+    return core::Result<devtools::ConsoleDelta, core::Diagnostic>::success(
+        engine.m_impl->m_devtools_console.delta_after(after_sequence));
+}
+
+std::uint64_t EngineTooling::clear_devtools_console(Engine& engine) noexcept
+{
+    const auto latest = engine.m_impl->m_devtools_console.latest_sequence();
+    engine.m_impl->m_devtools_console.clear();
+    return latest;
 }
 #endif
 

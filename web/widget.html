@@ -36,6 +36,7 @@
     let previewActivityActive = true;
     let previewActivityVisible = true;
     let lastRuntimeDebugFingerprint = '';
+    let lastDevtoolsConsoleSequence = '0';
     let previewWheelPolicy = params.get('wheelPolicy') === 'editor-scroll' ? 'editor-scroll' : 'preview-input';
     let previewWheelRouteId = '';
     let transportGeneration = 0;
@@ -1252,6 +1253,38 @@ thead, tbody, tfoot {
       }
     }
 
+    function publishDevtoolsConsoleDelta() {
+      if (!port || !engineReady || !runtimeReady || !previewActivityActive || !previewActivityVisible)
+        return;
+      if (!nativeExportAvailable('noveltea_devtools_console_delta')) return;
+      const json = Module.ccall('noveltea_devtools_console_delta', 'string', ['string'], [lastDevtoolsConsoleSequence]);
+      if (typeof json !== 'string' || json.length === 0) return;
+      try {
+        const delta = JSON.parse(json);
+        if (!delta || typeof delta.latestSequence !== 'string' || !Array.isArray(delta.records)) return;
+        lastDevtoolsConsoleSequence = delta.latestSequence;
+        if (delta.records.length === 0 && !delta.historyGap && delta.lostRecordCount === '0') return;
+        send({ version: protocolVersion, type: 'devtools-console-delta', delta });
+      } catch (_error) {
+      }
+    }
+
+    function clearDevtoolsConsole(message) {
+      if (!nativeExportAvailable('noveltea_devtools_console_clear')) {
+        failCommand(message, 'Developer Console is unavailable in this preview build.', { category: 'devtools' });
+        return;
+      }
+      const json = Module.ccall('noveltea_devtools_console_clear', 'string', [], []);
+      try {
+        const result = JSON.parse(json);
+        if (!result || typeof result.latestSequence !== 'string') throw new Error('missing latest sequence');
+        lastDevtoolsConsoleSequence = result.latestSequence;
+        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      } catch (error) {
+        failCommand(message, `Developer Console clear failed: ${error && error.message ? error.message : String(error)}`, { category: 'devtools' });
+      }
+    }
+
     function runtimeDebugFingerprint(snapshot) {
       return JSON.stringify({
         loaded: snapshot.loaded,
@@ -1474,6 +1507,9 @@ thead, tbody, tfoot {
           if (emitDevtoolsSnapshot(message)) {
             send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
           }
+          return true;
+        case 'devtools-clear-console':
+          clearDevtoolsConsole(message);
           return true;
         case 'runtime-request-asset-profiler':
           requestAssetProfiler(message);
@@ -1701,7 +1737,10 @@ thead, tbody, tfoot {
       if (port) window.clearInterval(helloInterval);
       else sendHello();
     }, 250);
-    window.setInterval(publishRuntimeDebugSnapshotIfChanged, 100);
+    window.setInterval(() => {
+      publishRuntimeDebugSnapshotIfChanged();
+      publishDevtoolsConsoleDelta();
+    }, 100);
 
     // BEGIN preview-surface-metrics
     function resolvePreviewSurfaceMetrics(cssWidth, cssHeight, devicePixelRatio, maxDpr) {

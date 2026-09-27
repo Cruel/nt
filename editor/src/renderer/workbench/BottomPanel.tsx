@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -77,14 +77,87 @@ function OutputPanel() {
 function RuntimeEventsPanel() {
   const { t } = useTranslation('workspace');
   const events = useWorkspaceStore((state) => state.runtimeEvents);
+  const clearRuntimeEvents = useWorkspaceStore((state) => state.clearRuntimeEvents);
+  const runtimeConsoleClearHandler = useWorkspaceStore((state) => state.runtimeConsoleClearHandler);
+  const [severity, setSeverity] = useState<'all' | 'info' | 'warning' | 'error'>('all');
+  const [category, setCategory] = useState('all');
+  const [query, setQuery] = useState('');
+  const categories = useMemo(
+    () => [...new Set(events.map((entry) => entry.category ?? 'runtime'))].sort(),
+    [events],
+  );
+  const filteredEvents = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return events.filter((entry) => {
+      const entryCategory = entry.category ?? 'runtime';
+      if (severity !== 'all' && entry.severity !== severity) return false;
+      if (category !== 'all' && entryCategory !== category) return false;
+      if (!needle) return true;
+      const source = entry.source
+        ? `${entry.source.chunk}${entry.source.line ? `:${entry.source.line}` : ''}`
+        : '';
+      return `${entry.label} ${entry.detail ?? ''} ${entryCategory} ${source}`
+        .toLocaleLowerCase()
+        .includes(needle);
+    });
+  }, [category, events, query, severity]);
   if (events.length === 0) {
     return (
       <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.previewEvents')}</p>
     );
   }
   return (
-    <div className="space-y-1 p-2">
-      {events.map((entry) => (
+    <div className="space-y-2 p-2">
+      <div className="flex items-center gap-2">
+        <select
+          aria-label="Console severity"
+          className="h-7 rounded border bg-background px-2 text-xs"
+          value={severity}
+          onChange={(event) => setSeverity(event.target.value as typeof severity)}
+        >
+          <option value="all">All severities</option>
+          <option value="info">Info</option>
+          <option value="warning">Warning</option>
+          <option value="error">Error</option>
+        </select>
+        <select
+          aria-label="Console category"
+          className="h-7 rounded border bg-background px-2 text-xs"
+          value={category}
+          onChange={(event) => setCategory(event.target.value)}
+        >
+          <option value="all">All categories</option>
+          {categories.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label="Console text filter"
+          className="h-7 min-w-40 flex-1 rounded border bg-background px-2 text-xs"
+          placeholder="Filter text"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7"
+          onClick={() => {
+            clearRuntimeEvents();
+            void runtimeConsoleClearHandler?.().catch(() => undefined);
+          }}
+        >
+          Clear
+        </Button>
+      </div>
+      {filteredEvents.length === 0 ? (
+        <p className="px-1 py-2 text-xs text-muted-foreground">
+          No Console entries match the filters.
+        </p>
+      ) : null}
+      {filteredEvents.map((entry) => (
         <div key={entry.id} className="rounded border bg-card/40 px-2 py-1.5 text-xs">
           <div className="flex items-center gap-2">
             <Badge
@@ -98,10 +171,17 @@ function RuntimeEventsPanel() {
             >
               {entry.severity}
             </Badge>
+            <Badge variant="outline">{entry.category ?? 'runtime'}</Badge>
             <span className="font-medium">{entry.label}</span>
           </div>
           {entry.detail ? (
             <div className="mt-1 font-mono text-[11px] text-muted-foreground">{entry.detail}</div>
+          ) : null}
+          {entry.source ? (
+            <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+              {entry.source.chunk}
+              {entry.source.line ? `:${entry.source.line}` : ''}
+            </div>
           ) : null}
         </div>
       ))}

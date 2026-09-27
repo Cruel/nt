@@ -2,6 +2,7 @@
 
 #include "noveltea/engine.hpp"
 #include "noveltea/engine_tooling.hpp"
+#include "noveltea/devtools_console.hpp"
 #include "noveltea/platform.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 
@@ -223,6 +224,48 @@ TEST_CASE("Devtools Snapshot owns one typed Runtime Debug Snapshot section")
     CHECK_FALSE(snapshot.runtime.has_value());
     CHECK(snapshot.host.surface == HostSurfaceMetrics{});
     CHECK_FALSE(snapshot.tooling.preview_running);
+}
+
+TEST_CASE("Devtools Console retains bounded sequenced history and reports cursor gaps")
+{
+    devtools::ConsoleBuffer console(3);
+    console.set_generations(7, 11);
+    console.append(devtools::ConsoleSeverity::Info, "lua", "one");
+    console.append(devtools::ConsoleSeverity::Warning, "lua", "two");
+    console.append(devtools::ConsoleSeverity::Error, "runtime", "three");
+
+    const auto delta = console.delta_after(0);
+    REQUIRE(delta.records.size() == 3);
+    CHECK(delta.history_gap);
+    CHECK(delta.lost_record_count == 1);
+    CHECK(delta.records.front().sequence == 2);
+    CHECK(delta.records.front().host_generation == 7);
+    CHECK(delta.records.front().runtime_generation == 11);
+
+    const auto cursor_delta = console.delta_after(2);
+    REQUIRE(cursor_delta.records.size() == 2);
+    CHECK_FALSE(cursor_delta.history_gap);
+    CHECK(cursor_delta.records.front().sequence == 3);
+
+    const auto latest_before_clear = console.latest_sequence();
+    console.clear();
+    CHECK(console.records().empty());
+    console.append(devtools::ConsoleSeverity::Info, "lua", "after-clear");
+    CHECK(console.records().front().sequence == latest_before_clear + 1);
+}
+
+TEST_CASE("Devtools Console retains runtime generation transitions as records")
+{
+    devtools::ConsoleBuffer console;
+    console.set_generations(1, 3);
+    console.set_generations(1, 4);
+
+    REQUIRE(console.records().size() == 2);
+    CHECK(console.records()[0].generation_marker);
+    CHECK(console.records()[0].runtime_generation == 3);
+    CHECK(console.records()[1].generation_marker);
+    CHECK(console.records()[1].runtime_generation == 4);
+    CHECK(console.records()[1].message.find("replacing 3") != std::string::npos);
 }
 
 #if NOVELTEA_ENABLE_DEVTOOLS

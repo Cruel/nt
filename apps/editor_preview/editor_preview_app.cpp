@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <charconv>
 #include <cstdio>
 #include <optional>
 #include <string>
@@ -598,6 +599,72 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_snapshot()
             {"runtime", std::move(runtime)},
         }
             .dump();
+    return result.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_console_delta(const char* after_sequence)
+{
+    static std::string result;
+    result.clear();
+    auto* engine = preview_engine();
+    if (!engine || !after_sequence)
+        return result.c_str();
+
+    std::uint64_t after = 0;
+    const std::string_view text(after_sequence);
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), after);
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
+        return result.c_str();
+
+    auto delta = noveltea::EngineTooling::devtools_console_delta(*engine, after);
+    if (!delta)
+        return result.c_str();
+
+    const auto& value = *delta.value_if();
+    auto records = nlohmann::json::array();
+    for (const auto& record : value.records) {
+        nlohmann::json source = nullptr;
+        if (record.source) {
+            source = {{"chunk", record.source->chunk},
+                      {"line", record.source->line ? nlohmann::json(*record.source->line)
+                                                   : nlohmann::json(nullptr)}};
+        }
+        records.push_back(
+            {{"sequence", std::to_string(record.sequence)},
+             {"hostGeneration", record.host_generation
+                                    ? nlohmann::json(std::to_string(*record.host_generation))
+                                    : nlohmann::json(nullptr)},
+             {"runtimeGeneration", record.runtime_generation
+                                       ? nlohmann::json(std::to_string(*record.runtime_generation))
+                                       : nlohmann::json(nullptr)},
+             {"severity", noveltea::devtools::console_severity_name(record.severity)},
+             {"category", record.category},
+             {"message", record.message},
+             {"source", std::move(source)},
+             {"generationMarker", record.generation_marker}});
+    }
+    result = nlohmann::json{{"afterSequence", std::to_string(value.after_sequence)},
+                            {"earliestRetainedSequence",
+                             std::to_string(value.earliest_retained_sequence)},
+                            {"latestSequence", std::to_string(value.latest_sequence)},
+                            {"lostRecordCount", std::to_string(value.lost_record_count)},
+                            {"historyGap", value.history_gap},
+                            {"records", std::move(records)}}
+                 .dump();
+    return result.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_console_clear()
+{
+    static std::string result;
+    result.clear();
+    if (auto* engine = preview_engine()) {
+        result =
+            nlohmann::json{
+                {"latestSequence",
+                 std::to_string(noveltea::EngineTooling::clear_devtools_console(*engine))}}
+                .dump();
+    }
     return result.c_str();
 }
 
