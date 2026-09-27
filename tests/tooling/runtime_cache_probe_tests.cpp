@@ -15,6 +15,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #if !defined(_WIN32)
@@ -26,21 +27,33 @@ namespace {
 using Json = nlohmann::json;
 
 struct TempRoot {
-    std::filesystem::path path;
+    explicit TempRoot(std::filesystem::path root_path) : path(std::move(root_path)) {}
+    TempRoot(const TempRoot&) = delete;
+    TempRoot& operator=(const TempRoot&) = delete;
+    TempRoot(TempRoot&& other) noexcept : path(std::move(other.path))
+    {
+        other.path.clear();
+    }
+    TempRoot& operator=(TempRoot&&) = delete;
+
     ~TempRoot()
     {
+        if (path.empty())
+            return;
         std::error_code error;
         std::filesystem::remove_all(path, error);
     }
+
+    std::filesystem::path path;
 };
 
 TempRoot temp_root()
 {
     const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
-    TempRoot root{std::filesystem::temp_directory_path() /
-                  ("noveltea-cache-probe-" + std::to_string(nonce))};
-    std::filesystem::create_directories(root.path);
-    return root;
+    const auto path = std::filesystem::temp_directory_path() /
+                      ("noveltea-cache-probe-" + std::to_string(nonce));
+    std::filesystem::create_directories(path);
+    return TempRoot{path};
 }
 
 void write_text(const std::filesystem::path& path, std::string_view text)

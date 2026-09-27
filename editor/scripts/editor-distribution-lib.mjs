@@ -999,9 +999,9 @@ export async function createStage(options = {}) {
   }
 }
 
-export function packageLayout(appOutDir) {
-  if (process.platform === 'darwin') {
-    const appBundle = path.join(appOutDir, 'NovelTea Editor.app');
+export function packageLayoutForPlatform(appOutDir, platform) {
+  if (platform === 'darwin') {
+    const appBundle = path.join(appOutDir, 'noveltea-editor.app');
     return {
       appBundle,
       executable: path.join(appBundle, 'Contents', 'MacOS', 'noveltea-editor'),
@@ -1012,22 +1012,25 @@ export function packageLayout(appOutDir) {
     appBundle: appOutDir,
     executable: path.join(
       appOutDir,
-      process.platform === 'win32' ? 'noveltea-editor.exe' : 'noveltea-editor',
+      platform === 'win32' ? 'noveltea-editor.exe' : 'noveltea-editor',
     ),
     resources: path.join(appOutDir, 'resources'),
   };
 }
 
-export async function findPackagedApplication(outputRoot) {
+export function packageLayout(appOutDir) {
+  return packageLayoutForPlatform(appOutDir, process.platform);
+}
+
+export async function findPackagedApplication(outputRoot, platform = process.platform) {
   const entries = await readdir(outputRoot, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    if (!/(?:unpacked|NovelTea Editor\.app$)/.test(entry.name)) continue;
-    const candidate = packageLayout(path.join(outputRoot, entry.name));
+    const candidate = packageLayoutForPlatform(path.join(outputRoot, entry.name), platform);
     if (await pathExists(candidate.executable)) return candidate;
   }
-  if (process.platform === 'darwin') {
-    const direct = packageLayout(outputRoot);
+  if (platform === 'darwin') {
+    const direct = packageLayoutForPlatform(outputRoot, platform);
     if (await pathExists(direct.executable)) return direct;
   }
   throw new Error(`Unable to locate the packaged NovelTea Editor under ${outputRoot}.`);

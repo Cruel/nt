@@ -9,9 +9,51 @@ import {
 } from '../../../../scripts/noveltea-version.mjs';
 // @ts-expect-error The distribution helper is intentionally authored as a Node ESM script.
 import * as editorDistribution from '../../../scripts/editor-distribution-lib.mjs';
-const { assertCurrentEditorStageManifest } = editorDistribution;
+const { assertCurrentEditorStageManifest, findPackagedApplication, packageLayoutForPlatform } =
+  editorDistribution;
 
 describe('editor distribution stage manifest', () => {
+  it('uses electron-builder product filename semantics for packaged layouts', () => {
+    expect(packageLayoutForPlatform('/tmp/output', 'darwin')).toEqual({
+      appBundle: path.join('/tmp/output', 'noveltea-editor.app'),
+      executable: path.join(
+        '/tmp/output',
+        'noveltea-editor.app',
+        'Contents',
+        'MacOS',
+        'noveltea-editor',
+      ),
+      resources: path.join('/tmp/output', 'noveltea-editor.app', 'Contents', 'Resources'),
+    });
+    expect(packageLayoutForPlatform('/tmp/output', 'win32').executable).toBe(
+      path.join('/tmp/output', 'noveltea-editor.exe'),
+    );
+  });
+
+  it('finds a macOS app nested under electron-builder architecture output', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'noveltea-editor-package-layout-'));
+    try {
+      const executable = path.join(
+        root,
+        'mac-arm64',
+        'noveltea-editor.app',
+        'Contents',
+        'MacOS',
+        'noveltea-editor',
+      );
+      mkdirSync(path.dirname(executable), { recursive: true });
+      writeFileSync(executable, 'fixture');
+
+      await expect(findPackagedApplication(root, 'darwin')).resolves.toEqual({
+        appBundle: path.join(root, 'mac-arm64', 'noveltea-editor.app'),
+        executable,
+        resources: path.join(root, 'mac-arm64', 'noveltea-editor.app', 'Contents', 'Resources'),
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('derives local build versions from the canonical product version', () => {
     expect(novelTeaDevelopmentVersion('1.0.0', '0123456789abcdef')).toBe('1.0.0-dev.0123456789ab');
     expect(novelTeaDevelopmentVersion('1.1.0-rc.1', 'abcdef0123456789')).toBe(

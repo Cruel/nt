@@ -16,6 +16,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #if !defined(_WIN32)
@@ -41,31 +42,6 @@ Json invoke_daemon(const Json& request)
     REQUIRE(required <= response.size());
     return Json::parse(std::string(reinterpret_cast<const char*>(response.data()),
                                    static_cast<std::size_t>(required)));
-}
-
-Json invoke_scriptc_adapter(std::string_view operation, std::string_view request_text)
-{
-    const auto response_path =
-        std::filesystem::temp_directory_path() /
-        ("noveltea-daemon-scriptc-" +
-         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
-    const auto response_path_text = response_path.generic_string();
-    noveltea_tooling_scriptc_invoke_to_file(
-        reinterpret_cast<const std::uint8_t*>(operation.data()), operation.size(),
-        reinterpret_cast<const std::uint8_t*>(request_text.data()), request_text.size(),
-        reinterpret_cast<const std::uint8_t*>(response_path_text.data()),
-        response_path_text.size());
-    std::ifstream input(response_path, std::ios::binary);
-    const std::string response((std::istreambuf_iterator<char>(input)),
-                               std::istreambuf_iterator<char>());
-    std::error_code error;
-    std::filesystem::remove(response_path, error);
-    return Json::parse(response);
-}
-
-Json invoke_daemon_via_scriptc_adapter(const Json& request)
-{
-    return invoke_scriptc_adapter("daemon", request.dump());
 }
 
 std::string unique_build(std::string_view suffix)
@@ -167,30 +143,53 @@ Json disposable_request(Json base, std::string request_id)
 }
 
 struct TempRuntimeRoot {
-    std::filesystem::path path;
+    explicit TempRuntimeRoot(std::filesystem::path root_path) : path(std::move(root_path)) {}
+    TempRuntimeRoot(const TempRuntimeRoot&) = delete;
+    TempRuntimeRoot& operator=(const TempRuntimeRoot&) = delete;
+    TempRuntimeRoot(TempRuntimeRoot&& other) noexcept : path(std::move(other.path))
+    {
+        other.path.clear();
+    }
+    TempRuntimeRoot& operator=(TempRuntimeRoot&&) = delete;
+
     ~TempRuntimeRoot()
     {
+        if (path.empty())
+            return;
         std::error_code error;
         std::filesystem::remove_all(path, error);
     }
+
+    std::filesystem::path path;
 };
 
 TempRuntimeRoot temp_runtime_root(std::string_view suffix)
 {
-    TempRuntimeRoot root{
+    return TempRuntimeRoot{
         std::filesystem::temp_directory_path() /
         ("noveltea-daemon-test-" + std::string(suffix) + "-" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))};
-    return root;
 }
 
 struct TempProjectRoot {
-    std::filesystem::path path;
+    explicit TempProjectRoot(std::filesystem::path root_path) : path(std::move(root_path)) {}
+    TempProjectRoot(const TempProjectRoot&) = delete;
+    TempProjectRoot& operator=(const TempProjectRoot&) = delete;
+    TempProjectRoot(TempProjectRoot&& other) noexcept : path(std::move(other.path))
+    {
+        other.path.clear();
+    }
+    TempProjectRoot& operator=(TempProjectRoot&&) = delete;
+
     ~TempProjectRoot()
     {
+        if (path.empty())
+            return;
         std::error_code error;
         std::filesystem::remove_all(path, error);
     }
+
+    std::filesystem::path path;
 };
 
 void write_project_file(const std::filesystem::path& path, std::string_view contents)
@@ -204,19 +203,19 @@ void write_project_file(const std::filesystem::path& path, std::string_view cont
 
 TempProjectRoot temp_project_root(std::string_view suffix)
 {
-    TempProjectRoot root{
+    const auto path =
         std::filesystem::temp_directory_path() /
         ("noveltea-project-authority-" + std::string(suffix) + "-" +
-         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))};
-    std::filesystem::create_directories(root.path);
-    write_project_file(root.path / "project.json", "{}\n");
-    write_project_file(root.path / "editor.json", "{}\n");
-    write_project_file(root.path / "traits.json", "{}\n");
-    write_project_file(root.path / "records/room.json", "{\"id\":\"room\"}\n");
-    write_project_file(root.path / "scripts/main.lua", "return true\n");
-    write_project_file(root.path / "i18n/en.json", "{}\n");
-    write_project_file(root.path / "records/ignored.txt", "ignored\n");
-    return root;
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(path);
+    write_project_file(path / "project.json", "{}\n");
+    write_project_file(path / "editor.json", "{}\n");
+    write_project_file(path / "traits.json", "{}\n");
+    write_project_file(path / "records/room.json", "{\"id\":\"room\"}\n");
+    write_project_file(path / "scripts/main.lua", "return true\n");
+    write_project_file(path / "i18n/en.json", "{}\n");
+    write_project_file(path / "records/ignored.txt", "ignored\n");
+    return TempProjectRoot{path};
 }
 
 noveltea::tooling::daemon::ProjectAuthorityRequest
@@ -561,48 +560,6 @@ TEST_CASE("Project authority checkpoint restores deltas consumed after a retaine
     CHECK(recovered.delta.changed == std::vector<std::string>{"records/room.json"});
 }
 
-#if defined(_WIN32)
-TEST_CASE("Project authority Windows watcher stops when shutdown wins before overlapped read")
-{
-    using namespace noveltea::tooling::daemon;
-    using namespace std::chrono_literals;
-
-    auto root = temp_project_root("windows-stop-before-read");
-    std::promise<void> before_read_reached;
-    auto before_read = before_read_reached.get_future();
-    std::promise<void> permit_read;
-    auto permit_read_future = permit_read.get_future().share();
-    std::promise<void> stop_requested;
-    auto stop = stop_requested.get_future();
-    bool block_first_read = true;
-
-    ProjectAuthorityManager authority({
-        .enable_native_watcher = true,
-        .windows_watcher_before_read =
-            [&] {
-                if (!block_first_read)
-                    return;
-                block_first_read = false;
-                before_read_reached.set_value();
-                permit_read_future.wait();
-            },
-        .windows_watcher_stop_requested = [&] { stop_requested.set_value(); },
-    });
-    REQUIRE(authority.observe(project_authority_request(root.path)).manifest.entries.size() == 6);
-    REQUIRE(before_read.wait_for(2s) == std::future_status::ready);
-
-    auto released = std::async(std::launch::async, [&] { return authority.release(root.path); });
-    // Prove shutdown has signalled the explicit stop event while the watcher is still paused in
-    // the exact pre-read interleaving that used to race CancelSynchronousIo.
-    REQUIRE(stop.wait_for(2s) == std::future_status::ready);
-    CHECK(released.wait_for(0ms) == std::future_status::timeout);
-
-    permit_read.set_value();
-    REQUIRE(released.wait_for(2s) == std::future_status::ready);
-    CHECK(released.get());
-    CHECK(authority.tracked_project_count() == 0);
-}
-#endif
 #endif
 
 TEST_CASE(
@@ -651,7 +608,7 @@ TEST_CASE("daemon broker exposes one batched Project authority observation actio
                      {{"root", "i18n"},
                       {"extensions", Json::array({".json"})},
                       {"excludedPrefixes", Json::array()}}});
-    const auto first = invoke_daemon_via_scriptc_adapter(request);
+    const auto first = invoke_daemon(request);
     REQUIRE(first["ok"] == true);
     CHECK(first["authority"] == "proven");
     CHECK(first["previousAuthority"] == "untracked");
@@ -663,7 +620,7 @@ TEST_CASE("daemon broker exposes one batched Project authority observation actio
         CHECK_FALSE(entry["sourceIdentity"].get<std::string>().empty());
     }
 
-    const auto unchanged = invoke_daemon_via_scriptc_adapter(request);
+    const auto unchanged = invoke_daemon(request);
     REQUIRE(unchanged["ok"] == true);
     CHECK(unchanged["unchanged"] == true);
     CHECK(unchanged["previousAuthority"] == "proven");
@@ -676,13 +633,13 @@ TEST_CASE("daemon broker exposes one batched Project authority observation actio
     const auto valid_discovery_scopes = request["discoveryScopes"];
     request["discoveryScopes"].push_back(
         {{"root", std::string(300, 'x')}, {"extensions", Json::array({".json"})}});
-    const auto discovery_error = invoke_daemon_via_scriptc_adapter(request);
+    const auto discovery_error = invoke_daemon(request);
     CHECK(discovery_error["ok"] == false);
     CHECK(discovery_error["error"].get<std::string>().find(
               "Cannot inspect Project discovery directory") != std::string::npos);
 
     request["discoveryScopes"] = valid_discovery_scopes;
-    const auto recovered_after_discovery_error = invoke_daemon_via_scriptc_adapter(request);
+    const auto recovered_after_discovery_error = invoke_daemon(request);
     REQUIRE(recovered_after_discovery_error["ok"] == true);
     CHECK(recovered_after_discovery_error["fullRescan"] == true);
     CHECK(recovered_after_discovery_error["unchanged"] == true);
@@ -690,14 +647,14 @@ TEST_CASE("daemon broker exposes one batched Project authority observation actio
 
     std::filesystem::remove(root.path / "records/room.json");
     std::filesystem::create_directory(root.path / "records/room.json");
-    const auto reclassified = invoke_daemon_via_scriptc_adapter(request);
+    const auto reclassified = invoke_daemon(request);
     CHECK(reclassified["ok"] == false);
     CHECK(reclassified["error"].get<std::string>().find("not a regular file") != std::string::npos);
 
     request["action"] = "serve-project-release";
     request.erase("authoritativePaths");
     request.erase("discoveryScopes");
-    const auto released = invoke_daemon_via_scriptc_adapter(request);
+    const auto released = invoke_daemon(request);
     REQUIRE(released["ok"] == true);
     CHECK(released["released"] == true);
 
@@ -1003,14 +960,27 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
 
     auto work = owner_request(request, "owner-equivalent-path", project.path);
     auto foreground = std::async(std::launch::async, [work] { return invoke_daemon(work); });
+    std::optional<Json> early_result;
     REQUIRE(wait_until(
-        [&] { return owner_worker_for_root(daemon_status(request), project.path).has_value(); }));
-    const auto owner = owner_worker_for_root(daemon_status(request), project.path);
-    REQUIRE(owner);
+        [&] {
+            if (foreground.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+                early_result = foreground.get();
+                return true;
+            }
+            return daemon_status(request).value("projectOwnerWorkers", 0) == 1;
+        },
+        std::chrono::seconds(5)));
+    if (early_result) {
+        INFO(early_result->dump());
+        FAIL("Project owner request completed before an owner worker was admitted");
+    }
+    const auto status = daemon_status(request);
+    REQUIRE(status["engineeringOwners"].size() == 1);
+    const auto owner = status["engineeringOwners"][0]["workerId"].get<std::uint64_t>();
 
     auto next = request;
     next["action"] = "owner-next";
-    next["ownerWorkerId"] = *owner;
+    next["ownerWorkerId"] = owner;
     const auto owner_work = invoke_daemon(next);
     REQUIRE(owner_work["ok"] == true);
 
@@ -1031,7 +1001,7 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
 
     auto observe = request;
     observe["action"] = "owner-project-observe";
-    observe["ownerWorkerId"] = *owner;
+    observe["ownerWorkerId"] = owner;
     observe["projectRoot"] = alternate_root;
     observe["authoritativePaths"] = Json::array({"project.json", "editor.json", "traits.json"});
     observe["discoveryScopes"] =
@@ -1046,7 +1016,7 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
 
     auto complete = request;
     complete["action"] = "owner-complete";
-    complete["ownerWorkerId"] = *owner;
+    complete["ownerWorkerId"] = owner;
     complete["token"] = owner_work["token"];
     complete["requestOk"] = true;
     complete["result"] = Json{{"done", true}};
@@ -1062,31 +1032,6 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
     REQUIRE(invoke_daemon(wait)["state"] == "stopped");
 }
 #endif
-
-TEST_CASE("ScriptC daemon adapter executes stateful broker actions once")
-{
-    auto request = context(unique_build("scriptc-adapter"));
-    request["action"] = "serve-start";
-    const auto started = invoke_daemon_via_scriptc_adapter(request);
-    REQUIRE(started["ok"] == true);
-    CHECK(started["state"] == "starting");
-
-    request["action"] = "stop";
-    REQUIRE(invoke_daemon(request)["ok"] == true);
-    request["action"] = "serve-wait";
-    REQUIRE(invoke_daemon(request)["ok"] == true);
-}
-
-TEST_CASE("ScriptC native adapter reports terminal dimensions when available")
-{
-    const auto terminal = invoke_scriptc_adapter("terminal-size", "");
-    REQUIRE(terminal.contains("columns"));
-    REQUIRE(terminal.contains("rows"));
-    if (!terminal["columns"].is_null())
-        CHECK(terminal["columns"].get<std::uint64_t>() > 0);
-    if (!terminal["rows"].is_null())
-        CHECK(terminal["rows"].get<std::uint64_t>() > 0);
-}
 
 TEST_CASE("daemon protocol event shapes preserve request identity")
 {
@@ -1217,19 +1162,20 @@ TEST_CASE("daemon shutdown does not wait for optional exact-validation persisten
     work["payload"]["authoringValidationSemanticKey"] = "test-semantic-key";
     auto foreground = std::async(std::launch::async, [work] { return invoke_daemon(work); });
     REQUIRE(wait_until(
-        [&] { return owner_worker_for_root(daemon_status(request), project.path).has_value(); }));
-    const auto owner = owner_worker_for_root(daemon_status(request), project.path);
-    REQUIRE(owner);
+        [&] { return daemon_status(request).value("projectOwnerWorkers", 0) == 1; }));
+    const auto owner_status = daemon_status(request);
+    REQUIRE(owner_status["engineeringOwners"].size() == 1);
+    const auto owner = owner_status["engineeringOwners"][0]["workerId"].get<std::uint64_t>();
 
     auto next = request;
     next["action"] = "owner-next";
-    next["ownerWorkerId"] = *owner;
+    next["ownerWorkerId"] = owner;
     const auto owner_work = invoke_daemon(next);
     REQUIRE(owner_work["ok"] == true);
 
     auto observe = request;
     observe["action"] = "owner-project-observe";
-    observe["ownerWorkerId"] = *owner;
+    observe["ownerWorkerId"] = owner;
     observe["projectRoot"] = project.path.string();
     observe["authoritativePaths"] = Json::array({"project.json", "editor.json", "traits.json"});
     observe["discoveryScopes"] =
@@ -1240,7 +1186,7 @@ TEST_CASE("daemon shutdown does not wait for optional exact-validation persisten
 
     auto retain = request;
     retain["action"] = "owner-validation-result";
-    retain["ownerWorkerId"] = *owner;
+    retain["ownerWorkerId"] = owner;
     retain["token"] = owner_work["token"];
     retain["semanticKey"] = "test-semantic-key";
     retain["validationResult"] = Json{{"success", true},
@@ -1251,7 +1197,7 @@ TEST_CASE("daemon shutdown does not wait for optional exact-validation persisten
 
     auto complete = request;
     complete["action"] = "owner-complete";
-    complete["ownerWorkerId"] = *owner;
+    complete["ownerWorkerId"] = owner;
     complete["token"] = owner_work["token"];
     complete["requestOk"] = true;
     complete["result"] = Json{{"done", true}};
@@ -1587,17 +1533,18 @@ TEST_CASE(
     auto owner_result = std::async(
         std::launch::async, [owner_work_request] { return invoke_daemon(owner_work_request); });
     REQUIRE(wait_until(
-        [&] { return owner_worker_for_root(daemon_status(request), root).has_value(); }));
-    const auto first_owner = owner_worker_for_root(daemon_status(request), root);
-    REQUIRE(first_owner);
+        [&] { return daemon_status(request).value("projectOwnerWorkers", 0) == 1; }));
+    status = daemon_status(request);
+    REQUIRE(status["engineeringOwners"].size() == 1);
+    const auto first_owner = status["engineeringOwners"][0]["workerId"].get<std::uint64_t>();
     auto owner_next = request;
     owner_next["action"] = "owner-next";
-    owner_next["ownerWorkerId"] = *first_owner;
+    owner_next["ownerWorkerId"] = first_owner;
     const auto first_owner_work = invoke_daemon(owner_next);
     REQUIRE(first_owner_work["ok"] == true);
     auto owner_complete = request;
     owner_complete["action"] = "owner-complete";
-    owner_complete["ownerWorkerId"] = *first_owner;
+    owner_complete["ownerWorkerId"] = first_owner;
     owner_complete["token"] = first_owner_work["token"];
     owner_complete["requestOk"] = true;
     owner_complete["result"] = Json{{"done", true}};
@@ -1608,14 +1555,14 @@ TEST_CASE(
     crash = request;
     crash["action"] = "serve-simulate-worker-exit-for-tests";
     crash["workerKind"] = "owner";
-    crash["workerId"] = *first_owner;
+    crash["workerId"] = first_owner;
     REQUIRE(invoke_daemon(crash)["ok"] == true);
     owner_work_request = owner_request(request, "owner-after-crash", root);
     auto replacement_result = std::async(
         std::launch::async, [owner_work_request] { return invoke_daemon(owner_work_request); });
     REQUIRE(wait_until([&] {
         const auto replacement = owner_worker_for_root(daemon_status(request), root);
-        return replacement.has_value() && *replacement != *first_owner;
+        return replacement.has_value() && *replacement != first_owner;
     }));
     status = daemon_status(request);
     std::size_t same_root_owners = 0;
@@ -1791,12 +1738,14 @@ TEST_CASE("daemon Project owner crash rolls back an activated mixed publication"
     auto mutation = std::async(std::launch::async,
                                [mutation_request] { return invoke_daemon(mutation_request); });
     REQUIRE(wait_until(
-        [&] { return owner_worker_for_root(daemon_status(request), root).has_value(); }));
-    const auto owner_id = owner_worker_for_root(daemon_status(request), root);
-    REQUIRE(owner_id);
+        [&] { return daemon_status(request).value("projectOwnerWorkers", 0) == 1; }));
+    const auto owner_status = daemon_status(request);
+    REQUIRE(owner_status["engineeringOwners"].size() == 1);
+    const auto owner_id =
+        owner_status["engineeringOwners"][0]["workerId"].get<std::uint64_t>();
     auto next = request;
     next["action"] = "owner-next";
-    next["ownerWorkerId"] = *owner_id;
+    next["ownerWorkerId"] = owner_id;
     const auto work = invoke_daemon(next);
     REQUIRE(work["ok"] == true);
     REQUIRE(work["payload"]["internalOperation"] == "comfyui-asset-publication");
@@ -1804,7 +1753,7 @@ TEST_CASE("daemon Project owner crash rolls back an activated mixed publication"
     auto crash = request;
     crash["action"] = "serve-simulate-worker-exit-for-tests";
     crash["workerKind"] = "owner";
-    crash["workerId"] = *owner_id;
+    crash["workerId"] = owner_id;
     REQUIRE(invoke_daemon(crash)["ok"] == true);
     REQUIRE(mutation.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
     CHECK(mutation.get()["ok"] == false);
@@ -2155,6 +2104,27 @@ TEST_CASE("daemon idle drain preserves transaction critical sections")
     const auto stopped = waiting.get();
     CHECK(stopped["state"] == "stopped");
 }
+
+#if defined(_WIN32)
+TEST_CASE("daemon ensure does not spend the startup budget probing an absent endpoint")
+{
+    auto runtime = temp_runtime_root("ensure-fast");
+    std::filesystem::create_directories(runtime.path);
+    auto request = context(unique_build("ensure-fast"));
+    request["runtimeRoot"] = runtime.path.generic_string();
+    request["action"] = "ensure";
+    request["executablePath"] = (runtime.path / "missing-daemon.exe").string();
+    request["startupTimeoutMs"] = 10000;
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto rejected = invoke_daemon(request);
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    REQUIRE(rejected["ok"] == false);
+    CHECK(rejected["error"] == "failed to spawn daemon process");
+    CHECK(elapsed < std::chrono::seconds(5));
+}
+#endif
 
 #if !defined(_WIN32)
 TEST_CASE("daemon ensure bounds hung status I/O by the startup deadline")

@@ -4540,19 +4540,33 @@ std::shared_ptr<BrokerServer> local_server;
 ConnectionHandle connect_endpoint(const Endpoint& endpoint, IoDeadline deadline = std::nullopt)
 {
 #if defined(_WIN32)
-    DWORD wait_timeout = 100;
-    if (deadline) {
-        const auto remaining = remaining_millis(*deadline);
-        if (remaining == 0)
+    for (;;) {
+        DWORD wait_timeout = 100;
+        if (deadline) {
+            const auto remaining = remaining_millis(*deadline);
+            if (remaining == 0)
+                return invalid_connection;
+            wait_timeout = static_cast<DWORD>(
+                std::min<std::uint64_t>(remaining, static_cast<std::uint64_t>(INFINITE - 1)));
+        }
+        if (!WaitNamedPipeW(endpoint.pipe_name.c_str(), wait_timeout)) {
+            if (!deadline)
+                return invalid_connection;
+            const auto error = GetLastError();
+            if (error != ERROR_SEM_TIMEOUT && error != ERROR_PIPE_BUSY &&
+                error != ERROR_FILE_NOT_FOUND)
+                return invalid_connection;
+            if (error == ERROR_FILE_NOT_FOUND)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+        const auto pipe = CreateFileW(endpoint.pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
+                                      nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+        if (pipe != INVALID_HANDLE_VALUE)
+            return pipe;
+        if (!deadline || GetLastError() != ERROR_PIPE_BUSY)
             return invalid_connection;
-        wait_timeout = static_cast<DWORD>(
-            std::min<std::uint64_t>(remaining, static_cast<std::uint64_t>(INFINITE - 1)));
     }
-    if (!WaitNamedPipeW(endpoint.pipe_name.c_str(), wait_timeout))
-        return invalid_connection;
-    const auto pipe = CreateFileW(endpoint.pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
-                                  nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
-    return pipe == INVALID_HANDLE_VALUE ? invalid_connection : pipe;
 #else
     const auto socket = ::socket(AF_UNIX, SOCK_STREAM, 0);
     if (socket < 0)
@@ -4601,7 +4615,20 @@ Json client_request(const BrokerContext& context, std::string_view method, std::
     } catch (const std::exception& error) {
         return {{"ok", false}, {"error", error.what()}};
     }
+#if defined(_WIN32)
+    // A named-pipe listener has one pending instance at a time. Concurrent clients can win the
+    // race between WaitNamedPipeW and CreateFileW, so foreground requests need a bounded
+    // connection-acquisition retry. Status/stop probes must stay fast even when their I/O is
+    // bounded by a deadline: ensure_daemon uses that deadline for its overall startup budget and
+    // must be able to observe an absent pipe before spawning the daemon.
+    const auto connection_deadline =
+        method == "status" || method == "stop"
+            ? IoDeadline{}
+            : (deadline ? deadline : IoDeadline{Clock::now() + std::chrono::seconds(2)});
+    const auto connection = connect_endpoint(endpoint, connection_deadline);
+#else
     const auto connection = connect_endpoint(endpoint, deadline);
+#endif
     if (connection == invalid_connection) {
         if (method == "status")
             return {{"ok", true},

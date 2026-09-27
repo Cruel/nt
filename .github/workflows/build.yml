@@ -598,13 +598,17 @@ jobs:
         shell: pwsh
         run: cmake --preset windows-release -G Ninja -DVCPKG_MANIFEST_FEATURES=tests -DNOVELTEA_BUILD_HOST_TOOLS=ON -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
+      - name: Build Windows lightweight native tests
+        shell: pwsh
+        run: cmake --build --preset windows-release --target noveltea_daemon_tests noveltea_runtime_cache_probe_tests noveltea_windows_project_watcher_tests
+
+      - name: Test Windows lightweight native suites
+        shell: pwsh
+        run: ctest --test-dir build/windows-release --output-on-failure -L early-windows
+
       - name: Build shipped Windows targets
         shell: pwsh
-        run: cmake --build --preset windows-release --target noveltea-player noveltea-tooling-bridge noveltea_tooling_tests
-
-      - name: Test Windows daemon duplex transport
-        shell: pwsh
-        run: '& build/windows-release/tests/noveltea_tooling_tests.exe "[windows-native]"'
+        run: cmake --build --preset windows-release --target noveltea-player noveltea-tooling-bridge
 
       - name: Save Windows compiler outputs
         if: steps.windows-ccache.outputs.cache-hit != 'true'

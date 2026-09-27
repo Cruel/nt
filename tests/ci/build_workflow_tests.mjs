@@ -123,15 +123,18 @@ test('desktop player and authoring presets keep compatibility floors separate', 
   assert.equal(macAuthoring.cacheVariables.VCPKG_TARGET_TRIPLET, 'arm64-osx-authoring-noveltea');
 });
 
-test('Windows C++ policy enables and selects the native duplex tooling test', () => {
+test('Windows C++ policy runs lightweight native suites before shipped targets', () => {
   const windowsPolicy = job('windows');
   const configure = step(windowsPolicy, 'Configure Windows release');
-  const build = step(windowsPolicy, 'Build shipped Windows targets');
-  const duplex = step(windowsPolicy, 'Test Windows daemon duplex transport');
+  const lightweightBuild = step(windowsPolicy, 'Build Windows lightweight native tests');
+  const lightweightRun = step(windowsPolicy, 'Test Windows lightweight native suites');
+  const shippedBuild = step(windowsPolicy, 'Build shipped Windows targets');
   assert.match(configure, /-DVCPKG_MANIFEST_FEATURES=tests/);
   assert.match(configure, /-DBUILD_TESTING=ON/);
-  assert.match(build, /noveltea_tooling_tests/);
-  assert.match(duplex, /\[windows-native\]/);
+  assert.match(lightweightBuild, /--target noveltea_daemon_tests noveltea_runtime_cache_probe_tests noveltea_windows_project_watcher_tests/);
+  assert.match(lightweightRun, /ctest --test-dir build\/windows-release --output-on-failure -L early-windows/);
+  assert.doesNotMatch(shippedBuild, /noveltea_daemon_tests|noveltea_runtime_cache_probe_tests|noveltea_windows_project_watcher_tests/);
+  assert.ok(windowsPolicy.indexOf('Build Windows lightweight native tests') < windowsPolicy.indexOf('Build shipped Windows targets'));
 });
 
 test('Windows CLI preserves static winpthreads without colliding with ScriptC time shims', () => {
