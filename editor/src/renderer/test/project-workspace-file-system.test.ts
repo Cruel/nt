@@ -64,6 +64,7 @@ describe.each(implementations)('%s workspace filesystem contract', (_name, creat
 
     const metadata = await fileSystem.readPathMetadata?.(target);
     expect(metadata).toMatchObject({ kind: 'file', byteSize: 3 });
+    expect(metadata?.sourceIdentity).toMatch(process.platform === 'win32' ? /^win:/u : /^posix:/u);
     expect(metadata?.mtimeNanoseconds).toMatch(/^\d+$/u);
   });
 });

@@ -972,6 +972,15 @@ public:
         create_listener();
         state_.store(State::starting);
         listener_thread_ = std::thread([self = shared_from_this()] { self->listen_loop(); });
+#if defined(_WIN32)
+        {
+            std::unique_lock lock(listener_mutex_);
+            listener_ready_cv_.wait(lock, [this] {
+                return listener_ready_ || state_.load() == State::draining ||
+                       state_.load() == State::stopped;
+            });
+        }
+#endif
         idle_thread_ = std::thread([self = shared_from_this()] { self->idle_loop(); });
         return status_json();
     }
@@ -3359,12 +3368,19 @@ private:
                 connection = create_pipe_instance();
             } catch (...) {
                 request_stop();
+                {
+                    std::scoped_lock lock(listener_mutex_);
+                    listener_ready_ = true;
+                }
+                listener_ready_cv_.notify_all();
                 break;
             }
             {
                 std::scoped_lock lock(listener_mutex_);
                 pending_pipe_ = connection;
+                listener_ready_ = true;
             }
+            listener_ready_cv_.notify_all();
             OVERLAPPED connect_operation{};
             connect_operation.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
             BOOL connected = FALSE;
@@ -3895,6 +3911,7 @@ private:
                 }
                 Json owner_payload = {
                     {"argv", Json::array({"comfyui", "__owner-asset-publication"})},
+                    {"bootstrapArgv", original_payload.value("argv", Json::array())},
                     {"executionClass", "owner-mutation"},
                     {"ownerProjectRoot", canonical_root},
                     {"ownerProjectRootExplicit", true},
@@ -4504,6 +4521,8 @@ private:
     std::vector<std::thread> client_threads_;
     std::mutex listener_mutex_;
 #if defined(_WIN32)
+    std::condition_variable listener_ready_cv_;
+    bool listener_ready_ = false;
     ConnectionHandle pending_pipe_ = invalid_connection;
     HANDLE lifetime_mutex_ = nullptr;
     bool lifetime_mutex_owned_ = false;
@@ -6536,11 +6555,11 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         const auto before_stop = client_request(*context, "status", "stop-status-before");
         const bool was_running = before_stop.value("running", false);
         result = client_request(*context, "stop", "stop");
-        if (was_running) {
+        if (was_running || !result.value("ok", false)) {
             const auto deadline = Clock::now() + std::chrono::seconds(2);
             while (Clock::now() < deadline) {
                 const auto status = client_request(*context, "status", "stop-status");
-                if (!status.value("running", false)) {
+                if (status.value("ok", false) && !status.value("running", false)) {
                     result = status;
                     break;
                 }

@@ -328,7 +328,7 @@ public static class NovelTeaConsoleSignal {
   const command = [
     `Add-Type -TypeDefinition @'\n${source}\n'@`,
     '[NovelTeaConsoleSignal]::FreeConsole() | Out-Null',
-    `if (-not [NovelTeaConsoleSignal]::AttachConsole(${pid})) { exit 2 }`,
+    `if (-not [NovelTeaConsoleSignal]::AttachConsole(${pid})) { [Console]::Error.WriteLine("AttachConsole failed with Win32 error $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"); exit 2 }`,
     '[NovelTeaConsoleSignal]::SetConsoleCtrlHandler([IntPtr]::Zero, $true) | Out-Null',
     'if (-not [NovelTeaConsoleSignal]::GenerateConsoleCtrlEvent(0, 0)) { exit 3 }',
   ].join('; ');
@@ -371,7 +371,10 @@ function quoteWindowsArgument(value) {
 }
 
 async function runWindowsConsoleProcess(command, args, options) {
-  const pidPath = path.join(options.cwd, `windows-console-child-${process.pid}.pid`);
+  const pidPath = path.join(
+    options.cwd,
+    `windows-console-child-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.pid`,
+  );
   const commandLine = [command, ...args].map(quoteWindowsArgument).join(' ');
   const source = String.raw`
 using System;
@@ -2444,7 +2447,7 @@ async function certifyDaemonBuildProtocolIsolation(tempRoot) {
     ...process.env,
     NOVELTEA_CLI_CERTIFICATION: '1',
     NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
-    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '10000',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '120000',
     NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '10000',
     NOVELTEA_CLI_TRACE: '1',
   };
@@ -5593,8 +5596,16 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
         });
     const scriptcResultPromise = scriptcInvocation.result();
     await waitForComfyUiRequestPrefix(cancellationServer.logPath, '/history/');
-    if (windowsScriptc) sendWindowsConsoleCtrlC(windowsScriptc.pid);
-    else scriptcInvocation.child.kill('SIGINT');
+    if (windowsScriptc) {
+      const status = requireSuccess(
+        'Windows daemon cancellation active status',
+        runNative(['--json', 'daemon', 'status'], { env: scriptcEnvironment }),
+      );
+      const daemon = JSON.parse(status.stdout).daemon;
+      if (daemon.running !== true || daemon.disposableBusyWorkers < 1)
+        fail('Windows ScriptC cancellation did not exercise the production daemon route.');
+      sendWindowsConsoleCtrlC(windowsScriptc.pid);
+    } else scriptcInvocation.child.kill('SIGINT');
     const scriptcResult = await scriptcResultPromise;
     if (scriptcResult.status !== 130)
       fail(`ScriptC daemon ComfyUI cancellation exited ${scriptcResult.status}, expected 130.`);
@@ -5616,7 +5627,7 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
       fail('ScriptC daemon cancellation did not issue prompt-specific queue deletion.');
     if (requests.some((request) => request.path === '/interrupt'))
       fail('ScriptC daemon cancellation used the forbidden global /interrupt endpoint.');
-    if (!scriptcResult.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+    if (!isWindows && !scriptcResult.stderr.includes('[scriptc-host] daemon invocation forwarding'))
       fail('ScriptC cancellation certification did not exercise the production daemon route.');
     runNative(['daemon', 'stop'], { env: scriptcEnvironment });
     process.stdout.write('[comfyui cancellation] ScriptC daemon Ctrl+C: PASS\n');
@@ -5640,8 +5651,16 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
         });
     const localResultPromise = localInvocation.result();
     await waitForComfyUiRequestPrefix(cancellationServer.logPath, '/history/');
-    if (windowsLocal) sendWindowsConsoleCtrlC(windowsLocal.pid);
-    else localInvocation.child.kill('SIGINT');
+    if (windowsLocal) {
+      const status = requireSuccess(
+        'Windows local cancellation daemon status',
+        runNative(['--json', 'daemon', 'status'], { env: scriptcEnvironment }),
+      );
+      const daemon = JSON.parse(status.stdout).daemon;
+      if (daemon.running !== false)
+        fail('Windows ScriptC local cancellation did not exercise --no-daemon fallback.');
+      sendWindowsConsoleCtrlC(windowsLocal.pid);
+    } else localInvocation.child.kill('SIGINT');
     const localResult = await localResultPromise;
     if (localResult.status !== 130)
       fail(`ScriptC local ComfyUI cancellation exited ${localResult.status}, expected 130.`);
@@ -5651,7 +5670,7 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
       fail('ScriptC local cancellation did not issue prompt-specific queue deletion.');
     if (requests.some((request) => request.path === '/interrupt'))
       fail('ScriptC local cancellation used the forbidden global /interrupt endpoint.');
-    if (!localResult.stderr.includes('[scriptc-host] daemon routing bypassed'))
+    if (!isWindows && !localResult.stderr.includes('[scriptc-host] daemon routing bypassed'))
       fail('ScriptC local cancellation certification did not exercise --no-daemon fallback.');
     process.stdout.write('[comfyui cancellation] ScriptC local Ctrl+C: PASS\n');
   } finally {
