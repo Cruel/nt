@@ -732,8 +732,8 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             WorldPresentationLayoutPolicy::normalized_rect(prop.bounds, viewport), full_uv, *visual,
             std::nullopt, std::nullopt, {0.0, 0.0}, prop.owner,
             material_instance
-                ? std::optional<core::MaterialOccurrence>{
-                      core::PropMaterialOccurrence{*material_instance}}
+                ? std::optional<core::MaterialOccurrence>{core::PropMaterialOccurrence{
+                      *material_instance}}
                 : std::nullopt);
         if (candidate.draws.size() != draw_index) {
             auto& command = candidate.draws.back().command;
@@ -767,8 +767,8 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             WorldPresentationLayoutPolicy::normalized_rect(interactable.bounds, viewport), full_uv,
             *visual, std::nullopt, std::nullopt, {0.0, 0.0}, interactable.material_owner,
             interactable.material_owner
-                ? std::optional<core::MaterialOccurrence>{
-                      core::InteractableMaterialOccurrence{interactable.interactable}}
+                ? std::optional<core::MaterialOccurrence>{core::InteractableMaterialOccurrence{
+                      interactable.interactable}}
                 : std::nullopt);
         auto& command = candidate.draws.back().command;
         for (const auto& texture : interactable.material_texture_overrides)
@@ -1456,8 +1456,7 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                     facet_value = m_viewport.height;
                     break;
                 case core::MaterialStandardFacet::CameraZoom:
-                    facet_value =
-                        frame.camera ? static_cast<float>(frame.camera->view.zoom) : 1.0f;
+                    facet_value = frame.camera ? static_cast<float>(frame.camera->view.zoom) : 1.0f;
                     break;
                 }
                 resolved = ShaderUniformValue{facet_value};

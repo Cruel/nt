@@ -681,10 +681,10 @@ parse_material_parameter_value(const sol::object& object)
             const auto value = object.as<std::int64_t>();
             return core::compiled::material_int_is_exact(value)
                        ? Result::success(value)
-                       : Result::failure(invalid(
-                             "runtime.invalid_material_parameter_value",
-                             "Material integer must be within the exact Shader range "
-                             "[-16777216, 16777216]"));
+                       : Result::failure(
+                             invalid("runtime.invalid_material_parameter_value",
+                                     "Material integer must be within the exact Shader range "
+                                     "[-16777216, 16777216]"));
         }
         const double value = object.as<double>();
         return std::isfinite(value)

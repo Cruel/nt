@@ -2000,7 +2000,8 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
                          : std::nullopt;
     if (lua && std::holds_alternative<AssetLayoutSource>(*lua)) {
         decoder.error("compiled_project.invalid_layout_lua_source",
-                      "Layout Lua source must be inline in compiled data; Project file source is projected before compilation.",
+                      "Layout Lua source must be inline in compiled data; Project file source is "
+                      "projected before compilation.",
                       pointer_child(pointer, "lua"));
         lua.reset();
     }
@@ -2039,10 +2040,11 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
             material_collection
                 ? decoder.array<MaterialApplication>(
                       *material_collection, pointer_child(dependency_pointer, "materials"),
-                      [&](const nlohmann::json& value, const std::string& item_pointer)
-                          -> std::optional<MaterialApplication> {
-                          if (!decoder.object(value, item_pointer,
-                                              {"material", "materialParameters", "materialTextures"}))
+                      [&](const nlohmann::json& value,
+                          const std::string& item_pointer) -> std::optional<MaterialApplication> {
+                          if (!decoder.object(
+                                  value, item_pointer,
+                                  {"material", "materialParameters", "materialTextures"}))
                               return std::nullopt;
                           const auto* material = decoder.member(value, "material", item_pointer);
                           const auto* parameters = json_access::member(value, "materialParameters");

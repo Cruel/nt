@@ -130,7 +130,8 @@ cmake --build --preset web-debug
 cmake --build --preset web-debug --target cxx-policy
 ```
 
-Run clang-format for touched C/C++ files before final verification. The project provides CMake targets:
+Run the repository-pinned clang-format for touched C/C++ files before final verification. Use the
+CMake targets below rather than an ambient system `clang-format` binary:
 
 ```sh
 cmake --build --preset linux-debug --target format-check
@@ -171,7 +172,7 @@ Prefer one-line rationale comments immediately above the relevant code. Do not a
 
 Use C++20 for new code. Prefer `noveltea` for new framework code. If old code is temporarily ported with the historical `NovelTea` namespace, isolate that compatibility choice and do not let it leak into new platform/renderer APIs without an explicit reason.
 
-Follow the repository `.clang-format` for C/C++ formatting. Formatting is an enforceable project convention; when adding or editing C/C++ files, keep the touched files clang-format clean or clearly report why the formatter could not be run.
+Follow the repository `.clang-format` for C/C++ formatting. Formatting is an enforceable project convention; when adding or editing C/C++ files, keep the touched files clean under the repository-pinned formatter or clearly report why it could not be run.
 
 Keep backend-neutral core code free of SDL3, bgfx, RmlUi, ImGui, Lua, Electron, Android, Emscripten, SFML, and Qt types.
 

@@ -491,10 +491,9 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
     const auto decode_layer_composition =
         [&](const nlohmann::json& layer,
             const std::string& layer_pointer) -> std::optional<CharacterLayerComposition> {
-        if (!decoder.object(
-                layer, layer_pointer,
-                {"anchor", "layerId", "material", "materialParameters", "materialTextures",
-                 "offset", "scale", "sprite", "visible"}))
+        if (!decoder.object(layer, layer_pointer,
+                            {"anchor", "layerId", "material", "materialParameters",
+                             "materialTextures", "offset", "scale", "sprite", "visible"}))
             return std::nullopt;
         const auto* layer_id_value = decoder.member(layer, "layerId", layer_pointer);
         const auto* sprite_value = decoder.member(layer, "sprite", layer_pointer);
@@ -519,7 +518,8 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
         std::vector<MaterialApplicationTextureOverride> material_textures;
         bool material_ok = material_value != nullptr;
         if (material_value && !material_value->is_null()) {
-            auto application = decode_layer_material_application(layer, layer_pointer, *material_value);
+            auto application =
+                decode_layer_material_application(layer, layer_pointer, *material_value);
             material_ok = application.has_value();
             if (application) {
                 material = std::move(application->material);
@@ -567,10 +567,9 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
     const auto decode_animation_layer =
         [&](const nlohmann::json& layer,
             const std::string& layer_pointer) -> std::optional<CharacterAnimationLayerFrame> {
-        if (!decoder.object(
-                layer, layer_pointer,
-                {"anchor", "layerId", "material", "materialParameters", "materialTextures",
-                 "offset", "scale", "sprite", "visible"}))
+        if (!decoder.object(layer, layer_pointer,
+                            {"anchor", "layerId", "material", "materialParameters",
+                             "materialTextures", "offset", "scale", "sprite", "visible"}))
             return std::nullopt;
         const auto* layer_id_value = decoder.member(layer, "layerId", layer_pointer);
         auto layer_id = layer_id_value
@@ -593,7 +592,8 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
         if (const auto* material_value = json_access::member(layer, "material")) {
             material.specified = true;
             if (!material_value->is_null()) {
-                auto application = decode_layer_material_application(layer, layer_pointer, *material_value);
+                auto application =
+                    decode_layer_material_application(layer, layer_pointer, *material_value);
                 if (!application)
                     return std::nullopt;
                 material.value = std::move(application->material);
@@ -1010,10 +1010,9 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                       *layers_value, pointer_child(profile_pointer, "layers"),
                       [&](const nlohmann::json& layer, const std::string& layer_pointer)
                           -> std::optional<CharacterLayerOverride> {
-                          if (!decoder.object(
-                                  layer, layer_pointer,
-                                  {"layerId", "material", "materialParameters", "materialTextures",
-                                   "sprite", "visible"}))
+                          if (!decoder.object(layer, layer_pointer,
+                                              {"layerId", "material", "materialParameters",
+                                               "materialTextures", "sprite", "visible"}))
                               return std::nullopt;
                           const auto* layer_id_value =
                               decoder.member(layer, "layerId", layer_pointer);
@@ -1049,10 +1048,10 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                               }
                           } else if (json_access::member(layer, "materialParameters") ||
                                      json_access::member(layer, "materialTextures")) {
-                              decoder.error(
-                                  k_code_variant,
-                                  "Material Application overrides require an explicit Material override.",
-                                  layer_pointer);
+                              decoder.error(k_code_variant,
+                                            "Material Application overrides require an explicit "
+                                            "Material override.",
+                                            layer_pointer);
                               return std::nullopt;
                           }
                           std::optional<bool> visible;
@@ -1065,8 +1064,9 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                           if (!layer_id)
                               return std::nullopt;
                           return CharacterLayerOverride{
-                              std::move(*layer_id), std::move(sprite), std::move(material),
-                              std::move(material_parameters), std::move(material_textures), visible};
+                              std::move(*layer_id),         std::move(sprite),
+                              std::move(material),          std::move(material_parameters),
+                              std::move(material_textures), visible};
                       })
                 : std::nullopt;
         if (!profile_id || !layers)
@@ -2235,14 +2235,12 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                       if (material_value) {
                           nlohmann::json application{
                               {"material", *material_value},
-                              {"parameters",
-                               json_access::member(item, "materialParameters")
-                                   ? *json_access::member(item, "materialParameters")
-                                   : nlohmann::json::array()},
-                              {"textures",
-                               json_access::member(item, "materialTextures")
-                                   ? *json_access::member(item, "materialTextures")
-                                   : nlohmann::json::array()},
+                              {"parameters", json_access::member(item, "materialParameters")
+                                                 ? *json_access::member(item, "materialParameters")
+                                                 : nlohmann::json::array()},
+                              {"textures", json_access::member(item, "materialTextures")
+                                               ? *json_access::member(item, "materialTextures")
+                                               : nlohmann::json::array()},
                           };
                           material_application =
                               decode_material_application(decoder, application, item_pointer);
@@ -2353,16 +2351,15 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                       if (material_value && !material_value->is_null()) {
                           nlohmann::json application{
                               {"material", *material_value},
-                              {"parameters",
-                               json_access::member(item, "materialParameters")
-                                   ? *json_access::member(item, "materialParameters")
-                                   : nlohmann::json::array()},
-                              {"textures",
-                               json_access::member(item, "materialTextures")
-                                   ? *json_access::member(item, "materialTextures")
-                                   : nlohmann::json::array()},
+                              {"parameters", json_access::member(item, "materialParameters")
+                                                 ? *json_access::member(item, "materialParameters")
+                                                 : nlohmann::json::array()},
+                              {"textures", json_access::member(item, "materialTextures")
+                                               ? *json_access::member(item, "materialTextures")
+                                               : nlohmann::json::array()},
                           };
-                          auto decoded = decode_material_application(decoder, application, item_pointer);
+                          auto decoded =
+                              decode_material_application(decoder, application, item_pointer);
                           material_ok = decoded.has_value();
                           if (decoded) {
                               material = std::move(decoded->material);
@@ -2373,9 +2370,10 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                                   !json_access::member(item, "materialParameters")->empty()) ||
                                  (json_access::member(item, "materialTextures") &&
                                   !json_access::member(item, "materialTextures")->empty())) {
-                          decoder.error(k_code_variant,
-                                        "Material Application overrides require a selected Material.",
-                                        item_pointer);
+                          decoder.error(
+                              k_code_variant,
+                              "Material Application overrides require a selected Material.",
+                              item_pointer);
                           material_ok = false;
                       }
                       if (id && condition && placement && visible && order && asset_ok &&
@@ -2501,12 +2499,14 @@ std::optional<MaterialParameterType>
 decode_material_application_parameter_type(Decoder& decoder, const nlohmann::json& value,
                                            std::string_view pointer)
 {
-    return decoder.enumeration<MaterialParameterType>(
-        value, pointer,
-        {{"float", MaterialParameterType::Float}, {"vec2", MaterialParameterType::Vec2},
-         {"vec3", MaterialParameterType::Vec3},   {"vec4", MaterialParameterType::Vec4},
-         {"color", MaterialParameterType::Color}, {"int", MaterialParameterType::Int},
-         {"bool", MaterialParameterType::Bool}});
+    return decoder.enumeration<MaterialParameterType>(value, pointer,
+                                                      {{"float", MaterialParameterType::Float},
+                                                       {"vec2", MaterialParameterType::Vec2},
+                                                       {"vec3", MaterialParameterType::Vec3},
+                                                       {"vec4", MaterialParameterType::Vec4},
+                                                       {"color", MaterialParameterType::Color},
+                                                       {"int", MaterialParameterType::Int},
+                                                       {"bool", MaterialParameterType::Bool}});
 }
 
 std::optional<MaterialParameterValue>
@@ -2517,8 +2517,8 @@ decode_material_application_literal(Decoder& decoder, const nlohmann::json& valu
         return std::nullopt;
     const auto* type_value = decoder.member(value, "type", pointer);
     const auto* payload = decoder.member(value, "value", pointer);
-    auto type = type_value ? decoder.string(*type_value, pointer_child(pointer, "type"))
-                           : std::nullopt;
+    auto type =
+        type_value ? decoder.string(*type_value, pointer_child(pointer, "type")) : std::nullopt;
     if (!type || payload == nullptr)
         return std::nullopt;
     const auto payload_pointer = pointer_child(pointer, "value");
@@ -2602,144 +2602,122 @@ decode_material_application(Decoder& decoder, const nlohmann::json& value, std::
     const auto* material_value = decoder.member(value, "material", pointer);
     const auto* parameters_value = decoder.member(value, "parameters", pointer);
     const auto* textures_value = decoder.member(value, "textures", pointer);
-    auto material = material_value
-                        ? decode_reference<MaterialId>(decoder, *material_value,
-                                                       pointer_child(pointer, "material"), "material")
-                        : std::nullopt;
-    auto parameters = parameters_value
-                          ? decoder.array<MaterialApplicationParameterOverride>(
-                                *parameters_value, pointer_child(pointer, "parameters"),
-                                [&](const nlohmann::json& item,
-                                    const std::string& item_pointer)
-                                    -> std::optional<MaterialApplicationParameterOverride> {
-                                    if (!decoder.object(item, item_pointer,
-                                                        {"name", "source", "type"}))
-                                        return std::nullopt;
-                                    const auto* name_value = decoder.member(item, "name", item_pointer);
-                                    const auto* type_value = decoder.member(item, "type", item_pointer);
-                                    const auto* source_value =
-                                        decoder.member(item, "source", item_pointer);
-                                    auto name = name_value
-                                                    ? decoder.string(*name_value,
-                                                                     pointer_child(item_pointer,
-                                                                                   "name"))
-                                                    : std::nullopt;
-                                    auto type = type_value
-                                                    ? decode_material_application_parameter_type(
-                                                          decoder, *type_value,
-                                                          pointer_child(item_pointer, "type"))
-                                                    : std::nullopt;
-                                    if (!name || !type || source_value == nullptr ||
-                                        !source_value->is_object())
-                                        return std::nullopt;
-                                    const auto source_pointer = pointer_child(item_pointer, "source");
-                                    const auto* kind_value =
-                                        decoder.member(*source_value, "kind", source_pointer);
-                                    auto kind = kind_value
-                                                    ? decoder.string(*kind_value,
-                                                                     pointer_child(source_pointer,
-                                                                                   "kind"))
-                                                    : std::nullopt;
-                                    if (!kind)
-                                        return std::nullopt;
-                                    MaterialApplicationParameterSource source;
-                                    if (*kind == "literal" &&
-                                        decoder.object(*source_value, source_pointer,
-                                                       {"kind", "value"})) {
-                                        const auto* payload =
-                                            decoder.member(*source_value, "value", source_pointer);
-                                        auto decoded = payload
-                                                           ? decode_material_application_literal(
-                                                                 decoder, *payload,
-                                                                 pointer_child(source_pointer,
-                                                                               "value"))
-                                                           : std::nullopt;
-                                        if (!decoded)
-                                            return std::nullopt;
-                                        source = MaterialApplicationLiteralSource{std::move(*decoded)};
-                                    } else if (*kind == "property" &&
-                                               decoder.object(*source_value, source_pointer,
-                                                              {"kind", "property"})) {
-                                        const auto* property_value =
-                                            decoder.member(*source_value, "property", source_pointer);
-                                        auto property = property_value
-                                                            ? decoder.id<PropertyId>(
-                                                                  *property_value,
-                                                                  pointer_child(source_pointer,
-                                                                                "property"))
-                                                            : std::nullopt;
-                                        if (!property)
-                                            return std::nullopt;
-                                        source = MaterialApplicationPropertySource{std::move(*property)};
-                                    } else if (*kind == "standard-facet" &&
-                                               decoder.object(*source_value, source_pointer,
-                                                              {"facet", "kind"})) {
-                                        const auto* facet_value =
-                                            decoder.member(*source_value, "facet", source_pointer);
-                                        auto facet = facet_value
-                                                         ? decoder.enumeration<
-                                                               MaterialApplicationStandardFacet>(
-                                                               *facet_value,
-                                                               pointer_child(source_pointer, "facet"),
-                                                               {{"occurrence-time",
-                                                                 MaterialApplicationStandardFacet::
-                                                                     OccurrenceTime},
-                                                                {"paint-width",
-                                                                 MaterialApplicationStandardFacet::
-                                                                     PaintWidth},
-                                                                {"paint-height",
-                                                                 MaterialApplicationStandardFacet::
-                                                                     PaintHeight},
-                                                                {"viewport-width",
-                                                                 MaterialApplicationStandardFacet::
-                                                                     ViewportWidth},
-                                                                {"viewport-height",
-                                                                 MaterialApplicationStandardFacet::
-                                                                     ViewportHeight},
-                                                                {"camera-zoom",
-                                                                 MaterialApplicationStandardFacet::
-                                                                     CameraZoom}})
-                                                         : std::nullopt;
-                                        if (!facet)
-                                            return std::nullopt;
-                                        source = MaterialApplicationStandardFacetSource{*facet};
-                                    } else {
-                                        decoder.error(k_code_variant,
-                                                      "Unknown Material Application parameter source.",
-                                                      source_pointer);
-                                        return std::nullopt;
-                                    }
-                                    return MaterialApplicationParameterOverride{
-                                        std::move(*name), *type, std::move(source)};
-                                })
-                          : std::nullopt;
-    auto textures = textures_value
-                        ? decoder.array<MaterialApplicationTextureOverride>(
-                              *textures_value, pointer_child(pointer, "textures"),
-                              [&](const nlohmann::json& item,
-                                  const std::string& item_pointer)
-                                  -> std::optional<MaterialApplicationTextureOverride> {
-                                  if (!decoder.object(item, item_pointer, {"name", "source"}))
-                                      return std::nullopt;
-                                  const auto* name_value = decoder.member(item, "name", item_pointer);
-                                  const auto* source_value =
-                                      decoder.member(item, "source", item_pointer);
-                                  auto name = name_value
-                                                  ? decoder.string(*name_value,
-                                                                   pointer_child(item_pointer, "name"))
-                                                  : std::nullopt;
-                                  auto source = source_value
-                                                    ? decode_reference<AssetId>(
-                                                          decoder, *source_value,
-                                                          pointer_child(item_pointer, "source"),
-                                                          "asset")
-                                                    : std::nullopt;
-                                  if (!name || !source)
-                                      return std::nullopt;
-                                  return MaterialApplicationTextureOverride{std::move(*name),
-                                                                            std::move(*source)};
-                              })
-                        : std::nullopt;
+    auto material =
+        material_value
+            ? decode_reference<MaterialId>(decoder, *material_value,
+                                           pointer_child(pointer, "material"), "material")
+            : std::nullopt;
+    auto parameters =
+        parameters_value
+            ? decoder.array<MaterialApplicationParameterOverride>(
+                  *parameters_value, pointer_child(pointer, "parameters"),
+                  [&](const nlohmann::json& item, const std::string& item_pointer)
+                      -> std::optional<MaterialApplicationParameterOverride> {
+                      if (!decoder.object(item, item_pointer, {"name", "source", "type"}))
+                          return std::nullopt;
+                      const auto* name_value = decoder.member(item, "name", item_pointer);
+                      const auto* type_value = decoder.member(item, "type", item_pointer);
+                      const auto* source_value = decoder.member(item, "source", item_pointer);
+                      auto name = name_value ? decoder.string(*name_value,
+                                                              pointer_child(item_pointer, "name"))
+                                             : std::nullopt;
+                      auto type = type_value ? decode_material_application_parameter_type(
+                                                   decoder, *type_value,
+                                                   pointer_child(item_pointer, "type"))
+                                             : std::nullopt;
+                      if (!name || !type || source_value == nullptr || !source_value->is_object())
+                          return std::nullopt;
+                      const auto source_pointer = pointer_child(item_pointer, "source");
+                      const auto* kind_value =
+                          decoder.member(*source_value, "kind", source_pointer);
+                      auto kind = kind_value ? decoder.string(*kind_value,
+                                                              pointer_child(source_pointer, "kind"))
+                                             : std::nullopt;
+                      if (!kind)
+                          return std::nullopt;
+                      MaterialApplicationParameterSource source;
+                      if (*kind == "literal" &&
+                          decoder.object(*source_value, source_pointer, {"kind", "value"})) {
+                          const auto* payload =
+                              decoder.member(*source_value, "value", source_pointer);
+                          auto decoded = payload ? decode_material_application_literal(
+                                                       decoder, *payload,
+                                                       pointer_child(source_pointer, "value"))
+                                                 : std::nullopt;
+                          if (!decoded)
+                              return std::nullopt;
+                          source = MaterialApplicationLiteralSource{std::move(*decoded)};
+                      } else if (*kind == "property" &&
+                                 decoder.object(*source_value, source_pointer,
+                                                {"kind", "property"})) {
+                          const auto* property_value =
+                              decoder.member(*source_value, "property", source_pointer);
+                          auto property =
+                              property_value
+                                  ? decoder.id<PropertyId>(
+                                        *property_value, pointer_child(source_pointer, "property"))
+                                  : std::nullopt;
+                          if (!property)
+                              return std::nullopt;
+                          source = MaterialApplicationPropertySource{std::move(*property)};
+                      } else if (*kind == "standard-facet" &&
+                                 decoder.object(*source_value, source_pointer, {"facet", "kind"})) {
+                          const auto* facet_value =
+                              decoder.member(*source_value, "facet", source_pointer);
+                          auto facet =
+                              facet_value
+                                  ? decoder.enumeration<MaterialApplicationStandardFacet>(
+                                        *facet_value, pointer_child(source_pointer, "facet"),
+                                        {{"occurrence-time",
+                                          MaterialApplicationStandardFacet::OccurrenceTime},
+                                         {"paint-width",
+                                          MaterialApplicationStandardFacet::PaintWidth},
+                                         {"paint-height",
+                                          MaterialApplicationStandardFacet::PaintHeight},
+                                         {"viewport-width",
+                                          MaterialApplicationStandardFacet::ViewportWidth},
+                                         {"viewport-height",
+                                          MaterialApplicationStandardFacet::ViewportHeight},
+                                         {"camera-zoom",
+                                          MaterialApplicationStandardFacet::CameraZoom}})
+                                  : std::nullopt;
+                          if (!facet)
+                              return std::nullopt;
+                          source = MaterialApplicationStandardFacetSource{*facet};
+                      } else {
+                          decoder.error(k_code_variant,
+                                        "Unknown Material Application parameter source.",
+                                        source_pointer);
+                          return std::nullopt;
+                      }
+                      return MaterialApplicationParameterOverride{std::move(*name), *type,
+                                                                  std::move(source)};
+                  })
+            : std::nullopt;
+    auto textures =
+        textures_value
+            ? decoder.array<MaterialApplicationTextureOverride>(
+                  *textures_value, pointer_child(pointer, "textures"),
+                  [&](const nlohmann::json& item, const std::string& item_pointer)
+                      -> std::optional<MaterialApplicationTextureOverride> {
+                      if (!decoder.object(item, item_pointer, {"name", "source"}))
+                          return std::nullopt;
+                      const auto* name_value = decoder.member(item, "name", item_pointer);
+                      const auto* source_value = decoder.member(item, "source", item_pointer);
+                      auto name = name_value ? decoder.string(*name_value,
+                                                              pointer_child(item_pointer, "name"))
+                                             : std::nullopt;
+                      auto source = source_value
+                                        ? decode_reference<AssetId>(
+                                              decoder, *source_value,
+                                              pointer_child(item_pointer, "source"), "asset")
+                                        : std::nullopt;
+                      if (!name || !source)
+                          return std::nullopt;
+                      return MaterialApplicationTextureOverride{std::move(*name),
+                                                                std::move(*source)};
+                  })
+            : std::nullopt;
     if (!material || !parameters || !textures)
         return std::nullopt;
     return MaterialApplication{std::move(*material), std::move(*parameters), std::move(*textures)};
@@ -2801,19 +2779,19 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
     std::optional<InteractablePresentation> presentation;
     if (presentation_value &&
         decoder.object(*presentation_value, pointer_child(pointer, "presentation"),
-                       {"cursor", "hotspots", "material", "materialParameters",
-                        "materialTextures", "sprite"})) {
+                       {"cursor", "hotspots", "material", "materialParameters", "materialTextures",
+                        "sprite"})) {
         const auto presentation_pointer = pointer_child(pointer, "presentation");
         const auto* material_value =
             decoder.member(*presentation_value, "material", presentation_pointer);
         const auto material_parameters_entry = presentation_value->find("materialParameters");
         const auto* material_parameters_value =
             material_parameters_entry != presentation_value->end() ? &*material_parameters_entry
-                                                                    : nullptr;
+                                                                   : nullptr;
         const auto material_textures_entry = presentation_value->find("materialTextures");
-        const auto* material_textures_value =
-            material_textures_entry != presentation_value->end() ? &*material_textures_entry
-                                                                  : nullptr;
+        const auto* material_textures_value = material_textures_entry != presentation_value->end()
+                                                  ? &*material_textures_entry
+                                                  : nullptr;
         const auto* sprite_value =
             decoder.member(*presentation_value, "sprite", presentation_pointer);
         const auto cursor_entry = presentation_value->find("cursor");
@@ -2955,7 +2933,7 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
         if (material_application_ok && sprite_ok && cursor_ok && hotspots)
             presentation = InteractablePresentation{
                 std::move(material), std::move(material_parameters), std::move(material_textures),
-                std::move(sprite), std::move(*hotspots), std::move(cursor)};
+                std::move(sprite),   std::move(*hotspots),           std::move(cursor)};
     }
     if (features)
         decoder.duplicate_ids(*features, pointer_child(pointer, "features"),

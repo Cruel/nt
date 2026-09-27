@@ -1094,11 +1094,12 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                       const auto* local_properties_value =
                           decoder.member(item, "localProperties", pointer);
                       const auto material_override_entry = item.find("materialOverride");
-                      const auto* material_override_value =
-                          material_override_entry != item.end() ? &*material_override_entry : nullptr;
+                      const auto* material_override_value = material_override_entry != item.end()
+                                                                ? &*material_override_entry
+                                                                : nullptr;
                       const auto material_parameters_entry = item.find("materialParameters");
-                      const auto* material_parameters_value = material_parameters_entry != item.end()
-                                                                  ? &*material_parameters_entry
+                      const auto* material_parameters_value =
+                          material_parameters_entry != item.end() ? &*material_parameters_entry
                                                                   : nullptr;
                       const auto material_textures_entry = item.find("materialTextures");
                       const auto* material_textures_value = material_textures_entry != item.end()
@@ -1226,11 +1227,12 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                       bool material_specialization_ok = true;
                       if (material_parameters_value || material_textures_value) {
                           nlohmann::json application = {
-                              {"material", {{"kind", "material"}, {"id", "instance-specialization"}}},
+                              {"material",
+                               {{"kind", "material"}, {"id", "instance-specialization"}}},
                               {"parameters", material_parameters_value ? *material_parameters_value
-                                                                        : nlohmann::json::array()},
+                                                                       : nlohmann::json::array()},
                               {"textures", material_textures_value ? *material_textures_value
-                                                                    : nlohmann::json::array()},
+                                                                   : nlohmann::json::array()},
                           };
                           auto decoded_application =
                               decode_material_application(decoder, application, pointer);
@@ -1341,8 +1343,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                               : std::nullopt;
                       if (!id || !definition || !location || !enabled || !visible || !quantity ||
                           !trait_adds || !trait_removes || !property_overrides ||
-                          !local_properties || !material_override_ok || !material_specialization_ok ||
-                          !feature_overrides)
+                          !local_properties || !material_override_ok ||
+                          !material_specialization_ok || !feature_overrides)
                           return std::nullopt;
                       return InteractableInstanceDeclaration{std::move(*id),
                                                              std::move(*definition),

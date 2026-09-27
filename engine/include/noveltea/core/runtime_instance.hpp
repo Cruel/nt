@@ -149,18 +149,18 @@ using RuntimeInteractableConfiguration =
     if (declaration.material_override)
         effective.presentation.material = declaration.material_override;
     for (const auto& override : declaration.material_parameters) {
-        const auto found = std::ranges::find_if(
-            effective.presentation.material_parameters,
-            [&](const auto& value) { return value.name == override.name; });
+        const auto found =
+            std::ranges::find_if(effective.presentation.material_parameters,
+                                 [&](const auto& value) { return value.name == override.name; });
         if (found == effective.presentation.material_parameters.end())
             effective.presentation.material_parameters.push_back(override);
         else
             *found = override;
     }
     for (const auto& override : declaration.material_textures) {
-        const auto found = std::ranges::find_if(
-            effective.presentation.material_textures,
-            [&](const auto& value) { return value.name == override.name; });
+        const auto found =
+            std::ranges::find_if(effective.presentation.material_textures,
+                                 [&](const auto& value) { return value.name == override.name; });
         if (found == effective.presentation.material_textures.end())
             effective.presentation.material_textures.push_back(override);
         else

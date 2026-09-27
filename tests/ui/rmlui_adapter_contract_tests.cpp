@@ -133,8 +133,8 @@ TEST_CASE("RmlUi adapter snaps submission origins only after logical-to-raster t
 TEST_CASE("RmlUi Material textures support occurrence-only author-owned sources")
 {
     const auto material = id<core::MaterialId>("ui-material");
-    const core::PresentationMaterialTextureBinding occurrence{
-        material, "s_detail", "project:/images/detail.png"};
+    const core::PresentationMaterialTextureBinding occurrence{material, "s_detail",
+                                                              "project:/images/detail.png"};
 
     const auto occurrence_only = resolve_rmlui_material_texture(nullptr, &occurrence);
     REQUIRE(occurrence_only);

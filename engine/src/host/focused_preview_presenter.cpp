@@ -254,10 +254,10 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
             require_asset(value.visual.layers[layer].sprite_asset_id,
                           "/world/persistentCharacters/" + std::to_string(index) +
                               "/visual/layers/" + std::to_string(layer) + "/spriteAssetId");
-            require_material_textures(
-                value.visual.layers[layer].material_textures,
-                "/world/persistentCharacters/" + std::to_string(index) + "/visual/layers/" +
-                    std::to_string(layer) + "/materialTextures");
+            require_material_textures(value.visual.layers[layer].material_textures,
+                                      "/world/persistentCharacters/" + std::to_string(index) +
+                                          "/visual/layers/" + std::to_string(layer) +
+                                          "/materialTextures");
         }
     }
     for (std::size_t index = 0; index < document.world.cast.size(); ++index) {
@@ -267,9 +267,8 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
                           "/world/cast/" + std::to_string(index) + "/visual/layers/" +
                               std::to_string(layer) + "/spriteAssetId");
             require_material_textures(value.visual.layers[layer].material_textures,
-                                      "/world/cast/" + std::to_string(index) +
-                                          "/visual/layers/" + std::to_string(layer) +
-                                          "/materialTextures");
+                                      "/world/cast/" + std::to_string(index) + "/visual/layers/" +
+                                          std::to_string(layer) + "/materialTextures");
         }
     }
     for (std::size_t index = 0; index < document.world.interactables.size(); ++index)
@@ -284,9 +283,9 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
     for (std::size_t index = 0; index < document.world.environments.size(); ++index) {
         require_asset(document.world.environments[index].asset_id,
                       "/world/environments/" + std::to_string(index) + "/assetId");
-        require_material_textures(
-            document.world.environments[index].material_textures,
-            "/world/environments/" + std::to_string(index) + "/materialTextures");
+        require_material_textures(document.world.environments[index].material_textures,
+                                  "/world/environments/" + std::to_string(index) +
+                                      "/materialTextures");
     }
 
     for (std::size_t index = 0; index < document.layouts.size(); ++index) {
@@ -951,7 +950,8 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
              environment.asset_id ? std::optional{decoded_id<core::AssetId>(*environment.asset_id)}
                                   : std::nullopt,
              decoded_id<core::MaterialId>(environment.material_id),
-             environment.material_parameters, environment.material_textures,
+             environment.material_parameters,
+             environment.material_textures,
              {environment.bounds.x, environment.bounds.y, environment.bounds.width,
               environment.bounds.height},
              environment.plane == "world-background" ? core::PresentationPlane::WorldBackground
@@ -1215,9 +1215,9 @@ std::vector<core::PresentationMaterialTextureOverride> focused_material_textures
     return result;
 }
 
-core::RoomPresentationVisualCatalog focused_visual_catalog(
-    const core::editor::TypedEditorRoomPreviewDocument& document,
-    const std::vector<core::editor::FocusedEditorManifestProjection>& resources)
+core::RoomPresentationVisualCatalog
+focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& document,
+                       const std::vector<core::editor::FocusedEditorManifestProjection>& resources)
 {
     core::RoomPresentationVisualCatalog result;
     for (const auto& placement : document.world.placements)
@@ -1532,9 +1532,8 @@ FocusedPreviewPresenter::prepare_room_state(
                                  document.world.presentation_space.view};
 
     if (snapshot.value_if()->background)
-        snapshot.value_if()->background->material_texture_overrides =
-            focused_material_textures(document.world.background.material_textures,
-                                      request.resources);
+        snapshot.value_if()->background->material_texture_overrides = focused_material_textures(
+            document.world.background.material_textures, request.resources);
     for (auto& prop : snapshot.value_if()->props) {
         const auto* key = std::get_if<core::RoomPropPresentationKey>(&prop.key);
         if (key == nullptr)
@@ -1547,11 +1546,12 @@ FocusedPreviewPresenter::prepare_room_state(
                 focused_material_textures(source->material_textures, request.resources);
     }
     for (auto& environment : snapshot.value_if()->environments) {
-        const auto source = std::ranges::find_if(document.world.environments, [&](const auto& candidate) {
-            return environment.instance.text() ==
-                   "room-" + std::to_string(document.room_id.size()) + "-" + document.room_id + "-" +
-                       candidate.environment_id;
-        });
+        const auto source =
+            std::ranges::find_if(document.world.environments, [&](const auto& candidate) {
+                return environment.instance.text() ==
+                       "room-" + std::to_string(document.room_id.size()) + "-" + document.room_id +
+                           "-" + candidate.environment_id;
+            });
         if (source != document.world.environments.end())
             environment.material_texture_overrides =
                 focused_material_textures(source->material_textures, request.resources);
@@ -1560,20 +1560,27 @@ FocusedPreviewPresenter::prepare_room_state(
     const auto focused_property_value =
         [&](std::string_view owner_kind, std::string_view owner_id,
             const core::PropertyId& property) -> const core::editor::TypedFocusedScalar* {
-        const auto found = std::ranges::find_if(document.query_state.properties, [&](const auto& item) {
-            return !item.missing && item.identity.owner_kind == owner_kind &&
-                   item.identity.owner_id == owner_id &&
-                   item.identity.property_id == property.text();
-        });
+        const auto found =
+            std::ranges::find_if(document.query_state.properties, [&](const auto& item) {
+                return !item.missing && item.identity.owner_kind == owner_kind &&
+                       item.identity.owner_id == owner_id &&
+                       item.identity.property_id == property.text();
+            });
         return found == document.query_state.properties.end() ? nullptr : &found->value;
     };
-    const auto append_authored_parameter =
-        [&](const core::compiled::MaterialApplicationParameterOverride& parameter,
-            const core::PresentationOwner& owner, const core::MaterialOccurrence& occurrence,
-            const core::MaterialId& material, std::string_view property_owner_kind,
-            std::string_view property_owner_id) {
-        core::PresentationMaterialParameter projected{owner, occurrence, material, parameter.name,
-                                                      std::nullopt, std::nullopt,
+    const auto append_authored_parameter = [&](const core::compiled::
+                                                   MaterialApplicationParameterOverride& parameter,
+                                               const core::PresentationOwner& owner,
+                                               const core::MaterialOccurrence& occurrence,
+                                               const core::MaterialId& material,
+                                               std::string_view property_owner_kind,
+                                               std::string_view property_owner_id) {
+        core::PresentationMaterialParameter projected{owner,
+                                                      occurrence,
+                                                      material,
+                                                      parameter.name,
+                                                      std::nullopt,
+                                                      std::nullopt,
                                                       core::MaterialClockPolicy::Gameplay};
         bool resolved = true;
         std::visit(
@@ -1610,8 +1617,8 @@ FocusedPreviewPresenter::prepare_room_state(
                         break;
                     }
                 } else {
-                    const auto* value =
-                        focused_property_value(property_owner_kind, property_owner_id, source.property);
+                    const auto* value = focused_property_value(property_owner_kind,
+                                                               property_owner_id, source.property);
                     if (value == nullptr) {
                         resolved = false;
                         return;
@@ -1649,8 +1656,8 @@ FocusedPreviewPresenter::prepare_room_state(
         for (const auto& parameter : background->material_parameters)
             append_authored_parameter(
                 parameter, *background->material_owner,
-                core::MaterialOccurrence{core::BackgroundMaterialOccurrence{}}, *background->material,
-                "room", document.room_id);
+                core::MaterialOccurrence{core::BackgroundMaterialOccurrence{}},
+                *background->material, "room", document.room_id);
     }
     for (const auto& actor : snapshot.value_if()->actors) {
         if (!actor.material_owner)
@@ -1672,8 +1679,8 @@ FocusedPreviewPresenter::prepare_room_state(
         if (key == nullptr)
             continue;
         auto occurrence = core::PresentationPropInstanceId::create(
-            "room-" + std::to_string(key->room.text().size()) + "-" + key->room.text() +
-            "-prop-" + key->prop.text());
+            "room-" + std::to_string(key->room.text().size()) + "-" + key->room.text() + "-prop-" +
+            key->prop.text());
         if (!occurrence)
             continue;
         for (const auto& parameter : prop.material_parameters)

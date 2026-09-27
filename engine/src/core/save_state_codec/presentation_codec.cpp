@@ -427,8 +427,7 @@ std::string_view encode_material_application_facet(compiled::MaterialApplication
 }
 
 std::optional<compiled::MaterialApplicationStandardFacet>
-decode_material_application_facet(Decoder& d, const nlohmann::json& value,
-                                  std::string_view pointer)
+decode_material_application_facet(Decoder& d, const nlohmann::json& value, std::string_view pointer)
 {
     auto text = d.string(value, pointer);
     if (!text)
@@ -481,10 +480,9 @@ decode_material_application_parameter(Decoder& d, const nlohmann::json& value,
     const auto* source_value = d.member(value, "source", pointer);
     const auto* type_value = d.member(value, "type", pointer);
     auto name = name_value ? d.string(*name_value, child(pointer, "name")) : std::nullopt;
-    auto type = type_value
-                    ? decode_material_application_parameter_type(d, *type_value,
-                                                                 child(pointer, "type"))
-                    : std::nullopt;
+    auto type = type_value ? decode_material_application_parameter_type(d, *type_value,
+                                                                        child(pointer, "type"))
+                           : std::nullopt;
     if (!name || !type || !source_value || !source_value->is_object())
         return std::nullopt;
     const auto source_pointer = child(pointer, "source");
@@ -497,9 +495,9 @@ decode_material_application_parameter(Decoder& d, const nlohmann::json& value,
         if (!d.object(*source_value, source_pointer, {"kind", "value"}))
             return std::nullopt;
         const auto* payload = d.member(*source_value, "value", source_pointer);
-        auto decoded = payload ? decode_material_parameter_value(d, *payload,
-                                                                 child(source_pointer, "value"))
-                               : std::nullopt;
+        auto decoded =
+            payload ? decode_material_parameter_value(d, *payload, child(source_pointer, "value"))
+                    : std::nullopt;
         if (!decoded)
             return std::nullopt;
         source = compiled::MaterialApplicationLiteralSource{std::move(*decoded)};
@@ -517,10 +515,9 @@ decode_material_application_parameter(Decoder& d, const nlohmann::json& value,
         if (!d.object(*source_value, source_pointer, {"facet", "kind"}))
             return std::nullopt;
         const auto* facet_value = d.member(*source_value, "facet", source_pointer);
-        auto facet = facet_value
-                         ? decode_material_application_facet(d, *facet_value,
-                                                             child(source_pointer, "facet"))
-                         : std::nullopt;
+        auto facet = facet_value ? decode_material_application_facet(d, *facet_value,
+                                                                     child(source_pointer, "facet"))
+                                 : std::nullopt;
         if (!facet)
             return std::nullopt;
         source = compiled::MaterialApplicationStandardFacetSource{*facet};
@@ -553,8 +550,7 @@ std::optional<compiled::BackgroundPresentation>
 decode_background(Decoder& d, const nlohmann::json& value, std::string_view pointer)
 {
     if (!d.object(value, pointer,
-                  {"asset", "color", "fit", "material", "materialParameters",
-                   "materialTextures"}))
+                  {"asset", "color", "fit", "material", "materialParameters", "materialTextures"}))
         return std::nullopt;
     const auto* asset_value = d.member(value, "asset", pointer);
     const auto* color_value = d.member(value, "color", pointer);
@@ -574,44 +570,38 @@ decode_background(Decoder& d, const nlohmann::json& value, std::string_view poin
         material_value
             ? decode_optional_id_value<MaterialId>(d, *material_value, child(pointer, "material"))
             : std::nullopt;
-    auto material_parameters = material_parameters_value
-                                   ? d.array<compiled::MaterialApplicationParameterOverride>(
-                                         *material_parameters_value,
-                                         child(pointer, "materialParameters"),
-                                         [&](const nlohmann::json& item,
-                                             const std::string& item_pointer) {
-                                             return decode_material_application_parameter(
-                                                 d, item, item_pointer);
-                                         })
-                                   : std::nullopt;
-    auto material_textures = material_textures_value
-                                 ? d.array<compiled::MaterialApplicationTextureOverride>(
-                                       *material_textures_value, child(pointer, "materialTextures"),
-                                       [&](const nlohmann::json& item,
-                                           const std::string& item_pointer)
-                                           -> std::optional<
-                                               compiled::MaterialApplicationTextureOverride> {
-                                           if (!d.object(item, item_pointer, {"name", "source"}))
-                                               return std::nullopt;
-                                           const auto* name_value = d.member(item, "name", item_pointer);
-                                           const auto* source_value =
-                                               d.member(item, "source", item_pointer);
-                                           auto name = name_value
-                                                           ? d.string(*name_value,
-                                                                      child(item_pointer, "name"))
-                                                           : std::nullopt;
-                                           auto source = source_value
-                                                             ? d.id<AssetId>(
-                                                                   *source_value,
-                                                                   child(item_pointer, "source"))
-                                                             : std::nullopt;
-                                           return name && source
-                                                      ? std::optional<compiled::
-                                                                          MaterialApplicationTextureOverride>{
-                                                            {std::move(*name), std::move(*source)}}
-                                                      : std::nullopt;
-                                       })
+    auto material_parameters =
+        material_parameters_value
+            ? d.array<compiled::MaterialApplicationParameterOverride>(
+                  *material_parameters_value, child(pointer, "materialParameters"),
+                  [&](const nlohmann::json& item, const std::string& item_pointer) {
+                      return decode_material_application_parameter(d, item, item_pointer);
+                  })
+            : std::nullopt;
+    auto material_textures =
+        material_textures_value
+            ? d.array<compiled::MaterialApplicationTextureOverride>(
+                  *material_textures_value, child(pointer, "materialTextures"),
+                  [&](const nlohmann::json& item, const std::string& item_pointer)
+                      -> std::optional<compiled::MaterialApplicationTextureOverride> {
+                      if (!d.object(item, item_pointer, {"name", "source"}))
+                          return std::nullopt;
+                      const auto* name_value = d.member(item, "name", item_pointer);
+                      const auto* source_value = d.member(item, "source", item_pointer);
+                      auto name = name_value ? d.string(*name_value, child(item_pointer, "name"))
+                                             : std::nullopt;
+                      auto source =
+                          source_value ? d.id<AssetId>(*source_value, child(item_pointer, "source"))
+                                       : std::nullopt;
+                      return name && source
+                                 ? std::optional<
+                                       compiled::MaterialApplicationTextureOverride>{{std::move(
+                                                                                          *name),
+                                                                                      std::move(
+                                                                                          *source)}}
                                  : std::nullopt;
+                  })
+            : std::nullopt;
     if (!asset || !color || !fit || !material || !material_parameters || !material_textures)
         return std::nullopt;
     if (!*material && (!material_parameters->empty() || !material_textures->empty())) {
@@ -619,7 +609,9 @@ decode_background(Decoder& d, const nlohmann::json& value, std::string_view poin
                 std::string(pointer));
         return std::nullopt;
     }
-    return compiled::BackgroundPresentation{std::move(*asset), std::move(*color), *fit,
+    return compiled::BackgroundPresentation{std::move(*asset),
+                                            std::move(*color),
+                                            *fit,
                                             std::move(*material),
                                             std::move(*material_parameters),
                                             std::move(*material_textures)};
@@ -2133,99 +2125,137 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
         postprocess_effects_value
             ? decode_required_array<SavedPostprocessEffect>(
                   d, *postprocess_effects_value, child(pointer, "postprocessEffects"),
-                  [&d](const nlohmann::json& entry,
-                       const std::string& entry_pointer) -> std::optional<SavedPostprocessEffect> {
-                      if (!d.object(entry, entry_pointer,
-                                    {"clock", "instance", "material", "materialParameters",
-                                     "materialTextures", "order", "owner", "scope", "visible"}))
-                          return std::nullopt;
-                      const auto* instance_value = d.member(entry, "instance", entry_pointer);
-                      const auto* owner_value = d.member(entry, "owner", entry_pointer);
-                      const auto* material_value = d.member(entry, "material", entry_pointer);
-                      const auto* scope_value = d.member(entry, "scope", entry_pointer);
-                      const auto* material_parameters_value =
-                          d.member(entry, "materialParameters", entry_pointer);
-                      const auto* material_textures_value =
-                          d.member(entry, "materialTextures", entry_pointer);
-                      const auto* order_value = d.member(entry, "order", entry_pointer);
-                      const auto* clock_value = d.member(entry, "clock", entry_pointer);
-                      const auto* visible_value = d.member(entry, "visible", entry_pointer);
-                      auto instance = instance_value
-                                          ? d.id<PostprocessEffectInstanceId>(
-                                                *instance_value, child(entry_pointer, "instance"))
-                                          : std::nullopt;
-                      auto owner = owner_value ? decode_presentation_owner(
+                  [&d](const nlohmann::json& entry, const std::string& entry_pointer)
+                      -> std::
+                          optional<SavedPostprocessEffect> {
+                              if (!d.object(entry, entry_pointer,
+                                            {"clock", "instance", "material", "materialParameters",
+                                             "materialTextures", "order", "owner", "scope",
+                                             "visible"}))
+                                  return std::nullopt;
+                              const auto* instance_value =
+                                  d.member(entry, "instance", entry_pointer);
+                              const auto* owner_value = d.member(entry, "owner", entry_pointer);
+                              const auto* material_value =
+                                  d.member(entry, "material", entry_pointer);
+                              const auto* scope_value = d.member(entry, "scope", entry_pointer);
+                              const auto* material_parameters_value =
+                                  d.member(entry, "materialParameters", entry_pointer);
+                              const auto* material_textures_value =
+                                  d.member(entry, "materialTextures", entry_pointer);
+                              const auto* order_value = d.member(entry, "order", entry_pointer);
+                              const auto* clock_value = d.member(entry, "clock", entry_pointer);
+                              const auto* visible_value = d.member(entry, "visible", entry_pointer);
+                              auto instance = instance_value ? d.id<PostprocessEffectInstanceId>(
+                                                                   *instance_value,
+                                                                   child(entry_pointer, "instance"))
+                                                             : std::nullopt;
+                              auto owner = owner_value
+                                               ? decode_presentation_owner(
                                                      d, *owner_value, child(entry_pointer, "owner"))
                                                : std::nullopt;
-                      auto material =
-                          material_value
-                              ? d.id<MaterialId>(*material_value, child(entry_pointer, "material"))
-                              : std::nullopt;
-                      auto scope =
-                          scope_value
-                              ? decode_enum(d, *scope_value, child(entry_pointer, "scope"),
-                                            compiled::MaterialPostprocessScope::FullGameViewport)
-                              : std::nullopt;
-                      auto order =
-                          order_value ? decode_order(d, *order_value, child(entry_pointer, "order"))
+                              auto material =
+                                  material_value
+                                      ? d.id<MaterialId>(*material_value,
+                                                         child(entry_pointer, "material"))
                                       : std::nullopt;
-                      auto clock = clock_value
-                                       ? decode_enum(d, *clock_value, child(entry_pointer, "clock"),
-                                                     MaterialClockPolicy::UnscaledPresentation)
-                                       : std::nullopt;
-                      auto material_parameters =
-                          material_parameters_value
-                              ? d.array<compiled::MaterialApplicationParameterOverride>(
-                                    *material_parameters_value,
-                                    child(entry_pointer, "materialParameters"),
-                                    [&](const nlohmann::json& item,
-                                        const std::string& item_pointer) {
-                                        return decode_material_application_parameter(
-                                            d, item, item_pointer);
-                                    })
-                              : std::nullopt;
-                      auto material_textures =
-                          material_textures_value
-                              ? d.array<compiled::MaterialApplicationTextureOverride>(
-                                    *material_textures_value,
-                                    child(entry_pointer, "materialTextures"),
-                                    [&](const nlohmann::json& item,
-                                        const std::string& item_pointer)
-                                        -> std::optional<
-                                            compiled::MaterialApplicationTextureOverride> {
-                                        if (!d.object(item, item_pointer, {"name", "source"}))
-                                            return std::nullopt;
-                                        const auto* name_value = d.member(item, "name", item_pointer);
-                                        const auto* source_value =
-                                            d.member(item, "source", item_pointer);
-                                        auto name = name_value
-                                                        ? d.string(*name_value,
-                                                                   child(item_pointer, "name"))
-                                                        : std::nullopt;
-                                        auto source = source_value
-                                                          ? d.id<AssetId>(
-                                                                *source_value,
-                                                                child(item_pointer, "source"))
-                                                          : std::nullopt;
-                                        return name && source
-                                                   ? std::optional<compiled::
-                                                                       MaterialApplicationTextureOverride>{
-                                                         {std::move(*name), std::move(*source)}}
-                                                   : std::nullopt;
-                                    })
-                              : std::nullopt;
-                      auto visible =
-                          visible_value ? d.boolean(*visible_value, child(entry_pointer, "visible"))
-                                        : std::nullopt;
-                      return instance && owner && material && scope && order && clock &&
-                                     material_parameters && material_textures && visible
-                                 ? std::optional<SavedPostprocessEffect>{SavedPostprocessEffect{
-                                       std::move(*instance), std::move(*owner),
-                                       std::move(*material), *scope, *order, *clock,
-                                       std::move(*material_parameters), std::move(*material_textures),
-                                       *visible}}
-                                 : std::nullopt;
-                  })
+                              auto scope =
+                                  scope_value
+                                      ? decode_enum(
+                                            d, *scope_value, child(entry_pointer, "scope"),
+                                            compiled::MaterialPostprocessScope::FullGameViewport)
+                                      : std::nullopt;
+                              auto order = order_value ? decode_order(d, *order_value,
+                                                                      child(entry_pointer, "order"))
+                                                       : std::nullopt;
+                              auto clock =
+                                  clock_value
+                                      ? decode_enum(d, *clock_value, child(entry_pointer, "clock"),
+                                                    MaterialClockPolicy::UnscaledPresentation)
+                                      : std::nullopt;
+                              auto material_parameters =
+                                  material_parameters_value
+                                      ? d.array<compiled::MaterialApplicationParameterOverride>(
+                                            *material_parameters_value,
+                                            child(entry_pointer, "materialParameters"),
+                                            [&](const nlohmann::json& item,
+                                                const std::string& item_pointer) {
+                                                return decode_material_application_parameter(
+                                                    d, item, item_pointer);
+                                            })
+                                      : std::nullopt;
+                              auto material_textures =
+                                  material_textures_value
+                                      ? d
+                                            .array<compiled::MaterialApplicationTextureOverride>(
+                                                *material_textures_value,
+                                                child(entry_pointer, "materialTextures"),
+                                                [&](const nlohmann::json& item, const std::string&
+                                                                                    item_pointer) -> std::
+                                                                                                      optional<
+                                                                                                          compiled::
+                                                                                                              MaterialApplicationTextureOverride> {
+                                                                                                          if (!d.object(
+                                                                                                                  item,
+                                                                                                                  item_pointer,
+                                                                                                                  {"name",
+                                                                                                                   "source"}))
+                                                                                                              return std::
+                                                                                                                  nullopt;
+                                                                                                          const auto* name_value =
+                                                                                                              d.member(
+                                                                                                                  item,
+                                                                                                                  "name",
+                                                                                                                  item_pointer);
+                                                                                                          const auto* source_value =
+                                                                                                              d.member(
+                                                                                                                  item,
+                                                                                                                  "source",
+                                                                                                                  item_pointer);
+                                                                                                          auto name =
+                                                                                                              name_value
+                                                                                                                  ? d.string(
+                                                                                                                        *name_value,
+                                                                                                                        child(
+                                                                                                                            item_pointer,
+                                                                                                                            "name"))
+                                                                                                                  : std::
+                                                                                                                        nullopt;
+                                                                                                          auto source =
+                                                                                                              source_value
+                                                                                                                  ? d.id<
+                                                                                                                        AssetId>(
+                                                                                                                        *source_value,
+                                                                                                                        child(
+                                                                                                                            item_pointer,
+                                                                                                                            "source"))
+                                                                                                                  : std::
+                                                                                                                        nullopt;
+                                                                                                          return name && source
+                                                                                                                     ? std::optional<
+                                                                                                                           compiled::
+                                                                                                                               MaterialApplicationTextureOverride>{{std::move(
+                                                                                                                                                                        *name),
+                                                                                                                                                                    std::move(
+                                                                                                                                                                        *source)}}
+                                                                                                                     : std::
+                                                                                                                           nullopt;
+                                                                                                      })
+                                      : std::nullopt;
+                              auto visible =
+                                  visible_value
+                                      ? d.boolean(*visible_value, child(entry_pointer, "visible"))
+                                      : std::nullopt;
+                              return instance && owner && material && scope && order && clock &&
+                                             material_parameters && material_textures && visible
+                                         ? std::optional<
+                                               SavedPostprocessEffect>{SavedPostprocessEffect{
+                                               std::move(*instance), std::move(*owner),
+                                               std::move(*material), *scope, *order, *clock,
+                                               std::move(*material_parameters),
+                                               std::move(*material_textures), *visible}}
+                                         : std::nullopt;
+                          })
             : std::nullopt;
 
     auto layouts =

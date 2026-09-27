@@ -416,13 +416,8 @@ TEST_CASE("Interactable Material Application overrides reach the draw command")
                                       true,
                                       true});
     snapshot.material_parameters.push_back(
-        {owner,
-         InteractableMaterialOccurrence{interactable},
-         material,
-         "u_amount",
-         compiled::MaterialParameterValue{0.5},
-         std::nullopt,
-         MaterialClockPolicy::Gameplay});
+        {owner, InteractableMaterialOccurrence{interactable}, material, "u_amount",
+         compiled::MaterialParameterValue{0.5}, std::nullopt, MaterialClockPolicy::Gameplay});
 
     REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
@@ -430,13 +425,11 @@ TEST_CASE("Interactable Material Application overrides reach the draw command")
     REQUIRE(draw);
     REQUIRE(draw->command.material_texture_overrides.size() == 1);
     CHECK(draw->command.material_texture_overrides.front().name == "s_noise");
-    CHECK(draw->command.material_texture_overrides.front().source ==
-          "project:/assets/noise.png");
+    CHECK(draw->command.material_texture_overrides.front().source == "project:/assets/noise.png");
 
     const auto rendered = std::ranges::find_if(
-        backend.frame()->base_batch.commands(), [&](const QuadCommand& command) {
-            return command.material.string() == material.text();
-        });
+        backend.frame()->base_batch.commands(),
+        [&](const QuadCommand& command) { return command.material.string() == material.text(); });
     REQUIRE(rendered != backend.frame()->base_batch.commands().end());
     REQUIRE(rendered->material_uniform_overrides.size() == 1);
     CHECK(rendered->material_uniform_overrides.front().name == "u_amount");
@@ -527,9 +520,9 @@ TEST_CASE("Engine2D Material Applications reach background prop environment and 
          "u_amount", compiled::MaterialParameterValue{0.3}, std::nullopt,
          MaterialClockPolicy::Gameplay});
     snapshot.material_parameters.push_back(
-        {owner,
-         ActorMaterialOccurrence{hero.key, hero.layers.front().id}, actor_material, "u_amount",
-         compiled::MaterialParameterValue{0.4}, std::nullopt, MaterialClockPolicy::Gameplay});
+        {owner, ActorMaterialOccurrence{hero.key, hero.layers.front().id}, actor_material,
+         "u_amount", compiled::MaterialParameterValue{0.4}, std::nullopt,
+         MaterialClockPolicy::Gameplay});
 
     REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
@@ -548,8 +541,8 @@ TEST_CASE("Engine2D Material Applications reach background prop environment and 
     check_draw("character/hero", 0, "project:/assets/actor-noise.png");
 
     const auto check_uniform = [&](const core::MaterialId& material, float expected) {
-        const auto rendered = std::ranges::find_if(
-            frame.base_batch.commands(), [&](const QuadCommand& command) {
+        const auto rendered =
+            std::ranges::find_if(frame.base_batch.commands(), [&](const QuadCommand& command) {
                 return command.material.string() == material.text();
             });
         REQUIRE(rendered != frame.base_batch.commands().end());
