@@ -1698,9 +1698,10 @@ public:
         {
             std::scoped_lock lock(queue_mutex_);
             const auto owner = project_owners_.find(owner_worker_id);
-            if (owner == project_owners_.end() || owner->second.retiring)
-                throw std::runtime_error(
-                    "Project authority request does not belong to this owner worker");
+            if (owner == project_owners_.end())
+                throw std::runtime_error("Project authority owner worker is no longer registered");
+            if (owner->second.retiring)
+                throw std::runtime_error("Project authority owner worker is retiring");
             owner_root = owner->second.canonical_root;
         }
 
@@ -1723,15 +1724,29 @@ public:
 #if defined(_WIN32)
             const auto requested_root =
                 canonical_project_owner_root(wide_to_utf8(request.project_root.wstring()), false);
+            const std::filesystem::path owner_path = utf8_to_wide(owner_root);
+            const std::filesystem::path requested_path = utf8_to_wide(requested_root);
 #else
             const auto requested_root =
                 canonical_project_owner_root(request.project_root.string(), false);
+            const std::filesystem::path owner_path = owner_root;
+            const std::filesystem::path requested_path = requested_root;
 #endif
-            if (requested_root != owner_root)
-                throw std::runtime_error(
-                    "Project authority request does not belong to this owner worker");
+            std::error_code equivalent_error;
+            if (requested_root.empty() ||
+                !std::filesystem::equivalent(owner_path, requested_path, equivalent_error) ||
+                equivalent_error)
+                throw std::runtime_error("Project authority request root does not match its owner "
+                                         "worker: owner='" +
+                                         owner_root + "' requested='" + requested_root + "'");
         }
-        auto observation = project_authority_.observe(request);
+        auto owner_request = request;
+#if defined(_WIN32)
+        owner_request.project_root = utf8_to_wide(owner_root);
+#else
+        owner_request.project_root = owner_root;
+#endif
+        auto observation = project_authority_.observe(owner_request);
         record_authority_observation(observation);
         if (!observation.delta.added.empty() || !observation.delta.changed.empty() ||
             !observation.delta.removed.empty())
@@ -1753,13 +1768,29 @@ public:
 #else
         const auto requested_root = canonical_project_owner_root(project_root.string(), false);
 #endif
+        std::string owner_root;
         {
             std::scoped_lock lock(queue_mutex_);
             const auto owner = project_owners_.find(owner_worker_id);
-            if (owner == project_owners_.end() || owner->second.canonical_root != requested_root)
+            if (owner == project_owners_.end() || owner->second.retiring)
+                return false;
+            owner_root = owner->second.canonical_root;
+        }
+#if defined(_WIN32)
+        const std::filesystem::path owner_path = utf8_to_wide(owner_root);
+        const std::filesystem::path requested_path = utf8_to_wide(requested_root);
+#else
+        const std::filesystem::path owner_path = owner_root;
+        const std::filesystem::path requested_path = requested_root;
+#endif
+        if (requested_root != owner_root) {
+            std::error_code equivalent_error;
+            if (requested_root.empty() ||
+                !std::filesystem::equivalent(owner_path, requested_path, equivalent_error) ||
+                equivalent_error)
                 return false;
         }
-        return project_authority_.release(project_root);
+        return project_authority_.release(owner_path);
     }
 
     Json declare_owner_generation(std::uint64_t owner_worker_id, ProjectGenerationIdentity identity)
