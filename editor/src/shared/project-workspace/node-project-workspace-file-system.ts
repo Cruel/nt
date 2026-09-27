@@ -53,8 +53,9 @@ async function readNodePathMetadata(value: string): Promise<ProjectWorkspacePath
     const info = await fs.lstat(value, { bigint: true });
     const byteSize = Number(info.size);
     if (!Number.isSafeInteger(byteSize) || byteSize < 0) return { kind: 'other' };
+    const sourceIdentityKind = process.platform === 'win32' ? 'win' : 'posix';
     const metadata = {
-      sourceIdentity: `posix:${info.dev.toString()}:${info.ino.toString()}`,
+      sourceIdentity: `${sourceIdentityKind}:${info.dev.toString()}:${info.ino.toString()}`,
       byteSize,
       mtimeNanoseconds: info.mtimeNs.toString(),
     };

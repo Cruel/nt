@@ -125,6 +125,9 @@ target_include_directories(noveltea-ui-test-runner PRIVATE
 target_link_libraries(noveltea-ui-test-runner PRIVATE
     noveltea_engine
     nlohmann_json::nlohmann_json)
+if(MINGW)
+    target_link_options(noveltea-ui-test-runner PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
 target_compile_definitions(noveltea-ui-test-runner PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
     NOVELTEA_UI_TEST_SYSTEM_ASSET_ROOT="${NOVELTEA_RUNTIME_ASSET_ROOT}/system")

@@ -115,11 +115,18 @@ std::optional<std::uint64_t> owner_worker_for_root(const Json& status,
                                                    const std::filesystem::path& root)
 {
     std::error_code error;
-    const auto canonical = std::filesystem::canonical(root, error).string();
+    const auto canonical = std::filesystem::canonical(root, error);
     if (error || !status.contains("engineeringOwners"))
         return std::nullopt;
     for (const auto& owner : status["engineeringOwners"]) {
-        if (owner.value("canonicalRoot", std::string{}) == canonical)
+        const auto owner_root = owner.value("canonicalRoot", std::string{});
+        if (owner_root.empty())
+            continue;
+        if (std::filesystem::path(owner_root) == canonical)
+            return owner.value("workerId", std::uint64_t{0});
+        std::error_code equivalent_error;
+        if (std::filesystem::equivalent(owner_root, canonical, equivalent_error) &&
+            !equivalent_error)
             return owner.value("workerId", std::uint64_t{0});
     }
     return std::nullopt;

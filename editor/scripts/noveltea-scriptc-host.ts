@@ -650,6 +650,7 @@ type DaemonRequestContext = Readonly<{
   authoringValidationSemanticKey: string;
   internalOperation?: string;
   internalRequestText?: string;
+  bootstrapArgv?: readonly string[];
 }>;
 
 type DaemonRetainedValidationResult = Readonly<{
@@ -2015,6 +2016,38 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
       const prepareDisposable = next.prepareDisposable === true;
       const output: RequestOutputCapture = { stdout: '', stderr: '' };
       if (payload.internalOperation === 'comfyui-asset-publication') {
+        if (novelTeaResidentProjectSessionCount() === 0) {
+          const bootstrapArgv = payload.bootstrapArgv ?? [];
+          if (bootstrapArgv.length === 0)
+            throw new Error(
+              'ComfyUI Asset publication is missing resident Project bootstrap argv.',
+            );
+          const bootstrapResponse = JSON.parse(
+            await runNovelTeaScriptcIsland(
+              JSON.stringify(bootstrapArgv),
+              requestInvokeHost(payload, output, invocation, token, invocation.ownerWorkerId),
+              payload.forceRuntimeCacheRebuild,
+              {
+                cwd: payload.cwd,
+                environment: payload.environment,
+                terminal: payload.terminal,
+                residentProjectSessions: true,
+                residentProjectSessionEpoch: startupState.coldSessionEpoch,
+                residentProjectSnapshot,
+                prepareResidentSnapshotOnly: true,
+              },
+            ),
+          ) as HostResult;
+          if (bootstrapResponse[0] !== 0)
+            throw new Error(
+              'Resident Project owner bootstrap failed for ComfyUI Asset publication.',
+            );
+          if (novelTeaResidentProjectSessionCount() === 0)
+            throw new Error(
+              'Resident Project owner could not initialize for ComfyUI Asset publication.',
+            );
+          retainedSnapshotPending = undefined;
+        }
         const mutationResult = await commitNovelTeaResidentComfyUiAssetPublication(
           payload.internalRequestText ?? '{}',
           requestInvokeHost(payload, output, invocation, token, invocation.ownerWorkerId),
