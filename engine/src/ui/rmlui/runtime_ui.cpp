@@ -1700,7 +1700,10 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
         cleanup_state();
         return false;
     }
-    script::install_host_print(m_state->lua_state);
+    const auto* debug_sink =
+        scripts ? script::detail::ScriptRuntimeAccess::debug_sink(*scripts) : nullptr;
+    script::install_host_print(m_state->lua_state, debug_sink);
+    script::install_debug_api(m_state->lua_state, debug_sink);
     m_state->component_registry = new ui::rmlui::RuntimeUiComponentRegistry;
     m_state->runtime_input_listener = std::make_unique<State::RuntimeInputListener>(*m_state);
     m_state->document_registry = std::make_unique<ui::rmlui::RmlUiDocumentRegistry>(*m_state->host);

@@ -64,7 +64,7 @@
     "empty": {
       "commandHistory": "Ainda não há comandos de projeto.",
       "output": "Ainda não há entradas de atividade.",
-      "previewEvents": "Ainda não há eventos de execução.",
+      "previewEvents": "Ainda não há entradas no Console.",
       "problems": "Nenhum diagnóstico de validação."
     },
     "labels": {
@@ -73,7 +73,7 @@
       "output": "Atividade",
       "packageExport": "Exportação de pacote",
       "previewDiagnostics": "Diagnósticos da visualização",
-      "previewEvents": "Eventos de execução",
+      "previewEvents": "Console",
       "problems": "Problemas",
       "references": "Referências",
       "shaderCompile": "Compilação de shaders",

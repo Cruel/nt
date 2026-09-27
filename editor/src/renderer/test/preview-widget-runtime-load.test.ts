@@ -130,27 +130,69 @@ function createDevtoolsHarness() {
   const context = {
     protocolVersion: 1,
     nativeExportAvailable: (name: string) =>
-      name === 'noveltea_devtools_capabilities' || name === 'noveltea_devtools_snapshot',
+      name === 'noveltea_devtools_capabilities' ||
+      name === 'noveltea_devtools_snapshot' ||
+      name === 'noveltea_devtools_console_delta' ||
+      name === 'noveltea_devtools_console_clear',
     Module: {
-      ccall(name: string) {
+      ccall(name: string, _returnType?: string, _argTypes?: string[], args?: unknown[]) {
         if (name === 'noveltea_devtools_capabilities')
-          return JSON.stringify(['devtools-snapshot-v1', 'runtime-debug-snapshot-v1']);
+          return JSON.stringify([
+            'devtools-snapshot-v1',
+            'devtools-console-v1',
+            'runtime-debug-snapshot-v1',
+          ]);
         if (name === 'noveltea_devtools_snapshot') return JSON.stringify(snapshot);
+        if (name === 'noveltea_devtools_console_delta')
+          return JSON.stringify({
+            afterSequence: args?.[0] ?? '0',
+            earliestRetainedSequence: '1',
+            latestSequence: '2',
+            lostRecordCount: '0',
+            historyGap: false,
+            records: [
+              {
+                sequence: '2',
+                hostGeneration: '1',
+                runtimeGeneration: '4',
+                severity: 'info',
+                category: 'lua',
+                message: 'hello',
+                source: { chunk: 'test.lua', line: 3 },
+                generationMarker: false,
+              },
+            ],
+          });
+        if (name === 'noveltea_devtools_console_clear')
+          return JSON.stringify({ latestSequence: '2' });
         return '';
       },
     },
+    port: {},
+    engineReady: true,
+    runtimeReady: true,
+    previewActivityActive: true,
+    previewActivityVisible: true,
+    lastDevtoolsConsoleSequence: '0',
     failCommand() {},
     send(message: Record<string, unknown>) {
       messages.push(message);
     },
     readDevtoolsCapabilities: null as null | (() => string[]),
     emitDevtoolsSnapshot: null as null | ((message: Record<string, unknown>) => boolean),
+    publishDevtoolsConsoleDelta: null as null | (() => void),
+    clearDevtoolsConsole: null as null | ((message: Record<string, unknown>) => void),
   };
   vm.runInNewContext(
-    `${implementation}\nthis.readDevtoolsCapabilities = readDevtoolsCapabilities; this.emitDevtoolsSnapshot = emitDevtoolsSnapshot;`,
+    `${implementation}\nthis.readDevtoolsCapabilities = readDevtoolsCapabilities; this.emitDevtoolsSnapshot = emitDevtoolsSnapshot; this.publishDevtoolsConsoleDelta = publishDevtoolsConsoleDelta; this.clearDevtoolsConsole = clearDevtoolsConsole;`,
     context,
   );
-  if (!context.readDevtoolsCapabilities || !context.emitDevtoolsSnapshot)
+  if (
+    !context.readDevtoolsCapabilities ||
+    !context.emitDevtoolsSnapshot ||
+    !context.publishDevtoolsConsoleDelta ||
+    !context.clearDevtoolsConsole
+  )
     throw new Error('Devtools harness did not load.');
   return { context, messages, snapshot };
 }
@@ -161,6 +203,7 @@ describe('preview widget runtime project loading', () => {
 
     expect(harness.context.readDevtoolsCapabilities!()).toEqual([
       'devtools-snapshot-v1',
+      'devtools-console-v1',
       'runtime-debug-snapshot-v1',
     ]);
     expect(harness.context.emitDevtoolsSnapshot!({ requestId: 'snapshot-1' })).toBe(true);
@@ -172,6 +215,27 @@ describe('preview widget runtime project loading', () => {
         snapshot: harness.snapshot,
       },
     ]);
+  });
+
+  it('pushes sequenced Console deltas and advances the native clear cursor', () => {
+    const harness = createDevtoolsHarness();
+
+    harness.context.publishDevtoolsConsoleDelta!();
+    expect(harness.messages.at(-1)).toEqual({
+      version: 1,
+      type: 'devtools-console-delta',
+      delta: expect.objectContaining({ latestSequence: '2' }),
+    });
+    expect(harness.context.lastDevtoolsConsoleSequence).toBe('2');
+
+    harness.context.clearDevtoolsConsole!({ requestId: 'clear-1' });
+    expect(harness.context.lastDevtoolsConsoleSequence).toBe('2');
+    expect(harness.messages.at(-1)).toEqual({
+      version: 1,
+      type: 'command-result',
+      requestId: 'clear-1',
+      ok: true,
+    });
   });
 
   it('does not spam diagnostics when passive runtime-debug polling has no snapshot yet', () => {

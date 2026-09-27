@@ -34,7 +34,8 @@ class WorldTransitionBackend;
 
 namespace script {
 class ScriptRuntime;
-}
+struct ScriptDebugMessage;
+} // namespace script
 
 namespace host {
 
@@ -103,6 +104,7 @@ public:
         presentation::RuntimeSystemLayoutHost& system_layout_host;
         WorldTransitionBackend* world_transitions = nullptr;
         script::ScriptRuntime& script_certifier;
+        std::function<void(const script::ScriptDebugMessage&)> script_debug_sink;
         std::function<void()> runtime_session_replaced;
         std::function<void(HostFrameStage, const core::Diagnostic&)> diagnostic_sink;
     };

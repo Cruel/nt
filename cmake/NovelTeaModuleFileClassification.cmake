@@ -260,6 +260,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/world_presentation.hpp
     engine/include/noveltea/world_transition.hpp
     engine/include/noveltea/devtools_snapshot.hpp
+    engine/include/noveltea/devtools_console.hpp
     engine/src/active_text.cpp
     engine/src/active_text_layout.cpp
     engine/src/active_text_playback.cpp
@@ -276,6 +277,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/audio/miniaudio/miniaudio_backend.cpp
     engine/src/boundary/running_game_loader.cpp
     engine/src/devtools/debug_ui.hpp
+    engine/src/devtools/devtools_console.cpp
     engine/src/core/asset_telemetry.cpp
     engine/src/core/editor_asset_profiler_service.cpp
     engine/src/core/editor_asset_profiler_service.hpp

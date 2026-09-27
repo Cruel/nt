@@ -23,6 +23,7 @@ function runtimeEventFromPreviewMessage(message: PreviewToEditorMessage) {
       label: message.event.label,
       detail: detail || undefined,
       severity: message.event.rejected ? ('warning' as const) : ('info' as const),
+      category: 'runtime',
     };
   }
   if (message.type === 'runtime-fast-forward-result') {
@@ -45,10 +46,11 @@ function runtimeEventFromPreviewMessage(message: PreviewToEditorMessage) {
               message.result.reason === 'stabilization-limit'
             ? ('warning' as const)
             : ('info' as const),
+      category: 'runtime',
     };
   }
   if (message.type === 'runtime-error') {
-    return { label: message.message, severity: 'error' as const };
+    return { label: message.message, severity: 'error' as const, category: 'runtime' };
   }
   return null;
 }
@@ -98,6 +100,7 @@ export function useEnginePreviewStatusBridge({
   const recordPreviewDiagnostic = usePreviewManagerStore((s) => s.recordPreviewDiagnostic);
   const setSelectedRuntimeObjectId = useWorkspaceStore((s) => s.setSelectedRuntimeObjectId);
   const addRuntimeEvent = useWorkspaceStore((s) => s.addRuntimeEvent);
+  const addDevtoolsConsoleRecords = useWorkspaceStore((s) => s.addDevtoolsConsoleRecords);
   const setStatusMessage = useWorkspaceStore((s) => s.setStatusMessage);
 
   const recordTransportError = useCallback(
@@ -122,6 +125,16 @@ export function useEnginePreviewStatusBridge({
       if (!embedded) {
         const runtimeEvent = runtimeEventFromPreviewMessage(message);
         if (runtimeEvent) addRuntimeEvent(runtimeEvent);
+        if (message.type === 'devtools-console-delta') {
+          addDevtoolsConsoleRecords(message.delta.records);
+          if (message.delta.historyGap) {
+            addRuntimeEvent({
+              label: `Console history gap: ${message.delta.lostRecordCount} record(s) were evicted`,
+              severity: 'warning',
+              category: 'devtools',
+            });
+          }
+        }
       }
       if (message.type === 'ready' || message.type === 'capabilities') {
         setSessionCapabilities(sessionId, message.capabilities);
@@ -180,6 +193,7 @@ export function useEnginePreviewStatusBridge({
       recordPreviewDiagnostic,
       sessionId,
       addRuntimeEvent,
+      addDevtoolsConsoleRecords,
       setSelectedRuntimeObjectId,
       setSessionCapabilities,
       setSessionStatus,

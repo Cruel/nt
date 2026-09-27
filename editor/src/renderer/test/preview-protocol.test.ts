@@ -980,6 +980,46 @@ describe('preview protocol validation', () => {
         requestId: 'devtools-debug',
       }),
     ).toBe(true);
+    const consoleDelta = {
+      afterSequence: '4',
+      earliestRetainedSequence: '2',
+      latestSequence: '6',
+      lostRecordCount: '0',
+      historyGap: false,
+      records: [
+        {
+          sequence: '5',
+          hostGeneration: '2',
+          runtimeGeneration: '7',
+          severity: 'warning',
+          category: 'lua',
+          message: 'careful',
+          source: { chunk: 'project:/scripts/main.lua', line: 12 },
+          generationMarker: false,
+        },
+      ],
+    };
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-console-delta',
+        delta: consoleDelta,
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'devtools-clear-console',
+        requestId: 'clear-console',
+      }),
+    ).toBe(true);
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-console-delta',
+        delta: { ...consoleDelta, latestSequence: 6 },
+      }),
+    ).toBe(false);
     expect(isDevtoolsSnapshot({ ...devtoolsSnapshot, runtime: {} })).toBe(false);
     expect(
       isDevtoolsSnapshot({

@@ -256,6 +256,7 @@ Editor to preview:
 - `runtime-run-interaction`
 - `runtime-request-debug-snapshot`
 - `devtools-request-snapshot`
+- `devtools-clear-console`
 - `runtime-request-asset-profiler`
 - `runtime-set-variable`
 - `runtime-reset-variable`
@@ -333,6 +334,7 @@ Preview to editor:
 - `preview-snapshot`
 - `runtime-debug-snapshot`
 - `devtools-snapshot`
+- `devtools-console-delta`
 - `runtime-asset-profiler`
 - `runtime-debug-event`
 - `runtime-fast-forward-result`
@@ -364,7 +366,7 @@ remains available for initial synchronization and manual refresh.
 The optimized `web-editor-preview` build enables `NOVELTEA_ENABLE_DEVTOOLS` even though it does not
 compile Dear ImGui. At startup the widget asks the native engine for its versioned devtools
 capabilities instead of hard-coding them in JavaScript. The current capability set contributed by
-the devtools layer is `devtools-snapshot-v1`, `runtime-debug-snapshot-v1`,
+the devtools layer is `devtools-snapshot-v1`, `devtools-console-v1`, `runtime-debug-snapshot-v1`,
 `runtime-debug-mutations-v1`, and `runtime-fast-forward-v1`; later debugger features add their own
 independently versioned capabilities.
 
@@ -375,8 +377,26 @@ preview/performance/native-frontend state; and `runtime` is either `null` or the
 Runtime Debug Snapshot object. Runtime fields are not copied to the root or re-encoded into a second
 gameplay-debugger DTO. Existing consumers may continue using `runtime-debug-snapshot` directly.
 
+The structured Console is a separate cursor-based data plane rather than another snapshot section.
+The engine retains roughly the latest 1000 Console records with monotonically increasing sequence
+IDs, severity, category, optional Lua source/line, and the host/runtime generation that produced each
+record. Runtime-generation transitions are retained records themselves, so reset/reload boundaries
+remain visible instead of clearing history. `noveltea_devtools_console_delta(afterSequence)` returns
+records newer than the cursor plus `earliestRetainedSequence`, `latestSequence`, `historyGap`, and
+`lostRecordCount`. Sequence and generation IDs cross the JavaScript boundary as canonical unsigned
+decimal strings so 64-bit values are not truncated by JavaScript numbers.
+
+While Play is active and visible, `web/widget.html` persists the last accepted Console sequence and
+polls this delta surface independently from snapshot fingerprinting. Non-empty deltas or explicit
+retention gaps are pushed as `devtools-console-delta`. The editor Console combines these structured
+records with the existing semantic runtime debug activity; preview-protocol acknowledgements and
+snapshot churn remain excluded. `devtools-clear-console` calls the narrow native clear export, clears
+retained engine history without resetting the monotonic sequence, and advances the widget cursor to
+the returned latest sequence so cleared records cannot reappear on the next poll.
+
 When developer instrumentation is compiled out, the native devtools capability/snapshot exports are
-not exposed, these devtools capabilities are not advertised, and this transport is unavailable.
+not exposed, the Console delta/clear exports are likewise absent, these devtools capabilities are not
+advertised, and this transport is unavailable.
 Ordinary diagnostics and runtime logging remain independent of the developer-only boundary.
 
 `set-engine-settings` applies live host configuration to an already-running preview. Its optional

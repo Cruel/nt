@@ -5,6 +5,7 @@
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/result.hpp"
 #include "noveltea/devtools_snapshot.hpp"
+#include "noveltea/devtools_console.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/render/material.hpp"
 
@@ -81,6 +82,9 @@ public:
     [[nodiscard]] static std::span<const std::string_view> devtools_capabilities() noexcept;
     [[nodiscard]] static core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>
     devtools_snapshot(const Engine& engine);
+    [[nodiscard]] static core::Result<devtools::ConsoleDelta, core::Diagnostic>
+    devtools_console_delta(Engine& engine, std::uint64_t after_sequence);
+    static std::uint64_t clear_devtools_console(Engine& engine) noexcept;
 #endif
     [[nodiscard]] static Renderer& renderer(Engine& engine) noexcept;
     [[nodiscard]] static assets::AssetManager& assets(Engine& engine) noexcept;

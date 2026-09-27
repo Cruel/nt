@@ -23,6 +23,7 @@
 #include "host/preview_host.hpp"
 #include "host/screenshot_capture.hpp"
 #include "noveltea/render/material.hpp"
+#include "noveltea/devtools_console.hpp"
 #include "noveltea/renderer.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 #include "noveltea/presentation/runtime_system_layouts.hpp"
@@ -61,6 +62,10 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void realize_layouts_and_bind_ui();
     void apply_pending_debug_ui_commands();
     [[nodiscard]] devtools::DevtoolsSnapshot devtools_snapshot() const;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    void sync_devtools_console_generations();
+    void append_script_debug_message(const script::ScriptDebugMessage& message);
+#endif
     [[nodiscard]] host::CheckpointThumbnailCaptureContext
     checkpoint_thumbnail_capture_context() const;
     void render();
@@ -153,6 +158,9 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     host::ScreenshotService m_screenshot_service;
     host::CheckpointThumbnailCaptureCoordinator m_checkpoint_thumbnail_captures;
     script::ScriptRuntime m_scripts;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    devtools::ConsoleBuffer m_devtools_console;
+#endif
     core::TypedMemorySaveSlotStore m_typed_saves;
     core::RuntimeClock m_runtime_clock;
     ShaderMaterialProject m_shader_materials;

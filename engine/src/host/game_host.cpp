@@ -380,6 +380,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     }
 
     auto candidate_scripts = std::make_unique<script::ScriptRuntime>();
+    candidate_scripts->set_debug_sink(m_dependencies.script_debug_sink);
     auto initialized_candidate_scripts =
         candidate_scripts->initialize({&m_dependencies.content_assets});
     if (!initialized_candidate_scripts) {
@@ -623,6 +624,7 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
     }
 
     auto candidate_scripts = std::make_unique<script::ScriptRuntime>();
+    candidate_scripts->set_debug_sink(m_dependencies.script_debug_sink);
     auto initialized = candidate_scripts->initialize({&m_dependencies.content_assets});
     if (!initialized) {
         failed.diagnostics = one({.code = "host.runtime_candidate_script_runtime_failed",
