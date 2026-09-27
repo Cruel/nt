@@ -2,11 +2,16 @@
 
 #include "noveltea/audio/audio_backend.hpp"
 #include "noveltea/core/asset_telemetry.hpp"
+#include "noveltea/core/diagnostic.hpp"
+#include "noveltea/core/result.hpp"
+#include "noveltea/devtools_snapshot.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/render/material.hpp"
 
 #include <cstdint>
+#include <span>
 #include <string>
+#include <string_view>
 
 namespace noveltea {
 
@@ -72,6 +77,11 @@ public:
     [[nodiscard]] static RuntimePreviewController& preview(Engine& engine) noexcept;
     [[nodiscard]] static const RuntimePreviewController& preview(const Engine& engine) noexcept;
     [[nodiscard]] static bool preview_running(const Engine& engine) noexcept;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    [[nodiscard]] static std::span<const std::string_view> devtools_capabilities() noexcept;
+    [[nodiscard]] static core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>
+    devtools_snapshot(const Engine& engine);
+#endif
     [[nodiscard]] static Renderer& renderer(Engine& engine) noexcept;
     [[nodiscard]] static assets::AssetManager& assets(Engine& engine) noexcept;
     [[nodiscard]] static core::Result<core::AssetProfilerSnapshot, core::Diagnostic>

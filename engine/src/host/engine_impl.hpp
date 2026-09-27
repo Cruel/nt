@@ -60,7 +60,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void update_presentation_audio_backends(bool runtime_input_admitted);
     void realize_layouts_and_bind_ui();
     void apply_pending_debug_ui_commands();
-    [[nodiscard]] host::DebugUiObservationSnapshot debug_ui_observations() const;
+    [[nodiscard]] devtools::DevtoolsSnapshot devtools_snapshot() const;
     [[nodiscard]] host::CheckpointThumbnailCaptureContext
     checkpoint_thumbnail_capture_context() const;
     void render();

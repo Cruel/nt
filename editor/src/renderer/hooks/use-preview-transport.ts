@@ -291,6 +291,7 @@ export function usePreviewTransport({
         }>,
       ) => send({ type: 'runtime-run-interaction', verbId, bindings }),
       requestRuntimeDebugSnapshot: () => send({ type: 'runtime-request-debug-snapshot' }),
+      requestDevtoolsSnapshot: () => send({ type: 'devtools-request-snapshot' }),
       requestAssetProfiler: (cursor?: { sessionId: bigint; afterSequence: bigint }) =>
         send<AssetProfilerWirePayload>(
           cursor

@@ -357,6 +357,35 @@ export interface RuntimeDebugSnapshot {
   publication: RuntimeDebugPublicationSnapshot;
 }
 
+export interface DevtoolsHostSurfaceSnapshot {
+  logicalWidth: number;
+  logicalHeight: number;
+  framebufferWidth: number;
+  framebufferHeight: number;
+  framebufferScaleX: number;
+  framebufferScaleY: number;
+}
+
+export interface DevtoolsHostSnapshot {
+  platform: string;
+  renderer: string;
+  hostGeneration: number | null;
+  surface: DevtoolsHostSurfaceSnapshot;
+}
+
+export interface DevtoolsToolingSnapshot {
+  previewRunning: boolean;
+  renderPerfLogging: boolean;
+  nativeDebugUiAvailable: boolean;
+  nativeDebugUiEnabled: boolean;
+}
+
+export interface DevtoolsSnapshot {
+  host: DevtoolsHostSnapshot;
+  tooling: DevtoolsToolingSnapshot;
+  runtime: RuntimeDebugSnapshot | null;
+}
+
 export interface RuntimeFastForwardResult {
   reason: RuntimeFastForwardStopReason;
   stepsApplied: number;
@@ -445,6 +474,7 @@ export type EditorToPreviewMessage =
       bindings: Array<{ slotId: string; subject: PreviewInteractionSubject }>;
     }
   | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
+  | { version: 1; type: 'devtools-request-snapshot'; requestId: string }
   | {
       version: 1;
       type: 'runtime-request-asset-profiler';
@@ -568,6 +598,12 @@ export type PreviewToEditorMessage =
       type: 'runtime-debug-snapshot';
       requestId?: string;
       snapshot: RuntimeDebugSnapshot;
+    }
+  | {
+      version: 1;
+      type: 'devtools-snapshot';
+      requestId?: string;
+      snapshot: DevtoolsSnapshot;
     }
   | {
       version: 1;
@@ -1106,6 +1142,61 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
   );
 }
 
+export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
+  if (!isRecord(value) || !isRecord(value.host) || !isRecord(value.tooling)) return false;
+  if (!Object.keys(value).every((key) => ['host', 'tooling', 'runtime'].includes(key))) return false;
+  if (!Object.keys(value.host).every((key) => ['platform', 'renderer', 'hostGeneration', 'surface'].includes(key)))
+    return false;
+  if (!isRecord(value.host.surface)) return false;
+  const surface = value.host.surface;
+  if (
+    !Object.keys(surface).every((key) =>
+      [
+        'logicalWidth',
+        'logicalHeight',
+        'framebufferWidth',
+        'framebufferHeight',
+        'framebufferScaleX',
+        'framebufferScaleY',
+      ].includes(key),
+    )
+  )
+    return false;
+  if (
+    !Object.keys(value.tooling).every((key) =>
+      [
+        'previewRunning',
+        'renderPerfLogging',
+        'nativeDebugUiAvailable',
+        'nativeDebugUiEnabled',
+      ].includes(key),
+    )
+  )
+    return false;
+  const positiveInteger = (entry: unknown) =>
+    typeof entry === 'number' && Number.isSafeInteger(entry) && entry > 0;
+  const positiveNumber = (entry: unknown) =>
+    typeof entry === 'number' && Number.isFinite(entry) && entry > 0;
+  return (
+    typeof value.host.platform === 'string' &&
+    value.host.platform.length > 0 &&
+    typeof value.host.renderer === 'string' &&
+    value.host.renderer.length > 0 &&
+    (value.host.hostGeneration === null || positiveInteger(value.host.hostGeneration)) &&
+    positiveInteger(surface.logicalWidth) &&
+    positiveInteger(surface.logicalHeight) &&
+    positiveInteger(surface.framebufferWidth) &&
+    positiveInteger(surface.framebufferHeight) &&
+    positiveNumber(surface.framebufferScaleX) &&
+    positiveNumber(surface.framebufferScaleY) &&
+    typeof value.tooling.previewRunning === 'boolean' &&
+    typeof value.tooling.renderPerfLogging === 'boolean' &&
+    typeof value.tooling.nativeDebugUiAvailable === 'boolean' &&
+    typeof value.tooling.nativeDebugUiEnabled === 'boolean' &&
+    (value.runtime === null || isRuntimeDebugSnapshot(value.runtime))
+  );
+}
+
 function isRuntimeFastForwardStopReason(value: unknown): value is RuntimeFastForwardStopReason {
   return [
     'choice-available',
@@ -1260,6 +1351,7 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-fast-forward-to-input':
     case 'runtime-clear-subject-selection':
     case 'runtime-request-debug-snapshot':
+    case 'devtools-request-snapshot':
     case 'request-preview-state':
       return true;
     case 'runtime-request-asset-profiler':
@@ -1447,6 +1539,11 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
       return (
         (value.requestId === undefined || typeof value.requestId === 'string') &&
         isRuntimeDebugSnapshot(value.snapshot)
+      );
+    case 'devtools-snapshot':
+      return (
+        (value.requestId === undefined || typeof value.requestId === 'string') &&
+        isDevtoolsSnapshot(value.snapshot)
       );
     case 'runtime-asset-profiler':
       return typeof value.requestId === 'string' && isAssetProfilerWirePayload(value.payload);

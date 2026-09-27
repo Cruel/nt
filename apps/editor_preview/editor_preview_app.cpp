@@ -446,6 +446,7 @@ EMSCRIPTEN_KEEPALIVE int noveltea_runtime_run_interaction(const char* verb_id,
     return preview->run_interaction(verb_id, std::move(*bindings.value_if())) ? 1 : 0;
 }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
 EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_set_variable(const char* variable_id,
                                                                const char* value_json)
 {
@@ -544,6 +545,62 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_debug_snapshot()
     return result.c_str();
 }
 
+EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_capabilities()
+{
+    static std::string result;
+    auto capabilities = nlohmann::json::array();
+    for (const auto capability : noveltea::EngineTooling::devtools_capabilities())
+        capabilities.push_back(capability);
+    result = capabilities.dump();
+    return result.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_snapshot()
+{
+    static std::string result;
+    result.clear();
+    auto* engine = preview_engine();
+    if (!engine)
+        return result.c_str();
+    auto snapshot = noveltea::EngineTooling::devtools_snapshot(*engine);
+    if (!snapshot)
+        return result.c_str();
+    const auto& value = *snapshot.value_if();
+    const auto& surface = value.host.surface;
+    nlohmann::json runtime = nullptr;
+    if (value.runtime) {
+        runtime = nlohmann::json::parse(
+            noveltea::RuntimePreviewController::encode_debug_snapshot(*value.runtime), nullptr,
+            false);
+        if (runtime.is_discarded())
+            return result.c_str();
+    }
+    result =
+        nlohmann::json{
+            {"host",
+             {{"platform", value.host.platform},
+              {"renderer", value.host.renderer},
+              {"hostGeneration", value.host.host_generation
+                                     ? nlohmann::json(*value.host.host_generation)
+                                     : nlohmann::json(nullptr)},
+              {"surface",
+               {{"logicalWidth", surface.logical_size.width},
+                {"logicalHeight", surface.logical_size.height},
+                {"framebufferWidth", surface.framebuffer_size.width},
+                {"framebufferHeight", surface.framebuffer_size.height},
+                {"framebufferScaleX", surface.logical_to_framebuffer_scale.x},
+                {"framebufferScaleY", surface.logical_to_framebuffer_scale.y}}}}},
+            {"tooling",
+             {{"previewRunning", value.tooling.preview_running},
+              {"renderPerfLogging", value.tooling.render_perf_logging},
+              {"nativeDebugUiAvailable", value.tooling.native_debug_ui_available},
+              {"nativeDebugUiEnabled", value.tooling.native_debug_ui_enabled}}},
+            {"runtime", std::move(runtime)},
+        }
+            .dump();
+    return result.c_str();
+}
+
 EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_fast_forward_to_input()
 {
     static std::string result;
@@ -552,6 +609,7 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_fast_forward_to_input()
         result = preview->fast_forward_to_input();
     return result.c_str();
 }
+#endif
 
 EMSCRIPTEN_KEEPALIVE int noveltea_preview_resize(int logical_width, int logical_height,
                                                  int framebuffer_width, int framebuffer_height,

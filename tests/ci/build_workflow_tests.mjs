@@ -174,6 +174,20 @@ test('C++ formatting runs as an early pinned-tool gate before shader assets', ()
   assert.equal(field(job('shader-assets'), 'needs'), 'cxx-format');
 });
 
+test('Web editor preview verifies the actual devtools-off and devtools-on Emscripten export surfaces', () => {
+  const preview = job('web-preview');
+  const build = step(preview, 'Verify devtools-off transport and build editor preview');
+  assert.match(preview, /actions\/setup-node@v6/);
+  assert.match(build, /-DNOVELTEA_ENABLE_DEVTOOLS=OFF/);
+  assert.match(build, /check-web-editor-preview-exports\.mjs .*index\.js off/);
+  assert.match(build, /-DNOVELTEA_ENABLE_DEVTOOLS=ON/);
+  assert.match(build, /check-web-editor-preview-exports\.mjs .*index\.js on/);
+  assert.ok(
+    build.indexOf('-DNOVELTEA_ENABLE_DEVTOOLS=OFF') <
+      build.indexOf('-DNOVELTEA_ENABLE_DEVTOOLS=ON'),
+  );
+});
+
 test('artifact consumers do not wait for unrelated test and cooperative build jobs', () => {
   assert.equal(field(job('editor'), 'needs'), '[linux-cli, web-preview]');
   assert.equal(field(job('android'), 'needs'), '[shader-assets, linux-cli]');

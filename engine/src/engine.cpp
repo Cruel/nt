@@ -1504,7 +1504,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     m_fps_cap = sanitize_fps_cap(tooling_config.fps_cap);
     m_next_frame_counter = 0;
     m_audio_enabled = engine_config.enable_audio;
-    m_debug_ui_enabled = tooling_config.enable_debug_ui;
+    m_debug_ui_enabled = tooling_config.enable_debug_ui && NOVELTEA_ENABLE_DEVTOOLS;
     m_render_perf_logging = tooling_config.render_perf_logging;
     m_preview_widget = tooling_config.preview_widget;
     m_show_fps_counter = tooling_config.show_fps_counter;
@@ -2677,24 +2677,30 @@ void Engine::Impl::apply_pending_debug_ui_commands()
     }
 }
 
-host::DebugUiObservationSnapshot Engine::Impl::debug_ui_observations() const
+devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
 {
-    const auto* running_game = m_game_host.running_game();
-    return {
-        .surface = m_presentation.host,
-        .platform_name = "SDL3",
-        .renderer_name = m_renderer.renderer_name(),
-        .host_generation = running_game ? std::optional<host::HostGeneration>{host_generation(
-                                              m_game_host.session_generation())}
-                                        : std::nullopt,
-        .runtime_loaded = running_game != nullptr,
-        .gameplay_paused =
-            running_game != nullptr && running_game->session().explicit_gameplay_paused(),
-        .render_perf_logging = m_render_perf_logging,
-        .runtime_observations = m_game_host.runtime_observations().values,
-        .runtime_events = m_game_host.runtime_events(),
-        .runtime_diagnostics = m_game_host.runtime_diagnostics(),
-    };
+#if NOVELTEA_ENABLE_DEVTOOLS
+    auto runtime = m_runtime_preview.debug_snapshot_value();
+    const auto preview_host_generation = m_runtime_preview.host_generation();
+
+    bool native_debug_ui_available = false;
+#if defined(NOVELTEA_HAS_IMGUI)
+    native_debug_ui_available = true;
+#endif
+    return {.host = {.surface = m_presentation.host,
+                     .platform = "SDL3",
+                     .renderer = std::string(m_renderer.renderer_name()),
+                     .host_generation = preview_host_generation > 0
+                                            ? std::optional<std::uint64_t>{preview_host_generation}
+                                            : std::nullopt},
+            .tooling = {.preview_running = m_preview_running,
+                        .render_perf_logging = m_render_perf_logging,
+                        .native_debug_ui_available = native_debug_ui_available,
+                        .native_debug_ui_enabled = native_debug_ui_available && m_debug_ui_enabled},
+            .runtime = std::move(runtime)};
+#else
+    return {};
+#endif
 }
 
 host::CheckpointThumbnailCaptureContext Engine::Impl::checkpoint_thumbnail_capture_context() const
@@ -2952,7 +2958,7 @@ void Engine::Impl::render()
     if (screenshot_capture_frame)
         m_renderer.finalize_screenshot_capture();
     if (m_debug_ui_enabled) {
-        auto output = m_debug_ui.end_frame(debug_ui_observations(), !screenshot_capture_frame);
+        auto output = m_debug_ui.end_frame(devtools_snapshot(), !screenshot_capture_frame);
         for (auto& command : output.commands)
             m_pending_debug_ui_commands.push_back(std::move(command));
     }
@@ -3258,6 +3264,31 @@ bool EngineTooling::preview_running(const Engine& engine) noexcept
 {
     return engine.m_impl->m_preview_running;
 }
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+std::span<const std::string_view> EngineTooling::devtools_capabilities() noexcept
+{
+    static constexpr std::array capabilities{
+        std::string_view{"devtools-snapshot-v1"},
+        std::string_view{"runtime-debug-snapshot-v1"},
+        std::string_view{"runtime-debug-mutations-v1"},
+        std::string_view{"runtime-fast-forward-v1"},
+    };
+    return capabilities;
+}
+
+core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>
+EngineTooling::devtools_snapshot(const Engine& engine)
+{
+    if (!engine.m_impl->m_initialized) {
+        return core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>::failure(
+            {.code = "devtools.engine_uninitialized",
+             .message = "Devtools Snapshot requires an initialized engine."});
+    }
+    return core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>::success(
+        engine.m_impl->devtools_snapshot());
+}
+#endif
 
 Renderer& EngineTooling::renderer(Engine& engine) noexcept { return engine.m_impl->m_renderer; }
 

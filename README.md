@@ -13,7 +13,8 @@ NovelTea is a C++20 runtime/framework for migrating and modernizing the old Nove
 
 ## Optional Components
 
-- Dear ImGui: developer/debug UI only (controlled by `NOVELTEA_ENABLE_DEVTOOLS`).
+- Developer tooling: shared engine-owned snapshot/observation infrastructure is controlled by
+  `NOVELTEA_ENABLE_DEVTOOLS`; native hosts may additionally compose the Dear ImGui frontend.
 
 ## Backend-Neutral Core
 

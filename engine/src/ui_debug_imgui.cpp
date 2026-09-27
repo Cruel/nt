@@ -163,7 +163,7 @@ void DebugUI::begin_frame(const HostSurfaceMetrics& surface)
     ImGui::NewFrame();
 }
 
-host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapshot& observations,
+host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& snapshot,
                                             bool submit_draw_data)
 {
     host::DebugUiFrameOutput output;
@@ -177,37 +177,35 @@ host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapsh
         const ImGuiIO& io = ImGui::GetIO();
         ImGui::Text("FPS: %.1f", io.Framerate);
         ImGui::Text("Frame time: %.3f ms", 1000.0f / io.Framerate);
-        bool render_perf_logging = observations.render_perf_logging;
+        bool render_perf_logging = snapshot.tooling.render_perf_logging;
         if (ImGui::Checkbox("Render Perf Logging", &render_perf_logging)) {
             output.commands.emplace_back(
                 host::SetRenderPerfLoggingDebugCommand{render_perf_logging});
         }
         ImGui::Separator();
 
-        ImGui::Text("Renderer: %.*s", static_cast<int>(observations.renderer_name.size()),
-                    observations.renderer_name.data());
-        ImGui::Text("Host logical: %d x %d", observations.surface.logical_size.width,
-                    observations.surface.logical_size.height);
-        ImGui::Text("Backend: %.*s", static_cast<int>(observations.platform_name.size()),
-                    observations.platform_name.data());
+        ImGui::Text("Renderer: %s", snapshot.host.renderer.c_str());
+        ImGui::Text("Host logical: %d x %d", snapshot.host.surface.logical_size.width,
+                    snapshot.host.surface.logical_size.height);
+        ImGui::Text("Backend: %s", snapshot.host.platform.c_str());
         ImGui::Text("Triangle smoke test: running on view 0");
         ImGui::Separator();
 
-        if (observations.runtime_loaded) {
-            if (observations.host_generation) {
-                ImGui::Text(
-                    "Runtime: loaded (host generation %llu)",
-                    static_cast<unsigned long long>(observations.host_generation->number()));
+        if (snapshot.runtime) {
+            if (snapshot.host.host_generation) {
+                ImGui::Text("Runtime: loaded (host generation %llu)",
+                            static_cast<unsigned long long>(*snapshot.host.host_generation));
             } else {
                 ImGui::TextUnformatted("Runtime: loaded");
             }
-            bool gameplay_paused = observations.gameplay_paused;
+            bool gameplay_paused = snapshot.runtime->publication.gameplay_ui.gameplay_paused;
             if (ImGui::Checkbox("Gameplay Paused", &gameplay_paused)) {
                 output.commands.emplace_back(host::SetGameplayPausedDebugCommand{gameplay_paused});
             }
-            ImGui::Text("Observations: %zu", observations.runtime_observations.size());
-            ImGui::Text("Events: %zu", observations.runtime_events.size());
-            ImGui::Text("Diagnostics: %zu", observations.runtime_diagnostics.size());
+            ImGui::Text("Observations: %llu",
+                        static_cast<unsigned long long>(
+                            snapshot.runtime->publication.observations.values.size()));
+            ImGui::Text("Diagnostics: %zu", snapshot.runtime->diagnostics.size());
         } else {
             ImGui::TextUnformatted("Runtime: not loaded");
         }

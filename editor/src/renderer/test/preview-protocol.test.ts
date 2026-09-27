@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
   isEditorToPreviewMessage,
+  isDevtoolsSnapshot,
   isPreviewDocument,
   isPreviewToEditorMessage,
   isRuntimeDebugSnapshot,
@@ -938,6 +939,52 @@ describe('preview protocol validation', () => {
         version: 1,
         type: 'runtime-debug-snapshot',
         snapshot: { ...snapshot, diagnostics: [{ severity: 'fatal', message: 'bad' }] },
+      }),
+    ).toBe(false);
+
+    const devtoolsSnapshot = {
+      host: {
+        platform: 'SDL3',
+        renderer: 'OpenGL',
+        hostGeneration: 12,
+        surface: {
+          logicalWidth: 1280,
+          logicalHeight: 720,
+          framebufferWidth: 2560,
+          framebufferHeight: 1440,
+          framebufferScaleX: 2,
+          framebufferScaleY: 2,
+        },
+      },
+      tooling: {
+        previewRunning: true,
+        renderPerfLogging: false,
+        nativeDebugUiAvailable: false,
+        nativeDebugUiEnabled: false,
+      },
+      runtime: snapshot,
+    };
+    expect(isDevtoolsSnapshot(devtoolsSnapshot)).toBe(true);
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-snapshot',
+        requestId: 'devtools-debug',
+        snapshot: devtoolsSnapshot,
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'devtools-request-snapshot',
+        requestId: 'devtools-debug',
+      }),
+    ).toBe(true);
+    expect(isDevtoolsSnapshot({ ...devtoolsSnapshot, runtime: {} })).toBe(false);
+    expect(
+      isDevtoolsSnapshot({
+        ...devtoolsSnapshot,
+        host: { ...devtoolsSnapshot.host, hostGeneration: 0 },
       }),
     ).toBe(false);
   });

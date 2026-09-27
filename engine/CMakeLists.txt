@@ -118,6 +118,9 @@ target_compile_definitions(noveltea_engine PRIVATE
     NOVELTEA_MINIAUDIO_RESOURCE_MANAGER_JOB_THREAD_COUNT=${NOVELTEA_MINIAUDIO_RESOURCE_MANAGER_JOB_THREAD_COUNT}
     NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=${NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER_VALUE}
 )
+target_compile_definitions(noveltea_engine PUBLIC
+    NOVELTEA_ENABLE_DEVTOOLS=${NOVELTEA_ENABLE_DEVTOOLS_VALUE}
+)
 if(NOVELTEA_ENABLE_THREADS)
     set(NOVELTEA_ENABLE_THREADS_VALUE 1)
 else()
@@ -314,15 +317,20 @@ target_link_libraries(noveltea_engine PRIVATE SDL3::SDL3)
 
 # --- RmlUi (runtime UI scaffold, mandatory) ---
 
-# RmlUi targets already verified by root CMakeLists.txt.
-if(TARGET RmlUi::RmlUi)
-    set(NOVELTEA_RMLUI_TARGET RmlUi::RmlUi)
-elseif(TARGET RmlUi::Core)
-    set(NOVELTEA_RMLUI_TARGET RmlUi::Core)
+# RmlUi Core is the ordinary runtime dependency. The umbrella RmlUi::RmlUi target also links the
+# Debugger component, so production targets must not use it as a Core fallback.
+if(NOT TARGET RmlUi::Core)
+    message(FATAL_ERROR "RmlUi::Core is required by noveltea_engine")
 endif()
 
 target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_HAS_RMLUI)
-target_link_libraries(noveltea_engine PRIVATE ${NOVELTEA_RMLUI_TARGET})
+target_link_libraries(noveltea_engine PRIVATE RmlUi::Core)
+if(NOVELTEA_ENABLE_DEVTOOLS)
+    if(NOT TARGET RmlUi::Debugger)
+        message(FATAL_ERROR "NOVELTEA_ENABLE_DEVTOOLS requires RmlUi::Debugger")
+    endif()
+    target_link_libraries(noveltea_engine PRIVATE RmlUi::Debugger)
+endif()
 target_link_libraries(noveltea_engine PRIVATE rmlui_bgfx::rmlui_bgfx RmlUi::Lua)
 target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_HAS_RMLUI_LUA)
 
@@ -336,9 +344,20 @@ target_link_libraries(noveltea_engine PRIVATE
     noveltea_text_unibreak
 )
 
-# --- Dear ImGui (dev/debug only) ---
+# --- Dear ImGui native frontend (optional devtools presentation) ---
 
+set(NOVELTEA_COMPILE_IMGUI_FRONTEND OFF)
 if(NOVELTEA_ENABLE_DEVTOOLS)
+    # The optimized editor-preview configuration is instrumentation-only: it consumes the shared
+    # Devtools Snapshot through its Web transport and must not pay for the Dear ImGui frontend.
+    if(NOT (NOVELTEA_BUILD_EDITOR_PREVIEW AND
+            NOT NOVELTEA_BUILD_SANDBOX AND
+            NOT NOVELTEA_BUILD_PLAYER))
+        set(NOVELTEA_COMPILE_IMGUI_FRONTEND ON)
+    endif()
+endif()
+
+if(NOVELTEA_COMPILE_IMGUI_FRONTEND)
     # Fetch imgui for Emscripten/Android (vcpkg handles desktop).
     if(NOT TARGET imgui::imgui AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
         include(FetchContent)
@@ -377,7 +396,11 @@ if(NOVELTEA_ENABLE_DEVTOOLS)
         target_sources(noveltea_engine PRIVATE src/ui_debug_stub.cpp)
     endif()
 else()
-    message(STATUS "devtools disabled")
+    if(NOVELTEA_ENABLE_DEVTOOLS)
+        message(STATUS "devtools instrumentation enabled without Dear ImGui frontend")
+    else()
+        message(STATUS "devtools disabled")
+    endif()
     target_sources(noveltea_engine PRIVATE src/ui_debug_stub.cpp)
 endif()
 
