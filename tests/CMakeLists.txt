@@ -309,12 +309,126 @@ target_compile_definitions(noveltea_host_tests PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 catch_discover_tests(noveltea_host_tests)
 
+add_library(noveltea_player_bootstrap_test_support OBJECT
+    "${CMAKE_SOURCE_DIR}/engine/src/core/player_bootstrap.cpp"
+)
+target_include_directories(noveltea_player_bootstrap_test_support PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/include"
+)
+target_compile_definitions(noveltea_player_bootstrap_test_support PRIVATE
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+)
+target_link_libraries(noveltea_player_bootstrap_test_support PRIVATE
+    nlohmann_json::nlohmann_json
+    miniz::miniz
+)
+noveltea_apply_runtime_compiler_policy(noveltea_player_bootstrap_test_support)
+noveltea_apply_policy_warnings(noveltea_player_bootstrap_test_support)
+
+add_library(noveltea_daemon_test_support STATIC
+    "${CMAKE_SOURCE_DIR}/tools/editor_tool/tooling_daemon_broker.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/editor_tool/tooling_project_authority.cpp"
+    $<TARGET_OBJECTS:noveltea_player_bootstrap_test_support>
+)
+target_include_directories(noveltea_daemon_test_support PUBLIC
+    "${CMAKE_SOURCE_DIR}/tools/editor_tool"
+    "${CMAKE_SOURCE_DIR}/engine/include"
+)
+target_compile_definitions(noveltea_daemon_test_support PRIVATE
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+)
+target_link_libraries(noveltea_daemon_test_support PRIVATE
+    nlohmann_json::nlohmann_json
+    miniz::miniz
+)
+if(WIN32)
+    target_link_libraries(noveltea_daemon_test_support PRIVATE advapi32)
+endif()
+noveltea_apply_policy_warnings(noveltea_daemon_test_support)
+
+add_executable(noveltea_daemon_tests
+    tooling/daemon_broker_tests.cpp
+)
+target_include_directories(noveltea_daemon_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools/editor_tool"
+)
+target_compile_definitions(noveltea_daemon_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+)
+target_link_libraries(noveltea_daemon_tests PRIVATE
+    noveltea_daemon_test_support
+    nlohmann_json::nlohmann_json
+    Catch2::Catch2WithMain
+)
+noveltea_apply_policy_warnings(noveltea_daemon_tests)
+catch_discover_tests(noveltea_daemon_tests
+    TEST_PREFIX "noveltea_daemon::"
+    PROPERTIES LABELS early-windows)
+
+add_executable(noveltea_windows_project_watcher_tests
+    tooling/windows_project_watcher_tests.cpp
+)
+target_include_directories(noveltea_windows_project_watcher_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools/editor_tool"
+)
+target_link_libraries(noveltea_windows_project_watcher_tests PRIVATE
+    noveltea_daemon_test_support
+    nlohmann_json::nlohmann_json
+)
+noveltea_apply_runtime_compiler_policy(noveltea_windows_project_watcher_tests)
+noveltea_apply_policy_warnings(noveltea_windows_project_watcher_tests)
+if(WIN32)
+    add_test(
+        NAME noveltea_windows_project_watcher_shutdown_interleaving
+        COMMAND noveltea_windows_project_watcher_tests)
+    set_tests_properties(noveltea_windows_project_watcher_shutdown_interleaving PROPERTIES
+        LABELS early-windows)
+endif()
+
+add_library(noveltea_runtime_cache_test_support STATIC
+    "${CMAKE_SOURCE_DIR}/tools/editor_tool/tooling_runtime_cache.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/editor_tool/tooling_filesystem.cpp"
+    $<TARGET_OBJECTS:noveltea_player_bootstrap_test_support>
+)
+target_include_directories(noveltea_runtime_cache_test_support PUBLIC
+    "${CMAKE_SOURCE_DIR}/tools/editor_tool"
+    "${CMAKE_SOURCE_DIR}/engine/include"
+)
+target_compile_definitions(noveltea_runtime_cache_test_support PRIVATE
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+)
+target_link_libraries(noveltea_runtime_cache_test_support PRIVATE
+    nlohmann_json::nlohmann_json
+    miniz::miniz
+)
+noveltea_apply_policy_warnings(noveltea_runtime_cache_test_support)
+
+add_executable(noveltea_runtime_cache_probe_tests
+    tooling/runtime_cache_probe_tests.cpp
+)
+target_include_directories(noveltea_runtime_cache_probe_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools/editor_tool"
+    "${CMAKE_SOURCE_DIR}/engine/include"
+)
+target_compile_definitions(noveltea_runtime_cache_probe_tests PRIVATE
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+)
+target_link_libraries(noveltea_runtime_cache_probe_tests PRIVATE
+    noveltea_runtime_cache_test_support
+    nlohmann_json::nlohmann_json
+    Catch2::Catch2WithMain
+)
+noveltea_apply_policy_warnings(noveltea_runtime_cache_probe_tests)
+catch_discover_tests(noveltea_runtime_cache_probe_tests
+    TEST_PREFIX "noveltea_runtime_cache::"
+    PROPERTIES LABELS early-windows)
+
 if(TARGET noveltea_tooling_native)
     add_executable(noveltea_tooling_tests
-        tooling/daemon_broker_tests.cpp
+        tooling/daemon_scriptc_adapter_tests.cpp
         tooling/native_shader_compile_tests.cpp
         tooling/playback_expectation_tests.cpp
-        tooling/runtime_cache_probe_tests.cpp
     )
     target_include_directories(noveltea_tooling_tests PRIVATE
         "${CMAKE_SOURCE_DIR}/tools/editor_tool"
@@ -919,6 +1033,8 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_presentation_tests
         noveltea_script_lua_tests
         noveltea_host_tests
+        noveltea_daemon_tests
+        noveltea_runtime_cache_probe_tests
         noveltea_tooling_tests
         noveltea_text_tests
         noveltea_asset_tests

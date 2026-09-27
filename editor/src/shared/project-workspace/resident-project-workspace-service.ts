@@ -1656,6 +1656,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         },
         portable.identity,
       );
+      await session.service().restoreReusableSnapshotState(opened);
       const entry: ResidentEntry = {
         canonicalRoot,
         session,

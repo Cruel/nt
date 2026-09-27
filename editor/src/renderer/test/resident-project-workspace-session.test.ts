@@ -2526,6 +2526,9 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(reconciled.snapshot.project.rooms.foyer.label).toBe('Changed While Dormant');
     expect(reconciled.snapshot.project.rooms.hall).toEqual(first.snapshot.project.rooms.hall);
     expect(reconciled.sourceWork.authoredFilesReread).toBe(1);
+    expect(reconciled.sourceWork.fullProjectTraversals).toBe(0);
+    const dependency = await replacement.buildDependencyGraphAnalysis(reconciled.snapshot);
+    expect(dependency.work.fullProjectTraversals).toBe(0);
   });
 
   it('retains the coherent generation across an invalid overlay and repairs incrementally', async () => {

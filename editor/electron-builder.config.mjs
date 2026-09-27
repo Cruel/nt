@@ -41,7 +41,7 @@ function packagedExecutable(context) {
       ? [
           path.join(
             context.appOutDir,
-            'NovelTea Editor.app',
+            'noveltea-editor.app',
             'Contents',
             'MacOS',
             'noveltea-editor',
@@ -51,7 +51,7 @@ function packagedExecutable(context) {
             'NovelTea Editor.app',
             'Contents',
             'MacOS',
-            'NovelTea Editor',
+            'noveltea-editor',
           ),
         ]
       : [

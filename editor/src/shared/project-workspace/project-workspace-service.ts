@@ -1934,6 +1934,36 @@ export class ProjectWorkspaceService {
       new ProjectWorkspaceTransactionService(fileSystem, { isProcessAlive: async () => null }, 1);
   }
 
+  /** Restore in-memory incremental indexes for an already-admitted portable generation. */
+  async restoreReusableSnapshotState(
+    opened: Extract<ProjectWorkspaceOpenResult, { ok: true }>,
+  ): Promise<void> {
+    const { snapshot } = opened;
+    const aggregate = await aggregateRevisionState(snapshot.fileRevisions);
+    snapshotRevisionStates.set(snapshot, aggregate.state);
+    this.snapshotExternalDescriptorIndexes.set(
+      snapshot,
+      createSnapshotExternalDescriptorIndex(snapshot.externalSourceDescriptors),
+    );
+    this.snapshotValidators.set(snapshot, () => opened.diagnostics);
+    this.snapshotValidationStates.set(
+      snapshot,
+      createSnapshotValidationState(opened.validationContributions),
+    );
+    this.snapshotSourceOwnerIndexes.set(
+      snapshot,
+      buildSourceOwnerPathIndex(
+        new Map(
+          Object.entries(opened.sourceContributions).map(([file, contribution]) => [
+            file,
+            contribution.ownerPaths,
+          ]),
+        ),
+      ),
+    );
+    await this.buildDependencyGraphAnalysis(snapshot);
+  }
+
   private affectedWorkspaceFiles(
     snapshot: LoadedProjectWorkspaceSnapshot,
     project: AuthoringProject,

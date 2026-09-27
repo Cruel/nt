@@ -24,13 +24,13 @@ export async function characterizePackagedNodePty(
   });
   const exited = waitForPtyExit(interactive, 10_000);
   interactive.resize(97, 31);
-  const resized = interactive.cols === 97 && interactive.rows === 31;
   interactive.write(
     process.platform === 'win32'
       ? `Write-Output '${marker}'; exit 23\r`
       : `printf '${marker}\\n'; exit 23\n`,
   );
   const exit = await exited;
+  const resized = interactive.cols === 97 && interactive.rows === 31;
 
   const terminated = nodePty.spawn(shell, [], {
     cwd,
