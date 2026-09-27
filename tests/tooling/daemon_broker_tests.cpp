@@ -983,6 +983,79 @@ TEST_CASE("daemon Project-owner nomination preserves explicit roots and discover
 #endif
 }
 
+#if defined(_WIN32)
+TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
+          "[owner-path][windows-native]")
+{
+    auto project = temp_project_root("owner-equivalent-path");
+    auto request = scheduler_context(unique_build("owner-equivalent-path"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+
+    auto work = owner_request(request, "owner-equivalent-path", project.path);
+    auto foreground = std::async(std::launch::async, [work] { return invoke_daemon(work); });
+    REQUIRE(wait_until(
+        [&] { return owner_worker_for_root(daemon_status(request), project.path).has_value(); }));
+    const auto owner = owner_worker_for_root(daemon_status(request), project.path);
+    REQUIRE(owner);
+
+    auto next = request;
+    next["action"] = "owner-next";
+    next["ownerWorkerId"] = *owner;
+    const auto owner_work = invoke_daemon(next);
+    REQUIRE(owner_work["ok"] == true);
+
+    auto alternate_root = project.path.string();
+    bool changed_case = false;
+    for (auto& character : alternate_root) {
+        if (character >= 'a' && character <= 'z') {
+            character = static_cast<char>(character - 'a' + 'A');
+            changed_case = true;
+        } else if (character >= 'A' && character <= 'Z') {
+            character = static_cast<char>(character - 'A' + 'a');
+            changed_case = true;
+        }
+    }
+    REQUIRE(changed_case);
+    REQUIRE(alternate_root != project.path.string());
+    REQUIRE(std::filesystem::exists(alternate_root));
+
+    auto observe = request;
+    observe["action"] = "owner-project-observe";
+    observe["ownerWorkerId"] = *owner;
+    observe["projectRoot"] = alternate_root;
+    observe["authoritativePaths"] = Json::array({"project.json", "editor.json", "traits.json"});
+    observe["discoveryScopes"] =
+        Json::array({Json{{"root", "records"}, {"extensions", Json::array({".json"})}},
+                     Json{{"root", "scripts"}, {"extensions", Json::array({".lua"})}},
+                     Json{{"root", "i18n"}, {"extensions", Json::array({".json"})}}});
+    const auto observed = invoke_daemon(observe);
+    REQUIRE(observed["ok"] == true);
+    REQUIRE(observed.contains("manifest"));
+    CHECK(std::filesystem::path(observed["manifest"]["canonicalRoot"].get<std::string>()) ==
+          std::filesystem::canonical(project.path));
+
+    auto complete = request;
+    complete["action"] = "owner-complete";
+    complete["ownerWorkerId"] = *owner;
+    complete["token"] = owner_work["token"];
+    complete["requestOk"] = true;
+    complete["result"] = Json{{"done", true}};
+    REQUIRE(invoke_daemon(complete)["ok"] == true);
+    REQUIRE(foreground.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    REQUIRE(foreground.get()["ok"] == true);
+
+    auto stop = request;
+    stop["action"] = "stop";
+    REQUIRE(invoke_daemon(stop)["ok"] == true);
+    auto wait = request;
+    wait["action"] = "serve-wait";
+    REQUIRE(invoke_daemon(wait)["state"] == "stopped");
+}
+#endif
+
 TEST_CASE("ScriptC daemon adapter executes stateful broker actions once")
 {
     auto request = context(unique_build("scriptc-adapter"));
@@ -1034,7 +1107,8 @@ TEST_CASE("daemon protocol event shapes preserve request identity")
     CHECK(cancellation == Json{{"type", "cancel"}, {"requestId", "req-4"}});
 }
 
-TEST_CASE("daemon broker exposes starting, queues work until ready, and drains on stop")
+TEST_CASE("daemon broker exposes starting, queues work until ready, and drains on stop",
+          "[daemon-duplex][windows-native]")
 {
     auto request = context(unique_build("lifecycle"));
     request["action"] = "serve-start";

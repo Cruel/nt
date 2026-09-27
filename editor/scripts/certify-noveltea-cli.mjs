@@ -1272,6 +1272,10 @@ async function runDifferential(tempRoot) {
       canonicalStdout(scriptcResult.stdout) !== canonicalStdout(nodeResult.stdout) ||
       scriptcResult.stderr !== nodeResult.stderr
     ) {
+      const daemonStatus = normalizeResult(
+        runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
+        roots.daemon,
+      );
       await resetCase(pristine, roots.daemon);
       await test.prepare?.(roots.daemon);
       const tracedRaw = runNative(test.args(roots.daemon), {
@@ -1284,6 +1288,7 @@ async function runDifferential(tempRoot) {
         `Node/scriptc differential '${test.name}' differs.\n` +
           `Node: status=${nodeResult.status}\nstdout:\n${nodeResult.stdout}\nstderr:\n${nodeResult.stderr}\n` +
           `scriptc: status=${scriptcResult.status}\nstdout:\n${scriptcResult.stdout}\nstderr:\n${scriptcResult.stderr}\n` +
+          `daemon status after failure: status=${daemonStatus.status}\nstdout:\n${daemonStatus.stdout}\nstderr:\n${daemonStatus.stderr}\n` +
           `scriptc traced retry: status=${traced.status}\nstdout:\n${traced.stdout}\nstderr:\n${traced.stderr}`,
       );
     }

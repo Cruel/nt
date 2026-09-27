@@ -123,13 +123,15 @@ test('desktop player and authoring presets keep compatibility floors separate', 
   assert.equal(macAuthoring.cacheVariables.VCPKG_TARGET_TRIPLET, 'arm64-osx-authoring-noveltea');
 });
 
-test('Windows C++ policy enables native test dependencies when building tooling tests', () => {
+test('Windows C++ policy enables and selects the native duplex tooling test', () => {
   const windowsPolicy = job('windows');
   const configure = step(windowsPolicy, 'Configure Windows release');
   const build = step(windowsPolicy, 'Build shipped Windows targets');
+  const duplex = step(windowsPolicy, 'Test Windows daemon duplex transport');
   assert.match(configure, /-DVCPKG_MANIFEST_FEATURES=tests/);
   assert.match(configure, /-DBUILD_TESTING=ON/);
   assert.match(build, /noveltea_tooling_tests/);
+  assert.match(duplex, /\[windows-native\]/);
 });
 
 test('Windows CLI preserves static winpthreads without colliding with ScriptC time shims', () => {
