@@ -162,13 +162,11 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                                     prop.asset, prop.material, prop.material_parameters,
                                     prop.material_textures, prop.visible, prop.order});
     for (const auto& environment : room->environments)
-        definition.environments.push_back({environment.id, condition_token(environment.condition),
-                                           environment.asset, environment.material,
-                                           environment.material_parameters,
-                                           environment.material_textures, environment.bounds,
-                                           environment.plane, environment.order, environment.clock,
-                                           environment.scroll_per_second, environment.opacity,
-                                           environment.visible});
+        definition.environments.push_back(
+            {environment.id, condition_token(environment.condition), environment.asset,
+             environment.material, environment.material_parameters, environment.material_textures,
+             environment.bounds, environment.plane, environment.order, environment.clock,
+             environment.scroll_per_second, environment.opacity, environment.visible});
     for (const auto& placement : room->placements) {
         std::optional<RoomPresentationTextToken> label;
         TextMarkup markup = TextMarkup::Plain;
@@ -601,12 +599,11 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
         if (!enabled)
             return Result<RoomPresentationResolution, Diagnostics>::failure(enabled.error());
         if (*enabled.value_if())
-            draft.environments.push_back({environment.id, environment.asset, environment.material,
-                                          environment.material_parameters,
-                                          environment.material_textures, environment.bounds,
-                                          environment.plane, environment.order, environment.clock,
-                                          environment.scroll_per_second, environment.opacity,
-                                          environment.visible});
+            draft.environments.push_back(
+                {environment.id, environment.asset, environment.material,
+                 environment.material_parameters, environment.material_textures, environment.bounds,
+                 environment.plane, environment.order, environment.clock,
+                 environment.scroll_per_second, environment.opacity, environment.visible});
     }
     if (composition != nullptr) {
         auto composed = composition->compose(visit, draft);

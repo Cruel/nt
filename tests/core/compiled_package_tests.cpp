@@ -396,7 +396,9 @@ TEST_CASE("compiled package rejects inventory and cross-document reference failu
         (*coin)["presentation"]["hotspots"]["hotspots"][0]["highlight"]["material"]["id"] =
             "wrong-hotspot-material";
         document["resources"]["materialInterfaces"].push_back(
-            {{"id", "wrong-hotspot-material"}, {"role", "hotspot-overlay"}, {"parameters", nlohmann::json::array()}});
+            {{"id", "wrong-hotspot-material"},
+             {"role", "hotspot-overlay"},
+             {"parameters", nlohmann::json::array()}});
         auto decoded = decode_compiled_project(document, "interaction-program.json");
         REQUIRE(decoded.has_value());
         auto project = std::move(decoded).value();

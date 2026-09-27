@@ -492,13 +492,12 @@ TEST_CASE("Material source programs certify renderer ABI and reflected sampler s
                "void main() { gl_FragColor = texture2D(s_texColor, v_texcoord0) * v_color0; }\n");
     const auto inactive_stage = compiler.compile_source_program(request, options);
     CHECK_FALSE(inactive_stage.success());
-    CHECK(std::any_of(inactive_stage.diagnostics.begin(), inactive_stage.diagnostics.end(),
-                      [](const auto& item) {
-                          return item.code ==
-                                     noveltea::ShaderCompileDiagnosticCode::ContractViolation &&
-                                 item.message.find("reserved stage 0") != std::string::npos &&
-                                 item.message.find("stage 2") != std::string::npos;
-                      }));
+    CHECK(std::any_of(
+        inactive_stage.diagnostics.begin(), inactive_stage.diagnostics.end(), [](const auto& item) {
+            return item.code == noveltea::ShaderCompileDiagnosticCode::ContractViolation &&
+                   item.message.find("reserved stage 0") != std::string::npos &&
+                   item.message.find("stage 2") != std::string::npos;
+        }));
 
     auto stale_contract = request;
     stale_contract.interface_fingerprint =

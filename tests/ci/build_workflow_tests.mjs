@@ -165,6 +165,15 @@ test('shader tool consumers use the pinned bgfx-matched nt-tools bundle', () => 
   assert.match(hostCliDownload, /gh release download "\$NOVELTEA_SHADERC_TOOLCHAIN_TAG"/);
 });
 
+test('C++ formatting runs as an early pinned-tool gate before shader assets', () => {
+  const format = job('cxx-format');
+  assert.match(format, /name: C\+\+ formatting/);
+  assert.match(format, /uses: astral-sh\/setup-uv@v10/);
+  assert.match(step(format, 'Check C++ formatting'), /cmake\/RunClangFormat\.cmake/);
+  assert.match(step(format, 'Check C++ formatting'), /-DMODE=check/);
+  assert.equal(field(job('shader-assets'), 'needs'), 'cxx-format');
+});
+
 test('artifact consumers do not wait for unrelated test and cooperative build jobs', () => {
   assert.equal(field(job('editor'), 'needs'), '[linux-cli, web-preview]');
   assert.equal(field(job('android'), 'needs'), '[shader-assets, linux-cli]');

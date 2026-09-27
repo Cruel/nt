@@ -85,12 +85,12 @@ public:
     {
         if (layout.semantic_owner && layout.semantic_key && layout.occurrence) {
             m_runtime_ui.set_layout_mount_context(
-                document_id, RuntimeUiLayoutMountContext{
-                                 *layout.semantic_owner, *layout.semantic_key, *layout.occurrence,
-                                 layout.inputs, layout.connected_signals, layout.state_shape,
-                                 layout.state_values, layout.material_parameters,
-                                 layout.material_camera_zoom, layout.trigger_context,
-                                 layout.material_textures});
+                document_id,
+                RuntimeUiLayoutMountContext{
+                    *layout.semantic_owner, *layout.semantic_key, *layout.occurrence, layout.inputs,
+                    layout.connected_signals, layout.state_shape, layout.state_values,
+                    layout.material_parameters, layout.material_camera_zoom, layout.trigger_context,
+                    layout.material_textures});
         } else {
             m_runtime_ui.set_layout_mount_context(document_id, std::nullopt);
         }

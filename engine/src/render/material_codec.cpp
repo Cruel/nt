@@ -941,7 +941,8 @@ void parse_shader_definition(std::string_view id, const nlohmann::json& shader_j
         if (!valid_fingerprint) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidSchema,
                            shader_path + "/interface_fingerprint",
-                           "shader interface_fingerprint must be sha256 followed by 64 lowercase hexadecimal digits");
+                           "shader interface_fingerprint must be sha256 followed by 64 lowercase "
+                           "hexadecimal digits");
             contract_metadata_valid = false;
         }
     }

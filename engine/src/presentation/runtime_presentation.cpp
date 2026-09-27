@@ -414,20 +414,20 @@ resolve_actor_layers(const CompiledProject* project, const compiled::CharacterDe
         });
         if (base == pose->layers.end())
             continue;
-        const auto base_application =
-            material_application(base->material, base->material_parameters, base->material_textures);
-        PresentationActorLayer layer{
-            definition.id,
-            definition.role,
-            base->sprite,
-            base->material,
-            base->material_parameters,
-            project != nullptr ? material_application_textures(*project, base_application)
-                               : std::vector<PresentationMaterialTextureOverride>{},
-            base->anchor,
-            base->offset,
-            base->scale,
-            base->visible};
+        const auto base_application = material_application(
+            base->material, base->material_parameters, base->material_textures);
+        PresentationActorLayer layer{definition.id,
+                                     definition.role,
+                                     base->sprite,
+                                     base->material,
+                                     base->material_parameters,
+                                     project != nullptr
+                                         ? material_application_textures(*project, base_application)
+                                         : std::vector<PresentationMaterialTextureOverride>{},
+                                     base->anchor,
+                                     base->offset,
+                                     base->scale,
+                                     base->visible};
         const auto apply = [&](const compiled::CharacterProfileLayerOverrides* overrides) {
             if (overrides == nullptr)
                 return;
@@ -444,9 +444,8 @@ resolve_actor_layers(const CompiledProject* project, const compiled::CharacterDe
                 const auto patch_application = material_application(
                     patch->material.value, patch->material_parameters, patch->material_textures);
                 layer.material_texture_overrides =
-                    project != nullptr
-                        ? material_application_textures(*project, patch_application)
-                        : std::vector<PresentationMaterialTextureOverride>{};
+                    project != nullptr ? material_application_textures(*project, patch_application)
+                                       : std::vector<PresentationMaterialTextureOverride>{};
             }
             if (patch->visible)
                 layer.visible = *patch->visible;
@@ -513,8 +512,8 @@ void append_actor(const CompiledProject& project, const runtime::RuntimeWorld& w
                                               actor.speaking});
 }
 
-Result<PresentationPropInstanceId, Diagnostics>
-room_prop_material_instance(const RoomId& room, const RoomPropId& prop)
+Result<PresentationPropInstanceId, Diagnostics> room_prop_material_instance(const RoomId& room,
+                                                                            const RoomPropId& prop)
 {
     return PresentationPropInstanceId::create("room-" + std::to_string(room.text().size()) + "-" +
                                               room.text() + "-prop-" + prop.text());
@@ -591,11 +590,10 @@ append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld
                        "Interactable sprite", diagnostics);
         result.interactables.push_back(PresentationInteractable{
             interactable.interactable, placement, placement_definition->bounds,
-            definition->presentation.sprite,
-            definition->presentation.material,
+            definition->presentation.sprite, definition->presentation.material,
             RoomPresentationOwner{room.visit.room},
-            material_application_textures(project,
-                                          interactable_material_application(definition->presentation)),
+            material_application_textures(
+                project, interactable_material_application(definition->presentation)),
             PresentationPlane::WorldContent, placement_definition->order, interactable.enabled,
             interactable.visible});
     }
@@ -612,11 +610,10 @@ append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld
         result.props.push_back(PresentationProp{
             RoomPropPresentationKey{room.visit.room, prop.prop},
             RoomPresentationOwner{room.visit.room}, PropertyOwnerRef{room.visit.room}, prop.asset,
-            prop.material,
-            prop.material_parameters,
-            material_application_textures(
-                project, material_application(prop.material, prop.material_parameters,
-                                              prop.material_textures)),
+            prop.material, prop.material_parameters,
+            material_application_textures(project, material_application(prop.material,
+                                                                        prop.material_parameters,
+                                                                        prop.material_textures)),
             placement, placement_definition->bounds, PresentationPlane::WorldContent, prop.order,
             prop.visible});
     }
@@ -634,8 +631,7 @@ append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld
         result.environments.push_back(PresentationEnvironment{
             std::move(*instance.value_if()), RoomPresentationOwner{room.visit.room},
             PropertyOwnerRef{room.visit.room}, std::move(*stop_key.value_if()), environment.asset,
-            environment.material,
-            environment.material_parameters,
+            environment.material, environment.material_parameters,
             material_application_textures(
                 project, material_application(std::optional<MaterialId>{environment.material},
                                               environment.material_parameters,
@@ -724,9 +720,9 @@ build_room_visual_catalog_impl(const CompiledProject* project, const runtime::Ru
     for (const auto& interactable : resolution.presentation.interactables) {
         const auto* definition = world.resolved_configuration(interactable.interactable);
         if (definition != nullptr)
-            catalog.interactables.push_back({interactable.interactable,
-                                             definition->presentation.sprite,
-                                             interactable_material_application(definition->presentation)});
+            catalog.interactables.push_back(
+                {interactable.interactable, definition->presentation.sprite,
+                 interactable_material_application(definition->presentation)});
     }
     return catalog;
 }
@@ -758,12 +754,15 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
     result.current_room = passive.presentation.visit.room;
     if (passive.presentation.background.asset || passive.presentation.background.color ||
         passive.presentation.background.material)
-        result.background = PresentationBackground{
-            RoomPresentationOwner{passive.presentation.visit.room},
-            PropertyOwnerRef{passive.presentation.visit.room},
-            passive.presentation.background.asset, passive.presentation.background.color,
-            passive.presentation.background.fit, passive.presentation.background.material,
-            passive.presentation.background.material_parameters, {}};
+        result.background =
+            PresentationBackground{RoomPresentationOwner{passive.presentation.visit.room},
+                                   PropertyOwnerRef{passive.presentation.visit.room},
+                                   passive.presentation.background.asset,
+                                   passive.presentation.background.color,
+                                   passive.presentation.background.fit,
+                                   passive.presentation.background.material,
+                                   passive.presentation.background.material_parameters,
+                                   {}};
 
     const auto placement =
         [&](const RoomPlacementId& id) -> const RoomPresentationVisualCatalog::Placement* {
@@ -847,10 +846,16 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
         result.props.push_back(PresentationProp{
             RoomPropPresentationKey{passive.presentation.visit.room, prop.prop},
             RoomPresentationOwner{passive.presentation.visit.room},
-            PropertyOwnerRef{passive.presentation.visit.room}, prop.asset, prop.material,
-            prop.material_parameters, {},
+            PropertyOwnerRef{passive.presentation.visit.room},
+            prop.asset,
+            prop.material,
+            prop.material_parameters,
+            {},
             compiled::RoomPlacementRef{passive.presentation.visit.room, prop.placement},
-            bounds->bounds, PresentationPlane::WorldContent, prop.order, prop.visible});
+            bounds->bounds,
+            PresentationPlane::WorldContent,
+            prop.order,
+            prop.visible});
     }
     for (const auto& environment : passive.presentation.environments) {
         auto instance =
@@ -862,13 +867,22 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
                                                       : std::move(stop_key.error()));
             continue;
         }
-        result.environments.push_back(PresentationEnvironment{
-            std::move(*instance.value_if()), RoomPresentationOwner{passive.presentation.visit.room},
-            PropertyOwnerRef{passive.presentation.visit.room}, std::move(*stop_key.value_if()),
-            environment.asset, environment.material,
-            environment.material_parameters, {}, environment.bounds, environment.plane,
-            environment.order, environment.clock, environment.scroll_per_second,
-            environment.opacity, environment.visible});
+        result.environments.push_back(
+            PresentationEnvironment{std::move(*instance.value_if()),
+                                    RoomPresentationOwner{passive.presentation.visit.room},
+                                    PropertyOwnerRef{passive.presentation.visit.room},
+                                    std::move(*stop_key.value_if()),
+                                    environment.asset,
+                                    environment.material,
+                                    environment.material_parameters,
+                                    {},
+                                    environment.bounds,
+                                    environment.plane,
+                                    environment.order,
+                                    environment.clock,
+                                    environment.scroll_per_second,
+                                    environment.opacity,
+                                    environment.visible});
     }
     for (const auto& hotspot : passive.presentation.hotspots) {
         const auto visual =
@@ -915,8 +929,10 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
         resolution.presentation.background.material)
         result.background = PresentationBackground{
             RoomPresentationOwner{resolution.presentation.visit.room},
-            PropertyOwnerRef{resolution.presentation.visit.room}, resolution.presentation.background.asset,
-            resolution.presentation.background.color, resolution.presentation.background.fit,
+            PropertyOwnerRef{resolution.presentation.visit.room},
+            resolution.presentation.background.asset,
+            resolution.presentation.background.color,
+            resolution.presentation.background.fit,
             resolution.presentation.background.material,
             resolution.presentation.background.material_parameters,
             material_application_textures(
@@ -969,22 +985,22 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
             key,
             PresentationOwner{RoomPresentationOwner{resolution.presentation.visit.room}},
             actor.character,
-                                                  actor.profile,
-                                                  actor.pose,
-                                                  actor.expression,
-                                                  actor.appearance,
-                                                  visual->idle,
-                                                  std::move(animation_clips),
-                                                  std::move(automatic_animations),
-                                                  visual->layers,
-                                                  {},
-                                                  room_placement,
-                                                  bounds->bounds,
-                                                  PresentationPlane::WorldContent,
-                                                  actor.order,
-                                                  actor.enabled,
-                                                  actor.visible,
-                                                  true});
+            actor.profile,
+            actor.pose,
+            actor.expression,
+            actor.appearance,
+            visual->idle,
+            std::move(animation_clips),
+            std::move(automatic_animations),
+            visual->layers,
+            {},
+            room_placement,
+            bounds->bounds,
+            PresentationPlane::WorldContent,
+            actor.order,
+            actor.enabled,
+            actor.visible,
+            true});
     }
     for (const auto& interactable : resolution.presentation.interactables) {
         const auto visual = std::find_if(
@@ -996,18 +1012,18 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
                                           "Room Interactable visual catalog entry is missing"));
             continue;
         }
-        result.interactables.push_back(
-            PresentationInteractable{interactable.interactable,
-                                     {resolution.presentation.visit.room, interactable.placement},
-                                     bounds->bounds,
-                                     visual->sprite,
-                                     material_application_material(visual->material_application),
-                                     RoomPresentationOwner{resolution.presentation.visit.room},
-                                     material_application_textures(project, visual->material_application),
-                                     PresentationPlane::WorldContent,
-                                     bounds->order,
-                                     interactable.enabled,
-                                     interactable.visible});
+        result.interactables.push_back(PresentationInteractable{
+            interactable.interactable,
+            {resolution.presentation.visit.room, interactable.placement},
+            bounds->bounds,
+            visual->sprite,
+            material_application_material(visual->material_application),
+            RoomPresentationOwner{resolution.presentation.visit.room},
+            material_application_textures(project, visual->material_application),
+            PresentationPlane::WorldContent,
+            bounds->order,
+            interactable.enabled,
+            interactable.visible});
     }
     for (const auto& prop : resolution.presentation.props) {
         const auto* bounds = placement(prop.placement);
@@ -1021,9 +1037,9 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
             RoomPresentationOwner{resolution.presentation.visit.room},
             PropertyOwnerRef{resolution.presentation.visit.room}, prop.asset, prop.material,
             prop.material_parameters,
-            material_application_textures(
-                project, material_application(prop.material, prop.material_parameters,
-                                              prop.material_textures)),
+            material_application_textures(project, material_application(prop.material,
+                                                                        prop.material_parameters,
+                                                                        prop.material_textures)),
             compiled::RoomPlacementRef{resolution.presentation.visit.room, prop.placement},
             bounds->bounds, PresentationPlane::WorldContent, prop.order, prop.visible});
     }
@@ -1041,8 +1057,7 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
             std::move(*instance.value_if()),
             RoomPresentationOwner{resolution.presentation.visit.room},
             PropertyOwnerRef{resolution.presentation.visit.room}, std::move(*stop_key.value_if()),
-            environment.asset, environment.material,
-            environment.material_parameters,
+            environment.asset, environment.material, environment.material_parameters,
             material_application_textures(
                 project, material_application(std::optional<MaterialId>{environment.material},
                                               environment.material_parameters,
@@ -1136,7 +1151,8 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                      .controls = {}},
             {}};
         auto baseline = RoomPresentationSnapshotProjector::project(
-            project, resolution, build_room_presentation_visual_catalog(project, world, resolution));
+            project, resolution,
+            build_room_presentation_visual_catalog(project, world, resolution));
         if (!baseline) {
             append_diagnostics(diagnostics, std::move(baseline.error()));
         } else {
@@ -1175,8 +1191,12 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         if (const auto* blank = std::get_if<compiled::BlankSceneStage>(&scene->stage)) {
             if (blank->background.asset || blank->background.color || blank->background.material)
                 result.background = PresentationBackground{
-                    PresentationOwner{owner}, std::nullopt, blank->background.asset,
-                    blank->background.color, blank->background.fit, blank->background.material,
+                    PresentationOwner{owner},
+                    std::nullopt,
+                    blank->background.asset,
+                    blank->background.color,
+                    blank->background.fit,
+                    blank->background.material,
                     blank->background.material_parameters,
                     material_application_textures(
                         project, background_material_application(blank->background))};
@@ -1304,12 +1324,15 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         validate_asset(project, background->background.asset, compiled::AssetKind::Image,
                        "background image asset", diagnostics);
         result.background = PresentationBackground{
-            background->owner, background->property_owner, background->background.asset,
-            background->background.color, background->background.fit,
+            background->owner,
+            background->property_owner,
+            background->background.asset,
+            background->background.color,
+            background->background.fit,
             background->background.material,
             background->background.material_parameters,
-            material_application_textures(
-                project, background_material_application(background->background))};
+            material_application_textures(project,
+                                          background_material_application(background->background))};
     }
     const auto camera =
         effective_camera(world, state, scene_stage_replaced_world ? nullptr : room_presentation);
@@ -1438,9 +1461,18 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         }
         validate_asset(project, desired.asset, compiled::AssetKind::Image,
                        "presentation prop asset", diagnostics);
-        result.props.push_back(PresentationProp{key, desired.owner, std::nullopt, desired.asset,
-                                                desired.material, {}, {}, desired.placement, bounds,
-                                                desired.plane, desired.order, desired.visible});
+        result.props.push_back(PresentationProp{key,
+                                                desired.owner,
+                                                std::nullopt,
+                                                desired.asset,
+                                                desired.material,
+                                                {},
+                                                {},
+                                                desired.placement,
+                                                bounds,
+                                                desired.plane,
+                                                desired.order,
+                                                desired.visible});
     }
 
     for (const auto& desired : state.presentation_environments()) {
@@ -1455,10 +1487,21 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         }
         validate_asset(project, desired.asset, compiled::AssetKind::Image,
                        "presentation environment asset", diagnostics);
-        result.environments.push_back(PresentationEnvironment{
-            desired.instance, desired.owner, std::nullopt, desired.stop_key, desired.asset,
-            desired.material, {}, {}, desired.bounds, desired.plane, desired.order, desired.clock,
-            desired.scroll_per_second, desired.opacity, desired.visible});
+        result.environments.push_back(PresentationEnvironment{desired.instance,
+                                                              desired.owner,
+                                                              std::nullopt,
+                                                              desired.stop_key,
+                                                              desired.asset,
+                                                              desired.material,
+                                                              {},
+                                                              {},
+                                                              desired.bounds,
+                                                              desired.plane,
+                                                              desired.order,
+                                                              desired.clock,
+                                                              desired.scroll_per_second,
+                                                              desired.opacity,
+                                                              desired.visible});
     }
 
     const auto project_runtime_parameter =
@@ -1538,12 +1581,11 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
     const auto project_authored_parameter =
         [&](const compiled::MaterialApplicationParameterOverride& parameter,
             const PresentationOwner& owner, const MaterialOccurrence& occurrence,
-            const MaterialId& material,
-            const std::optional<PropertyOwnerRef>& property_owner,
-            MaterialClockPolicy clock = MaterialClockPolicy::Gameplay)
-        -> std::optional<PresentationMaterialParameter> {
-        PresentationMaterialParameter projected{owner,          occurrence, material,
-                                                parameter.name, std::nullopt, std::nullopt, clock};
+            const MaterialId& material, const std::optional<PropertyOwnerRef>& property_owner,
+            MaterialClockPolicy clock =
+                MaterialClockPolicy::Gameplay) -> std::optional<PresentationMaterialParameter> {
+        PresentationMaterialParameter projected{
+            owner, occurrence, material, parameter.name, std::nullopt, std::nullopt, clock};
         bool resolved = true;
         std::visit(
             [&](const auto& source) {
@@ -1769,8 +1811,8 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                     return parameter.name == declaration.name && parameter.type == declaration.type;
                 });
                 if (authored != parameters.end()) {
-                    if (auto projected = project_authored_parameter(*authored, owner, occurrence,
-                                                                    material, property_owner, clock))
+                    if (auto projected = project_authored_parameter(
+                            *authored, owner, occurrence, material, property_owner, clock))
                         result.material_parameters.push_back(std::move(*projected));
                 }
             }
@@ -1812,8 +1854,8 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         if (!material_instance)
             continue;
         append_authored_application_parameters(
-            prop.owner, MaterialOccurrence{PropMaterialOccurrence{*material_instance}}, *prop.material,
-            prop.material_parameters, prop.material_property_owner);
+            prop.owner, MaterialOccurrence{PropMaterialOccurrence{*material_instance}},
+            *prop.material, prop.material_parameters, prop.material_property_owner);
     }
 
     for (const auto& environment : result.environments)
@@ -1838,10 +1880,10 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             },
             hotspot.ref);
         for (const auto& parameter : application->material_parameters) {
-            auto projected = project_authored_parameter(
-                parameter, state.session_presentation_owner(),
-                MaterialOccurrence{MaterialWideMaterialOccurrence{}}, application->material,
-                property_owner);
+            auto projected =
+                project_authored_parameter(parameter, state.session_presentation_owner(),
+                                           MaterialOccurrence{MaterialWideMaterialOccurrence{}},
+                                           application->material, property_owner);
             if (projected)
                 hotspot.material_parameters.push_back(PresentationHotspotMaterialParameter{
                     projected->parameter, projected->value, projected->standard_facet,
@@ -1855,19 +1897,20 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         }
     }
 
-    const auto append_materialwide =
-        [&](const DesiredMaterialParameter& desired, const PresentationOwner& owner,
-            const MaterialOccurrence& occurrence, const MaterialId& material) {
-            if (material != desired.material ||
-                state.material_parameter(occurrence, owner, material, desired.parameter) != nullptr ||
-                std::ranges::any_of(result.material_parameters, [&](const auto& parameter) {
-                    return parameter.owner == owner && parameter.occurrence == occurrence &&
-                           parameter.material == material && parameter.parameter == desired.parameter;
-                }))
-                return;
-            if (auto projected = project_runtime_parameter(desired, owner, occurrence))
-                result.material_parameters.push_back(std::move(*projected));
-        };
+    const auto append_materialwide = [&](const DesiredMaterialParameter& desired,
+                                         const PresentationOwner& owner,
+                                         const MaterialOccurrence& occurrence,
+                                         const MaterialId& material) {
+        if (material != desired.material ||
+            state.material_parameter(occurrence, owner, material, desired.parameter) != nullptr ||
+            std::ranges::any_of(result.material_parameters, [&](const auto& parameter) {
+                return parameter.owner == owner && parameter.occurrence == occurrence &&
+                       parameter.material == material && parameter.parameter == desired.parameter;
+            }))
+            return;
+        if (auto projected = project_runtime_parameter(desired, owner, occurrence))
+            result.material_parameters.push_back(std::move(*projected));
+    };
 
     const MaterialOccurrence material_scope{MaterialWideMaterialOccurrence{}};
     for (const auto& desired : state.material_parameters()) {

@@ -14,6 +14,11 @@ through [vcpkg](https://github.com/microsoft/vcpkg) via the manifest in
 See [docs/build/CMAKE_OPTIONS.md](CMAKE_OPTIONS.md) for the full list of
 supported CMake variables.
 
+Developer formatting uses `uv` as a tool launcher so the repository can pin an exact formatter
+independently of the host distribution. Install `uv` on development hosts; the CMake `format` and
+`format-check` targets use the same standalone formatter driver as CI and currently run
+`clang-format` 18.1.8.
+
 ## Local Build Parallelism
 
 The canonical local build limit is the existing `CMAKE_BUILD_PARALLEL_LEVEL` environment variable.
@@ -73,6 +78,16 @@ cmake --preset web-profile
 cmake --build --preset web-profile
 pnpm run web:smoke:profile
 ```
+
+For C/C++ formatting, use the CMake targets rather than invoking `clang-format` directly:
+
+```sh
+cmake --build --preset linux-debug --target format-check
+cmake --build --preset linux-debug --target format
+```
+
+CI runs the same repository formatter driver as an early gate before shader compilation and the
+platform build fan-out.
 
 ## Compile a Project Without the Editor
 

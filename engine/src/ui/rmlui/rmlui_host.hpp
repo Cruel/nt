@@ -147,8 +147,7 @@ public:
     void set_cursor_owner_resolver(CursorOwnerResolver resolver);
     void set_cursor_presentation_resolver(CursorPresentationResolver resolver);
     void set_context_clock(ContextKey key);
-    void
-    set_context_material_parameters(
+    void set_context_material_parameters(
         Rml::Context* context, std::optional<core::LayoutMountOccurrenceId> occurrence,
         std::vector<core::PresentationMaterialParameter> parameters,
         std::vector<core::PresentationMaterialTextureBinding> textures, double camera_zoom);

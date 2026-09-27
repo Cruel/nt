@@ -97,8 +97,9 @@ TEST_CASE("compiled Material integers preserve the exact float-backed ABI bounda
     const auto project_with_int = [](std::int64_t value) {
         auto document = fixture("scene-program");
         auto& interfaces = document["resources"]["materialInterfaces"];
-        auto material = std::ranges::find_if(
-            interfaces, [](const auto& entry) { return entry["id"] == "scene-postprocess-material"; });
+        auto material = std::ranges::find_if(interfaces, [](const auto& entry) {
+            return entry["id"] == "scene-postprocess-material";
+        });
         REQUIRE(material != interfaces.end());
         (*material)["parameters"].push_back(
             {{"name", "u_index"}, {"type", "int"}, {"rendererBinding", nullptr}});
@@ -121,10 +122,10 @@ TEST_CASE("compiled Material integers preserve the exact float-backed ABI bounda
 
     CHECK(decode_compiled_project(project_with_int(-material_int_exact_limit), "int-min.json"));
     CHECK(decode_compiled_project(project_with_int(material_int_exact_limit), "int-max.json"));
-    CHECK_FALSE(
-        decode_compiled_project(project_with_int(-material_int_exact_limit - 1), "int-underflow.json"));
-    CHECK_FALSE(
-        decode_compiled_project(project_with_int(material_int_exact_limit + 1), "int-overflow.json"));
+    CHECK_FALSE(decode_compiled_project(project_with_int(-material_int_exact_limit - 1),
+                                        "int-underflow.json"));
+    CHECK_FALSE(decode_compiled_project(project_with_int(material_int_exact_limit + 1),
+                                        "int-overflow.json"));
 }
 
 TEST_CASE("compiled project settings require the current interaction presentation contract")

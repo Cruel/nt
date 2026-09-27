@@ -230,8 +230,9 @@ resolve_rmlui_material_texture(const MaterialTextureAssignment* assignment,
         assignment != nullptr ? assignment->filtering : MaterialTextureSampler::ClampLinear};
 }
 
-double RmlUiMaterialOccurrenceEpochs::elapsed(
-    std::string_view scope, const core::PresentationMaterialParameter& parameter, double now_seconds)
+double RmlUiMaterialOccurrenceEpochs::elapsed(std::string_view scope,
+                                              const core::PresentationMaterialParameter& parameter,
+                                              double now_seconds)
 {
     auto& scope_epochs = m_epochs[std::string(scope)].entries;
     const auto matches = [&](const Entry& entry) {
@@ -676,12 +677,11 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
             static_cast<float>(presentation.ui_raster.size.height)};
     }
 
-    void set_material_parameters(
-        std::string_view occurrence_scope,
-        std::optional<core::LayoutMountOccurrenceId> occurrence,
-        std::span<const core::PresentationMaterialParameter> parameters,
-        std::span<const core::PresentationMaterialTextureBinding> textures,
-        const core::RuntimeClockUpdate& clocks, double camera_zoom)
+    void set_material_parameters(std::string_view occurrence_scope,
+                                 std::optional<core::LayoutMountOccurrenceId> occurrence,
+                                 std::span<const core::PresentationMaterialParameter> parameters,
+                                 std::span<const core::PresentationMaterialTextureBinding> textures,
+                                 const core::RuntimeClockUpdate& clocks, double camera_zoom)
     {
         material_parameter_scope = occurrence_scope;
         material_parameters.assign(parameters.begin(), parameters.end());

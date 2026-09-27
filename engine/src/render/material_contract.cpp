@@ -27,10 +27,9 @@ const MaterialRoleContract* material_role_contract(std::string_view id) noexcept
 const MaterialPresetContract* material_preset_contract(std::string_view id) noexcept
 {
     const auto presets = material_preset_contracts();
-    const auto it = std::find_if(presets.begin(), presets.end(),
-                                 [id](const MaterialPresetContract& preset) {
-                                     return preset.id == id;
-                                 });
+    const auto it =
+        std::find_if(presets.begin(), presets.end(),
+                     [id](const MaterialPresetContract& preset) { return preset.id == id; });
     return it == presets.end() ? nullptr : &*it;
 }
 

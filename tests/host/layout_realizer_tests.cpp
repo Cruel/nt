@@ -1781,11 +1781,9 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
              "sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9"},
             {"stages",
              {{"vertex",
-               {{"compiled",
-                 {{"glsl-330", {{"runtimePath", "system:/shaders/test.vs.bin"}}}}}}},
+               {{"compiled", {{"glsl-330", {{"runtimePath", "system:/shaders/test.vs.bin"}}}}}}},
               {"fragment",
-               {{"compiled",
-                 {{"glsl-330", {{"runtimePath", "system:/shaders/test.fs.bin"}}}}}}}}},
+               {{"compiled", {{"glsl-330", {{"runtimePath", "system:/shaders/test.fs.bin"}}}}}}}}},
             {"samplers",
              {{"s_texColor", {{"type", "texture2d"}, {"stage", 0}, {"binding", nullptr}}}}},
             {"roles", nlohmann::json::array({"engine-2d"})},
@@ -1794,11 +1792,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
          {{"panel",
            {{"role", "engine-2d"},
             {"shader", "fx"},
-            {"textures",
-             {{"s_texColor", {{"address", "repeat"}, {"filter", "nearest"}}}}}}}}}};
+            {"textures", {{"s_texColor", {{"address", "repeat"}, {"filter", "nearest"}}}}}}}}}};
     auto renderer_owned_texture_request =
-        make_request(core::editor::FocusedEditorDocumentKind::Room,
-                     "room-renderer-owned-texture", renderer_owned_texture_room, 19);
+        make_request(core::editor::FocusedEditorDocumentKind::Room, "room-renderer-owned-texture",
+                     renderer_owned_texture_room, 19);
     renderer_owned_texture_request.resources = {
         {.resource_id = "shader:variant-marker",
          .source_kind = "shader-compiled-output",

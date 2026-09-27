@@ -328,8 +328,7 @@ TEST_CASE("Project authority wildcard discovery tracks arbitrary Asset files and
 
     write_project_file(root.path / "assets/new.extension-without-registry", "second\n");
     const auto changed = authority.observe(request);
-    CHECK(changed.delta.added ==
-          std::vector<std::string>{"assets/new.extension-without-registry"});
+    CHECK(changed.delta.added == std::vector<std::string>{"assets/new.extension-without-registry"});
 }
 
 TEST_CASE("Project authority detects same-path same-metadata physical source replacement")
@@ -1190,9 +1189,9 @@ TEST_CASE("daemon shutdown does not wait for optional exact-validation persisten
     retain["token"] = owner_work["token"];
     retain["semanticKey"] = "test-semantic-key";
     retain["validationResult"] = Json{{"success", true},
-                                       {"exitCode", 0},
-                                       {"diagnostics", Json::array()},
-                                       {"editorDiagnostics", Json::array()}};
+                                      {"exitCode", 0},
+                                      {"diagnostics", Json::array()},
+                                      {"editorDiagnostics", Json::array()}};
     REQUIRE(invoke_daemon(retain)["ok"] == true);
 
     auto complete = request;
@@ -1610,8 +1609,7 @@ TEST_CASE("daemon disposable crash recovers registered output publication transa
     const auto transaction = root.path / "artifact.noveltea-publication-transaction.json";
     const auto read_text = [](const std::filesystem::path& value) {
         std::ifstream input(value, std::ios::binary);
-        return std::string(std::istreambuf_iterator<char>(input),
-                           std::istreambuf_iterator<char>());
+        return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
     };
 
     const auto run_phase = [&](std::string_view phase, bool accepted) {
@@ -1631,8 +1629,8 @@ TEST_CASE("daemon disposable crash recovers registered output publication transa
 
         auto work_request =
             disposable_request(request, std::string("publication-") + std::string(phase));
-        auto result = std::async(std::launch::async,
-                                 [work_request] { return invoke_daemon(work_request); });
+        auto result =
+            std::async(std::launch::async, [work_request] { return invoke_daemon(work_request); });
         REQUIRE(wait_until([&] { return daemon_status(request)["disposableBusyWorkers"] == 1; }));
         status = daemon_status(request);
         std::uint64_t worker_id = 0;
@@ -1662,11 +1660,10 @@ TEST_CASE("daemon disposable crash recovers registered output publication transa
             {"format", "noveltea.output-publication-transaction"},
             {"version", 1},
             {"state", accepted ? "accepted" : "prepared"},
-            {"entries",
-             Json::array({{{"finalPath", output.string()},
-                           {"stagedPath", staged.string()},
-                           {"backupPath", backup.string()},
-                           {"hadPrevious", true}}})},
+            {"entries", Json::array({{{"finalPath", output.string()},
+                                      {"stagedPath", staged.string()},
+                                      {"backupPath", backup.string()},
+                                      {"hadPrevious", true}}})},
         };
         write_project_file(transaction, journal.dump());
         std::filesystem::rename(output, backup);
@@ -1686,7 +1683,8 @@ TEST_CASE("daemon disposable crash recovers registered output publication transa
         CHECK_FALSE(std::filesystem::exists(backup));
         CHECK_FALSE(std::filesystem::exists(staged));
         CHECK_FALSE(std::filesystem::exists(unrelated_staged));
-        REQUIRE(wait_until([&] { return daemon_status(request)["disposableStandbyWorkers"] >= 1; }));
+        REQUIRE(
+            wait_until([&] { return daemon_status(request)["disposableStandbyWorkers"] >= 1; }));
     };
 
     run_phase("backed-up", false);
@@ -1711,27 +1709,22 @@ TEST_CASE("daemon Project owner crash rolls back an activated mixed publication"
     const auto output = files.path / "mixed.png";
     const auto staged = files.path / "mixed.stage";
     const auto backup = files.path / "mixed.backup";
-    const auto transaction =
-        files.path / "mixed.noveltea-publication-transaction.json";
+    const auto transaction = files.path / "mixed.noveltea-publication-transaction.json";
     write_project_file(output, "previous");
     write_project_file(staged, "replacement");
-    write_project_file(
-        transaction,
-        Json{{"format", "noveltea.output-publication-transaction"},
-             {"version", 1},
-             {"state", "prepared"},
-             {"entries",
-              Json::array({{{"finalPath", output.string()},
-                            {"stagedPath", staged.string()},
-                            {"backupPath", backup.string()},
-                            {"hadPrevious", true}}})}}
-            .dump());
+    write_project_file(transaction, Json{{"format", "noveltea.output-publication-transaction"},
+                                         {"version", 1},
+                                         {"state", "prepared"},
+                                         {"entries", Json::array({{{"finalPath", output.string()},
+                                                                   {"stagedPath", staged.string()},
+                                                                   {"backupPath", backup.string()},
+                                                                   {"hadPrevious", true}}})}}
+                                        .dump());
     std::filesystem::rename(output, backup);
     std::filesystem::rename(staged, output);
 
     auto mutation_request = owner_request(request, "mixed-owner-mutation", root, "owner-mutation");
-    mutation_request["payload"]["argv"] =
-        Json::array({"comfyui", "__owner-asset-publication"});
+    mutation_request["payload"]["argv"] = Json::array({"comfyui", "__owner-asset-publication"});
     mutation_request["payload"]["internalOperation"] = "comfyui-asset-publication";
     mutation_request["payload"]["internalRequestText"] = "{}";
     mutation_request["payload"]["publicationTransactionPath"] = transaction.string();

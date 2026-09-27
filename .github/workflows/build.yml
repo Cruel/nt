@@ -38,6 +38,21 @@ permissions:
 # - Android export and Electron packaging consume the host CLI artifact without waiting for Linux tests.
 
 jobs:
+  cxx-format:
+    name: C++ formatting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10
+      - name: Check C++ formatting
+        run: >-
+          cmake
+          -DSOURCE_ROOT="$GITHUB_WORKSPACE"
+          -DMODE=check
+          -P "$GITHUB_WORKSPACE/cmake/RunClangFormat.cmake"
+
   cxx-runtime-policy:
     name: C++ runtime policy
     runs-on: ubuntu-24.04
@@ -69,6 +84,7 @@ jobs:
   shader-assets:
     name: Shader assets
     runs-on: ubuntu-24.04
+    needs: cxx-format
     timeout-minutes: 45
 
     steps:

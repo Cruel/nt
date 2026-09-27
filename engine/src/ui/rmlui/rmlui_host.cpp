@@ -315,9 +315,15 @@ Rml::Context* RmlUiHost::context_for(ContextKey key)
         Rml::RemoveContext(name);
         return nullptr;
     }
-    m_contexts.push_back(
-        {key, name, created, std::move(*resolved_metrics), std::nullopt, {}, {}, 1.0,
-         m_next_cursor_source_id++});
+    m_contexts.push_back({key,
+                          name,
+                          created,
+                          std::move(*resolved_metrics),
+                          std::nullopt,
+                          {},
+                          {},
+                          1.0,
+                          m_next_cursor_source_id++});
     sort_contexts();
     return created;
 }
