@@ -2,11 +2,14 @@
 
 #include "noveltea/engine.hpp"
 #include "noveltea/engine_tooling.hpp"
+#include "noveltea/platform.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
+#include <filesystem>
 #include <vector>
 
 namespace noveltea::host {
@@ -65,6 +68,25 @@ concept HasEngineToolingAccess = requires(Engine& engine, const Engine& const_en
     Adapter::preview(engine);
     Adapter::preview(const_engine);
     Adapter::preview_running(const_engine);
+};
+
+template<typename Adapter>
+concept HasDevtoolsToolingAccess = requires(const Engine& engine) {
+    Adapter::devtools_capabilities();
+    Adapter::devtools_snapshot(engine);
+};
+
+template<typename T>
+concept HasRuntimeDebugMutationAccess = requires(T value) {
+    value.set_variable("flag", core::RuntimeValue{true});
+    value.reset_variable("flag");
+    value.teleport_room("room");
+    value.create_runtime_instance("interactable", "definition", "source");
+    value.replace_runtime_instance_configuration("interactable", "instance", "definition",
+                                                 "source");
+    value.clear_runtime_instance_configuration("interactable", "instance");
+    value.destroy_runtime_instance("interactable", "instance");
+    value.retarget_runtime_room_exit("room", "exit", "target");
 };
 
 template<typename T>
@@ -143,6 +165,13 @@ TEST_CASE("Engine partial shutdown and unloaded preview reset are cleanup safe")
     STATIC_REQUIRE_FALSE(HasScreenshotCommand<Engine>);
     STATIC_REQUIRE(HasScreenshotCommand<RuntimePreviewController>);
     STATIC_REQUIRE(HasEngineToolingAccess<EngineTooling>);
+#if NOVELTEA_ENABLE_DEVTOOLS
+    STATIC_REQUIRE(HasDevtoolsToolingAccess<EngineTooling>);
+    STATIC_REQUIRE(HasRuntimeDebugMutationAccess<RuntimePreviewController>);
+#else
+    STATIC_REQUIRE_FALSE(HasDevtoolsToolingAccess<EngineTooling>);
+    STATIC_REQUIRE_FALSE(HasRuntimeDebugMutationAccess<RuntimePreviewController>);
+#endif
 
     Engine engine;
     const bool original_preview_running = EngineTooling::preview_running(engine);
@@ -169,6 +198,84 @@ TEST_CASE("Asset profiler tooling fails clearly without an active preview servic
     REQUIRE_FALSE(delta);
     CHECK(delta.error().code == "assets.editor_profiler_unavailable");
 }
+
+TEST_CASE("Devtools tooling advertises its shared snapshot capability")
+{
+    Engine engine;
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+    const auto capabilities = EngineTooling::devtools_capabilities();
+    REQUIRE_FALSE(capabilities.empty());
+    CHECK(std::find(capabilities.begin(), capabilities.end(), "devtools-snapshot-v1") !=
+          capabilities.end());
+
+    const auto snapshot = EngineTooling::devtools_snapshot(engine);
+    REQUIRE_FALSE(snapshot);
+    CHECK(snapshot.error().code == "devtools.engine_uninitialized");
+#else
+    STATIC_REQUIRE_FALSE(HasDevtoolsToolingAccess<EngineTooling>);
+#endif
+}
+
+TEST_CASE("Devtools Snapshot owns one typed Runtime Debug Snapshot section")
+{
+    devtools::DevtoolsSnapshot snapshot;
+    CHECK_FALSE(snapshot.runtime.has_value());
+    CHECK(snapshot.host.surface == HostSurfaceMetrics{});
+    CHECK_FALSE(snapshot.tooling.preview_running);
+}
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+TEST_CASE("Devtools Snapshot tracks the populated canonical Runtime Debug Snapshot")
+{
+    const std::filesystem::path runtime_assets{NOVELTEA_TEST_RUNTIME_ASSET_ROOT};
+    Engine engine;
+    const PlatformConfig platform_config{
+        .title = "NovelTea devtools snapshot test",
+        .width = 640,
+        .height = 360,
+        .resizable = false,
+        .vsync = false,
+    };
+    const EngineConfig engine_config{
+        .system_asset_root = runtime_assets / "system",
+        .project_asset_root = runtime_assets / "project",
+        .compiled_project = "project:/projects/runtime_layout_scale_readback.json",
+        .load_title_screen = false,
+        .enable_audio = false,
+    };
+    EngineToolingConfig tooling_config;
+    tooling_config.keep_runtime_running = true;
+    tooling_config.enable_debug_ui = false;
+    tooling_config.preview_widget = true;
+
+    REQUIRE(EngineTooling::initialize(engine, platform_config, engine_config, tooling_config));
+    EngineTooling::set_preview_running(engine, true);
+
+    const auto narrow_before = EngineTooling::preview(engine).debug_snapshot_value();
+    REQUIRE(narrow_before);
+    const auto devtools_before = EngineTooling::devtools_snapshot(engine);
+    REQUIRE(devtools_before);
+    REQUIRE(devtools_before.value_if()->runtime);
+    CHECK(RuntimePreviewController::encode_debug_snapshot(*devtools_before.value_if()->runtime) ==
+          RuntimePreviewController::encode_debug_snapshot(*narrow_before));
+    CHECK(devtools_before.value_if()->runtime->preview_running);
+    CHECK(devtools_before.value_if()->tooling.preview_running);
+
+    EngineTooling::set_preview_running(engine, false);
+    const auto narrow_after = EngineTooling::preview(engine).debug_snapshot_value();
+    REQUIRE(narrow_after);
+    const auto devtools_after = EngineTooling::devtools_snapshot(engine);
+    REQUIRE(devtools_after);
+    REQUIRE(devtools_after.value_if()->runtime);
+    CHECK(RuntimePreviewController::encode_debug_snapshot(*devtools_after.value_if()->runtime) ==
+          RuntimePreviewController::encode_debug_snapshot(*narrow_after));
+    CHECK_FALSE(devtools_after.value_if()->runtime->preview_running);
+    CHECK_FALSE(devtools_after.value_if()->tooling.preview_running);
+    CHECK(RuntimePreviewController::encode_debug_snapshot(*narrow_before) !=
+          RuntimePreviewController::encode_debug_snapshot(*narrow_after));
+}
+#endif
 
 } // namespace
 } // namespace noveltea::host

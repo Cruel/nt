@@ -255,6 +255,7 @@ Editor to preview:
 - `runtime-clear-subject-selection`
 - `runtime-run-interaction`
 - `runtime-request-debug-snapshot`
+- `devtools-request-snapshot`
 - `runtime-request-asset-profiler`
 - `runtime-set-variable`
 - `runtime-reset-variable`
@@ -331,6 +332,7 @@ Preview to editor:
 - `preview-state`
 - `preview-snapshot`
 - `runtime-debug-snapshot`
+- `devtools-snapshot`
 - `runtime-asset-profiler`
 - `runtime-debug-event`
 - `runtime-fast-forward-result`
@@ -356,6 +358,26 @@ declared/runtime ownership and provenance (`declared`, `archetype`, `compiled-de
 `clone`) plus optional source metadata. This lets editor tooling inspect runtime-created identities
 without treating renderer occurrences as gameplay authority. Explicit `runtime-request-debug-snapshot`
 remains available for initial synchronization and manual refresh.
+
+### Shared Devtools Snapshot transport
+
+The optimized `web-editor-preview` build enables `NOVELTEA_ENABLE_DEVTOOLS` even though it does not
+compile Dear ImGui. At startup the widget asks the native engine for its versioned devtools
+capabilities instead of hard-coding them in JavaScript. The current capability set contributed by
+the devtools layer is `devtools-snapshot-v1`, `runtime-debug-snapshot-v1`,
+`runtime-debug-mutations-v1`, and `runtime-fast-forward-v1`; later debugger features add their own
+independently versioned capabilities.
+
+`devtools-request-snapshot` calls the narrow `noveltea_devtools_snapshot()` export and emits
+`devtools-snapshot` with the same request ID. The payload owns three sections: `host`, `tooling`, and
+`runtime`. `host` carries current surface/backend/renderer/generation state; `tooling` carries
+preview/performance/native-frontend state; and `runtime` is either `null` or the exact existing
+Runtime Debug Snapshot object. Runtime fields are not copied to the root or re-encoded into a second
+gameplay-debugger DTO. Existing consumers may continue using `runtime-debug-snapshot` directly.
+
+When developer instrumentation is compiled out, the native devtools capability/snapshot exports are
+not exposed, these devtools capabilities are not advertised, and this transport is unavailable.
+Ordinary diagnostics and runtime logging remain independent of the developer-only boundary.
 
 `set-engine-settings` applies live host configuration to an already-running preview. Its optional
 settings are `showFpsCounter`, `fpsCap`, `rmluiRasterSnap`, and `assetMemoryPolicy`. Raster snapping

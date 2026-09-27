@@ -136,7 +136,12 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 else()
     set(NOVELTEA_DEVTOOLS_DEFAULT OFF)
 endif()
-option(NOVELTEA_ENABLE_DEVTOOLS "Include Dear ImGui dev/debug overlay" ${NOVELTEA_DEVTOOLS_DEFAULT})
+option(NOVELTEA_ENABLE_DEVTOOLS "Compile developer observation and debugging instrumentation" ${NOVELTEA_DEVTOOLS_DEFAULT})
+if(NOVELTEA_ENABLE_DEVTOOLS)
+    set(NOVELTEA_ENABLE_DEVTOOLS_VALUE 1)
+else()
+    set(NOVELTEA_ENABLE_DEVTOOLS_VALUE 0)
+endif()
 option(
     NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     "Compile the editor-only asset memory and prefetch profiler"
@@ -494,6 +499,8 @@ if(NOT TARGET rmlui_bgfx::rmlui_bgfx)
         "Install rmlui-bgfx, enable NOVELTEA_FETCH_RMLUI_BGFX, or configure with "
         "-DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON for tandem local development.")
 endif()
+
+noveltea_force_rmlui_bgfx_core_linkage(rmlui_bgfx::rmlui_bgfx)
 noveltea_apply_runtime_dependency_policy(rmlui_bgfx::rmlui_bgfx)
 
 add_subdirectory(engine)

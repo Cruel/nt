@@ -14,6 +14,7 @@
 namespace noveltea {
 namespace {
 
+#if NOVELTEA_ENABLE_DEVTOOLS
 std::string typed_mutation_result(host::PreviewMutationResult result)
 {
     return nlohmann::json{{"accepted", result.accepted},
@@ -413,6 +414,7 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
 
     return snapshot;
 }
+#endif
 
 } // namespace
 
@@ -504,6 +506,7 @@ bool RuntimePreviewController::run_interaction(
     return m_preview_host->run_interaction(verb_id, std::move(bindings));
 }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
 std::string RuntimePreviewController::set_variable(const std::string& variable_id,
                                                    core::RuntimeValue value)
 {
@@ -557,6 +560,7 @@ std::string RuntimePreviewController::retarget_runtime_room_exit(const std::stri
     return typed_mutation_result(
         m_preview_host->retarget_runtime_room_exit(room_id, exit_id, target_room_id));
 }
+#endif
 
 bool RuntimePreviewController::begin_recording() { return m_preview_host->begin_recording(); }
 
@@ -623,6 +627,7 @@ void RuntimePreviewController::stop_all_preview_audio(float fade_seconds)
     m_preview_host->stop_all_preview_audio(fade_seconds);
 }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
 std::string RuntimePreviewController::fast_forward_to_input()
 {
     constexpr int max_steps = 800;
@@ -686,17 +691,34 @@ std::string RuntimePreviewController::fast_forward_to_input()
         .dump();
 }
 
-std::string RuntimePreviewController::debug_snapshot() const
+std::optional<devtools::RuntimeDebugSnapshot> RuntimePreviewController::debug_snapshot_value() const
 {
     const auto& publication = m_preview_host->publication();
     if (!publication)
-        return {};
+        return std::nullopt;
     core::Diagnostics diagnostics = m_preview_host->runtime_diagnostics();
     core::append_diagnostics(diagnostics, m_preview_host->preview_diagnostics());
-    return encode_preview_debug_snapshot(*publication, diagnostics,
-                                         m_preview_host->preview_running())
+    return devtools::RuntimeDebugSnapshot{.publication = *publication,
+                                          .diagnostics = std::move(diagnostics),
+                                          .preview_running = m_preview_host->preview_running()};
+}
+
+std::string
+RuntimePreviewController::encode_debug_snapshot(const devtools::RuntimeDebugSnapshot& snapshot)
+{
+    return encode_preview_debug_snapshot(snapshot.publication, snapshot.diagnostics,
+                                         snapshot.preview_running)
         .dump();
 }
+
+std::string RuntimePreviewController::debug_snapshot() const
+{
+    auto snapshot = debug_snapshot_value();
+    if (!snapshot)
+        return {};
+    return encode_debug_snapshot(*snapshot);
+}
+#endif
 
 const std::optional<runtime::RuntimePublication>&
 RuntimePreviewController::publication() const noexcept

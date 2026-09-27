@@ -97,7 +97,83 @@ function createRuntimeDebugHarness() {
   return { context, diagnostics };
 }
 
+function createDevtoolsHarness() {
+  const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
+  const start = widget.indexOf('function readDevtoolsCapabilities() {');
+  const end = widget.indexOf('\n    function runtimeDebugFingerprint', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const implementation = widget.slice(start, end);
+  const messages: Record<string, unknown>[] = [];
+  const snapshot = {
+    host: {
+      platform: 'SDL3',
+      renderer: 'WebGL',
+      hostGeneration: 2,
+      surface: {
+        logicalWidth: 640,
+        logicalHeight: 360,
+        framebufferWidth: 640,
+        framebufferHeight: 360,
+        framebufferScaleX: 1,
+        framebufferScaleY: 1,
+      },
+    },
+    tooling: {
+      previewRunning: true,
+      renderPerfLogging: false,
+      nativeDebugUiAvailable: false,
+      nativeDebugUiEnabled: false,
+    },
+    runtime: null,
+  };
+  const context = {
+    protocolVersion: 1,
+    nativeExportAvailable: (name: string) =>
+      name === 'noveltea_devtools_capabilities' || name === 'noveltea_devtools_snapshot',
+    Module: {
+      ccall(name: string) {
+        if (name === 'noveltea_devtools_capabilities')
+          return JSON.stringify(['devtools-snapshot-v1', 'runtime-debug-snapshot-v1']);
+        if (name === 'noveltea_devtools_snapshot') return JSON.stringify(snapshot);
+        return '';
+      },
+    },
+    failCommand() {},
+    send(message: Record<string, unknown>) {
+      messages.push(message);
+    },
+    readDevtoolsCapabilities: null as null | (() => string[]),
+    emitDevtoolsSnapshot: null as null | ((message: Record<string, unknown>) => boolean),
+  };
+  vm.runInNewContext(
+    `${implementation}\nthis.readDevtoolsCapabilities = readDevtoolsCapabilities; this.emitDevtoolsSnapshot = emitDevtoolsSnapshot;`,
+    context,
+  );
+  if (!context.readDevtoolsCapabilities || !context.emitDevtoolsSnapshot)
+    throw new Error('Devtools harness did not load.');
+  return { context, messages, snapshot };
+}
+
 describe('preview widget runtime project loading', () => {
+  it('advertises engine-owned devtools capabilities and emits the canonical Devtools Snapshot', () => {
+    const harness = createDevtoolsHarness();
+
+    expect(harness.context.readDevtoolsCapabilities!()).toEqual([
+      'devtools-snapshot-v1',
+      'runtime-debug-snapshot-v1',
+    ]);
+    expect(harness.context.emitDevtoolsSnapshot!({ requestId: 'snapshot-1' })).toBe(true);
+    expect(harness.messages).toEqual([
+      {
+        version: 1,
+        type: 'devtools-snapshot',
+        requestId: 'snapshot-1',
+        snapshot: harness.snapshot,
+      },
+    ]);
+  });
+
   it('does not spam diagnostics when passive runtime-debug polling has no snapshot yet', () => {
     const harness = createRuntimeDebugHarness();
 

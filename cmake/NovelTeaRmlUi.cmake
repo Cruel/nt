@@ -76,13 +76,11 @@ function(_noveltea_write_rmlui_dependency_diagnostic
 endfunction()
 
 function(_noveltea_verify_installed_rmlui_extension_api)
-    if(TARGET RmlUi::RmlUi)
-        set(_noveltea_rmlui_probe_target RmlUi::RmlUi)
-    elseif(TARGET RmlUi::Core)
+    if(TARGET RmlUi::Core)
         set(_noveltea_rmlui_probe_target RmlUi::Core)
     else()
         message(FATAL_ERROR
-            "The installed RmlUi package did not expose RmlUi::RmlUi or RmlUi::Core.")
+            "The installed RmlUi package did not expose RmlUi::Core.")
     endif()
 
     set(_noveltea_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
@@ -255,6 +253,13 @@ function(noveltea_provide_rmlui_dependency)
         FetchContent_MakeAvailable(RmlUi)
         FetchContent_GetProperties(RmlUi SOURCE_DIR _noveltea_rmlui_source_dir)
 
+        # Upstream always declares the Debugger target. Keep it out of ordinary production `all`
+        # builds unless NovelTea's developer instrumentation is enabled; engine linkage below uses
+        # RmlUi::Core directly and adds RmlUi::Debugger only for devtools builds.
+        if(TARGET rmlui_debugger AND NOT NOVELTEA_ENABLE_DEVTOOLS)
+            set_property(TARGET rmlui_debugger PROPERTY EXCLUDE_FROM_ALL TRUE)
+        endif()
+
         set(_noveltea_rmlui_marker
             "${_noveltea_rmlui_source_dir}/Include/RmlUi/Core/NovelTeaPatch.h")
         if(NOT EXISTS "${_noveltea_rmlui_marker}")
@@ -318,5 +323,58 @@ function(noveltea_provide_rmlui_dependency)
         message(FATAL_ERROR
             "RmlUi::Lua is required for the NovelTea engine. The selected RmlUi provider must "
             "build or export the official Lua bindings against NovelTea's Lua target.")
+    endif()
+endfunction()
+
+function(noveltea_force_rmlui_bgfx_core_linkage target)
+    if(NOT TARGET "${target}")
+        message(FATAL_ERROR "Cannot normalize RmlUi linkage for unknown target '${target}'")
+    endif()
+    if(NOT TARGET RmlUi::Core)
+        message(FATAL_ERROR "RmlUi::Core is required before normalizing rmlui-bgfx linkage")
+    endif()
+
+    get_target_property(_noveltea_rmlui_bgfx_aliased_target "${target}" ALIASED_TARGET)
+    if(_noveltea_rmlui_bgfx_aliased_target)
+        set(_noveltea_rmlui_bgfx_target "${_noveltea_rmlui_bgfx_aliased_target}")
+    else()
+        set(_noveltea_rmlui_bgfx_target "${target}")
+    endif()
+
+    get_target_property(_noveltea_rmlui_bgfx_imported "${_noveltea_rmlui_bgfx_target}" IMPORTED)
+    set(_noveltea_rmlui_bgfx_properties INTERFACE_LINK_LIBRARIES)
+    if(NOT _noveltea_rmlui_bgfx_imported)
+        list(APPEND _noveltea_rmlui_bgfx_properties LINK_LIBRARIES)
+    endif()
+
+    foreach(_noveltea_rmlui_bgfx_property IN LISTS _noveltea_rmlui_bgfx_properties)
+        get_target_property(
+            _noveltea_rmlui_bgfx_links
+            "${_noveltea_rmlui_bgfx_target}"
+            "${_noveltea_rmlui_bgfx_property}")
+        if(NOT _noveltea_rmlui_bgfx_links OR
+           _noveltea_rmlui_bgfx_links STREQUAL "_noveltea_rmlui_bgfx_links-NOTFOUND")
+            continue()
+        endif()
+
+        string(REPLACE "RmlUi::RmlUi" "RmlUi::Core"
+            _noveltea_rmlui_bgfx_rewritten_links "${_noveltea_rmlui_bgfx_links}")
+        if(_noveltea_rmlui_bgfx_rewritten_links MATCHES "RmlUi::RmlUi")
+            message(FATAL_ERROR
+                "rmlui-bgfx contains an RmlUi::RmlUi dependency that could not be normalized")
+        endif()
+        set_property(
+            TARGET "${_noveltea_rmlui_bgfx_target}"
+            PROPERTY "${_noveltea_rmlui_bgfx_property}"
+            "${_noveltea_rmlui_bgfx_rewritten_links}")
+    endforeach()
+
+    get_target_property(
+        _noveltea_rmlui_bgfx_interface_links
+        "${_noveltea_rmlui_bgfx_target}"
+        INTERFACE_LINK_LIBRARIES)
+    if(_noveltea_rmlui_bgfx_interface_links MATCHES "RmlUi::RmlUi")
+        message(FATAL_ERROR
+            "rmlui-bgfx still exposes the umbrella RmlUi::RmlUi target after Core normalization")
     endif()
 endfunction()

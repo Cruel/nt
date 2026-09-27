@@ -279,7 +279,7 @@ target_link_libraries(noveltea_script_lua_tests PRIVATE
 )
 catch_discover_tests(noveltea_script_lua_tests)
 
-# --- Host characterization tests (Engine-linked, no platform initialization required) ---
+# --- Host characterization and Engine-boundary integration tests ---
 
 add_executable(noveltea_host_tests
     core/editor_runtime_protocol_tests.cpp
@@ -299,7 +299,10 @@ target_include_directories(noveltea_host_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/src"
     "${CMAKE_CURRENT_SOURCE_DIR}"
 )
-target_compile_definitions(noveltea_host_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(noveltea_host_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    NOVELTEA_TEST_RUNTIME_ASSET_ROOT="${NOVELTEA_RUNTIME_ASSET_ROOT}"
+)
 target_link_libraries(noveltea_host_tests PRIVATE
     noveltea_engine
     nlohmann_json::nlohmann_json
@@ -307,6 +310,7 @@ target_link_libraries(noveltea_host_tests PRIVATE
 )
 target_compile_definitions(noveltea_host_tests PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+noveltea_attach_runtime_assets(noveltea_host_tests)
 catch_discover_tests(noveltea_host_tests)
 
 add_library(noveltea_player_bootstrap_test_support OBJECT

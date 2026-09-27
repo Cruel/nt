@@ -652,6 +652,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
       - name: Set up Linux native dependencies
         uses: ./.github/actions/setup-linux-native
         with:
@@ -686,13 +691,18 @@ jobs:
           name: noveltea-shader-assets
           path: build/prebuilt-shader-assets
 
-      - name: Configure and build editor preview
+      - name: Verify devtools-off transport and build editor preview
         env:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-editor-preview -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          emcmake cmake --preset web-editor-preview -G Ninja -DNOVELTEA_ENABLE_DEVTOOLS=OFF -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset web-editor-preview --target noveltea-editor-preview
+          node scripts/check-web-editor-preview-exports.mjs build/web-editor-preview/apps/editor_preview/index.js off
+
+          emcmake cmake --preset web-editor-preview -G Ninja -DNOVELTEA_ENABLE_DEVTOOLS=ON -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build --preset web-editor-preview --target noveltea-editor-preview
+          node scripts/check-web-editor-preview-exports.mjs build/web-editor-preview/apps/editor_preview/index.js on
 
       - name: Save compiler cache
         uses: ./.github/actions/save-ccache

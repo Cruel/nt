@@ -63,6 +63,14 @@ miniaudio, Twink, text backends, optional ImGui, JSON boundary implementation, a
 private or link-only requirements. The exact graph and platform-specific providers are recorded in
 `HOST_MODULE_DEPENDENCY_AUDIT.md` and enforced by `MODULE_BOUNDARY_POLICY.md`.
 
+Developer observation is also engine-owned. When `NOVELTEA_ENABLE_DEVTOOLS` is compiled in,
+`EngineTooling` advertises versioned devtools capabilities and exposes one canonical
+`devtools::DevtoolsSnapshot`. Its host/tooling section contains host-surface, renderer, generation,
+preview, performance-logging, and native-debug-UI state. Its runtime section is the existing Runtime
+Debug Snapshot itself rather than a second projection of gameplay/debugger state. Native developer
+UI and editor-preview transport consume that same snapshot. Devtools-off builds retain ordinary
+runtime diagnostics/logging but expose no Devtools Snapshot capability or editor-preview export.
+
 ## Loading
 
 The public application path supplies `EngineConfig::compiled_project` during initialization. Preview

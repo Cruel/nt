@@ -1,6 +1,7 @@
 #pragma once
 
 #include "host/debug_ui_contracts.hpp"
+#include "noveltea/devtools_snapshot.hpp"
 #include "noveltea/surface.hpp"
 
 #include <string>
@@ -30,8 +31,8 @@ public:
     [[nodiscard]] DebugUiEventResult process_event(const SDL_Event& event,
                                                    const HostSurfaceMetrics& surface);
     void begin_frame(const HostSurfaceMetrics& surface);
-    [[nodiscard]] host::DebugUiFrameOutput
-    end_frame(const host::DebugUiObservationSnapshot& observations, bool submit_draw_data = true);
+    [[nodiscard]] host::DebugUiFrameOutput end_frame(const devtools::DevtoolsSnapshot& snapshot,
+                                                     bool submit_draw_data = true);
     void shutdown();
 
     [[nodiscard]] bool is_visible() const noexcept { return m_visible; }

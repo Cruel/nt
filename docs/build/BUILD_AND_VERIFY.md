@@ -89,6 +89,12 @@ cmake --build --preset linux-debug --target format
 CI runs the same repository formatter driver as an early gate before shader compilation and the
 platform build fan-out.
 
+The `web-editor-preview` preset is intentionally different from a production Web build: it enables
+`NOVELTEA_ENABLE_DEVTOOLS` so the editor can request the shared Devtools Snapshot and versioned
+capability set, but its engine composition uses the debug-UI stub and does not compile or render Dear
+ImGui. Production/devtools-off builds omit the Devtools Snapshot transport and link ordinary RmlUi
+through Core without the Debugger component.
+
 ## Compile a Project Without the Editor
 
 Compile a saved project into canonical Compiled Project Format V1 gameplay JSON from the repository root:
