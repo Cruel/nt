@@ -30,10 +30,7 @@ struct TempRoot {
     explicit TempRoot(std::filesystem::path root_path) : path(std::move(root_path)) {}
     TempRoot(const TempRoot&) = delete;
     TempRoot& operator=(const TempRoot&) = delete;
-    TempRoot(TempRoot&& other) noexcept : path(std::move(other.path))
-    {
-        other.path.clear();
-    }
+    TempRoot(TempRoot&& other) noexcept : path(std::move(other.path)) { other.path.clear(); }
     TempRoot& operator=(TempRoot&&) = delete;
 
     ~TempRoot()
@@ -50,8 +47,8 @@ struct TempRoot {
 TempRoot temp_root()
 {
     const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto path = std::filesystem::temp_directory_path() /
-                      ("noveltea-cache-probe-" + std::to_string(nonce));
+    const auto path =
+        std::filesystem::temp_directory_path() / ("noveltea-cache-probe-" + std::to_string(nonce));
     std::filesystem::create_directories(path);
     return TempRoot{path};
 }
