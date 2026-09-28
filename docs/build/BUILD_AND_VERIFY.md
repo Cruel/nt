@@ -95,6 +95,18 @@ capability set, but its engine composition uses the debug-UI stub and does not c
 ImGui. Production/devtools-off builds omit the Devtools Snapshot transport and link ordinary RmlUi
 through Core without the Debugger component.
 
+After native developer and production players are built, the artifact-level composition checks are:
+
+```sh
+bash scripts/check-native-devtools-symbols.sh build/linux-debug/apps/sandbox/noveltea-sandbox on
+bash scripts/check-native-devtools-symbols.sh build/linux-debug/apps/player/noveltea-player on
+bash scripts/check-native-devtools-symbols.sh build/linux-release/apps/player/noveltea-player off
+```
+
+These inspect the linked binaries for RmlUi Debugger and Dear ImGui rather than merely checking CMake
+option text. CI runs the enabled checks in the Linux developer build and the disabled check against
+the Linux production player. See `docs/runtime/DEVELOPER_DEBUGGING.md` for the full capability matrix.
+
 ## Compile a Project Without the Editor
 
 Compile a saved project into canonical Compiled Project Format V1 gameplay JSON from the repository root:

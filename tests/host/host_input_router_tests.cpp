@@ -98,7 +98,7 @@ TEST_CASE("HostInputRouter orders debug RuntimeUI and typed runtime admission")
     CHECK(result.disposition == HostInputDisposition::Consumed);
 }
 
-TEST_CASE("HostInputRouter debug overlay capture stops lower input")
+TEST_CASE("HostInputRouter native debugger capture stops lower input")
 {
     HostInputRouter router;
     const auto presentation = test_presentation();

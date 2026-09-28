@@ -932,7 +932,7 @@ describe('EnginePreview', () => {
     );
   });
 
-  it('records only semantic runtime activity in Runtime Events', async () => {
+  it('records only semantic runtime activity in the Console feed', async () => {
     const { previewPort } = await renderConnectedPreview();
     const before = useWorkspaceStore.getState().runtimeEvents.length;
 

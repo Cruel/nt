@@ -188,6 +188,24 @@ test('Web editor preview verifies the actual devtools-off and devtools-on Emscri
   );
 });
 
+test('native build and release jobs verify the linked devtools capability matrix', () => {
+  const linux = job('linux');
+  const verifyEnabled = step(linux, 'Verify native devtools composition');
+  assert.match(
+    verifyEnabled,
+    /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/sandbox\/noveltea-sandbox on/,
+  );
+  assert.match(
+    verifyEnabled,
+    /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/player\/noveltea-player on/,
+  );
+
+  assert.match(
+    releaseWorkflow,
+    /name: Verify production player excludes developer components[\s\S]*check-native-devtools-symbols\.sh build\/linux-release\/apps\/player\/noveltea-player off/,
+  );
+});
+
 test('artifact consumers do not wait for unrelated test and cooperative build jobs', () => {
   assert.equal(field(job('editor'), 'needs'), '[linux-cli, web-preview]');
   assert.equal(field(job('android'), 'needs'), '[shader-assets, linux-cli]');
