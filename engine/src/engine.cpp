@@ -339,20 +339,12 @@ Engine::Impl::Impl()
       m_world_transitions(m_world_presentation), m_audio(make_miniaudio_backend()),
       m_screenshot_service(m_renderer, *m_job_execution.executor),
       m_checkpoint_thumbnail_captures(m_screenshot_service),
-      m_layout_realizer(m_assets, m_runtime_ui),
-      m_game_host(host::GameHost::Dependencies{
-          .content_assets = m_assets,
-          .script_invocations = m_scripts,
-          .save_slots = m_typed_saves,
-          .runtime_ui = m_runtime_ui,
-          .layout_realizer = &m_layout_realizer,
-          .audio = m_audio,
-          .preview_publication_sink = nullptr,
-          .observation_sink = nullptr,
-          .runtime_clock = m_runtime_clock,
-          .host_values = m_game_host_values,
-          .system_layout_host = *this,
-          .world_transitions = &m_world_transitions,
+      m_layout_realizer(m_assets, m_runtime_ui), m_game_host(host::GameHost::Dependencies {
+          .content_assets = m_assets, .script_invocations = m_scripts, .save_slots = m_typed_saves,
+          .runtime_ui = m_runtime_ui, .layout_realizer = &m_layout_realizer, .audio = m_audio,
+          .preview_publication_sink = nullptr, .observation_sink = nullptr,
+          .runtime_clock = m_runtime_clock, .host_values = m_game_host_values,
+          .system_layout_host = *this, .world_transitions = &m_world_transitions,
           .script_certifier = m_scripts,
           .script_debug_sink =
 #if NOVELTEA_ENABLE_DEVTOOLS
@@ -373,7 +365,11 @@ Engine::Impl::Impl()
           .runtime_session_replaced =
               [this]() { m_presentation_layouts.replace_runtime_session(); },
           .diagnostic_sink =
+#if NOVELTEA_ENABLE_DEVTOOLS
               [this](host::HostFrameStage stage, const core::Diagnostic& diagnostic) {
+#else
+              [](host::HostFrameStage stage, const core::Diagnostic& diagnostic) {
+#endif
                   const auto stage_name = host::to_string(stage);
                   SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime:%.*s] %s %s %s",
                                static_cast<int>(stage_name.size()), stage_name.data(),

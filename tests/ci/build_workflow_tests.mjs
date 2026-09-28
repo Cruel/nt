@@ -172,6 +172,7 @@ test('C++ formatting runs as an early pinned-tool gate before shader assets', ()
     format,
     /uses: astral-sh\/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10\.2\.0/,
   );
+  assert.match(format, /enable-cache: false/);
   assert.match(step(format, 'Check C++ formatting'), /cmake\/RunClangFormat\.cmake/);
   assert.match(step(format, 'Check C++ formatting'), /-DMODE=check/);
   assert.equal(field(job('shader-assets'), 'needs'), 'cxx-format');
