@@ -101,44 +101,24 @@ add_custom_target(cxx-policy
         noveltea-schema-version-policy
     COMMENT "Verifying the complete NovelTea C++ runtime policy")
 
-find_program(CLANG_FORMAT_EXE NAMES clang-format)
-file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/apps/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/apps/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/apps/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/engine/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/engine/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/engine/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark/*.hpp"
+add_custom_target(format-check
+    COMMAND
+        "${CMAKE_COMMAND}"
+        -DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+        -DMODE=check
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunClangFormat.cmake
+    COMMENT "Checking C/C++ formatting with the repository-pinned clang-format"
+    VERBATIM
 )
-if(CLANG_FORMAT_EXE)
-    add_custom_target(format-check
-        COMMAND "${CLANG_FORMAT_EXE}" --dry-run --Werror ${NOVELTEA_FORMAT_SOURCES}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        COMMENT "Checking C/C++ formatting with clang-format"
-        VERBATIM
-    )
-    add_custom_target(format
-        COMMAND "${CLANG_FORMAT_EXE}" -i ${NOVELTEA_FORMAT_SOURCES}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        COMMENT "Formatting C/C++ sources with clang-format"
-        VERBATIM
-    )
-else()
-    add_custom_target(format-check
-        COMMAND "${CMAKE_COMMAND}" -E false
-        COMMENT "clang-format not found"
-    )
-    add_custom_target(format
-        COMMAND "${CMAKE_COMMAND}" -E false
-        COMMENT "clang-format not found"
-    )
-endif()
+add_custom_target(format
+    COMMAND
+        "${CMAKE_COMMAND}"
+        -DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+        -DMODE=format
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunClangFormat.cmake
+    COMMENT "Formatting C/C++ sources with the repository-pinned clang-format"
+    VERBATIM
+)
 
 # --- User-facing options ---
 
@@ -156,7 +136,12 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 else()
     set(NOVELTEA_DEVTOOLS_DEFAULT OFF)
 endif()
-option(NOVELTEA_ENABLE_DEVTOOLS "Include Dear ImGui dev/debug overlay" ${NOVELTEA_DEVTOOLS_DEFAULT})
+option(NOVELTEA_ENABLE_DEVTOOLS "Compile developer observation and debugging instrumentation" ${NOVELTEA_DEVTOOLS_DEFAULT})
+if(NOVELTEA_ENABLE_DEVTOOLS)
+    set(NOVELTEA_ENABLE_DEVTOOLS_VALUE 1)
+else()
+    set(NOVELTEA_ENABLE_DEVTOOLS_VALUE 0)
+endif()
 option(
     NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     "Compile the editor-only asset memory and prefetch profiler"
@@ -514,6 +499,7 @@ if(NOT TARGET rmlui_bgfx::rmlui_bgfx)
         "Install rmlui-bgfx, enable NOVELTEA_FETCH_RMLUI_BGFX, or configure with "
         "-DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON for tandem local development.")
 endif()
+
 noveltea_apply_runtime_dependency_policy(rmlui_bgfx::rmlui_bgfx)
 
 add_subdirectory(engine)

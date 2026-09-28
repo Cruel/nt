@@ -63,6 +63,26 @@ miniaudio, Twink, text backends, optional ImGui, JSON boundary implementation, a
 private or link-only requirements. The exact graph and platform-specific providers are recorded in
 `HOST_MODULE_DEPENDENCY_AUDIT.md` and enforced by `MODULE_BOUNDARY_POLICY.md`.
 
+Developer observation is also engine-owned. When `NOVELTEA_ENABLE_DEVTOOLS` is compiled in,
+`EngineTooling` advertises versioned devtools capabilities and exposes one canonical
+`devtools::DevtoolsSnapshot` plus bounded Console and Trace streams. The snapshot contains current
+host/tooling state, pointer/input admission, cheap RmlUi hover/focus context, canonical world Hotspot
+observation, and the existing Runtime Debug Snapshot rather than a second gameplay/debugger model.
+Trace records correlate pointer routing across those same host/RmlUi/Layout/world seams and retain
+generation markers and debugger-originated mutations with transition-based motion coalescing. Native
+developer UI and editor-preview transport consume these same engine-owned values; neither owns a
+parallel instrumentation model. `EngineTooling::devtools_debug_report()` snapshots that same data
+plane into one machine-readable artifact: the current Devtools Snapshot, retained Console and Trace
+windows (including cursor/gap metadata), current runtime diagnostics, advertised capabilities,
+version/configuration/target/host/renderer build identity, and an RmlUi context summary. Report export does not inspect or
+scrape any native/editor debugger frontend. The native Dear ImGui frontend is host composition rather than a
+second observation system: sandbox and devtools-enabled native player builds may initialize it,
+while editor preview omits it. Its F10/Shift+F10 host shortcuts are intercepted before RmlUi/Layout
+or gameplay admission. Devtools-off builds retain ordinary runtime diagnostics/logging but expose
+none of these developer-only capabilities or editor-preview exports.
+See `docs/runtime/DEVELOPER_DEBUGGING.md` for the supported host/build capability matrix and the
+operator-facing Console, Trace, RmlUi Debugger, Lua `Debug.*`, and Feature Lab diagnostic workflow.
+
 ## Loading
 
 The public application path supplies `EngineConfig::compiled_project` during initialization. Preview

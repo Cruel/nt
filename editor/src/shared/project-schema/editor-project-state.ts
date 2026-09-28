@@ -166,6 +166,7 @@ export const editorBottomPanelStateSchema = z
         'problems',
         'output',
         'preview-events',
+        'preview-trace',
         'preview-diagnostics',
         'test-playback',
         'references',

@@ -245,6 +245,26 @@ gameplay fallthrough through the mounted-policy admission result. Layout-origina
 paths do not. Escape unmounts the topmost dismissible instance through its recorded owner, while a
 higher non-dismissible modal shields lower Layouts.
 
+### Built-in debugger
+
+Devtools builds initialize RmlUi's built-in Debugger against the host's existing persistent primary
+context after normal RmlUi/font setup. Non-devtools builds do not initialize or expose it. The host
+retains the selected inspected context independently from visibility. Hiding leaves the debugger
+bound to that context rather than clearing the selection. Hiding explicitly hides
+the debugger-owned menu/info/log/data-model documents because upstream `SetVisible(false)` only hides
+the menu; the internal `rmlui-debug-hook` remains attached to the selected context as required by
+RmlUi's debugger implementation.
+
+Debugger-owned UI is not a NovelTea Layout. While the debugger is visible, the primary host context
+remains eligible for input even when no authored Layout document is visible there. The existing
+Layout-event gateway wrapper is still retained for that shared context, so an ordinary authored
+GameUi document cannot bypass its normal capability admission merely because the debugger is visible.
+A consumed debugger event stops lower presentation delivery through the same host routing rule as any
+other consumed RmlUi event; hiding the debugger removes the special primary-context eligibility and
+restores ordinary Layout-driven routing. Tooling selects contexts by the exact host-published RmlUi
+context name; invalid names are rejected. Both native ImGui and editor Play tooling invoke this same
+runtime-owned control surface rather than maintaining separate inspector implementations.
+
 ### Cursor arbitration
 
 RmlUi contexts do not mutate the native cursor. Their `cursor` callbacks publish transient desired

@@ -12,6 +12,24 @@ preview/export readiness and again during compiled package load. Invalid inline 
 Lua source prevents publication/session construction and reports structured diagnostics without
 executing the script.
 
+## Developer Console API
+
+Every Lua VM installs a small `Debug` facade with `Debug.info(...)`, `Debug.warn(...)`, and
+`Debug.error(...)`. These calls are instrumentation only: they never alter gameplay control flow,
+yield, throw, or grant additional runtime capabilities. Arguments use the same bounded print-style
+summary policy as host `print(...)`: scalar values are rendered directly, arguments are tab-delimited,
+and tables/functions/userdata are represented by non-recursive type summaries rather than traversed.
+When source metadata is available, Console records also retain the Lua chunk/source and current line.
+
+Developer-instrumented hosts attach that facade to the engine-owned bounded Console. Records carry a
+monotonic sequence, severity, `lua` category, and current host/runtime generation identity. Ordinary
+`print(...)` keeps its existing host log output and additionally mirrors an `info` Lua Console record
+when that sink is attached. Frontend/RmlUi Lua uses the same sink as Project Lua, and replacement
+Project `ScriptRuntime` instances created for load/reset inherit it, so runtime-generation changes do
+not silently disconnect logging. Devtools-off/player builds still install the `Debug` table for source
+compatibility, but with no sink its methods are harmless no-ops and `print(...)` retains only its
+normal host behavior.
+
 ### Managed localization calls
 
 Direct `Text.tr(sourceLiteral, args?, metadata?)`, `Text.msg(namedKeyLiteral, args?)`,

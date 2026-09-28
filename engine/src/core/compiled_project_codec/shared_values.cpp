@@ -1092,9 +1092,9 @@ std::optional<NormalizedRect> decode_rect(Decoder& decoder, const nlohmann::json
 std::optional<BackgroundPresentation>
 decode_background(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
-    if (!decoder.object(value, pointer,
-                        {"asset", "color", "fit", "material", "materialParameters",
-                         "materialTextures"}))
+    if (!decoder.object(
+            value, pointer,
+            {"asset", "color", "fit", "material", "materialParameters", "materialTextures"}))
         return std::nullopt;
     const auto* asset_value = decoder.member(value, "asset", pointer);
     const auto* color_value = decoder.member(value, "color", pointer);
@@ -1129,10 +1129,10 @@ decode_background(Decoder& decoder, const nlohmann::json& value, std::string_vie
     if (material_value && !material_value->is_null()) {
         nlohmann::json application{
             {"material", *material_value},
-            {"parameters", material_parameters_value ? *material_parameters_value
-                                                      : nlohmann::json::array()},
-            {"textures", material_textures_value ? *material_textures_value
-                                                  : nlohmann::json::array()},
+            {"parameters",
+             material_parameters_value ? *material_parameters_value : nlohmann::json::array()},
+            {"textures",
+             material_textures_value ? *material_textures_value : nlohmann::json::array()},
         };
         auto decoded = decode_material_application(decoder, application, pointer);
         material_ok = decoded.has_value();
@@ -1143,15 +1143,18 @@ decode_background(Decoder& decoder, const nlohmann::json& value, std::string_vie
         }
     } else if ((material_parameters_value && !material_parameters_value->empty()) ||
                (material_textures_value && !material_textures_value->empty())) {
-        decoder.error(k_code_variant,
-                      "Material Application overrides require a selected Material.",
+        decoder.error(k_code_variant, "Material Application overrides require a selected Material.",
                       std::string(pointer));
         material_ok = false;
     }
     if (!asset_ok || !color_ok || !fit || !material_ok)
         return std::nullopt;
-    return BackgroundPresentation{std::move(asset), std::move(color), *fit, std::move(material),
-                                  std::move(material_parameters), std::move(material_textures)};
+    return BackgroundPresentation{std::move(asset),
+                                  std::move(color),
+                                  *fit,
+                                  std::move(material),
+                                  std::move(material_parameters),
+                                  std::move(material_textures)};
 }
 
 std::optional<RoomPlacementRef> decode_placement_ref(Decoder& decoder, const nlohmann::json& value,

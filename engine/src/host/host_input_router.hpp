@@ -60,6 +60,7 @@ enum class NormalizedHostEventKind : std::uint8_t {
 enum class NormalizedHostKey : std::uint8_t {
     Unknown,
     Escape,
+    F10,
 };
 
 struct NormalizedHostEvent {
@@ -67,10 +68,13 @@ struct NormalizedHostEvent {
     NormalizedHostKey key = NormalizedHostKey::Unknown;
     std::int32_t scancode = 0;
     std::uint8_t mouse_button = 0;
+    float wheel_x = 0.0f;
+    float wheel_y = 0.0f;
     std::uint64_t touch_id = 0;
     Vec2 host_position{};
     bool has_host_position = false;
     bool repeat = false;
+    bool shift = false;
     std::optional<core::RuntimeInputMessage> proposed_runtime_input;
 };
 
@@ -132,10 +136,13 @@ struct RuntimeShellCommandToolingAction {
 };
 
 struct FastForwardPresentationToolingAction {};
+struct ToggleNativeDebugUiToolingAction {};
+struct ResetNativeDebugUiRectToolingAction {};
 
 using HostToolingAction =
     std::variant<RouteSystemEscapeAction, DismissLayoutEscapeAction, RequestQuitFallbackAction,
-                 RuntimeShellCommandToolingAction, FastForwardPresentationToolingAction>;
+                 RuntimeShellCommandToolingAction, FastForwardPresentationToolingAction,
+                 ToggleNativeDebugUiToolingAction, ResetNativeDebugUiRectToolingAction>;
 
 struct HostPointerStateUpdate {
     Vec2 reference_position{};
@@ -145,6 +152,7 @@ struct HostPointerStateUpdate {
 enum class HostGameplayInputBlockReason : std::uint8_t {
     None,
     HiddenPreview,
+    DevtoolsShortcut,
     DebugOverlay,
     RuntimeUi,
     OutsidePresentation,

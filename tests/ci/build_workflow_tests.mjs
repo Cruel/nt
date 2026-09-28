@@ -165,6 +165,51 @@ test('shader tool consumers use the pinned bgfx-matched nt-tools bundle', () => 
   assert.match(hostCliDownload, /gh release download "\$NOVELTEA_SHADERC_TOOLCHAIN_TAG"/);
 });
 
+test('C++ formatting runs as an early pinned-tool gate before shader assets', () => {
+  const format = job('cxx-format');
+  assert.match(format, /name: C\+\+ formatting/);
+  assert.match(
+    format,
+    /uses: astral-sh\/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10\.2\.0/,
+  );
+  assert.match(format, /enable-cache: false/);
+  assert.match(step(format, 'Check C++ formatting'), /cmake\/RunClangFormat\.cmake/);
+  assert.match(step(format, 'Check C++ formatting'), /-DMODE=check/);
+  assert.equal(field(job('shader-assets'), 'needs'), 'cxx-format');
+});
+
+test('Web editor preview verifies the actual devtools-off and devtools-on Emscripten export surfaces', () => {
+  const preview = job('web-preview');
+  const build = step(preview, 'Verify devtools-off transport and build editor preview');
+  assert.match(preview, /actions\/setup-node@v6/);
+  assert.match(build, /-DNOVELTEA_ENABLE_DEVTOOLS=OFF/);
+  assert.match(build, /check-web-editor-preview-exports\.mjs .*index\.js off/);
+  assert.match(build, /-DNOVELTEA_ENABLE_DEVTOOLS=ON/);
+  assert.match(build, /check-web-editor-preview-exports\.mjs .*index\.js on/);
+  assert.ok(
+    build.indexOf('-DNOVELTEA_ENABLE_DEVTOOLS=OFF') <
+      build.indexOf('-DNOVELTEA_ENABLE_DEVTOOLS=ON'),
+  );
+});
+
+test('native build and release jobs verify the linked devtools capability matrix', () => {
+  const linux = job('linux');
+  const verifyEnabled = step(linux, 'Verify native devtools composition');
+  assert.match(
+    verifyEnabled,
+    /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/sandbox\/noveltea-sandbox on/,
+  );
+  assert.match(
+    verifyEnabled,
+    /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/player\/noveltea-player on/,
+  );
+
+  assert.match(
+    releaseWorkflow,
+    /name: Verify production player excludes developer components[\s\S]*check-native-devtools-symbols\.sh build\/linux-release\/apps\/player\/noveltea-player off/,
+  );
+});
+
 test('artifact consumers do not wait for unrelated test and cooperative build jobs', () => {
   assert.equal(field(job('editor'), 'needs'), '[linux-cli, web-preview]');
   assert.equal(field(job('android'), 'needs'), '[shader-assets, linux-cli]');

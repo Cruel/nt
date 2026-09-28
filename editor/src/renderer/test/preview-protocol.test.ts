@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  isDevtoolsDebugReport,
   isEditorToPreviewMessage,
+  isDevtoolsSnapshot,
   isPreviewDocument,
   isPreviewToEditorMessage,
   isRuntimeDebugSnapshot,
@@ -25,6 +27,20 @@ describe('preview protocol validation', () => {
       },
     },
   } as const;
+
+  it('validates debugger visibility and exact context selection commands', () => {
+    const command = {
+      version: 1,
+      type: 'devtools-set-rmlui-debugger',
+      requestId: 'debugger',
+      visible: true,
+      context: 'runtime-ui',
+    };
+    expect(isEditorToPreviewMessage(command)).toBe(true);
+    expect(isEditorToPreviewMessage({ ...command, visible: 'true' })).toBe(false);
+    expect(isEditorToPreviewMessage({ ...command, context: '' })).toBe(false);
+    expect(isEditorToPreviewMessage({ ...command, context: undefined })).toBe(false);
+  });
 
   it('rejects the removed display-profile command', () => {
     expect(
@@ -938,6 +954,367 @@ describe('preview protocol validation', () => {
         version: 1,
         type: 'runtime-debug-snapshot',
         snapshot: { ...snapshot, diagnostics: [{ severity: 'fatal', message: 'bad' }] },
+      }),
+    ).toBe(false);
+
+    const devtoolsSnapshot = {
+      host: {
+        platform: 'SDL3',
+        renderer: 'OpenGL',
+        hostGeneration: 12,
+        surface: {
+          logicalWidth: 1280,
+          logicalHeight: 720,
+          framebufferWidth: 2560,
+          framebufferHeight: 1440,
+          framebufferScaleX: 2,
+          framebufferScaleY: 2,
+        },
+      },
+      input: {
+        referenceX: 640,
+        referenceY: 360,
+        pointerValid: true,
+        lastEvent: 'mouse-motion',
+        debugProcessed: true,
+        debugConsumed: false,
+        runtimeUiProcessed: true,
+        runtimeUiConsumed: false,
+        runtimeUiWantsPointer: false,
+        gameplayEvent: true,
+        gameplayAdmitted: true,
+        gameplayBlockReason: 'none',
+        governingLayout: null,
+        governingLayoutMode: 'none',
+      },
+      rmluiDebugger: { available: true, visible: false, context: 'runtime-ui' },
+      rmlui: [
+        {
+          name: 'game-ui',
+          lifecycleIdentity: 'game-ui:0:0:gameplay:normal:gameplay:ui-inherit-text-inherit',
+          plane: 'game-ui',
+          clock: 'gameplay',
+          inputMode: 'normal',
+          owner: 'gameplay',
+          scaleDomain: 'ui-inherit-text-inherit',
+          compositionGroup: 0,
+          compatibilityGroup: 0,
+          width: 1280,
+          height: 720,
+          mediaQueryWidth: 1280,
+          mediaQueryHeight: 720,
+          requestedUiScale: 1,
+          textScaleFactor: 1,
+          referenceToContextScaleX: 1,
+          referenceToContextScaleY: 1,
+          uiRasterScaleX: 2,
+          uiRasterScaleY: 2,
+          fontRasterScale: 2,
+          mouseInteracting: false,
+          recentEventProcessed: true,
+          recentEventConsumed: false,
+          hover: {
+            documentId: 'hud',
+            tag: 'button',
+            id: 'continue',
+            classes: 'primary',
+            pointerEvents: 'auto',
+          },
+          focus: null,
+        },
+      ],
+      world: {
+        referenceX: 640,
+        referenceY: 360,
+        pointerValid: true,
+        captureActive: false,
+        underPointer: 'room/foyer/hotspot/door',
+        hovered: 'room/foyer/hotspot/door',
+        pressed: null,
+        hotspots: [
+          {
+            identity: 'room/foyer/hotspot/door',
+            label: 'Door',
+            conditionEligible: true,
+            targetAvailable: true,
+            target: 'room/foyer/exit/hall',
+            highlight: 'default',
+            cursor: 'system:0',
+            preparedHitTarget: true,
+            hitTestOrder: 0,
+            inputOrder: 10,
+            hitShape: 'rect',
+            hitShapeX: 0.1,
+            hitShapeY: 0.2,
+            hitShapeWidth: 0.3,
+            hitShapeHeight: 0.4,
+            hitBoundsX: 10,
+            hitBoundsY: 20,
+            hitBoundsWidth: 100,
+            hitBoundsHeight: 80,
+            underPointer: true,
+            hovered: true,
+            pressed: false,
+          },
+        ],
+      },
+      tooling: {
+        previewRunning: true,
+        renderPerfLogging: false,
+        nativeDebugUiAvailable: false,
+        nativeDebugUiEnabled: false,
+      },
+      runtime: snapshot,
+    };
+    expect(isDevtoolsSnapshot(devtoolsSnapshot)).toBe(true);
+    expect(isDevtoolsSnapshot({ ...devtoolsSnapshot, rmluiDebugger: undefined })).toBe(false);
+    expect(
+      isDevtoolsSnapshot({
+        ...devtoolsSnapshot,
+        rmluiDebugger: { available: true, visible: 'yes', context: 'runtime-ui' },
+      }),
+    ).toBe(false);
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-snapshot',
+        requestId: 'devtools-debug',
+        snapshot: devtoolsSnapshot,
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'devtools-request-snapshot',
+        requestId: 'devtools-debug',
+      }),
+    ).toBe(true);
+    const consoleDelta = {
+      afterSequence: '4',
+      earliestRetainedSequence: '2',
+      latestSequence: '6',
+      lostRecordCount: '0',
+      historyGap: false,
+      records: [
+        {
+          sequence: '5',
+          globalSequence: '9',
+          hostGeneration: '2',
+          runtimeGeneration: '7',
+          frame: '39',
+          severity: 'warning',
+          category: 'lua',
+          message: 'careful',
+          source: { chunk: 'project:/scripts/main.lua', line: 12 },
+          generationMarker: false,
+        },
+      ],
+    };
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-console-delta',
+        delta: consoleDelta,
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'devtools-clear-console',
+        requestId: 'clear-console',
+      }),
+    ).toBe(true);
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-console-delta',
+        delta: { ...consoleDelta, latestSequence: 6 },
+      }),
+    ).toBe(false);
+    const traceDelta = {
+      afterSequence: '6',
+      earliestRetainedSequence: '2',
+      latestSequence: '8',
+      lostRecordCount: '0',
+      historyGap: false,
+      records: [
+        {
+          sequence: '8',
+          firstSequence: '7',
+          globalSequence: '10',
+          firstGlobalSequence: '8',
+          hostGeneration: '2',
+          runtimeGeneration: '7',
+          kind: 'input-routing',
+          category: 'input',
+          repeatCount: 2,
+          firstFrame: '40',
+          lastFrame: '41',
+          input: {
+            event: 'mouse-motion',
+            hostX: 320,
+            hostY: 180,
+            referenceX: 640,
+            referenceY: 360,
+            mouseButton: null,
+            wheelX: null,
+            wheelY: null,
+            referenceValid: true,
+            debugProcessed: true,
+            debugConsumed: false,
+            runtimeUiProcessed: true,
+            runtimeUiConsumed: false,
+            runtimeUiWantsPointer: false,
+            gameplayEvent: true,
+            gameplayAdmitted: true,
+            gameplayBlockReason: 'none',
+            governingLayout: null,
+            governingLayoutMode: 'none',
+            rmluiHover: {
+              context: 'game-ui',
+              documentId: 'hud',
+              tag: 'button',
+              id: 'continue',
+              classes: 'primary',
+              pointerEvents: 'auto',
+            },
+            rmluiFocus: null,
+            worldEvaluated: true,
+            worldConsumed: false,
+            worldHit: 'room/foyer/hotspot/door',
+            worldHovered: 'room/foyer/hotspot/door',
+            worldPressed: null,
+            worldTarget: null,
+          },
+          debuggerMutation: null,
+          detail: '',
+          generationMarker: false,
+        },
+      ],
+    };
+    expect(
+      isPreviewToEditorMessage({ version: 1, type: 'devtools-trace-delta', delta: traceDelta }),
+    ).toBe(true);
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-trace-delta',
+        delta: {
+          ...traceDelta,
+          records: [
+            {
+              ...traceDelta.records[0],
+              sequence: '9',
+              firstSequence: '9',
+              globalSequence: '11',
+              firstGlobalSequence: '11',
+              kind: 'debugger-mutation',
+              category: 'debugger',
+              repeatCount: 1,
+              input: null,
+              debuggerMutation: {
+                sourceFrontend: 'editor-react',
+                operation: 'set variable trust',
+              },
+              detail: 'editor-react: set variable trust',
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-trace-delta',
+        delta: {
+          ...traceDelta,
+          records: [
+            {
+              ...traceDelta.records[0],
+              kind: 'debugger-mutation',
+              input: null,
+              debuggerMutation: { sourceFrontend: 7, operation: 'set variable trust' },
+            },
+          ],
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'devtools-clear-trace',
+        requestId: 'clear-trace',
+      }),
+    ).toBe(true);
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-trace-delta',
+        delta: { ...traceDelta, records: [{ ...traceDelta.records[0], repeatCount: 0 }] },
+      }),
+    ).toBe(false);
+
+    const debugReport = {
+      formatVersion: 1,
+      build: {
+        engineVersion: '1.0.0',
+        buildConfiguration: 'RelWithDebInfo',
+        targetPlatform: 'Emscripten',
+        hostPlatform: 'SDL3',
+        renderer: 'WebGL',
+      },
+      capabilities: [
+        'devtools-snapshot-v1',
+        'devtools-console-v1',
+        'devtools-trace-v1',
+        'devtools-debug-report-v1',
+      ],
+      snapshot: devtoolsSnapshot,
+      diagnostics: [
+        {
+          code: 'runtime.example',
+          severity: 'warning',
+          message: 'Example warning',
+          sourcePath: 'project:/scripts/main.lua',
+          jsonPointer: '',
+          causes: [],
+        },
+      ],
+      rmlui: {
+        contexts: devtoolsSnapshot.rmlui,
+        debugger: devtoolsSnapshot.rmluiDebugger,
+      },
+      console: { ...consoleDelta, afterSequence: '0' },
+      trace: { ...traceDelta, afterSequence: '0' },
+    };
+    expect(isDevtoolsDebugReport(debugReport)).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'devtools-request-debug-report',
+        requestId: 'debug-report',
+      }),
+    ).toBe(true);
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-debug-report',
+        requestId: 'debug-report',
+        report: debugReport,
+      }),
+    ).toBe(true);
+    expect(isDevtoolsDebugReport({ ...debugReport, formatVersion: 2 })).toBe(false);
+    expect(
+      isDevtoolsDebugReport({
+        ...debugReport,
+        console: { ...debugReport.console, lostRecordCount: 3 },
+      }),
+    ).toBe(false);
+    expect(isDevtoolsSnapshot({ ...devtoolsSnapshot, runtime: {} })).toBe(false);
+    expect(
+      isDevtoolsSnapshot({
+        ...devtoolsSnapshot,
+        host: { ...devtoolsSnapshot.host, hostGeneration: 0 },
       }),
     ).toBe(false);
   });

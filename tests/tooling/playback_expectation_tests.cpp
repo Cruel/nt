@@ -282,12 +282,12 @@ TEST_CASE("native package export admits semantic shaders sharing compiled binari
         {"shaderVariants", nlohmann::json::array({"glsl-330"})},
         {"shaderMaterialMetadata", shader_materials},
         {"requiredShaderBinaryPaths",
-         nlohmann::json::array({"shaders/derived/glsl-330/shared.vs.bin",
-                                "shaders/derived/glsl-330/shared.fs.bin"})},
-        {"fileEntries",
-         nlohmann::json::array({{{"source", (project_root.root() / "scripts/bootstrap.lua").string()},
-                                 {"packagePath", "scripts/bootstrap.lua"},
-                                 {"storage", "auto"}}})},
+         nlohmann::json::array(
+             {"shaders/derived/glsl-330/shared.vs.bin", "shaders/derived/glsl-330/shared.fs.bin"})},
+        {"fileEntries", nlohmann::json::array(
+                            {{{"source", (project_root.root() / "scripts/bootstrap.lua").string()},
+                              {"packagePath", "scripts/bootstrap.lua"},
+                              {"storage", "auto"}}})},
     };
     const nlohmann::json request = {
         {"project", load_minimal_compiled_project()},

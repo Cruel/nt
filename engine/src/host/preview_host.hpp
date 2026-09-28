@@ -46,6 +46,8 @@ struct PreviewMutationResult {
     std::string kind;
     std::string id;
     std::string message;
+    std::optional<core::RuntimeValue> old_value;
+    std::optional<core::RuntimeValue> new_value;
 };
 
 struct PreviewPresentationFastForwardResult {

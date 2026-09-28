@@ -23,6 +23,7 @@
 #include "host/preview_host.hpp"
 #include "host/screenshot_capture.hpp"
 #include "noveltea/render/material.hpp"
+#include "noveltea/devtools_console.hpp"
 #include "noveltea/renderer.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 #include "noveltea/presentation/runtime_system_layouts.hpp"
@@ -60,7 +61,15 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void update_presentation_audio_backends(bool runtime_input_admitted);
     void realize_layouts_and_bind_ui();
     void apply_pending_debug_ui_commands();
-    [[nodiscard]] host::DebugUiObservationSnapshot debug_ui_observations() const;
+    [[nodiscard]] devtools::DevtoolsSnapshot devtools_snapshot() const;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    void sync_devtools_generations();
+    void append_script_debug_message(const script::ScriptDebugMessage& message);
+    void append_candidate_script_debug_message(const script::ScriptDebugMessage& message);
+    void append_input_trace(const host::NormalizedHostEvent& event,
+                            const host::HostInputRouteResult& routed,
+                            const std::optional<WorldPointerEventResult>& world_result);
+#endif
     [[nodiscard]] host::CheckpointThumbnailCaptureContext
     checkpoint_thumbnail_capture_context() const;
     void render();
@@ -153,6 +162,12 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     host::ScreenshotService m_screenshot_service;
     host::CheckpointThumbnailCaptureCoordinator m_checkpoint_thumbnail_captures;
     script::ScriptRuntime m_scripts;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    devtools::SequenceAllocator m_devtools_sequence;
+    devtools::ConsoleBuffer m_devtools_console{1000, &m_devtools_sequence};
+    devtools::TraceBuffer m_devtools_trace{2000, &m_devtools_sequence};
+    devtools::DevtoolsInputSnapshot m_devtools_input_snapshot;
+#endif
     core::TypedMemorySaveSlotStore m_typed_saves;
     core::RuntimeClock m_runtime_clock;
     ShaderMaterialProject m_shader_materials;

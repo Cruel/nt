@@ -14,13 +14,70 @@
 namespace noveltea {
 namespace {
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+nlohmann::json runtime_debug_value(const core::RuntimeValue& value)
+{
+    return std::visit(
+        [](const auto& typed) -> nlohmann::json {
+            using T = std::decay_t<decltype(typed)>;
+            if constexpr (std::is_same_v<T, std::monostate>)
+                return nullptr;
+            else if constexpr (std::is_same_v<T, core::MessageRef>)
+                return nlohmann::json{{"messageId", typed.id}};
+            else
+                return typed;
+        },
+        value);
+}
+
+std::string runtime_debug_event_kind(std::string_view kind)
+{
+    if (kind == "set-variable")
+        return "variable-set";
+    if (kind == "reset-variable")
+        return "variable-reset";
+    if (kind == "teleport-room")
+        return "room-teleport";
+    return std::string{kind};
+}
+
+std::string runtime_debug_event_label(std::string_view kind, std::string_view id)
+{
+    if (kind == "set-variable")
+        return "Set variable " + std::string{id};
+    if (kind == "reset-variable")
+        return "Reset variable " + std::string{id};
+    if (kind == "teleport-room")
+        return "Teleport to room " + std::string{id};
+    if (kind == "instance-create")
+        return "Create Gameplay Instance " + std::string{id};
+    if (kind == "instance-replace-configuration")
+        return "Replace Gameplay Instance configuration " + std::string{id};
+    if (kind == "instance-clear-configuration")
+        return "Clear Gameplay Instance configuration " + std::string{id};
+    if (kind == "instance-destroy")
+        return "Destroy Gameplay Instance " + std::string{id};
+    if (kind == "room-exit-retarget")
+        return "Retarget Room Exit " + std::string{id};
+    return std::string{kind} + " " + std::string{id};
+}
+
 std::string typed_mutation_result(host::PreviewMutationResult result)
 {
-    return nlohmann::json{{"accepted", result.accepted},
-                          {"kind", std::move(result.kind)},
-                          {"id", std::move(result.id)},
-                          {"message", std::move(result.message)}}
-        .dump();
+    nlohmann::json encoded{{"accepted", result.accepted},
+                           {"kind", runtime_debug_event_kind(result.kind)},
+                           {"id", result.id},
+                           {"debugOnly", true},
+                           {"label", runtime_debug_event_label(result.kind, result.id)},
+                           {"rejected", !result.accepted},
+                           {"target", {{"type", "runtime-debug-target"}, {"id", result.id}}}};
+    if (!result.message.empty())
+        encoded["message"] = std::move(result.message);
+    if (result.old_value)
+        encoded["oldValue"] = runtime_debug_value(*result.old_value);
+    if (result.new_value)
+        encoded["newValue"] = runtime_debug_value(*result.new_value);
+    return encoded.dump();
 }
 
 nlohmann::json preview_entity_ref(std::string type, std::string id, std::string collection = {})
@@ -413,6 +470,7 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
 
     return snapshot;
 }
+#endif
 
 } // namespace
 
@@ -504,6 +562,7 @@ bool RuntimePreviewController::run_interaction(
     return m_preview_host->run_interaction(verb_id, std::move(bindings));
 }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
 std::string RuntimePreviewController::set_variable(const std::string& variable_id,
                                                    core::RuntimeValue value)
 {
@@ -557,6 +616,7 @@ std::string RuntimePreviewController::retarget_runtime_room_exit(const std::stri
     return typed_mutation_result(
         m_preview_host->retarget_runtime_room_exit(room_id, exit_id, target_room_id));
 }
+#endif
 
 bool RuntimePreviewController::begin_recording() { return m_preview_host->begin_recording(); }
 
@@ -623,6 +683,7 @@ void RuntimePreviewController::stop_all_preview_audio(float fade_seconds)
     m_preview_host->stop_all_preview_audio(fade_seconds);
 }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
 std::string RuntimePreviewController::fast_forward_to_input()
 {
     constexpr int max_steps = 800;
@@ -686,17 +747,34 @@ std::string RuntimePreviewController::fast_forward_to_input()
         .dump();
 }
 
-std::string RuntimePreviewController::debug_snapshot() const
+std::optional<devtools::RuntimeDebugSnapshot> RuntimePreviewController::debug_snapshot_value() const
 {
     const auto& publication = m_preview_host->publication();
     if (!publication)
-        return {};
+        return std::nullopt;
     core::Diagnostics diagnostics = m_preview_host->runtime_diagnostics();
     core::append_diagnostics(diagnostics, m_preview_host->preview_diagnostics());
-    return encode_preview_debug_snapshot(*publication, diagnostics,
-                                         m_preview_host->preview_running())
+    return devtools::RuntimeDebugSnapshot{.publication = *publication,
+                                          .diagnostics = std::move(diagnostics),
+                                          .preview_running = m_preview_host->preview_running()};
+}
+
+std::string
+RuntimePreviewController::encode_debug_snapshot(const devtools::RuntimeDebugSnapshot& snapshot)
+{
+    return encode_preview_debug_snapshot(snapshot.publication, snapshot.diagnostics,
+                                         snapshot.preview_running)
         .dump();
 }
+
+std::string RuntimePreviewController::debug_snapshot() const
+{
+    auto snapshot = debug_snapshot_value();
+    if (!snapshot)
+        return {};
+    return encode_debug_snapshot(*snapshot);
+}
+#endif
 
 const std::optional<runtime::RuntimePublication>&
 RuntimePreviewController::publication() const noexcept

@@ -76,13 +76,11 @@ function(_noveltea_write_rmlui_dependency_diagnostic
 endfunction()
 
 function(_noveltea_verify_installed_rmlui_extension_api)
-    if(TARGET RmlUi::RmlUi)
-        set(_noveltea_rmlui_probe_target RmlUi::RmlUi)
-    elseif(TARGET RmlUi::Core)
+    if(TARGET RmlUi::Core)
         set(_noveltea_rmlui_probe_target RmlUi::Core)
     else()
         message(FATAL_ERROR
-            "The installed RmlUi package did not expose RmlUi::RmlUi or RmlUi::Core.")
+            "The installed RmlUi package did not expose RmlUi::Core.")
     endif()
 
     set(_noveltea_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
@@ -254,6 +252,13 @@ function(noveltea_provide_rmlui_dependency)
         )
         FetchContent_MakeAvailable(RmlUi)
         FetchContent_GetProperties(RmlUi SOURCE_DIR _noveltea_rmlui_source_dir)
+
+        # Upstream always declares the Debugger target. Keep it out of ordinary production `all`
+        # builds unless NovelTea's developer instrumentation is enabled; engine linkage below uses
+        # RmlUi::Core directly and adds RmlUi::Debugger only for devtools builds.
+        if(TARGET rmlui_debugger AND NOT NOVELTEA_ENABLE_DEVTOOLS)
+            set_property(TARGET rmlui_debugger PROPERTY EXCLUDE_FROM_ALL TRUE)
+        endif()
 
         set(_noveltea_rmlui_marker
             "${_noveltea_rmlui_source_dir}/Include/RmlUi/Core/NovelTeaPatch.h")

@@ -15,6 +15,9 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
   coherent-publication architecture that runtime implementation work must follow.
 - `docs/runtime/STATE_AND_PLAYBACK.md` describes runtime input/output contracts, save policy, diagnostics, recorded playback, and remaining work.
 - `docs/runtime/LUA_RUNTIME.md` describes Lua runtime direction and command API.
+- `docs/runtime/DEVELOPER_DEBUGGING.md` defines the developer capability matrix, shared Devtools
+  Snapshot/Console/Trace data plane, Lua `Debug.*`, RmlUi Debugger/native shortcuts, and the Feature
+  Lab Rooms & Interactions diagnostic workflow.
 - `docs/runtime/PACKAGE_EXPORT.md` describes runtime package layout, manifest, and editor hook.
 - `docs/editor/preview/PREVIEW_AND_TEST_PLAYBACK.md` describes editor-side preview/test playback integration.
 - `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md` describes preview iframe protocol and transport behavior.

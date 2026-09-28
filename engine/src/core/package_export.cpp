@@ -379,7 +379,8 @@ void collect_shaders(const PackageExportOptions& options, std::vector<PendingEnt
             }
             std::sort(files.begin(), files.end());
             for (const auto& file : files) {
-                auto package_path = relative_package_path(options.shader_asset_root, file, "", result);
+                auto package_path =
+                    relative_package_path(options.shader_asset_root, file, "", result);
                 if (!package_path)
                     continue;
                 auto bytes = read_file_bytes(file, result, *package_path);

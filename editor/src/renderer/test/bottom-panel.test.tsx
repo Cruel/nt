@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vite-plus/test';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
@@ -33,6 +33,10 @@ beforeEach(() => {
     projectFilePath: '/mock/project/game.json',
   });
   useWorkspaceStore.getState().setDiagnostics([]);
+  useWorkspaceStore.getState().clearRuntimeEvents();
+  useWorkspaceStore.getState().clearRuntimeTrace();
+  useWorkspaceStore.getState().setRuntimeConsoleClearHandler(null);
+  useWorkspaceStore.getState().setRuntimeTraceClearHandler(null);
   useWorkspaceStore.getState().setLastPlaybackReport(null);
   useWorkspaceStore.getState().setLastExportResult(null);
   useEntityUsagesStore.getState().clearUsages();
@@ -56,7 +60,8 @@ describe('BottomPanel', () => {
     );
     expect(screen.getByText('No activity entries yet.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Problems/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Runtime Events' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Console' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Trace' })).not.toBeInTheDocument();
     expect(useBottomPanelStore.getState().serialize()).toEqual({
       visible: true,
       activePanelId: 'problems',
@@ -69,7 +74,8 @@ describe('BottomPanel', () => {
 
     expect(screen.getByRole('button', { name: /Problems/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Activity' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Runtime Events' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Console' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Trace' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Asset Performance' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Preview Diagnostics/ })).not.toBeInTheDocument();
   });
@@ -147,18 +153,22 @@ describe('BottomPanel', () => {
 
     render(<BottomPanel />);
 
-    const runtimeEvents = screen.getByRole('button', { name: 'Runtime Events' });
+    const runtimeEvents = screen.getByRole('button', { name: 'Console' });
+    const trace = screen.getByRole('button', { name: 'Trace' });
     const assetPerformance = screen.getByRole('button', { name: 'Asset Performance' });
     const previewDiagnostics = screen.getByRole('button', { name: /Preview Diagnostics/ });
     const previewGroup = runtimeEvents.closest('[data-bottom-panel-group="preview"]');
 
     expect(previewGroup).not.toBeNull();
     expect(previewGroup).toContainElement(assetPerformance);
+    expect(previewGroup).toContainElement(trace);
     expect(previewGroup).toContainElement(previewDiagnostics);
     expect(runtimeEvents).toHaveAttribute('data-relevant', 'true');
+    expect(trace).toHaveAttribute('data-relevant', 'true');
     expect(assetPerformance).toHaveAttribute('data-relevant', 'true');
     expect(previewDiagnostics).toHaveAttribute('data-relevant', 'true');
     expect(runtimeEvents).toHaveClass('border-t-primary');
+    expect(trace).toHaveClass('border-t-primary');
     expect(assetPerformance).toHaveClass('border-t-primary');
     expect(previewDiagnostics).toHaveClass('border-t-primary');
     expect(previewGroup?.querySelector('[data-bottom-panel-group-line]')).toHaveClass('border-b');
@@ -173,6 +183,7 @@ describe('BottomPanel', () => {
     });
 
     expect(runtimeEvents).toHaveAttribute('data-relevant', 'false');
+    expect(trace).toHaveAttribute('data-relevant', 'false');
     expect(assetPerformance).toHaveAttribute('data-relevant', 'false');
     expect(previewDiagnostics).toHaveAttribute('data-relevant', 'false');
   });
@@ -195,6 +206,206 @@ describe('BottomPanel', () => {
     expect(screen.queryByText('runtime-debug-snapshot')).not.toBeInTheDocument();
   });
 
+  it('filters structured Console entries and clears both retained surfaces', async () => {
+    const clearRemote = vi.fn().mockResolvedValue(undefined);
+    act(() => {
+      useWorkbenchStore.getState().openTab(buildFullGamePreviewTab());
+      useWorkspaceStore.getState().addDevtoolsConsoleRecords(
+        [
+          {
+            sequence: '8',
+            globalSequence: '18',
+            hostGeneration: '1',
+            runtimeGeneration: '3',
+            frame: '40',
+            severity: 'info',
+            category: 'lua',
+            message: 'hello player',
+            source: { chunk: 'main.lua', line: 4 },
+            generationMarker: false,
+          },
+          {
+            sequence: '9',
+            globalSequence: '20',
+            hostGeneration: '1',
+            runtimeGeneration: '3',
+            frame: '41',
+            severity: 'error',
+            category: 'runtime',
+            message: 'door failed',
+            source: null,
+            generationMarker: false,
+          },
+        ],
+        '2',
+      );
+      useWorkspaceStore.getState().setRuntimeConsoleClearHandler(clearRemote);
+      useBottomPanelStore.getState().setActivePanelId('preview-events');
+    });
+
+    render(<BottomPanel />);
+    expect(screen.getByText(/Console history gap: 2 record/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Console severity'), { target: { value: 'error' } });
+    expect(screen.getByText('door failed')).toBeInTheDocument();
+    expect(screen.queryByText('hello player')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Console severity'), { target: { value: 'all' } });
+    fireEvent.change(screen.getByLabelText('Console category'), { target: { value: 'lua' } });
+    fireEvent.change(screen.getByLabelText('Console text filter'), { target: { value: 'player' } });
+    expect(screen.getByText('hello player')).toBeInTheDocument();
+    expect(screen.queryByText('door failed')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Freeze' }));
+    expect(screen.getByText('Console view frozen; capture continues.')).toBeInTheDocument();
+    act(() => {
+      useWorkspaceStore.getState().addDevtoolsConsoleRecords([
+        {
+          sequence: '10',
+          globalSequence: '21',
+          hostGeneration: '1',
+          runtimeGeneration: '3',
+          frame: '42',
+          severity: 'info',
+          category: 'lua',
+          message: 'new player event',
+          source: null,
+          generationMarker: false,
+        },
+      ]);
+    });
+    expect(screen.queryByText('new player event')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Unfreeze' }));
+    expect(screen.getByText('new player event')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(useWorkspaceStore.getState().runtimeEvents).toEqual([]);
+    expect(useWorkspaceStore.getState().runtimeConsoleLostRecordCount).toBeNull();
+    expect(clearRemote).toHaveBeenCalledTimes(1);
+  });
+
+  it('filters, freezes, and clears the retained Trace without stopping capture', () => {
+    const clearRemote = vi.fn().mockResolvedValue(undefined);
+    const pointerRecord = {
+      sequence: '12',
+      firstSequence: '10',
+      globalSequence: '21',
+      firstGlobalSequence: '19',
+      hostGeneration: '1',
+      runtimeGeneration: '3',
+      kind: 'input-routing' as const,
+      category: 'input',
+      repeatCount: 3,
+      firstFrame: '40',
+      lastFrame: '42',
+      input: {
+        event: 'mouse-motion',
+        hostX: 100,
+        hostY: 80,
+        referenceX: 200,
+        referenceY: 160,
+        mouseButton: null,
+        wheelX: null,
+        wheelY: null,
+        referenceValid: true,
+        debugProcessed: true,
+        debugConsumed: false,
+        runtimeUiProcessed: true,
+        runtimeUiConsumed: false,
+        runtimeUiWantsPointer: false,
+        gameplayEvent: true,
+        gameplayAdmitted: true,
+        gameplayBlockReason: 'none',
+        governingLayout: null,
+        governingLayoutMode: 'none',
+        rmluiHover: {
+          context: 'game-ui',
+          documentId: 'hud',
+          tag: 'button',
+          id: 'door',
+          classes: '',
+          pointerEvents: 'auto',
+        },
+        rmluiFocus: null,
+        worldEvaluated: true,
+        worldConsumed: false,
+        worldHit: 'room/foyer/hotspot/door',
+        worldHovered: 'room/foyer/hotspot/door',
+        worldPressed: null,
+        worldTarget: null,
+      },
+      debuggerMutation: null,
+      detail: '',
+      generationMarker: false,
+    };
+    const blockedRecord = {
+      ...pointerRecord,
+      sequence: '9',
+      firstSequence: '9',
+      repeatCount: 1,
+      input: {
+        ...pointerRecord.input,
+        runtimeUiConsumed: true,
+        runtimeUiWantsPointer: true,
+        gameplayAdmitted: false,
+        gameplayBlockReason: 'runtime-ui',
+        rmluiHover: {
+          context: 'game-ui',
+          documentId: 'hud',
+          tag: 'div',
+          id: 'feature-lab-panel',
+          classes: 'feature-lab-panel',
+          pointerEvents: 'auto',
+        },
+        worldEvaluated: false,
+        worldHit: null,
+        worldHovered: null,
+      },
+    };
+    act(() => {
+      useWorkbenchStore.getState().openTab(buildFullGamePreviewTab());
+      useWorkspaceStore.getState().addDevtoolsTraceRecords([blockedRecord, pointerRecord], '2');
+      useWorkspaceStore.getState().setRuntimeTraceClearHandler(clearRemote);
+      useBottomPanelStore.getState().setActivePanelId('preview-trace');
+    });
+
+    render(<BottomPanel />);
+    expect(screen.getByText(/Trace history gap: 2 record/)).toBeInTheDocument();
+    expect(screen.getAllByText('mouse-motion')).toHaveLength(2);
+    expect(screen.getByText(/room\/foyer\/hotspot\/door/)).toBeInTheDocument();
+    expect(screen.getByText(/gameplay: admitted=false block=runtime-ui/)).toBeInTheDocument();
+    expect(screen.getByText(/world: evaluated=false/)).toBeInTheDocument();
+    expect(screen.getByText(/gameplay: admitted=true block=none/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/world: evaluated=true hit=room\/foyer\/hotspot\/door/),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Trace text filter'), { target: { value: 'missing' } });
+    expect(screen.queryByText('mouse-motion')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Trace text filter'), { target: { value: 'door' } });
+    expect(screen.getByText('mouse-motion')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Freeze' }));
+    expect(screen.getByText('Trace view frozen; capture continues.')).toBeInTheDocument();
+    act(() => {
+      useWorkspaceStore.getState().addDevtoolsTraceRecords([
+        {
+          ...pointerRecord,
+          sequence: '13',
+          firstSequence: '13',
+          repeatCount: 1,
+          input: { ...pointerRecord.input, event: 'mouse-button-down' },
+        },
+      ]);
+    });
+    expect(screen.queryByText('mouse-button-down')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Unfreeze' }));
+    expect(screen.getByText('mouse-button-down')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(useWorkspaceStore.getState().runtimeTrace).toEqual([]);
+    expect(clearRemote).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps Preview Diagnostics available after the Play tab is gone while diagnostics remain', () => {
     usePreviewManagerStore.getState().recordPreviewDiagnostic({
       severity: 'error',
@@ -205,7 +416,8 @@ describe('BottomPanel', () => {
 
     render(<BottomPanel />);
 
-    expect(screen.queryByRole('button', { name: 'Runtime Events' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Console' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Trace' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Asset Performance' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('1 preview error')).toHaveTextContent('1');
     expect(screen.getByRole('button', { name: /Preview Diagnostics/ })).toContainElement(

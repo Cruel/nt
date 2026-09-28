@@ -305,8 +305,8 @@ std::string minimal_compiled_project_fixture()
     const std::string text{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
     auto project = nlohmann::json::parse(text, nullptr, false);
     REQUIRE_FALSE(project.is_discarded());
-    project["resources"]["scripts"][0]["source"] =
-        {{"kind", "inline-lua"}, {"source", "return {}\n"}};
+    project["resources"]["scripts"][0]["source"] = {{"kind", "inline-lua"},
+                                                    {"source", "return {}\n"}};
     return project.dump();
 }
 
@@ -2097,7 +2097,7 @@ TEST_CASE("GameHost failed reset and load candidates preserve the live session a
     const auto fixture = asset_bootstrap_compiled_project_fixture();
     project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
                         "game-host-candidate-failure-test");
-    const std::string valid_bootstrap = "return {}\n";
+    const std::string valid_bootstrap = "Debug.info('candidate-ok')\nreturn {}\n";
     project_assets->add("scripts/bootstrap.lua",
                         assets::AssetBytes(valid_bootstrap.begin(), valid_bootstrap.end()),
                         "game-host-candidate-failure-test");
@@ -2115,6 +2115,9 @@ TEST_CASE("GameHost failed reset and load candidates preserve the live session a
     core::RuntimeClock runtime_clock;
     GameHostHostValues host_values;
     FakeSystemLayoutHost system_layout_host;
+    GameHost* host_ptr = nullptr;
+    std::vector<std::pair<std::string, std::uint64_t>> committed_debug_messages;
+    std::vector<std::pair<std::string, std::uint64_t>> candidate_debug_messages;
 
     GameHost host({.content_assets = assets,
                    .script_invocations = scripts,
@@ -2129,13 +2132,30 @@ TEST_CASE("GameHost failed reset and load candidates preserve the live session a
                    .system_layout_host = system_layout_host,
                    .world_transitions = nullptr,
                    .script_certifier = script_certifier,
+                   .script_debug_sink =
+                       [&](const script::ScriptDebugMessage& message) {
+                           REQUIRE(host_ptr != nullptr);
+                           committed_debug_messages.emplace_back(
+                               message.message, host_ptr->session_generation().number());
+                       },
+                   .candidate_script_debug_sink =
+                       [&](const script::ScriptDebugMessage& message) {
+                           REQUIRE(host_ptr != nullptr);
+                           candidate_debug_messages.emplace_back(
+                               message.message, host_ptr->session_generation().number());
+                       },
                    .diagnostic_sink = {}});
+    host_ptr = &host;
 
     REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
                                         .runtime_locale = "en",
                                         .load_title_screen = false,
                                         .stop_runtime_after_load = false},
                                        {}));
+    REQUIRE(committed_debug_messages.size() == 1);
+    CHECK(committed_debug_messages.front().first == "candidate-ok");
+    CHECK(committed_debug_messages.front().second == host.session_generation().number());
+    CHECK(candidate_debug_messages.empty());
     auto* live_scripts = host.project_script_runtime();
     REQUIRE(live_scripts);
     REQUIRE(live_scripts->execute("sentinel = 41", "reset-failure-sentinel"));
@@ -2145,13 +2165,16 @@ TEST_CASE("GameHost failed reset and load candidates preserve the live session a
     REQUIRE(host.runtime_publication());
     const auto live_revision = host.runtime_publication()->revision;
 
-    const std::string invalid_bootstrap = "local =";
+    const std::string invalid_bootstrap = "Debug.info('candidate-fail')\nerror('candidate boom')\n";
     project_assets->add("scripts/bootstrap.lua",
                         assets::AssetBytes(invalid_bootstrap.begin(), invalid_bootstrap.end()),
                         "game-host-candidate-failure-test");
     auto failed_reset =
         host.submit_runtime_input(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
     REQUIRE_FALSE(failed_reset.accepted());
+    REQUIRE(candidate_debug_messages.size() == 1);
+    CHECK(candidate_debug_messages.front().first == "candidate-fail");
+    CHECK(candidate_debug_messages.front().second == live_generation.number());
     CHECK(host.project_script_runtime() == live_scripts);
     CHECK(&host.running_game()->session() == live_session);
     CHECK(host.session_generation() == live_generation);
@@ -2167,6 +2190,10 @@ TEST_CASE("GameHost failed reset and load candidates preserve the live session a
                         "game-host-candidate-failure-test");
     auto reset = host.submit_runtime_input(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
     REQUIRE(reset.accepted());
+    REQUIRE(committed_debug_messages.size() == 2);
+    CHECK(committed_debug_messages.back().first == "candidate-ok");
+    CHECK(committed_debug_messages.back().second == host.session_generation().number());
+    CHECK(committed_debug_messages.back().second == live_generation.number() + 1);
     REQUIRE(host.submit_runtime_input(core::RuntimeInputMessage{core::SaveRuntimeInput{
                                           core::TypedSaveSlotId::autosave()}})
                 .accepted());

@@ -2,11 +2,17 @@
 
 #include "noveltea/engine.hpp"
 #include "noveltea/engine_tooling.hpp"
+#include "noveltea/devtools_console.hpp"
+#include "noveltea/devtools_trace.hpp"
+#include "noveltea/platform.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <array>
+#include <filesystem>
 #include <vector>
 
 namespace noveltea::host {
@@ -65,6 +71,26 @@ concept HasEngineToolingAccess = requires(Engine& engine, const Engine& const_en
     Adapter::preview(engine);
     Adapter::preview(const_engine);
     Adapter::preview_running(const_engine);
+};
+
+template<typename Adapter>
+concept HasDevtoolsToolingAccess = requires(Engine& engine, const Engine& const_engine) {
+    Adapter::devtools_capabilities();
+    Adapter::devtools_snapshot(const_engine);
+    Adapter::devtools_debug_report(engine);
+};
+
+template<typename T>
+concept HasRuntimeDebugMutationAccess = requires(T value) {
+    value.set_variable("flag", core::RuntimeValue{true});
+    value.reset_variable("flag");
+    value.teleport_room("room");
+    value.create_runtime_instance("interactable", "definition", "source");
+    value.replace_runtime_instance_configuration("interactable", "instance", "definition",
+                                                 "source");
+    value.clear_runtime_instance_configuration("interactable", "instance");
+    value.destroy_runtime_instance("interactable", "instance");
+    value.retarget_runtime_room_exit("room", "exit", "target");
 };
 
 template<typename T>
@@ -143,6 +169,13 @@ TEST_CASE("Engine partial shutdown and unloaded preview reset are cleanup safe")
     STATIC_REQUIRE_FALSE(HasScreenshotCommand<Engine>);
     STATIC_REQUIRE(HasScreenshotCommand<RuntimePreviewController>);
     STATIC_REQUIRE(HasEngineToolingAccess<EngineTooling>);
+#if NOVELTEA_ENABLE_DEVTOOLS
+    STATIC_REQUIRE(HasDevtoolsToolingAccess<EngineTooling>);
+    STATIC_REQUIRE(HasRuntimeDebugMutationAccess<RuntimePreviewController>);
+#else
+    STATIC_REQUIRE_FALSE(HasDevtoolsToolingAccess<EngineTooling>);
+    STATIC_REQUIRE_FALSE(HasRuntimeDebugMutationAccess<RuntimePreviewController>);
+#endif
 
     Engine engine;
     const bool original_preview_running = EngineTooling::preview_running(engine);
@@ -169,6 +202,403 @@ TEST_CASE("Asset profiler tooling fails clearly without an active preview servic
     REQUIRE_FALSE(delta);
     CHECK(delta.error().code == "assets.editor_profiler_unavailable");
 }
+
+TEST_CASE("Devtools tooling advertises its shared snapshot capability")
+{
+    Engine engine;
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+    const auto capabilities = EngineTooling::devtools_capabilities();
+    REQUIRE_FALSE(capabilities.empty());
+    CHECK(std::find(capabilities.begin(), capabilities.end(), "devtools-snapshot-v1") !=
+          capabilities.end());
+    CHECK(std::find(capabilities.begin(), capabilities.end(), "devtools-debug-report-v1") !=
+          capabilities.end());
+
+    const auto snapshot = EngineTooling::devtools_snapshot(engine);
+    REQUIRE_FALSE(snapshot);
+    CHECK(snapshot.error().code == "devtools.engine_uninitialized");
+
+    const auto report = EngineTooling::devtools_debug_report(engine);
+    REQUIRE_FALSE(report);
+    CHECK(report.error().code == "devtools.engine_uninitialized");
+#else
+    STATIC_REQUIRE_FALSE(HasDevtoolsToolingAccess<EngineTooling>);
+#endif
+}
+
+TEST_CASE("Devtools Snapshot owns one typed Runtime Debug Snapshot section")
+{
+    devtools::DevtoolsSnapshot snapshot;
+    CHECK_FALSE(snapshot.runtime.has_value());
+    CHECK(snapshot.host.surface == HostSurfaceMetrics{});
+    CHECK_FALSE(snapshot.tooling.preview_running);
+}
+
+TEST_CASE("Devtools Console retains bounded sequenced history and reports cursor gaps")
+{
+    devtools::ConsoleBuffer console(3);
+    console.set_generations(7, 11);
+    console.append(devtools::ConsoleSeverity::Info, "lua", "one");
+    console.append(devtools::ConsoleSeverity::Warning, "lua", "two");
+    console.append(devtools::ConsoleSeverity::Error, "runtime", "three");
+
+    const auto delta = console.delta_after(0);
+    REQUIRE(delta.records.size() == 3);
+    CHECK(delta.history_gap);
+    CHECK(delta.lost_record_count == 1);
+    CHECK(delta.records.front().sequence == 2);
+    CHECK(delta.records.front().host_generation == 7);
+    CHECK(delta.records.front().runtime_generation == 11);
+    CHECK(delta.records.front().frame == 0);
+
+    const auto cursor_delta = console.delta_after(2);
+    REQUIRE(cursor_delta.records.size() == 2);
+    CHECK_FALSE(cursor_delta.history_gap);
+    CHECK(cursor_delta.records.front().sequence == 3);
+
+    const auto latest_before_clear = console.latest_sequence();
+    console.clear();
+    CHECK(console.records().empty());
+    console.append(devtools::ConsoleSeverity::Info, "lua", "after-clear");
+    CHECK(console.records().front().sequence == latest_before_clear + 1);
+}
+
+TEST_CASE("Devtools Console retains runtime generation transitions as records")
+{
+    devtools::ConsoleBuffer console;
+    console.set_generations(1, 3);
+    console.set_generations(1, 4);
+
+    REQUIRE(console.records().size() == 2);
+    CHECK(console.records()[0].generation_marker);
+    CHECK(console.records()[0].runtime_generation == 3);
+    CHECK(console.records()[1].generation_marker);
+    CHECK(console.records()[1].runtime_generation == 4);
+    CHECK(console.records()[1].message.find("replacing 3") != std::string::npos);
+}
+
+TEST_CASE("Devtools Console sanitizes arbitrary bytes before JSON transport")
+{
+    devtools::ConsoleBuffer console;
+    std::string message{"lua byte: "};
+    message.push_back(static_cast<char>(0xFF));
+    std::string source{"chunk"};
+    source.push_back(static_cast<char>(0x80));
+    console.append(devtools::ConsoleSeverity::Info, "lua", std::move(message),
+                   devtools::ConsoleSource{.chunk = std::move(source), .line = 7});
+
+    REQUIRE(console.records().size() == 1);
+    CHECK(console.records().front().message == "lua byte: \\xFF");
+    REQUIRE(console.records().front().source);
+    CHECK(console.records().front().source->chunk == "chunk\\x80");
+    const auto encoded = nlohmann::json(console.records().front().message).dump();
+    CHECK(encoded.find("\\\\xFF") != std::string::npos);
+}
+
+TEST_CASE("Devtools Console can record uncommitted candidate output without changing generations")
+{
+    devtools::ConsoleBuffer console;
+    console.set_generations(2, 9, 4);
+    console.append_with_runtime_generation(devtools::ConsoleSeverity::Warning, "lua-candidate",
+                                           "candidate failed", std::nullopt, std::nullopt, 5);
+    console.append(devtools::ConsoleSeverity::Info, "lua", "live runtime", std::nullopt, 6);
+
+    REQUIRE(console.records().size() == 3);
+    CHECK(console.records()[1].host_generation == 2);
+    CHECK_FALSE(console.records()[1].runtime_generation);
+    CHECK(console.records()[1].category == "lua-candidate");
+    CHECK(console.records()[2].runtime_generation == 9);
+    CHECK_FALSE(console.records()[2].generation_marker);
+}
+
+TEST_CASE("Devtools Console and Trace share a global sequence while keeping independent cursors")
+{
+    devtools::SequenceAllocator sequence;
+    devtools::ConsoleBuffer console(8, &sequence);
+    devtools::TraceBuffer trace(8, &sequence);
+
+    console.append(devtools::ConsoleSeverity::Info, "runtime", "first", std::nullopt, 10);
+    trace.append_input(
+        {.event = "mouse-motion", .gameplay_block_reason = "none", .governing_layout_mode = "none"},
+        11);
+    console.append(devtools::ConsoleSeverity::Warning, "runtime", "third", std::nullopt, 12);
+
+    REQUIRE(console.records().size() == 2);
+    REQUIRE(trace.records().size() == 1);
+    CHECK(console.records()[0].sequence == 1);
+    CHECK(trace.records()[0].sequence == 1);
+    CHECK(console.records()[1].sequence == 2);
+    CHECK(console.records()[0].global_sequence == 1);
+    CHECK(trace.records()[0].global_sequence == 2);
+    CHECK(console.records()[1].global_sequence == 3);
+    CHECK(console.records()[1].frame == 12);
+}
+
+TEST_CASE("Devtools generation markers include host-only replacement")
+{
+    devtools::ConsoleBuffer console;
+    devtools::TraceBuffer trace;
+    console.set_generations(1, 3, 1);
+    trace.set_generations(1, 3, 1);
+    console.set_generations(2, 3, 2);
+    trace.set_generations(2, 3, 2);
+
+    REQUIRE(console.records().size() == 2);
+    REQUIRE(trace.records().size() == 2);
+    CHECK(console.records().back().message.find("Host generation 2 replaced 1") !=
+          std::string::npos);
+    CHECK(trace.records().back().detail.find("Host generation 2 replaced 1") != std::string::npos);
+}
+
+TEST_CASE("Devtools Trace coalesces equivalent routing outcomes without hiding transitions")
+{
+    devtools::TraceBuffer trace(4);
+    trace.set_generations(2, 5, 10);
+    devtools::TraceInputRouting over_world{
+        .event = "mouse-motion",
+        .host_x = 320.0f,
+        .host_y = 180.0f,
+        .reference_x = 640.0f,
+        .reference_y = 360.0f,
+        .reference_valid = true,
+        .runtime_ui_processed = true,
+        .runtime_ui_wants_pointer = false,
+        .gameplay_event = true,
+        .gameplay_admitted = true,
+        .gameplay_block_reason = "none",
+        .governing_layout_mode = "none",
+        .rmlui_hover = devtools::TraceElementRef{.context = "gameplay",
+                                                 .tag = "body",
+                                                 .id = "",
+                                                 .classes = "",
+                                                 .pointer_events = "none"},
+        .world_evaluated = true,
+        .world_hit = "room/foyer/hotspot/door",
+        .world_hovered = "room/foyer/hotspot/door",
+    };
+    trace.append_input(over_world, 11);
+    over_world.host_x = 321.0f;
+    over_world.reference_x = 642.0f;
+    trace.append_input(over_world, 12);
+    over_world.host_x = 322.0f;
+    over_world.reference_x = 644.0f;
+    trace.append_input(over_world, 13);
+
+    REQUIRE(trace.records().size() == 2);
+    const auto& repeated = trace.records().back();
+    CHECK(repeated.repeat_count == 3);
+    CHECK(repeated.first_frame == 11);
+    CHECK(repeated.last_frame == 13);
+    CHECK(repeated.sequence > repeated.first_sequence);
+    CHECK(repeated.global_sequence > repeated.first_global_sequence);
+    CHECK(repeated.input->host_x == 322.0f);
+    CHECK(repeated.input->reference_x == 644.0f);
+
+    auto blocked = over_world;
+    blocked.gameplay_admitted = false;
+    blocked.gameplay_block_reason = "runtime-ui";
+    blocked.runtime_ui_consumed = true;
+    blocked.runtime_ui_wants_pointer = true;
+    blocked.rmlui_hover = devtools::TraceElementRef{.context = "gameplay",
+                                                    .tag = "button",
+                                                    .id = "overlay",
+                                                    .classes = "",
+                                                    .pointer_events = "auto"};
+    blocked.world_evaluated = false;
+    blocked.world_hit.reset();
+    blocked.world_hovered.reset();
+    trace.append_input(blocked, 14);
+    trace.append_input(over_world, 15);
+
+    REQUIRE(trace.records().size() == 4);
+    CHECK(trace.evicted_record_count() == 0);
+    CHECK(trace.records()[2].input->gameplay_block_reason == "runtime-ui");
+    CHECK(trace.records()[2].input->runtime_ui_consumed);
+    REQUIRE(trace.records()[2].input->rmlui_hover);
+    CHECK(trace.records()[2].input->rmlui_hover->pointer_events == "auto");
+    CHECK_FALSE(trace.records()[2].input->world_evaluated);
+    CHECK_FALSE(trace.records()[2].input->world_hit);
+    CHECK(trace.records()[3].input->gameplay_admitted);
+    CHECK_FALSE(trace.records()[3].input->runtime_ui_consumed);
+    REQUIRE(trace.records()[3].input->rmlui_hover);
+    CHECK(trace.records()[3].input->rmlui_hover->pointer_events == "none");
+    CHECK(trace.records()[3].input->world_evaluated);
+    CHECK(trace.records()[3].input->world_hit == "room/foyer/hotspot/door");
+    CHECK(trace.records()[3].input->world_hovered == "room/foyer/hotspot/door");
+
+    devtools::TraceBuffer wheel_trace;
+    devtools::TraceInputRouting wheel{
+        .event = "mouse-wheel",
+        .wheel_x = 0.0f,
+        .wheel_y = 1.0f,
+        .gameplay_event = true,
+        .gameplay_admitted = true,
+        .gameplay_block_reason = "none",
+        .governing_layout_mode = "none",
+    };
+    wheel_trace.append_input(wheel, 20);
+    wheel_trace.append_input(wheel, 21);
+    wheel.wheel_y = -1.0f;
+    wheel_trace.append_input(wheel, 22);
+    REQUIRE(wheel_trace.records().size() == 2);
+    CHECK(wheel_trace.records()[0].repeat_count == 2);
+    CHECK(wheel_trace.records()[0].input->wheel_y == 1.0f);
+    CHECK(wheel_trace.records()[1].input->wheel_y == -1.0f);
+}
+
+TEST_CASE("Devtools Trace reports retained gaps and keeps generation and debugger records distinct")
+{
+    devtools::TraceBuffer trace(3);
+    trace.set_generations(1, 7, 1);
+    trace.append_debugger_mutation("editor-react", "set variable trust", 2);
+    trace.append_input({.event = "mouse-button-down",
+                        .mouse_button = 1,
+                        .gameplay_event = true,
+                        .gameplay_admitted = true,
+                        .gameplay_block_reason = "none",
+                        .governing_layout_mode = "none",
+                        .world_evaluated = true},
+                       3);
+    trace.set_generations(1, 8, 4);
+
+    const auto delta = trace.delta_after(0);
+    REQUIRE(delta.records.size() == 3);
+    CHECK(trace.evicted_record_count() == 1);
+    CHECK(delta.history_gap);
+    CHECK(delta.lost_record_count == 1);
+    CHECK(delta.records[0].kind == devtools::TraceRecordKind::DebuggerMutation);
+    REQUIRE(delta.records[0].debugger_mutation);
+    CHECK(delta.records[0].debugger_mutation->source_frontend == "editor-react");
+    CHECK(delta.records[0].debugger_mutation->operation == "set variable trust");
+    CHECK(delta.records[1].kind == devtools::TraceRecordKind::InputRouting);
+    CHECK(delta.records[1].input->mouse_button == 1);
+    CHECK(delta.records[2].kind == devtools::TraceRecordKind::Generation);
+    CHECK(delta.records[2].generation_marker);
+    CHECK(delta.records[2].runtime_generation == 8);
+
+    trace.clear();
+    CHECK(trace.evicted_record_count() == 0);
+}
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+TEST_CASE("Devtools Snapshot tracks the populated canonical Runtime Debug Snapshot")
+{
+    const std::filesystem::path runtime_assets{NOVELTEA_TEST_RUNTIME_ASSET_ROOT};
+    Engine engine;
+    const PlatformConfig platform_config{
+        .title = "NovelTea devtools snapshot test",
+        .width = 640,
+        .height = 360,
+        .resizable = false,
+        .vsync = false,
+    };
+    const EngineConfig engine_config{
+        .system_asset_root = runtime_assets / "system",
+        .project_asset_root = runtime_assets / "project",
+        .compiled_project = "project:/projects/runtime_layout_scale_readback.json",
+        .load_title_screen = false,
+        .enable_audio = false,
+    };
+    EngineToolingConfig tooling_config;
+    tooling_config.keep_runtime_running = true;
+    tooling_config.enable_debug_ui = false;
+    tooling_config.preview_widget = true;
+
+    REQUIRE(EngineTooling::initialize(engine, platform_config, engine_config, tooling_config));
+    EngineTooling::set_preview_running(engine, true);
+
+    const auto narrow_before = EngineTooling::preview(engine).debug_snapshot_value();
+    REQUIRE(narrow_before);
+    const auto devtools_before = EngineTooling::devtools_snapshot(engine);
+    REQUIRE(devtools_before);
+    REQUIRE(devtools_before.value_if()->runtime);
+    CHECK(RuntimePreviewController::encode_debug_snapshot(*devtools_before.value_if()->runtime) ==
+          RuntimePreviewController::encode_debug_snapshot(*narrow_before));
+    CHECK(devtools_before.value_if()->runtime->preview_running);
+    CHECK(devtools_before.value_if()->tooling.preview_running);
+
+    const auto rejected_mutation =
+        nlohmann::json::parse(EngineTooling::preview(engine).set_variable("not a valid variable id",
+                                                                          core::RuntimeValue{true}),
+                              nullptr, false);
+    REQUIRE(rejected_mutation.is_object());
+    CHECK(rejected_mutation.value("kind", std::string{}) == "variable-set");
+    CHECK(rejected_mutation.value("debugOnly", false));
+    CHECK(rejected_mutation.value("rejected", false));
+    CHECK(rejected_mutation.value("message", std::string{}) == "invalid variable id");
+    REQUIRE(rejected_mutation.contains("newValue"));
+    CHECK(rejected_mutation["newValue"] == true);
+
+    EngineTooling::record_debugger_mutation(engine, "host-test", "debug report export test");
+    const auto console_before_report = EngineTooling::devtools_console_delta(engine, 0);
+    REQUIRE(console_before_report);
+    CHECK(std::any_of(console_before_report.value_if()->records.begin(),
+                      console_before_report.value_if()->records.end(),
+                      [](const auto& record) { return record.category == "engine"; }));
+    CHECK(std::any_of(console_before_report.value_if()->records.begin(),
+                      console_before_report.value_if()->records.end(), [](const auto& record) {
+                          return record.category == "debugger" &&
+                                 record.message == "debug report export test";
+                      }));
+    const auto trace_before_report = EngineTooling::devtools_trace_delta(engine, 0);
+    REQUIRE(trace_before_report);
+
+    const auto report = EngineTooling::devtools_debug_report(engine);
+    REQUIRE(report);
+    const auto& report_value = *report.value_if();
+    CHECK(report_value.format_version == 1);
+    CHECK_FALSE(report_value.build.engine_version.empty());
+    CHECK_FALSE(report_value.build.build_configuration.empty());
+    CHECK_FALSE(report_value.build.target_platform.empty());
+    CHECK(report_value.build.host_platform == report_value.snapshot.host.platform);
+    CHECK(report_value.build.renderer == report_value.snapshot.host.renderer);
+    CHECK(std::find(report_value.capabilities.begin(), report_value.capabilities.end(),
+                    "devtools-debug-report-v1") != report_value.capabilities.end());
+    CHECK(report_value.console.after_sequence == 0);
+    CHECK(report_value.console.earliest_retained_sequence ==
+          console_before_report.value_if()->earliest_retained_sequence);
+    CHECK(report_value.console.latest_sequence ==
+          console_before_report.value_if()->latest_sequence);
+    CHECK(report_value.console.lost_record_count ==
+          console_before_report.value_if()->lost_record_count);
+    CHECK(report_value.console.history_gap == console_before_report.value_if()->history_gap);
+    CHECK(report_value.console.records.size() == console_before_report.value_if()->records.size());
+    CHECK(report_value.trace.after_sequence == 0);
+    CHECK(report_value.trace.earliest_retained_sequence ==
+          trace_before_report.value_if()->earliest_retained_sequence);
+    CHECK(report_value.trace.latest_sequence == trace_before_report.value_if()->latest_sequence);
+    CHECK(report_value.trace.lost_record_count ==
+          trace_before_report.value_if()->lost_record_count);
+    CHECK(report_value.trace.history_gap == trace_before_report.value_if()->history_gap);
+    REQUIRE(report_value.trace.records.size() == trace_before_report.value_if()->records.size());
+    REQUIRE_FALSE(report_value.trace.records.empty());
+    CHECK(report_value.trace.records.back().kind == devtools::TraceRecordKind::DebuggerMutation);
+    REQUIRE(report_value.trace.records.back().debugger_mutation);
+    CHECK(report_value.trace.records.back().debugger_mutation->source_frontend == "host-test");
+    CHECK(report_value.trace.records.back().debugger_mutation->operation ==
+          "debug report export test");
+    REQUIRE(report_value.rmlui.contexts.size() == report_value.snapshot.rmlui.size());
+    for (std::size_t index = 0; index < report_value.rmlui.contexts.size(); ++index)
+        CHECK(report_value.rmlui.contexts[index].name == report_value.snapshot.rmlui[index].name);
+    CHECK(report_value.rmlui.debugger.context == report_value.snapshot.rmlui_debugger.context);
+    REQUIRE(report_value.snapshot.runtime);
+    CHECK(report_value.diagnostics == report_value.snapshot.runtime->diagnostics);
+
+    EngineTooling::set_preview_running(engine, false);
+    const auto narrow_after = EngineTooling::preview(engine).debug_snapshot_value();
+    REQUIRE(narrow_after);
+    const auto devtools_after = EngineTooling::devtools_snapshot(engine);
+    REQUIRE(devtools_after);
+    REQUIRE(devtools_after.value_if()->runtime);
+    CHECK(RuntimePreviewController::encode_debug_snapshot(*devtools_after.value_if()->runtime) ==
+          RuntimePreviewController::encode_debug_snapshot(*narrow_after));
+    CHECK_FALSE(devtools_after.value_if()->runtime->preview_running);
+    CHECK_FALSE(devtools_after.value_if()->tooling.preview_running);
+    CHECK(RuntimePreviewController::encode_debug_snapshot(*narrow_before) !=
+          RuntimePreviewController::encode_debug_snapshot(*narrow_after));
+}
+#endif
 
 } // namespace
 } // namespace noveltea::host

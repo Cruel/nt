@@ -11,7 +11,13 @@ DebugUI::~DebugUI() { shutdown(); }
 bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
 {
     (void)window;
-    (void)assets;
+    m_visible = false;
+    m_reset_window_rect = false;
+    m_initialized = false;
+    m_ini_path.clear();
+    m_web_ini_sync_timer = 0.0f;
+    m_bgfx_backend = nullptr;
+    m_assets = assets;
     std::printf("[debug_ui] disabled\n");
     return true;
 }
@@ -25,16 +31,27 @@ DebugUiEventResult DebugUI::process_event(const SDL_Event& event, const HostSurf
 
 void DebugUI::begin_frame(const HostSurfaceMetrics& surface) { (void)surface; }
 
-host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapshot& observations,
+host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& snapshot,
+                                            std::span<const devtools::ConsoleRecord> console,
+                                            std::span<const devtools::TraceRecord> trace,
+                                            std::uint64_t trace_evicted_record_count,
                                             bool submit_draw_data)
 {
-    (void)observations;
+    (void)snapshot;
+    (void)console;
+    (void)trace;
+    (void)trace_evicted_record_count;
     (void)submit_draw_data;
     return {};
 }
 
-void DebugUI::shutdown() {}
-
-void DebugUI::log_printf(const char* fmt, ...) { (void)fmt; }
+void DebugUI::shutdown()
+{
+    m_initialized = false;
+    m_ini_path.clear();
+    m_web_ini_sync_timer = 0.0f;
+    m_bgfx_backend = nullptr;
+    m_assets = nullptr;
+}
 
 } // namespace noveltea

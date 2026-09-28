@@ -489,6 +489,11 @@ jobs:
             exit 1
           fi
 
+      - name: Verify production player excludes developer components
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: bash scripts/check-native-devtools-symbols.sh build/linux-release/apps/player/noveltea-player off
+
       - name: Audit Linux player dependency closure
         if: matrix.platform == 'linux'
         shell: bash

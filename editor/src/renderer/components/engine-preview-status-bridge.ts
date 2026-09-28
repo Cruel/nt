@@ -9,46 +9,8 @@ import type {
 } from '../../shared/preview-protocol';
 
 function runtimeEventFromPreviewMessage(message: PreviewToEditorMessage) {
-  if (message.type === 'runtime-debug-event') {
-    const detail = [
-      message.event.kind,
-      message.event.target?.id,
-      message.event.oldValue !== undefined ? `old=${JSON.stringify(message.event.oldValue)}` : null,
-      message.event.newValue !== undefined ? `new=${JSON.stringify(message.event.newValue)}` : null,
-      message.event.message,
-    ]
-      .filter(Boolean)
-      .join(' · ');
-    return {
-      label: message.event.label,
-      detail: detail || undefined,
-      severity: message.event.rejected ? ('warning' as const) : ('info' as const),
-    };
-  }
-  if (message.type === 'runtime-fast-forward-result') {
-    const detail = [
-      `reason=${message.result.reason}`,
-      `steps=${message.result.stepsApplied}`,
-      `ticks=${message.result.ticksApplied}`,
-      message.result.lastInput ? `last=${message.result.lastInput}` : null,
-      message.result.diagnostic,
-    ]
-      .filter(Boolean)
-      .join(' · ');
-    return {
-      label: 'Fast-forward stopped',
-      detail,
-      severity:
-        message.result.reason === 'error'
-          ? ('error' as const)
-          : message.result.reason === 'budget-exhausted' ||
-              message.result.reason === 'stabilization-limit'
-            ? ('warning' as const)
-            : ('info' as const),
-    };
-  }
   if (message.type === 'runtime-error') {
-    return { label: message.message, severity: 'error' as const };
+    return { label: message.message, severity: 'error' as const, category: 'runtime' };
   }
   return null;
 }
@@ -98,6 +60,8 @@ export function useEnginePreviewStatusBridge({
   const recordPreviewDiagnostic = usePreviewManagerStore((s) => s.recordPreviewDiagnostic);
   const setSelectedRuntimeObjectId = useWorkspaceStore((s) => s.setSelectedRuntimeObjectId);
   const addRuntimeEvent = useWorkspaceStore((s) => s.addRuntimeEvent);
+  const addDevtoolsConsoleRecords = useWorkspaceStore((s) => s.addDevtoolsConsoleRecords);
+  const addDevtoolsTraceRecords = useWorkspaceStore((s) => s.addDevtoolsTraceRecords);
   const setStatusMessage = useWorkspaceStore((s) => s.setStatusMessage);
 
   const recordTransportError = useCallback(
@@ -122,6 +86,18 @@ export function useEnginePreviewStatusBridge({
       if (!embedded) {
         const runtimeEvent = runtimeEventFromPreviewMessage(message);
         if (runtimeEvent) addRuntimeEvent(runtimeEvent);
+        if (message.type === 'devtools-console-delta') {
+          addDevtoolsConsoleRecords(
+            message.delta.records,
+            message.delta.historyGap ? message.delta.lostRecordCount : undefined,
+          );
+        }
+        if (message.type === 'devtools-trace-delta') {
+          addDevtoolsTraceRecords(
+            message.delta.records,
+            message.delta.historyGap ? message.delta.lostRecordCount : undefined,
+          );
+        }
       }
       if (message.type === 'ready' || message.type === 'capabilities') {
         setSessionCapabilities(sessionId, message.capabilities);
@@ -180,6 +156,8 @@ export function useEnginePreviewStatusBridge({
       recordPreviewDiagnostic,
       sessionId,
       addRuntimeEvent,
+      addDevtoolsConsoleRecords,
+      addDevtoolsTraceRecords,
       setSelectedRuntimeObjectId,
       setSessionCapabilities,
       setSessionStatus,

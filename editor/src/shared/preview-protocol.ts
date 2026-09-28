@@ -357,6 +357,251 @@ export interface RuntimeDebugSnapshot {
   publication: RuntimeDebugPublicationSnapshot;
 }
 
+export interface DevtoolsHostSurfaceSnapshot {
+  logicalWidth: number;
+  logicalHeight: number;
+  framebufferWidth: number;
+  framebufferHeight: number;
+  framebufferScaleX: number;
+  framebufferScaleY: number;
+}
+
+export interface DevtoolsHostSnapshot {
+  platform: string;
+  renderer: string;
+  hostGeneration: number | null;
+  surface: DevtoolsHostSurfaceSnapshot;
+}
+
+export interface DevtoolsInputSnapshot {
+  referenceX: number;
+  referenceY: number;
+  pointerValid: boolean;
+  lastEvent: string;
+  debugProcessed: boolean;
+  debugConsumed: boolean;
+  runtimeUiProcessed: boolean;
+  runtimeUiConsumed: boolean;
+  runtimeUiWantsPointer: boolean;
+  gameplayEvent: boolean;
+  gameplayAdmitted: boolean;
+  gameplayBlockReason: string;
+  governingLayout: string | null;
+  governingLayoutMode: string;
+}
+
+export interface DevtoolsRmlUiElementSnapshot {
+  documentId: string;
+  tag: string;
+  id: string;
+  classes: string;
+  pointerEvents: string;
+}
+
+export interface DevtoolsRmlUiContextSnapshot {
+  name: string;
+  lifecycleIdentity: string;
+  plane: string;
+  clock: string;
+  inputMode: string;
+  owner: string;
+  scaleDomain: string;
+  compositionGroup: number;
+  compatibilityGroup: number;
+  width: number;
+  height: number;
+  mediaQueryWidth: number;
+  mediaQueryHeight: number;
+  requestedUiScale: number;
+  textScaleFactor: number;
+  referenceToContextScaleX: number;
+  referenceToContextScaleY: number;
+  uiRasterScaleX: number;
+  uiRasterScaleY: number;
+  fontRasterScale: number;
+  mouseInteracting: boolean;
+  recentEventProcessed: boolean;
+  recentEventConsumed: boolean;
+  hover: DevtoolsRmlUiElementSnapshot | null;
+  focus: DevtoolsRmlUiElementSnapshot | null;
+}
+
+export interface DevtoolsWorldHotspotSnapshot {
+  identity: string;
+  label: string;
+  conditionEligible: boolean;
+  targetAvailable: boolean;
+  target: string;
+  highlight: string;
+  cursor: string | null;
+  preparedHitTarget: boolean;
+  hitTestOrder: number | null;
+  inputOrder: number | null;
+  hitShape: string;
+  hitShapeX: number | null;
+  hitShapeY: number | null;
+  hitShapeWidth: number | null;
+  hitShapeHeight: number | null;
+  hitBoundsX: number | null;
+  hitBoundsY: number | null;
+  hitBoundsWidth: number | null;
+  hitBoundsHeight: number | null;
+  underPointer: boolean;
+  hovered: boolean;
+  pressed: boolean;
+}
+
+export interface DevtoolsWorldSnapshot {
+  referenceX: number;
+  referenceY: number;
+  pointerValid: boolean;
+  captureActive: boolean;
+  underPointer: string | null;
+  hovered: string | null;
+  pressed: string | null;
+  hotspots: DevtoolsWorldHotspotSnapshot[];
+}
+
+export interface DevtoolsToolingSnapshot {
+  previewRunning: boolean;
+  renderPerfLogging: boolean;
+  nativeDebugUiAvailable: boolean;
+  nativeDebugUiEnabled: boolean;
+}
+
+export interface DevtoolsSnapshot {
+  host: DevtoolsHostSnapshot;
+  input: DevtoolsInputSnapshot;
+  rmlui: DevtoolsRmlUiContextSnapshot[];
+  rmluiDebugger: { available: boolean; visible: boolean; context: string };
+  world: DevtoolsWorldSnapshot;
+  tooling: DevtoolsToolingSnapshot;
+  runtime: RuntimeDebugSnapshot | null;
+}
+
+export type DevtoolsConsoleSeverity = 'info' | 'warning' | 'error';
+
+export interface DevtoolsConsoleRecord {
+  sequence: string;
+  globalSequence: string;
+  hostGeneration: string | null;
+  runtimeGeneration: string | null;
+  frame: string;
+  severity: DevtoolsConsoleSeverity;
+  category: string;
+  message: string;
+  source: { chunk: string; line: number | null } | null;
+  generationMarker: boolean;
+}
+
+export interface DevtoolsConsoleDelta {
+  afterSequence: string;
+  earliestRetainedSequence: string;
+  latestSequence: string;
+  lostRecordCount: string;
+  historyGap: boolean;
+  records: DevtoolsConsoleRecord[];
+}
+
+export type DevtoolsTraceRecordKind = 'input-routing' | 'debugger-mutation' | 'generation';
+
+export interface DevtoolsTraceElementRef {
+  context: string;
+  documentId: string;
+  tag: string;
+  id: string;
+  classes: string;
+  pointerEvents: string;
+}
+
+export interface DevtoolsTraceInputRouting {
+  event: string;
+  hostX: number | null;
+  hostY: number | null;
+  referenceX: number | null;
+  referenceY: number | null;
+  mouseButton: number | null;
+  wheelX: number | null;
+  wheelY: number | null;
+  referenceValid: boolean;
+  debugProcessed: boolean;
+  debugConsumed: boolean;
+  runtimeUiProcessed: boolean;
+  runtimeUiConsumed: boolean;
+  runtimeUiWantsPointer: boolean;
+  gameplayEvent: boolean;
+  gameplayAdmitted: boolean;
+  gameplayBlockReason: string;
+  governingLayout: string | null;
+  governingLayoutMode: string;
+  rmluiHover: DevtoolsTraceElementRef | null;
+  rmluiFocus: DevtoolsTraceElementRef | null;
+  worldEvaluated: boolean;
+  worldConsumed: boolean;
+  worldHit: string | null;
+  worldHovered: string | null;
+  worldPressed: string | null;
+  worldTarget: string | null;
+}
+
+export interface DevtoolsTraceRecord {
+  sequence: string;
+  firstSequence: string;
+  globalSequence: string;
+  firstGlobalSequence: string;
+  hostGeneration: string | null;
+  runtimeGeneration: string | null;
+  kind: DevtoolsTraceRecordKind;
+  category: string;
+  repeatCount: number;
+  firstFrame: string;
+  lastFrame: string;
+  input: DevtoolsTraceInputRouting | null;
+  debuggerMutation: { sourceFrontend: string; operation: string } | null;
+  detail: string;
+  generationMarker: boolean;
+}
+
+export interface DevtoolsTraceDelta {
+  afterSequence: string;
+  earliestRetainedSequence: string;
+  latestSequence: string;
+  lostRecordCount: string;
+  historyGap: boolean;
+  records: DevtoolsTraceRecord[];
+}
+
+export type DevtoolsDiagnosticSeverity = 'info' | 'warning' | 'error' | 'fatal';
+
+export interface DevtoolsDiagnostic {
+  code: string;
+  severity: DevtoolsDiagnosticSeverity;
+  message: string;
+  sourcePath: string;
+  jsonPointer: string;
+  causes: DevtoolsDiagnostic[];
+}
+
+export interface DevtoolsDebugReport {
+  formatVersion: 1;
+  build: {
+    engineVersion: string;
+    buildConfiguration: string;
+    targetPlatform: string;
+    hostPlatform: string;
+    renderer: string;
+  };
+  capabilities: string[];
+  snapshot: DevtoolsSnapshot;
+  diagnostics: DevtoolsDiagnostic[];
+  rmlui: {
+    contexts: DevtoolsRmlUiContextSnapshot[];
+    debugger: DevtoolsSnapshot['rmluiDebugger'];
+  };
+  console: DevtoolsConsoleDelta;
+  trace: DevtoolsTraceDelta;
+}
+
 export interface RuntimeFastForwardResult {
   reason: RuntimeFastForwardStopReason;
   stepsApplied: number;
@@ -445,6 +690,17 @@ export type EditorToPreviewMessage =
       bindings: Array<{ slotId: string; subject: PreviewInteractionSubject }>;
     }
   | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
+  | { version: 1; type: 'devtools-request-snapshot'; requestId: string }
+  | { version: 1; type: 'devtools-request-debug-report'; requestId: string }
+  | { version: 1; type: 'devtools-clear-console'; requestId: string }
+  | { version: 1; type: 'devtools-clear-trace'; requestId: string }
+  | {
+      version: 1;
+      type: 'devtools-set-rmlui-debugger';
+      requestId: string;
+      visible: boolean;
+      context: string;
+    }
   | {
       version: 1;
       type: 'runtime-request-asset-profiler';
@@ -569,6 +825,20 @@ export type PreviewToEditorMessage =
       requestId?: string;
       snapshot: RuntimeDebugSnapshot;
     }
+  | {
+      version: 1;
+      type: 'devtools-snapshot';
+      requestId?: string;
+      snapshot: DevtoolsSnapshot;
+    }
+  | {
+      version: 1;
+      type: 'devtools-debug-report';
+      requestId: string;
+      report: DevtoolsDebugReport;
+    }
+  | { version: 1; type: 'devtools-console-delta'; delta: DevtoolsConsoleDelta }
+  | { version: 1; type: 'devtools-trace-delta'; delta: DevtoolsTraceDelta }
   | {
       version: 1;
       type: 'runtime-asset-profiler';
@@ -1106,6 +1376,405 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
   );
 }
 
+export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.host) ||
+    !isRecord(value.input) ||
+    !Array.isArray(value.rmlui) ||
+    !isRecord(value.rmluiDebugger) ||
+    typeof value.rmluiDebugger.available !== 'boolean' ||
+    typeof value.rmluiDebugger.visible !== 'boolean' ||
+    typeof value.rmluiDebugger.context !== 'string' ||
+    !Object.keys(value.rmluiDebugger).every((key) =>
+      ['available', 'visible', 'context'].includes(key),
+    ) ||
+    !isRecord(value.world) ||
+    !isRecord(value.tooling)
+  )
+    return false;
+  if (
+    !Object.keys(value).every((key) =>
+      ['host', 'input', 'rmlui', 'rmluiDebugger', 'world', 'tooling', 'runtime'].includes(key),
+    )
+  )
+    return false;
+  if (
+    !Object.keys(value.host).every((key) =>
+      ['platform', 'renderer', 'hostGeneration', 'surface'].includes(key),
+    )
+  )
+    return false;
+  if (!isRecord(value.host.surface)) return false;
+  const surface = value.host.surface;
+  if (
+    !Object.keys(surface).every((key) =>
+      [
+        'logicalWidth',
+        'logicalHeight',
+        'framebufferWidth',
+        'framebufferHeight',
+        'framebufferScaleX',
+        'framebufferScaleY',
+      ].includes(key),
+    )
+  )
+    return false;
+  if (
+    !Object.keys(value.tooling).every((key) =>
+      [
+        'previewRunning',
+        'renderPerfLogging',
+        'nativeDebugUiAvailable',
+        'nativeDebugUiEnabled',
+      ].includes(key),
+    )
+  )
+    return false;
+  const positiveInteger = (entry: unknown) =>
+    typeof entry === 'number' && Number.isSafeInteger(entry) && entry > 0;
+  const positiveNumber = (entry: unknown) =>
+    typeof entry === 'number' && Number.isFinite(entry) && entry > 0;
+  const finiteNumber = (entry: unknown) => typeof entry === 'number' && Number.isFinite(entry);
+  const nullableFiniteNumber = (entry: unknown) => entry === null || finiteNumber(entry);
+  const nullableInteger = (entry: unknown) =>
+    entry === null || (typeof entry === 'number' && Number.isSafeInteger(entry));
+  const nullableString = (entry: unknown) => entry === null || typeof entry === 'string';
+  const rmluiElement = (entry: unknown) =>
+    entry === null ||
+    (isRecord(entry) &&
+      typeof entry.documentId === 'string' &&
+      typeof entry.tag === 'string' &&
+      typeof entry.id === 'string' &&
+      typeof entry.classes === 'string' &&
+      typeof entry.pointerEvents === 'string');
+  const rmluiValid = value.rmlui.every(
+    (context) =>
+      isRecord(context) &&
+      typeof context.name === 'string' &&
+      typeof context.lifecycleIdentity === 'string' &&
+      typeof context.plane === 'string' &&
+      typeof context.clock === 'string' &&
+      typeof context.inputMode === 'string' &&
+      typeof context.owner === 'string' &&
+      typeof context.scaleDomain === 'string' &&
+      typeof context.compositionGroup === 'number' &&
+      Number.isSafeInteger(context.compositionGroup) &&
+      context.compositionGroup >= 0 &&
+      typeof context.compatibilityGroup === 'number' &&
+      Number.isSafeInteger(context.compatibilityGroup) &&
+      context.compatibilityGroup >= 0 &&
+      typeof context.width === 'number' &&
+      Number.isSafeInteger(context.width) &&
+      context.width >= 0 &&
+      typeof context.height === 'number' &&
+      Number.isSafeInteger(context.height) &&
+      context.height >= 0 &&
+      typeof context.mediaQueryWidth === 'number' &&
+      Number.isSafeInteger(context.mediaQueryWidth) &&
+      context.mediaQueryWidth >= 0 &&
+      typeof context.mediaQueryHeight === 'number' &&
+      Number.isSafeInteger(context.mediaQueryHeight) &&
+      context.mediaQueryHeight >= 0 &&
+      positiveNumber(context.requestedUiScale) &&
+      positiveNumber(context.textScaleFactor) &&
+      positiveNumber(context.referenceToContextScaleX) &&
+      positiveNumber(context.referenceToContextScaleY) &&
+      positiveNumber(context.uiRasterScaleX) &&
+      positiveNumber(context.uiRasterScaleY) &&
+      positiveNumber(context.fontRasterScale) &&
+      typeof context.mouseInteracting === 'boolean' &&
+      typeof context.recentEventProcessed === 'boolean' &&
+      typeof context.recentEventConsumed === 'boolean' &&
+      rmluiElement(context.hover) &&
+      rmluiElement(context.focus),
+  );
+  const hotspotsValid =
+    Array.isArray(value.world.hotspots) &&
+    value.world.hotspots.every(
+      (hotspot) =>
+        isRecord(hotspot) &&
+        typeof hotspot.identity === 'string' &&
+        typeof hotspot.label === 'string' &&
+        typeof hotspot.conditionEligible === 'boolean' &&
+        typeof hotspot.targetAvailable === 'boolean' &&
+        typeof hotspot.target === 'string' &&
+        typeof hotspot.highlight === 'string' &&
+        nullableString(hotspot.cursor) &&
+        typeof hotspot.preparedHitTarget === 'boolean' &&
+        nullableInteger(hotspot.hitTestOrder) &&
+        nullableInteger(hotspot.inputOrder) &&
+        typeof hotspot.hitShape === 'string' &&
+        nullableFiniteNumber(hotspot.hitShapeX) &&
+        nullableFiniteNumber(hotspot.hitShapeY) &&
+        nullableFiniteNumber(hotspot.hitShapeWidth) &&
+        nullableFiniteNumber(hotspot.hitShapeHeight) &&
+        nullableFiniteNumber(hotspot.hitBoundsX) &&
+        nullableFiniteNumber(hotspot.hitBoundsY) &&
+        nullableFiniteNumber(hotspot.hitBoundsWidth) &&
+        nullableFiniteNumber(hotspot.hitBoundsHeight) &&
+        typeof hotspot.underPointer === 'boolean' &&
+        typeof hotspot.hovered === 'boolean' &&
+        typeof hotspot.pressed === 'boolean',
+    );
+  return (
+    typeof value.host.platform === 'string' &&
+    value.host.platform.length > 0 &&
+    typeof value.host.renderer === 'string' &&
+    value.host.renderer.length > 0 &&
+    (value.host.hostGeneration === null || positiveInteger(value.host.hostGeneration)) &&
+    positiveInteger(surface.logicalWidth) &&
+    positiveInteger(surface.logicalHeight) &&
+    positiveInteger(surface.framebufferWidth) &&
+    positiveInteger(surface.framebufferHeight) &&
+    positiveNumber(surface.framebufferScaleX) &&
+    positiveNumber(surface.framebufferScaleY) &&
+    finiteNumber(value.input.referenceX) &&
+    finiteNumber(value.input.referenceY) &&
+    typeof value.input.pointerValid === 'boolean' &&
+    typeof value.input.lastEvent === 'string' &&
+    typeof value.input.debugProcessed === 'boolean' &&
+    typeof value.input.debugConsumed === 'boolean' &&
+    typeof value.input.runtimeUiProcessed === 'boolean' &&
+    typeof value.input.runtimeUiConsumed === 'boolean' &&
+    typeof value.input.runtimeUiWantsPointer === 'boolean' &&
+    typeof value.input.gameplayEvent === 'boolean' &&
+    typeof value.input.gameplayAdmitted === 'boolean' &&
+    typeof value.input.gameplayBlockReason === 'string' &&
+    nullableString(value.input.governingLayout) &&
+    typeof value.input.governingLayoutMode === 'string' &&
+    rmluiValid &&
+    finiteNumber(value.world.referenceX) &&
+    finiteNumber(value.world.referenceY) &&
+    typeof value.world.pointerValid === 'boolean' &&
+    typeof value.world.captureActive === 'boolean' &&
+    nullableString(value.world.underPointer) &&
+    nullableString(value.world.hovered) &&
+    nullableString(value.world.pressed) &&
+    hotspotsValid &&
+    typeof value.tooling.previewRunning === 'boolean' &&
+    typeof value.tooling.renderPerfLogging === 'boolean' &&
+    typeof value.tooling.nativeDebugUiAvailable === 'boolean' &&
+    typeof value.tooling.nativeDebugUiEnabled === 'boolean' &&
+    (value.runtime === null || isRuntimeDebugSnapshot(value.runtime))
+  );
+}
+
+function isDevtoolsTraceElementRef(value: unknown): value is DevtoolsTraceElementRef {
+  return (
+    isRecord(value) &&
+    typeof value.context === 'string' &&
+    typeof value.documentId === 'string' &&
+    typeof value.tag === 'string' &&
+    typeof value.id === 'string' &&
+    typeof value.classes === 'string' &&
+    typeof value.pointerEvents === 'string'
+  );
+}
+
+export function isDevtoolsTraceDelta(value: unknown): value is DevtoolsTraceDelta {
+  if (!isRecord(value) || !Array.isArray(value.records)) return false;
+  if (
+    !isCanonicalUnsignedDecimal(value.afterSequence) ||
+    !isCanonicalUnsignedDecimal(value.earliestRetainedSequence) ||
+    !isCanonicalUnsignedDecimal(value.latestSequence) ||
+    !isCanonicalUnsignedDecimal(value.lostRecordCount) ||
+    typeof value.historyGap !== 'boolean'
+  )
+    return false;
+  const nullableNumber = (entry: unknown) =>
+    entry === null || (typeof entry === 'number' && Number.isFinite(entry));
+  const nullableString = (entry: unknown) => entry === null || typeof entry === 'string';
+  const nullableElement = (entry: unknown) => entry === null || isDevtoolsTraceElementRef(entry);
+  return value.records.every((record) => {
+    if (!isRecord(record)) return false;
+    const inputValid =
+      record.input === null ||
+      (isRecord(record.input) &&
+        typeof record.input.event === 'string' &&
+        nullableNumber(record.input.hostX) &&
+        nullableNumber(record.input.hostY) &&
+        nullableNumber(record.input.referenceX) &&
+        nullableNumber(record.input.referenceY) &&
+        (record.input.mouseButton === null ||
+          (typeof record.input.mouseButton === 'number' &&
+            Number.isSafeInteger(record.input.mouseButton) &&
+            record.input.mouseButton >= 0 &&
+            record.input.mouseButton <= 255)) &&
+        nullableNumber(record.input.wheelX) &&
+        nullableNumber(record.input.wheelY) &&
+        typeof record.input.referenceValid === 'boolean' &&
+        typeof record.input.debugProcessed === 'boolean' &&
+        typeof record.input.debugConsumed === 'boolean' &&
+        typeof record.input.runtimeUiProcessed === 'boolean' &&
+        typeof record.input.runtimeUiConsumed === 'boolean' &&
+        typeof record.input.runtimeUiWantsPointer === 'boolean' &&
+        typeof record.input.gameplayEvent === 'boolean' &&
+        typeof record.input.gameplayAdmitted === 'boolean' &&
+        typeof record.input.gameplayBlockReason === 'string' &&
+        nullableString(record.input.governingLayout) &&
+        typeof record.input.governingLayoutMode === 'string' &&
+        nullableElement(record.input.rmluiHover) &&
+        nullableElement(record.input.rmluiFocus) &&
+        typeof record.input.worldEvaluated === 'boolean' &&
+        typeof record.input.worldConsumed === 'boolean' &&
+        nullableString(record.input.worldHit) &&
+        nullableString(record.input.worldHovered) &&
+        nullableString(record.input.worldPressed) &&
+        nullableString(record.input.worldTarget));
+    const mutationValid =
+      record.debuggerMutation === null ||
+      (isRecord(record.debuggerMutation) &&
+        typeof record.debuggerMutation.sourceFrontend === 'string' &&
+        typeof record.debuggerMutation.operation === 'string');
+    return (
+      isCanonicalUnsignedDecimal(record.sequence) &&
+      isCanonicalUnsignedDecimal(record.firstSequence) &&
+      isCanonicalUnsignedDecimal(record.globalSequence) &&
+      isCanonicalUnsignedDecimal(record.firstGlobalSequence) &&
+      (record.hostGeneration === null || isCanonicalUnsignedDecimal(record.hostGeneration)) &&
+      (record.runtimeGeneration === null || isCanonicalUnsignedDecimal(record.runtimeGeneration)) &&
+      (record.kind === 'input-routing' ||
+        record.kind === 'debugger-mutation' ||
+        record.kind === 'generation') &&
+      typeof record.category === 'string' &&
+      typeof record.repeatCount === 'number' &&
+      Number.isSafeInteger(record.repeatCount) &&
+      record.repeatCount > 0 &&
+      isCanonicalUnsignedDecimal(record.firstFrame) &&
+      isCanonicalUnsignedDecimal(record.lastFrame) &&
+      inputValid &&
+      mutationValid &&
+      typeof record.detail === 'string' &&
+      typeof record.generationMarker === 'boolean'
+    );
+  });
+}
+
+export function isDevtoolsConsoleDelta(value: unknown): value is DevtoolsConsoleDelta {
+  if (!isRecord(value) || !Array.isArray(value.records)) return false;
+  if (
+    !isCanonicalUnsignedDecimal(value.afterSequence) ||
+    !isCanonicalUnsignedDecimal(value.earliestRetainedSequence) ||
+    !isCanonicalUnsignedDecimal(value.latestSequence) ||
+    !isCanonicalUnsignedDecimal(value.lostRecordCount) ||
+    typeof value.historyGap !== 'boolean'
+  )
+    return false;
+  return value.records.every((record) => {
+    if (!isRecord(record)) return false;
+    const sourceValid =
+      record.source === null ||
+      (isRecord(record.source) &&
+        typeof record.source.chunk === 'string' &&
+        (record.source.line === null ||
+          (typeof record.source.line === 'number' &&
+            Number.isSafeInteger(record.source.line) &&
+            record.source.line > 0)));
+    return (
+      isCanonicalUnsignedDecimal(record.sequence) &&
+      isCanonicalUnsignedDecimal(record.globalSequence) &&
+      (record.hostGeneration === null || isCanonicalUnsignedDecimal(record.hostGeneration)) &&
+      (record.runtimeGeneration === null || isCanonicalUnsignedDecimal(record.runtimeGeneration)) &&
+      isCanonicalUnsignedDecimal(record.frame) &&
+      (record.severity === 'info' ||
+        record.severity === 'warning' ||
+        record.severity === 'error') &&
+      typeof record.category === 'string' &&
+      typeof record.message === 'string' &&
+      sourceValid &&
+      typeof record.generationMarker === 'boolean'
+    );
+  });
+}
+
+function isDevtoolsDiagnostic(value: unknown): value is DevtoolsDiagnostic {
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) =>
+      ['code', 'severity', 'message', 'sourcePath', 'jsonPointer', 'causes'].includes(key),
+    ) &&
+    typeof value.code === 'string' &&
+    (value.severity === 'info' ||
+      value.severity === 'warning' ||
+      value.severity === 'error' ||
+      value.severity === 'fatal') &&
+    typeof value.message === 'string' &&
+    typeof value.sourcePath === 'string' &&
+    typeof value.jsonPointer === 'string' &&
+    Array.isArray(value.causes) &&
+    value.causes.every(isDevtoolsDiagnostic)
+  );
+}
+
+export function isDevtoolsDebugReport(value: unknown): value is DevtoolsDebugReport {
+  if (
+    !isRecord(value) ||
+    value.formatVersion !== 1 ||
+    !isRecord(value.build) ||
+    !Array.isArray(value.capabilities) ||
+    !isDevtoolsSnapshot(value.snapshot) ||
+    !Array.isArray(value.diagnostics) ||
+    !isRecord(value.rmlui) ||
+    !isDevtoolsConsoleDelta(value.console) ||
+    !isDevtoolsTraceDelta(value.trace)
+  )
+    return false;
+  if (
+    !Object.keys(value).every((key) =>
+      [
+        'formatVersion',
+        'build',
+        'capabilities',
+        'snapshot',
+        'diagnostics',
+        'rmlui',
+        'console',
+        'trace',
+      ].includes(key),
+    ) ||
+    !Object.keys(value.build).every((key) =>
+      [
+        'engineVersion',
+        'buildConfiguration',
+        'targetPlatform',
+        'hostPlatform',
+        'renderer',
+      ].includes(key),
+    ) ||
+    !Object.keys(value.rmlui).every((key) => ['contexts', 'debugger'].includes(key))
+  )
+    return false;
+
+  const snapshot = value.snapshot;
+  const contextsMatch =
+    Array.isArray(value.rmlui.contexts) &&
+    value.rmlui.contexts.length === snapshot.rmlui.length &&
+    value.rmlui.contexts.every(
+      (context, index) => JSON.stringify(context) === JSON.stringify(snapshot.rmlui[index]),
+    );
+  const debuggerMatches =
+    JSON.stringify(value.rmlui.debugger) === JSON.stringify(snapshot.rmluiDebugger);
+  return (
+    typeof value.build.engineVersion === 'string' &&
+    value.build.engineVersion.length > 0 &&
+    typeof value.build.buildConfiguration === 'string' &&
+    value.build.buildConfiguration.length > 0 &&
+    typeof value.build.targetPlatform === 'string' &&
+    value.build.targetPlatform.length > 0 &&
+    typeof value.build.hostPlatform === 'string' &&
+    value.build.hostPlatform.length > 0 &&
+    typeof value.build.renderer === 'string' &&
+    value.build.renderer.length > 0 &&
+    value.capabilities.every(
+      (capability) => typeof capability === 'string' && capability.length > 0,
+    ) &&
+    value.diagnostics.every(isDevtoolsDiagnostic) &&
+    contextsMatch &&
+    debuggerMatches
+  );
+}
+
 function isRuntimeFastForwardStopReason(value: unknown): value is RuntimeFastForwardStopReason {
   return [
     'choice-available',
@@ -1260,8 +1929,18 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-fast-forward-to-input':
     case 'runtime-clear-subject-selection':
     case 'runtime-request-debug-snapshot':
+    case 'devtools-request-snapshot':
+    case 'devtools-request-debug-report':
+    case 'devtools-clear-console':
+    case 'devtools-clear-trace':
     case 'request-preview-state':
       return true;
+    case 'devtools-set-rmlui-debugger':
+      return (
+        typeof value.visible === 'boolean' &&
+        typeof value.context === 'string' &&
+        value.context.length > 0
+      );
     case 'runtime-request-asset-profiler':
       return value.mode === 'full'
         ? value.sessionId === undefined && value.afterSequence === undefined
@@ -1448,6 +2127,17 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
         (value.requestId === undefined || typeof value.requestId === 'string') &&
         isRuntimeDebugSnapshot(value.snapshot)
       );
+    case 'devtools-snapshot':
+      return (
+        (value.requestId === undefined || typeof value.requestId === 'string') &&
+        isDevtoolsSnapshot(value.snapshot)
+      );
+    case 'devtools-debug-report':
+      return typeof value.requestId === 'string' && isDevtoolsDebugReport(value.report);
+    case 'devtools-console-delta':
+      return isDevtoolsConsoleDelta(value.delta);
+    case 'devtools-trace-delta':
+      return isDevtoolsTraceDelta(value.delta);
     case 'runtime-asset-profiler':
       return typeof value.requestId === 'string' && isAssetProfilerWirePayload(value.payload);
     case 'runtime-debug-event':

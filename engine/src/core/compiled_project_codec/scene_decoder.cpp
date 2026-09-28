@@ -485,10 +485,10 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         if (material_value && !material_value->is_null()) {
             nlohmann::json application{
                 {"material", *material_value},
-                {"parameters", material_parameters_value ? *material_parameters_value
-                                                          : nlohmann::json::array()},
-                {"textures", material_textures_value ? *material_textures_value
-                                                      : nlohmann::json::array()},
+                {"parameters",
+                 material_parameters_value ? *material_parameters_value : nlohmann::json::array()},
+                {"textures",
+                 material_textures_value ? *material_textures_value : nlohmann::json::array()},
             };
             auto decoded = decode_material_application(decoder, application, pointer);
             material_ok = decoded.has_value();
@@ -544,8 +544,7 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                    ? std::optional<SceneInstruction>(SetBackgroundInstruction{
                          std::move(*id), std::move(condition), *owner,
                          BackgroundPresentation{std::move(asset), std::move(color), *fit,
-                                                std::move(material),
-                                                std::move(material_parameters),
+                                                std::move(material), std::move(material_parameters),
                                                 std::move(material_textures)},
                          *transition, *duration, std::move(wait), *skippable})
                    : std::nullopt;
@@ -1593,10 +1592,10 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         if (material_value && !material_value->is_null()) {
             nlohmann::json application{
                 {"material", *material_value},
-                {"parameters", material_parameters_value ? *material_parameters_value
-                                                         : nlohmann::json::array()},
-                {"textures", material_textures_value ? *material_textures_value
-                                                     : nlohmann::json::array()},
+                {"parameters",
+                 material_parameters_value ? *material_parameters_value : nlohmann::json::array()},
+                {"textures",
+                 material_textures_value ? *material_textures_value : nlohmann::json::array()},
             };
             auto decoded = decode_material_application(decoder, application, pointer);
             material_ok = decoded.has_value();
@@ -1705,10 +1704,10 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                               return TransitionGroupClearBackgroundMutation{std::move(*child_id)};
                           }
                           if (*child_kind == "set-background") {
-                              if (!decoder.object(
-                                      child, child_pointer,
-                                      {"asset", "color", "fit", "id", "kind", "material",
-                                       "materialParameters", "materialTextures"}))
+                              if (!decoder.object(child, child_pointer,
+                                                  {"asset", "color", "fit", "id", "kind",
+                                                   "material", "materialParameters",
+                                                   "materialTextures"}))
                                   return std::nullopt;
                               const auto* asset_value =
                                   decoder.member(child, "asset", child_pointer);
@@ -1758,8 +1757,8 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                                        ? *material_textures_value
                                                        : nlohmann::json::array()},
                                   };
-                                  auto decoded =
-                                      decode_material_application(decoder, application, child_pointer);
+                                  auto decoded = decode_material_application(decoder, application,
+                                                                             child_pointer);
                                   material_ok = decoded.has_value();
                                   if (decoded) {
                                       material = std::move(decoded->material);
@@ -1780,10 +1779,10 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                   return std::nullopt;
                               return TransitionGroupSetBackgroundMutation{
                                   std::move(*child_id),
-                                  BackgroundPresentation{
-                                      std::move(asset), std::move(child_color), *fit,
-                                      std::move(material), std::move(material_parameters),
-                                      std::move(material_textures)}};
+                                  BackgroundPresentation{std::move(asset), std::move(child_color),
+                                                         *fit, std::move(material),
+                                                         std::move(material_parameters),
+                                                         std::move(material_textures)}};
                           }
                           if (*child_kind == "actor-cue") {
                               if (!decoder.object(child, child_pointer,

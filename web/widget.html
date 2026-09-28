@@ -36,6 +36,8 @@
     let previewActivityActive = true;
     let previewActivityVisible = true;
     let lastRuntimeDebugFingerprint = '';
+    let lastDevtoolsConsoleSequence = '0';
+    let lastDevtoolsTraceSequence = '0';
     let previewWheelPolicy = params.get('wheelPolicy') === 'editor-scroll' ? 'editor-scroll' : 'preview-input';
     let previewWheelRouteId = '';
     let transportGeneration = 0;
@@ -1213,6 +1215,150 @@ thead, tbody, tfoot {
       return true;
     }
 
+    function readDevtoolsCapabilities() {
+      if (!nativeExportAvailable('noveltea_devtools_capabilities')) return [];
+      const json = Module.ccall('noveltea_devtools_capabilities', 'string', [], []);
+      if (typeof json !== 'string' || json.length === 0) return [];
+      try {
+        const capabilities = JSON.parse(json);
+        return Array.isArray(capabilities) && capabilities.every((item) => typeof item === 'string')
+          ? capabilities
+          : [];
+      } catch (_error) {
+        return [];
+      }
+    }
+
+    function emitDevtoolsSnapshot(message) {
+      if (!nativeExportAvailable('noveltea_devtools_snapshot')) {
+        failCommand(message, 'Developer instrumentation is unavailable in this preview build.', { category: 'devtools' });
+        return false;
+      }
+      const json = Module.ccall('noveltea_devtools_snapshot', 'string', [], []);
+      if (typeof json !== 'string' || json.length === 0) {
+        failCommand(message, 'Devtools Snapshot is unavailable for the current preview session.', { category: 'devtools' });
+        return false;
+      }
+      try {
+        const snapshot = JSON.parse(json);
+        send({
+          version: protocolVersion,
+          type: 'devtools-snapshot',
+          requestId: message.requestId,
+          snapshot,
+        });
+        return true;
+      } catch (error) {
+        failCommand(message, `Devtools Snapshot JSON could not be parsed: ${error && error.message ? error.message : String(error)}`, { category: 'devtools' });
+        return false;
+      }
+    }
+
+    function emitDevtoolsDebugReport(message) {
+      if (!nativeExportAvailable('noveltea_devtools_debug_report')) {
+        failCommand(message, 'Structured debug-report export is unavailable in this preview build.', { category: 'devtools' });
+        return false;
+      }
+      const json = Module.ccall('noveltea_devtools_debug_report', 'string', [], []);
+      if (typeof json !== 'string' || json.length === 0) {
+        failCommand(message, 'Structured debug report is unavailable for the current preview session.', { category: 'devtools' });
+        return false;
+      }
+      try {
+        const report = JSON.parse(json);
+        send({
+          version: protocolVersion,
+          type: 'devtools-debug-report',
+          requestId: message.requestId,
+          report,
+        });
+        return true;
+      } catch (error) {
+        failCommand(message, `Structured debug report JSON could not be parsed: ${error && error.message ? error.message : String(error)}`, { category: 'devtools' });
+        return false;
+      }
+    }
+
+    function setRmlUiDebugger(message) {
+      if (typeof message.visible !== 'boolean' || typeof message.context !== 'string' || !message.context ||
+          !nativeExportAvailable('noveltea_devtools_set_rmlui_debugger')) {
+        failCommand(message, 'RmlUi debugger command is invalid or unavailable.', { category: 'devtools' });
+        return;
+      }
+      const accepted = Module.ccall('noveltea_devtools_set_rmlui_debugger', 'number', ['number', 'string'], [message.visible ? 1 : 0, message.context]);
+      if (!accepted) {
+        failCommand(message, 'RmlUi debugger context is unavailable.', { category: 'devtools' });
+        return;
+      }
+      if (emitDevtoolsSnapshot(message)) {
+        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      }
+    }
+
+    function publishDevtoolsConsoleDelta() {
+      if (!port || !engineReady || !runtimeReady || !previewActivityActive || !previewActivityVisible)
+        return;
+      if (!nativeExportAvailable('noveltea_devtools_console_delta')) return;
+      const json = Module.ccall('noveltea_devtools_console_delta', 'string', ['string'], [lastDevtoolsConsoleSequence]);
+      if (typeof json !== 'string' || json.length === 0) return;
+      try {
+        const delta = JSON.parse(json);
+        if (!delta || typeof delta.latestSequence !== 'string' || !Array.isArray(delta.records)) return;
+        lastDevtoolsConsoleSequence = delta.latestSequence;
+        if (delta.records.length === 0 && !delta.historyGap && delta.lostRecordCount === '0') return;
+        send({ version: protocolVersion, type: 'devtools-console-delta', delta });
+      } catch (_error) {
+      }
+    }
+
+    function clearDevtoolsConsole(message) {
+      if (!nativeExportAvailable('noveltea_devtools_console_clear')) {
+        failCommand(message, 'Developer Console is unavailable in this preview build.', { category: 'devtools' });
+        return;
+      }
+      const json = Module.ccall('noveltea_devtools_console_clear', 'string', [], []);
+      try {
+        const result = JSON.parse(json);
+        if (!result || typeof result.latestSequence !== 'string') throw new Error('missing latest sequence');
+        lastDevtoolsConsoleSequence = result.latestSequence;
+        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      } catch (error) {
+        failCommand(message, `Developer Console clear failed: ${error && error.message ? error.message : String(error)}`, { category: 'devtools' });
+      }
+    }
+
+    function publishDevtoolsTraceDelta() {
+      if (!port || !engineReady || !runtimeReady || !previewActivityActive || !previewActivityVisible)
+        return;
+      if (!nativeExportAvailable('noveltea_devtools_trace_delta')) return;
+      const json = Module.ccall('noveltea_devtools_trace_delta', 'string', ['string'], [lastDevtoolsTraceSequence]);
+      if (typeof json !== 'string' || json.length === 0) return;
+      try {
+        const delta = JSON.parse(json);
+        if (!delta || typeof delta.latestSequence !== 'string' || !Array.isArray(delta.records)) return;
+        lastDevtoolsTraceSequence = delta.latestSequence;
+        if (delta.records.length === 0 && !delta.historyGap && delta.lostRecordCount === '0') return;
+        send({ version: protocolVersion, type: 'devtools-trace-delta', delta });
+      } catch (_error) {
+      }
+    }
+
+    function clearDevtoolsTrace(message) {
+      if (!nativeExportAvailable('noveltea_devtools_trace_clear')) {
+        failCommand(message, 'Developer Trace is unavailable in this preview build.', { category: 'devtools' });
+        return;
+      }
+      const json = Module.ccall('noveltea_devtools_trace_clear', 'string', [], []);
+      try {
+        const result = JSON.parse(json);
+        if (!result || typeof result.latestSequence !== 'string') throw new Error('missing latest sequence');
+        lastDevtoolsTraceSequence = result.latestSequence;
+        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      } catch (error) {
+        failCommand(message, `Developer Trace clear failed: ${error && error.message ? error.message : String(error)}`, { category: 'devtools' });
+      }
+    }
+
     function runtimeDebugFingerprint(snapshot) {
       return JSON.stringify({
         loaded: snapshot.loaded,
@@ -1431,6 +1577,25 @@ thead, tbody, tfoot {
             send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
           }
           return true;
+        case 'devtools-request-snapshot':
+          if (emitDevtoolsSnapshot(message)) {
+            send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+          }
+          return true;
+        case 'devtools-request-debug-report':
+          if (emitDevtoolsDebugReport(message)) {
+            send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+          }
+          return true;
+        case 'devtools-clear-console':
+          clearDevtoolsConsole(message);
+          return true;
+        case 'devtools-clear-trace':
+          clearDevtoolsTrace(message);
+          return true;
+        case 'devtools-set-rmlui-debugger':
+          setRmlUiDebugger(message);
+          return true;
         case 'runtime-request-asset-profiler':
           requestAssetProfiler(message);
           return true;
@@ -1545,7 +1710,9 @@ thead, tbody, tfoot {
         hostGeneration: nativeHostGeneration,
         transportGeneration,
         activeShaderVariant,
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'preview-activity-v1', 'preview-wheel-routing-v1', 'runtime-load-compiled-project-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1', 'runtime-fast-forward-v1'].concat(nativeExportAvailable('noveltea_asset_profiler_snapshot') && nativeExportAvailable('noveltea_asset_profiler_delta') ? ['asset-profiler-v1'] : []),
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'preview-activity-v1', 'preview-wheel-routing-v1', 'runtime-load-compiled-project-v1', 'runtime-commands-v1']
+          .concat(readDevtoolsCapabilities())
+          .concat(nativeExportAvailable('noveltea_asset_profiler_snapshot') && nativeExportAvailable('noveltea_asset_profiler_delta') ? ['asset-profiler-v1'] : []),
       });
       void drainCommands();
     }
@@ -1655,7 +1822,11 @@ thead, tbody, tfoot {
       if (port) window.clearInterval(helloInterval);
       else sendHello();
     }, 250);
-    window.setInterval(publishRuntimeDebugSnapshotIfChanged, 100);
+    window.setInterval(() => {
+      publishRuntimeDebugSnapshotIfChanged();
+      publishDevtoolsConsoleDelta();
+      publishDevtoolsTraceDelta();
+    }, 100);
 
     // BEGIN preview-surface-metrics
     function resolvePreviewSurfaceMetrics(cssWidth, cssHeight, devicePixelRatio, maxDpr) {

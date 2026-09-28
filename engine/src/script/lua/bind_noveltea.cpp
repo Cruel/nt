@@ -4,6 +4,7 @@
 #include <sol/sol.hpp>
 
 #include <cstdio>
+#include <functional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -42,7 +43,6 @@ void host_log(const sol::object& value) { log_line(object_to_string(value)); }
 
 int host_print(lua_State* state)
 {
-    sol::state_view lua(state);
     std::ostringstream out;
     const int count = lua_gettop(state);
     for (int i = 1; i <= count; ++i) {
@@ -50,8 +50,73 @@ int host_print(lua_State* state)
             out << '\t';
         out << object_to_string(sol::stack_object(state, i));
     }
-    log_line(out.str());
+    const auto line = out.str();
+    log_line(line);
+    const auto* sink = static_cast<const std::function<void(const ScriptDebugMessage&)>*>(
+        lua_touserdata(state, lua_upvalueindex(1)));
+    if (sink != nullptr && *sink) {
+        ScriptDebugMessage message{.severity = ScriptDebugSeverity::Info,
+                                   .message = line,
+                                   .source = {},
+                                   .line = std::nullopt};
+        lua_Debug frame{};
+        if (lua_getstack(state, 1, &frame) != 0 && lua_getinfo(state, "Sl", &frame) != 0) {
+            if (frame.source != nullptr) {
+                message.source = frame.source;
+                if (!message.source.empty() &&
+                    (message.source.front() == '@' || message.source.front() == '='))
+                    message.source.erase(message.source.begin());
+            }
+            if (frame.currentline > 0)
+                message.line = static_cast<std::uint32_t>(frame.currentline);
+        }
+        (*sink)(message);
+    }
     return 0;
+}
+
+int debug_log(lua_State* state)
+{
+    const auto severity =
+        static_cast<ScriptDebugSeverity>(lua_tointeger(state, lua_upvalueindex(1)));
+    const auto* sink = static_cast<const std::function<void(const ScriptDebugMessage&)>*>(
+        lua_touserdata(state, lua_upvalueindex(2)));
+    if (sink == nullptr || !*sink)
+        return 0;
+
+    std::ostringstream out;
+    const int count = lua_gettop(state);
+    for (int i = 1; i <= count; ++i) {
+        if (i > 1)
+            out << '\t';
+        out << object_to_string(sol::stack_object(state, i));
+    }
+
+    ScriptDebugMessage message{
+        .severity = severity, .message = out.str(), .source = {}, .line = std::nullopt};
+    lua_Debug frame{};
+    if (lua_getstack(state, 1, &frame) != 0 && lua_getinfo(state, "Sl", &frame) != 0) {
+        if (frame.source != nullptr) {
+            message.source = frame.source;
+            if (!message.source.empty() &&
+                (message.source.front() == '@' || message.source.front() == '='))
+                message.source.erase(message.source.begin());
+        }
+        if (frame.currentline > 0)
+            message.line = static_cast<std::uint32_t>(frame.currentline);
+    }
+    (*sink)(message);
+    return 0;
+}
+
+void set_debug_function(lua_State* state, const char* name, ScriptDebugSeverity severity,
+                        const std::function<void(const ScriptDebugMessage&)>* debug_sink)
+{
+    lua_pushinteger(state, static_cast<lua_Integer>(severity));
+    lua_pushlightuserdata(state,
+                          const_cast<std::function<void(const ScriptDebugMessage&)>*>(debug_sink));
+    lua_pushcclosure(state, debug_log, 2);
+    lua_setfield(state, -2, name);
 }
 
 } // namespace
@@ -69,10 +134,23 @@ void bind_noveltea(lua_State* state)
     });
 }
 
-void install_host_print(lua_State* state)
+void install_host_print(lua_State* state,
+                        const std::function<void(const ScriptDebugMessage&)>* debug_sink)
 {
-    sol::state_view lua(state);
-    lua.set_function("print", host_print);
+    lua_pushlightuserdata(state,
+                          const_cast<std::function<void(const ScriptDebugMessage&)>*>(debug_sink));
+    lua_pushcclosure(state, host_print, 1);
+    lua_setglobal(state, "print");
+}
+
+void install_debug_api(lua_State* state,
+                       const std::function<void(const ScriptDebugMessage&)>* debug_sink)
+{
+    lua_newtable(state);
+    set_debug_function(state, "info", ScriptDebugSeverity::Info, debug_sink);
+    set_debug_function(state, "warn", ScriptDebugSeverity::Warning, debug_sink);
+    set_debug_function(state, "error", ScriptDebugSeverity::Error, debug_sink);
+    lua_setglobal(state, "Debug");
 }
 
 } // namespace noveltea::script

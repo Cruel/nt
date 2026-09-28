@@ -4,6 +4,7 @@ export type BottomPanelId =
   | 'problems'
   | 'output'
   | 'preview-events'
+  | 'preview-trace'
   | 'preview-diagnostics'
   | 'test-playback'
   | 'references'
@@ -56,6 +57,13 @@ export const bottomPanelDefinitions: BottomPanelDefinition[] = [
   {
     id: 'preview-events',
     labelKey: 'bottomPanel.labels.previewEvents',
+    group: 'preview',
+    isAvailable: previewAvailable,
+    isRelevant: previewRelevant,
+  },
+  {
+    id: 'preview-trace',
+    labelKey: 'bottomPanel.labels.previewTrace',
     group: 'preview',
     isAvailable: previewAvailable,
     isRelevant: previewRelevant,

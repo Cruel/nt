@@ -146,7 +146,7 @@ require_preset_property("web-editor-preview" binaryDir
 require_resolved_option("web-editor-preview" NOVELTEA_BUILD_SANDBOX OFF)
 require_resolved_option("web-editor-preview" NOVELTEA_BUILD_EDITOR_PREVIEW ON)
 require_resolved_option("web-editor-preview" NOVELTEA_BUILD_PLAYER OFF)
-require_resolved_option("web-editor-preview" NOVELTEA_ENABLE_DEVTOOLS OFF)
+require_resolved_option("web-editor-preview" NOVELTEA_ENABLE_DEVTOOLS ON)
 
 require_build_preset("linux-debug-editor-profiler")
 require_build_preset("linux-release-editor-profiler")

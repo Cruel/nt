@@ -41,6 +41,13 @@ void SdlSystemInterface::set_cursor_request_sink(CursorRequestSink sink)
     m_cursor_request_sink = std::move(sink);
 }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+void SdlSystemInterface::set_devtools_log_sink(DevtoolsLogSink sink)
+{
+    m_devtools_log_sink = std::move(sink);
+}
+#endif
+
 void SdlSystemInterface::SetMouseCursor(const Rml::String& cursor_name)
 {
     if (m_cursor_request_sink)
@@ -93,14 +100,27 @@ void SdlSystemInterface::DeactivateKeyboard()
 bool SdlSystemInterface::LogMessage(Rml::Log::Type type, const Rml::String& message)
 {
     SDL_LogPriority priority = SDL_LOG_PRIORITY_INFO;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    devtools::ConsoleSeverity severity = devtools::ConsoleSeverity::Info;
+#endif
     if (type == Rml::Log::LT_ERROR || type == Rml::Log::LT_ASSERT) {
         priority = SDL_LOG_PRIORITY_ERROR;
+#if NOVELTEA_ENABLE_DEVTOOLS
+        severity = devtools::ConsoleSeverity::Error;
+#endif
     } else if (type == Rml::Log::LT_WARNING) {
         priority = SDL_LOG_PRIORITY_WARN;
+#if NOVELTEA_ENABLE_DEVTOOLS
+        severity = devtools::ConsoleSeverity::Warning;
+#endif
     } else if (type == Rml::Log::LT_DEBUG) {
         priority = SDL_LOG_PRIORITY_DEBUG;
     }
     SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, priority, "[rmlui] %s", message.c_str());
+#if NOVELTEA_ENABLE_DEVTOOLS
+    if (m_devtools_log_sink)
+        m_devtools_log_sink(severity, message);
+#endif
     return true;
 }
 

@@ -369,10 +369,12 @@ bool RmlUiDocumentRegistry::reload_all()
         (void)id;
         detach_runtime_input(record);
     }
-    for (auto& context : m_host.contexts())
-        context.context->UnloadAllDocuments();
     for (auto& [id, record] : m_documents) {
         (void)id;
+        if (record.document) {
+            record.document->Hide();
+            record.document->Close();
+        }
         record.document = nullptr;
     }
 

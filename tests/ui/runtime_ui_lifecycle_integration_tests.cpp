@@ -1379,6 +1379,94 @@ assert(LayoutClampResults.invalid_x and LayoutClampResults.invalid_padding)
 )LUA");
 }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+TEST_CASE("RmlUi debugger uses the primary context and routes input without Layout documents")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize_scripts_only());
+    const auto presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1280, 720, 1280, 720),
+        {.reference = {.size = {1280, 720}}});
+    REQUIRE(presentation);
+    noveltea::ui::rmlui::RmlUiHost host;
+    REQUIRE(host.initialize({.assets = &fixture.assets(),
+                             .lua_state = fixture.lua_state(),
+                             .presentation = presentation.value(),
+                             .headless_render = true}));
+    REQUIRE(host.contexts().size() == 1);
+    CHECK(host.contexts().front().key.plane == noveltea::core::PresentationPlane::GameUi);
+    CHECK(host.debugger_snapshot().available);
+    CHECK_FALSE(host.debugger_snapshot().visible);
+    const auto primary = host.primary_context()->GetName();
+    REQUIRE(host.set_debugger(true, primary));
+    host.update_contexts();
+    CHECK(host.debugger_snapshot().context == primary);
+    CHECK(host.primary_context()->GetDocument("rmlui-debug-hook") != nullptr);
+    auto* menu = host.primary_context()->GetDocument("rmlui-debug-menu");
+    REQUIRE(menu);
+    REQUIRE(menu->IsVisible());
+    auto* button = menu->GetElementById("debug-info-button");
+    REQUIRE(button);
+    const auto position = button->GetAbsoluteOffset(Rml::BoxArea::Border);
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = position.x + 2;
+    motion.motion.y = position.y + 2;
+    const auto no_layouts = [](Rml::Context*) { return false; };
+    CHECK(host.process_event(motion, no_layouts, {}));
+    CHECK(host.wants_pointer_input());
+    button->Click();
+    host.update_contexts();
+    REQUIRE(host.set_debugger(false, primary));
+    host.update_contexts();
+    CHECK_FALSE(menu->IsVisible());
+    CHECK(host.primary_context()->GetDocument("rmlui-debug-hook") == nullptr);
+    auto* info = host.primary_context()->GetDocument("rmlui-debug-info");
+    REQUIRE(info);
+    CHECK_FALSE(info->IsVisible());
+    CHECK_FALSE(host.process_event(motion, no_layouts, {}));
+    CHECK_FALSE(host.wants_pointer_input());
+    CHECK_FALSE(host.set_debugger(true, "missing-context"));
+    CHECK_FALSE(host.debugger_snapshot().visible);
+    const noveltea::ui::rmlui::RmlUiHost::ContextKey secondary{
+        .plane = noveltea::core::PresentationPlane::WorldOverlay,
+        .composition_group = 1,
+    };
+    auto* inspected = host.context_for(secondary);
+    REQUIRE(inspected);
+    REQUIRE(host.set_debugger(true, inspected->GetName()));
+    CHECK(host.debugger_snapshot().context == inspected->GetName());
+    CHECK(inspected->GetDocument("rmlui-debug-hook") != nullptr);
+    CHECK(menu->GetContext() == host.primary_context());
+    auto* underlying = inspected->LoadDocumentFromMemory(
+        "<rml><head><style>body { width: 1280px; height: 720px; }</style></head><body/></rml>");
+    REQUIRE(underlying);
+    underlying->Show();
+    host.update_contexts();
+    int primary_dispatches = 0;
+    int underlying_dispatches = 0;
+    const auto dispatch_layout = [&](const auto& key, auto, const std::function<bool()>& dispatch) {
+        if (key.plane == noveltea::core::PresentationPlane::GameUi)
+            ++primary_dispatches;
+        if (key.plane == noveltea::core::PresentationPlane::WorldOverlay)
+            ++underlying_dispatches;
+        return dispatch();
+    };
+    CHECK(host.process_event(motion, [](Rml::Context*) { return true; }, dispatch_layout));
+    CHECK(primary_dispatches == 1);
+    CHECK(underlying_dispatches == 0);
+    REQUIRE(host.set_debugger(false, inspected->GetName()));
+    CHECK(inspected->GetDocument("rmlui-debug-hook") == nullptr);
+    (void)host.process_event(
+        motion, [inspected](Rml::Context* context) { return context == inspected; },
+        dispatch_layout);
+    CHECK(primary_dispatches == 1);
+    CHECK(underlying_dispatches == 1);
+    host.shutdown();
+    CHECK_FALSE(host.debugger_snapshot().available);
+}
+#endif
+
 TEST_CASE("RmlUiHost fails primary context creation when required context initialization fails")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
@@ -3976,6 +4064,33 @@ TEST_CASE("RuntimeUI world Hotspot cursors share central arbitration with click-
     CHECK(inspection.effective == noveltea::host::CursorShape::Text);
     CHECK(inspection.source == "rmlui");
     CHECK(inspection.owner == "hotspot-owner");
+    const auto devtools_contexts = ui.devtools_context_snapshot();
+    const auto owning_context =
+        std::find_if(devtools_contexts.begin(), devtools_contexts.end(), [](const auto& context) {
+            return context.hover && context.hover->id == "target";
+        });
+    REQUIRE(owning_context != devtools_contexts.end());
+    CHECK_FALSE(owning_context->name.empty());
+    CHECK_FALSE(owning_context->lifecycle_identity.empty());
+    CHECK(owning_context->plane == "menu-overlay");
+    CHECK(owning_context->clock == "unscaled-presentation");
+    CHECK(owning_context->input_mode == "normal");
+    CHECK(owning_context->owner == "gameplay");
+    CHECK(owning_context->scale_domain == "ui-inherit-text-inherit");
+    CHECK(owning_context->width > 0);
+    CHECK(owning_context->height > 0);
+    CHECK(owning_context->media_query_width > 0);
+    CHECK(owning_context->media_query_height > 0);
+    CHECK(owning_context->requested_ui_scale > 0.0f);
+    CHECK(owning_context->ui_raster_scale_x > 0.0f);
+    CHECK(owning_context->ui_raster_scale_y > 0.0f);
+    CHECK(owning_context->recent_event_processed);
+    CHECK(owning_context->mouse_interacting);
+    REQUIRE(owning_context->hover);
+    CHECK(owning_context->hover->document_id == "hotspot-owner");
+    CHECK(owning_context->hover->tag == "button");
+    CHECK(owning_context->hover->id == "target");
+    CHECK(owning_context->hover->pointer_events == "auto");
 
     REQUIRE(ui.hide_document("hotspot-owner"));
     ui.begin_frame({});

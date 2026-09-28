@@ -255,6 +255,9 @@ Editor to preview:
 - `runtime-clear-subject-selection`
 - `runtime-run-interaction`
 - `runtime-request-debug-snapshot`
+- `devtools-request-snapshot`
+- `devtools-clear-console`
+- `devtools-clear-trace`
 - `runtime-request-asset-profiler`
 - `runtime-set-variable`
 - `runtime-reset-variable`
@@ -331,6 +334,9 @@ Preview to editor:
 - `preview-state`
 - `preview-snapshot`
 - `runtime-debug-snapshot`
+- `devtools-snapshot`
+- `devtools-console-delta`
+- `devtools-trace-delta`
 - `runtime-asset-profiler`
 - `runtime-debug-event`
 - `runtime-fast-forward-result`
@@ -356,6 +362,118 @@ declared/runtime ownership and provenance (`declared`, `archetype`, `compiled-de
 `clone`) plus optional source metadata. This lets editor tooling inspect runtime-created identities
 without treating renderer occurrences as gameplay authority. Explicit `runtime-request-debug-snapshot`
 remains available for initial synchronization and manual refresh.
+
+### Shared Devtools Snapshot transport
+
+The optimized `web-editor-preview` build enables `NOVELTEA_ENABLE_DEVTOOLS` even though it does not
+compile Dear ImGui. At startup the widget asks the native engine for its versioned devtools
+capabilities instead of hard-coding them in JavaScript. The current capability set contributed by
+the devtools layer is `devtools-snapshot-v1`, `rmlui-debugger-v1`, `devtools-console-v1`,
+`devtools-trace-v1`, `devtools-debug-report-v1`, `runtime-debug-snapshot-v1`, `runtime-debug-mutations-v1`, and
+`runtime-fast-forward-v1`; later debugger features add their own independently versioned
+capabilities.
+
+`devtools-request-snapshot` calls the narrow `noveltea_devtools_snapshot()` export and emits
+`devtools-snapshot` with the same request ID. Alongside host/input/RmlUi/world/tooling/runtime state,
+the payload includes `rmluiDebugger` with availability, visibility, and the exact currently selected
+RmlUi context name. RmlUi context observations include their NovelTea lifecycle identity,
+plane/clock/input/owner/scale-domain values, resolved context/raster metrics, recent input
+processing/consumption, and hover/focus element identity with owning document ID. Runtime fields are
+not copied to the root or re-encoded into a second gameplay-debugger DTO. Existing consumers may
+continue using `runtime-debug-snapshot` directly. Play requests both contracts when supported: the
+narrow runtime snapshot remains authoritative for runtime-only tooling, while the broader snapshot
+drives the Input Routing, RmlUi State, and World Hotspots inspector sections.
+
+When `rmlui-debugger-v1` is advertised, Play tooling controls the engine-owned built-in RmlUi
+Debugger through `devtools-set-rmlui-debugger { visible, context }`. The widget calls the narrow
+`noveltea_devtools_set_rmlui_debugger()` export, rejects unknown context names, emits a fresh
+`devtools-snapshot` on success, and then acknowledges the command. React does not reproduce the
+Debugger's DOM/style/data-model inspector; it only exposes visibility and inspected-context controls
+for the native RmlUi Debugger hosted by the runtime. Hiding it detaches the upstream inspection hook
+while retaining the selected context name, so outline rendering cannot remain active behind a
+`visible=false` snapshot.
+
+The structured Console is a separate cursor-based data plane rather than another snapshot section.
+The engine retains roughly the latest 1000 Console records with monotonically increasing sequence
+IDs, a debugger-global sequence shared with Trace for cross-stream correlation, frame identity,
+severity, category, optional Lua source/line, and the host/runtime generation that produced each
+record. Host/runtime generation transitions are retained records themselves, so reset/reload
+boundaries remain visible instead of clearing history. `noveltea_devtools_console_delta(afterSequence)` returns
+records newer than the cursor plus `earliestRetainedSequence`, `latestSequence`, `historyGap`, and
+`lostRecordCount`. Sequence and generation IDs cross the JavaScript boundary as canonical unsigned
+decimal strings so 64-bit values are not truncated by JavaScript numbers. Console strings are made
+valid UTF-8 at the engine boundary; invalid Lua bytes are represented as `\\xNN`, keeping Console
+polling and debug-report JSON transport safe under the no-exceptions build. Candidate project-runtime
+logs are buffered until replacement outcome is known: committed bootstrap logs are published only
+after the new runtime generation is active, while failed-candidate logs use `lua-candidate` without a
+runtime generation and therefore cannot masquerade as output from the still-running session.
+
+While Play is active and visible, `web/widget.html` persists the last accepted Console sequence and
+polls this delta surface independently from snapshot fingerprinting. Non-empty deltas or explicit
+retention gaps are pushed as `devtools-console-delta`. Semantic debugger mutation activity is
+published into the engine Console before this transport step; the editor does not maintain a
+parallel mutation-history feed. Accepted and rejected mutations therefore appear consistently in
+editor, native, and exported-report Console views, with variable old/new values and rejection reasons
+when available. Preview-protocol acknowledgements and snapshot churn remain excluded.
+`devtools-clear-console` calls the narrow native clear export, clears
+retained engine history without resetting the monotonic sequence, and advances the widget cursor to
+the returned latest sequence so cleared records cannot reappear on the next poll.
+
+Pointer routing uses a second cursor-based developer data plane, the engine-owned Trace. Its bounded
+records carry monotonic per-stream sequence IDs, debugger-global sequence IDs, and host/runtime
+generations and correlate one logical pointer
+event across host/reference projection, RmlUi processing and consumption, governing Layout admission,
+gameplay admission/block reason, and world Hotspot evaluation. Mouse/touch motion with unchanged
+semantic routing state is coalesced into one retained record with repetition, first/current local and
+global sequence identity, and first/last-frame
+metadata while the latest coordinates continue to update. Mouse-button and wheel events remain
+explicit, so alternating button/wheel outcomes cannot disappear into motion coalescing.
+Host/runtime-generation transitions and debugger-originated mutations are distinct Trace record
+kinds. Debugger mutations additionally carry a structured source frontend and semantic operation so
+editor tooling cannot be confused with natural gameplay input.
+
+The Devtools Snapshot owns the complementary current-state view: projected pointer/admission state,
+cheap public RmlUi context metrics and hover/focus identity including computed `pointer-events`, and
+canonical world Hotspot observations including eligibility, target availability/identity,
+cursor/highlight intent, hit/hover/press, capture state, and prepared hit-target metadata. Prepared
+metadata includes whether the Hotspot reached the canonical hit-target set, its hit-test and authored
+input order, shape kind/shape coordinates, and owner-space hit bounds. This current state continues
+changing even when repeated pointer motion coalesces into an existing Trace record.
+
+Trace attribution is event-scoped. RmlUi hover/focus ownership is attached only when the host routed
+that logical event through RmlUi, so an event consumed earlier by developer UI cannot inherit the
+previous event's `recentEventProcessed`/`recentEventConsumed` context. World evaluation similarly
+reports only geometry/hit work actually performed for that event; merely receiving an inadmissible or
+cancelled pointer event is not itself a hit-test.
+
+`noveltea_devtools_trace_delta(afterSequence)` returns newer retained records plus
+`earliestRetainedSequence`, `latestSequence`, `historyGap`, and `lostRecordCount`; sequence and
+generation IDs remain canonical unsigned-decimal strings across JavaScript. While Play is active and
+visible, the widget polls this stream independently and emits `devtools-trace-delta`. The editor's
+Play-only Trace pane filters the retained stream, may freeze/autoscroll its local view while capture
+continues, reports lost history, and clears both local and native history through
+`devtools-clear-trace`. Native ImGui renders the same engine Trace instead of maintaining another
+instrumentation log.
+
+When `devtools-debug-report-v1` is advertised, Play Inspector exposes one **Export Debug Report**
+action. `devtools-request-debug-report` invokes `noveltea_devtools_debug_report()` and returns one
+`devtools-debug-report` payload before the matching command acknowledgement. The report is encoded
+directly from the typed engine-owned debugger data plane and contains Format V1 metadata,
+engine version/build configuration/target/host/renderer identity, advertised capabilities, the current Devtools Snapshot,
+current runtime diagnostics, the public RmlUi context/debugger summary, and retained Console/Trace
+delta envelopes captured from sequence `0`. The Console and Trace envelopes deliberately retain
+`earliestRetainedSequence`, `latestSequence`, `historyGap`, and `lostRecordCount`, so an exported bug
+report states when older history has already been evicted instead of implying complete history.
+Generation and sequence IDs keep their existing canonical decimal-string wire representation. The
+editor downloads the received object as timestamped JSON; it does not reconstruct the artifact from
+React panels, rendered text, or local Console/Trace stores.
+
+When developer instrumentation is compiled out, the native devtools capability/snapshot/debugger
+and debug-report exports are not exposed, the Console and Trace delta/clear exports are likewise absent, these
+devtools capabilities are not advertised, and this transport is unavailable.
+Ordinary diagnostics and runtime logging remain independent of the developer-only boundary.
+See `docs/runtime/DEVELOPER_DEBUGGING.md` for the complete host capability matrix, native shortcut
+behavior, and the Rooms & Interactions pointer-routing acceptance workflow built on this transport.
 
 `set-engine-settings` applies live host configuration to an already-running preview. Its optional
 settings are `showFpsCounter`, `fpsCap`, `rmluiRasterSnap`, and `assetMemoryPolicy`. Raster snapping

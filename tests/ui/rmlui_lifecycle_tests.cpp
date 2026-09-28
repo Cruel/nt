@@ -248,6 +248,28 @@ TEST_CASE("headless SDL system interface avoids native window input resources")
     system.DeactivateKeyboard();
 }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+TEST_CASE("RmlUi system logs retain authoritative severity for the devtools Console sink")
+{
+    noveltea::ui::rmlui::SdlSystemInterface system(nullptr);
+    std::vector<std::pair<noveltea::devtools::ConsoleSeverity, std::string>> records;
+    system.set_devtools_log_sink(
+        [&](noveltea::devtools::ConsoleSeverity severity, std::string message) {
+            records.emplace_back(severity, std::move(message));
+        });
+
+    CHECK(system.LogMessage(Rml::Log::LT_INFO, "loaded"));
+    CHECK(system.LogMessage(Rml::Log::LT_WARNING, "careful"));
+    CHECK(system.LogMessage(Rml::Log::LT_ERROR, "failed"));
+
+    REQUIRE(records.size() == 3);
+    CHECK(records[0].first == noveltea::devtools::ConsoleSeverity::Info);
+    CHECK(records[0].second == "loaded");
+    CHECK(records[1].first == noveltea::devtools::ConsoleSeverity::Warning);
+    CHECK(records[2].first == noveltea::devtools::ConsoleSeverity::Error);
+}
+#endif
+
 TEST_CASE("SDL text input area projects context caret coordinates into host logical space")
 {
     const auto presentation = noveltea::make_presentation_metrics(

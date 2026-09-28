@@ -13,8 +13,12 @@
 #include <string>
 #include <utility>
 
+#include <SDL3/SDL_events.h>
 #include <RmlUi/Core.h>
 #include <RmlUi/Lua.h>
+#if NOVELTEA_ENABLE_DEVTOOLS
+#include <RmlUi/Debugger.h>
+#endif
 
 namespace noveltea::ui::rmlui {
 namespace {
@@ -142,6 +146,17 @@ bool RmlUiHost::initialize(const Config& config)
         }
     }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+    m_debugger_initialized = Rml::Debugger::Initialise(m_primary_context);
+    if (m_debugger_initialized) {
+        Rml::Debugger::SetContext(nullptr);
+        m_debugger_context = m_primary_context->GetName();
+        m_primary_context->Update();
+    } else {
+        std::fprintf(stderr, "[runtime_ui] RmlUi debugger initialization failed\n");
+    }
+#endif
+
     std::fprintf(stderr, "[runtime_ui] RmlUi initialized %s\n",
                  format_resolved_context_metrics(m_default_context_metrics).c_str());
     return true;
@@ -210,6 +225,24 @@ bool RmlUiHost::configure_fonts(const assets::FontAssetConfig& config)
 void RmlUiHost::shutdown()
 {
     reset_pointer_state();
+#if NOVELTEA_ENABLE_DEVTOOLS
+    // The plugin owns documents and wraps our system interface; release it before either owner.
+    if (m_debugger_initialized) {
+        const auto selected =
+            std::find_if(m_contexts.begin(), m_contexts.end(),
+                         [&](const auto& record) { return record.name == m_debugger_context; });
+        if (selected != m_contexts.end() && selected->context) {
+            // Upstream debugger teardown assumes a live debug context. Hidden debugger state
+            // deliberately detaches it to suppress outline rendering, so restore the remembered
+            // context only for teardown before unregistering the plugin.
+            (void)Rml::Debugger::SetContext(selected->context);
+            selected->context->Update();
+        }
+        Rml::Debugger::Shutdown();
+    }
+    m_debugger_initialized = false;
+    m_debugger_context.clear();
+#endif
     for (auto& record : m_contexts) {
         if (record.context)
             record.context->UnloadAllDocuments();
@@ -241,6 +274,55 @@ void RmlUiHost::shutdown()
     m_shader_materials = nullptr;
     m_cursor_authority = nullptr;
 }
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+bool RmlUiHost::set_debugger(bool visible, const std::string& context)
+{
+    const auto found = std::find_if(m_contexts.begin(), m_contexts.end(),
+                                    [&](const auto& record) { return record.name == context; });
+    if (!m_debugger_initialized || found == m_contexts.end())
+        return false;
+    const auto previous =
+        std::find_if(m_contexts.begin(), m_contexts.end(),
+                     [&](const auto& record) { return record.name == m_debugger_context; });
+    m_debugger_context = context;
+    // Upstream SetVisible controls only the menu, not the independently opened inspectors.
+    if (!visible) {
+        for (int index = 0; index < m_primary_context->GetNumDocuments(); ++index) {
+            auto* document = m_primary_context->GetDocument(index);
+            if (document && document->GetId().starts_with("rmlui-debug-") &&
+                document->GetId() != "rmlui-debug-hook")
+                document->Hide();
+        }
+        if (!Rml::Debugger::SetContext(nullptr))
+            return false;
+    } else if (!Rml::Debugger::SetContext(found->context)) {
+        return false;
+    }
+    // DebuggerPlugin::SetContext unloads the previous debug-hook document, but RmlUi defers its
+    // destruction until that context is updated. Flush it while the plugin is still alive so a
+    // secondary inspected context cannot retain a hook that outlives Debugger::Shutdown().
+    if (previous != m_contexts.end() && previous->context)
+        previous->context->Update();
+    Rml::Debugger::SetVisible(visible);
+    if (m_primary_context &&
+        (previous == m_contexts.end() || previous->context != m_primary_context))
+        m_primary_context->Update();
+    if (!visible) {
+        SDL_Event leave{};
+        leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
+        (void)process_event(leave, {}, {});
+    }
+    return true;
+}
+
+devtools::RmlUiDebuggerSnapshot RmlUiHost::debugger_snapshot() const
+{
+    return {.available = m_debugger_initialized,
+            .visible = m_debugger_initialized && Rml::Debugger::IsVisible(),
+            .context = m_debugger_context};
+}
+#endif
 
 Rml::Context* RmlUiHost::primary_context() const noexcept { return m_primary_context; }
 
@@ -315,9 +397,15 @@ Rml::Context* RmlUiHost::context_for(ContextKey key)
         Rml::RemoveContext(name);
         return nullptr;
     }
-    m_contexts.push_back(
-        {key, name, created, std::move(*resolved_metrics), std::nullopt, {}, {}, 1.0,
-         m_next_cursor_source_id++});
+    m_contexts.push_back({key,
+                          name,
+                          created,
+                          std::move(*resolved_metrics),
+                          std::nullopt,
+                          {},
+                          {},
+                          1.0,
+                          m_next_cursor_source_id++});
     sort_contexts();
     return created;
 }
@@ -335,6 +423,14 @@ const std::vector<RmlUiHost::ContextRecord>& RmlUiHost::contexts() const noexcep
 }
 
 std::vector<RmlUiHost::ContextRecord>& RmlUiHost::contexts() noexcept { return m_contexts; }
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+void RmlUiHost::set_devtools_log_sink(DevtoolsLogSink sink)
+{
+    if (m_system_interface)
+        m_system_interface->set_devtools_log_sink(std::move(sink));
+}
+#endif
 
 const ResolvedContextMetrics* RmlUiHost::context_metrics(Rml::Context* context) const noexcept
 {
