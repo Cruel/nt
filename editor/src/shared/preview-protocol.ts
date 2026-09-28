@@ -434,6 +434,18 @@ export interface DevtoolsWorldHotspotSnapshot {
   target: string;
   highlight: string;
   cursor: string | null;
+  preparedHitTarget: boolean;
+  hitTestOrder: number | null;
+  inputOrder: number | null;
+  hitShape: string;
+  hitShapeX: number | null;
+  hitShapeY: number | null;
+  hitShapeWidth: number | null;
+  hitShapeHeight: number | null;
+  hitBoundsX: number | null;
+  hitBoundsY: number | null;
+  hitBoundsWidth: number | null;
+  hitBoundsHeight: number | null;
   underPointer: boolean;
   hovered: boolean;
   pressed: boolean;
@@ -1424,6 +1436,9 @@ export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
   const positiveNumber = (entry: unknown) =>
     typeof entry === 'number' && Number.isFinite(entry) && entry > 0;
   const finiteNumber = (entry: unknown) => typeof entry === 'number' && Number.isFinite(entry);
+  const nullableFiniteNumber = (entry: unknown) => entry === null || finiteNumber(entry);
+  const nullableInteger = (entry: unknown) =>
+    entry === null || (typeof entry === 'number' && Number.isSafeInteger(entry));
   const nullableString = (entry: unknown) => entry === null || typeof entry === 'string';
   const rmluiElement = (entry: unknown) =>
     entry === null ||
@@ -1486,6 +1501,18 @@ export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
         typeof hotspot.target === 'string' &&
         typeof hotspot.highlight === 'string' &&
         nullableString(hotspot.cursor) &&
+        typeof hotspot.preparedHitTarget === 'boolean' &&
+        nullableInteger(hotspot.hitTestOrder) &&
+        nullableInteger(hotspot.inputOrder) &&
+        typeof hotspot.hitShape === 'string' &&
+        nullableFiniteNumber(hotspot.hitShapeX) &&
+        nullableFiniteNumber(hotspot.hitShapeY) &&
+        nullableFiniteNumber(hotspot.hitShapeWidth) &&
+        nullableFiniteNumber(hotspot.hitShapeHeight) &&
+        nullableFiniteNumber(hotspot.hitBoundsX) &&
+        nullableFiniteNumber(hotspot.hitBoundsY) &&
+        nullableFiniteNumber(hotspot.hitBoundsWidth) &&
+        nullableFiniteNumber(hotspot.hitBoundsHeight) &&
         typeof hotspot.underPointer === 'boolean' &&
         typeof hotspot.hovered === 'boolean' &&
         typeof hotspot.pressed === 'boolean',

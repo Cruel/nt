@@ -95,6 +95,18 @@ struct DevtoolsWorldHotspotSnapshot {
     std::string target;
     std::string highlight;
     std::optional<std::string> cursor;
+    bool prepared_hit_target = false;
+    std::optional<std::uint32_t> hit_test_order;
+    std::optional<std::int32_t> input_order;
+    std::string hit_shape = "none";
+    std::optional<double> hit_shape_x;
+    std::optional<double> hit_shape_y;
+    std::optional<double> hit_shape_width;
+    std::optional<double> hit_shape_height;
+    std::optional<float> hit_bounds_x;
+    std::optional<float> hit_bounds_y;
+    std::optional<float> hit_bounds_width;
+    std::optional<float> hit_bounds_height;
     bool under_pointer = false;
     bool hovered = false;
     bool pressed = false;

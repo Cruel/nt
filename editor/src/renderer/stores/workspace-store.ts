@@ -104,6 +104,7 @@ interface WorkspaceState {
   previewConnectionState: PreviewConnectionState;
   selectedRuntimeObjectId: string | null;
   runtimeEvents: RuntimeEventEntry[];
+  runtimeConsoleLostRecordCount: string | null;
   runtimeConsoleClearHandler: (() => Promise<void>) | null;
   runtimeTrace: DevtoolsTraceRecord[];
   runtimeTraceLostRecordCount: string | null;
@@ -124,7 +125,7 @@ interface WorkspaceState {
   setPreviewConnectionState: (state: PreviewConnectionState) => void;
   setSelectedRuntimeObjectId: (id: string | null) => void;
   addRuntimeEvent: (event: Omit<RuntimeEventEntry, 'id' | 'timestamp'>) => void;
-  addDevtoolsConsoleRecords: (records: DevtoolsConsoleRecord[]) => void;
+  addDevtoolsConsoleRecords: (records: DevtoolsConsoleRecord[], lostRecordCount?: string) => void;
   clearRuntimeEvents: () => void;
   setRuntimeConsoleClearHandler: (handler: (() => Promise<void>) | null) => void;
   addDevtoolsTraceRecords: (records: DevtoolsTraceRecord[], lostRecordCount?: string) => void;
@@ -149,6 +150,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   previewConnectionState: 'disconnected',
   selectedRuntimeObjectId: null,
   runtimeEvents: [],
+  runtimeConsoleLostRecordCount: null,
   runtimeConsoleClearHandler: null,
   runtimeTrace: [],
   runtimeTraceLostRecordCount: null,
@@ -178,7 +180,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
         ].slice(0, 1000),
       };
     }),
-  addDevtoolsConsoleRecords: (records) =>
+  addDevtoolsConsoleRecords: (records, lostRecordCount) =>
     set((state) => {
       const existing = new Set(state.runtimeEvents.map((entry) => entry.sequence).filter(Boolean));
       const appended = records
@@ -198,9 +200,15 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
           generationMarker: record.generationMarker,
         }))
         .reverse();
-      return { runtimeEvents: [...appended, ...state.runtimeEvents].slice(0, 1000) };
+      return {
+        runtimeEvents: [...appended, ...state.runtimeEvents].slice(0, 1000),
+        runtimeConsoleLostRecordCount:
+          lostRecordCount && lostRecordCount !== '0'
+            ? lostRecordCount
+            : state.runtimeConsoleLostRecordCount,
+      };
     }),
-  clearRuntimeEvents: () => set({ runtimeEvents: [] }),
+  clearRuntimeEvents: () => set({ runtimeEvents: [], runtimeConsoleLostRecordCount: null }),
   setRuntimeConsoleClearHandler: (runtimeConsoleClearHandler) =>
     set({ runtimeConsoleClearHandler }),
   addDevtoolsTraceRecords: (records, lostRecordCount) =>

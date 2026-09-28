@@ -210,37 +210,41 @@ describe('BottomPanel', () => {
     const clearRemote = vi.fn().mockResolvedValue(undefined);
     act(() => {
       useWorkbenchStore.getState().openTab(buildFullGamePreviewTab());
-      useWorkspaceStore.getState().addDevtoolsConsoleRecords([
-        {
-          sequence: '8',
-          globalSequence: '18',
-          hostGeneration: '1',
-          runtimeGeneration: '3',
-          frame: '40',
-          severity: 'info',
-          category: 'lua',
-          message: 'hello player',
-          source: { chunk: 'main.lua', line: 4 },
-          generationMarker: false,
-        },
-        {
-          sequence: '9',
-          globalSequence: '20',
-          hostGeneration: '1',
-          runtimeGeneration: '3',
-          frame: '41',
-          severity: 'error',
-          category: 'runtime',
-          message: 'door failed',
-          source: null,
-          generationMarker: false,
-        },
-      ]);
+      useWorkspaceStore.getState().addDevtoolsConsoleRecords(
+        [
+          {
+            sequence: '8',
+            globalSequence: '18',
+            hostGeneration: '1',
+            runtimeGeneration: '3',
+            frame: '40',
+            severity: 'info',
+            category: 'lua',
+            message: 'hello player',
+            source: { chunk: 'main.lua', line: 4 },
+            generationMarker: false,
+          },
+          {
+            sequence: '9',
+            globalSequence: '20',
+            hostGeneration: '1',
+            runtimeGeneration: '3',
+            frame: '41',
+            severity: 'error',
+            category: 'runtime',
+            message: 'door failed',
+            source: null,
+            generationMarker: false,
+          },
+        ],
+        '2',
+      );
       useWorkspaceStore.getState().setRuntimeConsoleClearHandler(clearRemote);
       useBottomPanelStore.getState().setActivePanelId('preview-events');
     });
 
     render(<BottomPanel />);
+    expect(screen.getByText(/Console history gap: 2 record/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Console severity'), { target: { value: 'error' } });
     expect(screen.getByText('door failed')).toBeInTheDocument();
     expect(screen.queryByText('hello player')).not.toBeInTheDocument();
@@ -251,8 +255,31 @@ describe('BottomPanel', () => {
     expect(screen.getByText('hello player')).toBeInTheDocument();
     expect(screen.queryByText('door failed')).not.toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole('button', { name: 'Freeze' }));
+    expect(screen.getByText('Console view frozen; capture continues.')).toBeInTheDocument();
+    act(() => {
+      useWorkspaceStore.getState().addDevtoolsConsoleRecords([
+        {
+          sequence: '10',
+          globalSequence: '21',
+          hostGeneration: '1',
+          runtimeGeneration: '3',
+          frame: '42',
+          severity: 'info',
+          category: 'lua',
+          message: 'new player event',
+          source: null,
+          generationMarker: false,
+        },
+      ]);
+    });
+    expect(screen.queryByText('new player event')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Unfreeze' }));
+    expect(screen.getByText('new player event')).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
     expect(useWorkspaceStore.getState().runtimeEvents).toEqual([]);
+    expect(useWorkspaceStore.getState().runtimeConsoleLostRecordCount).toBeNull();
     expect(clearRemote).toHaveBeenCalledTimes(1);
   });
 

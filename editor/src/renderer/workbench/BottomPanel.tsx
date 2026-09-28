@@ -77,18 +77,24 @@ function OutputPanel() {
 function RuntimeEventsPanel() {
   const { t } = useTranslation('workspace');
   const events = useWorkspaceStore((state) => state.runtimeEvents);
+  const lostRecordCount = useWorkspaceStore((state) => state.runtimeConsoleLostRecordCount);
   const clearRuntimeEvents = useWorkspaceStore((state) => state.clearRuntimeEvents);
   const runtimeConsoleClearHandler = useWorkspaceStore((state) => state.runtimeConsoleClearHandler);
   const [severity, setSeverity] = useState<'all' | 'info' | 'warning' | 'error'>('all');
   const [category, setCategory] = useState('all');
   const [query, setQuery] = useState('');
+  const [frozen, setFrozen] = useState(false);
+  const [frozenEvents, setFrozenEvents] = useState(events);
+  const [autoscroll, setAutoscroll] = useState(true);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const visibleEvents = frozen ? frozenEvents : events;
   const categories = useMemo(
-    () => [...new Set(events.map((entry) => entry.category ?? 'runtime'))].sort(),
-    [events],
+    () => [...new Set(visibleEvents.map((entry) => entry.category ?? 'runtime'))].sort(),
+    [visibleEvents],
   );
   const filteredEvents = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    return events.filter((entry) => {
+    return visibleEvents.filter((entry) => {
       const entryCategory = entry.category ?? 'runtime';
       if (severity !== 'all' && entry.severity !== severity) return false;
       if (category !== 'all' && entryCategory !== category) return false;
@@ -100,8 +106,14 @@ function RuntimeEventsPanel() {
         .toLocaleLowerCase()
         .includes(needle);
     });
-  }, [category, events, query, severity]);
-  if (events.length === 0) {
+  }, [category, query, severity, visibleEvents]);
+
+  useEffect(() => {
+    if (!autoscroll || frozen || !listRef.current) return;
+    listRef.current.scrollTop = 0;
+  }, [autoscroll, filteredEvents, frozen]);
+
+  if (events.length === 0 && !frozen) {
     return (
       <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.previewEvents')}</p>
     );
@@ -110,23 +122,23 @@ function RuntimeEventsPanel() {
     <div className="space-y-2 p-2">
       <div className="flex items-center gap-2">
         <select
-          aria-label="Console severity"
+          aria-label={t('bottomPanel.console.severityLabel')}
           className="h-7 rounded border bg-background px-2 text-xs"
           value={severity}
           onChange={(event) => setSeverity(event.target.value as typeof severity)}
         >
-          <option value="all">All severities</option>
-          <option value="info">Info</option>
-          <option value="warning">Warning</option>
-          <option value="error">Error</option>
+          <option value="all">{t('bottomPanel.console.severities.all')}</option>
+          <option value="info">{t('bottomPanel.console.severities.info')}</option>
+          <option value="warning">{t('bottomPanel.console.severities.warning')}</option>
+          <option value="error">{t('bottomPanel.console.severities.error')}</option>
         </select>
         <select
-          aria-label="Console category"
+          aria-label={t('bottomPanel.console.categoryLabel')}
           className="h-7 rounded border bg-background px-2 text-xs"
           value={category}
           onChange={(event) => setCategory(event.target.value)}
         >
-          <option value="all">All categories</option>
+          <option value="all">{t('bottomPanel.console.categoriesAll')}</option>
           {categories.map((value) => (
             <option key={value} value={value}>
               {value}
@@ -134,64 +146,101 @@ function RuntimeEventsPanel() {
           ))}
         </select>
         <input
-          aria-label="Console text filter"
+          aria-label={t('bottomPanel.console.textFilterLabel')}
           className="h-7 min-w-40 flex-1 rounded border bg-background px-2 text-xs"
-          placeholder="Filter text"
+          placeholder={t('bottomPanel.console.filterPlaceholder')}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
+        <Button
+          size="sm"
+          variant={frozen ? 'secondary' : 'outline'}
+          className="h-7"
+          aria-pressed={frozen}
+          onClick={() => {
+            if (!frozen) setFrozenEvents(events);
+            setFrozen((value) => !value);
+          }}
+        >
+          {frozen ? t('bottomPanel.console.unfreeze') : t('bottomPanel.console.freeze')}
+        </Button>
+        <Button
+          size="sm"
+          variant={autoscroll ? 'secondary' : 'outline'}
+          className="h-7"
+          aria-pressed={autoscroll}
+          onClick={() => setAutoscroll((value) => !value)}
+        >
+          {t('bottomPanel.console.autoscroll')}
+        </Button>
         <Button
           size="sm"
           variant="outline"
           className="h-7"
           onClick={() => {
             clearRuntimeEvents();
+            setFrozenEvents([]);
             void runtimeConsoleClearHandler?.().catch(() => undefined);
           }}
         >
-          Clear
+          {t('bottomPanel.console.clear')}
         </Button>
       </div>
+      {lostRecordCount ? (
+        <div className="rounded border px-2 py-1 text-xs text-muted-foreground">
+          {t(
+            lostRecordCount === '1'
+              ? 'bottomPanel.console.historyGap_one'
+              : 'bottomPanel.console.historyGap_other',
+            { count: lostRecordCount },
+          )}
+        </div>
+      ) : null}
+      {frozen ? (
+        <div className="text-xs text-muted-foreground">{t('bottomPanel.console.frozen')}</div>
+      ) : null}
       {filteredEvents.length === 0 ? (
         <p className="px-1 py-2 text-xs text-muted-foreground">
-          No Console entries match the filters.
+          {t('bottomPanel.console.noMatches')}
         </p>
       ) : null}
-      {filteredEvents.map((entry) => (
-        <div key={entry.id} className="rounded border bg-card/40 px-2 py-1.5 text-xs">
-          <div className="flex items-center gap-2">
-            <Badge
-              variant={
-                entry.severity === 'error'
-                  ? 'destructive'
-                  : entry.severity === 'warning'
-                    ? 'secondary'
-                    : 'outline'
-              }
-            >
-              {entry.severity}
-            </Badge>
-            <Badge variant="outline">{entry.category ?? 'runtime'}</Badge>
-            <span className="font-medium">{entry.label}</span>
+      <div ref={listRef} className="max-h-96 space-y-1 overflow-auto">
+        {filteredEvents.map((entry) => (
+          <div key={entry.id} className="rounded border bg-card/40 px-2 py-1.5 text-xs">
+            <div className="flex items-center gap-2">
+              <Badge
+                variant={
+                  entry.severity === 'error'
+                    ? 'destructive'
+                    : entry.severity === 'warning'
+                      ? 'secondary'
+                      : 'outline'
+                }
+              >
+                {entry.severity}
+              </Badge>
+              <Badge variant="outline">{entry.category ?? 'runtime'}</Badge>
+              <span className="font-medium">{entry.label}</span>
+            </div>
+            {entry.detail ? (
+              <div className="mt-1 font-mono text-[11px] text-muted-foreground">{entry.detail}</div>
+            ) : null}
+            {entry.source ? (
+              <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                {entry.source.chunk}
+                {entry.source.line ? `:${entry.source.line}` : ''}
+              </div>
+            ) : null}
+            {entry.globalSequence || entry.frame ? (
+              <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                {entry.globalSequence ? `global #${entry.globalSequence}` : ''}
+                {entry.globalSequence && entry.frame ? ' · ' : ''}
+                {entry.frame ? `frame ${entry.frame}` : ''}
+              </div>
+            ) : null}
           </div>
-          {entry.detail ? (
-            <div className="mt-1 font-mono text-[11px] text-muted-foreground">{entry.detail}</div>
-          ) : null}
-          {entry.source ? (
-            <div className="mt-1 font-mono text-[10px] text-muted-foreground">
-              {entry.source.chunk}
-              {entry.source.line ? `:${entry.source.line}` : ''}
-            </div>
-          ) : null}
-          {entry.globalSequence || entry.frame ? (
-            <div className="mt-1 font-mono text-[10px] text-muted-foreground">
-              {entry.globalSequence ? `global #${entry.globalSequence}` : ''}
-              {entry.globalSequence && entry.frame ? ' · ' : ''}
-              {entry.frame ? `frame ${entry.frame}` : ''}
-            </div>
-          ) : null}
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -536,7 +585,10 @@ export function BottomPanel() {
   }, [projectInstanceId]);
 
   useEffect(() => {
-    if (!hasPreviewTab) useWorkspaceStore.getState().clearRuntimeEvents();
+    if (!hasPreviewTab) {
+      useWorkspaceStore.getState().clearRuntimeEvents();
+      useWorkspaceStore.getState().clearRuntimeTrace();
+    }
   }, [hasPreviewTab]);
 
   useEffect(() => {

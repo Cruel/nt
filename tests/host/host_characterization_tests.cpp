@@ -8,6 +8,7 @@
 #include "noveltea/runtime_preview_controller.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <array>
@@ -483,12 +484,29 @@ TEST_CASE("Devtools Snapshot tracks the populated canonical Runtime Debug Snapsh
     CHECK(devtools_before.value_if()->runtime->preview_running);
     CHECK(devtools_before.value_if()->tooling.preview_running);
 
+    const auto rejected_mutation =
+        nlohmann::json::parse(EngineTooling::preview(engine).set_variable("not a valid variable id",
+                                                                          core::RuntimeValue{true}),
+                              nullptr, false);
+    REQUIRE(rejected_mutation.is_object());
+    CHECK(rejected_mutation.value("kind", std::string{}) == "variable-set");
+    CHECK(rejected_mutation.value("debugOnly", false));
+    CHECK(rejected_mutation.value("rejected", false));
+    CHECK(rejected_mutation.value("message", std::string{}) == "invalid variable id");
+    REQUIRE(rejected_mutation.contains("newValue"));
+    CHECK(rejected_mutation["newValue"] == true);
+
     EngineTooling::record_debugger_mutation(engine, "host-test", "debug report export test");
     const auto console_before_report = EngineTooling::devtools_console_delta(engine, 0);
     REQUIRE(console_before_report);
     CHECK(std::any_of(console_before_report.value_if()->records.begin(),
                       console_before_report.value_if()->records.end(),
                       [](const auto& record) { return record.category == "engine"; }));
+    CHECK(std::any_of(console_before_report.value_if()->records.begin(),
+                      console_before_report.value_if()->records.end(), [](const auto& record) {
+                          return record.category == "debugger" &&
+                                 record.message == "debug report export test";
+                      }));
     const auto trace_before_report = EngineTooling::devtools_trace_delta(engine, 0);
     REQUIRE(trace_before_report);
 

@@ -403,9 +403,12 @@ decimal strings so 64-bit values are not truncated by JavaScript numbers.
 
 While Play is active and visible, `web/widget.html` persists the last accepted Console sequence and
 polls this delta surface independently from snapshot fingerprinting. Non-empty deltas or explicit
-retention gaps are pushed as `devtools-console-delta`. The editor Console combines these structured
-records with the existing semantic runtime debug activity; preview-protocol acknowledgements and
-snapshot churn remain excluded. `devtools-clear-console` calls the narrow native clear export, clears
+retention gaps are pushed as `devtools-console-delta`. Semantic debugger mutation activity is
+published into the engine Console before this transport step; the editor does not maintain a
+parallel mutation-history feed. Accepted and rejected mutations therefore appear consistently in
+editor, native, and exported-report Console views, with variable old/new values and rejection reasons
+when available. Preview-protocol acknowledgements and snapshot churn remain excluded.
+`devtools-clear-console` calls the narrow native clear export, clears
 retained engine history without resetting the monotonic sequence, and advances the widget cursor to
 the returned latest sequence so cleared records cannot reappear on the next poll.
 
@@ -425,8 +428,16 @@ editor tooling cannot be confused with natural gameplay input.
 The Devtools Snapshot owns the complementary current-state view: projected pointer/admission state,
 cheap public RmlUi context metrics and hover/focus identity including computed `pointer-events`, and
 canonical world Hotspot observations including eligibility, target availability/identity,
-cursor/highlight intent, hit/hover/press, and capture state. This current state continues changing
-even when repeated pointer motion coalesces into an existing Trace record.
+cursor/highlight intent, hit/hover/press, capture state, and prepared hit-target metadata. Prepared
+metadata includes whether the Hotspot reached the canonical hit-target set, its hit-test and authored
+input order, shape kind/shape coordinates, and owner-space hit bounds. This current state continues
+changing even when repeated pointer motion coalesces into an existing Trace record.
+
+Trace attribution is event-scoped. RmlUi hover/focus ownership is attached only when the host routed
+that logical event through RmlUi, so an event consumed earlier by developer UI cannot inherit the
+previous event's `recentEventProcessed`/`recentEventConsumed` context. World evaluation similarly
+reports only geometry/hit work actually performed for that event; merely receiving an inadmissible or
+cancelled pointer event is not itself a hit-test.
 
 `noveltea_devtools_trace_delta(afterSequence)` returns newer retained records plus
 `earliestRetainedSequence`, `latestSequence`, `historyGap`, and `lostRecordCount`; sequence and

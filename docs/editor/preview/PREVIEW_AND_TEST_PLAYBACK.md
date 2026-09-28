@@ -86,8 +86,11 @@ and live Interactable entries; any editor grouping is derived and non-authoritat
 Play keeps current-state debugger controls in its right-side tooling inspector. Runtime activity and
 preview diagnostics are workbench bottom-panel concerns instead of a duplicate "Events & diagnostics"
 inspector section. `Console` is intentionally semantic: it records explicit runtime debug events,
-fast-forward outcomes, and runtime failures, while continuous debug snapshots, FPS/profiler telemetry,
-command acknowledgements, pointer/focus traffic, and other preview-protocol plumbing remain hidden.
+fast-forward outcomes, and runtime failures from the engine-owned structured Console stream. Accepted
+and rejected debugger mutations are published there once at the engine boundary, including rejection
+reason and variable old/new values when available; renderer-local mutation history is not authoritative.
+Continuous debug snapshots, FPS/profiler telemetry, command acknowledgements, pointer/focus traffic,
+and other preview-protocol plumbing remain hidden.
 Runtime debug snapshots continue to drive the inspector's current-state views, and diagnostics carried
 by those snapshots are projected into `Preview Diagnostics`, which may remain available after Play
 closes while retained diagnostics exist.

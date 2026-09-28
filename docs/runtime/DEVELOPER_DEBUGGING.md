@@ -31,7 +31,10 @@ projection and admission, public RmlUi context/hover/focus information, canonica
 observation, and the existing Runtime Debug Snapshot as its runtime section. RmlUi observations
 include lifecycle identity, plane/clock/input/owner/scale-domain information, resolved context and
 raster metrics, recent per-context input processing/consumption, and owning-document identity for
-hover/focus elements. The runtime section is not a second gameplay model.
+hover/focus elements. World Hotspot observations additionally expose whether a prepared hit target
+exists plus its prepared hit-test/input ordering, shape, and owner-space bounds so a miss can be
+distinguished from eligibility or target-resolution failure. The runtime section is not a second
+gameplay model.
 
 The **Console** is the bounded structured log stream. Records have a per-stream cursor sequence, a
 shared global debugger sequence for correlation with Trace, frame identity, severity, category,
@@ -43,9 +46,17 @@ summaries and RmlUi's own typed log callback are also explicit Console producers
 recovered by scraping SDL log text. In devtools-off builds the `Debug` table remains source-compatible
 but has no developer sink.
 
+Editor debugger mutations publish their semantic result to this same Console boundary. Accepted and
+rejected attempts are both visible; rejected attempts use warning severity and retain their rejection
+reason, while variable mutations include old/new values when available. The editor does not maintain
+a second mutation-history feed beside the engine Console.
+
 The **Trace** is the bounded causal routing stream. Pointer records correlate host coordinates,
 reference projection, RmlUi processing/consumption, governing Layout admission, gameplay admission,
-world hit testing, and Hotspot hover. Equivalent pointer motion may coalesce while state transitions,
+world hit testing, and Hotspot hover. RmlUi ownership is attached only when that logical event was
+actually routed through RmlUi; events consumed earlier by developer UI do not reuse the previous
+RmlUi observation. `world_evaluated` likewise means the world controller actually executed a
+geometry/hit query for that event rather than merely receiving the event. Equivalent pointer motion may coalesce while state transitions,
 buttons, wheel input, generation changes, and debugger mutations remain explicit records. Coalesced
 records retain first/current local and global sequence identity. Debugger mutations identify their
 source frontend and semantic operation explicitly. Use the Trace for "why did this input stop here?"
@@ -65,7 +76,9 @@ On a native developer host, `F10` toggles the NovelTea Dear ImGui debugger front
 `Shift+F10` resets its window layout. These shortcuts are intercepted at the host-input layer before
 RmlUi, Layout, or gameplay admission. The Dear ImGui frontend consumes the same Devtools Snapshot,
 Console, and Trace contracts as editor tooling. Its Console and Trace sections have explicit Clear
-actions; clearing retained history does not restart the runtime or disable capture.
+actions, filtering, and presentation-only freeze controls; clearing retained history does not restart
+the runtime or disable capture. The native frontend can inspect the complete currently retained
+buffers rather than silently truncating them to a smaller presentation limit.
 
 The editor Play inspector uses the current Devtools Snapshot directly for Input Routing, RmlUi State,
 and World Hotspots sections. World state keeps under-pointer/hovered/pressed Hotspots visible first

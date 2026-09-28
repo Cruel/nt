@@ -209,6 +209,10 @@ struct WorldPointerEvent {
 struct WorldPointerEventResult {
     bool consumed = false;
     bool primary_activation = true;
+    bool hit_test_performed = false;
+    std::optional<core::compiled::HotspotRef> hit;
+    std::optional<core::compiled::HotspotRef> hovered;
+    std::optional<core::compiled::HotspotRef> pressed;
     std::optional<core::compiled::ResolvedHotspotTarget> target;
     std::optional<core::TriggerContext> trigger_context;
 };

@@ -1160,13 +1160,19 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
 {
     synchronize_generation();
     WorldPointerEventResult result;
+    const auto finish = [this, &result]() -> WorldPointerEventResult {
+        result.hovered = m_hovered;
+        result.pressed =
+            m_capture ? std::optional<core::compiled::HotspotRef>{m_capture->ref} : std::nullopt;
+        return result;
+    };
     const bool touch = event.kind == WorldPointerEventKind::TouchDown ||
                        event.kind == WorldPointerEventKind::TouchMove ||
                        event.kind == WorldPointerEventKind::TouchUp;
 
     if (event.kind == WorldPointerEventKind::Cancel) {
         cancel();
-        return result;
+        return finish();
     }
     if (!touch) {
         m_last_mouse_reference = event.reference_position;
@@ -1177,7 +1183,7 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
             cancel();
         else if (!touch)
             set_visual_state(std::nullopt, std::nullopt);
-        return result;
+        return finish();
     }
 
     if (event.kind == WorldPointerEventKind::MouseMove ||
@@ -1191,20 +1197,25 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
                 m_capture->target_canceled = true;
                 set_visual_state(std::nullopt, std::nullopt);
             }
-            return result;
+            return finish();
         }
-        if (!touch)
-            set_visual_state(hit_test(event.reference_position), std::nullopt);
-        return result;
+        if (!touch) {
+            result.hit_test_performed = true;
+            result.hit = hit_test(event.reference_position);
+            set_visual_state(result.hit, std::nullopt);
+        }
+        return finish();
     }
 
     if (event.kind == WorldPointerEventKind::MouseDown ||
         event.kind == WorldPointerEventKind::TouchDown) {
         if ((!event.primary && !event.secondary) || m_capture)
-            return result;
+            return finish();
+        result.hit_test_performed = true;
         auto target = hit_test(event.reference_position);
+        result.hit = target;
         if (!target)
-            return result;
+            return finish();
         m_capture = Capture{*target,
                             event.host_position,
                             event.reference_position,
@@ -1214,15 +1225,20 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
                             false};
         set_visual_state(std::nullopt, target);
         result.consumed = true;
-        return result;
+        return finish();
     }
 
     if (!m_capture || m_capture->pointer_id != event.pointer_id || m_capture->touch != touch)
-        return result;
+        return finish();
     result.consumed = true;
     const auto captured = m_capture->ref;
-    const bool select_target =
-        !m_capture->target_canceled && contains(captured, event.reference_position);
+    bool select_target = false;
+    if (!m_capture->target_canceled) {
+        result.hit_test_performed = true;
+        select_target = contains(captured, event.reference_position);
+    }
+    if (select_target)
+        result.hit = captured;
     const auto* semantic_target = select_target ? hit_target(captured) : nullptr;
     const auto target = semantic_target ? std::optional{semantic_target->target} : std::nullopt;
     const bool primary_activation = m_capture->primary;
@@ -1246,9 +1262,11 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
             result.trigger_context = trigger;
         }
     } else if (!touch) {
-        set_visual_state(hit_test(event.reference_position), std::nullopt);
+        result.hit_test_performed = true;
+        result.hit = hit_test(event.reference_position);
+        set_visual_state(result.hit, std::nullopt);
     }
-    return result;
+    return finish();
 }
 
 void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,

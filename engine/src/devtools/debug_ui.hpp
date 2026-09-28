@@ -6,8 +6,10 @@
 #include "noveltea/devtools_trace.hpp"
 #include "noveltea/surface.hpp"
 
+#include <array>
 #include <string>
 #include <span>
+#include <vector>
 
 struct SDL_Window;
 union SDL_Event;
@@ -49,6 +51,18 @@ private:
     bool m_visible = false;
     bool m_reset_window_rect = false;
     bool m_initialized = false;
+#if defined(NOVELTEA_HAS_IMGUI)
+    bool m_console_frozen = false;
+    bool m_trace_frozen = false;
+    int m_console_severity_filter = 0;
+    int m_trace_kind_filter = 0;
+    std::array<char, 64> m_console_category_filter{};
+    std::array<char, 128> m_console_text_filter{};
+    std::array<char, 64> m_trace_category_filter{};
+    std::array<char, 128> m_trace_text_filter{};
+    std::vector<devtools::ConsoleRecord> m_frozen_console;
+    std::vector<devtools::TraceRecord> m_frozen_trace;
+#endif
     std::string m_ini_path;
     float m_web_ini_sync_timer = 0.0f;
     void* m_bgfx_backend = nullptr;

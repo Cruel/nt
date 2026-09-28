@@ -365,12 +365,27 @@ Engine::Impl::Impl()
           .runtime_session_replaced =
               [this]() { m_presentation_layouts.replace_runtime_session(); },
           .diagnostic_sink =
-              [](host::HostFrameStage stage, const core::Diagnostic& diagnostic) {
+              [this](host::HostFrameStage stage, const core::Diagnostic& diagnostic) {
                   const auto stage_name = host::to_string(stage);
                   SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime:%.*s] %s %s %s",
                                static_cast<int>(stage_name.size()), stage_name.data(),
                                diagnostic.code.c_str(), diagnostic.source_path.c_str(),
                                diagnostic.message.c_str());
+#if NOVELTEA_ENABLE_DEVTOOLS
+                  sync_devtools_generations();
+                  devtools::ConsoleSeverity severity = devtools::ConsoleSeverity::Error;
+                  if (diagnostic.severity == core::ErrorSeverity::Info)
+                      severity = devtools::ConsoleSeverity::Info;
+                  else if (diagnostic.severity == core::ErrorSeverity::Warning)
+                      severity = devtools::ConsoleSeverity::Warning;
+                  std::string message = diagnostic.code;
+                  if (!diagnostic.source_path.empty())
+                      message += " " + diagnostic.source_path;
+                  if (!diagnostic.message.empty())
+                      message += " " + diagnostic.message;
+                  m_devtools_console.append(severity, "runtime", std::move(message), std::nullopt,
+                                            m_frame_count);
+#endif
               },
       }),
       m_presentation_layouts(m_game_host.runtime_layouts(), m_layout_realizer),
@@ -2608,7 +2623,6 @@ void Engine::Impl::handle_events()
         const bool focused_preview_active = focused_content_kind != host::FocusedContentKind::None;
         const bool focused_room_preview = focused_content_kind == host::FocusedContentKind::Room;
 #if NOVELTEA_ENABLE_DEVTOOLS
-        bool world_evaluated = false;
         std::optional<WorldPointerEventResult> world_trace_result;
 #endif
         if ((focused_preview_active && !focused_room_preview) || presentation_pointer_consumed) {
@@ -2670,7 +2684,6 @@ void Engine::Impl::handle_events()
                      .admitted = focused_room_preview || routed.route_diagnostics.gameplay_admitted,
                      .secondary = !touch && normalized.mouse_button == SDL_BUTTON_RIGHT});
 #if NOVELTEA_ENABLE_DEVTOOLS
-                world_evaluated = true;
                 world_trace_result = world;
 #endif
                 if (world.target && !focused_room_preview) {
@@ -2777,7 +2790,7 @@ void Engine::Impl::handle_events()
             }
         }
 #if NOVELTEA_ENABLE_DEVTOOLS
-        append_input_trace(normalized, routed, world_evaluated, world_trace_result);
+        append_input_trace(normalized, routed, world_trace_result);
 #endif
         if (!routed.diagnostics.empty()) {
             m_game_host.report_runtime_diagnostics(host::HostFrameStage::RouteInput,
@@ -2954,6 +2967,17 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
             world.hotspots.reserve(presentation->hotspots.size());
             for (const auto& hotspot : presentation->hotspots) {
                 const auto identity = world_hotspot_identity(hotspot.ref);
+                const auto prepared =
+                    std::ranges::find_if(frame->hotspot_hit_targets, [&](const auto& candidate) {
+                        return candidate.ref == hotspot.ref;
+                    });
+                const bool has_prepared = prepared != frame->hotspot_hit_targets.end();
+                const auto prepared_order =
+                    has_prepared ? std::optional<std::uint32_t>{static_cast<std::uint32_t>(
+                                       std::distance(frame->hotspot_hit_targets.begin(), prepared))}
+                                 : std::nullopt;
+                const auto* rect_shape =
+                    std::get_if<core::compiled::NormalizedRect>(&hotspot.shape);
                 world.hotspots.push_back({
                     .identity = identity,
                     .label = hotspot.label,
@@ -2964,6 +2988,31 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
                     .cursor = hotspot.cursor
                                   ? std::optional<std::string>{cursor_target_name(*hotspot.cursor)}
                                   : std::nullopt,
+                    .prepared_hit_target = has_prepared,
+                    .hit_test_order = prepared_order,
+                    .input_order = has_prepared ? std::optional<std::int32_t>{prepared->input_order}
+                                                : std::nullopt,
+                    .hit_shape = has_prepared ? (std::holds_alternative<core::AlphaHotspotShape>(
+                                                     prepared->shape)
+                                                     ? "alpha"
+                                                     : "rect")
+                                              : "none",
+                    .hit_shape_x = rect_shape ? std::optional<double>{rect_shape->x} : std::nullopt,
+                    .hit_shape_y = rect_shape ? std::optional<double>{rect_shape->y} : std::nullopt,
+                    .hit_shape_width =
+                        rect_shape ? std::optional<double>{rect_shape->width} : std::nullopt,
+                    .hit_shape_height =
+                        rect_shape ? std::optional<double>{rect_shape->height} : std::nullopt,
+                    .hit_bounds_x =
+                        has_prepared ? std::optional<float>{prepared->owner_rect.x} : std::nullopt,
+                    .hit_bounds_y =
+                        has_prepared ? std::optional<float>{prepared->owner_rect.y} : std::nullopt,
+                    .hit_bounds_width = has_prepared
+                                            ? std::optional<float>{prepared->owner_rect.width}
+                                            : std::nullopt,
+                    .hit_bounds_height = has_prepared
+                                             ? std::optional<float>{prepared->owner_rect.height}
+                                             : std::nullopt,
                     .under_pointer = world.under_pointer == identity,
                     .hovered = world.hovered == identity,
                     .pressed = world.pressed == identity,
@@ -3034,7 +3083,6 @@ void Engine::Impl::append_script_debug_message(const script::ScriptDebugMessage&
 
 void Engine::Impl::append_input_trace(const host::NormalizedHostEvent& event,
                                       const host::HostInputRouteResult& routed,
-                                      bool world_evaluated,
                                       const std::optional<WorldPointerEventResult>& world_result)
 {
     sync_devtools_generations();
@@ -3083,7 +3131,7 @@ void Engine::Impl::append_input_trace(const host::NormalizedHostEvent& event,
         .governing_layout_mode = m_devtools_input_snapshot.governing_layout_mode,
         .rmlui_hover = std::nullopt,
         .rmlui_focus = std::nullopt,
-        .world_evaluated = world_evaluated,
+        .world_evaluated = world_result && world_result->hit_test_performed,
         .world_consumed = world_result && world_result->consumed,
         .world_hit = std::nullopt,
         .world_hovered = std::nullopt,
@@ -3107,38 +3155,42 @@ void Engine::Impl::append_input_trace(const host::NormalizedHostEvent& event,
         trace.wheel_y = event.wheel_y;
     }
 
-    const auto contexts = m_runtime_ui.devtools_context_snapshot();
-    const auto element_ref =
-        [](const devtools::DevtoolsRmlUiContextSnapshot& context,
-           const std::optional<devtools::DevtoolsRmlUiElementSnapshot>& element)
-        -> std::optional<devtools::TraceElementRef> {
-        if (!element)
-            return std::nullopt;
-        return devtools::TraceElementRef{.context = context.name,
-                                         .document_id = element->document_id,
-                                         .tag = element->tag,
-                                         .id = element->id,
-                                         .classes = element->classes,
-                                         .pointer_events = element->pointer_events};
-    };
-    for (const auto& context : contexts) {
-        if (!trace.rmlui_hover && context.hover)
-            trace.rmlui_hover = element_ref(context, context.hover);
-        if (!trace.rmlui_focus && context.focus)
-            trace.rmlui_focus = element_ref(context, context.focus);
-        if (context.mouse_interacting && context.hover) {
-            trace.rmlui_hover = element_ref(context, context.hover);
-            break;
+    if (routed.route_diagnostics.runtime_ui_processed) {
+        const auto contexts = m_runtime_ui.devtools_context_snapshot();
+        const auto element_ref =
+            [](const devtools::DevtoolsRmlUiContextSnapshot& context,
+               const std::optional<devtools::DevtoolsRmlUiElementSnapshot>& element)
+            -> std::optional<devtools::TraceElementRef> {
+            if (!element)
+                return std::nullopt;
+            return devtools::TraceElementRef{.context = context.name,
+                                             .document_id = element->document_id,
+                                             .tag = element->tag,
+                                             .id = element->id,
+                                             .classes = element->classes,
+                                             .pointer_events = element->pointer_events};
+        };
+        const devtools::DevtoolsRmlUiContextSnapshot* routed_context = nullptr;
+        for (auto it = contexts.rbegin(); it != contexts.rend(); ++it) {
+            if (it->recent_event_consumed) {
+                routed_context = &*it;
+                break;
+            }
+            if (!routed_context && it->recent_event_processed)
+                routed_context = &*it;
+        }
+        if (routed_context) {
+            trace.rmlui_hover = element_ref(*routed_context, routed_context->hover);
+            trace.rmlui_focus = element_ref(*routed_context, routed_context->focus);
         }
     }
 
-    const auto world = m_world_hotspots.debug_observation();
-    if (world.under_pointer)
-        trace.world_hit = world_hotspot_identity(*world.under_pointer);
-    if (world.hovered)
-        trace.world_hovered = world_hotspot_identity(*world.hovered);
-    if (world.pressed)
-        trace.world_pressed = world_hotspot_identity(*world.pressed);
+    if (world_result && world_result->hit)
+        trace.world_hit = world_hotspot_identity(*world_result->hit);
+    if (world_result && world_result->hovered)
+        trace.world_hovered = world_hotspot_identity(*world_result->hovered);
+    if (world_result && world_result->pressed)
+        trace.world_pressed = world_hotspot_identity(*world_result->pressed);
     if (world_result && world_result->target)
         trace.world_target = resolved_hotspot_target_name(*world_result->target);
     m_devtools_trace.append_input(std::move(trace), m_frame_count);
@@ -3168,27 +3220,6 @@ void Engine::Impl::append_runtime_diagnostics(core::Diagnostics diagnostics)
 {
     if (diagnostics.empty())
         return;
-#if NOVELTEA_ENABLE_DEVTOOLS
-    sync_devtools_generations();
-    for (const auto& diagnostic : diagnostics) {
-        devtools::ConsoleSeverity severity = devtools::ConsoleSeverity::Info;
-        switch (diagnostic.severity) {
-        case core::ErrorSeverity::Info:
-            break;
-        case core::ErrorSeverity::Warning:
-            severity = devtools::ConsoleSeverity::Warning;
-            break;
-        case core::ErrorSeverity::Error:
-        case core::ErrorSeverity::Fatal:
-            severity = devtools::ConsoleSeverity::Error;
-            break;
-        }
-        std::string message = diagnostic.code.empty() ? diagnostic.message
-                                                      : diagnostic.code + ": " + diagnostic.message;
-        m_devtools_console.append(severity, "runtime", std::move(message), std::nullopt,
-                                  m_frame_count);
-    }
-#endif
     m_game_host.report_runtime_diagnostics(host::HostFrameStage::UpdatePresentation,
                                            std::move(diagnostics));
 }
@@ -3863,11 +3894,22 @@ std::uint64_t EngineTooling::clear_devtools_trace(Engine& engine) noexcept
 }
 
 void EngineTooling::record_debugger_mutation(Engine& engine, std::string source_frontend,
-                                             std::string operation)
+                                             std::string operation,
+                                             devtools::ConsoleSeverity severity)
 {
     engine.m_impl->sync_devtools_generations();
+    engine.m_impl->m_devtools_console.append(severity, "debugger", operation, std::nullopt,
+                                             engine.m_impl->m_frame_count);
     engine.m_impl->m_devtools_trace.append_debugger_mutation(
         std::move(source_frontend), std::move(operation), engine.m_impl->m_frame_count);
+}
+
+void EngineTooling::record_debugger_console(Engine& engine, std::string message,
+                                            devtools::ConsoleSeverity severity)
+{
+    engine.m_impl->sync_devtools_generations();
+    engine.m_impl->m_devtools_console.append(severity, "debugger", std::move(message), std::nullopt,
+                                             engine.m_impl->m_frame_count);
 }
 #endif
 
