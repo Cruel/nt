@@ -190,6 +190,8 @@ const char* input_block_reason_name(host::HostGameplayInputBlockReason reason) n
         return "none";
     case Reason::HiddenPreview:
         return "hidden-preview";
+    case Reason::DevtoolsShortcut:
+        return "devtools-shortcut";
     case Reason::DebugOverlay:
         return "debug-overlay";
     case Reason::RuntimeUi:
@@ -1672,6 +1674,9 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     m_next_frame_counter = 0;
     m_audio_enabled = engine_config.enable_audio;
     m_debug_ui_enabled = tooling_config.enable_debug_ui && NOVELTEA_ENABLE_DEVTOOLS;
+#if !defined(NOVELTEA_HAS_IMGUI)
+    m_debug_ui_enabled = false;
+#endif
     m_render_perf_logging = tooling_config.render_perf_logging;
     m_preview_widget = tooling_config.preview_widget;
     m_show_fps_counter = tooling_config.show_fps_counter;
@@ -1926,6 +1931,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
         SDL_Log("[engine] initializing debug UI...");
         if (!m_debug_ui.initialize(sdl_platform::native_window(m_platform), &m_assets)) {
             std::fprintf(stderr, "[engine] debug UI init failed (non-fatal)\n");
+            m_debug_ui_enabled = false;
         } else {
             debug_ui_initialized = true;
             SDL_Log("[engine] debug UI initialized");
@@ -2705,6 +2711,12 @@ void Engine::Impl::handle_events()
                     } else if constexpr (std::is_same_v<
                                              T, host::FastForwardPresentationToolingAction>) {
                         // Handled before world hit testing so the same press cannot leak through.
+                    } else if constexpr (std::is_same_v<T,
+                                                        host::ToggleNativeDebugUiToolingAction>) {
+                        m_debug_ui.toggle_visibility();
+                    } else if constexpr (std::is_same_v<
+                                             T, host::ResetNativeDebugUiRectToolingAction>) {
+                        m_debug_ui.reset_window_rect();
                     }
                 },
                 action);

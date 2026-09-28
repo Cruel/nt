@@ -133,10 +133,13 @@ NormalizedHostEvent normalize_host_event(const SDL_Event& event,
     case SDL_EVENT_KEY_UP:
         normalized.kind = event.type == SDL_EVENT_KEY_DOWN ? NormalizedHostEventKind::KeyDown
                                                            : NormalizedHostEventKind::KeyUp;
-        normalized.key =
-            event.key.key == SDLK_ESCAPE ? NormalizedHostKey::Escape : NormalizedHostKey::Unknown;
+        if (event.key.key == SDLK_ESCAPE)
+            normalized.key = NormalizedHostKey::Escape;
+        else if (event.key.key == SDLK_F10)
+            normalized.key = NormalizedHostKey::F10;
         normalized.scancode = static_cast<std::int32_t>(event.key.scancode);
         normalized.repeat = event.key.repeat;
+        normalized.shift = (event.key.mod & SDL_KMOD_SHIFT) != 0;
         break;
     case SDL_EVENT_TEXT_INPUT:
         normalized.kind = NormalizedHostEventKind::TextInput;
@@ -203,12 +206,25 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
 
     const bool hidden_preview = context.mode == HostInputMode::Preview && !context.preview_visible;
     const bool suppress_hidden_interaction = hidden_preview && is_interactive_event(event.kind);
+    const bool native_debug_shortcut = context.devtools_enabled &&
+                                       event.kind == NormalizedHostEventKind::KeyDown &&
+                                       event.key == NormalizedHostKey::F10 && !event.repeat;
 
-    if (!suppress_hidden_interaction && context.devtools_enabled && consumers.debug) {
+    if (native_debug_shortcut) {
+        if (event.shift)
+            result.tooling_actions.emplace_back(ResetNativeDebugUiRectToolingAction{});
+        else
+            result.tooling_actions.emplace_back(ToggleNativeDebugUiToolingAction{});
+        result.disposition = HostInputDisposition::Consumed;
+    }
+
+    if (!native_debug_shortcut && !suppress_hidden_interaction && context.devtools_enabled &&
+        consumers.debug) {
         result.route_diagnostics.debug_processed = true;
         result.debug_result = consumers.debug();
     }
-    if (!suppress_hidden_interaction && !result.debug_result.consumed && consumers.runtime_ui) {
+    if (!native_debug_shortcut && !suppress_hidden_interaction && !result.debug_result.consumed &&
+        consumers.runtime_ui) {
         result.route_diagnostics.runtime_ui_processed = true;
         result.runtime_ui_result = consumers.runtime_ui();
         for (const auto& command : result.runtime_ui_result.shell_commands) {
@@ -257,6 +273,8 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
         auto& diagnostics = result.route_diagnostics;
         if (hidden_preview) {
             diagnostics.block_reason = HostGameplayInputBlockReason::HiddenPreview;
+        } else if (native_debug_shortcut) {
+            diagnostics.block_reason = HostGameplayInputBlockReason::DevtoolsShortcut;
         } else if (result.debug_result.consumed) {
             diagnostics.block_reason = HostGameplayInputBlockReason::DebugOverlay;
         } else if (result.runtime_ui_result.consumed) {

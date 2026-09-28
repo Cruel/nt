@@ -25,6 +25,15 @@ namespace {
 
 ImVec2 debug_overlay_default_pos() { return ImGui::GetMainViewport()->WorkPos; }
 
+void apply_debugger_reset_rect()
+{
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const auto rect = host::debug_ui_reset_rect({viewport->WorkPos.x, viewport->WorkPos.y},
+                                                {viewport->WorkSize.x, viewport->WorkSize.y});
+    ImGui::SetNextWindowPos(ImVec2(rect.position.x, rect.position.y), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(rect.size.x, rect.size.y), ImGuiCond_Always);
+}
+
 #if defined(SDL_PLATFORM_ANDROID)
 void add_logical_mouse_position(float x, float y, const HostSurfaceMetrics& surface)
 {
@@ -43,6 +52,8 @@ bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
 {
     if (m_initialized)
         return true;
+    m_visible = false;
+    m_reset_window_rect = false;
     m_assets = assets;
 
     IMGUI_CHECKVERSION();
@@ -174,101 +185,139 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
         return output;
 
     if (m_visible) {
-        ImGui::SetNextWindowPos(debug_overlay_default_pos(), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Debug Overlay");
-
-        const ImGuiIO& io = ImGui::GetIO();
-        ImGui::Text("FPS: %.1f", io.Framerate);
-        ImGui::Text("Frame time: %.3f ms", 1000.0f / io.Framerate);
-        bool render_perf_logging = snapshot.tooling.render_perf_logging;
-        if (ImGui::Checkbox("Render Perf Logging", &render_perf_logging)) {
-            output.commands.emplace_back(
-                host::SetRenderPerfLoggingDebugCommand{render_perf_logging});
-        }
-        ImGui::Separator();
-
-        ImGui::Text("Renderer: %s", snapshot.host.renderer.c_str());
-        ImGui::Text("Host logical: %d x %d", snapshot.host.surface.logical_size.width,
-                    snapshot.host.surface.logical_size.height);
-        ImGui::Text("Backend: %s", snapshot.host.platform.c_str());
-        ImGui::Text("Triangle smoke test: running on view 0");
-        ImGui::Separator();
-
-        if (snapshot.runtime) {
-            if (snapshot.host.host_generation) {
-                ImGui::Text("Runtime: loaded (host generation %llu)",
-                            static_cast<unsigned long long>(*snapshot.host.host_generation));
-            } else {
-                ImGui::TextUnformatted("Runtime: loaded");
-            }
-            bool gameplay_paused = snapshot.runtime->publication.gameplay_ui.gameplay_paused;
-            if (ImGui::Checkbox("Gameplay Paused", &gameplay_paused)) {
-                output.commands.emplace_back(host::SetGameplayPausedDebugCommand{gameplay_paused});
-            }
-            ImGui::Text("Observations: %llu",
-                        static_cast<unsigned long long>(
-                            snapshot.runtime->publication.observations.values.size()));
-            ImGui::Text("Diagnostics: %zu", snapshot.runtime->diagnostics.size());
+        if (m_reset_window_rect) {
+            apply_debugger_reset_rect();
+            m_reset_window_rect = false;
         } else {
-            ImGui::TextUnformatted("Runtime: not loaded");
+            ImGui::SetNextWindowPos(debug_overlay_default_pos(), ImGuiCond_FirstUseEver);
         }
-        ImGui::Separator();
+        ImGui::Begin("NovelTea Debugger");
 
-        if (snapshot.rmlui_debugger.available) {
-            bool visible = snapshot.rmlui_debugger.visible;
-            if (ImGui::Checkbox("RmlUi Debugger", &visible))
-                output.rmlui_debugger = {visible, snapshot.rmlui_debugger.context};
-            if (ImGui::BeginCombo("Inspect context", snapshot.rmlui_debugger.context.c_str())) {
-                for (const auto& context : snapshot.rmlui) {
-                    if (ImGui::Selectable(context.name.c_str(),
-                                          context.name == snapshot.rmlui_debugger.context))
-                        output.rmlui_debugger = {visible, context.name};
+        if (ImGui::CollapsingHeader("Render", ImGuiTreeNodeFlags_DefaultOpen)) {
+            const ImGuiIO& io = ImGui::GetIO();
+            ImGui::Text("%s | %s | %.1f FPS", snapshot.host.platform.c_str(),
+                        snapshot.host.renderer.c_str(), io.Framerate);
+            ImGui::Text("Host: %d x %d", snapshot.host.surface.logical_size.width,
+                        snapshot.host.surface.logical_size.height);
+            bool render_perf_logging = snapshot.tooling.render_perf_logging;
+            if (ImGui::Checkbox("Render Perf Logging", &render_perf_logging)) {
+                output.commands.emplace_back(
+                    host::SetRenderPerfLoggingDebugCommand{render_perf_logging});
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Runtime", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (snapshot.runtime) {
+                if (snapshot.host.host_generation) {
+                    ImGui::Text("Loaded | host generation %llu",
+                                static_cast<unsigned long long>(*snapshot.host.host_generation));
+                } else {
+                    ImGui::TextUnformatted("Loaded");
                 }
-                ImGui::EndCombo();
+                bool gameplay_paused = snapshot.runtime->publication.gameplay_ui.gameplay_paused;
+                if (ImGui::Checkbox("Gameplay Paused", &gameplay_paused)) {
+                    output.commands.emplace_back(
+                        host::SetGameplayPausedDebugCommand{gameplay_paused});
+                }
+                ImGui::Text("Observations: %llu | diagnostics: %zu",
+                            static_cast<unsigned long long>(
+                                snapshot.runtime->publication.observations.values.size()),
+                            snapshot.runtime->diagnostics.size());
+            } else {
+                ImGui::TextUnformatted("Not loaded");
             }
         }
 
-        if (!console.empty()) {
-            ImGui::TextUnformatted("Console");
-            ImGui::BeginChild("Console", ImVec2(0.0f, 180.0f), true);
-            const auto first = console.size() > 100 ? console.size() - 100 : 0;
-            for (std::size_t index = first; index < console.size(); ++index) {
-                const auto& record = console[index];
-                ImGui::TextWrapped(
-                    "[%llu] [%.*s] [%s] %s", static_cast<unsigned long long>(record.sequence),
-                    static_cast<int>(devtools::console_severity_name(record.severity).size()),
-                    devtools::console_severity_name(record.severity).data(),
-                    record.category.c_str(), record.message.c_str());
+        if (ImGui::CollapsingHeader("Input", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Text("%s | gameplay %s (%s)", snapshot.input.last_event.c_str(),
+                        snapshot.input.gameplay_admitted ? "admitted" : "blocked",
+                        snapshot.input.gameplay_block_reason.c_str());
+            ImGui::Text("Debug %s%s | RmlUi %s%s",
+                        snapshot.input.debug_processed ? "processed" : "skipped",
+                        snapshot.input.debug_consumed ? "/consumed" : "",
+                        snapshot.input.runtime_ui_processed ? "processed" : "skipped",
+                        snapshot.input.runtime_ui_consumed ? "/consumed" : "");
+            if (snapshot.input.pointer_valid) {
+                ImGui::Text("Pointer: %.1f, %.1f", snapshot.input.reference_pointer.x,
+                            snapshot.input.reference_pointer.y);
             }
-            ImGui::EndChild();
+            if (snapshot.world.hovered || snapshot.world.pressed || snapshot.world.under_pointer) {
+                ImGui::Text("World: hover=%s pressed=%s under=%s",
+                            snapshot.world.hovered ? snapshot.world.hovered->c_str() : "none",
+                            snapshot.world.pressed ? snapshot.world.pressed->c_str() : "none",
+                            snapshot.world.under_pointer ? snapshot.world.under_pointer->c_str()
+                                                         : "none");
+            }
         }
 
-        if (!trace.empty()) {
-            ImGui::Separator();
-            ImGui::TextUnformatted("Trace");
+        if (ImGui::CollapsingHeader("RmlUi", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (snapshot.rmlui_debugger.available) {
+                bool visible = snapshot.rmlui_debugger.visible;
+                if (ImGui::Checkbox("RmlUi Debugger", &visible))
+                    output.rmlui_debugger = {visible, snapshot.rmlui_debugger.context};
+                if (ImGui::BeginCombo("Inspect context", snapshot.rmlui_debugger.context.c_str())) {
+                    for (const auto& context : snapshot.rmlui) {
+                        if (ImGui::Selectable(context.name.c_str(),
+                                              context.name == snapshot.rmlui_debugger.context))
+                            output.rmlui_debugger = {visible, context.name};
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+            for (const auto& context : snapshot.rmlui) {
+                ImGui::BulletText("%s %dx%d%s", context.name.c_str(), context.width, context.height,
+                                  context.mouse_interacting ? " interacting" : "");
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Console")) {
+            if (console.empty()) {
+                ImGui::TextUnformatted("No retained records");
+            } else {
+                ImGui::BeginChild("Console", ImVec2(0.0f, 180.0f), true);
+                const auto first = console.size() > 100 ? console.size() - 100 : 0;
+                for (std::size_t index = first; index < console.size(); ++index) {
+                    const auto& record = console[index];
+                    ImGui::TextWrapped(
+                        "[%llu] [%.*s] [%s] %s", static_cast<unsigned long long>(record.sequence),
+                        static_cast<int>(devtools::console_severity_name(record.severity).size()),
+                        devtools::console_severity_name(record.severity).data(),
+                        record.category.c_str(), record.message.c_str());
+                }
+                ImGui::EndChild();
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Trace")) {
             if (trace_evicted_record_count > 0) {
                 ImGui::Text("History gap: %llu record(s) were evicted from retention",
                             static_cast<unsigned long long>(trace_evicted_record_count));
             }
-            ImGui::BeginChild("Trace", ImVec2(0.0f, 180.0f), true);
-            const auto first = trace.size() > 100 ? trace.size() - 100 : 0;
-            for (std::size_t index = first; index < trace.size(); ++index) {
-                const auto& record = trace[index];
-                if (record.input) {
-                    const auto& input = *record.input;
-                    ImGui::TextWrapped(
-                        "[%llu] [%s] %s admitted=%s block=%s world=%s repeat=%u",
-                        static_cast<unsigned long long>(record.sequence),
-                        devtools::trace_record_kind_name(record.kind), input.event.c_str(),
-                        input.gameplay_admitted ? "yes" : "no", input.gameplay_block_reason.c_str(),
-                        input.world_evaluated ? "evaluated" : "not-evaluated", record.repeat_count);
-                } else {
-                    ImGui::TextWrapped(
-                        "[%llu] [%s] %s", static_cast<unsigned long long>(record.sequence),
-                        devtools::trace_record_kind_name(record.kind), record.detail.c_str());
+            if (trace.empty()) {
+                ImGui::TextUnformatted("No retained records");
+            } else {
+                ImGui::BeginChild("Trace", ImVec2(0.0f, 180.0f), true);
+                const auto first = trace.size() > 100 ? trace.size() - 100 : 0;
+                for (std::size_t index = first; index < trace.size(); ++index) {
+                    const auto& record = trace[index];
+                    if (record.input) {
+                        const auto& input = *record.input;
+                        ImGui::TextWrapped("[%llu] [%s] %s admitted=%s block=%s world=%s repeat=%u",
+                                           static_cast<unsigned long long>(record.sequence),
+                                           devtools::trace_record_kind_name(record.kind),
+                                           input.event.c_str(),
+                                           input.gameplay_admitted ? "yes" : "no",
+                                           input.gameplay_block_reason.c_str(),
+                                           input.world_evaluated ? "evaluated" : "not-evaluated",
+                                           record.repeat_count);
+                    } else {
+                        ImGui::TextWrapped(
+                            "[%llu] [%s] %s", static_cast<unsigned long long>(record.sequence),
+                            devtools::trace_record_kind_name(record.kind), record.detail.c_str());
+                    }
                 }
+                ImGui::EndChild();
             }
-            ImGui::EndChild();
         }
 
         ImGui::End();

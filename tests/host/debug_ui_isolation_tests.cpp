@@ -19,6 +19,25 @@ TEST_CASE("DebugUI has no production RuntimeUI binding")
     STATIC_REQUIRE_FALSE(HasRuntimeUiBinding<DebugUI>);
 }
 
+TEST_CASE("DebugUI starts hidden and toggles visibility explicitly")
+{
+    DebugUI debug_ui;
+    CHECK_FALSE(debug_ui.is_visible());
+    debug_ui.toggle_visibility();
+    CHECK(debug_ui.is_visible());
+    debug_ui.toggle_visibility();
+    CHECK_FALSE(debug_ui.is_visible());
+}
+
+TEST_CASE("DebugUI reset rectangle uses the top half of the complete work area")
+{
+    constexpr auto rect = debug_ui_reset_rect({120.0f, 80.0f}, {1440.0f, 900.0f});
+    STATIC_REQUIRE(rect.position.x == 120.0f);
+    STATIC_REQUIRE(rect.position.y == 80.0f);
+    STATIC_REQUIRE(rect.size.x == 1440.0f);
+    STATIC_REQUIRE(rect.size.y == 450.0f);
+}
+
 TEST_CASE("DebugUI runtime commands require the Tooling capability profile")
 {
     constexpr auto profile = DebugUiCommandExecutor::runtime_capability_profile();

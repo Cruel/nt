@@ -11,7 +11,13 @@ DebugUI::~DebugUI() { shutdown(); }
 bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
 {
     (void)window;
-    (void)assets;
+    m_visible = false;
+    m_reset_window_rect = false;
+    m_initialized = false;
+    m_ini_path.clear();
+    m_web_ini_sync_timer = 0.0f;
+    m_bgfx_backend = nullptr;
+    m_assets = assets;
     std::printf("[debug_ui] disabled\n");
     return true;
 }
@@ -39,6 +45,13 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
     return {};
 }
 
-void DebugUI::shutdown() {}
+void DebugUI::shutdown()
+{
+    m_initialized = false;
+    m_ini_path.clear();
+    m_web_ini_sync_timer = 0.0f;
+    m_bgfx_backend = nullptr;
+    m_assets = nullptr;
+}
 
 } // namespace noveltea
