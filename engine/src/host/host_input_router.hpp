@@ -67,6 +67,8 @@ struct NormalizedHostEvent {
     NormalizedHostKey key = NormalizedHostKey::Unknown;
     std::int32_t scancode = 0;
     std::uint8_t mouse_button = 0;
+    float wheel_x = 0.0f;
+    float wheel_y = 0.0f;
     std::uint64_t touch_id = 0;
     Vec2 host_position{};
     bool has_host_position = false;

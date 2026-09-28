@@ -63,8 +63,11 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void apply_pending_debug_ui_commands();
     [[nodiscard]] devtools::DevtoolsSnapshot devtools_snapshot() const;
 #if NOVELTEA_ENABLE_DEVTOOLS
-    void sync_devtools_console_generations();
+    void sync_devtools_generations();
     void append_script_debug_message(const script::ScriptDebugMessage& message);
+    void append_input_trace(const host::NormalizedHostEvent& event,
+                            const host::HostInputRouteResult& routed, bool world_evaluated,
+                            const std::optional<WorldPointerEventResult>& world_result);
 #endif
     [[nodiscard]] host::CheckpointThumbnailCaptureContext
     checkpoint_thumbnail_capture_context() const;
@@ -160,6 +163,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     script::ScriptRuntime m_scripts;
 #if NOVELTEA_ENABLE_DEVTOOLS
     devtools::ConsoleBuffer m_devtools_console;
+    devtools::TraceBuffer m_devtools_trace;
+    devtools::DevtoolsInputSnapshot m_devtools_input_snapshot;
 #endif
     core::TypedMemorySaveSlotStore m_typed_saves;
     core::RuntimeClock m_runtime_clock;

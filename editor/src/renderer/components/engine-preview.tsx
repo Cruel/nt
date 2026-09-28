@@ -114,6 +114,7 @@ export function EnginePreview({
   const globalConnectionState = useWorkspaceStore((s) => s.previewConnectionState);
   const setGlobalConnectionState = useWorkspaceStore((s) => s.setPreviewConnectionState);
   const setRuntimeConsoleClearHandler = useWorkspaceStore((s) => s.setRuntimeConsoleClearHandler);
+  const setRuntimeTraceClearHandler = useWorkspaceStore((s) => s.setRuntimeTraceClearHandler);
   const editorLocation = useOptionalWorkbenchEditorLocation();
   const activateGroup = useWorkbenchStore((s) => s.activateGroup);
   const {
@@ -198,6 +199,12 @@ export function EnginePreview({
     setRuntimeConsoleClearHandler(() => controller.clearDevtoolsConsole());
     return () => setRuntimeConsoleClearHandler(null);
   }, [controller, embedded, setRuntimeConsoleClearHandler]);
+
+  useEffect(() => {
+    if (embedded) return undefined;
+    setRuntimeTraceClearHandler(() => controller.clearDevtoolsTrace());
+    return () => setRuntimeTraceClearHandler(null);
+  }, [controller, embedded, setRuntimeTraceClearHandler]);
 
   useEffect(() => {
     const updateVisibility = () => setPreviewVisible(isPreviewWrapperVisible(wrapperRef.current));

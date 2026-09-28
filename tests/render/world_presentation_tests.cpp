@@ -1045,6 +1045,15 @@ TEST_CASE("world hotspot hover carries cursor intent and recomputes it for a sta
     REQUIRE(controller.hovered_target()->cursor);
     CHECK(controller.hovered_target()->cursor->kind == compiled::CursorTargetKind::Named);
     CHECK(controller.hovered_target()->cursor->named_id == "inspect");
+    const auto hovered_observation = controller.debug_observation();
+    CHECK(hovered_observation.last_mouse_valid);
+    CHECK(hovered_observation.last_mouse_reference.x == 50.0f);
+    CHECK(hovered_observation.last_mouse_reference.y == 50.0f);
+    REQUIRE(hovered_observation.under_pointer);
+    CHECK(world_hotspot_identity(*hovered_observation.under_pointer) == "room/room/hotspot/desk");
+    REQUIRE(hovered_observation.hovered);
+    CHECK(world_hotspot_identity(*hovered_observation.hovered) == "room/room/hotspot/desk");
+    CHECK_FALSE(hovered_observation.capture_active);
 
     auto replacement = snapshot;
     replacement.revision = PresentationSnapshotRevision::from_number(2);
@@ -1062,6 +1071,7 @@ TEST_CASE("world hotspot hover carries cursor intent and recomputes it for a sta
     REQUIRE(backend.reconcile(replacement, {100.0f, 100.0f}));
     controller.presentation_changed();
     CHECK(controller.hovered_target() == nullptr);
+    CHECK_FALSE(controller.debug_observation().under_pointer);
 
     (void)controller.handle(
         {WorldPointerEventKind::Cancel, {50.0f, 50.0f}, {50.0f, 50.0f}, 0, false, false});

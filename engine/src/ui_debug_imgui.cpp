@@ -165,6 +165,8 @@ void DebugUI::begin_frame(const HostSurfaceMetrics& surface)
 
 host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& snapshot,
                                             std::span<const devtools::ConsoleRecord> console,
+                                            std::span<const devtools::TraceRecord> trace,
+                                            std::uint64_t trace_evicted_record_count,
                                             bool submit_draw_data)
 {
     host::DebugUiFrameOutput output;
@@ -223,6 +225,34 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
                     static_cast<int>(devtools::console_severity_name(record.severity).size()),
                     devtools::console_severity_name(record.severity).data(),
                     record.category.c_str(), record.message.c_str());
+            }
+            ImGui::EndChild();
+        }
+
+        if (!trace.empty()) {
+            ImGui::Separator();
+            ImGui::TextUnformatted("Trace");
+            if (trace_evicted_record_count > 0) {
+                ImGui::Text("History gap: %llu record(s) were evicted from retention",
+                            static_cast<unsigned long long>(trace_evicted_record_count));
+            }
+            ImGui::BeginChild("Trace", ImVec2(0.0f, 180.0f), true);
+            const auto first = trace.size() > 100 ? trace.size() - 100 : 0;
+            for (std::size_t index = first; index < trace.size(); ++index) {
+                const auto& record = trace[index];
+                if (record.input) {
+                    const auto& input = *record.input;
+                    ImGui::TextWrapped(
+                        "[%llu] [%s] %s admitted=%s block=%s world=%s repeat=%u",
+                        static_cast<unsigned long long>(record.sequence),
+                        devtools::trace_record_kind_name(record.kind), input.event.c_str(),
+                        input.gameplay_admitted ? "yes" : "no", input.gameplay_block_reason.c_str(),
+                        input.world_evaluated ? "evaluated" : "not-evaluated", record.repeat_count);
+                } else {
+                    ImGui::TextWrapped(
+                        "[%llu] [%s] %s", static_cast<unsigned long long>(record.sequence),
+                        devtools::trace_record_kind_name(record.kind), record.detail.c_str());
+                }
             }
             ImGui::EndChild();
         }

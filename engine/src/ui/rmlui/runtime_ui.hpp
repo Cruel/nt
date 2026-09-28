@@ -3,6 +3,7 @@
 #include "host/runtime_ui_host.hpp"
 #include "ui/rmlui/active_text_presenter.hpp"
 #include "ui/rmlui/rmlui_host.hpp"
+#include "noveltea/devtools_snapshot.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -170,6 +171,8 @@ public:
     bool wants_pointer_input() const;
     bool wants_keyboard_input() const;
     bool last_event_consumed() const { return m_last_event_consumed; }
+    [[nodiscard]] std::vector<devtools::DevtoolsRmlUiContextSnapshot>
+    devtools_context_snapshot() const;
 
 private:
     friend class ui::rmlui::RuntimeUiFacadeAccess;

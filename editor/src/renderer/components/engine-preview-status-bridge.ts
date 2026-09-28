@@ -101,6 +101,7 @@ export function useEnginePreviewStatusBridge({
   const setSelectedRuntimeObjectId = useWorkspaceStore((s) => s.setSelectedRuntimeObjectId);
   const addRuntimeEvent = useWorkspaceStore((s) => s.addRuntimeEvent);
   const addDevtoolsConsoleRecords = useWorkspaceStore((s) => s.addDevtoolsConsoleRecords);
+  const addDevtoolsTraceRecords = useWorkspaceStore((s) => s.addDevtoolsTraceRecords);
   const setStatusMessage = useWorkspaceStore((s) => s.setStatusMessage);
 
   const recordTransportError = useCallback(
@@ -134,6 +135,12 @@ export function useEnginePreviewStatusBridge({
               category: 'devtools',
             });
           }
+        }
+        if (message.type === 'devtools-trace-delta') {
+          addDevtoolsTraceRecords(
+            message.delta.records,
+            message.delta.historyGap ? message.delta.lostRecordCount : undefined,
+          );
         }
       }
       if (message.type === 'ready' || message.type === 'capabilities') {
@@ -194,6 +201,7 @@ export function useEnginePreviewStatusBridge({
       sessionId,
       addRuntimeEvent,
       addDevtoolsConsoleRecords,
+      addDevtoolsTraceRecords,
       setSelectedRuntimeObjectId,
       setSessionCapabilities,
       setSessionStatus,

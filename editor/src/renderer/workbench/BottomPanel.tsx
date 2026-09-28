@@ -189,6 +189,205 @@ function RuntimeEventsPanel() {
   );
 }
 
+function TracePanel() {
+  const { t } = useTranslation('workspace');
+  const trace = useWorkspaceStore((state) => state.runtimeTrace);
+  const lostRecordCount = useWorkspaceStore((state) => state.runtimeTraceLostRecordCount);
+  const clearRuntimeTrace = useWorkspaceStore((state) => state.clearRuntimeTrace);
+  const runtimeTraceClearHandler = useWorkspaceStore((state) => state.runtimeTraceClearHandler);
+  const [kind, setKind] = useState<'all' | 'input-routing' | 'debugger-mutation' | 'generation'>(
+    'all',
+  );
+  const [category, setCategory] = useState('all');
+  const [query, setQuery] = useState('');
+  const [frozen, setFrozen] = useState(false);
+  const [frozenTrace, setFrozenTrace] = useState(trace);
+  const [autoscroll, setAutoscroll] = useState(true);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const visibleTrace = frozen ? frozenTrace : trace;
+  const categories = useMemo(
+    () => [...new Set(visibleTrace.map((record) => record.category))].sort(),
+    [visibleTrace],
+  );
+  const filteredTrace = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return visibleTrace.filter((record) => {
+      if (kind !== 'all' && record.kind !== kind) return false;
+      if (category !== 'all' && record.category !== category) return false;
+      if (!needle) return true;
+      const input = record.input;
+      return [
+        record.kind,
+        record.category,
+        record.detail,
+        input?.event,
+        input?.gameplayBlockReason,
+        input?.governingLayout,
+        input?.rmluiHover?.context,
+        input?.rmluiHover?.id,
+        input?.rmluiFocus?.id,
+        input?.worldHit,
+        input?.worldHovered,
+        input?.worldPressed,
+        input?.worldTarget,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(needle);
+    });
+  }, [category, kind, query, visibleTrace]);
+
+  useEffect(() => {
+    if (!autoscroll || frozen || !listRef.current) return;
+    listRef.current.scrollTop = 0;
+  }, [autoscroll, filteredTrace, frozen]);
+
+  if (trace.length === 0 && !frozen) {
+    return (
+      <p className="p-3 text-xs text-muted-foreground">{t('bottomPanel.empty.previewTrace')}</p>
+    );
+  }
+
+  return (
+    <div className="space-y-2 p-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          aria-label={t('bottomPanel.trace.kindLabel')}
+          className="h-7 rounded border bg-background px-2 text-xs"
+          value={kind}
+          onChange={(event) => setKind(event.target.value as typeof kind)}
+        >
+          <option value="all">{t('bottomPanel.trace.kinds.all')}</option>
+          <option value="input-routing">{t('bottomPanel.trace.kinds.inputRouting')}</option>
+          <option value="debugger-mutation">{t('bottomPanel.trace.kinds.debuggerMutation')}</option>
+          <option value="generation">{t('bottomPanel.trace.kinds.generation')}</option>
+        </select>
+        <select
+          aria-label={t('bottomPanel.trace.categoryLabel')}
+          className="h-7 rounded border bg-background px-2 text-xs"
+          value={category}
+          onChange={(event) => setCategory(event.target.value)}
+        >
+          <option value="all">{t('bottomPanel.trace.categoriesAll')}</option>
+          {categories.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label={t('bottomPanel.trace.textFilterLabel')}
+          className="h-7 min-w-40 flex-1 rounded border bg-background px-2 text-xs"
+          placeholder={t('bottomPanel.trace.filterPlaceholder')}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <Button
+          size="sm"
+          variant={frozen ? 'secondary' : 'outline'}
+          className="h-7"
+          aria-pressed={frozen}
+          onClick={() => {
+            if (!frozen) setFrozenTrace(trace);
+            setFrozen((value) => !value);
+          }}
+        >
+          {frozen ? t('bottomPanel.trace.unfreeze') : t('bottomPanel.trace.freeze')}
+        </Button>
+        <Button
+          size="sm"
+          variant={autoscroll ? 'secondary' : 'outline'}
+          className="h-7"
+          aria-pressed={autoscroll}
+          onClick={() => setAutoscroll((value) => !value)}
+        >
+          {t('bottomPanel.trace.autoscroll')}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7"
+          onClick={() => {
+            clearRuntimeTrace();
+            setFrozenTrace([]);
+            void runtimeTraceClearHandler?.().catch(() => undefined);
+          }}
+        >
+          {t('bottomPanel.trace.clear')}
+        </Button>
+      </div>
+      {lostRecordCount ? (
+        <div className="rounded border px-2 py-1 text-xs text-muted-foreground">
+          {t(
+            lostRecordCount === '1'
+              ? 'bottomPanel.trace.historyGap_one'
+              : 'bottomPanel.trace.historyGap_other',
+            { count: lostRecordCount },
+          )}
+        </div>
+      ) : null}
+      {frozen ? (
+        <div className="text-xs text-muted-foreground">{t('bottomPanel.trace.frozen')}</div>
+      ) : null}
+      <div ref={listRef} className="max-h-96 space-y-1 overflow-auto">
+        {filteredTrace.length === 0 ? (
+          <p className="px-1 py-2 text-xs text-muted-foreground">
+            {t('bottomPanel.trace.noMatches')}
+          </p>
+        ) : null}
+        {filteredTrace.map((record) => (
+          <div
+            key={`${record.firstSequence}:${record.sequence}`}
+            className="rounded border bg-card/40 px-2 py-1.5 text-xs"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{record.kind}</Badge>
+              <Badge variant="outline">{record.category}</Badge>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                #{record.sequence}
+              </span>
+              {record.repeatCount > 1 ? (
+                <span className="text-muted-foreground">×{record.repeatCount}</span>
+              ) : null}
+              <span className="font-medium">{record.input?.event ?? record.detail}</span>
+            </div>
+            {record.input ? (
+              <div className="mt-1 space-y-0.5 font-mono text-[10px] text-muted-foreground">
+                <div>
+                  host={record.input.hostX ?? '—'},{record.input.hostY ?? '—'} → reference=
+                  {record.input.referenceX ?? '—'},{record.input.referenceY ?? '—'}
+                  {record.input.mouseButton !== null ? ` button=${record.input.mouseButton}` : ''}
+                  {record.input.wheelX !== null || record.input.wheelY !== null
+                    ? ` wheel=${record.input.wheelX ?? 0},${record.input.wheelY ?? 0}`
+                    : ''}
+                </div>
+                <div>
+                  RmlUi: consumed={String(record.input.runtimeUiConsumed)} wants-pointer=
+                  {String(record.input.runtimeUiWantsPointer)} hover=
+                  {record.input.rmluiHover
+                    ? `${record.input.rmluiHover.context}:${record.input.rmluiHover.tag}#${record.input.rmluiHover.id || '—'} pointer-events=${record.input.rmluiHover.pointerEvents}`
+                    : '—'}
+                </div>
+                <div>
+                  gameplay: admitted={String(record.input.gameplayAdmitted)} block=
+                  {record.input.gameplayBlockReason} layout={record.input.governingLayout ?? '—'} (
+                  {record.input.governingLayoutMode})
+                </div>
+                <div>
+                  world: evaluated={String(record.input.worldEvaluated)} hit=
+                  {record.input.worldHit ?? '—'} hovered={record.input.worldHovered ?? '—'} pressed=
+                  {record.input.worldPressed ?? '—'} target={record.input.worldTarget ?? '—'}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CommandHistoryPanel() {
   const { t } = useTranslation('workspace');
   const history = useCommandStore((state) => state.history);
@@ -246,6 +445,8 @@ function PanelContent({ panelId }: { panelId: BottomPanelId }) {
       return <OutputPanel />;
     case 'preview-events':
       return <RuntimeEventsPanel />;
+    case 'preview-trace':
+      return <TracePanel />;
     case 'preview-diagnostics':
       return <PreviewDiagnosticsPanel />;
     case 'test-playback':

@@ -373,6 +373,63 @@ export interface DevtoolsHostSnapshot {
   surface: DevtoolsHostSurfaceSnapshot;
 }
 
+export interface DevtoolsInputSnapshot {
+  referenceX: number;
+  referenceY: number;
+  pointerValid: boolean;
+  lastEvent: string;
+  debugProcessed: boolean;
+  debugConsumed: boolean;
+  runtimeUiProcessed: boolean;
+  runtimeUiConsumed: boolean;
+  runtimeUiWantsPointer: boolean;
+  gameplayEvent: boolean;
+  gameplayAdmitted: boolean;
+  gameplayBlockReason: string;
+  governingLayout: string | null;
+  governingLayoutMode: string;
+}
+
+export interface DevtoolsRmlUiElementSnapshot {
+  tag: string;
+  id: string;
+  classes: string;
+  pointerEvents: string;
+}
+
+export interface DevtoolsRmlUiContextSnapshot {
+  name: string;
+  width: number;
+  height: number;
+  mouseInteracting: boolean;
+  hover: DevtoolsRmlUiElementSnapshot | null;
+  focus: DevtoolsRmlUiElementSnapshot | null;
+}
+
+export interface DevtoolsWorldHotspotSnapshot {
+  identity: string;
+  label: string;
+  conditionEligible: boolean;
+  targetAvailable: boolean;
+  target: string;
+  highlight: string;
+  cursor: string | null;
+  underPointer: boolean;
+  hovered: boolean;
+  pressed: boolean;
+}
+
+export interface DevtoolsWorldSnapshot {
+  referenceX: number;
+  referenceY: number;
+  pointerValid: boolean;
+  captureActive: boolean;
+  underPointer: string | null;
+  hovered: string | null;
+  pressed: string | null;
+  hotspots: DevtoolsWorldHotspotSnapshot[];
+}
+
 export interface DevtoolsToolingSnapshot {
   previewRunning: boolean;
   renderPerfLogging: boolean;
@@ -382,6 +439,9 @@ export interface DevtoolsToolingSnapshot {
 
 export interface DevtoolsSnapshot {
   host: DevtoolsHostSnapshot;
+  input: DevtoolsInputSnapshot;
+  rmlui: DevtoolsRmlUiContextSnapshot[];
+  world: DevtoolsWorldSnapshot;
   tooling: DevtoolsToolingSnapshot;
   runtime: RuntimeDebugSnapshot | null;
 }
@@ -406,6 +466,70 @@ export interface DevtoolsConsoleDelta {
   lostRecordCount: string;
   historyGap: boolean;
   records: DevtoolsConsoleRecord[];
+}
+
+export type DevtoolsTraceRecordKind = 'input-routing' | 'debugger-mutation' | 'generation';
+
+export interface DevtoolsTraceElementRef {
+  context: string;
+  tag: string;
+  id: string;
+  classes: string;
+  pointerEvents: string;
+}
+
+export interface DevtoolsTraceInputRouting {
+  event: string;
+  hostX: number | null;
+  hostY: number | null;
+  referenceX: number | null;
+  referenceY: number | null;
+  mouseButton: number | null;
+  wheelX: number | null;
+  wheelY: number | null;
+  referenceValid: boolean;
+  debugProcessed: boolean;
+  debugConsumed: boolean;
+  runtimeUiProcessed: boolean;
+  runtimeUiConsumed: boolean;
+  runtimeUiWantsPointer: boolean;
+  gameplayEvent: boolean;
+  gameplayAdmitted: boolean;
+  gameplayBlockReason: string;
+  governingLayout: string | null;
+  governingLayoutMode: string;
+  rmluiHover: DevtoolsTraceElementRef | null;
+  rmluiFocus: DevtoolsTraceElementRef | null;
+  worldEvaluated: boolean;
+  worldConsumed: boolean;
+  worldHit: string | null;
+  worldHovered: string | null;
+  worldPressed: string | null;
+  worldTarget: string | null;
+}
+
+export interface DevtoolsTraceRecord {
+  sequence: string;
+  firstSequence: string;
+  hostGeneration: string | null;
+  runtimeGeneration: string | null;
+  kind: DevtoolsTraceRecordKind;
+  category: string;
+  repeatCount: number;
+  firstFrame: string;
+  lastFrame: string;
+  input: DevtoolsTraceInputRouting | null;
+  detail: string;
+  generationMarker: boolean;
+}
+
+export interface DevtoolsTraceDelta {
+  afterSequence: string;
+  earliestRetainedSequence: string;
+  latestSequence: string;
+  lostRecordCount: string;
+  historyGap: boolean;
+  records: DevtoolsTraceRecord[];
 }
 
 export interface RuntimeFastForwardResult {
@@ -498,6 +622,7 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
   | { version: 1; type: 'devtools-request-snapshot'; requestId: string }
   | { version: 1; type: 'devtools-clear-console'; requestId: string }
+  | { version: 1; type: 'devtools-clear-trace'; requestId: string }
   | {
       version: 1;
       type: 'runtime-request-asset-profiler';
@@ -629,6 +754,7 @@ export type PreviewToEditorMessage =
       snapshot: DevtoolsSnapshot;
     }
   | { version: 1; type: 'devtools-console-delta'; delta: DevtoolsConsoleDelta }
+  | { version: 1; type: 'devtools-trace-delta'; delta: DevtoolsTraceDelta }
   | {
       version: 1;
       type: 'runtime-asset-profiler';
@@ -1167,8 +1293,20 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
 }
 
 export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
-  if (!isRecord(value) || !isRecord(value.host) || !isRecord(value.tooling)) return false;
-  if (!Object.keys(value).every((key) => ['host', 'tooling', 'runtime'].includes(key)))
+  if (
+    !isRecord(value) ||
+    !isRecord(value.host) ||
+    !isRecord(value.input) ||
+    !Array.isArray(value.rmlui) ||
+    !isRecord(value.world) ||
+    !isRecord(value.tooling)
+  )
+    return false;
+  if (
+    !Object.keys(value).every((key) =>
+      ['host', 'input', 'rmlui', 'world', 'tooling', 'runtime'].includes(key),
+    )
+  )
     return false;
   if (
     !Object.keys(value.host).every((key) =>
@@ -1206,6 +1344,45 @@ export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
     typeof entry === 'number' && Number.isSafeInteger(entry) && entry > 0;
   const positiveNumber = (entry: unknown) =>
     typeof entry === 'number' && Number.isFinite(entry) && entry > 0;
+  const finiteNumber = (entry: unknown) => typeof entry === 'number' && Number.isFinite(entry);
+  const nullableString = (entry: unknown) => entry === null || typeof entry === 'string';
+  const rmluiElement = (entry: unknown) =>
+    entry === null ||
+    (isRecord(entry) &&
+      typeof entry.tag === 'string' &&
+      typeof entry.id === 'string' &&
+      typeof entry.classes === 'string' &&
+      typeof entry.pointerEvents === 'string');
+  const rmluiValid = value.rmlui.every(
+    (context) =>
+      isRecord(context) &&
+      typeof context.name === 'string' &&
+      typeof context.width === 'number' &&
+      Number.isSafeInteger(context.width) &&
+      context.width >= 0 &&
+      typeof context.height === 'number' &&
+      Number.isSafeInteger(context.height) &&
+      context.height >= 0 &&
+      typeof context.mouseInteracting === 'boolean' &&
+      rmluiElement(context.hover) &&
+      rmluiElement(context.focus),
+  );
+  const hotspotsValid =
+    Array.isArray(value.world.hotspots) &&
+    value.world.hotspots.every(
+      (hotspot) =>
+        isRecord(hotspot) &&
+        typeof hotspot.identity === 'string' &&
+        typeof hotspot.label === 'string' &&
+        typeof hotspot.conditionEligible === 'boolean' &&
+        typeof hotspot.targetAvailable === 'boolean' &&
+        typeof hotspot.target === 'string' &&
+        typeof hotspot.highlight === 'string' &&
+        nullableString(hotspot.cursor) &&
+        typeof hotspot.underPointer === 'boolean' &&
+        typeof hotspot.hovered === 'boolean' &&
+        typeof hotspot.pressed === 'boolean',
+    );
   return (
     typeof value.host.platform === 'string' &&
     value.host.platform.length > 0 &&
@@ -1218,12 +1395,117 @@ export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
     positiveInteger(surface.framebufferHeight) &&
     positiveNumber(surface.framebufferScaleX) &&
     positiveNumber(surface.framebufferScaleY) &&
+    finiteNumber(value.input.referenceX) &&
+    finiteNumber(value.input.referenceY) &&
+    typeof value.input.pointerValid === 'boolean' &&
+    typeof value.input.lastEvent === 'string' &&
+    typeof value.input.debugProcessed === 'boolean' &&
+    typeof value.input.debugConsumed === 'boolean' &&
+    typeof value.input.runtimeUiProcessed === 'boolean' &&
+    typeof value.input.runtimeUiConsumed === 'boolean' &&
+    typeof value.input.runtimeUiWantsPointer === 'boolean' &&
+    typeof value.input.gameplayEvent === 'boolean' &&
+    typeof value.input.gameplayAdmitted === 'boolean' &&
+    typeof value.input.gameplayBlockReason === 'string' &&
+    nullableString(value.input.governingLayout) &&
+    typeof value.input.governingLayoutMode === 'string' &&
+    rmluiValid &&
+    finiteNumber(value.world.referenceX) &&
+    finiteNumber(value.world.referenceY) &&
+    typeof value.world.pointerValid === 'boolean' &&
+    typeof value.world.captureActive === 'boolean' &&
+    nullableString(value.world.underPointer) &&
+    nullableString(value.world.hovered) &&
+    nullableString(value.world.pressed) &&
+    hotspotsValid &&
     typeof value.tooling.previewRunning === 'boolean' &&
     typeof value.tooling.renderPerfLogging === 'boolean' &&
     typeof value.tooling.nativeDebugUiAvailable === 'boolean' &&
     typeof value.tooling.nativeDebugUiEnabled === 'boolean' &&
     (value.runtime === null || isRuntimeDebugSnapshot(value.runtime))
   );
+}
+
+function isDevtoolsTraceElementRef(value: unknown): value is DevtoolsTraceElementRef {
+  return (
+    isRecord(value) &&
+    typeof value.context === 'string' &&
+    typeof value.tag === 'string' &&
+    typeof value.id === 'string' &&
+    typeof value.classes === 'string' &&
+    typeof value.pointerEvents === 'string'
+  );
+}
+
+export function isDevtoolsTraceDelta(value: unknown): value is DevtoolsTraceDelta {
+  if (!isRecord(value) || !Array.isArray(value.records)) return false;
+  if (
+    !isCanonicalUnsignedDecimal(value.afterSequence) ||
+    !isCanonicalUnsignedDecimal(value.earliestRetainedSequence) ||
+    !isCanonicalUnsignedDecimal(value.latestSequence) ||
+    !isCanonicalUnsignedDecimal(value.lostRecordCount) ||
+    typeof value.historyGap !== 'boolean'
+  )
+    return false;
+  const nullableNumber = (entry: unknown) =>
+    entry === null || (typeof entry === 'number' && Number.isFinite(entry));
+  const nullableString = (entry: unknown) => entry === null || typeof entry === 'string';
+  const nullableElement = (entry: unknown) => entry === null || isDevtoolsTraceElementRef(entry);
+  return value.records.every((record) => {
+    if (!isRecord(record)) return false;
+    const inputValid =
+      record.input === null ||
+      (isRecord(record.input) &&
+        typeof record.input.event === 'string' &&
+        nullableNumber(record.input.hostX) &&
+        nullableNumber(record.input.hostY) &&
+        nullableNumber(record.input.referenceX) &&
+        nullableNumber(record.input.referenceY) &&
+        (record.input.mouseButton === null ||
+          (typeof record.input.mouseButton === 'number' &&
+            Number.isSafeInteger(record.input.mouseButton) &&
+            record.input.mouseButton >= 0 &&
+            record.input.mouseButton <= 255)) &&
+        nullableNumber(record.input.wheelX) &&
+        nullableNumber(record.input.wheelY) &&
+        typeof record.input.referenceValid === 'boolean' &&
+        typeof record.input.debugProcessed === 'boolean' &&
+        typeof record.input.debugConsumed === 'boolean' &&
+        typeof record.input.runtimeUiProcessed === 'boolean' &&
+        typeof record.input.runtimeUiConsumed === 'boolean' &&
+        typeof record.input.runtimeUiWantsPointer === 'boolean' &&
+        typeof record.input.gameplayEvent === 'boolean' &&
+        typeof record.input.gameplayAdmitted === 'boolean' &&
+        typeof record.input.gameplayBlockReason === 'string' &&
+        nullableString(record.input.governingLayout) &&
+        typeof record.input.governingLayoutMode === 'string' &&
+        nullableElement(record.input.rmluiHover) &&
+        nullableElement(record.input.rmluiFocus) &&
+        typeof record.input.worldEvaluated === 'boolean' &&
+        typeof record.input.worldConsumed === 'boolean' &&
+        nullableString(record.input.worldHit) &&
+        nullableString(record.input.worldHovered) &&
+        nullableString(record.input.worldPressed) &&
+        nullableString(record.input.worldTarget));
+    return (
+      isCanonicalUnsignedDecimal(record.sequence) &&
+      isCanonicalUnsignedDecimal(record.firstSequence) &&
+      (record.hostGeneration === null || isCanonicalUnsignedDecimal(record.hostGeneration)) &&
+      (record.runtimeGeneration === null || isCanonicalUnsignedDecimal(record.runtimeGeneration)) &&
+      (record.kind === 'input-routing' ||
+        record.kind === 'debugger-mutation' ||
+        record.kind === 'generation') &&
+      typeof record.category === 'string' &&
+      typeof record.repeatCount === 'number' &&
+      Number.isSafeInteger(record.repeatCount) &&
+      record.repeatCount > 0 &&
+      isCanonicalUnsignedDecimal(record.firstFrame) &&
+      isCanonicalUnsignedDecimal(record.lastFrame) &&
+      inputValid &&
+      typeof record.detail === 'string' &&
+      typeof record.generationMarker === 'boolean'
+    );
+  });
 }
 
 export function isDevtoolsConsoleDelta(value: unknown): value is DevtoolsConsoleDelta {
@@ -1417,6 +1699,7 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-request-debug-snapshot':
     case 'devtools-request-snapshot':
     case 'devtools-clear-console':
+    case 'devtools-clear-trace':
     case 'request-preview-state':
       return true;
     case 'runtime-request-asset-profiler':
@@ -1612,6 +1895,8 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
       );
     case 'devtools-console-delta':
       return isDevtoolsConsoleDelta(value.delta);
+    case 'devtools-trace-delta':
+      return isDevtoolsTraceDelta(value.delta);
     case 'runtime-asset-profiler':
       return typeof value.requestId === 'string' && isAssetProfilerWirePayload(value.payload);
     case 'runtime-debug-event':

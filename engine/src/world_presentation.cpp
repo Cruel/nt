@@ -362,6 +362,11 @@ std::string world_actor_identity(const core::ActorPresentationKey& key)
         key);
 }
 
+std::string world_hotspot_identity(const core::compiled::HotspotRef& ref)
+{
+    return hotspot_identity(ref);
+}
+
 void AssetWorldPresentationResourceResolver::bind_project(const core::CompiledProject& project,
                                                           std::string_view active_locale)
 {
@@ -1117,6 +1122,22 @@ void WorldHotspotController::presentation_changed() { synchronize_generation(); 
 const WorldHotspotHitTarget* WorldHotspotController::hovered_target() const
 {
     return m_hovered ? hit_target(*m_hovered) : nullptr;
+}
+
+WorldHotspotDebugObservation WorldHotspotController::debug_observation() const
+{
+    WorldHotspotDebugObservation observation{
+        .hovered = m_hovered,
+        .pressed =
+            m_capture ? std::optional<core::compiled::HotspotRef>{m_capture->ref} : std::nullopt,
+        .under_pointer = std::nullopt,
+        .last_mouse_reference = m_last_mouse_reference,
+        .last_mouse_valid = m_last_mouse_valid,
+        .capture_active = m_capture.has_value(),
+    };
+    if (m_last_mouse_valid)
+        observation.under_pointer = hit_test(m_last_mouse_reference);
+    return observation;
 }
 
 void WorldHotspotController::target_completed()

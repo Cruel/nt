@@ -65,6 +65,7 @@
       "commandHistory": "Ainda não há comandos de projeto.",
       "output": "Ainda não há entradas de atividade.",
       "previewEvents": "Ainda não há entradas no Console.",
+      "previewTrace": "Ainda não há entradas no Trace.",
       "problems": "Nenhum diagnóstico de validação."
     },
     "labels": {
@@ -74,11 +75,33 @@
       "packageExport": "Exportação de pacote",
       "previewDiagnostics": "Diagnósticos da visualização",
       "previewEvents": "Console",
+      "previewTrace": "Trace",
       "problems": "Problemas",
       "references": "Referências",
       "shaderCompile": "Compilação de shaders",
       "testPlayback": "Reprodução de testes",
       "terminal": "Terminal"
+    },
+    "trace": {
+      "kindLabel": "Tipo do Trace",
+      "categoryLabel": "Categoria do Trace",
+      "textFilterLabel": "Filtro de texto do Trace",
+      "kinds": {
+        "all": "Todos os tipos",
+        "inputRouting": "Roteamento de entrada",
+        "debuggerMutation": "Mutações do depurador",
+        "generation": "Gerações"
+      },
+      "categoriesAll": "Todas as categorias",
+      "filterPlaceholder": "Filtrar Trace",
+      "freeze": "Congelar",
+      "unfreeze": "Descongelar",
+      "autoscroll": "Rolagem automática",
+      "clear": "Limpar",
+      "historyGap_one": "Lacuna no histórico do Trace: {{count}} registro foi removido da retenção.",
+      "historyGap_other": "Lacuna no histórico do Trace: {{count}} registros foram removidos da retenção.",
+      "frozen": "Visualização do Trace congelada; a captura continua.",
+      "noMatches": "Nenhuma entrada do Trace corresponde aos filtros."
     },
     "lastCommandDiagnostics": "Diagnósticos do último comando",
     "toggle": "Alternar painel inferior"

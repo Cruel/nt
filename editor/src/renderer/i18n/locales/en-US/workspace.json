@@ -65,6 +65,7 @@
       "commandHistory": "No project commands yet.",
       "output": "No activity entries yet.",
       "previewEvents": "No Console entries yet.",
+      "previewTrace": "No Trace entries yet.",
       "problems": "No validation diagnostics."
     },
     "labels": {
@@ -74,11 +75,33 @@
       "packageExport": "Package Export",
       "previewDiagnostics": "Preview Diagnostics",
       "previewEvents": "Console",
+      "previewTrace": "Trace",
       "problems": "Problems",
       "references": "References",
       "shaderCompile": "Shader Compile",
       "testPlayback": "Test Playback",
       "terminal": "Terminal"
+    },
+    "trace": {
+      "kindLabel": "Trace kind",
+      "categoryLabel": "Trace category",
+      "textFilterLabel": "Trace text filter",
+      "kinds": {
+        "all": "All kinds",
+        "inputRouting": "Input routing",
+        "debuggerMutation": "Debugger mutations",
+        "generation": "Generations"
+      },
+      "categoriesAll": "All categories",
+      "filterPlaceholder": "Filter trace",
+      "freeze": "Freeze",
+      "unfreeze": "Unfreeze",
+      "autoscroll": "Autoscroll",
+      "clear": "Clear",
+      "historyGap_one": "Trace history gap: {{count}} record was evicted.",
+      "historyGap_other": "Trace history gap: {{count}} records were evicted.",
+      "frozen": "Trace view frozen; capture continues.",
+      "noMatches": "No Trace entries match the filters."
     },
     "lastCommandDiagnostics": "Last command diagnostics",
     "toggle": "Toggle Bottom Panel"

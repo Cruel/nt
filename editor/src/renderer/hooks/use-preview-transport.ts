@@ -293,6 +293,7 @@ export function usePreviewTransport({
       requestRuntimeDebugSnapshot: () => send({ type: 'runtime-request-debug-snapshot' }),
       requestDevtoolsSnapshot: () => send({ type: 'devtools-request-snapshot' }),
       clearDevtoolsConsole: () => send({ type: 'devtools-clear-console' }),
+      clearDevtoolsTrace: () => send({ type: 'devtools-clear-trace' }),
       requestAssetProfiler: (cursor?: { sessionId: bigint; afterSequence: bigint }) =>
         send<AssetProfilerWirePayload>(
           cursor

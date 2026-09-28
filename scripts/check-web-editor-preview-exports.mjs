@@ -11,6 +11,8 @@ const devtoolsExports = [
   'noveltea_devtools_snapshot',
   'noveltea_devtools_console_delta',
   'noveltea_devtools_console_clear',
+  'noveltea_devtools_trace_delta',
+  'noveltea_devtools_trace_clear',
   'noveltea_runtime_set_variable',
   'noveltea_runtime_reset_variable',
   'noveltea_runtime_teleport_room',

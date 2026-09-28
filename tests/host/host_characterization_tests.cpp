@@ -3,6 +3,7 @@
 #include "noveltea/engine.hpp"
 #include "noveltea/engine_tooling.hpp"
 #include "noveltea/devtools_console.hpp"
+#include "noveltea/devtools_trace.hpp"
 #include "noveltea/platform.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 
@@ -266,6 +267,132 @@ TEST_CASE("Devtools Console retains runtime generation transitions as records")
     CHECK(console.records()[1].generation_marker);
     CHECK(console.records()[1].runtime_generation == 4);
     CHECK(console.records()[1].message.find("replacing 3") != std::string::npos);
+}
+
+TEST_CASE("Devtools Trace coalesces equivalent routing outcomes without hiding transitions")
+{
+    devtools::TraceBuffer trace(4);
+    trace.set_generations(2, 5, 10);
+    devtools::TraceInputRouting over_world{
+        .event = "mouse-motion",
+        .host_x = 320.0f,
+        .host_y = 180.0f,
+        .reference_x = 640.0f,
+        .reference_y = 360.0f,
+        .reference_valid = true,
+        .runtime_ui_processed = true,
+        .runtime_ui_wants_pointer = false,
+        .gameplay_event = true,
+        .gameplay_admitted = true,
+        .gameplay_block_reason = "none",
+        .governing_layout_mode = "none",
+        .rmlui_hover = devtools::TraceElementRef{.context = "gameplay",
+                                                 .tag = "body",
+                                                 .id = "",
+                                                 .classes = "",
+                                                 .pointer_events = "none"},
+        .world_evaluated = true,
+        .world_hit = "room/foyer/hotspot/door",
+        .world_hovered = "room/foyer/hotspot/door",
+    };
+    trace.append_input(over_world, 11);
+    over_world.host_x = 321.0f;
+    over_world.reference_x = 642.0f;
+    trace.append_input(over_world, 12);
+    over_world.host_x = 322.0f;
+    over_world.reference_x = 644.0f;
+    trace.append_input(over_world, 13);
+
+    REQUIRE(trace.records().size() == 2);
+    const auto& repeated = trace.records().back();
+    CHECK(repeated.repeat_count == 3);
+    CHECK(repeated.first_frame == 11);
+    CHECK(repeated.last_frame == 13);
+    CHECK(repeated.sequence > repeated.first_sequence);
+    CHECK(repeated.input->host_x == 322.0f);
+    CHECK(repeated.input->reference_x == 644.0f);
+
+    auto blocked = over_world;
+    blocked.gameplay_admitted = false;
+    blocked.gameplay_block_reason = "runtime-ui";
+    blocked.runtime_ui_consumed = true;
+    blocked.runtime_ui_wants_pointer = true;
+    blocked.rmlui_hover = devtools::TraceElementRef{.context = "gameplay",
+                                                    .tag = "button",
+                                                    .id = "overlay",
+                                                    .classes = "",
+                                                    .pointer_events = "auto"};
+    blocked.world_evaluated = false;
+    blocked.world_hit.reset();
+    blocked.world_hovered.reset();
+    trace.append_input(blocked, 14);
+    trace.append_input(over_world, 15);
+
+    REQUIRE(trace.records().size() == 4);
+    CHECK(trace.evicted_record_count() == 0);
+    CHECK(trace.records()[2].input->gameplay_block_reason == "runtime-ui");
+    CHECK(trace.records()[2].input->runtime_ui_consumed);
+    REQUIRE(trace.records()[2].input->rmlui_hover);
+    CHECK(trace.records()[2].input->rmlui_hover->pointer_events == "auto");
+    CHECK_FALSE(trace.records()[2].input->world_evaluated);
+    CHECK_FALSE(trace.records()[2].input->world_hit);
+    CHECK(trace.records()[3].input->gameplay_admitted);
+    CHECK_FALSE(trace.records()[3].input->runtime_ui_consumed);
+    REQUIRE(trace.records()[3].input->rmlui_hover);
+    CHECK(trace.records()[3].input->rmlui_hover->pointer_events == "none");
+    CHECK(trace.records()[3].input->world_evaluated);
+    CHECK(trace.records()[3].input->world_hit == "room/foyer/hotspot/door");
+    CHECK(trace.records()[3].input->world_hovered == "room/foyer/hotspot/door");
+
+    devtools::TraceBuffer wheel_trace;
+    devtools::TraceInputRouting wheel{
+        .event = "mouse-wheel",
+        .wheel_x = 0.0f,
+        .wheel_y = 1.0f,
+        .gameplay_event = true,
+        .gameplay_admitted = true,
+        .gameplay_block_reason = "none",
+        .governing_layout_mode = "none",
+    };
+    wheel_trace.append_input(wheel, 20);
+    wheel_trace.append_input(wheel, 21);
+    wheel.wheel_y = -1.0f;
+    wheel_trace.append_input(wheel, 22);
+    REQUIRE(wheel_trace.records().size() == 2);
+    CHECK(wheel_trace.records()[0].repeat_count == 2);
+    CHECK(wheel_trace.records()[0].input->wheel_y == 1.0f);
+    CHECK(wheel_trace.records()[1].input->wheel_y == -1.0f);
+}
+
+TEST_CASE("Devtools Trace reports retained gaps and keeps generation and debugger records distinct")
+{
+    devtools::TraceBuffer trace(3);
+    trace.set_generations(1, 7, 1);
+    trace.append_debugger_mutation("set variable trust", 2);
+    trace.append_input({.event = "mouse-button-down",
+                        .mouse_button = 1,
+                        .gameplay_event = true,
+                        .gameplay_admitted = true,
+                        .gameplay_block_reason = "none",
+                        .governing_layout_mode = "none",
+                        .world_evaluated = true},
+                       3);
+    trace.set_generations(1, 8, 4);
+
+    const auto delta = trace.delta_after(0);
+    REQUIRE(delta.records.size() == 3);
+    CHECK(trace.evicted_record_count() == 1);
+    CHECK(delta.history_gap);
+    CHECK(delta.lost_record_count == 1);
+    CHECK(delta.records[0].kind == devtools::TraceRecordKind::DebuggerMutation);
+    CHECK(delta.records[1].kind == devtools::TraceRecordKind::InputRouting);
+    CHECK(delta.records[1].input->mouse_button == 1);
+    CHECK(delta.records[2].kind == devtools::TraceRecordKind::Generation);
+    CHECK(delta.records[2].generation_marker);
+    CHECK(delta.records[2].runtime_generation == 8);
+
+    trace.clear();
+    CHECK(trace.evicted_record_count() == 0);
 }
 
 #if NOVELTEA_ENABLE_DEVTOOLS

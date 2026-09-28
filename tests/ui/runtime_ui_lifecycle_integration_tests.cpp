@@ -3976,6 +3976,20 @@ TEST_CASE("RuntimeUI world Hotspot cursors share central arbitration with click-
     CHECK(inspection.effective == noveltea::host::CursorShape::Text);
     CHECK(inspection.source == "rmlui");
     CHECK(inspection.owner == "hotspot-owner");
+    const auto devtools_contexts = ui.devtools_context_snapshot();
+    const auto owning_context =
+        std::find_if(devtools_contexts.begin(), devtools_contexts.end(), [](const auto& context) {
+            return context.hover && context.hover->id == "target";
+        });
+    REQUIRE(owning_context != devtools_contexts.end());
+    CHECK_FALSE(owning_context->name.empty());
+    CHECK(owning_context->width > 0);
+    CHECK(owning_context->height > 0);
+    CHECK(owning_context->mouse_interacting);
+    REQUIRE(owning_context->hover);
+    CHECK(owning_context->hover->tag == "button");
+    CHECK(owning_context->hover->id == "target");
+    CHECK(owning_context->hover->pointer_events == "auto");
 
     REQUIRE(ui.hide_document("hotspot-owner"));
     ui.begin_frame({});

@@ -6,6 +6,7 @@
 #include "noveltea/core/result.hpp"
 #include "noveltea/devtools_snapshot.hpp"
 #include "noveltea/devtools_console.hpp"
+#include "noveltea/devtools_trace.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/render/material.hpp"
 
@@ -85,6 +86,10 @@ public:
     [[nodiscard]] static core::Result<devtools::ConsoleDelta, core::Diagnostic>
     devtools_console_delta(Engine& engine, std::uint64_t after_sequence);
     static std::uint64_t clear_devtools_console(Engine& engine) noexcept;
+    [[nodiscard]] static core::Result<devtools::TraceDelta, core::Diagnostic>
+    devtools_trace_delta(Engine& engine, std::uint64_t after_sequence);
+    static std::uint64_t clear_devtools_trace(Engine& engine) noexcept;
+    static void record_debugger_mutation(Engine& engine, std::string detail);
 #endif
     [[nodiscard]] static Renderer& renderer(Engine& engine) noexcept;
     [[nodiscard]] static assets::AssetManager& assets(Engine& engine) noexcept;

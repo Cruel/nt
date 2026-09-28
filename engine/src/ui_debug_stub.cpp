@@ -27,10 +27,14 @@ void DebugUI::begin_frame(const HostSurfaceMetrics& surface) { (void)surface; }
 
 host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& snapshot,
                                             std::span<const devtools::ConsoleRecord> console,
+                                            std::span<const devtools::TraceRecord> trace,
+                                            std::uint64_t trace_evicted_record_count,
                                             bool submit_draw_data)
 {
     (void)snapshot;
     (void)console;
+    (void)trace;
+    (void)trace_evicted_record_count;
     (void)submit_draw_data;
     return {};
 }

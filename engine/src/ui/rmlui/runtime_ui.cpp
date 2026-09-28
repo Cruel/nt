@@ -3278,6 +3278,39 @@ bool RuntimeUI::wants_keyboard_input() const
     return m_state && m_state->host && m_state->host->wants_keyboard_input();
 }
 
+std::vector<devtools::DevtoolsRmlUiContextSnapshot> RuntimeUI::devtools_context_snapshot() const
+{
+    std::vector<devtools::DevtoolsRmlUiContextSnapshot> result;
+    if (!m_state || !m_state->host)
+        return result;
+
+    const auto element_snapshot =
+        [](Rml::Element* element) -> std::optional<devtools::DevtoolsRmlUiElementSnapshot> {
+        if (!element)
+            return std::nullopt;
+        const auto pointer_events = element->GetComputedValues().pointer_events();
+        return devtools::DevtoolsRmlUiElementSnapshot{
+            .tag = element->GetTagName(),
+            .id = element->GetId(),
+            .classes = element->GetClassNames(),
+            .pointer_events = pointer_events == Rml::Style::PointerEvents::None ? "none" : "auto",
+        };
+    };
+
+    for (const auto& record : m_state->host->contexts()) {
+        if (!record.context)
+            continue;
+        const auto dimensions = record.context->GetDimensions();
+        result.push_back({.name = record.name,
+                          .width = dimensions.x,
+                          .height = dimensions.y,
+                          .mouse_interacting = record.context->IsMouseInteracting(),
+                          .hover = element_snapshot(record.context->GetHoverElement()),
+                          .focus = element_snapshot(record.context->GetFocusElement())});
+    }
+    return result;
+}
+
 ui::rmlui::RuntimeUiPlaybackDriver*
 ui::rmlui::RuntimeUiPlaybackDriver::from(RuntimeUI& runtime_ui) noexcept
 {

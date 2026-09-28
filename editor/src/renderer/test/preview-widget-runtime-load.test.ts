@@ -119,6 +119,33 @@ function createDevtoolsHarness() {
         framebufferScaleY: 1,
       },
     },
+    input: {
+      referenceX: 100,
+      referenceY: 80,
+      pointerValid: true,
+      lastEvent: 'mouse-motion',
+      debugProcessed: false,
+      debugConsumed: false,
+      runtimeUiProcessed: true,
+      runtimeUiConsumed: false,
+      runtimeUiWantsPointer: false,
+      gameplayEvent: true,
+      gameplayAdmitted: true,
+      gameplayBlockReason: 'none',
+      governingLayout: null,
+      governingLayoutMode: 'none',
+    },
+    rmlui: [],
+    world: {
+      referenceX: 100,
+      referenceY: 80,
+      pointerValid: true,
+      captureActive: false,
+      underPointer: null,
+      hovered: null,
+      pressed: null,
+      hotspots: [],
+    },
     tooling: {
       previewRunning: true,
       renderPerfLogging: false,
@@ -133,13 +160,16 @@ function createDevtoolsHarness() {
       name === 'noveltea_devtools_capabilities' ||
       name === 'noveltea_devtools_snapshot' ||
       name === 'noveltea_devtools_console_delta' ||
-      name === 'noveltea_devtools_console_clear',
+      name === 'noveltea_devtools_console_clear' ||
+      name === 'noveltea_devtools_trace_delta' ||
+      name === 'noveltea_devtools_trace_clear',
     Module: {
       ccall(name: string, _returnType?: string, _argTypes?: string[], args?: unknown[]) {
         if (name === 'noveltea_devtools_capabilities')
           return JSON.stringify([
             'devtools-snapshot-v1',
             'devtools-console-v1',
+            'devtools-trace-v1',
             'runtime-debug-snapshot-v1',
           ]);
         if (name === 'noveltea_devtools_snapshot') return JSON.stringify(snapshot);
@@ -165,6 +195,32 @@ function createDevtoolsHarness() {
           });
         if (name === 'noveltea_devtools_console_clear')
           return JSON.stringify({ latestSequence: '2' });
+        if (name === 'noveltea_devtools_trace_delta')
+          return JSON.stringify({
+            afterSequence: args?.[0] ?? '0',
+            earliestRetainedSequence: '1',
+            latestSequence: '5',
+            lostRecordCount: '0',
+            historyGap: false,
+            records: [
+              {
+                sequence: '5',
+                firstSequence: '4',
+                hostGeneration: '1',
+                runtimeGeneration: '4',
+                kind: 'input-routing',
+                category: 'input',
+                repeatCount: 2,
+                firstFrame: '10',
+                lastFrame: '11',
+                input: null,
+                detail: '',
+                generationMarker: false,
+              },
+            ],
+          });
+        if (name === 'noveltea_devtools_trace_clear')
+          return JSON.stringify({ latestSequence: '5' });
         return '';
       },
     },
@@ -174,6 +230,7 @@ function createDevtoolsHarness() {
     previewActivityActive: true,
     previewActivityVisible: true,
     lastDevtoolsConsoleSequence: '0',
+    lastDevtoolsTraceSequence: '0',
     failCommand() {},
     send(message: Record<string, unknown>) {
       messages.push(message);
@@ -182,16 +239,20 @@ function createDevtoolsHarness() {
     emitDevtoolsSnapshot: null as null | ((message: Record<string, unknown>) => boolean),
     publishDevtoolsConsoleDelta: null as null | (() => void),
     clearDevtoolsConsole: null as null | ((message: Record<string, unknown>) => void),
+    publishDevtoolsTraceDelta: null as null | (() => void),
+    clearDevtoolsTrace: null as null | ((message: Record<string, unknown>) => void),
   };
   vm.runInNewContext(
-    `${implementation}\nthis.readDevtoolsCapabilities = readDevtoolsCapabilities; this.emitDevtoolsSnapshot = emitDevtoolsSnapshot; this.publishDevtoolsConsoleDelta = publishDevtoolsConsoleDelta; this.clearDevtoolsConsole = clearDevtoolsConsole;`,
+    `${implementation}\nthis.readDevtoolsCapabilities = readDevtoolsCapabilities; this.emitDevtoolsSnapshot = emitDevtoolsSnapshot; this.publishDevtoolsConsoleDelta = publishDevtoolsConsoleDelta; this.clearDevtoolsConsole = clearDevtoolsConsole; this.publishDevtoolsTraceDelta = publishDevtoolsTraceDelta; this.clearDevtoolsTrace = clearDevtoolsTrace;`,
     context,
   );
   if (
     !context.readDevtoolsCapabilities ||
     !context.emitDevtoolsSnapshot ||
     !context.publishDevtoolsConsoleDelta ||
-    !context.clearDevtoolsConsole
+    !context.clearDevtoolsConsole ||
+    !context.publishDevtoolsTraceDelta ||
+    !context.clearDevtoolsTrace
   )
     throw new Error('Devtools harness did not load.');
   return { context, messages, snapshot };
@@ -204,6 +265,7 @@ describe('preview widget runtime project loading', () => {
     expect(harness.context.readDevtoolsCapabilities!()).toEqual([
       'devtools-snapshot-v1',
       'devtools-console-v1',
+      'devtools-trace-v1',
       'runtime-debug-snapshot-v1',
     ]);
     expect(harness.context.emitDevtoolsSnapshot!({ requestId: 'snapshot-1' })).toBe(true);
@@ -215,6 +277,27 @@ describe('preview widget runtime project loading', () => {
         snapshot: harness.snapshot,
       },
     ]);
+  });
+
+  it('pushes sequenced Trace deltas and advances the native clear cursor', () => {
+    const harness = createDevtoolsHarness();
+
+    harness.context.publishDevtoolsTraceDelta!();
+    expect(harness.messages.at(-1)).toEqual({
+      version: 1,
+      type: 'devtools-trace-delta',
+      delta: expect.objectContaining({ latestSequence: '5' }),
+    });
+    expect(harness.context.lastDevtoolsTraceSequence).toBe('5');
+
+    harness.context.clearDevtoolsTrace!({ requestId: 'clear-trace-1' });
+    expect(harness.context.lastDevtoolsTraceSequence).toBe('5');
+    expect(harness.messages.at(-1)).toEqual({
+      version: 1,
+      type: 'command-result',
+      requestId: 'clear-trace-1',
+      ok: true,
+    });
   });
 
   it('pushes sequenced Console deltas and advances the native clear cursor', () => {

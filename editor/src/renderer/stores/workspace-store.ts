@@ -8,7 +8,11 @@ import {
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import type { ToolDiagnostic, PlaybackTestSummary } from '../../shared/editor-tooling';
-import type { DevtoolsConsoleRecord, PreviewConnectionState } from '../../shared/preview-protocol';
+import type {
+  DevtoolsConsoleRecord,
+  DevtoolsTraceRecord,
+  PreviewConnectionState,
+} from '../../shared/preview-protocol';
 
 export interface AssetNode {
   id: string;
@@ -99,6 +103,9 @@ interface WorkspaceState {
   selectedRuntimeObjectId: string | null;
   runtimeEvents: RuntimeEventEntry[];
   runtimeConsoleClearHandler: (() => Promise<void>) | null;
+  runtimeTrace: DevtoolsTraceRecord[];
+  runtimeTraceLostRecordCount: string | null;
+  runtimeTraceClearHandler: (() => Promise<void>) | null;
   timeline: TimelineEntry[];
   lastPlaybackReport: unknown;
   lastExportResult: unknown;
@@ -118,6 +125,9 @@ interface WorkspaceState {
   addDevtoolsConsoleRecords: (records: DevtoolsConsoleRecord[]) => void;
   clearRuntimeEvents: () => void;
   setRuntimeConsoleClearHandler: (handler: (() => Promise<void>) | null) => void;
+  addDevtoolsTraceRecords: (records: DevtoolsTraceRecord[], lostRecordCount?: string) => void;
+  clearRuntimeTrace: () => void;
+  setRuntimeTraceClearHandler: (handler: (() => Promise<void>) | null) => void;
   addTimelineEntry: (entry: Omit<TimelineEntry, 'id'>) => void;
   setLastPlaybackReport: (report: unknown) => void;
   setLastExportResult: (result: unknown) => void;
@@ -138,6 +148,9 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   selectedRuntimeObjectId: null,
   runtimeEvents: [],
   runtimeConsoleClearHandler: null,
+  runtimeTrace: [],
+  runtimeTraceLostRecordCount: null,
+  runtimeTraceClearHandler: null,
   timeline: [],
   lastPlaybackReport: null,
   lastExportResult: null,
@@ -186,6 +199,22 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   clearRuntimeEvents: () => set({ runtimeEvents: [] }),
   setRuntimeConsoleClearHandler: (runtimeConsoleClearHandler) =>
     set({ runtimeConsoleClearHandler }),
+  addDevtoolsTraceRecords: (records, lostRecordCount) =>
+    set((state) => {
+      const incomingFirstSequences = new Set(records.map((record) => record.firstSequence));
+      const retained = state.runtimeTrace.filter(
+        (record) => !incomingFirstSequences.has(record.firstSequence),
+      );
+      return {
+        runtimeTrace: [...records.slice().reverse(), ...retained].slice(0, 2000),
+        runtimeTraceLostRecordCount:
+          lostRecordCount && lostRecordCount !== '0'
+            ? lostRecordCount
+            : state.runtimeTraceLostRecordCount,
+      };
+    }),
+  clearRuntimeTrace: () => set({ runtimeTrace: [], runtimeTraceLostRecordCount: null }),
+  setRuntimeTraceClearHandler: (runtimeTraceClearHandler) => set({ runtimeTraceClearHandler }),
   addTimelineEntry: (entry) =>
     set((state) => ({
       timeline: [
