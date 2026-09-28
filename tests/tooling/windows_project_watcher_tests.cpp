@@ -116,7 +116,8 @@ int main()
     if (stop.wait_for(2s) != std::future_status::ready)
         return fail("Windows watcher shutdown did not signal the stop event");
     if (released.wait_for(0ms) != std::future_status::timeout)
-        return fail("Project authority release completed before the blocked watcher read was released");
+        return fail(
+            "Project authority release completed before the blocked watcher read was released");
 
     permit_read.set_value();
     if (released.wait_for(2s) != std::future_status::ready)

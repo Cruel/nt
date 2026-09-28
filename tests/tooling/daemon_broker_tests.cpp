@@ -203,10 +203,9 @@ void write_project_file(const std::filesystem::path& path, std::string_view cont
 
 TempProjectRoot temp_project_root(std::string_view suffix)
 {
-    const auto path =
-        std::filesystem::temp_directory_path() /
-        ("noveltea-project-authority-" + std::string(suffix) + "-" +
-         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto path = std::filesystem::temp_directory_path() /
+                      ("noveltea-project-authority-" + std::string(suffix) + "-" +
+                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(path);
     write_project_file(path / "project.json", "{}\n");
     write_project_file(path / "editor.json", "{}\n");
@@ -1160,8 +1159,8 @@ TEST_CASE("daemon shutdown does not wait for optional exact-validation persisten
     auto work = owner_request(request, "validation-publication", project.path);
     work["payload"]["authoringValidationSemanticKey"] = "test-semantic-key";
     auto foreground = std::async(std::launch::async, [work] { return invoke_daemon(work); });
-    REQUIRE(wait_until(
-        [&] { return daemon_status(request).value("projectOwnerWorkers", 0) == 1; }));
+    REQUIRE(
+        wait_until([&] { return daemon_status(request).value("projectOwnerWorkers", 0) == 1; }));
     const auto owner_status = daemon_status(request);
     REQUIRE(owner_status["engineeringOwners"].size() == 1);
     const auto owner = owner_status["engineeringOwners"][0]["workerId"].get<std::uint64_t>();
@@ -1531,8 +1530,8 @@ TEST_CASE(
     auto owner_work_request = owner_request(request, "owner-before-crash", root);
     auto owner_result = std::async(
         std::launch::async, [owner_work_request] { return invoke_daemon(owner_work_request); });
-    REQUIRE(wait_until(
-        [&] { return daemon_status(request).value("projectOwnerWorkers", 0) == 1; }));
+    REQUIRE(
+        wait_until([&] { return daemon_status(request).value("projectOwnerWorkers", 0) == 1; }));
     status = daemon_status(request);
     REQUIRE(status["engineeringOwners"].size() == 1);
     const auto first_owner = status["engineeringOwners"][0]["workerId"].get<std::uint64_t>();
@@ -1730,12 +1729,11 @@ TEST_CASE("daemon Project owner crash rolls back an activated mixed publication"
     mutation_request["payload"]["publicationTransactionPath"] = transaction.string();
     auto mutation = std::async(std::launch::async,
                                [mutation_request] { return invoke_daemon(mutation_request); });
-    REQUIRE(wait_until(
-        [&] { return daemon_status(request).value("projectOwnerWorkers", 0) == 1; }));
+    REQUIRE(
+        wait_until([&] { return daemon_status(request).value("projectOwnerWorkers", 0) == 1; }));
     const auto owner_status = daemon_status(request);
     REQUIRE(owner_status["engineeringOwners"].size() == 1);
-    const auto owner_id =
-        owner_status["engineeringOwners"][0]["workerId"].get<std::uint64_t>();
+    const auto owner_id = owner_status["engineeringOwners"][0]["workerId"].get<std::uint64_t>();
     auto next = request;
     next["action"] = "owner-next";
     next["ownerWorkerId"] = owner_id;
