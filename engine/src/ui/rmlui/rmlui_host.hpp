@@ -6,6 +6,7 @@
 #include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/core/runtime_user_settings.hpp"
 #include "noveltea/surface.hpp"
+#include "noveltea/devtools_snapshot.hpp"
 #include "ui/rmlui/rmlui_lifecycle.hpp"
 
 #include <cstdint>
@@ -101,6 +102,10 @@ public:
     [[nodiscard]] bool activate_font_fallbacks(const assets::FontAssetConfig& config);
     [[nodiscard]] bool configure_fonts(const assets::FontAssetConfig& config);
     void shutdown();
+#if NOVELTEA_ENABLE_DEVTOOLS
+    [[nodiscard]] bool set_debugger(bool visible, const std::string& context);
+    [[nodiscard]] devtools::RmlUiDebuggerSnapshot debugger_snapshot() const;
+#endif
 
     [[nodiscard]] Rml::Context* primary_context() const noexcept;
     [[nodiscard]] Rml::Context* context_for(ContextKey key);
@@ -208,6 +213,10 @@ private:
     CursorOwnerResolver m_cursor_owner_resolver;
     CursorPresentationResolver m_cursor_presentation_resolver;
     std::unordered_set<std::uint64_t> m_active_touches;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    bool m_debugger_initialized = false;
+    std::string m_debugger_context;
+#endif
     Rml::Context* m_primary_context = nullptr;
     Rml::Context* m_active_cursor_context = nullptr;
     std::optional<Vec2> m_reference_pointer;

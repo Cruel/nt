@@ -173,6 +173,10 @@ public:
     bool last_event_consumed() const { return m_last_event_consumed; }
     [[nodiscard]] std::vector<devtools::DevtoolsRmlUiContextSnapshot>
     devtools_context_snapshot() const;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    [[nodiscard]] bool set_debugger(const devtools::RmlUiDebuggerCommand& command);
+    [[nodiscard]] devtools::RmlUiDebuggerSnapshot debugger_snapshot() const;
+#endif
 
 private:
     friend class ui::rmlui::RuntimeUiFacadeAccess;

@@ -441,6 +441,7 @@ export interface DevtoolsSnapshot {
   host: DevtoolsHostSnapshot;
   input: DevtoolsInputSnapshot;
   rmlui: DevtoolsRmlUiContextSnapshot[];
+  rmluiDebugger: { available: boolean; visible: boolean; context: string };
   world: DevtoolsWorldSnapshot;
   tooling: DevtoolsToolingSnapshot;
   runtime: RuntimeDebugSnapshot | null;
@@ -623,6 +624,13 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'devtools-request-snapshot'; requestId: string }
   | { version: 1; type: 'devtools-clear-console'; requestId: string }
   | { version: 1; type: 'devtools-clear-trace'; requestId: string }
+  | {
+      version: 1;
+      type: 'devtools-set-rmlui-debugger';
+      requestId: string;
+      visible: boolean;
+      context: string;
+    }
   | {
       version: 1;
       type: 'runtime-request-asset-profiler';
@@ -1298,13 +1306,20 @@ export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
     !isRecord(value.host) ||
     !isRecord(value.input) ||
     !Array.isArray(value.rmlui) ||
+    !isRecord(value.rmluiDebugger) ||
+    typeof value.rmluiDebugger.available !== 'boolean' ||
+    typeof value.rmluiDebugger.visible !== 'boolean' ||
+    typeof value.rmluiDebugger.context !== 'string' ||
+    !Object.keys(value.rmluiDebugger).every((key) =>
+      ['available', 'visible', 'context'].includes(key),
+    ) ||
     !isRecord(value.world) ||
     !isRecord(value.tooling)
   )
     return false;
   if (
     !Object.keys(value).every((key) =>
-      ['host', 'input', 'rmlui', 'world', 'tooling', 'runtime'].includes(key),
+      ['host', 'input', 'rmlui', 'rmluiDebugger', 'world', 'tooling', 'runtime'].includes(key),
     )
   )
     return false;
@@ -1702,6 +1717,12 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'devtools-clear-trace':
     case 'request-preview-state':
       return true;
+    case 'devtools-set-rmlui-debugger':
+      return (
+        typeof value.visible === 'boolean' &&
+        typeof value.context === 'string' &&
+        value.context.length > 0
+      );
     case 'runtime-request-asset-profiler':
       return value.mode === 'full'
         ? value.sessionId === undefined && value.afterSequence === undefined

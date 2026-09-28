@@ -588,6 +588,14 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_capabilities()
     return result.c_str();
 }
 
+EMSCRIPTEN_KEEPALIVE int noveltea_devtools_set_rmlui_debugger(int visible, const char* context)
+{
+    auto* engine = preview_engine();
+    if (!engine || !context || (visible != 0 && visible != 1))
+        return 0;
+    return noveltea::EngineTooling::set_rmlui_debugger(*engine, {visible != 0, context}) ? 1 : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_snapshot()
 {
     static std::string result;
@@ -672,6 +680,10 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_snapshot()
                                       : nlohmann::json(nullptr)},
               {"governingLayoutMode", value.input.governing_layout_mode}}},
             {"rmlui", std::move(rmlui)},
+            {"rmluiDebugger",
+             {{"available", value.rmlui_debugger.available},
+              {"visible", value.rmlui_debugger.visible},
+              {"context", value.rmlui_debugger.context}}},
             {"world",
              {{"referenceX", value.world.reference_pointer.x},
               {"referenceY", value.world.reference_pointer.y},

@@ -136,6 +136,7 @@ function createDevtoolsHarness() {
       governingLayoutMode: 'none',
     },
     rmlui: [],
+    rmluiDebugger: { available: true, visible: false, context: 'runtime-ui' },
     world: {
       referenceX: 100,
       referenceY: 80,
@@ -156,7 +157,8 @@ function createDevtoolsHarness() {
   };
   const context = {
     protocolVersion: 1,
-    nativeExportAvailable: (name: string) =>
+    nativeExportAvailable: (name: string): boolean =>
+      name === 'noveltea_devtools_set_rmlui_debugger' ||
       name === 'noveltea_devtools_capabilities' ||
       name === 'noveltea_devtools_snapshot' ||
       name === 'noveltea_devtools_console_delta' ||
@@ -172,6 +174,11 @@ function createDevtoolsHarness() {
             'devtools-trace-v1',
             'runtime-debug-snapshot-v1',
           ]);
+        if (name === 'noveltea_devtools_set_rmlui_debugger') {
+          if (args?.[1] !== 'runtime-ui') return 0;
+          snapshot.rmluiDebugger.visible = args[0] === 1;
+          return 1;
+        }
         if (name === 'noveltea_devtools_snapshot') return JSON.stringify(snapshot);
         if (name === 'noveltea_devtools_console_delta')
           return JSON.stringify({
@@ -241,9 +248,10 @@ function createDevtoolsHarness() {
     clearDevtoolsConsole: null as null | ((message: Record<string, unknown>) => void),
     publishDevtoolsTraceDelta: null as null | (() => void),
     clearDevtoolsTrace: null as null | ((message: Record<string, unknown>) => void),
+    setRmlUiDebugger: null as null | ((message: Record<string, unknown>) => void),
   };
   vm.runInNewContext(
-    `${implementation}\nthis.readDevtoolsCapabilities = readDevtoolsCapabilities; this.emitDevtoolsSnapshot = emitDevtoolsSnapshot; this.publishDevtoolsConsoleDelta = publishDevtoolsConsoleDelta; this.clearDevtoolsConsole = clearDevtoolsConsole; this.publishDevtoolsTraceDelta = publishDevtoolsTraceDelta; this.clearDevtoolsTrace = clearDevtoolsTrace;`,
+    `${implementation}\nthis.readDevtoolsCapabilities = readDevtoolsCapabilities; this.emitDevtoolsSnapshot = emitDevtoolsSnapshot; this.publishDevtoolsConsoleDelta = publishDevtoolsConsoleDelta; this.clearDevtoolsConsole = clearDevtoolsConsole; this.publishDevtoolsTraceDelta = publishDevtoolsTraceDelta; this.clearDevtoolsTrace = clearDevtoolsTrace; this.setRmlUiDebugger = setRmlUiDebugger;`,
     context,
   );
   if (
@@ -277,6 +285,30 @@ describe('preview widget runtime project loading', () => {
         snapshot: harness.snapshot,
       },
     ]);
+  });
+
+  it('controls the native RmlUi debugger and publishes accepted state without ImGui', () => {
+    const harness = createDevtoolsHarness();
+    harness.context.setRmlUiDebugger!({ requestId: 'show', visible: true, context: 'runtime-ui' });
+    expect(harness.snapshot.rmluiDebugger.visible).toBe(true);
+    expect(harness.messages.at(-1)).toMatchObject({
+      type: 'command-result',
+      requestId: 'show',
+      ok: true,
+    });
+    harness.context.setRmlUiDebugger!({ requestId: 'hide', visible: false, context: 'runtime-ui' });
+    expect(harness.snapshot.rmluiDebugger.visible).toBe(false);
+    const messageCount = harness.messages.length;
+    harness.context.setRmlUiDebugger!({ requestId: 'missing', visible: true, context: 'missing' });
+    expect(harness.messages.length).toBe(messageCount);
+    expect(harness.snapshot.rmluiDebugger.visible).toBe(false);
+    harness.context.nativeExportAvailable = () => false;
+    harness.context.setRmlUiDebugger!({
+      requestId: 'disabled',
+      visible: true,
+      context: 'runtime-ui',
+    });
+    expect(harness.snapshot.rmluiDebugger.visible).toBe(false);
   });
 
   it('pushes sequenced Trace deltas and advances the native clear cursor', () => {

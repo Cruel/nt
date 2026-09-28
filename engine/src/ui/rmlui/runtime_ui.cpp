@@ -3278,6 +3278,20 @@ bool RuntimeUI::wants_keyboard_input() const
     return m_state && m_state->host && m_state->host->wants_keyboard_input();
 }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+bool RuntimeUI::set_debugger(const devtools::RmlUiDebuggerCommand& command)
+{
+    return m_state && m_state->host &&
+           m_state->host->set_debugger(command.visible, command.context);
+}
+
+devtools::RmlUiDebuggerSnapshot RuntimeUI::debugger_snapshot() const
+{
+    return m_state && m_state->host ? m_state->host->debugger_snapshot()
+                                    : devtools::RmlUiDebuggerSnapshot{};
+}
+#endif
+
 std::vector<devtools::DevtoolsRmlUiContextSnapshot> RuntimeUI::devtools_context_snapshot() const
 {
     std::vector<devtools::DevtoolsRmlUiContextSnapshot> result;

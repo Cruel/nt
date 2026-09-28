@@ -1,4 +1,5 @@
 {
+  "rmluiDebugger": { "title": "⟦RmlUi Debugger⟧", "context": "⟦Inspected context⟧" },
   "layoutDataAssets": "[JSON Dátá Ásséts]",
   "projectImport": {
     "title": "⟦Import NovelTea Project⟧",

@@ -294,6 +294,8 @@ export function usePreviewTransport({
       requestDevtoolsSnapshot: () => send({ type: 'devtools-request-snapshot' }),
       clearDevtoolsConsole: () => send({ type: 'devtools-clear-console' }),
       clearDevtoolsTrace: () => send({ type: 'devtools-clear-trace' }),
+      setRmlUiDebugger: (visible: boolean, context: string) =>
+        send({ type: 'devtools-set-rmlui-debugger', visible, context }),
       requestAssetProfiler: (cursor?: { sessionId: bigint; afterSequence: bigint }) =>
         send<AssetProfilerWirePayload>(
           cursor

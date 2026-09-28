@@ -27,6 +27,20 @@ describe('preview protocol validation', () => {
     },
   } as const;
 
+  it('validates debugger visibility and exact context selection commands', () => {
+    const command = {
+      version: 1,
+      type: 'devtools-set-rmlui-debugger',
+      requestId: 'debugger',
+      visible: true,
+      context: 'runtime-ui',
+    };
+    expect(isEditorToPreviewMessage(command)).toBe(true);
+    expect(isEditorToPreviewMessage({ ...command, visible: 'true' })).toBe(false);
+    expect(isEditorToPreviewMessage({ ...command, context: '' })).toBe(false);
+    expect(isEditorToPreviewMessage({ ...command, context: undefined })).toBe(false);
+  });
+
   it('rejects the removed display-profile command', () => {
     expect(
       isEditorToPreviewMessage({
@@ -972,6 +986,7 @@ describe('preview protocol validation', () => {
         governingLayout: null,
         governingLayoutMode: 'none',
       },
+      rmluiDebugger: { available: true, visible: false, context: 'runtime-ui' },
       rmlui: [
         {
           name: 'game-ui',
@@ -1014,6 +1029,13 @@ describe('preview protocol validation', () => {
       runtime: snapshot,
     };
     expect(isDevtoolsSnapshot(devtoolsSnapshot)).toBe(true);
+    expect(isDevtoolsSnapshot({ ...devtoolsSnapshot, rmluiDebugger: undefined })).toBe(false);
+    expect(
+      isDevtoolsSnapshot({
+        ...devtoolsSnapshot,
+        rmluiDebugger: { available: true, visible: 'yes', context: 'runtime-ui' },
+      }),
+    ).toBe(false);
     expect(
       isPreviewToEditorMessage({
         version: 1,

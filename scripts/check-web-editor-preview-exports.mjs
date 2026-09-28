@@ -9,6 +9,7 @@ if (!javascriptPath || !['on', 'off'].includes(expectedMode)) {
 const devtoolsExports = [
   'noveltea_devtools_capabilities',
   'noveltea_devtools_snapshot',
+  'noveltea_devtools_set_rmlui_debugger',
   'noveltea_devtools_console_delta',
   'noveltea_devtools_console_clear',
   'noveltea_devtools_trace_delta',

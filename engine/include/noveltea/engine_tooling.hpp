@@ -83,6 +83,8 @@ public:
     [[nodiscard]] static std::span<const std::string_view> devtools_capabilities() noexcept;
     [[nodiscard]] static core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>
     devtools_snapshot(const Engine& engine);
+    [[nodiscard]] static core::Result<void, core::Diagnostic>
+    set_rmlui_debugger(Engine& engine, const devtools::RmlUiDebuggerCommand& command);
     [[nodiscard]] static core::Result<devtools::ConsoleDelta, core::Diagnostic>
     devtools_console_delta(Engine& engine, std::uint64_t after_sequence);
     static std::uint64_t clear_devtools_console(Engine& engine) noexcept;

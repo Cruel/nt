@@ -2943,6 +2943,7 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
                                             : std::nullopt},
             .input = std::move(input),
             .rmlui = std::move(rmlui),
+            .rmlui_debugger = m_runtime_ui.debugger_snapshot(),
             .world = std::move(world),
             .tooling = {.preview_running = m_preview_running,
                         .render_perf_logging = m_render_perf_logging,
@@ -3362,6 +3363,8 @@ void Engine::Impl::render()
         auto output = m_debug_ui.end_frame(
             devtools_snapshot(), m_devtools_console.records(), m_devtools_trace.records(),
             m_devtools_trace.evicted_record_count(), !screenshot_capture_frame);
+        if (output.rmlui_debugger && !m_runtime_ui.set_debugger(*output.rmlui_debugger))
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "RmlUi debugger context is unavailable");
 #else
         auto output =
             m_debug_ui.end_frame(devtools_snapshot(), {}, {}, 0, !screenshot_capture_frame);
@@ -3677,6 +3680,7 @@ std::span<const std::string_view> EngineTooling::devtools_capabilities() noexcep
 {
     static constexpr std::array capabilities{
         std::string_view{"devtools-snapshot-v1"},
+        std::string_view{"rmlui-debugger-v1"},
         std::string_view{"devtools-console-v1"},
         std::string_view{"devtools-trace-v1"},
         std::string_view{"runtime-debug-snapshot-v1"},
@@ -3696,6 +3700,17 @@ EngineTooling::devtools_snapshot(const Engine& engine)
     }
     return core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>::success(
         engine.m_impl->devtools_snapshot());
+}
+
+core::Result<void, core::Diagnostic>
+EngineTooling::set_rmlui_debugger(Engine& engine, const devtools::RmlUiDebuggerCommand& command)
+{
+    if (!engine.m_impl->m_runtime_ui.set_debugger(command)) {
+        return core::Result<void, core::Diagnostic>::failure(
+            {.code = "devtools.rmlui_debugger_unavailable",
+             .message = "RmlUi debugger or requested context is unavailable."});
+    }
+    return core::Result<void, core::Diagnostic>::success();
 }
 
 core::Result<devtools::ConsoleDelta, core::Diagnostic>
