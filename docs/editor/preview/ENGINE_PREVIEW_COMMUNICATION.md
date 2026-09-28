@@ -444,6 +444,8 @@ When developer instrumentation is compiled out, the native devtools capability/s
 and debug-report exports are not exposed, the Console and Trace delta/clear exports are likewise absent, these
 devtools capabilities are not advertised, and this transport is unavailable.
 Ordinary diagnostics and runtime logging remain independent of the developer-only boundary.
+See `docs/runtime/DEVELOPER_DEBUGGING.md` for the complete host capability matrix, native shortcut
+behavior, and the Rooms & Interactions pointer-routing acceptance workflow built on this transport.
 
 `set-engine-settings` applies live host configuration to an already-running preview. Its optional
 settings are `showFpsCounter`, `fpsCap`, `rmluiRasterSnap`, and `assetMemoryPolicy`. Raster snapping

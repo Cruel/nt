@@ -191,6 +191,11 @@ jobs:
       - name: Build
         run: cmake --build --preset linux-debug
 
+      - name: Verify native devtools composition
+        run: |
+          bash scripts/check-native-devtools-symbols.sh build/linux-debug/apps/sandbox/noveltea-sandbox on
+          bash scripts/check-native-devtools-symbols.sh build/linux-debug/apps/player/noveltea-player on
+
       - name: Save compiler cache
         uses: ./.github/actions/save-ccache
         with:

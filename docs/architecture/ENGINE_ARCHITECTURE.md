@@ -80,6 +80,8 @@ second observation system: sandbox and devtools-enabled native player builds may
 while editor preview omits it. Its F10/Shift+F10 host shortcuts are intercepted before RmlUi/Layout
 or gameplay admission. Devtools-off builds retain ordinary runtime diagnostics/logging but expose
 none of these developer-only capabilities or editor-preview exports.
+See `docs/runtime/DEVELOPER_DEBUGGING.md` for the supported host/build capability matrix and the
+operator-facing Console, Trace, RmlUi Debugger, Lua `Debug.*`, and Feature Lab diagnostic workflow.
 
 ## Loading
 
